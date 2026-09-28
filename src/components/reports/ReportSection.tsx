@@ -6,42 +6,33 @@ import { cn } from "@/lib/utils";
 interface Props {
   title: string;
   defaultOpen?: boolean;
+  /** Present only when the viewer may export (server `can_export`); omitted otherwise. */
   onExport?: () => void;
   children: React.ReactNode;
   badge?: string;
-  hasData?: boolean;
 }
 
-const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, children, badge, hasData }) => {
-  const [open, setOpen] = React.useState(hasData === false ? false : defaultOpen);
-
-  React.useEffect(() => {
-    if (hasData === false) {
-      setOpen(false);
-    } else if (hasData === true) {
-      setOpen(true);
-    }
-  }, [hasData]);
+const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, children, badge }) => {
+  const [open, setOpen] = React.useState(defaultOpen);
 
   return (
-    <div className="bg-white dark:bg-slate-950 rounded-xl border border-slate-200/70 dark:border-slate-800/80 overflow-hidden shadow-sm hover:shadow-xl hover:shadow-slate-200/40 dark:hover:shadow-none transition-all duration-300">
+    <div className="bg-card rounded-xl border border-border/60 overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300">
       <div
         className="w-full flex items-center justify-between px-6 py-4 cursor-pointer select-none"
         onClick={() => setOpen(o => !o)}
       >
         <div className="flex items-center gap-3">
-          <div className={cn("p-1.5 rounded-lg transition-colors", open ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-400")}>
+          <div className={cn("p-1.5 rounded-lg transition-colors", open ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
             {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </div>
-          <h3 className="font-bold text-slate-800 dark:text-slate-200 text-base tracking-tight">{title}</h3>
+          <h3 className="font-bold text-foreground text-base tracking-tight">{title}</h3>
           {badge && <span className="text-[10px] uppercase font-black tracking-widest bg-primary/5 text-primary px-2.5 py-1 rounded-lg border border-primary/10">{badge}</span>}
-          {hasData === false && <span className="text-[10px] uppercase font-black tracking-widest bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 ml-2">No data</span>}
         </div>
         {onExport && (
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-9 px-3 rounded-xl hover:bg-primary/5 hover:text-primary text-slate-400 font-bold text-xs" 
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 px-3 rounded-xl hover:bg-primary/5 hover:text-primary text-muted-foreground font-bold text-xs"
             onClick={e => { e.stopPropagation(); onExport(); }}
           >
             <Download className="w-3.5 h-3.5 mr-2" />

@@ -1,153 +1,186 @@
-import React, { useMemo, useState } from "react";
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, formatDuration, formatHours, downloadCSV, ReportCallSummary } from "@/lib/reports-queries";
+import React, { useMemo } from "react";
+import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
+import { formatCount, formatHours, formatRate, ratio } from "@/lib/reports-format";
+import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
+import type { ReportSummary } from "@/lib/reports-schemas";
+import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
 
-interface Props { summary?: ReportCallSummary; sessions: any[]; agents: AgentProfile[]; currentUserId?: string; isAdmin: boolean; loading: boolean; }
+interface Props {
+  summary: ReportSummary;
+  currentUserId: string | null;
+  onExport?: ReportExportFn;
+}
 
-type SortKey = "name" | "totalCalls" | "connected" | "answerRate" | "avgDuration" | "convRate" | "talkTime" | "callsPerHour";
+interface Row {
+  id: string;
+  name: string;
+  callsMade: number;
+  sessionSeconds: number;
+  /** Calls made per hour of server-timestamped session time, 1 decimal; null without session time. */
+  callsPerHour: number | null;
+  contactRate: number | null;
+  talkSeconds: number;
+  policiesSold: number;
+}
 
-const AgentEfficiency: React.FC<Props> = ({ summary, sessions, agents, currentUserId, isAdmin, loading }) => {
-  const [sortKey, setSortKey] = useState<SortKey>("convRate");
-  const [sortAsc, setSortAsc] = useState(false);
+interface Point {
+  name: string;
+  x: number;
+  y: number;
+}
 
-  const data = useMemo(() => {
-    if (!summary) return [];
-    const nonAdmin = agents;
-    return nonAdmin.map(agent => {
-      const agentData = summary.calls_by_agent.find(a => a.agent_id === agent.id) || {
-        total: 0, contacted: 0, converted: 0, total_duration: 0, avg_duration: 0
-      };
+const HEADERS = ["Agent", "Calls made", "Session time", "Calls per session hour", "Contact rate", "Talk time", "Policies sold"];
+const EXPORT_HEADERS = [
+  "Agent",
+  "Calls made",
+  "Session time (s)",
+  "Calls per session hour",
+  "Contact rate %",
+  "Talk time (s)",
+  "Policies sold",
+];
 
-      const as_ = sessions.filter(s => s.agent_id === agent.id);
-      const totalSessionTime = as_.reduce((s, sess) => {
-        if (sess.started_at && sess.ended_at) {
-          return s + (new Date(sess.ended_at).getTime() - new Date(sess.started_at).getTime()) / 1000;
-        }
-        return s;
-      }, 0);
-      const callsPerHour = totalSessionTime > 0 ? +(agentData.total / (totalSessionTime / 3600)).toFixed(1) : 0;
+const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
+const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+const axisLabel = { fill: "hsl(var(--muted-foreground))", fontSize: 10 };
 
-      return {
-        id: agent.id,
-        name: `${agent.first_name} ${agent.last_name?.charAt(0) || ""}.`,
-        initials: `${agent.first_name?.charAt(0) || ""}${agent.last_name?.charAt(0) || ""}`,
-        totalCalls: agentData.total,
-        connected: agentData.contacted,
-        answerRate: agentData.total > 0 ? Math.round(agentData.contacted / agentData.total * 100) : 0,
-        avgDuration: Math.round(agentData.avg_duration),
-        convRate: agentData.total > 0 ? +(agentData.converted / agentData.total * 100).toFixed(1) : 0,
-        talkTime: agentData.total_duration,
-        callsPerHour,
-        sold: agentData.converted,
-      };
-    });
-  }, [summary, sessions, agents]);
+const PointTooltip: React.FC<{ active?: boolean; payload?: Array<{ payload?: Point }> }> = ({ active, payload }) => {
+  const p = active ? payload?.[0]?.payload : undefined;
+  if (!p) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
+      <p className="font-bold text-foreground mb-1">{p.name}</p>
+      <p className="text-muted-foreground">Calls per session hour: {p.x.toFixed(1)}</p>
+      <p className="text-muted-foreground">Contact rate: {formatRate(p.y)}</p>
+    </div>
+  );
+};
 
-  const sorted = useMemo(() => {
-    const s = [...data];
-    s.sort((a, b) => {
-      const av = a[sortKey]; const bv = b[sortKey];
-      return sortAsc ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1);
-    });
-    return s;
-  }, [data, sortKey, sortAsc]);
-
-  const bestValues = useMemo(() => {
-    if (data.length === 0) return {} as any;
-    return {
-      totalCalls: Math.max(...data.map(d => d.totalCalls)),
-      connected: Math.max(...data.map(d => d.connected)),
-      answerRate: Math.max(...data.map(d => d.answerRate)),
-      avgDuration: Math.max(...data.map(d => d.avgDuration)),
-      convRate: Math.max(...data.map(d => d.convRate)),
-      talkTime: Math.max(...data.map(d => d.talkTime)),
-      callsPerHour: Math.max(...data.map(d => d.callsPerHour)),
-    };
-  }, [data]);
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortAsc(!sortAsc);
-    else { setSortKey(key); setSortAsc(false); }
-  };
-
-  const handleExport = () => {
-    downloadCSV("agent-efficiency", ["Agent", "Calls", "Contacted", "Contact%", "Avg Dur", "Conv%", "Talk Time", "Calls/Hr"],
-      sorted.map(d => [d.name, String(d.totalCalls), String(d.connected), `${d.answerRate}%`, formatDuration(d.avgDuration), `${d.convRate}%`, formatHours(d.talkTime), String(d.callsPerHour)]));
-  };
-
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[350px]" /></div>;
-
-  const SH = ({ l, k }: { l: string; k: SortKey }) => (
-    <th className="py-2 px-2 text-right text-muted-foreground font-medium cursor-pointer hover:text-foreground text-xs whitespace-nowrap" onClick={() => toggleSort(k)}>
-      {l} {sortKey === k && (sortAsc ? "↑" : "↓")}
-    </th>
+/**
+ * Agent Efficiency — per-agent activity against server-timestamped dialer session time (sessions
+ * clipped to the report window on the server). Undefined rates render "—", never 0.
+ */
+const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) => {
+  const rows = useMemo<Row[]>(
+    () =>
+      summary.by_agent.map((a) => ({
+        id: a.agent_id,
+        name: a.name,
+        callsMade: a.calls_made,
+        sessionSeconds: a.session_seconds,
+        callsPerHour: round1(ratio(a.calls_made, a.session_seconds / 3600)),
+        contactRate: a.contact_rate_pct,
+        talkSeconds: a.talk_time_seconds,
+        policiesSold: a.policies_sold,
+      })),
+    [summary],
   );
 
-  const scatterData = data.map(d => ({ x: d.totalCalls, y: d.convRate, z: d.talkTime, name: d.initials, fullName: d.name }));
+  const points = useMemo<Point[]>(
+    () =>
+      rows.flatMap((r) =>
+        r.callsPerHour !== null && r.contactRate !== null ? [{ name: r.name, x: r.callsPerHour, y: r.contactRate }] : [],
+      ),
+    [rows],
+  );
+
+  const handleExport = onExport
+    ? () =>
+        onExport(
+          "Agent Efficiency",
+          EXPORT_HEADERS,
+          rows.map((r): CsvCell[] => [
+            r.name,
+            r.callsMade,
+            r.sessionSeconds,
+            r.callsPerHour,
+            r.contactRate,
+            r.talkSeconds,
+            r.policiesSold,
+          ]),
+        )
+    : undefined;
 
   return (
-    <ReportSection title="Agent Efficiency Report" defaultOpen={false} onExport={handleExport}>
-      {data.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No agent data available</p>
+    <ReportSection title="Agent Efficiency" defaultOpen={false} onExport={handleExport}>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No agents in this report.</p>
       ) : (
         <>
-          <div className="overflow-x-auto mb-6">
+          <div className="overflow-x-auto rounded-xl border border-border/60 mb-6">
             <table className="w-full text-xs">
-              <thead><tr className="border-b">
-                <th className="py-2 px-2 text-left text-muted-foreground font-medium cursor-pointer" onClick={() => toggleSort("name")}>Agent</th>
-                <SH l="Calls" k="totalCalls" /><SH l="Contacted" k="connected" /><SH l="Contact%" k="answerRate" />
-                <SH l="Avg Dur" k="avgDuration" /><SH l="Calls/Hr" k="callsPerHour" />
-                <SH l="Conv%" k="convRate" /><SH l="Talk Time" k="talkTime" />
-              </tr></thead>
-              <tbody>
-                {sorted.map(d => (
-                  <tr key={d.id} className={`border-b last:border-0 ${d.id === currentUserId ? "bg-primary/5" : ""}`}>
-                    <td className="py-2 px-2 font-medium text-foreground">{d.name}</td>
-                    {[
-                      { v: d.totalCalls, f: String(d.totalCalls), bk: "totalCalls" },
-                      { v: d.connected, f: String(d.connected), bk: "connected" },
-                      { v: d.answerRate, f: `${d.answerRate}%`, bk: "answerRate" },
-                      { v: d.avgDuration, f: formatDuration(d.avgDuration), bk: "avgDuration" },
-                      { v: d.callsPerHour, f: String(d.callsPerHour), bk: "callsPerHour" },
-                      { v: d.convRate, f: `${d.convRate}%`, bk: "convRate" },
-                      { v: d.talkTime, f: formatHours(d.talkTime), bk: "talkTime" },
-                    ].map((cell, ci) => (
-                      <td key={ci} className={`py-2 px-2 text-right text-foreground ${cell.v === bestValues[cell.bk] && cell.v > 0 ? "font-bold text-warning" : ""}`}>{cell.f}</td>
-                    ))}
+              <thead className="bg-muted/40">
+                <tr className="border-b border-border/60">
+                  {HEADERS.map((h, i) => (
+                    <th
+                      key={h}
+                      className={cn(
+                        "py-3 px-3 text-muted-foreground font-bold uppercase tracking-wider text-[10px] whitespace-nowrap",
+                        i === 0 ? "text-left" : "text-right",
+                      )}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {rows.map((r) => (
+                  <tr key={r.id} className={cn("transition-colors", r.id === currentUserId ? "bg-primary/5" : "hover:bg-muted/40")}>
+                    <td className="py-2.5 px-3 font-bold text-foreground whitespace-nowrap">
+                      {r.name}
+                      {r.id === currentUserId && <span className="ml-2 text-[10px] font-medium text-primary">You</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">{formatCount(r.callsMade)}</td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">{formatHours(r.sessionSeconds)}</td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">
+                      {r.callsPerHour === null ? "—" : r.callsPerHour.toFixed(1)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">{formatRate(r.contactRate)}</td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">{formatHours(r.talkSeconds)}</td>
+                    <td className="py-2.5 px-3 text-right text-foreground tabular-nums">{formatCount(r.policiesSold)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {isAdmin && (
-            <>
-              <h4 className="text-xs font-semibold text-foreground mb-2">Efficiency Scatter Plot</h4>
-              <div className="relative">
-                <ResponsiveContainer width="100%" height={280}>
-                  <ScatterChart margin={{ top: 20, right: 20, bottom: 10, left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-                    <XAxis type="number" dataKey="x" name="Calls Made" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} label={{ value: "Calls Made", position: "bottom", offset: -5, style: { fill: "hsl(var(--muted-foreground))", fontSize: 10 } }} />
-                    <YAxis type="number" dataKey="y" name="Conv Rate" unit="%" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} label={{ value: "Conv%", angle: -90, position: "insideLeft", style: { fill: "hsl(var(--muted-foreground))", fontSize: 10 } }} />
-                    <ZAxis type="number" dataKey="z" range={[40, 400]} />
-                    <Tooltip cursor={{ strokeDasharray: "3 3" }}
-                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }}
-                      formatter={(v: any, name: string) => [name === "Conv Rate" ? `${v}%` : v, name]}
-                      labelFormatter={() => ""}
-                    />
-                    <Scatter data={scatterData} fill="hsl(var(--primary))" />
-                  </ScatterChart>
-                </ResponsiveContainer>
-                {/* Quadrant labels */}
-                <div className="absolute top-2 right-4 text-[9px] text-success font-medium">⭐ Stars</div>
-                <div className="absolute top-2 left-12 text-[9px] text-primary font-medium">Quality</div>
-                <div className="absolute bottom-12 right-4 text-[9px] text-warning font-medium">Needs Coaching</div>
-                <div className="absolute bottom-12 left-12 text-[9px] text-destructive font-medium">At Risk</div>
-              </div>
-            </>
+          <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+            Calls per session hour vs contact rate
+          </h4>
+          {points.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No agents with both session time and calls made in this period.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name="Calls per session hour"
+                  tick={tick}
+                  label={{ value: "Calls per session hour", position: "bottom", offset: 0, style: axisLabel }}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name="Contact rate"
+                  unit="%"
+                  domain={[0, 100]}
+                  tick={tick}
+                  label={{ value: "Contact rate %", angle: -90, position: "insideLeft", style: axisLabel }}
+                />
+                <Tooltip cursor={{ strokeDasharray: "3 3", stroke: "hsl(var(--border))" }} content={<PointTooltip />} />
+                <Scatter data={points} fill="hsl(var(--primary))" />
+              </ScatterChart>
+            </ResponsiveContainer>
           )}
+          <p className="text-xs text-muted-foreground mt-3">
+            Session time is server-timestamped dialer sessions, clipped to the selected period.
+          </p>
         </>
       )}
     </ReportSection>

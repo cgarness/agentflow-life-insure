@@ -1,60 +1,62 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { STAT_CATEGORIES, StatCategory } from "@/lib/stat-computations";
+import type { StatCategory, StatState } from "@/lib/stat-computations";
+
+/** Static Tailwind classes for the category accent (colors match STAT_CATEGORIES). */
+const ACCENT: Record<StatCategory, string> = {
+  activity: "border-l-[#378ADD]",
+  results: "border-l-[#639922]",
+  pipeline: "border-l-[#1D9E75]",
+  team: "border-l-[#BA7517]",
+};
 
 interface StatCardProps {
   label: string;
   value: string;
   subtitle?: string;
   category?: StatCategory;
-  comingSoon?: boolean;
-  noData?: boolean;
+  state: StatState;
   smallValue?: boolean;
 }
 
-const StatCard: React.FC<StatCardProps> = ({
-  label, value, subtitle, category, comingSoon, noData, smallValue,
-}) => {
-  const accent = comingSoon
-    ? "var(--color-border-tertiary, hsl(var(--border)))"
-    : category ? STAT_CATEGORIES[category].color : "hsl(var(--border))";
-
-  const muted = comingSoon || noData;
+/**
+ * One stat tile. `error` and `unavailable` never show a number: an unknown value is "—" with its
+ * reason, so a failed or undefined metric can never read as a real zero.
+ */
+const StatCard: React.FC<StatCardProps> = ({ label, value, subtitle, category, state, smallValue }) => {
+  const muted = state !== "ready";
+  const accent = state === "unavailable" || !category ? "border-l-border" : ACCENT[category];
 
   return (
     <div
       className={cn(
-        "group relative bg-card border border-border/50 flex flex-col justify-between transition-all",
-        comingSoon && "opacity-50",
+        "group relative bg-card border border-border/50 border-l-[3px] flex flex-col justify-between transition-all min-h-[80px] px-3 py-2.5",
+        accent,
+        state === "unavailable" && "opacity-60",
       )}
-      style={{
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: 0,
-        padding: "10px 12px",
-        minHeight: 80,
-      }}
+      data-stat-state={state}
     >
       <div>
-        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.4px] mb-1 truncate">
-          {label}
-        </p>
-        <p
-          className={cn(
-            "font-medium tracking-tight leading-tight truncate",
-            muted ? "text-muted-foreground" : "text-foreground",
-          )}
-          style={{ fontSize: smallValue ? 16 : 20 }}
-          title={value}
-        >
-          {value}
-        </p>
-        {comingSoon && (
-          <p className="text-[10px] text-muted-foreground/70 mt-0.5">Coming soon</p>
+        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.4px] mb-1 truncate">{label}</p>
+        {state === "loading" ? (
+          <div className="h-6 w-16 rounded bg-muted animate-pulse" aria-busy="true" />
+        ) : (
+          <p
+            className={cn(
+              "font-medium tracking-tight leading-tight truncate",
+              smallValue ? "text-base" : "text-xl",
+              muted ? "text-muted-foreground" : "text-foreground",
+            )}
+            title={value}
+          >
+            {value}
+          </p>
         )}
       </div>
-
-      {subtitle && !comingSoon && (
-        <p className="text-[11px] text-muted-foreground truncate mt-1">{subtitle}</p>
+      {subtitle && (
+        <p className={cn("text-[11px] truncate mt-1", state === "error" ? "text-amber-500" : "text-muted-foreground")} title={subtitle}>
+          {subtitle}
+        </p>
       )}
     </div>
   );

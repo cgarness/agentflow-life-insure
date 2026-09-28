@@ -15,35 +15,38 @@ export const STAT_CATEGORIES = STAT_CATEGORY_META;
 
 export const MAX_VISIBLE_STATS = 20;
 
-/** First 20 stat IDs that ship visible by default — ordered by category. */
+/**
+ * Stats visible by default — only stats with an approved definition (see stat-computations.ts);
+ * ordered by category.
+ */
 export const DEFAULT_VISIBLE_STATS: string[] = [
   // Activity (blue)
   "stat_total_dials",
-  "stat_calls_per_hour",
-  "stat_calls_per_day",
+  "stat_total_contacted",
   "stat_contact_rate",
   "stat_total_talk_time",
+  "stat_avg_duration_all",
+  "stat_session_time",
+  "stat_calls_per_hour",
+  "stat_calls_per_day",
+  "stat_inbound",
+  "stat_calls_today",
 
   // Results (green)
   "stat_policies_sold",
-  "stat_contacted_to_close",
-  "stat_call_to_close",
-  "stat_dials_per_sale",
-  "stat_appt_to_close",
   "stat_appointments_set",
-  "stat_contacted_to_appt",
+  "stat_dials_per_sale",
 
   // Pipeline (teal)
-  "stat_active_leads",
+  "stat_leads_converted",
   "stat_callback_rate",
-  "stat_dnc_rate",
+  "stat_dnc_count",
 
   // Team (amber)
   "stat_top_performer",
-  "stat_avg_talk_contacted",
-  "stat_speed_to_contact",
-  "stat_unique_leads",
-  "stat_first_dial_contact",
+  "stat_top_dialer",
+  "stat_avg_calls_agent",
+  "stat_dials_per_contact",
 ];
 
 const ALL_STAT_IDS = STAT_DEFINITIONS.map((d) => d.id);
@@ -74,10 +77,10 @@ export const DEFAULT_LAYOUT: ReportLayoutConfig = {
     { id: "campaign_performance", visible: true },
     { id: "lead_source_roi", visible: true },
 
-    // Team sections (Admin/Team Leader only)
+    // Team sections (shown when the server scope is team or organization)
     { id: "agent_performance_cards", visible: true },
     { id: "agent_efficiency", visible: true },
-    { id: "goal_tracking", visible: true },
+    { id: "goal_tracking", visible: false },
   ],
 };
 

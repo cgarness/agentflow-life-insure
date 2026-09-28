@@ -1,59 +1,122 @@
-import React, { useMemo } from "react";
-import { Phone, MessageSquare, Mail, Lock } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { formatDuration, formatHours, downloadCSV, DateRange, ReportCallSummary } from "@/lib/reports-queries";
-import { differenceInDays } from "date-fns";
+import React from "react";
+import { Clock, Headphones, Percent, Phone, PhoneIncoming, Timer, TrendingUp, UserCheck, type LucideIcon } from "lucide-react";
+import type { ReportSummary } from "@/lib/reports-schemas";
+import { formatCount, formatDuration, formatHours, formatRate, ratio } from "@/lib/reports-format";
+import type { ReportExportFn, CsvCell } from "@/lib/reports-export";
 import ReportSection from "./ReportSection";
 
-interface Props { summary?: ReportCallSummary; range: DateRange; loading: boolean; }
+interface Props {
+  summary: ReportSummary;
+  /** Number of AGENCY calendar days in the report window. */
+  dayCount: number;
+  onExport?: ReportExportFn;
+}
 
-const StatCard = ({ label, value }: { label: string; value: string }) => (
-  <div className="bg-accent/50 rounded-lg p-3">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="text-lg font-bold text-foreground">{value}</p>
+interface Metric {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  subtitle?: string;
+  /** Export label and raw value (numbers stay numbers; an undefined value is null, never 0). */
+  exportLabel: string;
+  raw: CsvCell;
+}
+
+const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
+
+const StatTile: React.FC<Omit<Metric, "exportLabel" | "raw">> = ({ icon: Icon, label, value, subtitle }) => (
+  <div className="rounded-xl border border-border/50 bg-muted/40 p-4">
+    <div className="flex items-center gap-2 mb-2">
+      <Icon className="w-3.5 h-3.5 text-primary" />
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{label}</p>
+    </div>
+    <p className="text-xl font-bold text-foreground tracking-tight truncate" title={value}>{value}</p>
+    {subtitle && <p className="text-[11px] text-muted-foreground truncate mt-0.5">{subtitle}</p>}
   </div>
 );
 
-const CommunicationsStats: React.FC<Props> = ({ summary, range, loading }) => {
-  const stats = useMemo(() => {
-    if (!summary) return { outbound: 0, inbound: 0, avgDur: 0, answerRate: 0, callsPerDay: 0, totalTalkTime: 0 };
-    const days = Math.max(1, differenceInDays(range.end, range.start) + 1);
-    return {
-      outbound: summary.outbound,
-      inbound: summary.inbound,
-      avgDur: summary.avg_duration_seconds,
-      answerRate: summary.answer_rate_pct,
-      callsPerDay: +(summary.total_calls / days).toFixed(1),
-      totalTalkTime: summary.total_duration_seconds,
-    };
-  }, [summary, range]);
+/**
+ * Call Summary — totals straight from the secured summary RPC. Rates come from the server
+ * (`null` → "—"); the only client-side figure is calls made per agency day, from two canonical counts.
+ */
+const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) => {
+  const t = summary.totals;
+  const callsPerDay = round1(ratio(t.calls_made, dayCount));
 
-  const handleExport = () => {
-    downloadCSV("communications-stats", ["Metric", "Value"], [
-      ["Outbound", String(stats.outbound)], ["Inbound", String(stats.inbound)],
-      ["Avg Duration", formatDuration(stats.avgDur)], ["Contact Rate", `${stats.answerRate}%`],
-      ["Calls/Day", String(stats.callsPerDay)], ["Total Talk Time", formatHours(stats.totalTalkTime)],
-    ]);
-  };
+  const metrics: Metric[] = [
+    {
+      icon: Phone,
+      label: "Calls made",
+      value: formatCount(t.calls_made),
+      subtitle: "Outbound dials",
+      exportLabel: "Calls made (outbound)",
+      raw: t.calls_made,
+    },
+    {
+      icon: PhoneIncoming,
+      label: "Inbound calls",
+      value: formatCount(t.inbound_calls),
+      exportLabel: "Inbound calls",
+      raw: t.inbound_calls,
+    },
+    {
+      icon: UserCheck,
+      label: "Contacted",
+      value: formatCount(t.contacted),
+      subtitle: "Outbound calls that reached a contact",
+      exportLabel: "Contacted",
+      raw: t.contacted,
+    },
+    {
+      icon: Percent,
+      label: "Contact rate",
+      value: formatRate(t.contact_rate_pct),
+      subtitle: "Contacted ÷ calls made",
+      exportLabel: "Contact rate (%)",
+      raw: t.contact_rate_pct,
+    },
+    {
+      icon: Clock,
+      label: "Talk time",
+      value: formatHours(t.talk_time_seconds),
+      subtitle: "On calls made",
+      exportLabel: "Talk time (seconds)",
+      raw: t.talk_time_seconds,
+    },
+    {
+      icon: Timer,
+      label: "Avg talk time per dial",
+      value: formatDuration(t.avg_talk_per_dial_seconds),
+      exportLabel: "Avg talk time per dial (seconds)",
+      raw: t.avg_talk_per_dial_seconds,
+    },
+    {
+      icon: TrendingUp,
+      label: "Calls made per day",
+      value: callsPerDay === null ? "—" : callsPerDay.toFixed(1),
+      subtitle: `Over ${formatCount(dayCount)} ${dayCount === 1 ? "day" : "days"}`,
+      exportLabel: "Calls made per day",
+      raw: callsPerDay,
+    },
+    {
+      icon: Headphones,
+      label: "Inbound talk time",
+      value: formatHours(t.inbound_talk_seconds),
+      exportLabel: "Inbound talk time (seconds)",
+      raw: t.inbound_talk_seconds,
+    },
+  ];
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[300px]" /></div>;
+  const handleExport = onExport
+    ? () => onExport("Call Summary", ["Metric", "Value"], metrics.map((m) => [m.exportLabel, m.raw]))
+    : undefined;
 
   return (
-    <ReportSection title="Communications Stats" onExport={handleExport}>
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Phone className="w-4 h-4 text-primary" /><span className="text-sm font-semibold text-foreground">Calls</span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Outbound" value={String(stats.outbound)} />
-          <StatCard label="Inbound" value={String(stats.inbound)} />
-          <StatCard label="Avg Duration" value={formatDuration(stats.avgDur)} />
-          <StatCard label="Contact Rate" value={`${stats.answerRate}%`} />
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
-          <StatCard label="Calls/Day" value={String(stats.callsPerDay)} />
-          <StatCard label="Total Talk Time" value={formatHours(stats.totalTalkTime)} />
-        </div>
+    <ReportSection title="Call Summary" onExport={handleExport}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {metrics.map((m) => (
+          <StatTile key={m.label} icon={m.icon} label={m.label} value={m.value} subtitle={m.subtitle} />
+        ))}
       </div>
     </ReportSection>
   );

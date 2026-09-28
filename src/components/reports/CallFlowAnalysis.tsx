@@ -1,97 +1,141 @@
 import React, { useMemo, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ComposedChart } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
-import { downloadCSV, ReportCallVolumeTimeseries } from "@/lib/reports-queries";
-import { Lightbulb } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatCount, formatRate, ratio, timeZoneLabel } from "@/lib/reports-format";
+import type { ReportExportFn } from "@/lib/reports-export";
+import type { ReportVolume } from "@/lib/reports-schemas";
+import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const fmtHour = (h: number) => `${h > 12 ? h - 12 : h || 12}${h >= 12 ? "PM" : "AM"}`;
+type Tab = "hour" | "day";
+const TABS: { key: Tab; label: string }[] = [
+  { key: "hour", label: "By hour" },
+  { key: "day", label: "By day" },
+];
 
-interface Props { volume?: ReportCallVolumeTimeseries; loading: boolean; }
+interface Props {
+  volume: ReportVolume;
+  onExport?: ReportExportFn;
+}
 
-const CallFlowAnalysis: React.FC<Props> = ({ volume, loading }) => {
-  const [view, setView] = useState<"hourly" | "daily" | "speed">("hourly");
+interface Row {
+  label: string;
+  calls: number;
+  contacted: number;
+  /** Contact rate in percent, null when no calls were made in the bucket. */
+  rate: number | null;
+}
 
-  const { hourlyData, dailyData, speedInsight } = useMemo(() => {
-    // By hour (pad missing hours between 6 and 21)
-    const hourBuckets = Array.from({ length: 16 }, (_, i) => {
-      const h = i + 6;
-      const data = volume?.by_hour?.find(x => x.hour === h) || { total: 0, contacted: 0 };
-      return {
-        hour: fmtHour(h),
-        calls: data.total,
-        answerRate: data.total > 0 ? Math.round(data.contacted / data.total * 100) : 0,
-      };
-    });
+const fmtHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
 
-    // By day (0-6)
-    const dayBuckets = DAYS.map((d, i) => {
-      const data = volume?.by_day_of_week?.find(x => x.dow === i) || { total: 0, converted: 0 };
-      return {
-        day: d,
-        calls: data.total,
-        convRate: data.total > 0 ? +(data.converted / data.total * 100).toFixed(1) : 0,
-      };
-    });
+function toRow(label: string, calls: number, contacted: number): Row {
+  const r = ratio(contacted, calls);
+  return { label, calls, contacted, rate: r === null ? null : Math.round(r * 1000) / 10 };
+}
 
-    // Speed to lead
-    const speedInsight = "Leads called within 1 hour typically have higher conversion rates";
+const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  color: "hsl(var(--foreground))",
+};
+const textStyle = { color: "hsl(var(--foreground))" };
 
-    return { hourlyData: hourBuckets, dailyData: dayBuckets, speedInsight };
+const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
+  const [tab, setTab] = useState<Tab>("hour");
+
+  const { hourly, daily, empty } = useMemo(() => {
+    const byHour = [...volume.by_hour].sort((a, b) => a.hour - b.hour);
+    const outside = byHour.some((h) => h.calls_made > 0 && (h.hour < 6 || h.hour > 21));
+    const shownHours = outside ? byHour : byHour.filter((h) => h.hour >= 6 && h.hour <= 21);
+    const byDay = [...volume.by_day_of_week].sort((a, b) => a.dow - b.dow);
+    return {
+      hourly: shownHours.map((h) => toRow(fmtHour(h.hour), h.calls_made, h.contacted)),
+      daily: byDay.map((d) => toRow(d.dow_name, d.calls_made, d.contacted)),
+      empty: byHour.every((h) => h.calls_made === 0),
+    };
   }, [volume]);
 
-  const handleExport = () => {
-    if (view === "hourly") downloadCSV("calls-by-hour", ["Hour", "Calls", "Contact%"], hourlyData.map(d => [d.hour, String(d.calls), `${d.answerRate}%`]));
-    else if (view === "daily") downloadCSV("calls-by-day", ["Day", "Calls", "Conv%"], dailyData.map(d => [d.day, String(d.calls), `${d.convRate}%`]));
-  };
+  const rows = tab === "hour" ? hourly : daily;
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[280px]" /></div>;
+  const handleExport = onExport
+    ? () =>
+        onExport(
+          tab === "hour" ? "Call Flow by Hour" : "Call Flow by Day",
+          [tab === "hour" ? "Hour" : "Day", "Calls made", "Contacted", "Contact rate %"],
+          rows.map((r) => [r.label, r.calls, r.contacted, r.rate]),
+        )
+    : undefined;
 
   return (
-    <ReportSection title="Call Flow Analysis" defaultOpen={false} onExport={handleExport}>
-      <div className="flex items-center gap-1 mb-3 flex-wrap">
-        {[{ k: "hourly", l: "By Hour" }, { k: "daily", l: "By Day" }, { k: "speed", l: "Speed to Lead" }].map(v => (
-          <button key={v.k} onClick={() => setView(v.k as any)}
-            className={`px-2.5 py-1 text-xs rounded-md ${v.k === view ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
-            {v.l}
-          </button>
-        ))}
-      </div>
+    <ReportSection title="Call Flow" defaultOpen={false} onExport={handleExport}>
+      {empty ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No calls in this period.</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
+                  t.key === tab ? "bg-card text-primary shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-      {view === "hourly" && (
-        <ResponsiveContainer width="100%" height={250}>
-          <ComposedChart data={hourlyData}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-            <XAxis dataKey="hour" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
-            <YAxis yAxisId="left" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-            <YAxis yAxisId="right" orientation="right" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" />
-            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
-            <Line yAxisId="right" type="monotone" dataKey="answerRate" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 2 }} name="Contact Rate" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Calls made</p>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={rows} syncId="call-flow" margin={{ left: 0, right: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="label" tick={tick} interval="preserveStartEnd" />
+              <YAxis tick={tick} allowDecimals={false} width={40} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={textStyle}
+                itemStyle={textStyle}
+                cursor={{ fill: "hsl(var(--muted))" }}
+                formatter={(v: number) => [formatCount(v), "Calls made"]}
+              />
+              <Bar dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls made" />
+            </BarChart>
+          </ResponsiveContainer>
 
-      {view === "daily" && (
-        <ResponsiveContainer width="100%" height={250}>
-          <ComposedChart data={dailyData}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-            <XAxis dataKey="day" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-            <YAxis yAxisId="left" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-            <YAxis yAxisId="right" orientation="right" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" />
-            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            <Bar yAxisId="left" dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
-            <Line yAxisId="right" type="monotone" dataKey="convRate" stroke="hsl(var(--warning))" strokeWidth={2} dot={{ r: 2 }} name="Conv Rate" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-5 mb-2">Contact rate</p>
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={rows} syncId="call-flow" margin={{ left: 0, right: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="label" tick={tick} interval="preserveStartEnd" />
+              <YAxis tick={tick} domain={[0, 100]} unit="%" width={40} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={textStyle}
+                itemStyle={textStyle}
+                formatter={(v: number | null) => [formatRate(v), "Contact rate"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="rate"
+                stroke="hsl(var(--primary))"
+                strokeWidth={2}
+                dot={{ r: 3, fill: "hsl(var(--primary))" }}
+                connectNulls={false}
+                name="Contact rate"
+              />
+            </LineChart>
+          </ResponsiveContainer>
 
-      {view === "speed" && (
-        <div className="bg-primary/5 rounded-lg p-4 flex items-start gap-2">
-          <Lightbulb className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-          <p className="text-xs text-foreground">{speedInsight}</p>
-        </div>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Contact rate is contacted calls divided by calls made; buckets with no calls show no rate.{" "}
+            {tab === "hour" ? "Hours" : "Days"} are in the agency time zone:{" "}
+            {timeZoneLabel(volume.window.time_zone, volume.window.time_zone_source)}.
+          </p>
+        </>
       )}
     </ReportSection>
   );

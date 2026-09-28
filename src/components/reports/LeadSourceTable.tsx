@@ -1,167 +1,132 @@
-import React, { useMemo, useState } from "react";
-import { Trophy } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { downloadCSV, upsertLeadSourceCost, ReportCampaignPerformance } from "@/lib/reports-queries";
-import { toast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import React from "react";
+import { Info } from "lucide-react";
+import { formatCount, formatRate } from "@/lib/reports-format";
+import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
+import type { ReportLeadSources } from "@/lib/reports-schemas";
 import ReportSection from "./ReportSection";
 
 interface Props {
-  performance?: ReportCampaignPerformance;
-  costs: any[];
-  loading: boolean;
-  isAdmin: boolean;
-  onCostsChanged: () => void;
+  leadSources: ReportLeadSources;
+  onExport?: ReportExportFn;
 }
 
-type SortKey = "source" | "total" | "contacted" | "converted" | "rate";
+const HEADERS = [
+  "Source",
+  "New leads",
+  "Calls made",
+  "Contacted calls",
+  "Contact rate",
+  "Leads dialed",
+  "Contacted leads",
+  "Converted",
+];
 
-const LeadSourceTable: React.FC<Props> = ({ performance, costs, loading, isAdmin, onCostsChanged }) => {
-  const [sortKey, setSortKey] = useState<SortKey>("rate");
-  const [sortAsc, setSortAsc] = useState(false);
-  const [editingCosts, setEditingCosts] = useState(false);
-  const [costInputs, setCostInputs] = useState<Record<string, string>>({});
+const EXPORT_HEADERS = [
+  "Source",
+  "New leads",
+  "Calls made",
+  "Contacted calls",
+  "Contact rate %",
+  "Leads dialed",
+  "Contacted leads",
+  "Converted",
+];
 
-  const costMap = useMemo(() => {
-    const m = new Map<string, number>();
-    costs.forEach(c => m.set(c.lead_source, c.cost || 0));
-    return m;
-  }, [costs]);
+const th = "py-3 px-4 text-muted-foreground font-bold uppercase tracking-wider text-[11px] whitespace-nowrap";
+const td = "py-3 px-4 text-right text-muted-foreground font-medium tabular-nums";
 
-  const data = useMemo(() => {
-    const bySource = performance?.by_lead_source || [];
-    return bySource.map(v => {
-      const source = v.lead_source || "Unknown";
-      const cost = costMap.get(source) || 0;
-      return {
-        source, 
-        total: v.total,
-        contacted: v.contacted,
-        converted: v.converted,
-        rate: v.total > 0 ? +(v.converted / v.total * 100).toFixed(1) : 0,
-        cost, 
-        cpl: v.total > 0 ? +(cost / v.total).toFixed(2) : 0,
-        cpc: v.converted > 0 ? +(cost / v.converted).toFixed(2) : 0,
-      };
-    });
-  }, [performance, costMap]);
+/**
+ * Lead Source Performance — per-source activity from the secured lead-source RPC, in server order.
+ * Converted-by-source is not measurable (conversion removes the source lead), so the column says so
+ * instead of showing a number. There is no cost / ROI data and no conversion rate.
+ */
+const LeadSourceTable: React.FC<Props> = ({ leadSources, onExport }) => {
+  const { sources, converted_unavailable_reason: convertedReason, unattributed_calls: unattributed } = leadSources;
 
-  const sorted = useMemo(() => {
-    const s = [...data];
-    s.sort((a, b) => {
-      const av = sortKey === "source" ? a.source : a[sortKey];
-      const bv = sortKey === "source" ? b.source : b[sortKey];
-      return sortAsc ? (av < bv ? -1 : 1) : (av > bv ? -1 : 1);
-    });
-    return s;
-  }, [data, sortKey, sortAsc]);
-
-  const topRate = sorted.length > 0 ? Math.max(...sorted.map(d => d.rate)) : 0;
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortAsc(!sortAsc);
-    else { setSortKey(key); setSortAsc(false); }
-  };
-
-  const handleSaveCosts = async () => {
-    try {
-      for (const [source, val] of Object.entries(costInputs)) {
-        const num = parseFloat(val);
-        if (!isNaN(num)) await upsertLeadSourceCost(source, num);
-      }
-      toast({ title: "Costs saved" });
-      setEditingCosts(false);
-      onCostsChanged();
-    } catch { toast({ title: "Error saving costs", variant: "destructive" }); }
-  };
-
-  const handleExport = () => {
-    downloadCSV("lead-source-performance", ["Source", "Total", "Contacted", "Converted", "Conv%", "Cost", "CPL", "CPC"],
-      sorted.map(d => [d.source, String(d.total), String(d.contacted), String(d.converted), `${d.rate}%`, `$${d.cost}`, `$${d.cpl}`, `$${d.cpc}`]));
-  };
-
-  const roiLabel = (cpc: number) => {
-    if (cpc === 0) return null;
-    if (cpc < 50) return <span className="text-xs px-1.5 py-0.5 rounded bg-success/10 text-success">High ROI</span>;
-    if (cpc < 150) return <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">Medium</span>;
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">Low ROI</span>;
-  };
-
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[250px]" /></div>;
+  const handleExport = onExport
+    ? () =>
+        onExport(
+          "Lead Source Performance",
+          EXPORT_HEADERS,
+          sources.map((s): CsvCell[] => [
+            s.lead_source,
+            s.new_leads,
+            s.calls_made,
+            s.contacted_calls,
+            s.contact_rate_pct,
+            s.leads_dialed,
+            s.contacted_leads,
+            null,
+          ]),
+        )
+    : undefined;
 
   return (
-    <ReportSection title="Lead Source Performance & ROI" onExport={handleExport}>
-      {isAdmin && (
-        <div className="flex justify-end mb-2">
-          {editingCosts ? (
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setEditingCosts(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSaveCosts}>Save Costs</Button>
-            </div>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => { setEditingCosts(true); setCostInputs(Object.fromEntries(sorted.map(d => [d.source, String(d.cost)]))); }}>Edit Costs</Button>
-          )}
-        </div>
-      )}
-      {sorted.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No lead data for this period</p>
+    <ReportSection title="Lead Source Performance" onExport={handleExport}>
+      <p className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
+        <Info className="w-3.5 h-3.5 text-primary shrink-0" />
+        Cost and ROI tracking are not available yet.
+      </p>
+      {sources.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No lead-source activity in this period.</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
+        <div className="overflow-x-auto rounded-xl border border-border/60">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50/50 dark:bg-white/5">
-              <tr className="border-b border-slate-100 dark:border-slate-800">
-                {[{ l: "Source", k: "source" as SortKey }, { l: "Total", k: "total" as SortKey }, { l: "Contacted", k: "contacted" as SortKey }, { l: "Converted", k: "converted" as SortKey }, { l: "Conv Rate", k: "rate" as SortKey }].map(h => (
-                  <th key={h.l} className={`py-4 px-4 text-slate-500 font-bold uppercase tracking-tighter text-[11px] cursor-pointer hover:text-primary transition-colors ${h.l === "Source" ? "text-left" : "text-right"}`} onClick={() => toggleSort(h.k)}>
-                    <div className={cn("flex items-center gap-1", h.l === "Source" ? "justify-start" : "justify-end")}>
-                      {h.l} {sortKey === h.k && (sortAsc ? "↑" : "↓")}
-                    </div>
+            <thead className="bg-muted/40">
+              <tr className="border-b border-border/60">
+                {HEADERS.map((h, i) => (
+                  <th key={h} className={`${th} ${i === 0 ? "text-left" : "text-right"}`}>
+                    {h}
                   </th>
                 ))}
-                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">Cost</th>
-                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">CPL</th>
-                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">CPC</th>
-                <th className="py-4 px-4 text-right text-slate-500 font-bold uppercase tracking-tighter text-[11px]">ROI</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
-              {sorted.map(d => (
-                <tr key={d.source} className={cn("group hover:bg-slate-50/80 dark:hover:bg-white/5 transition-colors", d.rate === topRate && d.rate > 0 ? "bg-amber-50/30 dark:bg-amber-500/5" : "")}>
-                  <td className="py-4 px-4 font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    {d.rate === topRate && d.rate > 0 && (
-                      <div className="p-1 bg-amber-100 dark:bg-amber-500/20 rounded-lg">
-                        <Trophy className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                      </div>
-                    )}
-                    {d.source}
-                  </td>
-                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.total}</td>
-                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.contacted}</td>
-                  <td className="py-4 px-4 text-right text-slate-600 dark:text-slate-400 font-medium">{d.converted}</td>
-                  <td className="py-4 px-4 text-right">
+            <tbody className="divide-y divide-border/40">
+              {sources.map((s) => (
+                <tr key={s.lead_source} className="hover:bg-muted/40 transition-colors">
+                  <td className="py-3 px-4 font-bold text-foreground">{s.lead_source}</td>
+                  <td className={td}>{formatCount(s.new_leads)}</td>
+                  <td className={td}>{formatCount(s.calls_made)}</td>
+                  <td className={td}>{formatCount(s.contacted_calls)}</td>
+                  <td className="py-3 px-4 text-right">
                     <div className="flex items-center gap-2 justify-end">
-                      <div className="w-16 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden hidden sm:block">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(d.rate, 100)}%` }} />
-                      </div>
-                      <span className="font-black text-slate-900 dark:text-slate-100 w-10 text-right">{d.rate}%</span>
+                      {s.contact_rate_pct !== null && (
+                        <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(Math.max(s.contact_rate_pct, 0), 100)}%` }}
+                          />
+                        </div>
+                      )}
+                      <span className="font-bold text-foreground tabular-nums w-14 text-right">
+                        {formatRate(s.contact_rate_pct)}
+                      </span>
                     </div>
                   </td>
-                  <td className="py-4 px-4 text-right">
-                    {editingCosts ? (
-                      <Input className="h-8 w-24 text-xs ml-auto rounded-lg border-slate-200" type="number" value={costInputs[d.source] ?? ""} onChange={e => setCostInputs(p => ({ ...p, [d.source]: e.target.value }))} />
-                    ) : (
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{d.cost > 0 ? `$${d.cost.toLocaleString()}` : <span className="text-slate-300 dark:text-slate-700 font-medium text-[10px] uppercase tracking-widest">—</span>}</span>
-                    )}
+                  <td className={td}>{formatCount(s.leads_dialed)}</td>
+                  <td className={td}>{formatCount(s.contacted_leads)}</td>
+                  <td className="py-3 px-4 text-right">
+                    <span
+                      className="text-[11px] font-medium text-muted-foreground cursor-help underline decoration-dotted underline-offset-2 whitespace-nowrap"
+                      title={convertedReason}
+                    >
+                      Not available
+                    </span>
                   </td>
-                  <td className="py-4 px-4 text-right text-slate-500 dark:text-slate-500 font-medium">{d.cost > 0 ? `$${d.cpl}` : "—"}</td>
-                  <td className="py-4 px-4 text-right text-slate-500 dark:text-slate-500 font-medium">{d.cost > 0 ? `$${d.cpc}` : "—"}</td>
-                  <td className="py-4 px-4 text-right">{roiLabel(d.cpc)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {sources.length > 0 && (
+        <p className="text-xs text-muted-foreground mt-3">Converted by source is not available: {convertedReason}</p>
+      )}
+      {unattributed > 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          {formatCount(unattributed)} outbound calls are not linked to a current lead (for example, leads that were
+          converted), so they are not attributed to a source.
+        </p>
       )}
     </ReportSection>
   );

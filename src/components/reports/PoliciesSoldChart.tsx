@@ -1,111 +1,151 @@
 import React, { useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { TrendingUp, Trophy, User, Calendar, Clock } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Grouping, groupByDate, downloadCSV, ReportCallVolumeTimeseries, ReportCallSummary, AgentProfile } from "@/lib/reports-queries";
+import { Calendar, TrendingUp, Trophy, type LucideIcon } from "lucide-react";
+import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
+import { formatCount, groupDailySeries, type Grouping } from "@/lib/reports-format";
+import type { ReportExportFn } from "@/lib/reports-export";
 import ReportSection from "./ReportSection";
 
-const LINE_COLORS = ["hsl(var(--success))", "hsl(var(--primary))", "hsl(var(--warning))", "hsl(var(--destructive))", "#8b5cf6", "#06b6d4", "#ec4899"];
-
 interface Props {
-  summary?: ReportCallSummary;
-  volume?: ReportCallVolumeTimeseries;
-  agents: AgentProfile[];
+  volume: ReportVolume;
+  /** The summary panel's data, or null while it is not ready (loading, failed or denied). */
+  summary: ReportSummary | null;
   grouping: Grouping;
-  selectedAgent?: string;
-  loading: boolean;
+  onExport?: ReportExportFn;
 }
 
-const PoliciesSoldChart: React.FC<Props> = ({ summary, volume, agents, grouping, selectedAgent, loading }) => {
-  const { chartData, stats } = useMemo(() => {
-    const grouped = new Map<string, number>();
+const AXIS_TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+const TOOLTIP_STYLE = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  color: "hsl(var(--foreground))",
+  fontSize: 12,
+};
 
-    volume?.by_date?.forEach(d => {
-      const dateKey = groupByDate(d.date, grouping);
-      grouped.set(dateKey, (grouped.get(dateKey) || 0) + d.converted);
-    });
+function periodCell(key: string, grouping: Grouping): string {
+  return grouping === "weekly" ? `Week of ${key}` : key;
+}
 
-    const chartData = Array.from(grouped.entries()).map(([date, converted]) => ({
-      date,
-      Total: converted,
-    })).sort((a, b) => a.date.localeCompare(b.date));
+function policiesLabel(n: number): string {
+  return `${formatCount(n)} ${n === 1 ? "policy" : "policies"}`;
+}
 
-    let topPerformer = { name: "N/A", count: 0 };
-    let agentsWithSales = 0;
-    summary?.calls_by_agent?.forEach(a => {
-      if (a.converted > 0) agentsWithSales++;
-      if (a.converted > topPerformer.count) {
-        const ag = agents.find(ag => ag.id === a.agent_id);
-        const name = ag ? `${ag.first_name} ${ag.last_name?.charAt(0) || ""}.` : "Unknown";
-        topPerformer = { name, count: a.converted };
-      }
-    });
+/** The summary only counts toward this chart when it describes the same scope, filter and period. */
+function sameReport(summary: ReportSummary, volume: ReportVolume): boolean {
+  return (
+    summary.scope === volume.scope &&
+    summary.filter_agent_id === volume.filter_agent_id &&
+    summary.window.start_date === volume.window.start_date &&
+    summary.window.end_date === volume.window.end_date &&
+    summary.window.time_zone === volume.window.time_zone
+  );
+}
 
-    let bestDay = { date: "N/A", count: 0 };
-    volume?.by_date?.forEach(d => {
-      if (d.converted > bestDay.count) bestDay = { date: d.date, count: d.converted };
-    });
+interface TileProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  subtitle?: string;
+}
 
-    let bestHour = { hour: 0, count: 0 };
-    volume?.by_hour?.forEach(h => {
-      if (h.converted > bestHour.count) bestHour = { hour: h.hour, count: h.converted };
-    });
+const Tile: React.FC<TileProps> = ({ icon: Icon, label, value, subtitle }) => (
+  <div className="rounded-xl border border-border/50 bg-muted/40 p-4">
+    <div className="flex items-center gap-2 mb-2">
+      <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{label}</p>
+    </div>
+    <p className="text-lg font-bold text-foreground truncate" title={value}>{value}</p>
+    {subtitle && <p className="text-[11px] text-muted-foreground truncate mt-0.5">{subtitle}</p>}
+  </div>
+);
 
-    const totalSold = summary?.converted || 0;
+/**
+ * Policies Sold — canonical wins per AGENCY-calendar period. This is a count of policies, not of
+ * clients, and is deliberately never divided into a rate of any kind.
+ */
+const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExport }) => {
+  const series = useMemo(
+    () =>
+      groupDailySeries(
+        volume.by_date.map((d) => ({ date: d.date, policies_sold: d.policies_sold })),
+        grouping,
+        ["policies_sold"],
+      ).map((b) => ({
+        key: b.key,
+        label: b.label,
+        policies_sold: b.policies_sold ?? 0,
+      })),
+    [volume.by_date, grouping],
+  );
 
-    return {
-      chartData,
-      stats: {
-        total: totalSold,
-        topPerformer,
-        bestDay,
-        bestHour,
-        avgPerAgent: agentsWithSales > 0 ? +(totalSold / agentsWithSales).toFixed(1) : 0,
-      },
-    };
-  }, [summary, volume, grouping, agents]);
+  const total = useMemo(() => series.reduce((sum, b) => sum + b.policies_sold, 0), [series]);
 
-  const handleExport = () => {
-    downloadCSV("policies-sold", ["Date", "Total Sold"],
-      chartData.map(d => [d.date, String(d.Total || 0)])
-    );
-  };
+  const peak = useMemo(() => {
+    let best: (typeof series)[number] | null = null;
+    for (const b of series) if (b.policies_sold > 0 && (!best || b.policies_sold > best.policies_sold)) best = b;
+    return best;
+  }, [series]);
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[350px]" /></div>;
+  const summaryReady = summary !== null && sameReport(summary, volume);
+  const topPerformer = useMemo(() => {
+    if (!summary || !summaryReady) return null;
+    const ranked = summary.by_agent
+      .filter((a) => a.policies_sold > 0)
+      .sort((a, b) => b.policies_sold - a.policies_sold || a.name.localeCompare(b.name));
+    return ranked[0] ?? null;
+  }, [summary, summaryReady]);
 
-  const fmtHour = (h: number) => `${h > 12 ? h - 12 : h || 12}${h >= 12 ? "PM" : "AM"}`;
+  const handleExport = onExport
+    ? () =>
+        onExport(
+          "Policies Sold",
+          ["Period", "Policies sold"],
+          series.map((b) => [periodCell(b.key, grouping), b.policies_sold]),
+        )
+    : undefined;
 
   return (
     <ReportSection title="Policies Sold" onExport={handleExport}>
-      {chartData.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No policies sold in this period</p>
+      {total === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No policies sold in this period.</p>
       ) : (
         <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-            <XAxis dataKey="date" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-            <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} allowDecimals={false} />
-            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            <Line type="monotone" dataKey="Total" stroke={LINE_COLORS[0]} strokeWidth={3} dot={{ r: 4 }} />
+          <LineChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: "hsl(var(--border))" }} minTickGap={12} />
+            <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+              formatter={(value: number) => [formatCount(value), "Policies sold"]}
+            />
+            <Line type="monotone" dataKey="policies_sold" name="Policies sold" stroke="hsl(var(--success))" strokeWidth={3} dot={{ r: 4 }} />
           </LineChart>
         </ResponsiveContainer>
       )}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
-        {[
-          { icon: TrendingUp, label: "Total Sold", value: String(stats.total) },
-          { icon: Trophy, label: "Top Performer", value: `${stats.topPerformer.name} (${stats.topPerformer.count})` },
-          { icon: User, label: "Avg/Agent", value: String(stats.avgPerAgent) },
-          { icon: Calendar, label: "Best Day", value: stats.bestDay.count > 0 ? `${stats.bestDay.date} (${stats.bestDay.count})` : "N/A" },
-          { icon: Clock, label: "Best Hour", value: stats.bestHour.count > 0 ? `${fmtHour(stats.bestHour.hour)} (${stats.bestHour.count})` : "N/A" },
-          { icon: Clock, label: "Avg Deal Cycle", value: "N/A" },
-        ].map(s => (
-          <div key={s.label} className="bg-accent/50 rounded-lg p-3 text-center">
-            <s.icon className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
-            <p className="text-[10px] text-muted-foreground">{s.label}</p>
-            <p className="text-xs font-bold text-foreground mt-0.5 truncate">{s.value}</p>
-          </div>
-        ))}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+        <Tile icon={TrendingUp} label="Total policies sold" value={formatCount(total)} />
+        <Tile
+          icon={Trophy}
+          label="Top performer"
+          value={topPerformer ? topPerformer.name : "—"}
+          subtitle={
+            !summaryReady ? "Agent summary not loaded" : topPerformer ? policiesLabel(topPerformer.policies_sold) : undefined
+          }
+        />
+        <Tile
+          icon={Calendar}
+          label="Peak period"
+          value={peak ? peak.label : "—"}
+          subtitle={peak ? policiesLabel(peak.policies_sold) : undefined}
+        />
       </div>
+
+      <p className="text-[11px] text-muted-foreground mt-3">
+        Policies sold are counted from wins; one client can buy several policies.
+      </p>
     </ReportSection>
   );
 };
