@@ -1269,3 +1269,17 @@ passes wrote to the repo's application code, GitHub or the database.
 
 Open items needing Chris: decisions D-1 … D-23 (§10). Nothing is blocked on a backend change. Every backend or RLS
 improvement found is listed in §14 for separate approval.
+
+## §16. Approval record (2026-09-28)
+Chris approved implementation using the recommended options for **D-1 … D-23**, with these redlines:
+1. **D-19.** No change to any Reports, Analytics, leaderboard, goal-widget or reporting-reader file in this branch.
+   The existing readers stay untouched. The difference between assignee credit and scheduler credit is documented
+   as a **post-Reports reconciliation item**; the Reports session remains isolated.
+2. **D-22.** Fail closed. A reassignment the current permissions deny must surface an accurate failure. There is no
+   RLS weakening, no SECURITY DEFINER workaround, no auth-claim change and no production backend change.
+3. The Dialer's 7-hour appointment/callback timestamp bug stays **out of scope**. It is documented as the next
+   separate bugfix. DialerPage, Twilio, queue behaviour and callback writers are not touched.
+4. The contact UI is the compact Follow-ups card added to the **existing** contact page. The contact card is not
+   redesigned or restructured.
+5. There is no schema/RLS/migration change without stopping for approval first. No push, merge, deploy or
+   production Supabase change is made; work stops after local verification.
