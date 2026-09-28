@@ -32,6 +32,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useAppointmentTypes } from "@/hooks/useAppointmentTypes";
 import { getAppointmentTypeColor } from "@/lib/calendar/appointmentTypes";
 import { excludeDialerCallbacks } from "@/lib/calendar/appointmentFilters";
+import { appointmentResponsibleUserId, resolveAppointmentAssignee } from "@/lib/calendar/appointmentOwnership";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 import { Lead } from "@/lib/types";
@@ -226,10 +227,11 @@ const CalendarPage: React.FC = () => {
     return data?.email || null;
   };
 
-  const handleSave = async (data: Omit<CalendarAppointment, "id">) => {
+  /** Resolves true only once the appointment row was actually written (AppointmentModal awaits it). */
+  const handleSave = async (data: Omit<CalendarAppointment, "id">): Promise<boolean> => {
     if (!organizationId || !user?.id) {
       toast({ title: "Cannot save appointment", description: "Missing organization or user context. Please refresh and try again.", variant: "destructive" });
-      return;
+      return false;
     }
 
     const startDate = timeStringToDate(new Date(data.date), data.startTime);
@@ -246,14 +248,15 @@ const CalendarPage: React.FC = () => {
           organization_id: organizationId,
         }])
         .select().single();
-      if (leadError || !newLead) { toast({ title: "Failed to create contact", variant: "destructive" }); return; }
+      if (leadError || !newLead) { toast({ title: "Failed to create contact", variant: "destructive" }); return false; }
       contactId = newLead.id;
       attendeeEmail = newLead.email || null;
     }
 
-    const localPayload = {
-      user_id: user.id,
-      organization_id: organizationId,
+    // Ownership (AGENT_RULES #22 amendment): user_id = the responsible person picked in the modal;
+    // created_by = the scheduler, stamped once by CalendarContext.addAppointment and never rewritten
+    // here. organization_id is owned by CalendarContext (insert stamp / update filter).
+    const appointmentFields = {
       title: data.title,
       contact_name: data.contactName,
       contact_id: contactId || null,
@@ -263,13 +266,17 @@ const CalendarPage: React.FC = () => {
       notes: data.notes,
       status: data.status,
       sync_source: "internal",
-      created_by: user.id,
     };
 
     if (modalEditing) {
       const existingMeta = appointmentMetaById[modalEditing.id];
+      // An edit keeps the current responsible person unless the modal explicitly picked another one.
+      const updatePayload = {
+        ...appointmentFields,
+        user_id: resolveAppointmentAssignee(data.user_id, appointmentResponsibleUserId(modalEditing) ?? user.id),
+      };
       try {
-        await updateAppointment(modalEditing.id, localPayload);
+        await updateAppointment(modalEditing.id, updatePayload);
         toast({ title: "Appointment updated" });
         setModalOpen(false);
         const syncResult = await syncAppointmentToGoogle({
@@ -285,19 +292,34 @@ const CalendarPage: React.FC = () => {
         if (!syncResult.success) {
           toast({ title: "Appointment updated", description: "Google Calendar sync failed — changes saved locally only.", variant: "destructive" });
         }
+        return true;
       } catch (error) {
         toast({ title: "Failed to update appointment", variant: "destructive" });
+        return false;
       }
-      return;
     }
 
+    const assigneeId = resolveAppointmentAssignee(data.user_id, user.id);
     try {
-      const inserted = await addAppointment(localPayload);
-      if (!inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return; }
+      const inserted = await addAppointment({ ...appointmentFields, user_id: assigneeId });
+      if (!inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return false; }
 
-      toast({ title: "Appointment scheduled" });
       setModalOpen(false);
 
+      // Google sync always writes to the CALLER's calendar, and the two-way inbound sync matches rows by
+      // user_id = integration owner. Pushing an appointment assigned to someone else would come back as a
+      // duplicate owned by the scheduler (and remind them). Only self-assigned appointments are pushed.
+      if (assigneeId !== user.id) {
+        toast({
+          title: "Appointment scheduled",
+          ...(googleConnected
+            ? { description: `Not added to your Google Calendar — it's assigned to ${data.agent?.trim() || "another user"}.` }
+            : {}),
+        });
+        return true;
+      }
+
+      toast({ title: "Appointment scheduled" });
       const syncResult = await syncAppointmentToGoogle({
         action: "create",
         appointmentId: (inserted as any).id,
@@ -310,9 +332,11 @@ const CalendarPage: React.FC = () => {
       if (!syncResult.success) {
         toast({ title: "Appointment saved", description: "Google Calendar sync failed — appointment saved locally only.", variant: "destructive" });
       }
+      return true;
     } catch (error) {
       console.error("Save error", error);
       toast({ title: "Failed to save appointment", variant: "destructive" });
+      return false;
     }
   };
 

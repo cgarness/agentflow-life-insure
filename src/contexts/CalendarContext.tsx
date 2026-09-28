@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { buildAppointmentInsertOwnership } from "@/lib/calendar/appointmentOwnership";
 
 // Known launch defaults. Kept as a compatibility alias — appointment.type is
 // stored as text and may be a custom org-defined value. Use the shared
@@ -22,7 +23,12 @@ export interface CalendarAppointment {
   notes: string;
   start_time?: string; // Original ISO string from DB
   end_time?: string;   // Original ISO string from DB
+  /** Responsible person (reminder recipient). */
   user_id?: string;
+  /** Scheduler. Needed for the invariant-#22 fallback when user_id is NULL. */
+  created_by?: string | null;
+  /** Status exactly as stored. `status` above is coerced for display; reminder gating reads this. */
+  raw_status?: string;
 }
 
 const VALID_STATUSES: CalAppointmentStatus[] = [
@@ -58,13 +64,18 @@ export const APPOINTMENT_STATUS_COLORS: Record<CalAppointmentStatus, string> = {
 };
 
 
+export interface FetchAppointmentsOptions {
+  /** Background refresh: never toggles `loading`, and is skipped while any fetch is in flight. */
+  silent?: boolean;
+}
+
 interface CalendarContextValue {
   appointments: CalendarAppointment[];
   loading: boolean;
   addAppointment: (a: any) => Promise<any>;
   updateAppointment: (id: string, data: any) => Promise<void>;
   deleteAppointment: (id: string) => Promise<void>;
-  fetchAppointments: () => Promise<void>;
+  fetchAppointments: (opts?: FetchAppointmentsOptions) => Promise<void>;
   todayCount: number;
 }
 
@@ -88,7 +99,9 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
    *     inside the ±180-day window that the database policies return to this session. It is not
    *     filtered by `user.id` client-side. (The realtime channel, by contrast, is filtered to
    *     `user_id = user.id`.)
-   *   - Creation stamps the REAL `user.id` and this organization on the inserted row.
+   *   - Creation stamps this organization and `created_by` = the REAL `user.id` (the scheduler).
+   *     `user_id` (the responsible person / reminder recipient) is the caller's explicit assignee when
+   *     supplied, else the REAL `user.id` — an explicit assignee is never overwritten.
    *   - Update and delete are constrained by appointment id PLUS this organization, and remain
    *     subject to the database policies — the `organization_id` filter is a tenant boundary in
    *     the query, not an ownership check.
@@ -100,10 +113,18 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
    * and returns without a query, whereas `addAppointment`, `updateAppointment` and
    * `deleteAppointment` THROW ("missing user or organization context") rather than write; the
    * realtime subscription is keyed on `user.id` alone and does not consult the organization.
+   * (`appointments` is NOT in the `supabase_realtime` publication, so that subscription never
+   * delivers; freshness comes from `fetchAppointments`, including ReminderPopup's silent refresh.)
    */
   const organizationId = realProfile?.organization_id ?? null;
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
+  // Newest fetch wins; a fetch that started before a local write is discarded and re-issued, so a
+  // pre-write snapshot can never drop an added row, restore a deleted one, or revert an edit.
+  const fetchGenRef = useRef(0);
+  const writeSeqRef = useRef(0);
+  const inFlightRef = useRef(0);
+  const fetchRef = useRef<((opts?: FetchAppointmentsOptions) => Promise<void>) | null>(null);
 
   const mapAppointment = useCallback((appt: any): CalendarAppointment => {
     const startDate = new Date(appt.start_time);
@@ -126,48 +147,74 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       start_time: appt.start_time,
       end_time: appt.end_time,
       user_id: appt.user_id,
+      created_by: appt.created_by ?? null,
+      raw_status:
+        typeof appt.raw_status === "string" ? appt.raw_status : typeof appt.status === "string" ? appt.status : "",
     };
   }, []);
 
-  const fetchAppointments = useCallback(async () => {
+  const fetchAppointments = useCallback(async (opts?: FetchAppointmentsOptions) => {
+    const silent = opts?.silent === true;
     if (!user?.id || !organizationId) {
-      setLoading(false);
+      if (!silent) setLoading(false);
       return;
     }
-    setLoading(true);
+    if (silent && inFlightRef.current > 0) return;
 
-    // Fetch a broad range: 180 days ago to 180 days in future
-    const startRange = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-    const endRange = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
+    const gen = ++fetchGenRef.current;
+    const writeSeqAtStart = writeSeqRef.current;
+    inFlightRef.current += 1;
+    if (!silent) setLoading(true);
+    let reissue = false;
 
-    const { data, error } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .gte('start_time', startRange)
-      .lte('start_time', endRange)
-      .order('start_time', { ascending: true });
+    try {
+      // Fetch a broad range: 180 days ago to 180 days in future
+      const startRange = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const endRange = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
 
-    if (error) {
-      console.error('Error fetching appointments:', error);
-    } else if (data) {
-      setAppointments(data.map(mapAppointment));
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .gte('start_time', startRange)
+        .lte('start_time', endRange)
+        .order('start_time', { ascending: true });
+
+      if (error) {
+        // A failed refresh keeps the current list.
+        console.error('Error fetching appointments:', error);
+      } else if (data && gen === fetchGenRef.current) {
+        if (writeSeqRef.current !== writeSeqAtStart) reissue = true;
+        else setAppointments(data.map(mapAppointment));
+      }
+    } finally {
+      inFlightRef.current -= 1;
+      // A non-silent call always clears its spinner, even when its data was superseded.
+      if (!silent) setLoading(false);
     }
-    setLoading(false);
+
+    if (reissue) void fetchRef.current?.({ silent: true });
   }, [user?.id, organizationId, mapAppointment]);
+  fetchRef.current = fetchAppointments;
 
   const addAppointment = useCallback(async (a: any) => {
     if (!user?.id || !organizationId) {
       throw new Error("Cannot save appointment: missing user or organization context");
     }
     
-    // We don't do optimistic update here yet because we need the ID from DB
-    // But we could generate a temporary ID if we wanted.
-    // However, the real-time subscription should pick it up.
-    
+    // No optimistic insert: the row id comes from the DB. The caller's object is passed through
+    // untouched (no camelCase→column mapping); only the ownership columns are stamped, and an
+    // explicit `user_id` (the assignee) is preserved.
     const { data, error } = await supabase
       .from('appointments')
-      .insert([{ ...a, user_id: user.id, organization_id: organizationId }] as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .insert([{
+        ...a,
+        ...buildAppointmentInsertOwnership({
+          explicitAssigneeId: a?.user_id,
+          creatorUserId: user.id,
+          organizationId,
+        }),
+      }] as any)
       .select()
       .single();
 
@@ -178,6 +225,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     
     if (data) {
       const mapped = mapAppointment(data);
+      writeSeqRef.current += 1;
       setAppointments(prev => [...prev, mapped].sort((a, b) => 
         new Date(a.date).getTime() - new Date(b.date).getTime()
       ));
@@ -188,23 +236,35 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateAppointment = useCallback(async (id: string, data: any) => {
     if (!user?.id || !organizationId) throw new Error("Cannot update appointment: missing user or organization context");
     // Optimistic update
-    setAppointments(prev => prev.map(a => a.id === id ? { ...a, ...data, ...mapAppointment({ ...a, ...data }) } : a));
+    writeSeqRef.current += 1;
+    setAppointments(prev => prev.map(a => {
+      if (a.id !== id) return a;
+      const raw_status = typeof data?.status === "string" ? data.status : a.raw_status;
+      return { ...a, ...data, ...mapAppointment({ ...a, ...data, raw_status }) };
+    }));
 
-    const { error } = await supabase
+    // `.select("id")`: an update RLS hides affects zero rows WITHOUT an error. Treat that as a failure
+    // so the UI never reports a save or reassignment that did not happen.
+    const { data: updated, error } = await supabase
       .from('appointments')
       .update(data)
       .eq('id', id)
-      .eq('organization_id', organizationId);
-    if (error) {
-      console.error('Error updating appointment:', error);
-      fetchAppointments();
-      throw error;
+      .eq('organization_id', organizationId)
+      .select('id');
+    const failure = error ?? (!updated || updated.length === 0
+      ? new Error("Appointment update was not applied (not found or not permitted)")
+      : null);
+    if (failure) {
+      console.error('Error updating appointment:', failure);
+      void fetchAppointments({ silent: true });
+      throw failure;
     }
-  }, [fetchAppointments, mapAppointment, organizationId]);
+  }, [fetchAppointments, mapAppointment, organizationId, user?.id]);
 
   const deleteAppointment = useCallback(async (id: string) => {
     if (!user?.id || !organizationId) throw new Error("Cannot delete appointment: missing user or organization context");
     // Optimistic update
+    writeSeqRef.current += 1;
     setAppointments(prev => prev.filter(a => a.id !== id));
 
     const { error } = await supabase
@@ -214,10 +274,10 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .eq('organization_id', organizationId);
     if (error) {
       console.error('Error deleting appointment:', error);
-      fetchAppointments();
+      void fetchAppointments({ silent: true });
       throw error;
     }
-  }, [fetchAppointments, organizationId]);
+  }, [fetchAppointments, organizationId, user?.id]);
 
   useEffect(() => {
     fetchAppointments();

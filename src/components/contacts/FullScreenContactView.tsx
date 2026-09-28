@@ -46,6 +46,7 @@ import { dispatchQuickCall } from "@/lib/quick-call";
 import { contactDisplayName } from "@/lib/contact-name";
 import { PAYMENT_FREQUENCIES, PAYMENT_FREQUENCY_LABELS, formatPaymentFrequency } from "@/lib/policyPaymentFields";
 import { TasksPanel } from "./TasksPanel";
+import { ContactFollowUpsCard } from "@/components/contacts/followups/ContactFollowUpsCard";
 import { ConversationTimeline } from "./conversation-history/ConversationTimeline";
 import {
   buildCallItem,
@@ -189,6 +190,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const canEditContact = hasContactsPermission(`contacts.${contactPermBase}.edit`);
   const canDeleteContact = hasContactsPermission(`contacts.${contactPermBase}.delete`);
   const [showAppt, setShowAppt] = useState(false);
+  // Bumped after this page's own appointment write so the Follow-ups card refetches.
+  const [followUpsRefreshKey, setFollowUpsRefreshKey] = useState(0);
   const [showConvert, setShowConvert] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns" | "Tasks">("Activity");
   
@@ -1249,8 +1252,18 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN - Activity/Notes/Campaigns */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
+        {/* RIGHT COLUMN - compact Follow-ups card above the existing Activity/Notes/Campaigns card */}
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex flex-col gap-3 min-h-0 shrink-0">
+        <ContactFollowUpsCard
+          contactId={contact.id}
+          contactType={type}
+          organizationId={organizationId}
+          agents={agents}
+          resolveAgentName={getAgentDisplayName}
+          refreshKey={followUpsRefreshKey}
+          onAddAppointment={() => setShowAppt(true)}
+        />
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex-1 bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
           <div className="px-4 h-14 border-b border-border shrink-0 bg-muted/10 flex items-center justify-center">
             <div className="flex bg-muted rounded-lg p-0.5 w-full">
               <button onClick={() => setRightTab("Activity")} className={cn(
@@ -1397,6 +1410,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             )}
           </div>
         </div>
+        </div>
         
       </div>
 
@@ -1456,7 +1470,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         onSave={async (data) => {
           if (!organizationId || !user?.id) {
             toast.error("Cannot schedule appointment: missing organization or user context");
-            return;
+            return false;
           }
 
           const startDate = new Date(data.date);
@@ -1466,25 +1480,32 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           const ep = data.endTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
           if (ep) { let h = parseInt(ep[1]); const m = parseInt(ep[2]); const ap = ep[3].toUpperCase(); if (ap === "PM" && h !== 12) h += 12; if (ap === "AM" && h === 12) h = 0; endDate.setHours(h, m, 0, 0); }
 
-          const { error } = await supabase.from('appointments').insert([{
-            title: data.title,
-            contact_name: data.contactName,
-            contact_id: contact?.id ?? null,
-            type: data.type,
-            start_time: startDate.toISOString(),
-            end_time: endDate.toISOString(),
-            notes: data.notes,
-            organization_id: organizationId!,
-            user_id: user.id,
-            created_by: user.id,
-            sync_source: "internal",
-          }]);
-          if (error) { toast.error("Failed to schedule appointment"); return; }
-          
-          addAppointment(data);
+          // One write, through CalendarContext: keeps the modal's assignee as user_id, stamps
+          // created_by = the scheduler and the organization, and updates calendar/reminder state.
+          // contact_id comes from this contact — the modal emits an empty contactId here.
+          try {
+            await addAppointment({
+              title: data.title,
+              contact_name: data.contactName,
+              contact_id: contact?.id ?? null,
+              type: data.type,
+              status: data.status,
+              start_time: startDate.toISOString(),
+              end_time: endDate.toISOString(),
+              notes: data.notes,
+              sync_source: "internal",
+              user_id: data.user_id,
+            });
+          } catch {
+            toast.error("Failed to schedule appointment");
+            return false;
+          }
+
           void logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
           setShowAppt(false);
+          setFollowUpsRefreshKey((k) => k + 1);
           toast.success("Appointment scheduled");
+          return true;
         }}
         prefillContactName={contactDisplayName(contact) || undefined}
       />

@@ -153,6 +153,7 @@ const orgState = vi.hoisted(() => ({ value: "0f000000-0000-4000-8000-0000000000a
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: orgState.value }) }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ hasContactsPermission: () => true }) }));
 vi.mock("@/components/calendar/AppointmentModal", () => ({ default: () => null }));
+vi.mock("@/components/contacts/followups/ContactFollowUpsCard", () => ({ ContactFollowUpsCard: () => null }));
 vi.mock("@/components/contacts/ConvertLeadModal", () => ({ default: () => null }));
 vi.mock("@/components/contacts/AddToCampaignModal", () => ({ default: () => null }));
 vi.mock("@/components/messaging/MessageComposePanel", () => ({ MessageComposePanel: () => null }));
