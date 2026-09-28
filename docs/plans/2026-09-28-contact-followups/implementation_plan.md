@@ -122,7 +122,11 @@ attribution `COALESCE(created_by, user_id)`), **#25/#28** (migrations immutable;
   - Reports treats `usePermissions`, `permissionDefaults`, `types.ts`, `report-utils.ts` and the Dashboard as frozen.
     This plan imports shared infrastructure (`useOrganization`, `AuthContext`, `BrandingContext`) but modifies none of
     it.
-- **No other open PR touches a file in §9:** checked #383, #382, #381, #378 and #294.
+- **No other open PR touches a §9 *code* file:** checked #383, #382, #381, #378 and #294. The shared **docs** rows are
+  different: #381 and #383 edit `WORK_LOG.md`, and #378 edits `WORK_LOG.md`, `AGENT_RULES.md` and the root
+  `implementation_plan.md`. They are handled under "Shared docs" below.
+- `origin/claude/agentflow-leaderboard-recovery-uney6j` shows `dashboard-callbacks.ts` in its diff, but that content is
+  byte-identical to `main` (squash-merged as #386), so it is no conflict.
   - Draft PR **#378** rewrites `supabase/functions/google-calendar-*`, `CalendarSettings.tsx`, `AGENT_RULES.md` and
     `WORK_LOG.md`. This plan touches none of its code files, and Google Edge Function work is deferred behind it
     (§14).
@@ -848,7 +852,7 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
 | the **10** existing tests that render the real `FullScreenContactView` | + one line: `vi.mock("@/components/contacts/followups/ContactFollowUpsCard", () => ({ ContactFollowUpsCard: () => null }))`. Use the `@/` alias form: some suites' relative `./TasksPanel` mocks resolve against `__tests__/` and are inert. The files are `src/components/contacts/__tests__/{fullScreenContactViewAdditionalPolicies, fullScreenContactViewConversation, fullScreenContactViewQuickCall, fullScreenContactViewSaveFailure, fullScreenContactViewScore, fullScreenContactViewStatusSave, conversationDispositionColors}.test.tsx` and `src/pages/__tests__/{contactDeepLinkDuplicateParity, contactDeepLinkQuickCall, contactDeepLinkSaveIntegrity}.test.tsx` |
 | `docs/plans/2026-09-28-contact-followups/implementation_plan.md` | this plan (new) |
 | `implementation_plan.md` (root) | a short §17 pointer appended at EOF only; all existing bytes are preserved |
-| `WORK_LOG.md`, `AGENT_RULES.md` | **after** implementation, in the same PR, which is squash-merged so they land in the same commit on `main` as the code (AGENT_RULES §9). The final docs commit comes after rebasing: a newest-first WORK_LOG entry (additions only), plus an **amendment bullet in invariant #22**. The bullet says: appointment `user_id` = responsible person and personal-reminder recipient; `created_by` = scheduler, stamped on insert and never rewritten; the Follow-ups card reuses the #22 predicate and contract constants. No new invariant number (#38 is reserved by Reports). |
+| `WORK_LOG.md`, `AGENT_RULES.md` | **after** implementation, in the same PR, which is squash-merged so they land in the same commit on `main` as the code (AGENT_RULES §9). The final docs commit comes after rebasing: a newest-first WORK_LOG entry (additions only), plus an **amendment bullet in invariant #22**. The bullet says: appointment `user_id` = responsible person and personal-reminder recipient; `created_by` = scheduler, stamped on insert and never rewritten; the Follow-ups card reuses the #22 predicate and contract constants. It also records the two **out-of-scope writers that still deviate**: `dialer-api.saveAppointment` (no `created_by`) and the FloatingDialer quick-call (no `user_id`, covered by the #22 fallback). No new invariant number (#38 is reserved by Reports). |
 
 **Explicitly NOT touched:**
 - `src/lib/dashboard-callbacks.ts` (imported only), `dashboard-contact-identity.ts`, `requestLifetime.ts`,
