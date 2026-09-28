@@ -1,6 +1,51 @@
 # Implementation Plan — Reports & Analytics: secure, canonical, truthful (overnight build, 2026-09-28)
 
-**Status: AWAITING CHRIS'S APPROVAL. No implementation file has been modified.**
+**Status: rev 2 — APPROVED by Chris (2026-09-28) for branch implementation and testing only, with four required changes
+recorded in §R2 before any implementation edit. §R2 supersedes any conflicting text below.**
+
+## §R2. Chris's required changes (approved 2026-09-28; supersede §3/§6/§9 where they conflict)
+
+1. **Agency timezone is the reporting authority (replaces D-10).**
+   - **Where the zone comes from.** The server resolves it: `company_settings.timezone` for the actor's database-resolved organization (org-unique row, IANA-validated by the existing `trg_company_settings_validate_timezone`).
+   - **No caller-supplied zone.** The Reports RPCs accept **no timezone parameter**.
+   - **Local agency calendar dates.** The RPCs take `p_start_date date, p_end_date date` (inclusive), and the server computes the half-open window as `[p_start_date 00:00, p_end_date + 1 day 00:00)` in that zone via `AT TIME ZONE`. PostgreSQL's IANA rules handle DST, so a 23- or 25-hour day is exact.
+   - **What the zone controls.** The same zone controls:
+     - the window;
+     - the daily, hourly and day-of-week buckets;
+     - the heatmap;
+     - "today" and "this week" derived stats;
+     - any comparison;
+     - exports.
+   - **Metadata.** Every payload returns `window: {time_zone, time_zone_source, start_date, end_date, start_at, end_at}`. `get_report_scope()` also returns `time_zone`, `time_zone_source` and the agency `today`, so the presets are agency calendar days.
+   - **Missing setting (D-10b).**
+     - An organization with **no settings row or a NULL zone** uses the platform's established agency default, `America/Chicago`: the `company_settings.timezone` column default and `BrandingContext` DEFAULTS. It is labelled `time_zone_source = 'default'` and shown as "America/Chicago (agency default — not configured)".
+     - An **invalid** stored value fails closed (the report is unavailable).
+     - Production today: 1 of 3 orgs has a row (`America/Los_Angeles`); 2 use the default.
+   - **Unchanged.** The personal Dialer "Today" counters stay agent-local (#14) and are not touched. Any future agent-local Reports view must be a separately labelled mode.
+   - **Docs.** New AGENT_RULES invariant #38 records that Reports now implements agency-timezone reporting. Leaderboard and Dashboard stay browser-local until their own approved change.
+2. **Converted vs. Policies Sold (tightens D-4).**
+   - **Converted Leads/Clients** is the number of unique converted contacts. **Policies Sold** is the count of canonical `wins`. The two are always labelled separately.
+   - **No generic "Conversion Rate" anywhere.** `policies_sold ÷ calls_made` is never called a conversion rate, and no lead conversion rate is introduced.
+   - Every existing conversion-rate stat or column (call-to-close, contacted-to-close, appointment-to-close, best-converting agent, per-campaign or per-source conversion %) becomes **unavailable**: there is no approved denominator.
+   - A dial-to-policy figure appears only under its explicit name, "Dials per Policy Sold" (calls made ÷ policies sold; "—" when 0).
+3. **Rollback and disable fail closed (replaces the rollback text in §3.1/§9).**
+   - **Never re-grant.** No rollback, inverse, emergency script or recovery procedure ever re-grants PUBLIC, anon or authenticated EXECUTE on the legacy `rpc_report_*` functions.
+   - **The safe state.** Reports is unavailable or disabled, and the legacy RPCs stay inaccessible.
+   - **The rollback file** drops the new objects, **re-asserts the legacy revocation** (idempotent REVOKE), and aborts if any legacy function is still executable by PUBLIC, anon or authenticated.
+   - **`reports_disable.sql`** revokes the new RPCs from `authenticated` and asserts the legacy state. **`reports_enable.sql`** grants only the new RPCs.
+   - There is no full inverse that restores the vulnerable grants.
+4. **Session duration overlap (tightens the session metric).**
+   - **Source.** Only server-timestamped `dialer_sessions`. Never browser timers, never `dialer_daily_stats`.
+   - **Which sessions count.** Every session that **overlaps** `[start, end)` counts, including ones that began before the window.
+   - **Effective end.** Uses the canonical span rule (#12/#14):
+     - `ended_at`;
+     - else `now()` for an active session with no `ended_at`;
+     - else `coalesce(last_heartbeat_at, started_at)`.
+   - **Clipping.** Each session contributes `greatest(0, least(effective_end, end) − greatest(started_at, start))`.
+
+Everything else in rev 1 stands as approved.
+
+**Rev 1 status line (historical): AWAITING CHRIS'S APPROVAL. No implementation file has been modified.**
 Branch `claude/reports-analytics-overnight-c69826`, based on `main` @ `5d37e5f98dc16b08d11359b1506153aac014b25a` (re-checked 2026-09-28).
 Approval of this plan authorizes **local implementation and testing only**. It is **not** approval to merge, apply any
 Supabase migration, deploy an Edge Function, trigger a Vercel production deployment or change production configuration
@@ -352,13 +397,13 @@ The scope does not expand without recording why in this plan's as-built appendix
 | D-1 | How Reports permissions combine | Page access is required. Data scope **own** requires View Own. **team** gives self plus downline when View Team is on, otherwise self when View Own is on. **all** gives the organization when View Team is on, otherwise self when View Own is on. Admin and Super Admin are locked to the whole home organization. |
 | D-2 | Call timestamp and window | `calls.created_at`, half-open `[start, end)`, matching the Leaderboard canon (#23). Reports numbers will match the Leaderboard for the same period. |
 | D-3 | Population for Calls Made, Talk Time, Contacted, Contact Rate, the disposition breakdown and the volume charts | **Outbound** only, as canon. Inbound is shown separately as its own count. |
-| D-4 | Converted | Distinct contacts (the campaign lead when there is one, otherwise the contact) with at least one outbound call in the window whose disposition converts. This extends the #17 card canon beyond campaign calls. **Policies Sold = wins**, labelled separately. The only conversion rate shown is policies ÷ calls made (the #23 canon). |
+| D-4 | Converted | **(rev 2, §R2.2)** Converted Leads/Clients means distinct contacts (the campaign lead when present, otherwise the contact) with at least one outbound call in the window whose disposition converts. **Policies Sold means wins.** They are labelled separately. **No conversion rate of any kind.** The only dial-to-policy figure is "Dials per Policy Sold". |
 | D-5 | A rate whose denominator is 0 | "—", never 0%. |
 | D-6 | Lead source | Attribution comes only from current leads (the #5 compatibility link). **Converted by source is shown as unavailable**, because conversion deletes the lead and clients have no lead source. Lead-cost editing and the CPL/ROI columns are hidden: the table's global `UNIQUE(lead_source)` makes cross-tenant costs impossible, and there are 0 rows in production. A follow-up migration would add a per-org unique key and give cost-period semantics a definition. |
 | D-7 | Goal Tracking | Shown as unavailable. `agent_scorecards` has no maintained writer and holds 0 rows; `goals` holds 0 rows. |
 | D-8 | Schedule / My Reports buttons | Removed from the page. Neither works today: inserts fail, nothing is sent, and "Play" is a no-op. The component files are kept. |
 | D-9 | Legacy `rpc_report_*` | Revoke EXECUTE from PUBLIC, anon and authenticated in this migration. Keep the functions; drop them in a later cleanup. |
-| D-10 | Time zone for buckets | The browser's IANA zone, like the Dialer (#14). Agency-timezone reporting remains deferred. |
+| D-10 | Time zone | **(rev 2, §R2.1)** The agency timezone, resolved server-side from `company_settings.timezone`, drives both the window and the buckets. There is no caller timezone. The default is `America/Chicago`, labelled as such. |
 | D-11 | Calls with no agent under organization scope | Included in totals and shown as an "Unattributed" line. They are excluded from per-agent tables. |
 | D-12 | Longest allowed window | 366 days, enforced both server- and client-side. |
 | D-13 | Release order | Frontend first, then the migration (see §9). |
@@ -443,9 +488,10 @@ The scope does not expand without recording why in this plan's as-built appendix
 5. **Read-back.** Confirm the new function metadata and ACLs, and that the legacy ACLs are `{postgres, service_role}`. Run a bounded READ ONLY authenticated-role call for one Admin and one Agent at identical bounds, and compare the totals with the Leaderboard month for the same window.
 6. **Smoke tests** (§10).
 7. **Rollback / re-disable.**
-   - **(a) Re-disable (preferred).** Apply `supabase/ops/reports_disable.sql` as a new migration. The page then shows "temporarily unavailable" and data stays safe.
-   - **(b) Frontend rollback.** Promote the previous Vercel deployment. Its legacy calls are now revoked, so its panels would show zeros (the old error-swallowing). Pair it with (a) and a banner, or prefer fixing forward.
-   - **(c) Full SQL rollback.** The rollback file **re-opens the anon cross-tenant exposure**. Use it only with Chris's explicit written acceptance.
+   - **(a) Re-disable (preferred).** Apply `supabase/ops/reports_disable.sql` as a new migration. The page then shows "temporarily unavailable", and the legacy functions stay inaccessible.
+   - **(b) Remove the new functions.** Apply the rollback file as a new migration. It drops the new objects and **re-asserts** the legacy revocation (§R2.3). Reports stays unavailable, and nothing vulnerable is re-granted.
+   - **(c) Frontend rollback.** Promote the previous Vercel deployment, only together with (a) or (b). The old frontend's legacy calls are denied, so it shows zeros (its old error-swallowing). Prefer fixing forward.
+   - **There is no path that restores legacy EXECUTE to PUBLIC, anon or authenticated.**
 
 ## §10. Smoke tests after release
 
