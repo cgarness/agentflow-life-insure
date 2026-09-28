@@ -1,0 +1,465 @@
+# Implementation Plan — Reports & Analytics: secure, canonical, truthful (overnight build, 2026-09-28)
+
+**Status: AWAITING CHRIS'S APPROVAL. No implementation file has been modified.**
+Branch `claude/reports-analytics-overnight-c69826`, based on `main` @ `5d37e5f98dc16b08d11359b1506153aac014b25a` (re-checked 2026-09-28).
+Approval of this plan authorizes **local implementation and testing only**. It is **not** approval to merge, apply any
+Supabase migration, deploy an Edge Function, trigger a Vercel production deployment or change production configuration
+(AGENT_RULES #28). Those steps are listed in §9 for a separate decision.
+
+---
+
+## §0. TL;DR
+
+1. **There is a live cross-tenant exposure today.** All four `public.rpc_report_*` functions are `SECURITY DEFINER`,
+   take `p_org_id` from the caller without checking it, run with `search_path=public`, and grant EXECUTE to **`anon`**.
+   Anyone holding the public anon key can read any organization's call aggregates and agent names, and any
+   authenticated user can pass another organization's id or a null agent id. (This was confirmed read-only in production on
+   2026-09-28: the ACL is `{postgres, anon, authenticated, service_role}` on all four.)
+2. **Reports numbers are not trustworthy even inside one tenant.** Specifically:
+   - `rpc_report_campaign_performance` reads a column that does not exist (`campaigns.campaign_type`; the real column is `type`), so it errors on every call.
+   - The frontend turns that failure, and every other error, into zeros or "No data".
+   - Contacted uses the retired `dnc_auto_add` rule instead of the canonical one (`counts_as_contacted`, No Answer excluded).
+   - "Policies sold" is actually a count of converting *calls*, not wins.
+   - Lead-source totals ignore the agent filter and the date range, so restricted users see organization-wide totals.
+   - Hours and days are bucketed in UTC.
+   - The calling heatmap is synthesized from its two marginal distributions instead of the real data.
+   - Goal Tracking reads a table nothing maintains (0 rows in production).
+   - Scheduled Reports inserts a column that does not exist and nothing ever sends them.
+   - Team Leaders get only their own data, because the team scope is marked "deferred".
+3. **The plan** (security > metric correctness > filters > exports > polish):
+   - **One new migration** creates a new, secured `public.get_report_*` RPC family:
+     - Scope is derived only from `auth.uid()` and the database-authoritative profile, through the existing `private.campaign_actor()`.
+     - Team scope uses the existing `private.resolve_downline_ids()`.
+     - The existing configurable Reports permissions (page access, View Own / View Team Reports, Dashboard & Reports data scope) are enforced server-side.
+     - A caller-supplied agent id can only narrow the scope.
+     - Metrics follow the documented canon only (Leaderboard #23, Contacted #13, campaign cards #17).
+     - In the same transaction it **revokes EXECUTE on the four legacy functions from PUBLIC, anon and authenticated**. They are kept, not dropped, so rollback stays cheap.
+   - The frontend is rebuilt around a keyed, generation-guarded data hook with per-panel loading / empty / error / denied states, server-driven filter options, permission-gated and sanitized exports, and no polling.
+   - Tests cover a real-PostgreSQL SQL suite (authorization matrix, metric canon, drift and replay refusal, rollback, negative control) plus vitest (query layer, hook races, page states, exports, source contracts).
+4. **Nothing Dialer- or Leaderboard-owned changes.** `src/lib/report-utils.ts` stays frozen because it is Dialer-owned. No RLS policy, table, trigger, grant on any non-Reports object, telephony, queue or leaderboard file is touched.
+
+---
+
+## §1. Inputs read and evidence
+
+- AGENT_RULES.md (all of it), VISION.md, WORK_LOG.md (newest entries through the 2026-09-26 leaderboard payload release).
+- The existing Reports implementation (21 components, `Reports.tsx`, `reports-queries.ts`, `stat-computations.ts`, `report-layout*.ts`) was audited by six parallel read-only reviewers: components, page/permissions, shared-lib consumers, test infrastructure, leaderboard/dialer boundary, and metric canon. Their raw findings are summarized in §2.
+- **Read-only production catalog reads (`jncvvsvckxhqgqvkppmj`, 2026-09-28, SELECT only, no customer rows exported):**
+  - `pg_get_functiondef` / `prosrc` MD5 / owner / volatility / `SECURITY DEFINER` / `proconfig` / ACL of the four legacy RPCs. The live bodies are **byte-identical** to `20260806000000_baseline_production_schema.sql` (prosrc MD5 `eb741e0d…`, `7d17e968…`, `521abcbc…`, `9dc9273f…`), and all four are `VOLATILE`, `search_path=public`, owner `postgres`.
+  - No other function, view or cron job references `rpc_report_*`. No `public.get_report*` function exists yet.
+  - `private.campaign_actor()` and `private.resolve_downline_ids(uuid,uuid)` exist in production (postgres-only EXECUTE, `search_path=pg_catalog, pg_temp`). `authenticated` has no USAGE on schema `private`.
+  - Column inventory of `calls`, `campaigns` (confirms `type`, no `campaign_type`), `campaign_leads`, `leads`, `clients` (no `lead_source`), `dispositions` (`counts_as_contacted` present), `pipeline_stages`, `wins`, `appointments`, `dialer_sessions`, `role_permissions`, `lead_source_costs`, `goals`, `agent_scorecards`, `saved_reports`, `scheduled_reports`, `report_layouts`. RLS policies of the tables Reports reads directly. Indexes on `calls` (`idx_calls_org_created_at` exists).
+  - Aggregate shape counts only: 3 orgs; roles Admin 4 / Agent 8 / Team Leader 2 / 0 `'Super Admin'` role strings; 1 super admin; 10 profiles with `upline_id`.
+    - `role_permissions` rows exist for **1** org (Agent: Reports page **on**, View Own on, View Team off, scope own; Team Leader: page on, View Own/Team on, scope team). Other orgs use the code defaults.
+    - Calls: 2,963 outbound / 100 inbound / 0 NULL direction; 83 have a NULL agent; 27 name-only dispositions.
+    - `campaign_leads.source` is populated on 0 rows. `lead_source_costs` has 0 rows. `agent_scorecards` has 0, `goals` 0, `saved_reports` 0, `scheduled_reports` 0 and `report_layouts` 0 rows. 360 `dialer_sessions`, 6 wins, 65 appointments.
+- A local PostgreSQL 16.13 harness was verified by running the existing `scripts/run_profile_rpc_tests.sh` (all proofs pass).
+- **Baseline gates on clean main `5d37e5f`:**
+  - Root `npx tsc --noEmit` exits 0, but it checks nothing: it is a solution-style tsconfig.
+  - `npx tsc -p tsconfig.app.json --noEmit` reports **90** errors, all pre-existing.
+  - `npx vitest run`: **3,433 passed / 1 failed / 14 skipped** (3,448 tests); 12 files fail. 11 of those fail only for lack of Supabase environment variables. The remaining failure is the known voicemail-v29 byte check. The failing set matches the 2026-09-26 record.
+
+---
+
+## §2. What is wrong today (condensed audit)
+
+### 2.1 Security (critical)
+| # | Finding | Evidence |
+|---|---------|----------|
+| S1 | 4 legacy RPCs: SECURITY DEFINER, caller-controlled `p_org_id`, no `auth.uid()` check, EXECUTE to `anon` + `authenticated` | prod ACL; baseline :5032-5336, :14334-14358 |
+| S2 | `p_agent_id` unchecked → null = whole org; own-scope enforced only by the browser choosing its own id | `Reports.tsx:111-114`, `reports-queries.ts:278-336` |
+| S3 | `search_path = public` without `pg_temp`; unqualified object names; VOLATILE | baseline |
+| S4 | `fetchProfiles` sends every active org profile's **email** to every Reports viewer; `fetchLeads` pulls lead **phone/state** only to count rows | `reports-queries.ts:38-47,103-113` |
+| S5 | Per-section CSV buttons ignore the "Export Reports" permission; CSV cells are not formula-neutralized | `ReportSection.tsx:40-50`, `reports-queries.ts:219-228` |
+| S6 | `View Own Reports` / `View Team Reports` are configurable in Settings but read nowhere | grep |
+| S7 | Admin write controls (org default layout, lead cost edit) gated on *data scope* = "all", not on role | `Reports.tsx:75,354-381` |
+
+### 2.2 Accuracy
+| # | Finding |
+|---|---------|
+| A1 | `rpc_report_campaign_performance` selects `cmp.campaign_type` (does not exist) → 42703 every call → Campaign Performance and Lead Source panels permanently empty |
+| A2 | Contacted = `duration > 45 OR dnc_auto_add` — not the canon (No Answer excluded first, `duration > 45`, `counts_as_contacted` by id with org-scoped name fallback); includes inbound |
+| A3 | "Policies sold"/"Sold"/"Leads converted" all display the count of *converting calls*; `wins` is never read |
+| A4 | `started_at` with inclusive `<= end`; canon is `calls.created_at` half-open `[start, end)` |
+| A5 | Talk time / averages include inbound and zero-duration rows; `avg_duration_seconds` is integer division; "Avg talk time (contacted only)" is not contacted-only |
+| A6 | ≥5 different "contact rate" denominators and ≥6 "conversion" definitions across components |
+| A7 | Hour / day-of-week / date buckets in UTC but displayed as local |
+| A8 | Campaign: calls joined by `contact_id = campaign_leads.lead_id` (breaks after conversion); `total_leads` all-time and not agent-scoped |
+| A9 | Lead source: `total` = all org leads of that source, all-time, **not agent-scoped** (restricted users see org counts) |
+| A10 | Session stats always "—" (reads a nonexistent `duration_seconds`); AgentEfficiency recomputes sessions in the browser from RLS-visible rows (a Team Leader's RLS shows **all org sessions** → out-of-scope rows) |
+| A11 | CallingHeatmap fabricates cells (`dow_total × hour_total / total`); "Speed to Lead" tab is a fixed sentence; "Avg Deal Cycle" hardcoded "N/A"; DispositionDeepDive receives `dispositions={[]}` so it draws no bars; PoliciesSoldChart sorts formatted labels alphabetically |
+| A12 | Goal Tracking reads `agent_scorecards` goal flags that nothing writes (0 rows in prod) |
+| A13 | "Active leads" stat = org-wide raw count, ignores agent and date; appointments/DNC/callbacks inferred client-side by disposition **name** |
+
+### 2.3 Reliability
+- No loading vs. empty vs. failed distinction anywhere; every fetcher returns zero-shaped data on error.
+- No request generation or abort. A late response can overwrite a newer filter, and the first `finally` clears loading early.
+- A profile with no org spins forever. Nothing is keyed to the viewer.
+- Scheduled Reports: every insert fails (`send_time` vs. real column `time_of_day`), there are no recipients, and nothing sends. "My Reports → Play" is a no-op.
+
+---
+
+## §3. Design
+
+### 3.1 Backend: one new migration
+
+`supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql` is a placeholder version. `apply_migration` stamps its own version, and the filename is reconciled after any production apply (AGENT_RULES #34/#37 practice); the SQL bytes are never edited.
+
+**Preflight (fails the whole transaction):**
+- The four legacy functions must exist with **exactly** the audited `prosrc` MD5s, owner `postgres`, `SECURITY DEFINER`, and ACL grantees ⊆ {postgres, anon, authenticated, service_role}. On body drift it refuses: someone changed them, so a human must look.
+- No `public.get_report_*` or `private.report_*` object may already exist. It refuses a replay.
+- `private.campaign_actor()` and `private.resolve_downline_ids(uuid,uuid)` must exist.
+
+**New private helpers** (`SECURITY DEFINER STABLE`, `search_path = pg_catalog, pg_temp`, every object schema-qualified, `REVOKE ALL … FROM PUBLIC, anon, authenticated`):
+
+1. `private.report_permission_flags(p_org uuid, p_role text)` returns page_access, view_own, view_team, can_export and data_scope. It reads `role_permissions.permissions` for `(org, role)` and mirrors `usePermissions`:
+   - Role key: `'Agent'` reads `agent`; `'Team Leader'` reads `teamLeader`.
+   - Page: `p[name='Reports']`.
+   - Features: `f[*].features[name IN ('View Own Reports','View Team Reports','Export Reports')]`.
+   - Scope: `d[label='Dashboard & Reports']`.
+   - With no row, or a non-array block, it uses the `permissionDefaults.ts` defaults:
+
+     | Role | Page | View Own | View Team | Export | Scope |
+     |---|---|---|---|---|---|
+     | Agent | false | true | false | false | own |
+     | Team Leader | true | true | true | true | team |
+
+   - **Fail-closed tightening vs. the browser:** a value that is not a JSON boolean counts as `false`. A scope outside {own, team, all} counts as `own`, the narrowest scope. A vitest source-contract test pins these defaults equal to `permissionDefaults.ts`.
+2. `private.report_access(p_agent_id uuid)` returns uid, org_id, role, scope (`own` | `team` | `organization`), can_export, agent_ids uuid[] (NULL means the whole organization) and filter_agent_id. It raises **SQLSTATE 42501** on denial.
+   - **Actor:** from `private.campaign_actor()`. That function requires `auth.uid()` and organization context, reads the profile row (never the JWT role), requires the profile org to equal `get_org_id()` and the profile to be `Active`, and raises 42501 otherwise.
+   - **Admin, Super Admin role, or `is_super_admin`:** `organization` scope over the actor's **home** org, which `campaign_actor` proves is the profile org. There is no cross-tenant path, because nothing accepts an org id.
+   - **Agent or Team Leader:**
+     - Reports page access off → denied.
+     - Data scope `own`: requires View Own → `{self}`.
+     - Data scope `team`: View Team → `{self} ∪ private.resolve_downline_ids(self, org)` (upline_id walk, org-constrained, cycle-safe, the same resolver the approved Team Profile uses). Without View Team but with View Own → `{self}`. Neither → denied.
+     - Data scope `all`: View Team → `organization`. Without View Team but with View Own → `{self}`. Neither → denied. **This composition is decision D-1.**
+   - Any other role string → denied.
+   - **`p_agent_id` narrows only.** In organization scope it must be a profile in the actor's org. In own or team scope it must be in `agent_ids`. Otherwise it is denied (42501, "agent outside report scope"). A null agent never widens: own stays `{self}` and team stays the team.
+3. `private.report_call_facts(p_org, p_start, p_end, p_agent_ids uuid[])` returns one row per call in scope, with canonical classification computed **once** for every Reports RPC:
+   - Window: `created_at >= p_start AND created_at < p_end`.
+   - Scope: `organization_id = p_org` and `(p_agent_ids IS NULL OR agent_id = ANY(p_agent_ids))`.
+   - Direction class: `outbound` = `lower(coalesce(direction,'')) IN ('outbound','outgoing')`, `inbound` = `IN ('inbound','incoming')`, otherwise `other`.
+   - Duration: `greatest(coalesce(duration,0),0)`, the canonical Twilio-written value (#8).
+   - Disposition: resolved by id first (organization-guarded), then by `lower(name)` fallback within the org only when `disposition_id IS NULL`.
+   - `is_contacted` uses the exact canonical CASE from `get_campaign_card_stats` / `get_trusted_today_dialer_stats`, applied to outbound calls only:
+
+     ```sql
+     CASE
+       WHEN lower(coalesce(di.name, dn.name, disposition_name, '')) = 'no answer' THEN false
+       WHEN duration > 45 THEN true
+       WHEN di.counts_as_contacted THEN true
+       WHEN disposition_id IS NULL AND dn.counts_as_contacted THEN true
+       ELSE false
+     END
+     ```
+
+   - `is_converting`: the resolved disposition's pipeline stage has `convert_to_client = true` (organization-guarded).
+   - Disposition flags: `dnc_auto_add`, `callback_scheduler` and `appointment_scheduler` (the canonical columns, never names).
+   - Campaign: `calls.campaign_id` (organization-guarded join to `campaigns`, the Dialer's per-campaign canon), plus `campaign_lead_id`, which must belong to that campaign and org.
+   - Linked lead: the #5 compatibility relation (`lead_id`, else `contact_id` with `contact_type` of `'lead'` or NULL), with the lead in the same org.
+
+**New public RPCs.** All are `SECURITY DEFINER STABLE`, `search_path = pg_catalog, pg_temp`, and **take no organization parameter**. EXECUTE is revoked from PUBLIC and anon and granted to `authenticated` and `service_role`. Each validates the window: non-null, `end > start`, at most 366 days (**D-12**), otherwise `22023`. Each returns JSON aggregates only: no phone numbers, emails, notes, lead names or contact ids.
+
+| RPC | Returns (all counts are integers; rates `numeric(5,1)` or **null when the denominator is 0**) |
+|-----|------|
+| `get_report_scope()` | scope, role, can_export, self_id, agents `[{id, name}]` (the allowed set only: org roster = non-Deleted org profiles; team = resolved ids; own = self). This is the **only** source of the agent selector. |
+| `get_report_call_summary(p_start, p_end, p_agent_id := NULL)` | **Totals:**<br>• calls_made (outbound)<br>• inbound_calls, other_calls, total_calls<br>• contacted and contact_rate_pct (contacted ÷ calls_made)<br>• talk_time_seconds (outbound Σ duration) and avg_talk_per_dial_seconds<br>• inbound_talk_seconds<br>• converted (distinct contacts, **D-4**)<br>• policies_sold (`COUNT(wins)` by `wins.created_at`, attributed to `wins.agent_id`)<br>• appointments_set (canonical #23: `appointments.created_at`, `COALESCE(created_by, user_id)`, no status filter)<br>• dnc_calls and callback_calls (by disposition flag)<br>• session_seconds (canonical `dialer_sessions` span, window on `started_at`)<br>**Breakdowns:**<br>• by_agent: per in-scope agent (Active roster plus anyone with activity): name, calls_made, contacted, contact_rate_pct, talk_time_seconds, converted, policies_sold, appointments_set, session_seconds<br>• unattributed: calls with no agent (organization scope only)<br>• scope metadata |
+| `get_report_call_volume(p_start, p_end, p_agent_id, p_time_zone)` | by_date: zero-filled **local** days in the validated IANA zone, with calls_made, contacted, inbound_calls and policies_sold. by_hour (0-23), by_day_of_week (0-6) and heatmap (dow×hour): real counts of calls_made and contacted. An unknown or null zone raises `22023`; it never silently falls back to UTC. |
+| `get_report_disposition_breakdown(p_start, p_end, p_agent_id)` | Outbound calls only (**D-3**).<br>• by_disposition: key, name, color, count, avg_duration_seconds, and the flags counts_as_contacted, converts, dnc, callback and appointment; sorted by count; includes an "(No disposition)" bucket.<br>• by_agent[{agent_id, name, counts{key:n}}]<br>• by_campaign[{campaign_id, name, counts}]<br>• duration_histogram: fixed, ordered and zero-filled (0-30s, 30s-1m, 1-2m, 2-5m, 5m+). |
+| `get_report_campaign_performance(p_start, p_end, p_agent_id)` | Only campaigns with an in-scope call or win in the window. Per campaign: name, type, calls_made, contacted_calls, contact_rate_pct, leads_dialed / contacted_leads / converted_leads (distinct `campaign_lead_id`, the card canon), policies_sold (`wins.campaign_id`). **No all-time or organization-wide campaign size is returned**, which removes leak A8. unattributed_calls counts outbound calls in scope that carry no campaign. |
+| `get_report_lead_source_performance(p_start, p_end, p_agent_id)` | Per `trim(leads.lead_source)` (blank becomes "(No source)"), for calls linked to a current lead:<br>• calls_made, contacted_calls, contact_rate_pct<br>• leads_dialed, contacted_leads<br>• new_leads: leads created in the window; organization scope counts all org leads, restricted scope counts `assigned_agent_id ∈ scope`<br>**converted is returned as null with `converted_available=false`** and a reason (**D-6**): conversion deletes the source lead and `clients` has no `lead_source`. unattributed_calls counts calls not linked to a current lead. |
+
+**Legacy RPCs:** `REVOKE EXECUTE ON FUNCTION public.rpc_report_*(uuid,timestamptz,timestamptz,uuid) FROM PUBLIC, anon, authenticated;` The functions stay owned by postgres, and `service_role` keeps EXECUTE. They are **not dropped** (**D-9**); a later cleanup migration can drop them once the release is verified.
+
+**No table, column, index, RLS policy, trigger or grant on any table changes.** The functions only read `profiles`, `role_permissions`, `calls`, `dispositions`, `pipeline_stages`, `campaigns`, `campaign_leads`, `leads`, `wins`, `appointments` and `dialer_sessions`.
+
+**Rollback / re-disable artefacts:**
+- **`supabase/migrations/rollback/20260928120000_reports_secure_scoped_rpcs.rollback.sql`** is the exact inverse. It drops every new object and re-grants the legacy EXECUTE to anon and authenticated. It carries a loud header: **this re-opens exposure S1** and must be used only with Chris's explicit acceptance.
+- **`supabase/ops/reports_disable.sql`** is the recommended emergency switch. It revokes EXECUTE on the new public RPCs from `authenticated`; the UI then shows "Reports are temporarily unavailable" and never zeros.
+- **`supabase/ops/reports_enable.sql`** is its inverse.
+- Both ops files refuse unless the objects are in the expected state. The filenames deliberately avoid the word `leaderboard`, because the leaderboard CI path filter matches `*leaderboard*`.
+
+### 3.2 Frontend
+
+- **`src/lib/reports-schemas.ts`** (new) holds Zod schemas and inferred types for each RPC payload. A payload that fails validation becomes an **unavailable error, never a zero**.
+- **`src/lib/reports-queries.ts`** (rewrite) contains one typed fetcher per RPC:
+  - Each uses the narrow `(supabase as any).rpc` cast, as the new RPCs are absent from generated types (the house pattern of #14/#16/#17), and forwards an `AbortSignal`.
+  - Each **throws** a `ReportsQueryError` whose kind is `denied` (SQLSTATE 42501), `invalid` (22023), `timeout`, `aborted` or `unavailable`. `{data:null}` and schema failures count as unavailable.
+  - No `|| []`, no zero fallbacks and no `p_org_id`.
+  - Removed:
+    - dead fetchers: `fetchCallsRaw`, `fetchPipelineStages`, `fetchCampaignsWithStats` and `fetchCampaignLeads`;
+    - the PII fetchers `fetchProfiles` (email) and `fetchLeads` (phone);
+    - browser session math (`fetchDialerSessions`) and `fetchActiveLeadsCount`;
+    - `upsertLeadSourceCost`, which was broken anyway.
+  - Kept: the date and format helpers.
+- **`src/lib/reports-export.ts`** (new) is the single CSV writer:
+  - It neutralizes a leading `= + - @ \t \r` by prefixing `'`.
+  - Every file carries a header block: scope, agent filter, local period and generated-at.
+  - It refuses to export a panel that is not `ready` **for the current key**, so stale data cannot be exported.
+  - It revokes the object URL after the click has dispatched.
+- **`src/hooks/useReportsData.ts`** (new) is the keyed state machine:
+  - **Keys.** The scope key is `viewerId|orgId`. The panel key is `viewerId|orgId|startISO|endISO|agentFilter|timeZone`.
+  - **Loading order.** Scope loads first; panels load only after the scope is ready. A selected agent that is not in `scope.agents` resets to "all in scope" before any request, so the UI never sends an agent the backend will reject.
+  - **Panels.** Five panels run in parallel: summary, volume, dispositions, campaigns and leadSources. Each settles independently. One panel failing leaves the others valid, which is the partial-failure requirement.
+  - **Request lifetime.**
+    - There is one `AbortController` per generation and per-panel generation counters.
+    - A superseded key aborts in-flight requests, and a late answer commits nothing: no rows, no error, no loading flag (AGENT_RULES #31).
+    - State is stored **with its key** and read through a render-time key match, so another viewer's, period's or agent's rows are never painted, not even for one frame.
+    - A key that is about to fetch reads as `loading`, never as empty.
+  - **Timeouts and retry.** Each request is bounded at 25 s and then fails with `timeout`. Retry is per panel and for all panels, manual only, with **no polling and no realtime subscription**.
+  - **Scope errors.** If the scope is denied, the page shows the permission-denied state and sends no panel request. If the scope is unavailable, the page shows an error with Retry.
+  - **Identity.** Identity comes from `useAuth().profile`, which is the real profile here because Reports stays withheld under "View As" (unchanged). On logout or a user or org change, the key changes, the cleanup aborts in-flight requests, and render-time keying hides the old data.
+- **`src/pages/Reports.tsx`** (rewrite, under 200 lines):
+  - It composes `ReportsToolbar` and the section grid.
+  - It removes the "Schedule" and "My Reports" buttons and mounts (**D-8**: both are non-functional). The component files stay on disk, unreferenced.
+  - Team sections are shown when the server scope is `team` or `organization`, not based on `isAdmin`.
+  - Admin writes (org default layout, and lead-cost editing if it is ever re-enabled) require the real role Admin or `is_super_admin`, not the data scope.
+- **`src/components/reports/ReportsToolbar.tsx`** (new) holds:
+  - the presets and the custom range (validated: end ≥ start, at most 366 days);
+  - an agent selector populated **only** from `scope.agents` (for own scope it shows the user's own name, disabled);
+  - a scope badge ("Your activity" / "Your team (n)" / "Organization");
+  - the Refresh control;
+  - a permission-gated Export button, disabled unless the summary is ready for the current key.
+- **`src/components/reports/ReportPanelState.tsx`** (new) is a shared wrapper with loading skeleton, "Couldn't load … — this is not a zero" plus Retry, denied, and "unavailable (reason)" states. Children render only on `ready`, and the true empty message appears only after a successful empty result.
+- **Section components.** These are surgical adaptations to the new payloads and states. Visual language is unchanged (Tailwind, premium dark), and hardcoded white or slate tooltip and section backgrounds are fixed to theme tokens.
+  - `StatsGrid`, `StatCard` and `stat-computations.ts`:
+    - Every stat is computed from canonical server fields.
+    - A stat without a canonical backing is marked **unavailable**, with a reason and no number, and is removed from the defaults and the picker. The 23 "coming soon" stubs are also removed from the defaults.
+    - A failed summary renders "—" plus an error on every card, never 0.
+    - `report-layout-constants.ts` default-visible stats change to canonical ones only. Stat IDs are kept, so saved layouts stay compatible; there are 0 rows in production today.
+  - `CallVolumeChart`: local-day series, with the grouping toggle actually regrouping (exact sums of daily counts).
+  - `DispositionsPieChart`: server breakdown, plus honest counts of calls made, contacted and contact rate; there is no fake nested funnel.
+  - `CommunicationsStats`: canonical fields.
+  - `CallingHeatmap`: the **real** heatmap in local time; cell rate = contacted ÷ calls_made, or "—" when the cell is 0; the fabricated "Peak windows" advice is removed.
+  - `CallFlowAnalysis`: local by-hour and by-day data; the "Speed to Lead" placeholder tab is removed.
+  - `CallDurationAnalysis`: fixed ordered histogram; insight driven by the `converts` flag, never by disposition name.
+  - `DispositionDeepDive`: series come from the payload (top 8 by count plus "Other").
+  - `PoliciesSoldChart`: **wins** by local date, chronological; "Avg Deal Cycle N/A" is removed.
+  - `CampaignPerformance` and `LeadSourceTable`: new fields. Converted-by-source is shown as "Not available" with a tooltip. Cost/ROI editing and columns are replaced by a "Cost tracking unavailable" note (**D-6**).
+  - `AgentPerformanceCards`: new per-agent fields; the meaningless goal bar is removed.
+  - `AgentEfficiency`: server session seconds. Calls/hr = calls_made ÷ session hours. Conversion is shown as policies ÷ calls_made (the documented #23 canon).
+  - `GoalTracking`: an "unavailable" notice (**D-7**); the `agent_scorecards` read is removed.
+  - `ReportSection`: accepts a `canExport` gate plus the export handler through `reports-export`.
+  - `SectionRenderer`: team gating comes from the scope.
+  - `ReportCustomizer`: the org-default button is gated on role.
+- **Not modified:**
+  - `src/lib/report-utils.ts` (Dialer-owned; frozen)
+  - `src/integrations/supabase/types.ts`
+  - `src/config/permissionDefaults.ts`
+  - `src/hooks/usePermissions.ts`
+  - `src/components/settings/Permissions.tsx`
+  - `src/lib/report-layout.ts`
+  - `CustomReportBuilder.tsx` and `ScheduledReportsModal.tsx` (unmounted only)
+  - `DraggableSection.tsx`
+  - every leaderboard, Dashboard and Dialer file
+
+### 3.3 Why a new RPC family rather than editing the four in place
+- **A clean contract.** The new functions take no org parameter, have typed windows and use a time zone (the legacy signature carries `p_org_id` and no zone).
+- **A clean rollback.** The legacy bodies are untouched: revocation is reversible with one GRANT, and the rollback never has to reconstruct SQL.
+- **A clean release.** The new frontend calls only the new functions. The release order in §9 means users see an honest "temporarily unavailable" state for the few minutes between deploy and apply, never zeros.
+
+---
+
+## §4. Exact files to touch
+
+**New (backend / tests / CI / ops)**
+1. `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql`
+2. `supabase/migrations/rollback/20260928120000_reports_secure_scoped_rpcs.rollback.sql`
+3. `supabase/ops/reports_disable.sql`
+4. `supabase/ops/reports_enable.sql`
+5. `supabase/tests/reports_harness.sql` — synthetic schema. It is production-faithful for the columns it uses: the four legacy bodies are installed verbatim from the baseline with the production ACL, and `campaign_actor` and `resolve_downline_ids` are installed verbatim.
+6. `supabase/tests/reports_rpc.sql` — the behaviour and authorization suite.
+7. `scripts/run_reports_rpc_tests.sh` — localhost-only runner: suite + negative control + drift refusal + replay refusal + rollback proof + disable/enable proof.
+8. `.github/workflows/reports-backend.yml` — a PR check using the postgres 17.6 service container (the production version), path-filtered to the Reports SQL files. No production credentials.
+
+**New (frontend)**
+
+9. `src/lib/reports-schemas.ts`
+10. `src/lib/reports-export.ts`
+11. `src/hooks/useReportsData.ts`
+12. `src/components/reports/ReportPanelState.tsx`
+13. `src/components/reports/ReportsToolbar.tsx`
+
+**New (tests)**
+
+14. `src/lib/__tests__/reportsQueries.test.ts`
+15. `src/lib/__tests__/reportsExport.test.ts`
+16. `src/lib/__tests__/reportsContracts.test.ts` — source contracts:
+    - the migration's REVOKEs, `SECURITY DEFINER` and search_path;
+    - no org parameter;
+    - SQL defaults equal `permissionDefaults.ts`;
+    - no zero fallbacks in the query layer;
+    - no raw-table reads in `Reports.tsx`;
+    - `report-utils.ts` untouched.
+17. `src/lib/__tests__/reportStatComputations.test.ts`
+18. `src/hooks/__tests__/useReportsData.test.tsx`
+19. `src/pages/__tests__/reportsPage.test.tsx`
+20. `src/components/reports/__tests__/reportSections.test.tsx`
+
+**Modified (frontend)**
+
+21. `src/lib/reports-queries.ts`
+22. `src/lib/stat-computations.ts`
+23. `src/lib/report-layout-constants.ts`
+24. `src/pages/Reports.tsx`
+25. `src/components/reports/StatsGrid.tsx`
+26. `src/components/reports/StatCard.tsx`
+27. `src/components/reports/ReportSection.tsx`
+28. `src/components/reports/SectionRenderer.tsx`
+29. `src/components/reports/ReportCustomizer.tsx`
+30. `src/components/reports/AgentPerformanceCards.tsx`
+31. `src/components/reports/CallVolumeChart.tsx`
+32. `src/components/reports/DispositionsPieChart.tsx`
+33. `src/components/reports/PoliciesSoldChart.tsx`
+34. `src/components/reports/CampaignPerformance.tsx`
+35. `src/components/reports/LeadSourceTable.tsx`
+36. `src/components/reports/CommunicationsStats.tsx`
+37. `src/components/reports/CallingHeatmap.tsx`
+38. `src/components/reports/CallDurationAnalysis.tsx`
+39. `src/components/reports/AgentEfficiency.tsx`
+40. `src/components/reports/CallFlowAnalysis.tsx`
+41. `src/components/reports/DispositionDeepDive.tsx`
+42. `src/components/reports/GoalTracking.tsx`
+
+**Docs**
+
+43. `WORK_LOG.md` — additive newest-first entry; all prior bytes preserved.
+44. `AGENT_RULES.md` — new invariant **#38**, the Reports security and metric contract (required by the Doc Update Rule §9).
+45. `implementation_plan.md` (root) — a new §16 that indexes this plan. The leaderboard sections are unchanged.
+46. `docs/plans/2026-09-28-reports-analytics/implementation_plan.md` — this file, plus an as-built appendix.
+47. `docs/plans/2026-09-28-reports-analytics/MORNING_HANDOFF.md`
+
+The scope does not expand without recording why in this plan's as-built appendix. If a file outside this list turns out to be necessary, I stop that portion and document it.
+
+---
+
+## §5. Interaction analysis (Dialer / Leaderboard / security)
+
+| Area | Interaction | Conclusion |
+|------|-------------|-----------|
+| Dialer | Reports reads `calls`, `dispositions`, `dialer_sessions` read-only via STABLE functions. `report-utils.ts` (Dialer/win-owned: `isConvertedDisposition`, `buildDNCDispositionSet`, `buildContactedDispositionLookup`) is **not modified**; the canonical Contacted CASE is replicated in SQL exactly as `get_campaign_card_stats` / `get_trusted_today_dialer_stats` already do. | No Dialer behaviour, telemetry writer, `calls.duration`, queue, lock, claim, retry, disposition save, recording or inbound path changes. |
+| Leaderboard | No import edge exists in either direction (audited). `get_org_leaderboard_stats`, the request gate, Dashboard lanes, `useDashboardStats` (which also reads `getDataScope("reports")`) and every leaderboard migration/ops/CI file are untouched. `usePermissions` / permission storage semantics are unchanged, so Dashboard scoping is unaffected. New migration/ops filenames avoid `leaderboard` (its CI path filter). | No conflict. |
+| Database load | 6 RPCs per explicit filter change or Refresh; no polling, no realtime. Windows capped at 366 days; outbound/window predicates use `idx_calls_org_created_at`. Small tier. | Bounded; release smoke includes a timing read. |
+| Security | New SECURITY DEFINER functions bypass RLS by design, so each enforces its own authorization (actor, org, role, permission, scope, agent narrowing) before any business read, and returns aggregates + agent display names only. Agent names are already organization-readable via `profiles_select_org`; team/own scopes return only in-scope names. | Strictly narrower than today (anon removed, org and agent scope enforced server-side). |
+| RLS | No policy added, changed or relied upon for authorization. | `#APPROVE_RLS_CHANGE` not needed. |
+
+---
+
+## §6. Decisions for Chris (recommended default first; implemented as the default unless you say otherwise)
+
+| ID | Decision | Default |
+|----|----------|---------|
+| D-1 | How Reports permissions combine | Page access is required. Data scope **own** requires View Own. **team** gives self plus downline when View Team is on, otherwise self when View Own is on. **all** gives the organization when View Team is on, otherwise self when View Own is on. Admin and Super Admin are locked to the whole home organization. |
+| D-2 | Call timestamp and window | `calls.created_at`, half-open `[start, end)`, matching the Leaderboard canon (#23). Reports numbers will match the Leaderboard for the same period. |
+| D-3 | Population for Calls Made, Talk Time, Contacted, Contact Rate, the disposition breakdown and the volume charts | **Outbound** only, as canon. Inbound is shown separately as its own count. |
+| D-4 | Converted | Distinct contacts (the campaign lead when there is one, otherwise the contact) with at least one outbound call in the window whose disposition converts. This extends the #17 card canon beyond campaign calls. **Policies Sold = wins**, labelled separately. The only conversion rate shown is policies ÷ calls made (the #23 canon). |
+| D-5 | A rate whose denominator is 0 | "—", never 0%. |
+| D-6 | Lead source | Attribution comes only from current leads (the #5 compatibility link). **Converted by source is shown as unavailable**, because conversion deletes the lead and clients have no lead source. Lead-cost editing and the CPL/ROI columns are hidden: the table's global `UNIQUE(lead_source)` makes cross-tenant costs impossible, and there are 0 rows in production. A follow-up migration would add a per-org unique key and give cost-period semantics a definition. |
+| D-7 | Goal Tracking | Shown as unavailable. `agent_scorecards` has no maintained writer and holds 0 rows; `goals` holds 0 rows. |
+| D-8 | Schedule / My Reports buttons | Removed from the page. Neither works today: inserts fail, nothing is sent, and "Play" is a no-op. The component files are kept. |
+| D-9 | Legacy `rpc_report_*` | Revoke EXECUTE from PUBLIC, anon and authenticated in this migration. Keep the functions; drop them in a later cleanup. |
+| D-10 | Time zone for buckets | The browser's IANA zone, like the Dialer (#14). Agency-timezone reporting remains deferred. |
+| D-11 | Calls with no agent under organization scope | Included in totals and shown as an "Unattributed" line. They are excluded from per-agent tables. |
+| D-12 | Longest allowed window | 366 days, enforced both server- and client-side. |
+| D-13 | Release order | Frontend first, then the migration (see §9). |
+
+---
+
+## §7. Verification plan
+
+**SQL (real PostgreSQL; local 16.13, CI 17.6; synthetic tenants only; the runner refuses anything that is not localhost)**
+- **T0 — installation metadata:** `SECURITY DEFINER`, `STABLE`, search_path `pg_catalog, pg_temp`, owner, and no uuid organization parameter.
+- **T1 — grants:** anon cannot EXECUTE any new function (checked by privilege **and** by an actual call under `SET ROLE anon`). Legacy functions are no longer executable by anon or authenticated. Private helpers are not callable by authenticated.
+- **T2:** an unauthenticated caller, a missing profile, an inactive profile, a JWT organization that differs from the profile organization, and an unknown role are each denied (42501).
+- **T3 — Agent:** own scope only. Asking for another agent is denied. A null agent equals self.
+- **T4 — Team Leader:** sees the downline; a non-downline agent in the same org is denied; a null agent equals the team, never the organization.
+- **T5 — Admin:** organization scope. **Super Admin:** home organization only; an agent id from another org is denied.
+- **T6:** cross-organization agent id denied; no org parameter exists, so a forged org parameter cannot be expressed, and a forged JWT org claim is refused by `campaign_actor`.
+- **T7:** permission revocation takes effect on the next call. Covers page access off, View Own off, View Team off (team falls back to own), and a malformed permission shape (fails closed).
+- **T8 — metric canon:**
+  - Calls Made are outbound-only.
+  - Talk time comes from `calls.duration`, including negative clamping.
+  - Contacted covers >45 s, `counts_as_contacted` by id, the name fallback, No Answer excluded (even when >45 s) and inbound excluded.
+  - The zero-call denominator is null.
+  - Converted is distinct; Policies Sold equals the number of wins.
+  - Appointments follow the canon.
+  - Session seconds follow the canon.
+- **T9:** half-open date bounds, a reversed or oversized window rejected (22023), an unknown time zone rejected, and local-day bucketing across UTC midnight.
+- **T10:** disposition grouping by id, the name fallback, the "(No disposition)" bucket and the fixed histogram order.
+- **T11:** campaign attribution; restricted users never receive organization totals; campaign membership after lead deletion.
+- **T12:** lead-source scope. An agent sees only in-scope calls and assigned new leads; converted is unavailable.
+- **T13:** a successful empty result is valid JSON with zeros where counts are genuinely zero and nulls for rates.
+- **Runner proofs:**
+  - negative control (a deliberately broken classifier must fail T8);
+  - drift refusal (a changed legacy body makes the migration abort with nothing applied);
+  - replay refusal;
+  - rollback proof (objects dropped, legacy grants restored, data unchanged);
+  - disable/enable proof.
+
+**Vitest**
+- The query layer:
+  - calls the exact RPC names with exact arguments (no org);
+  - maps 42501 → denied, 22023 → invalid, `{data:null}` → unavailable and a schema mismatch → unavailable;
+  - passes the abort signal through;
+  - applies the 25 s timeout.
+- The hook covers:
+  - scope before panels, and no panel request when access is denied;
+  - a stale resolve or stale reject after key changes (range, agent, viewer, org);
+  - partial-panel failure keeps the other panels;
+  - retry per panel;
+  - an agent outside the scope resets before any request;
+  - no timers or polling after settle;
+  - a frame recorder proving the previous key's rows are never painted.
+- The page covers loading, error (no digits rendered), denied, empty, partial, the selector showing only scope agents, and export gated and disabled until ready.
+- Exports cover formula neutralization, the header block, and refusing stale or not-ready panels.
+- Stat computations: canonical stats are correct and non-canonical ones are unavailable.
+- Sections: the heatmap uses the real matrix, charts are chronological, and empty differs from error.
+
+**Repository gates:**
+- `npx tsc --noEmit` (reported, and noted as vacuous) and `npx tsc -p tsconfig.app.json --noEmit` (must not exceed the 90 baseline errors, with no new diagnostic in a touched file).
+- Full `npx vitest run` compared with the baseline.
+- ESLint on the touched files.
+- `npm run build`.
+- The new SQL runner, and the existing profile RPC runner for regression, since its resolver is reused.
+- An adversarial review round (independent reviewer agents on the diff) before the handoff.
+
+---
+
+## §8. Explicit non-actions
+
+- No merge. No `apply_migration` or any other production write. No Edge Function deploy, Vercel deploy or Supabase / Vercel configuration change.
+- No production data is read beyond the catalog and aggregate reads listed in §1.
+- No RLS change, and no change to Dialer, Twilio, queue, retry, disposition, recording, inbound or leaderboard code or SQL.
+- No change to the `wins`, `agent_scorecards` or `lead_source_costs` schema or data.
+
+---
+
+## §9. Release sequence (for a separate approval), rollback and smoke tests
+
+1. **Review and CI.** Review the PR. CI `reports-backend.yml` must be green, and the local gates are recorded in the handoff.
+2. **Frontend first.** Merge; Vercel builds production from `main`. Until step 3, Reports shows an honest "temporarily unavailable" error: the new RPCs do not exist yet and the page never shows zeros. Every other page is unaffected.
+3. **Preflight.** Immediately after the deploy is READY, run read-only checks that the four legacy bodies still match the audited hashes and that no `get_report_*` object exists.
+4. **Migration.** `apply_migration` with the **exact** file bytes. Then reconcile the repository filename to the recorded version; the SQL bytes are not edited.
+5. **Read-back.** Confirm the new function metadata and ACLs, and that the legacy ACLs are `{postgres, service_role}`. Run a bounded READ ONLY authenticated-role call for one Admin and one Agent at identical bounds, and compare the totals with the Leaderboard month for the same window.
+6. **Smoke tests** (§10).
+7. **Rollback / re-disable.**
+   - **(a) Re-disable (preferred).** Apply `supabase/ops/reports_disable.sql` as a new migration. The page then shows "temporarily unavailable" and data stays safe.
+   - **(b) Frontend rollback.** Promote the previous Vercel deployment. Its legacy calls are now revoked, so its panels would show zeros (the old error-swallowing). Pair it with (a) and a banner, or prefer fixing forward.
+   - **(c) Full SQL rollback.** The rollback file **re-opens the anon cross-tenant exposure**. Use it only with Chris's explicit written acceptance.
+
+## §10. Smoke tests after release
+
+1. Admin: This Month totals equal the Leaderboard month (calls made, talk time, policies sold, appointments). Organization badge shown. Agent selector lists org agents; picking one narrows.
+2. Agent (own): selector disabled on self; numbers equal the Dialer's per-campaign sums for today; no other agent's name appears anywhere, including CSV.
+3. Team Leader: selector lists self + downline only; a non-downline agent id sent by hand via the API returns 42501.
+4. Anonymous `POST /rest/v1/rpc/get_report_call_summary` with the anon key → 401/permission denied; legacy `rpc_report_call_summary` → permission denied.
+5. Campaign Performance and Lead Source panels render real rows (previously always empty).
+6. Toggle the org's Agent "Reports" page permission off → Agent sees the permission-denied state on next load (no data).
+7. Kill the network mid-load → panels show "Couldn't load — this is not a zero" with Retry; export disabled.
+8. Timing: each RPC for This Month < 1 s at current volume (log the request times; no polling traffic in logs).
+
+---
+
+## §11. As-built appendix
+
+(Filled in after implementation: deviations from this plan with reasons, test counts, and the final file list.)
