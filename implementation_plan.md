@@ -1125,3 +1125,27 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - Chris's three final corrections are implemented on the branch: contact-first Converted identity, a fail-closed
     agency time zone with no default, and the "Call contact rate" label. They are recorded in the Reports plan §R3.
   - A PR against `main` is opened so the Reports backend CI runs. It is not merged, and the migration is not applied.
+
+---
+
+## §17. Contact Follow-ups card + appointment ownership/reminders BUGFIX (2026-09-28) — plan awaiting approval
+
+The full plan lives in its own file so the records above, including the Reports §16 pointer when it lands, stay
+intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
+
+- **Why:** an explicitly chosen appointment assignee is overwritten on three live save paths (`CalendarPage.handleSave`,
+  `CalendarContext.addAppointment`, `FullScreenContactView`'s Schedule). A CalendarPage edit also reassigns the row
+  and rewrites `created_by`.
+- **Reminders:** they also fire for Cancelled, Completed and No Show appointments. An assignee never learns of an
+  appointment booked for them until a reload, because `appointments` is not in the realtime publication.
+- **Proposed:**
+  - one tested ownership rule: `user_id` = the responsible person, who is the reminder recipient; `created_by` = the
+    scheduler, never rewritten;
+  - a pure reminder-eligibility rule, a bounded visible-tab refresh and a Google create-sync guard;
+  - a compact read-only Follow-ups card on the existing contact view, merging appointments, campaign callbacks and
+    tasks for one contact. It reuses the `dashboard-callbacks.ts` constants without editing that file.
+- **Boundaries:**
+  - frontend only: no migration, RLS, RPC, Edge Function or deploy;
+  - no Reports/Analytics, Dialer/telephony or canonical callback-writer change;
+  - no production action. The only production access was read-only catalog and aggregate queries.
+  - Decisions D-1…D-18 await Chris.
