@@ -22,6 +22,8 @@ const PUBLIC_RPCS = [
   "get_report_lead_source_performance(date, date, uuid)",
 ];
 const stripSqlComments = (s: string) => s.replace(/--[^\n]*/g, "");
+/** Code only: block and line comments removed (explanations may name what the code must not do). */
+const stripTsComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
 const gitBlobSha = (content: string) =>
   createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
 
@@ -120,7 +122,7 @@ describe("frontend data-path contract", () => {
       .filter((f) => f.endsWith(".tsx") && !["CustomReportBuilder.tsx", "ScheduledReportsModal.tsx"].includes(f))
       .map((f) => `src/components/reports/${f}`)];
     for (const f of files) {
-      const src = read(f);
+      const src = stripTsComments(read(f));
       expect(src, f).not.toMatch(/@\/integrations\/supabase\/client/);
       expect(src, f).not.toMatch(/rpc_report_|\.from\(["']/);
       expect(src, f).not.toMatch(/downloadCSV|agent_scorecards|dialer_daily_stats/);

@@ -77,11 +77,12 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
         <p className="text-sm text-muted-foreground text-center py-12">No calls in this period.</p>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit">
+          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit" role="group" aria-label="Call duration view">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
+                aria-pressed={t.key === tab}
                 onClick={() => setTab(t.key)}
                 className={cn(
                   "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",

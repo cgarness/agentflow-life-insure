@@ -136,23 +136,58 @@ export function bucketLabel(key: string, grouping: Grouping): string {
  * Regroup the server's zero-filled daily series. Sums of daily counts are exact at any grouping, and
  * buckets stay in chronological order (keys are ISO-ordered strings).
  */
+/** Last calendar day of the month containing `date`. */
+function monthEnd(date: string): string {
+  const d = toUtc(date);
+  return fromUtc(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)));
+}
+
+/**
+ * Label for a bucket from the days it ACTUALLY covers. A week or month clipped by the report window
+ * is labelled with its real span ("Sep 23 – Sep 26"), never as the full period.
+ */
+export function coveredBucketLabel(key: string, grouping: Grouping, first: string, last: string): string {
+  if (grouping === "daily") return shortDateLabel(key);
+  if (grouping === "weekly") {
+    return first === key && last === addDays(key, 6) ? bucketLabel(key, grouping) : `${shortDateLabel(first)} – ${shortDateLabel(last)}`;
+  }
+  const full = first === `${key}-01` && last === monthEnd(first);
+  return full ? bucketLabel(key, grouping) : `${shortDateLabel(first)} – ${shortDateLabel(last)}`;
+}
+
+/**
+ * Regroup the server's zero-filled daily series. Sums of daily counts are exact at any grouping,
+ * buckets stay in chronological order (keys are ISO-ordered strings), and each bucket reports the
+ * first/last day it covers so a partial week or month is never labelled as a whole one.
+ */
 export function groupDailySeries<T extends { date: string }, F extends Exclude<keyof T, "date"> & string>(
   rows: T[],
   grouping: Grouping,
   fields: F[],
-): Array<{ key: string; label: string } & Record<F, number>> {
-  const buckets = new Map<string, Record<string, number>>();
+): Array<{ key: string; label: string; first: string; last: string } & Record<F, number>> {
+  const buckets = new Map<string, { first: string; last: string; sums: Record<string, number> }>();
   for (const row of rows) {
     const key = bucketKey(row.date, grouping);
-    const acc = buckets.get(key) ?? {};
+    const b = buckets.get(key) ?? { first: row.date, last: row.date, sums: {} };
+    if (row.date < b.first) b.first = row.date;
+    if (row.date > b.last) b.last = row.date;
     for (const f of fields) {
-      acc[f] = (acc[f] ?? 0) + Number(row[f] ?? 0);
+      b.sums[f] = (b.sums[f] ?? 0) + Number(row[f] ?? 0);
     }
-    buckets.set(key, acc);
+    buckets.set(key, b);
   }
   return Array.from(buckets.keys())
     .sort()
-    .map((key) => ({ key, label: bucketLabel(key, grouping), ...buckets.get(key) }) as { key: string; label: string } & Record<F, number>);
+    .map((key) => {
+      const b = buckets.get(key)!;
+      return {
+        key,
+        label: coveredBucketLabel(key, grouping, b.first, b.last),
+        first: b.first,
+        last: b.last,
+        ...b.sums,
+      } as { key: string; label: string; first: string; last: string } & Record<F, number>;
+    });
 }
 
 // ─── Display formatting ──────────────────────────────────────────────────────────────────────────

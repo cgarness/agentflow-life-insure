@@ -23,8 +23,8 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
-function periodCell(key: string, grouping: Grouping): string {
-  return grouping === "weekly" ? `Week of ${key}` : key;
+function periodCell(first: string, last: string): string {
+  return first === last ? first : `${first} to ${last}`;
 }
 
 function policiesLabel(n: number): string {
@@ -74,7 +74,9 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
       ).map((b) => ({
         key: b.key,
         label: b.label,
-        policies_sold: b.policies_sold ?? 0,
+        first: b.first,
+        last: b.last,
+        policies_sold: b.policies_sold,
       })),
     [volume.by_date, grouping],
   );
@@ -101,7 +103,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
         onExport(
           "Policies Sold",
           ["Period", "Policies sold"],
-          series.map((b) => [periodCell(b.key, grouping), b.policies_sold]),
+          series.map((b) => [periodCell(b.first, b.last), b.policies_sold]),
         )
     : undefined;
 

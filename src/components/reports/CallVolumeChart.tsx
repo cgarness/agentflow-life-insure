@@ -25,8 +25,8 @@ const TOOLTIP_STYLE = {
 };
 
 /** Unambiguous period cell for CSV (includes the year, unlike the short on-screen label). */
-function periodCell(key: string, grouping: Grouping): string {
-  return grouping === "weekly" ? `Week of ${key}` : key;
+function periodCell(first: string, last: string): string {
+  return first === last ? first : `${first} to ${last}`;
 }
 
 /**
@@ -44,9 +44,11 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onGroupingChange, 
       ).map((b) => ({
         key: b.key,
         label: b.label,
-        calls_made: b.calls_made ?? 0,
-        contacted: b.contacted ?? 0,
-        inbound_calls: b.inbound_calls ?? 0,
+        first: b.first,
+        last: b.last,
+        calls_made: b.calls_made,
+        contacted: b.contacted,
+        inbound_calls: b.inbound_calls,
       })),
     [volume.by_date, grouping],
   );
@@ -67,7 +69,7 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onGroupingChange, 
         onExport(
           "Call Volume",
           ["Period", "Calls made", "Contacted", "Inbound"],
-          series.map((b) => [periodCell(b.key, grouping), b.calls_made, b.contacted, b.inbound_calls]),
+          series.map((b) => [periodCell(b.first, b.last), b.calls_made, b.contacted, b.inbound_calls]),
         )
     : undefined;
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatCount, formatRate, ratio } from "@/lib/reports-format";
+import { formatCount, formatRate } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportDispositions } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,8 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
       source
         .filter((r) => r.total > 0)
         .map((r) => {
-          const counts = series.map((s) => (s.key === null ? 0 : r.counts[s.key] ?? 0));
+          // The server's counts map omits dispositions this row never used: a genuine zero.
+          const counts = series.map((s) => (s.key !== null && s.key in r.counts ? r.counts[s.key] : 0));
           const other = series.findIndex((s) => s.key === null);
           if (other >= 0) counts[other] = Math.max(0, r.total - counts.reduce((a, b) => a + b, 0));
           return { name: r.name, total: r.total, counts };
@@ -86,7 +87,8 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         const row: ChartRow = { name: r.name, total: r.total };
         series.forEach((s, i) => {
           row[`raw_${s.id}`] = r.counts[i];
-          row[s.id] = mode === "count" ? r.counts[i] : (ratio(r.counts[i], r.total) ?? 0) * 100;
+          // Rows with total 0 were filtered out above, so the share is always defined here.
+          row[s.id] = mode === "count" ? r.counts[i] : (r.counts[i] / r.total) * 100;
         });
         return row;
       }),
@@ -97,7 +99,7 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     ? () =>
         onExport(
           tab === "agent" ? "Disposition Deep Dive - By agent" : "Disposition Deep Dive - By campaign",
-          [tab === "agent" ? "Agent" : "Campaign", ...series.map((s) => s.name), "Total"],
+          ["Name", ...series.map((s) => s.name), "Total"],
           counted.map((r) => [r.name, ...r.counts, r.total]),
         )
     : undefined;
@@ -133,6 +135,8 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
                 tick={tick}
                 allowDecimals={false}
                 domain={mode === "pct" ? [0, 100] : [0, "auto"]}
+                // Float shares can stack to 100.00000000000001, which would stretch the axis to 120%.
+                allowDataOverflow={mode === "pct"}
                 tickFormatter={(v: number) => (mode === "pct" ? `${v}%` : formatCount(v))}
               />
               <YAxis type="category" dataKey="name" width={130} tick={tick} tickFormatter={truncate} />
@@ -142,8 +146,9 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
                 itemStyle={textStyle}
                 cursor={{ fill: "hsl(var(--muted))" }}
                 formatter={(v: number, name: string, item: { dataKey?: string | number; payload?: ChartRow }) => {
-                  const raw = Number(item.payload?.[`raw_${String(item.dataKey)}`] ?? 0);
-                  return [mode === "pct" ? `${formatRate(v)} (${formatCount(raw)})` : formatCount(v), name];
+                  const raw = item.payload?.[`raw_${String(item.dataKey)}`];
+                  const suffix = typeof raw === "number" ? ` (${formatCount(raw)})` : "";
+                  return [mode === "pct" ? `${formatRate(v)}${suffix}` : formatCount(v), name];
                 }}
               />
               <Legend

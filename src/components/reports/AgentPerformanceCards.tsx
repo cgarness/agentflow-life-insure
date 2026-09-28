@@ -1,5 +1,5 @@
 import React from "react";
-import { formatCount, formatRate } from "@/lib/reports-format";
+import { formatCount, formatHours, formatRate } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
 import type { ReportAgentRow, ReportSummary } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
@@ -148,6 +148,7 @@ const AgentPerformanceCards: React.FC<Props> = ({
                 <Stat label="Inbound" value={formatCount(u.inbound_calls)} />
                 <Stat label="Policies sold" value={formatCount(u.policies_sold)} />
                 <Stat label="Appointments" value={formatCount(u.appointments_set)} />
+                <Stat label="Talk time" value={formatHours(u.talk_time_seconds)} />
               </div>
             </div>
           )}

@@ -76,7 +76,12 @@ describe("agency calendar arithmetic", () => {
     expect(weekly.map((b) => b.key)).toEqual(["2026-06-28", "2026-07-05"]);
     expect(weekly.map((b) => b.calls_made)).toEqual([6, 4]);
     const monthly = groupDailySeries(rows, "monthly", ["calls_made"]);
-    expect(monthly.map((b) => [b.label, b.calls_made])).toEqual([["Jun 2026", 3], ["Jul 2026", 7]]);
+    // Both months are clipped by the rows, so they are labelled with the days they really cover.
+    expect(monthly.map((b) => [b.label, b.calls_made])).toEqual([["Jun 29 – Jun 30", 3], ["Jul 01 – Jul 05", 7]]);
+    expect(weekly.map((b) => b.label)).toEqual(["Jun 29 – Jul 01", "Jul 05 – Jul 05"]);
+    const fullJuly = Array.from({ length: 31 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, calls_made: 1 }));
+    expect(groupDailySeries(fullJuly, "monthly", ["calls_made"])[0].label).toBe("Jul 2026");
+    expect(groupDailySeries(fullJuly, "weekly", ["calls_made"])[1].label).toBe("Week of Jul 05");
     expect(bucketKey("2026-07-04", "weekly")).toBe("2026-06-28"); // Saturday -> preceding Sunday
     expect(autoGrouping({ startDate: "2026-07-01", endDate: "2026-07-31" })).toBe("weekly");
   });
