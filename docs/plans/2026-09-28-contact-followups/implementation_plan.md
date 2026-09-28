@@ -1017,22 +1017,22 @@ row's `lead_id` is NULL, `contact.id` is a `campaign_leads.id`.
    no-show workflow never fires.
 7. The DialerPage camelCase `addAppointment` at `:3619` (a failing write), plus the unreachable Dialer modal and
    callback modal.
-10. `CalendarContext.fetchAppointments` has no limit and orders ascending from −180 days.
-    - PostgREST `max_rows` (Supabase default 1000) would drop the **newest** rows first, i.e. the future rows
-      reminders need, in a large org.
-    - Production has 65 rows, so it is not a problem today.
-    - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
-12. Unify the attribution of booked appointments: the Group leaderboard, GoalProgressWidget and getPerformance count
-    by `user_id`, while the org leaderboard uses `COALESCE(created_by, user_id)` (D-19).
-13. Calendar display: populate the always-blank "Agent" label from `user_id`, so a scheduler can see who is
-    responsible.
-11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
-    to a placeholder number. "View Contact" navigates with no contact type.
 8. If D-15 = B, the `AddTaskModal` date bug remains: date-only `due_date` stored as UTC midnight, today rejected in
    US zones. There are 0 tasks in production today.
 9. TasksPanel lets Admins and TLs tick tasks they can see but not update. `tasks_update_own` only allows the assignee
    or creator. The RLS-filtered no-op update returns `null` without an error, so a success toast shows while nothing
    changed. TasksPanel also renders "No tasks yet" on a query error.
+10. `CalendarContext.fetchAppointments` has no limit and orders ascending from −180 days.
+    - PostgREST `max_rows` (Supabase default 1000) would drop the **newest** rows first, i.e. the future rows
+      reminders need, in a large org.
+    - Production has 65 rows, so it is not a problem today.
+    - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
+11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
+    to a placeholder number. "View Contact" navigates with no contact type.
+12. Unify the attribution of booked appointments: the Group leaderboard, GoalProgressWidget and getPerformance count
+    by `user_id`, while the org leaderboard uses `COALESCE(created_by, user_id)` (D-19).
+13. Calendar display: populate the always-blank "Agent" label from `user_id`, so a scheduler can see who is
+    responsible.
 
 ## §15. Pre-approval review record
 (Filled in below by the independent audit/verification and design-review passes before handoff.)
