@@ -1371,3 +1371,54 @@ Until then, a cross-assigned booking made with this branch credits the assignee 
 the scheduler in the org leaderboard. Production had 0 rows with `user_id ≠ created_by` on 2026-09-28, so nothing
 historical moves; the divergence would start only with new cross-assigned bookings after a merge — which the gate
 prevents.
+
+## §19. Final attribution reconciliation after the Reports merge (Chris, 2026-09-29) — the §18 gate
+
+**Authority:** Chris's "FINAL APPOINTMENT ATTRIBUTION RECONCILIATION" brief (BUGFIX). Reports & Analytics is merged
+(`9aa011c4`, record `d05f4754`) and its migration is applied as `20260929152553_reports_secure_scoped_rpcs`. Stop gate:
+no push, merge, deploy, migration apply or production change; Chris approves (A) the prepared Group migration,
+(B) the push and (C) the eventual merge/release separately.
+
+**Approved canon (supersedes the §18 open questions):**
+- `appointments.created_by` = the scheduler (who SET/BOOKED it); `appointments.user_id` = the assignee (who HANDLES it).
+- "Appointments Set" = booking activity: credit `COALESCE(created_by, user_id)` on `appointments.created_at`. The
+  `user_id` fallback is approved ONLY for legacy/writer-gap rows (`created_by IS NULL`); normal writers populate
+  `created_by`. Credit survives cancellation, no-show, reschedule and completion — no status/outcome filter.
+- Workload/schedule and reminders credit `user_id` on the occurrence (`start_time`).
+
+**Rebase:** onto `origin/main` @ `d05f4754` (24 ahead, 0 behind). Application code had no overlap; shared docs were
+resolved additively (main's §16 Reports pointer, AGENT_RULES #38 and every Reports WORK_LOG entry kept byte-for-byte;
+this branch's pointer, #22 bullet and entries added). The five early commits that briefly rewrote the root plan were
+kept as empty records. New baseline = `origin/main` @ `d05f4754`; the `5d37e5f` baseline is obsolete.
+
+**Verify-only (no change if they hold):**
+- `get_report_call_summary`: `created_at` window, `coalesce(created_by, user_id)`, no status filter — repo and live.
+- `get_org_leaderboard_stats`: `COALESCE(ap.created_by, ap.user_id)` on `created_at`; live definition hash
+  `c8b1f9d0c7cf5f8dfb7e437577029278` (the recorded active state).
+
+**Change (setter credit):**
+1. **Group leaderboard (production RPC — migration PREPARED, NOT APPLIED).** Live `get_agency_group_leaderboard` counts
+   `WHERE ap.user_id = p.id AND ap.created_at >= v_period_start`. The new migration changes exactly that predicate to
+   `COALESCE(ap.created_by, ap.user_id) = p.id`, behind an exact-preimage guard (definition md5, owner, ACL, a unique
+   replacement location, unchanged metadata, expected post-image md5), with a guarded rollback. Period, roster,
+   membership check, calls/policies, ordering, SECURITY DEFINER, `search_path`, owner and grants are preserved.
+2. **GoalProgressWidget** "Monthly Appointments": `created_at` month window, setter credit through a shared,
+   UUID-validated `.or()` expression, no status exclusion.
+3. **`usersApi.getPerformance`** `appointmentsSet` / `appsMonth` (UserProfileModal → UserGoalsTab): the same rule.
+
+**Unchanged by design (workload):** `useDashboardStats`, `StatCards`, `AppointmentsWidget`, `DashboardDetailModal` keep
+`start_time` + `user_id`; only a stale comment in `useDashboardStats` that called the workload tile the future
+"Appointments Set" definition is corrected. ReminderPopup, the Follow-ups card and every §17 behaviour are unchanged.
+Out of scope: the Dialer 7-hour/writer bugfix, telephony, queue, Twilio, callback writers, Reports redesign, Group
+policies unrelated to appointment attribution (e.g. its PUBLIC/anon EXECUTE and clients-based policies, recorded in #23).
+
+**Intended files (listed before editing):**
+- New: `src/lib/appointmentAttribution.ts`; `src/lib/__tests__/appointmentAttribution.test.ts`;
+  `src/components/dashboard/__tests__/goalProgressAppointmentsSet.test.tsx`; `src/lib/__tests__/usersGetPerformance.test.ts`;
+  `supabase/migrations/20260929160000_group_leaderboard_appointment_setter_credit.sql`;
+  `supabase/migrations/rollback/20260929160000_group_leaderboard_appointment_setter_credit.rollback.sql`;
+  `supabase/tests/group_leaderboard_harness.sql`; `supabase/tests/group_leaderboard_rpc.sql`;
+  `scripts/run_group_leaderboard_tests.sh`; `.github/workflows/group-leaderboard-backend.yml`.
+- Modified: `src/components/dashboard/widgets/GoalProgressWidget.tsx`; `src/lib/supabase-users.ts`;
+  `src/hooks/useDashboardStats.ts` (comment only); this plan; `AGENT_RULES.md` (#22 bullet gate sentence, one #23
+  bullet); root `implementation_plan.md` (status line); `WORK_LOG.md` (entry after verification).
