@@ -1422,3 +1422,71 @@ policies unrelated to appointment attribution (e.g. its PUBLIC/anon EXECUTE and 
 - Modified: `src/components/dashboard/widgets/GoalProgressWidget.tsx`; `src/lib/supabase-users.ts`;
   `src/hooks/useDashboardStats.ts` (comment only); this plan; `AGENT_RULES.md` (#22 bullet gate sentence, one #23
   bullet); root `implementation_plan.md` (status line); `WORK_LOG.md` (entry after verification).
+
+### §19 result (2026-09-29) — implemented and verified locally; NOT pushed, merged, deployed or applied
+
+**Verify-only results (unchanged):**
+- `get_report_call_summary`: live body byte-identical to the repo migration (prosrc md5 `f221e1d470fc70ec92937be66be56e69`,
+  8,418 bytes); appointments CTE = `coalesce(a.created_by, a.user_id)`, `created_at` half-open window, no status filter.
+  Production migration record still ends at `20260929152553 reports_secure_scoped_rpcs`. Reports SQL suite (T0–T15, six
+  negative controls, drift/replay, disable/enable, rollback) passes on the branch.
+- `get_org_leaderboard_stats`: live definition md5 `c8b1f9d0c7cf5f8dfb7e437577029278`; `COALESCE(ap.created_by, ap.user_id)`
+  on `created_at >= p_start AND < p_end`, no status filter. The org-leaderboard backend harness passes 32/32 (4 mutations
+  caught) on PostgreSQL 17.6.
+
+**Group leaderboard — prepared, NOT applied:** `20260929160000_group_leaderboard_appointment_setter_credit.sql` changes only
+`WHERE ap.user_id = p.id` → `WHERE COALESCE(ap.created_by, ap.user_id) = p.id`. Guard: definition md5
+`e1283b5b05d295c1d25888485cc08346` (live, repo baseline, PG16 and PG17.6 renderings all identical) → post-image
+`e69bbcf6a9f47457a44c887cb4418aef`; owner `postgres`; ACL `{=X,postgres=X,anon=X,authenticated=X,service_role=X}` preserved;
+unique location; metadata unchanged (defaults compared via `pg_get_function_arguments`, because `proargdefaults` embeds a
+source-text `:location` on PG16 that moves on re-creation). Rollback restores the exact preimage. Proof:
+`scripts/run_group_leaderboard_tests.sh` passes on PG16.13 and PG17.6 (suite T1–T9, negative control, body/ACL drift and
+replay refusal, rollback and rollback-replay refusal, 42702 proof, 6b). CI: `.github/workflows/group-leaderboard-backend.yml`
+(runs on a PR). After an approved `apply_migration`, reconcile the filename to the stamped version and update the runner's
+`MIG`/`ROLLBACK` paths (AGENT_RULES #35).
+
+**Discovered, NOT fixed (each needs its own approval) — must precede any use of the Group board:**
+1. **42702 on every call (pre-existing).** The membership check's unqualified `organization_id` collides with the function's
+   `RETURNS TABLE (organization_id …)`; production runs `plpgsql.variable_conflict = error` (PG 17.6, no override), so every
+   call raises "column reference "organization_id" is ambiguous". Latent: production has 0 agency groups / 0 memberships and
+   no such error in the last 24 h of Postgres logs. Proposed fix (tested in a scratch DB, not a repo file): qualify that one
+   reference — `AND agency_group_members.organization_id = v_caller_org` — behind the same exact-preimage guard; with it the
+   suite's T1–T8 pass under `variable_conflict = error` (runner step 6b).
+2. **Index path (latent performance).** `COALESCE(created_by, user_id)` cannot use `idx_appointments_user_id`, and the lateral
+   has no organization filter, so each roster member would scan all appointments (review measurement on PG17.6 with 300k
+   synthetic rows / 20 profiles: 3.4 ms before, ~0.8 s after). Nil today (65 appointments; function unreachable). Options for
+   the activation change: add `AND ap.organization_id = p.organization_id` (matches the org leaderboard and Reports, uses
+   the existing organization indexes; a semantic narrowing to same-org rows) or a separately approved index.
+3. Also pre-existing and unchanged: PUBLIC/anon EXECUTE (anon is refused by the membership check), no call-direction
+   filter, clients-based `policies_sold` (#23 follow-ups).
+
+**Frontend fixed:** `GoalProgressWidget` "Monthly Appointments" and `usersApi.getPerformance` (`appointmentsSet`/`appsMonth`
+→ UserProfileModal → UserGoalsTab) now use `appointmentSetterOrExpression()` (`src/lib/appointmentAttribution.ts`,
+UUID-validated) on the `created_at` month window with no status exclusion; tests evaluate the emitted filters against
+in-memory rows (`appointmentRowsFixture.ts`, a test-only fixture added to the file list) and fail on the old code.
+Workload readers unchanged; `useDashboardStats` comment corrected. Pre-existing, unchanged: `UserPerformanceTab` reads
+`performance.appsWeekly`, which `getPerformance` never returns (the "Apps Set" tile shows nothing); `getPerformance` ignores
+read errors; the unmounted `AgentScorecardModal` counts `created_by` only (no legacy fallback).
+
+**Review (adversarial workflow, 4 lenses + 4 skeptics):** no correctness or security defect in the migration, rollback or
+frontend fixes. Confirmed (all low) and handled: the runner's locality guard could be misled by a query string or libpq
+overrides, and step 6 could not show the migrated query adds no new name clash — both fixed (`b20957fa`: stricter guard,
+`current_database()` check, step 6b). Documented, not fixed: the index path above; `UserPerformanceTab`'s `appsWeekly`;
+the Team Leader RLS limitation (a TL viewing a downline's Goals can see fewer setter-credit rows than an Admin, because
+`appointments_select` hides that downline's bookings assigned outside the TL's visibility — exact team figures come from
+Reports; RLS is not weakened).
+
+**As-built deviations from the intended list:** `src/lib/__tests__/usersGetPerformance.test.tsx` (`.tsx`, it renders
+UserGoalsTab) and the added test-only fixture `src/lib/__tests__/appointmentRowsFixture.ts`.
+
+**Push (B) is a history rewrite:** the rebase replaced the already-pushed `20c4f1f9`, so (B) must be
+`git push --force-with-lease=claude/contact-followups-appointment-fix-rruo7i:20c4f1f9 -u origin claude/contact-followups-appointment-fix-rruo7i`;
+the local ref `backup/pre-rebase-20c4f1f9` is kept until the merge.
+
+**Verification (vs the NEW main `d05f4754`):** app typecheck 90 = 90 (only the pre-existing AddTaskModal TS2345 message is
+reworded); root tsc 0; ESLint clean on new files, touched files only the pre-existing `supabase-users.ts` directive warning.
+Focused 68 files: 1,096 passed + 10 LA-gated skips (UTC), 1,106 passed (`America/Los_Angeles`); only `contactName.test.ts`
+fails (main baseline, no Supabase env). Full suite: branch 249 files, 3,819 passed / 1 failed / 22 skipped, 1 unhandled
+error; new main 232 files, 3,518 / 1 / 12, 1 unhandled error — identical 12-file failed set, the same failing test
+(voicemail v29 byte-identity) and the same Twilio-mock unhandled rejection; +17 files, +301 passing, +10 LA-gated skips.
+SQL: Group suite on PG16.13 and PG17.6; Reports suite on PG16.13; org-leaderboard backend harness 32/32 on PG17.6.

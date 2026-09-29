@@ -1154,3 +1154,7 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
 - **Pre-merge gate (2026-09-29):** do not merge to `main` until appointment attribution is reconciled with the
   Reports work — "Appointments Set" credits `created_by` (scheduler), workload/reminders credit `user_id`
   (assignee). See plan §18. Branch push approved by Chris; no merge or deploy.
+- **Final reconciliation (2026-09-29, after Reports):** rebased onto `main` @ `d05f4754`; the §18 gate is reconciled in plan
+  §19 — Reports and the org leaderboard verified unchanged; GoalProgress and `getPerformance` now credit the setter; the
+  Group leaderboard migration `20260929160000` is PREPARED, NOT APPLIED. Pre-existing Group 42702 defect documented (§19).
+  Awaiting Chris: (A) the Group migration, (B) the push (a `--force-with-lease` after the rebase), (C) merge/release.
