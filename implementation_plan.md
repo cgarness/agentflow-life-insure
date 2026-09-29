@@ -1164,3 +1164,99 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
 - **Revision (2026-09-29):** the same unapplied repair migration now also hardens EXECUTE (PUBLIC and anon revoked;
   authenticated and service_role kept; final ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`);
   the rollback restores the exact production ACL. Plan §21.
+
+## §18. Group leaderboard production record reconciliation (2026-09-29) — RECORD-ONLY; awaiting Chris's approval
+
+(Root-plan §18. It is not the contact-followups plan's §18 pre-merge gate that §17 cites.)
+
+- **Authority / scope:** Chris's brief "GROUP LEADERBOARD PRODUCTION RECORD RECONCILIATION" (label DOCS). Base `main`
+  @ `196ea9a1` (0 behind). Filename/history reconciliation and release records ONLY: no application behaviour, no new
+  migration SQL, and no production action of any kind (no apply, rollback, Supabase/RLS/data change or Vercel trigger).
+- **Facts to record (all verified 2026-09-29, production `jncvvsvckxhqgqvkppmj`):**
+  - **Application:** PR #395, tested head `d719845e45ea4e798a6dae74d13d28ff8492a0a3`, squash
+    `196ea9a1d6435a271d67b6916844a09a04f8c0d4` (identical tree).
+  - **CI on the tested head:** `Group leaderboard backend verification` (PG17.6) and `Leaderboard backend verification`
+    both passed.
+  - **Frontend:** Vercel production `dpl_4Lu4ibn82JTKvzFbTPQwuDwqsEq2` READY 21:04:59 UTC, serving
+    `www.fflagent.com` and `fflagent.com`.
+  - **Migration record:** `apply_migration` recorded version `20260929215047`, name
+    `group_leaderboard_repair_membership_setter_credit`, as one statement. `md5(array_to_string(statements, E'\n'))` =
+    `fe1c3033e7ce8b947b2b987eaea42dd7` = md5 of the merged forward file.
+  - **Forward file:** sha256 `ee4a6d4973ab12c55b6775f741fc0fa3c541a7d67a64bf36514aff462636773d`, blob `34d4c66e`.
+  - **Rollback file:** sha256 `d192f97115d7d9efca090867dfd749b778804fa1363a58b4854009c3cffcd5e9`, blob `3091e86c`;
+    never applied.
+  - **Function:** `pg_get_functiondef` md5 `e1283b5b05d295c1d25888485cc08346` → `8bd49ee01e0b92abd3e66548569f36bb`.
+  - **ACL:** `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`.
+  - **Index:** `appointments_setter_created_at_idx` =
+    `CREATE INDEX appointments_setter_created_at_idx ON public.appointments USING btree (COALESCE(created_by, user_id), created_at)`.
+  - **Live probes:** anon / PUBLIC-only (authenticator) → 42501; authenticated / service_role → membership denial
+    P0001, not 42702.
+  - **Unchanged:** org leaderboard `get_org_leaderboard_stats` definition md5 `c8b1f9d0c7cf5f8dfb7e437577029278`;
+    Reports `get_report_call_summary` prosrc md5 `f221e1d470fc70ec92937be66be56e69`; every other function, index,
+    policy, column, grant and trigger fingerprint; the data.
+  - **Advisors:** security findings 194 → 193 — the only change is the removed
+    `anon_security_definer_function_executable` finding for this RPC. Performance findings: an identical set of 410. The
+    new index is not flagged `unused_index` because live traffic had scanned it (21:51:20 UTC) before the advisor
+    run (21:51:37 UTC).
+- **Occurrences of `20260929170000` on `main` (13, plus the two filenames), classified:**
+
+  | Location | Class | Action |
+  |---|---|---|
+  | `supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql` | current path | `git mv` → `supabase/migrations/20260929215047_group_leaderboard_repair_membership_setter_credit.sql`; content byte-identical |
+  | `supabase/migrations/rollback/20260929170000_group_leaderboard_repair_membership_setter_credit.rollback.sql` | current path | `git mv` → `supabase/migrations/rollback/20260929215047_group_leaderboard_repair_membership_setter_credit.rollback.sql`; content byte-identical |
+  | `scripts/run_group_leaderboard_tests.sh:9,58,59` | runner paths (live) | update |
+  | `.github/workflows/group-leaderboard-backend.yml:3` | header naming the file under test | update; path globs already match |
+  | `supabase/tests/group_leaderboard_rpc.sql:4` | SQL suite header (the AGENT_RULES #35-block bullet) | update |
+  | `AGENT_RULES.md:205` | current-status rule | update: the header (drop "PREPARED, NOT APPLIED" and "production needs Chris's separate exact approval"), the tail "(… resolved by this migration once applied)", plus one verified-post-state sentence |
+  | rollback file line 1 (`-- ROLLBACK for 20260929170000_…`) | comment inside the rollback | RETAIN: the brief requires byte-identical rollback content (#394 also left its header). The release records state that this name now means `20260929215047_…` |
+  | `WORK_LOG.md` (the two 2026-09-29 Group entries) | historical entries | RETAIN (never rewritten; matched by content, since line numbers shift) |
+  | `implementation_plan.md` §17 dated revision bullet | historical | RETAIN; new status goes in this §18 |
+  | contact-followups plan §20/§21 (`:1503,1505,1562`) | historical, dated | RETAIN |
+
+- **Reviewed, no version string, RETAIN:** these are present-tense test comments that describe the pre-repair
+  production state the harness rebuilds on purpose:
+  - `supabase/tests/group_leaderboard_index_proof.sql:86`;
+  - `supabase/tests/group_leaderboard_harness.sql:14-16`;
+  - `scripts/run_group_leaderboard_tests.sh:63,78,94` (`PROD_ACL`).
+- **Files to touch (after approval):**
+  1. The forward migration: rename only, as in the table.
+  2. The rollback: rename only, as in the table.
+  3. `scripts/run_group_leaderboard_tests.sh` (lines 9, 58, 59).
+  4. `.github/workflows/group-leaderboard-backend.yml` (line 3).
+  5. `supabase/tests/group_leaderboard_rpc.sql` (line 4).
+  6. `AGENT_RULES.md`: line 205, and line 204 per D-2.
+  7. `WORK_LOG.md`: one new entry at the top; no historical entry edited.
+  8. `docs/plans/2026-09-28-contact-followups/PRODUCTION_RELEASE_2026-09-29.md` (new).
+  9. `implementation_plan.md`: this §18 plus its as-built result.
+- **Not touched:** `src/`; every other migration; the SQL content of both files; all other tests; the
+  contact-followups plan (including its §18–§21); historical WORK_LOG entries; root §17's dated bullets;
+  `RELEASE_READINESS.md`.
+- **Verification before any push:**
+  - sha256 and `git hash-object` of both files before and after (values above), and `git diff -M` showing two
+    100%-similarity renames.
+  - A content-based grep for `20260929170000`. It may remain only in the RETAIN rows above and in the new release
+    records that cite the authored name: this §18, the new WORK_LOG entry, `PRODUCTION_RELEASE_2026-09-29.md`, and
+    `AGENT_RULES.md` if it says "authored … renamed", as #34 does.
+  - The Group runner on a disposable local PostgreSQL. This container has no Docker, so local = PG 16.13; the PG17.6
+    proof is the PR's CI.
+  - `npx tsc --noEmit`.
+  - `git diff --stat`: no `src/` change and no new or changed migration content.
+  - WORK_LOG updated last.
+- **PR:**
+  - Report the local results first; push and open the PR only on approval.
+  - CI is expected to run two backend checks: `Group leaderboard backend verification`, and `Leaderboard backend
+    verification`, whose `*leaderboard*.sql` filter matches the rename.
+  - No merge without Chris.
+- **Decisions for Chris:**
+  - **D-1 branch.** Locally, the session's designated branch `claude/contact-followups-appointment-fix-rruo7i` has
+    already been restarted at `main` and carries only this plan commit; its upstream tracking is cleared. The remote
+    branch is still at the merged PR #395 head `d719845e`, with a tree identical to `main`. Publishing there needs an
+    explicitly pinned lease:
+    `git push --force-with-lease=claude/contact-followups-appointment-fix-rruo7i:d719845e45ea4e798a6dae74d13d28ff8492a0a3 -u origin HEAD:claude/contact-followups-appointment-fix-rruo7i`.
+    Alternative: push the same commits to a new branch `claude/group-leaderboard-production-record`, with no force.
+  - **D-2 `AGENT_RULES.md:204` (recommended: edit).** That current-state follow-up bullet still lists the Group
+    RPC's "`appointments.user_id`-only … PUBLIC/anon EXECUTE" as open, and both are now fixed. Minimal wording:
+    "(clients-based policies_sold, no direction filter; its `appointments.user_id`-only attribution and PUBLIC/anon
+    EXECUTE were fixed by the Group repair applied 2026-09-29, next bullet)".
+  - **D-3 rollback header (recommended: retain).** The AGENT_RULES #35-block bullet permits correcting a rollback
+    header but does not require it. This brief requires byte-identical rollback content.
