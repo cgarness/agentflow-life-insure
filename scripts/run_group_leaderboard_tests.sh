@@ -6,7 +6,7 @@
 #
 # Builds throwaway databases from supabase/tests/group_leaderboard_harness.sql plus the functions extracted
 # VERBATIM from the baseline migration (production ACL re-created), and proves, for
-# supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql:
+# supabase/migrations/20260929215047_group_leaderboard_repair_membership_setter_credit.sql:
 #   1. the suite passes after the migration (applied in ONE transaction, as apply_migration does), under
 #      production's plpgsql.variable_conflict = error with no workaround; EXECUTE is hardened to
 #      {postgres, authenticated, service_role}
@@ -55,8 +55,8 @@ SUITE="$TESTS/group_leaderboard_rpc.sql"
 MATRIX="$TESTS/group_leaderboard_access_matrix.sql"
 PERF_DATA="$TESTS/group_leaderboard_perf_data.sql"
 INDEX_PROOF="$TESTS/group_leaderboard_index_proof.sql"
-MIG="$ROOT/supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20260929170000_group_leaderboard_repair_membership_setter_credit.rollback.sql"
+MIG="$ROOT/supabase/migrations/20260929215047_group_leaderboard_repair_membership_setter_credit.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20260929215047_group_leaderboard_repair_membership_setter_credit.rollback.sql"
 BASELINE="$ROOT/supabase/migrations/20260806000000_baseline_production_schema.sql"
 PRE_MD5="e1283b5b05d295c1d25888485cc08346"
 POST_MD5="8bd49ee01e0b92abd3e66548569f36bb"

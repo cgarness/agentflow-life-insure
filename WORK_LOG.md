@@ -1,3 +1,47 @@
+## 2026-09-29 — Contact Follow-ups + Group leaderboard repair production release — PRODUCTION VERIFIED
+
+- **Status:** released and verified in production (`jncvvsvckxhqgqvkppmj`). Record:
+  `docs/plans/2026-09-28-contact-followups/PRODUCTION_RELEASE_2026-09-29.md`.
+- **What shipped:**
+  - appointment ownership/reminder fixes;
+  - the Contact Follow-ups card;
+  - the task local-date fix;
+  - setter attribution reconciliation (GoalProgress, `getPerformance`);
+  - the Group leaderboard 42702 repair;
+  - Group leaderboard setter attribution;
+  - `appointments_setter_created_at_idx`;
+  - removal of PUBLIC/anon EXECUTE from `get_agency_group_leaderboard`.
+- **Application release:** PR #395 (tested head `d719845e45ea4e798a6dae74d13d28ff8492a0a3`), squash
+  `196ea9a1d6435a271d67b6916844a09a04f8c0d4`. CI on the tested head passed: Group leaderboard backend verification
+  (PG17.6) and Leaderboard backend verification.
+- **Vercel production:** `dpl_4Lu4ibn82JTKvzFbTPQwuDwqsEq2`, READY 21:04:59 UTC, Git integration, `www.fflagent.com`.
+- **Production migration:** `20260929215047_group_leaderboard_repair_membership_setter_credit`, applied with Chris's
+  exact approval.
+  - The stored SQL md5 `fe1c3033e7ce8b947b2b987eaea42dd7` equals the repository file.
+  - The file was authored as `20260929170000` and has now been renamed to the recorded version (AGENT_RULES #35 bullet).
+    Both the forward and rollback contents are byte-identical: forward sha256 `ee4a6d49…`, blob `34d4c66e`; rollback
+    sha256 `d192f971…`, blob `3091e86c`.
+  - The rollback's first-line comment keeps the authored name `20260929170000_…` (Chris, D-3); it means
+    `20260929215047_…`.
+- **Verification:**
+  - Function definition md5 `e1283b5b…` → `8bd49ee01e0b92abd3e66548569f36bb`.
+  - Final ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. Live probes: anon /
+    PUBLIC-only → 42501; authenticated / service_role → membership denial P0001, not 42702.
+  - Index `appointments_setter_created_at_idx (COALESCE(created_by, user_id), created_at)` is valid and used.
+  - Advisors: security 194 → 193, removing only the anon finding for this RPC; performance 410, the identical set.
+  - Unchanged: the org leaderboard (`c8b1f9d0…`) and Reports `get_report_call_summary` (`f221e1d4…`).
+  - No unrelated schema or data mutation: all other fingerprints are identical and there are 0 agency groups.
+- **Record reconciliation (this change, record-only):**
+  - Renamed both files and updated the runner, CI header and SQL suite header paths.
+  - `AGENT_RULES.md` #23: the Group bullet now says APPLIED plus the verified state; the follow-up list no longer
+    names the fixed items.
+  - Local Group runner on PG16.13 passed steps 0–7 with the renamed files; root `npx tsc --noEmit` reports 0 errors.
+  - No `src/` or migration-content change. Production actions: none; one read-only SELECT confirmed the stored SQL
+    md5.
+- **Follow-up (separate):** the Dialer appointment timestamp / `created_by` writer issue remains open, alongside
+  `appsWeekly`, the Group board's clients-based `policies_sold` and no-direction call counts, and a signed-in
+  browser smoke test.
+
 2026-09-29 UTC | [GROUP LEADERBOARD REPAIR — EXECUTE HARDENING ADDED (PUBLIC/ANON REVOKED); PG17.6 SUITE PASSES; STILL NOT APPLIED]
 
 **Authority/scope:** Chris required the still-unapplied repair migration to also resolve the live Supabase advisor finding for `public.get_agency_group_leaderboard(uuid,text)` (SECURITY DEFINER executable by anon/PUBLIC), keep the function's membership authorization, verify the post-repair ACL, and roll back to the exact current production ACL. No other advisor finding touched. Plan §21.
