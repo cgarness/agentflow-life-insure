@@ -1149,3 +1149,5 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   - no Reports/Analytics, Dialer/telephony or canonical callback-writer change;
   - no production action. The only production access was read-only catalog and aggregate queries.
   - Decisions D-1…D-23 await Chris.
+- **Status (2026-09-29):** approved 2026-09-28 with redlines (plan §16). Implemented and verified locally on
+  `claude/contact-followups-appointment-fix-rruo7i` (plan §17); not pushed, merged or deployed.

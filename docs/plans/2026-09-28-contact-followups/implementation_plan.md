@@ -1177,7 +1177,8 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
 **Rollback:** revert the branch commit(s). There is no data or schema state to unwind.
 
 ## §14. Discovered follow-ups (NOT in this change; each needs its own approval)
-1. **`dialer-api.saveAppointment` UTC wall-clock bug:**
+1. **`dialer-api.saveAppointment` UTC wall-clock bug — the NEXT SEPARATE BUGFIX (Chris's redline 3):**
+   - Out of scope for this branch: DialerPage, Twilio, queue behaviour and callback writers are untouched.
    - Dialer appointments and callback shadow rows are stored about 7 hours early in Pacific time (5/5 verified), so
      their reminders fire early.
    - Fix the writer to send absolute instants and add `created_by`.
@@ -1226,10 +1227,26 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
     - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
 11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
     to a placeholder number. "View Contact" navigates with no contact type.
-12. Unify the attribution of booked appointments: the Group leaderboard, GoalProgressWidget and getPerformance count
-    by `user_id`, while the org leaderboard uses `COALESCE(created_by, user_id)` (D-19).
+12. **Post-Reports reconciliation item (D-19, Chris's redline 1):** unify the attribution of booked appointments. The
+    Group leaderboard, GoalProgressWidget and getPerformance count by `user_id` (the assignee), while the org
+    leaderboard uses `COALESCE(created_by, user_id)` (the scheduler). No Reports, Analytics, leaderboard, goal-widget
+    or reporting-reader file changed in this branch; reconcile after the Reports session lands. Only NEW
+    cross-assigned bookings diverge (production had 0 rows with `user_id ≠ created_by` on 2026-09-28).
 13. Calendar display: populate the always-blank "Agent" label from `user_id`, so a scheduler can see who is
     responsible.
+
+Found during implementation and testing (2026-09-29; pre-existing unless stated, none fixed here):
+
+14. `AppointmentModal.handleDelete` does not await `onDelete`, toasts "Deleted" and closes before the delete settles,
+    and `CalendarContext.deleteAppointment` has no zero-row check (an RLS-hidden delete reports success). CANCEL stays
+    enabled while a save is in flight.
+15. `updateAppointment`'s optimistic merge re-maps from snake_case keys, so a payload without `contact_name` /
+    `contact_id` / `notes` blanks them on screen until the next fetch. Latent: the only caller (CalendarPage) always
+    sends them.
+16. A CalendarPage-vs-context organization mismatch surfaces as the generic failure toast rather than a specific one.
+17. `fullScreenContactViewSaveFailure`'s "falls back to a safe message" case takes ~2.8 s on `main` too and can hit
+    the 5 s default timeout under heavy parallel load.
+18. The FSCV right-column wrapper repeats the width classes on the inner card (harmless; kept to avoid restructuring).
 
 ## §15. Pre-approval review record
 This plan was built from a read-only audit and hardened by adversarial review before handoff. Nothing in these
@@ -1283,3 +1300,29 @@ Chris approved implementation using the recommended options for **D-1 … D-23**
    redesigned or restructured.
 5. There is no schema/RLS/migration change without stopping for approval first. No push, merge, deploy or
    production Supabase change is made; work stops after local verification.
+
+## §17. Implementation record (2026-09-29) — implemented and verified locally; NOT pushed
+
+Branch `claude/contact-followups-appointment-fix-rruo7i` (base `main` @ `5d37e5f`). Frontend only: no migration, RLS,
+RPC, Edge Function, deploy or production access during implementation. Redlines 1–5 (§16) were honoured.
+
+**Post-implementation review fixes (each with a regression test that fails on the pre-fix code):**
+- `CalendarContext`: a fetch that overlaps an in-flight write — started before it settled, or landed while it was
+  pending — is discarded and re-issued once no write is pending (`beginWrite` / `endWrite`), so a pre-commit snapshot
+  cannot revert an edit, restore a delete or duplicate an insert. The spinner clears only when the last non-silent
+  fetch settles.
+- `CalendarPage`: the Google sync runs detached after the database write, so a slow sync can never close, or hold
+  the saving state of, a modal opened in the meantime. `AppointmentModal` also scopes a pending save to the open
+  session that started it.
+- `ReminderPopup`: a dismiss only closes the reminder it was aimed at (timer and Call Now), the queue dequeues the
+  first still-eligible reminder by id, and a queued reminder dropped by revalidation is forgotten so it fires again
+  if the appointment becomes eligible again.
+- Follow-ups card: an empty list whose background refresh failed shows "Couldn't refresh · Retry"; a `refreshKey`
+  bump while the first read is still pending cancels that pre-write read instead of joining it.
+
+**Verification:** app typecheck 90 → 90 diagnostics against the `main` baseline (only the pre-existing AddTaskModal
+TS2345 message is reworded); root `tsc` 0. ESLint: new files clean; touched files 11 → 7 problems, all pre-existing.
+Focused suite (52 files) 818 passed / 10 LA-gated skips in UTC and 828 passed in `America/Los_Angeles`; the only
+failure is `contactName.test.ts`, a `main` baseline failure (no Supabase environment in this container). Full suite:
+240 files, 3,715 passed / 1 failed / 22 skipped, 1 unhandled error — the same 12 failed files, the same failing
+test (voicemail v29 byte-identity) and the same unhandled Twilio-mock rejection as `main` (226 files, 3,435 / 1 / 12).
