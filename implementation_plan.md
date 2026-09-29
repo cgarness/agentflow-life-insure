@@ -1121,3 +1121,7 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - The migration is **not applied**, and nothing is merged or deployed.
   - The release packet, test results, metric decisions and rollback are in
     `docs/plans/2026-09-28-reports-analytics/MORNING_HANDOFF.md`.
+- **Status update (2026-09-29, appended):**
+  - Chris's three final corrections are implemented on the branch: contact-first Converted identity, a fail-closed
+    agency time zone with no default, and the "Call contact rate" label. They are recorded in the Reports plan §R3.
+  - A PR against `main` is opened so the Reports backend CI runs. It is not merged, and the migration is not applied.

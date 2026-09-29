@@ -5,6 +5,46 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-29 UTC | [REPORTS & ANALYTICS — CHRIS'S FINAL CORRECTIONS IMPLEMENTED; PR OPENED FOR CI; NOT MERGED]
+
+**Authority/scope:**
+- Chris approved the implementation review and asked for three corrections, a re-verification and an adversarial review of those changes, then a PR against `main` so the PostgreSQL 17.6 CI runs.
+- Excluded: merge, production migration, deploy, and any change to live data or configuration.
+- Branch `claude/reports-analytics-overnight-c69826`. Plan rev 3 §R3.
+
+**What changed:**
+- **Converted identity is contact-first:** `contact_id`, then `campaign_lead_id`, then the call id. One person converting through two `campaign_lead` memberships counts once. Campaign Performance's `converted_leads` stays a count of the campaign's campaign leads.
+- **A missing agency time zone fails closed.** There is no `America/Chicago` default. A missing row, or a NULL, blank, unknown or pseudo zone, raises SQLSTATE 55000 after authorization and before anything is computed. The UI shows "The agency time zone must be configured before official Reports can be calculated", with no numbers, periods or exports.
+- **"Call contact rate".** The label changed on every Reports surface; the formula is unchanged. The inverse is labelled "Dials per contacted call".
+- **Adversarial review of the three changes:** 5 reviewers, 3 verifiers per finding and a critic. No security finding and no wrong number. Confirmed items were fixed:
+  - fallback and campaign-semantics fixtures, with negative controls 2e and 2f;
+  - pseudo-zones refused;
+  - the toolbar status text;
+  - a post-load panel 55000 now withholds the page;
+  - the label guard is mutation-checked;
+  - stale comments and docs.
+
+**Files touched:** 49 in total, the same set as before: no file added or removed. AGENT_RULES #38, the Reports plan (§R3, D-4, D-10, §11), the handoff, root plan §16 and this entry are updated.
+
+**Migration (NOT applied):** `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql`, SHA-256 `124c8e6f37c302f69372a80801fa727e3bc22e5cd8944677d58bc11efa62dc26` (65,949 bytes). The ops and rollback files are unchanged.
+
+**RPCs:** the same 6 public and 8 private functions. `private.report_agency_time_zone` now raises 55000 instead of defaulting, and `private.report_call_facts.converted_key` is contact-first.
+
+**Tests:**
+- SQL runner on PostgreSQL 16.13: T0–T15 and 6 negative controls; drift, replay, disable/enable and rollback all pass.
+- Reports Vitest: 83/83.
+- Full Vitest: 3,516 passed / 1 failed / 14 skipped, against the baseline of 3,433 / 1 / 14. That is +83, with the identical 12-file failing set (11 need Supabase env; 1 is the existing voicemail v29).
+
+**Build/typecheck:** app tsc has 90 errors, equal to the baseline, and none in Reports files. ESLint is clean. The build passes.
+
+**Production actions: NONE.** No data or settings were changed; the two orgs without a zone are left as they are.
+
+**Remaining blockers:**
+- Chris's review of the PR and CI.
+- The release approval (handoff §9).
+- An admin of each of the two unconfigured orgs choosing a zone before release.
+- A follow-up, outside Reports, to stop writing a guessed Chicago as a stored zone.
+
 2026-09-28 UTC | [REPORTS & ANALYTICS — IMPLEMENTED AND LOCALLY TESTED ON BRANCH; RELEASE PENDING SEPARATE APPROVAL]
 
 **Authority/scope:**

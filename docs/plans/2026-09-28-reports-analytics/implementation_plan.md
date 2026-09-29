@@ -1,7 +1,59 @@
 # Implementation Plan — Reports & Analytics: secure, canonical, truthful (overnight build, 2026-09-28)
 
-**Status: rev 2 — APPROVED by Chris (2026-09-28) for branch implementation and testing only, with four required changes
-recorded in §R2 before any implementation edit. §R2 supersedes any conflicting text below.**
+**Status: rev 3.**
+- Rev 2 was APPROVED by Chris (2026-09-28) for branch implementation and testing only, with four required changes
+  recorded in §R2 before any implementation edit.
+- Chris's three final corrections (2026-09-29) are recorded in §R3 and implemented on the branch.
+- Precedence: §R3 supersedes §R2 where they conflict, and both supersede any conflicting text below.
+
+## §R3. Chris's final corrections (2026-09-29; supersede §R2 and D-4 / D-10 where they conflict)
+
+1. **Converted identity is contact-first.**
+   - `private.report_call_facts.converted_key` is `contact_id`, else `campaign_lead_id`, else the call id. The keys are
+     prefixed so that ids from different tables cannot collide.
+   - The organization-level **Converted Leads/Clients** metric counts one person once, even when they convert through
+     several `campaign_lead` memberships in the window.
+   - **Campaign Performance's `converted_leads` stays campaign-specific:** it counts the distinct converting campaign leads
+     of that campaign.
+   - Tests:
+     - T14, with fixtures k32/k33: the same contact L6 through CL6A and CL6B gives **Converted = 1**.
+     - T14 April, with fixtures k34–k38: the fallbacks for NULL-contact calls, and Campaign Performance counting campaign
+       leads rather than people.
+     - Negative controls 2c, 2e and 2f.
+   - **Known limit.** A converting call that carries no `contact_id` falls back to its campaign lead, then the call. The
+     lead→client lineage (`clients.lead_id`) is not merged, so one person who converts once as a lead and again as a client
+     counts twice. This is rare, and is recorded as a follow-up decision.
+2. **A missing agency time zone fails closed.** This replaces D-10b.
+   - **There is no default zone.** Each of these raises **SQLSTATE 55000**:
+     - no `company_settings` row;
+     - a NULL, blank or unknown zone;
+     - a non-agency pseudo-zone (`Factory`, `localtime`, `posixrules`).
+   - **When it is checked.** The check runs after authorization, so an unauthorized caller still gets 42501, and before any
+     window, bucket or business read. It applies to `get_report_scope()` and all five report RPCs.
+   - **The UI** maps 55000 to a *configuration-required* state: "The agency time zone must be configured before official
+     Reports can be calculated. An admin must choose and save the agency time zone in Settings → Company Branding."
+     - Nothing is shown in that state: no period, day or hour buckets, heatmap, stats, sections or exports.
+     - Retry re-resolves the scope.
+     - A panel that hits 55000 after the scope loaded withholds the whole report the same way.
+   - **Metadata.** `time_zone_source` is always `'agency_settings'`, and the frontend schema rejects anything else.
+   - **Tests.** T6 covers unconfigured O2 and its block-local configuration; T9 covers an invalid zone; T15 covers every RPC,
+     NULL, blank, unknown and pseudo-zones, and authorization first. Negative control 2d covers the silent default.
+   - **Production data is not touched.** Chris's organization already stores `America/Los_Angeles`. The other two production
+     organizations have no row, so they will see the configuration-required state until an admin saves a zone.
+   - **Residual.** A valid zone *stored* by other code cannot be told apart from a chosen one. Examples: the
+     `company_settings.timezone` column default `America/Chicago`, the Super Admin provisioning wizard, or saving Company
+     Branding while it displays its `America/Chicago` placeholder. Such a zone is used as the agency's setting. Changing
+     those writers is outside Reports and needs its own approval.
+   - **PostgREST** answers 55000 with HTTP 500. The JSON `code` is preserved, and the frontend maps on the code.
+3. **"Call contact rate".**
+   - The formula is unchanged: contacted outbound calls ÷ outbound calls made.
+   - It is labelled **"Call contact rate"** (sentence case, as the UI's other labels are) on every user-visible Reports
+     surface: stat card and picker, tables, chart series and axes, tooltips, captions and CSV headers.
+   - "Best call contact rate" and its subtitle follow the same wording. The inverse ratio is labelled **"Dials per contacted
+     call"**.
+   - No lead-level rate is added. The two lead-level placeholders ("First dial contact rate", "Follow-up contact rate")
+     stay explicitly unavailable.
+   - A source contract test and a render test fail on any other "contact rate" wording.
 
 ## §R2. Chris's required changes (approved 2026-09-28; supersede §3/§6/§9 where they conflict)
 
@@ -17,10 +69,10 @@ recorded in §R2 before any implementation edit. §R2 supersedes any conflicting
      - any comparison;
      - exports.
    - **Metadata.** Every payload returns `window: {time_zone, time_zone_source, start_date, end_date, start_at, end_at}`. `get_report_scope()` also returns `time_zone`, `time_zone_source` and the agency `today`, so the presets are agency calendar days.
-   - **Missing setting (D-10b).**
-     - An organization with **no settings row or a NULL zone** uses the platform's established agency default, `America/Chicago`: the `company_settings.timezone` column default and `BrandingContext` DEFAULTS. It is labelled `time_zone_source = 'default'` and shown as "America/Chicago (agency default — not configured)".
+   - **Missing setting (D-10b) — SUPERSEDED by §R3.2 (2026-09-29): there is no default; a missing, NULL, blank, unknown or pseudo zone fails closed (55000, configuration required).**
+     - *(Historical rev 2 text: an organization with no settings row or a NULL zone used `America/Chicago`, labelled `time_zone_source = 'default'`.)*
      - An **invalid** stored value fails closed (the report is unavailable).
-     - Production today: 1 of 3 orgs has a row (`America/Los_Angeles`); 2 use the default.
+     - Production today: 1 of 3 orgs has a row (`America/Los_Angeles`); the other 2 will see the configuration-required state.
    - **Unchanged.** The personal Dialer "Today" counters stay agent-local (#14) and are not touched. Any future agent-local Reports view must be a separately labelled mode.
    - **Docs.** New AGENT_RULES invariant #38 records that Reports now implements agency-timezone reporting. Leaderboard and Dashboard stay browser-local until their own approved change.
 2. **Converted vs. Policies Sold (tightens D-4).**
@@ -229,7 +281,7 @@ Supabase migration, deploy an Edge Function, trigger a Vercel production deploym
 - **`src/lib/reports-schemas.ts`** (new) holds Zod schemas and inferred types for each RPC payload. A payload that fails validation becomes an **unavailable error, never a zero**.
 - **`src/lib/reports-queries.ts`** (rewrite) contains one typed fetcher per RPC:
   - Each uses the narrow `(supabase as any).rpc` cast, as the new RPCs are absent from generated types (the house pattern of #14/#16/#17), and forwards an `AbortSignal`.
-  - Each **throws** a `ReportsQueryError` whose kind is `denied` (SQLSTATE 42501), `invalid` (22023), `timeout`, `aborted` or `unavailable`. `{data:null}` and schema failures count as unavailable.
+  - Each **throws** a `ReportsQueryError` whose kind is `denied` (SQLSTATE 42501), `configuration` (55000, agency time zone required — §R3.2), `invalid` (22023), `timeout`, `aborted` or `unavailable`. `{data:null}` and schema failures count as unavailable.
   - No `|| []`, no zero fallbacks and no `p_org_id`.
   - Removed:
     - dead fetchers: `fetchCallsRaw`, `fetchPipelineStages`, `fetchCampaignsWithStats` and `fetchCampaignLeads`;
@@ -396,14 +448,14 @@ The scope does not expand without recording why in this plan's as-built appendix
 |----|----------|---------|
 | D-1 | How Reports permissions combine | Page access is required. Data scope **own** requires View Own. **team** gives self plus downline when View Team is on, otherwise self when View Own is on. **all** gives the organization when View Team is on, otherwise self when View Own is on. Admin and Super Admin are locked to the whole home organization. |
 | D-2 | Call timestamp and window | `calls.created_at`, half-open `[start, end)`, matching the Leaderboard canon (#23). Reports numbers will match the Leaderboard for the same period. |
-| D-3 | Population for Calls Made, Talk Time, Contacted, Contact Rate, the disposition breakdown and the volume charts | **Outbound** only, as canon. Inbound is shown separately as its own count. |
-| D-4 | Converted | **(rev 2, §R2.2)** Converted Leads/Clients means distinct contacts (the campaign lead when present, otherwise the contact) with at least one outbound call in the window whose disposition converts. **Policies Sold means wins.** They are labelled separately. **No conversion rate of any kind.** The only dial-to-policy figure is "Dials per Policy Sold". |
+| D-3 | Population for Calls Made, Talk Time, Contacted, Call Contact Rate (§R3.3), the disposition breakdown and the volume charts | **Outbound** only, as canon. Inbound is shown separately as its own count. |
+| D-4 | Converted | **(§R3.1 supersedes the identity order: contact, else campaign lead, else call; Campaign Performance counts campaign leads.)** **(rev 2, §R2.2)** Converted Leads/Clients means distinct contacts with at least one outbound call in the window whose disposition converts. **Policies Sold means wins.** They are labelled separately. **No conversion rate of any kind.** The only dial-to-policy figure is "Dials per Policy Sold". |
 | D-5 | A rate whose denominator is 0 | "—", never 0%. |
 | D-6 | Lead source | Attribution comes only from current leads (the #5 compatibility link). **Converted by source is shown as unavailable**, because conversion deletes the lead and clients have no lead source. Lead-cost editing and the CPL/ROI columns are hidden: the table's global `UNIQUE(lead_source)` makes cross-tenant costs impossible, and there are 0 rows in production. A follow-up migration would add a per-org unique key and give cost-period semantics a definition. |
 | D-7 | Goal Tracking | Shown as unavailable. `agent_scorecards` has no maintained writer and holds 0 rows; `goals` holds 0 rows. |
 | D-8 | Schedule / My Reports buttons | Removed from the page. Neither works today: inserts fail, nothing is sent, and "Play" is a no-op. The component files are kept. |
 | D-9 | Legacy `rpc_report_*` | Revoke EXECUTE from PUBLIC, anon and authenticated in this migration. Keep the functions; drop them in a later cleanup. |
-| D-10 | Time zone | **(rev 2, §R2.1)** The agency timezone, resolved server-side from `company_settings.timezone`, drives both the window and the buckets. There is no caller timezone. The default is `America/Chicago`, labelled as such. |
+| D-10 | Time zone | **(rev 2, §R2.1)** The agency timezone, resolved server-side from `company_settings.timezone`, drives both the window and the buckets. There is no caller timezone. **(§R3.2 supersedes: there is no default; an unconfigured or invalid zone fails closed with 55000, configuration required.)** |
 | D-11 | Calls with no agent under organization scope | Included in totals and shown as an "Unattributed" line. They are excluded from per-agent tables. |
 | D-12 | Longest allowed window | 366 days, enforced both server- and client-side. |
 | D-13 | Release order | Frontend first, then the migration (see §9). |
@@ -435,7 +487,7 @@ The scope does not expand without recording why in this plan's as-built appendix
 - **T12:** lead-source scope. An agent sees only in-scope calls and assigned new leads; converted is unavailable.
 - **T13:** a successful empty result is valid JSON with zeros where counts are genuinely zero and nulls for rates.
 - **Runner proofs:**
-  - negative control (a deliberately broken classifier must fail T8);
+  - negative controls (as built: 2a broken Contacted rule, 2b removed narrowing guard, 2c campaign-lead-first Converted, 2d silent default zone, 2e Converted without its campaign-lead fallback, 2f campaign converted leads counted as people);
   - drift refusal (a changed legacy body makes the migration abort with nothing applied);
   - replay refusal;
   - rollback proof (objects dropped, legacy grants restored, data unchanged);
@@ -444,7 +496,7 @@ The scope does not expand without recording why in this plan's as-built appendix
 **Vitest**
 - The query layer:
   - calls the exact RPC names with exact arguments (no org);
-  - maps 42501 → denied, 22023 → invalid, `{data:null}` → unavailable and a schema mismatch → unavailable;
+  - maps 42501 → denied (a `permission denied for …` 42501 → unavailable), 55000 → configuration, 22023 → invalid, `{data:null}` → unavailable and a schema mismatch → unavailable;
   - passes the abort signal through;
   - applies the 25 s timeout.
 - The hook covers:
@@ -574,3 +626,25 @@ metrics, frontend state, frontend truthfulness and release safety.
   - **nine low.**
 - All 11 were fixed as described above, or are documented as release risks (the handoff was incomplete; old open tabs
   after the migration — see the handoff).
+
+**Final corrections (2026-09-29, §R3)**
+- **What was built.** All three corrections are implemented as described in §R3, in commits `0d14cbb` and `c60021a` plus the
+  docs commit.
+- **Adversarial review of the three changes.** Five reviewers, three refutation-leaning verifiers per finding, and a
+  completeness critic.
+  - No finding touched security, and no finding changed a reported number.
+  - Confirmed findings, all fixed:
+    - The docs had not yet been updated for the new contracts.
+    - The fixtures did not exercise the Converted fallbacks, and did not show that Campaign Performance counts campaign
+      leads. Fixed with April fixtures and negative controls 2e and 2f.
+    - The pseudo-zones `Factory`, `localtime` and `posixrules` were accepted. They now fail closed, tested in T15.
+    - The toolbar said "Loading your report scope…" under the configuration notice.
+    - A 55000 on a panel after the scope loaded showed generic error cards. It now withholds the page, and Retry reloads
+      the scope.
+    - The label guard missed lowercase and line-start occurrences. It is now position- and case-independent, and
+      mutation-checked against five reverts.
+    - Stale migration comments.
+  - Documented rather than changed:
+    - 55000 surfaces as HTTP 500.
+    - A valid zone stored by provisioning, a column default or the Company Branding placeholder counts as configured.
+  - The critic flagged "Dials per contact"; it is relabelled "Dials per contacted call".

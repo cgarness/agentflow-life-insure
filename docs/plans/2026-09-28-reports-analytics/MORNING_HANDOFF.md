@@ -1,12 +1,34 @@
 # Reports & Analytics — Morning Handoff (2026-09-28)
 
 Branch `claude/reports-analytics-overnight-c69826` (base `main` @ `5d37e5f`). Plan:
-`docs/plans/2026-09-28-reports-analytics/implementation_plan.md` (rev 2, approved for branch implementation and testing
-only). **Nothing was merged, applied, deployed or configured in production.** Production access during this work was
-read-only catalog/aggregate SELECTs (listed in plan §1).
+`docs/plans/2026-09-28-reports-analytics/implementation_plan.md` (rev 3: rev 2 approved for branch implementation and
+testing only, plus Chris's final corrections in §R3). **Nothing was merged, applied, deployed or configured in
+production.** Production access during this work was read-only catalog/aggregate SELECTs (listed in plan §1).
 
-**Head at handoff:** see `git log -1 claude/reports-analytics-overnight-c69826`. The final commit only records docs;
-the code and SQL under test are unchanged from `918603c` plus that docs commit. No PR has been opened (not requested).
+**Head:** see `git log -1 claude/reports-analytics-overnight-c69826`. The final commit only records docs. The code and SQL
+under test are those of `c60021a`. A pull request against `main` is opened from this branch so that the
+`Reports backend verification` (PostgreSQL 17.6) workflow runs. It must not be merged without Chris's approval.
+
+## 0. Final corrections (Chris, 2026-09-29 — plan §R3)
+
+1. **Converted identity is contact-first.**
+   - The key is `contact_id`, then `campaign_lead_id`, then the call id.
+   - One person who converts through two campaign_lead memberships in the window counts **once**; this is the T14
+     regression.
+   - Campaign Performance's `converted_leads` stays a count of that campaign's converting campaign leads.
+2. **A missing agency time zone fails closed.**
+   - There is no `America/Chicago` default. Each of these raises SQLSTATE **55000**, after authorization and before
+     anything is computed:
+     - no settings row;
+     - a NULL, blank or unknown zone;
+     - a pseudo-zone.
+   - The page says "The agency time zone must be configured before official Reports can be calculated" and shows no
+     numbers, periods or exports.
+   - Chris's org stores `America/Los_Angeles`, so it is unaffected. **The other two production orgs will see this state
+     until an admin saves a zone.**
+   - No production data was changed.
+3. **"Call contact rate".** The formula is unchanged (contacted outbound calls ÷ outbound calls made), and it now has this
+   label everywhere a user sees it. The inverse is labelled "Dials per contacted call".
 
 ## 1. What is finished
 
@@ -27,14 +49,16 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
   - Contacted uses the exact canon: No Answer first, then > 45 s, then `counts_as_contacted` by id, then an org-scoped name
     fallback.
   - Talk time is clamped at 0.
-  - **Converted (unique contacts) and Policies Sold (`COUNT(wins)`) are kept separate.** There is **no conversion rate of any
-    kind**; "Dials per policy sold" is the only dial-to-policy figure.
+  - **Converted (unique people: contact, else campaign lead, else call) and Policies Sold (`COUNT(wins)`) are kept
+    separate.** There is **no conversion rate of any kind**; "Dials per policy sold" is the only dial-to-policy figure.
+  - The call-level rate is labelled **"Call contact rate"** on every surface.
   - Appointments are attributed as in #23.
   - **Session time comes from server-timestamped `dialer_sessions` only, with each session clipped to the window.**
   - Null rates render "—".
   - The **agency time zone is resolved on the server**. It controls the window, the daily, hourly, weekday and heatmap
     buckets, the agency `today`, the presets and exports. It is DST-correct, including zones whose midnight occurs twice.
-    The default is `America/Chicago`, labelled as a default. An invalid stored zone fails closed.
+    **There is no default zone:** a missing, NULL, blank, unknown or pseudo zone fails closed (55000), and the UI shows the
+    configuration-required state.
 - **Campaign and lead-source reporting (Phase 3).**
   - Campaign Performance and Lead Source Performance now return real, scope-restricted rows (they were always empty
     before).
@@ -45,7 +69,8 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
     - `useReportsData` provides keyed state, generation guards, abort on supersede, a 25 s timeout, independent panel
       failure and no polling.
     - Payloads are Zod-validated.
-    - Failures render as truthful loading, error, denied, unavailable or empty states, never zeros.
+    - Failures render as truthful loading, error, denied, configuration-required (agency time zone), unavailable or empty
+      states, never zeros.
     - The agent filter lists only server-permitted agents.
     - Refresh re-resolves the scope. A stale-scope guard withholds any panel answered for a different scope.
   - All 12 section components and the stat cards are adapted to the canonical payloads. Every component file is under 200
@@ -54,28 +79,35 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
     scope, agent filter, agency period, time zone, generated time) and formula-neutralized.
   - The non-functional saved/scheduled report buttons are unmounted; their files are kept.
 - **Tests (Phase 5).**
-  - SQL suite T0–T13 on real PostgreSQL, plus runner proofs: 2 negative controls, drift, replay, disable/enable and
+  - SQL suite T0–T15 on real PostgreSQL, plus runner proofs: 6 negative controls, drift, replay, disable/enable and
     rollback.
-  - 74 new Vitest tests.
+  - 83 new Vitest tests.
   - CI workflow `reports-backend.yml` on postgres:17.6.
 - **Docs (Phase 6).**
-  - Plan rev 2 (§R2), with the §11 as-built appendix.
+  - Plan rev 3 (§R2 and §R3), with the §11 as-built appendix.
   - AGENT_RULES invariant **#38**.
   - Root `implementation_plan.md` §16.
   - The WORK_LOG entry and this handoff.
 - **Adversarial review.**
-  - Five dimensions, each with independent verifiers. SQL security produced no findings.
-  - 11 distinct issues (2 medium, 9 low) were fixed, or documented below.
+  - **Rebuild review:** five dimensions, each with independent verifiers. SQL security produced no findings. 11 distinct
+    issues (2 medium, 9 low) were fixed, or documented below.
+  - **Review of the three final corrections:** five reviewers, three verifiers per finding and a completeness critic. No
+    security finding and no wrong number.
+    - Confirmed and fixed: stale docs, untested Converted fallbacks, accepted pseudo-zones, a stale toolbar "Loading"
+      header, a post-load panel 55000 showing generic errors, and blind spots in the label guard.
+    - The critic flagged "Dials per contact"; it is relabelled.
+    - Details are in plan §11.
 
 ## 2. What is partial
 
-- **CI has not run on GitHub.** `reports-backend.yml` triggers on pull requests, and no PR was opened. The runner passed
-  locally on PostgreSQL 16.13; CI will use 17.6.
+- **CI runs on the pull request.** `reports-backend.yml` (PostgreSQL 17.6) triggers on the PR. The result is reported with
+  the PR. Locally the runner passes on PostgreSQL 16.13.
 - **No end-to-end browser test against a real backend.** Nothing with the migration applied exists outside local
   databases.
   - The page is tested with the query layer mocked.
   - The SQL is tested directly as `authenticated` with PostgREST-shaped claims.
-  - How PostgREST maps SQLSTATE `42501`/`22023` into the JSON `code` is standard behaviour but was not exercised here.
+  - How PostgREST maps SQLSTATE `42501`/`22023`/`55000` into the JSON `code` is standard behaviour but was not exercised
+    here. `55000` arrives as **HTTP 500**; the frontend maps it on the JSON `code`, not the status.
 - **Performance is not measured at production volume.**
   - Every RPC scans `calls` for the window through `idx_calls_org_created_at`.
   - A page load issues 5 panel RPCs plus 1 scope RPC.
@@ -88,7 +120,7 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
 
 ## 3. What remains (needs Chris)
 
-1. Review the branch. Say whether to open the PR; none is open, because none was requested.
+1. Review the pull request (opened on request, **not** merged) and its CI result.
 2. Make the metric decisions in §8.
 3. Separately approve and run the release in §9, then the smoke tests in §11.
 4. Follow-ups, not in this build:
@@ -97,7 +129,11 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
    - a saved/scheduled reports redesign, or deleting those component files;
    - goals / Goal Tracking;
    - agency-zone alignment for Leaderboard and Dashboard, which stay browser-local;
-   - adding the `get_report_*` RPCs to the generated Supabase types.
+   - adding the `get_report_*` RPCs to the generated Supabase types;
+   - outside Reports, and needing its own approval: stop writing a guessed `America/Chicago` as a stored zone. Today it
+     comes from the Super Admin provisioning wizard, the `company_settings.timezone` column default, and Company
+     Branding's placeholder when a row is saved. Company Branding should show "Not set" when there is none;
+   - optionally, lead→client lineage (`clients.lead_id`) in the Converted identity.
 
 ## 4. Exact changed files (`git diff --name-status 5d37e5f..HEAD`, 49 files)
 
@@ -177,25 +213,25 @@ the code and SQL under test are unchanged from `918603c` plus that docs commit. 
 
 | Role | File | SHA-256 |
 |------|------|---------|
-| **The only migration to apply in the release** | `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql` (64,253 bytes) | `7d6168a23e0ed282fd6843a536859328baba080a4f5fe985cd1bf3d6e2e7642b` |
+| **The only migration to apply in the release** | `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql` (65,949 bytes) | `124c8e6f37c302f69372a80801fa727e3bc22e5cd8944677d58bc11efa62dc26` |
 | Emergency disable (apply only if needed, as a new migration `reports_disable`) | `supabase/ops/reports_disable.sql` | `8cc967c47c506200a4b36ffd792a734bafe1aa8a94e7050bfe2e5322ede6afad` |
 | Re-enable after a disable (new migration `reports_enable`) | `supabase/ops/reports_enable.sql` | `a7e0245541e581006159734dcb3f7c04b70945b1740db6d0c5a41905a7431d9c` |
 | Remove the new objects (new migration `reports_secure_scoped_rpcs_rollback`) | `supabase/migrations/rollback/20260928120000_reports_secure_scoped_rpcs.rollback.sql` | `51a7f5781998f58313d9c9b27075bc272a2674794aa3200cffae7257413a8cc3` |
 
 The version prefix `20260928120000` is a placeholder. `apply_migration` assigns the real version, and §9 step 4 reconciles
-the filename without touching the SQL bytes. The migration's SHA-256 changed during the review (the DST boundary fix), so
-use only the value above.
+the filename without touching the SQL bytes. The migration's SHA-256 changed during the reviews: the DST boundary fix,
+then the three final corrections and their review fixes. Use only the value above.
 
 ## 6. Test results (final head; all local; synthetic tenants only)
 
 | Gate | Result |
 |------|--------|
-| `scripts/run_reports_rpc_tests.sh` (PostgreSQL 16.13) | **PASS.** T0–T13 all OK. Both negative controls caught: a broken No Answer rule and a removed agent-narrowing guard. Drift refusal and replay refusal are atomic. Disable/enable re-runs the whole suite. Rollback leaves data unchanged, re-seals legacy even after a simulated manual re-grant, and a re-apply recreates all 14 functions. |
+| `scripts/run_reports_rpc_tests.sh` (PostgreSQL 16.13) | **PASS.** T0–T15 all OK. **All 6 negative controls caught:** 2a a broken No Answer rule; 2b a removed agent-narrowing guard; 2c a campaign-lead-first Converted identity; 2d a silent `America/Chicago` default; 2e Converted without its campaign-lead fallback; 2f Campaign Performance counting people instead of campaign leads. Drift refusal and replay refusal are atomic. Disable/enable re-runs the whole suite. Rollback leaves data unchanged, re-seals legacy even after a simulated manual re-grant, and a re-apply recreates all 14 functions. |
 | DST negative control (manual) | Restoring the old boundary formula fails T9, with `got 2026-11-01T05:00:00Z want 04:00:00Z`. The fix is restored. |
 | Boundary property (ad hoc) | 0 mismatches over 677,904 zone-days (every IANA zone, 2024–2027); the old formula had 8. |
 | `scripts/run_profile_rpc_tests.sh` (regression; its resolver is reused) | **PASS** (suite, negative control and rollback). |
-| Reports Vitest (6 files) | **74 / 74 pass.** |
-| Full `npx vitest run` | 3,507 passed, 1 failed, 14 skipped (3,522 total) across 232 files. The 12 failing files are **identical to the `main` baseline** (3,433 / 1 / 14): 11 fail for missing Supabase env (`caller-id-selection`, `custom-fields-settings`, `dialer-api-attempt-cap`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `leadDisposition`, `contactScope`, `userLocalDayBounds`, `runtimeEventLogger`, `addLeadAssignmentGate`), plus the existing `recordingRetentionVoicemail` v29 assertion. **+74 new tests, all passing; no status change in any existing test.** |
+| Reports Vitest (6 files) | **83 / 83 pass.** The label guard was mutation-checked: 5 of 5 reverted labels are caught. |
+| Full `npx vitest run` | 3,516 passed, 1 failed, 14 skipped (3,531 total) across 232 files. The 12 failing files are **identical to the `main` baseline** (3,433 / 1 / 14): 11 fail for missing Supabase env (`caller-id-selection`, `custom-fields-settings`, `dialer-api-attempt-cap`, `dialerCampaignPresenceHook`, `clientMapping`, `contactName`, `leadDisposition`, `contactScope`, `userLocalDayBounds`, `runtimeEventLogger`, `addLeadAssignmentGate`), plus the existing `recordingRetentionVoicemail` v29 assertion. **+83 new tests, all passing; no status change in any existing test.** |
 | `npx tsc -p tsconfig.app.json --noEmit` | 90 errors, **equal to the baseline**. None is in a Reports file; the only match is the pre-existing `Sidebar.tsx` `/reports` comparison. |
 | Root `npx tsc --noEmit` | Exit 0. This is vacuous: the root project is empty. |
 | ESLint on every touched TS/TSX file | Clean. |
@@ -215,8 +251,12 @@ use only the value above.
    - Campaigns and lead sources are populated for the first time.
    - Reports matches the Leaderboard only when the viewer's browser zone equals the agency zone, because the Leaderboard
      stays browser-local.
-   - 2 of 3 production orgs have no `company_settings` row and will report in `America/Chicago` (labelled "agency default
-     — not configured") until they set a time zone.
+   - **2 of 3 production orgs have no `company_settings` row.** They will see "The agency time zone must be configured
+     before official Reports can be calculated" until an admin chooses and saves a zone in Settings → Company Branding.
+     - That page may display `America/Chicago` as a placeholder. The admin must pick the agency's real zone and save it.
+     - Save is enabled only after a change.
+   - The call-level rate is now labelled "Call contact rate" and the Converted identity is contact-first. Converted can
+     read lower than a campaign-lead count where one person had several memberships.
 4. **Permissions are enforced on the server.**
    - Only 1 org has `role_permissions` rows. The others get the pinned defaults: Agent Reports page **off**, Team Leader
      team scope.
@@ -229,17 +269,31 @@ use only the value above.
 7. **Load is unmeasured.** Six RPCs run per page load (no polling). Each is window-bounded and uses
    `idx_calls_org_created_at`. A 366-day organization report is the heaviest case.
 8. **Scope-drift notice.** If an admin changes a user's report permissions, or the agency zone, while the user has Reports
-   open, the user sees "Your report access changed while this page was open" and reloads. This is intended.
+   open, the user sees "Your report access changed while this page was open" and reloads. This is intended. If the zone is
+   cleared or made invalid mid-session, the page shows the time-zone notice instead, and Retry re-resolves the scope.
+9. **A stored zone counts as configured.** The server cannot tell a zone that someone chose from one written by default:
+   - the column default `America/Chicago`;
+   - the Super Admin provisioning wizard;
+   - saving Company Branding while it shows its placeholder.
+   Any such value is used as the agency's zone. See §3 for the follow-up.
+10. **Configuration refusals log as HTTP 500.** PostgREST maps SQLSTATE class 55 to HTTP 500, so each Reports load from an
+    unconfigured org records one 500 on `get_report_scope`. No panel request follows. Behaviour is correct; this is log
+    noise only.
+11. **Converted fallbacks.** A converting call with no `contact_id` is keyed by its campaign lead, then the call. The
+    lead→client lineage is not merged, so one person who converts once as a lead and again as a client counts twice.
+    This is rare.
 
 ## 8. Metric decisions still required (implemented as the recommended default unless Chris says otherwise)
 
-1. **Default zone.** Orgs with no `company_settings` row report in `America/Chicago`, labelled as the default. Confirm this,
-   or set a time zone for the two unconfigured orgs before the release.
-2. **Outbound population (D-3).** Calls Made, Talk Time, Contacted, Contact Rate, dispositions and volume charts count
+1. **Agency zone (DECIDED, §R3.2).** There is no default; an unconfigured org fails closed. Before the release, decide
+   whether an admin of each of the two unconfigured orgs should save their zone. Nothing here changes production data.
+2. **Outbound population (D-3).** Calls Made, Talk Time, Contacted, Call Contact Rate, dispositions and volume charts count
    outbound calls only. Inbound is shown separately.
-3. **Contact rate** is contacted outbound calls ÷ outbound calls made (call-level, not lead-level).
-4. **Converted key.** Converted counts the campaign lead when present, else the contact, else the call. It counts once per
-   window, with no conversion rate.
+3. **Call contact rate (DECIDED, §R3.3).** It is contacted outbound calls ÷ outbound calls made, labelled "Call contact
+   rate". It is call-level. A unique-lead contact rate would need its own approved population.
+4. **Converted identity (DECIDED, §R3.1).** Contact, else campaign lead, else call; it counts once per window, with no
+   conversion rate. Campaign Performance counts converting campaign leads per campaign. Open question: whether to also
+   merge the lead→client lineage (§7 risk 11).
 5. **Session ratios** ("Calls per session hour", "Talk time share of session") count only agents with session time: their
    calls and talk ÷ their session time. This is new from the review.
 6. **Unattributed calls (D-11).** They count in organization totals, show as an "Unattributed" line, and are excluded from
@@ -282,7 +336,7 @@ Preconditions:
    (The migration's own preflight repeats these checks and aborts atomically on any drift or replay.)
 3. **Apply the migration** with `apply_migration`, name `reports_secure_scoped_rpcs`. The query is the exact bytes of
    `supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql`, verified by SHA-256 against the file
-   (`7d6168a23e0ed282fd6843a536859328baba080a4f5fe985cd1bf3d6e2e7642b`, 64,253 bytes; e.g. `sha256sum` locally, and compare the `query` text you pass byte-for-byte).
+   (`124c8e6f37c302f69372a80801fa727e3bc22e5cd8944677d58bc11efa62dc26`, 65,949 bytes; e.g. `sha256sum` locally, and compare the `query` text you pass byte-for-byte).
 4. **Reconcile the repository filename** to the version `apply_migration` records, in a record-only commit. Do not edit
    the SQL bytes. Update `scripts/run_reports_rpc_tests.sh`, `src/lib/__tests__/reportsContracts.test.ts` and
    `.github/workflows/reports-backend.yml` if they reference the filename.
@@ -330,7 +384,8 @@ re-added by hand.
 ## 11. Recommended smoke tests after release
 
 1. **Admin, "This Month".**
-   - The toolbar shows "Organization · America/Los_Angeles", or the labelled default zone for orgs without settings.
+   - The toolbar shows "Organization · America/Los_Angeles".
+   - The page shows "Call contact rate" (never "Contact rate") on the stat card, tables and CSV headers.
    - Calls made / talk time / policies equal an independent SQL count at the same agency-zone bounds.
    - The Leaderboard month matches only when your browser zone equals the agency zone. The Leaderboard stays
      browser-local.
@@ -354,6 +409,11 @@ re-added by hand.
    not a zero" with Retry, and Export is disabled.
 9. **Load.** In the API logs, each report RPC for This Month should come in under about 1 s at current volume, with no
    periodic Reports traffic (there is no polling).
+10. **Unconfigured org** (either org without a zone; do **not** create or change its settings for the test).
+    - An Admin sees "The agency time zone must be configured before official Reports can be calculated", with no numbers,
+      periods or Export.
+    - The toolbar reads "Agency time zone not configured".
+    - `get_report_scope` answers `{code: "55000"}` (HTTP 500).
 
 ## 12. Dialer / Leaderboard boundary confirmation
 
