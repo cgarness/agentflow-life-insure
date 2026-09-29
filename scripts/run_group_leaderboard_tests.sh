@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # =====================================================================================================
-# Group leaderboard appointment-attribution suite runner — DISPOSABLE LOCAL PostgreSQL ONLY (AGENT_RULES #28).
+# Group leaderboard repair suite runner — DISPOSABLE LOCAL PostgreSQL ONLY (AGENT_RULES #28).
 # =====================================================================================================
 # Usage:  PGURL="postgresql://postgres:<pw>@127.0.0.1:5432" ./scripts/run_group_leaderboard_tests.sh
 #
 # Builds throwaway databases from supabase/tests/group_leaderboard_harness.sql plus the functions extracted
-# VERBATIM from the baseline migration (production ACL re-created), and proves:
-#   1. the suite passes after the migration is applied in ONE transaction (as apply_migration does)
-#   2. NEGATIVE CONTROL — the same suite FAILS on the pre-migration (assignee-credit) function
-#   3. DRIFT refusal  — a changed body, or a changed ACL, makes the migration abort with nothing applied
+# VERBATIM from the baseline migration (production ACL re-created), and proves, for
+# supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql:
+#   1. the suite passes after the migration (applied in ONE transaction, as apply_migration does), under
+#      production's plpgsql.variable_conflict = error with no workaround
+#   2. NEGATIVE CONTROLS — the suite FAILS on the pre-repair function (42702) and on a copy carrying only the
+#      42702 fix (assignee credit)
+#   3. DRIFT refusal  — a changed body, a changed ACL, or an existing index name aborts with nothing applied
 #   4. REPLAY refusal — a second apply aborts with nothing changed
-#   5. ROLLBACK proof — the rollback restores the exact pre-migration definition; a second rollback refuses
-#   6. PRE-EXISTING DEFECT — under production's plpgsql.variable_conflict = 'error', the function raises 42702
-#      (ambiguous organization_id) both before AND after the migration; 6b qualifies ONLY that reference in a copy
-#      and re-runs T1-T8 under 'error', proving the migrated attribution query adds no name clash of its own
+#   5. ROLLBACK proof — the exact pre-repair definition and ACL come back, the index is dropped; replay refuses
+#   6. ACCESS DIFFERENTIAL — every membership decision, roster, period and non-appointment metric is identical
+#      between the pre-repair function (read as intended) and the repaired one
+#   7. INDEX PROOF — on 600k appointments the setter lookup uses appointments_setter_created_at_idx (EXPLAIN
+#      ANALYZE BUFFERS + auto_explain of the RPC's own plan), with the regression shown without the index
 # Every database is dropped on exit. Nothing here touches a hosted project.
 set -euo pipefail
 
@@ -41,13 +45,20 @@ if psql "$PGURL/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname IN ('supaba
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HARNESS="$ROOT/supabase/tests/group_leaderboard_harness.sql"
-SUITE="$ROOT/supabase/tests/group_leaderboard_rpc.sql"
-MIG="$ROOT/supabase/migrations/20260929160000_group_leaderboard_appointment_setter_credit.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20260929160000_group_leaderboard_appointment_setter_credit.rollback.sql"
+TESTS="$ROOT/supabase/tests"
+HARNESS="$TESTS/group_leaderboard_harness.sql"
+SEED="$TESTS/group_leaderboard_seed.sql"
+SUITE="$TESTS/group_leaderboard_rpc.sql"
+MATRIX="$TESTS/group_leaderboard_access_matrix.sql"
+PERF_DATA="$TESTS/group_leaderboard_perf_data.sql"
+INDEX_PROOF="$TESTS/group_leaderboard_index_proof.sql"
+MIG="$ROOT/supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20260929170000_group_leaderboard_repair_membership_setter_credit.rollback.sql"
 BASELINE="$ROOT/supabase/migrations/20260806000000_baseline_production_schema.sql"
 PRE_MD5="e1283b5b05d295c1d25888485cc08346"
-POST_MD5="e69bbcf6a9f47457a44c887cb4418aef"
+POST_MD5="8bd49ee01e0b92abd3e66548569f36bb"
+PROD_ACL="{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+QUALIFY_ONLY="DO \$q\$ DECLARE d text := pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure); n text := E'      AND organization_id = v_caller_org\\n'; BEGIN IF (length(d) - length(replace(d, n, ''))) / length(n) <> 1 THEN RAISE EXCEPTION 'membership reference not unique'; END IF; EXECUTE replace(d, n, E'      AND agency_group_members.organization_id = v_caller_org\\n'); END \$q\$;"
 
 WORK="$(mktemp -d)"
 SUFFIX="$$"
@@ -94,9 +105,10 @@ build() {   # build <dbname> [migration-file]
   fi
 }
 
-defmd5() {   # defmd5 <db>
-  psql "$PGURL/$1" -tAc "SELECT md5(pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure));"
-}
+q() { psql "$PGURL/$1" -tAc "$2"; }
+defmd5() { q "$1" "SELECT md5(pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure));"; }
+acl() { q "$1" "SELECT proacl::text FROM pg_proc WHERE oid = 'public.get_agency_group_leaderboard(uuid,text)'::regprocedure;"; }
+setter_index() { q "$1" "SELECT coalesce(to_regclass('public.appointments_setter_created_at_idx')::text, 'absent');"; }
 
 expect_fail() {   # expect_fail <label> <must-contain> <command...>
   local label="$1" needle="$2"; shift 2
@@ -114,33 +126,45 @@ expect_fail() {   # expect_fail <label> <must-contain> <command...>
 echo "== 0. preimage =="
 build "gl_pre_$SUFFIX"
 [ "$(defmd5 "gl_pre_$SUFFIX")" = "$PRE_MD5" ] || { echo "FAIL: extracted definition is not the production preimage"; exit 1; }
-echo "   OK (definition md5 $PRE_MD5)"
+[ "$(acl "gl_pre_$SUFFIX")" = "$PROD_ACL" ] || { echo "FAIL: harness ACL is not the production ACL"; exit 1; }
+echo "   OK (definition md5 $PRE_MD5, production ACL)"
 
-# ── 1. Suite passes after the migration ───────────────────────────────────────────────────────────────
-echo "== 1. suite after migration =="
+# ── 1. Suite passes after the migration, under variable_conflict = error ─────────────────────────────
+echo "== 1. suite after migration (plpgsql.variable_conflict = error) =="
 build "gl_main_$SUFFIX" "$MIG"
 [ "$(defmd5 "gl_main_$SUFFIX")" = "$POST_MD5" ] || { echo "FAIL: post-image md5 mismatch"; exit 1; }
 psql "$PGURL/gl_main_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 echo "   OK (suite passed; definition md5 $POST_MD5)"
 
-# ── 2. Negative control: the suite must fail on the assignee-credit function ─────────────────────────
-echo "== 2. negative control =="
-expect_fail "pre-migration suite" "T1/T3/T4/T5 setter A appointments_set" \
+# ── 2. Negative controls ─────────────────────────────────────────────────────────────────────────────
+echo "== 2. negative controls =="
+expect_fail "pre-repair function" "is ambiguous" \
   psql "$PGURL/gl_pre_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+build "gl_qual_$SUFFIX"
+psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$QUALIFY_ONLY"
+expect_fail "42702 fix only (assignee credit)" "T1/T3/T4/T5 setter A appointments_set" \
+  psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 
-# ── 3. Drift refusal (body, ACL) ─────────────────────────────────────────────────────────────────────
+# ── 3. Drift refusal (body, ACL, existing index name) ────────────────────────────────────────────────
 echo "== 3. drift refusal =="
 build "gl_drift_$SUFFIX"
 psql "$PGURL/gl_drift_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "DO \$d\$ DECLARE d text := pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure); BEGIN EXECUTE replace(d, 'ORDER BY policies_sold DESC, calls_made DESC', 'ORDER BY policies_sold DESC, calls_made DESC, agent_id'); END \$d\$;"
 drifted="$(defmd5 "gl_drift_$SUFFIX")"
 expect_fail "drifted body" "definition changed" \
   psql "$PGURL/gl_drift_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
-[ "$(defmd5 "gl_drift_$SUFFIX")" = "$drifted" ] || { echo "FAIL: drift refusal changed the function"; exit 1; }
+[ "$(defmd5 "gl_drift_$SUFFIX")" = "$drifted" ] && [ "$(setter_index "gl_drift_$SUFFIX")" = "absent" ] \
+  || { echo "FAIL: drift refusal changed something"; exit 1; }
 build "gl_acl_$SUFFIX"
 psql "$PGURL/gl_acl_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "REVOKE EXECUTE ON FUNCTION public.get_agency_group_leaderboard(uuid, text) FROM anon;"
 expect_fail "drifted ACL" "owner or ACL changed" \
   psql "$PGURL/gl_acl_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
-[ "$(defmd5 "gl_acl_$SUFFIX")" = "$PRE_MD5" ] || { echo "FAIL: ACL refusal changed the function"; exit 1; }
+[ "$(defmd5 "gl_acl_$SUFFIX")" = "$PRE_MD5" ] && [ "$(setter_index "gl_acl_$SUFFIX")" = "absent" ] \
+  || { echo "FAIL: ACL refusal changed something"; exit 1; }
+build "gl_idx_$SUFFIX"
+psql "$PGURL/gl_idx_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "CREATE INDEX appointments_setter_created_at_idx ON public.appointments (user_id);"
+expect_fail "existing index name" "already exists" \
+  psql "$PGURL/gl_idx_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
+[ "$(defmd5 "gl_idx_$SUFFIX")" = "$PRE_MD5" ] || { echo "FAIL: index-name refusal changed the function"; exit 1; }
 
 # ── 4. Replay refusal ────────────────────────────────────────────────────────────────────────────────
 echo "== 4. replay refusal =="
@@ -153,25 +177,60 @@ echo "== 5. rollback =="
 build "gl_rb_$SUFFIX" "$MIG"
 psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$ROLLBACK"
 [ "$(defmd5 "gl_rb_$SUFFIX")" = "$PRE_MD5" ] || { echo "FAIL: rollback did not restore the preimage"; exit 1; }
-[ "$(psql "$PGURL/gl_rb_$SUFFIX" -tAc "SELECT proacl::text FROM pg_proc WHERE oid = 'public.get_agency_group_leaderboard(uuid,text)'::regprocedure")" \
-  = "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}" ] \
-  || { echo "FAIL: rollback changed the ACL"; exit 1; }
-echo "   OK (rollback restored $PRE_MD5 with the production ACL)"
-expect_fail "rollback replay" "not the setter-credit version" \
+[ "$(acl "gl_rb_$SUFFIX")" = "$PROD_ACL" ] || { echo "FAIL: rollback changed the ACL"; exit 1; }
+[ "$(setter_index "gl_rb_$SUFFIX")" = "absent" ] || { echo "FAIL: rollback left the index"; exit 1; }
+echo "   OK (rollback restored $PRE_MD5 with the production ACL and dropped the index)"
+expect_fail "rollback replay" "not the repaired version" \
   psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$ROLLBACK"
-expect_fail "suite after rollback" "T1/T3/T4/T5 setter A appointments_set" \
+expect_fail "suite after rollback" "is ambiguous" \
   psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 
-# ── 6. Pre-existing ambiguity under the production setting, before and after ─────────────────────────
-echo "== 6. pre-existing 42702 under plpgsql.variable_conflict = error (unchanged by the migration) =="
-CALL_AS_MEMBER="SET plpgsql.variable_conflict = error; SET ROLE authenticated; SELECT set_config('request.jwt.claims', '{\"sub\":\"a0000000-0000-4000-8000-00000000000a\",\"app_metadata\":{\"organization_id\":\"10000000-0000-4000-8000-000000000001\"}}', false); SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');"
-expect_fail "production setting, pre-migration" "is ambiguous" \
-  psql "$PGURL/gl_pre_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$CALL_AS_MEMBER"
-expect_fail "production setting, post-migration" "is ambiguous" \
-  psql "$PGURL/gl_main_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$CALL_AS_MEMBER"
-build "gl_qual_$SUFFIX" "$MIG"
-psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "DO \$q\$ DECLARE d text := pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure); n text := E'      AND organization_id = v_caller_org\\n'; BEGIN IF (length(d) - length(replace(d, n, ''))) / length(n) <> 1 THEN RAISE EXCEPTION 'membership reference not unique'; END IF; EXECUTE replace(d, n, E'      AND agency_group_members.organization_id = v_caller_org\\n'); END \$q\$;"
-psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -v conflict_mode=error -v skip_body_pin=1 -f "$SUITE"
-echo "   OK (6b: with only the membership reference qualified, T1-T8 pass under variable_conflict = error)"
+# ── 6. Access differential ───────────────────────────────────────────────────────────────────────────
+echo "== 6. access differential (pre-repair read as intended vs repaired under production settings) =="
+build "gl_dpre_$SUFFIX"
+build "gl_dpost_$SUFFIX" "$MIG"
+for d in gl_dpre gl_dpost; do
+  psql "$PGURL/${d}_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$SEED"
+done
+psql "$PGURL/gl_dpre_$SUFFIX"  -v ON_ERROR_STOP=1 -q -v conflict_mode=use_column -f "$MATRIX" 2>&1 | grep -o 'MATRIX .*' > "$WORK/matrix_pre.txt"
+psql "$PGURL/gl_dpost_$SUFFIX" -v ON_ERROR_STOP=1 -q -v conflict_mode=error      -f "$MATRIX" 2>&1 | grep -o 'MATRIX .*' > "$WORK/matrix_post.txt"
+[ "$(wc -l < "$WORK/matrix_post.txt")" -eq 14 ] || { echo "FAIL: expected 14 matrix lines"; cat "$WORK/matrix_post.txt"; exit 1; }
+diff "$WORK/matrix_pre.txt" "$WORK/matrix_post.txt" || { echo "FAIL: access/roster/metrics differ between pre-repair and repaired"; exit 1; }
+[ "$(grep -c '| ok |' "$WORK/matrix_post.txt")" -eq 9 ] && [ "$(grep -c '| P0001 | Access denied' "$WORK/matrix_post.txt")" -eq 5 ] \
+  || { echo "FAIL: unexpected access outcomes"; cat "$WORK/matrix_post.txt"; exit 1; }
+sed 's/^/   /' "$WORK/matrix_post.txt"
+echo "   OK (14 scenarios identical: 9 allowed, 5 denied by the membership check)"
+
+# ── 7. Index proof on large data ─────────────────────────────────────────────────────────────────────
+echo "== 7. index proof (600k appointments, 120-profile roster) =="
+build "gl_perf_$SUFFIX"
+psql "$PGURL/gl_perf_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$PERF_DATA" >/dev/null
+psql "$PGURL/gl_perf_$SUFFIX" -qc "VACUUM ANALYZE;"
+psql "$PGURL/gl_perf_$SUFFIX" -v ON_ERROR_STOP=1 -q -v phase=before -f "$INDEX_PROOF" >/dev/null
+psql "$PGURL/gl_perf_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
+psql "$PGURL/gl_perf_$SUFFIX" -qc "VACUUM ANALYZE public.appointments;"
+psql "$PGURL/gl_perf_$SUFFIX" -v ON_ERROR_STOP=1 -q -v phase=after -f "$INDEX_PROOF" 2>&1 | grep -v '^$' | sed 's/^psql:[^ ]* //; s/^/   /'
+# The RPC's OWN plan (plpgsql caches a generic plan after five executions): auto_explain of the nested query.
+psql "$PGURL/gl_perf_$SUFFIX" -v ON_ERROR_STOP=1 -q > "$WORK/auto_explain.txt" 2>&1 <<'SQL'
+LOAD 'auto_explain';
+SET auto_explain.log_min_duration = 0;
+SET auto_explain.log_nested_statements = on;
+SET auto_explain.log_level = notice;
+SET plpgsql.variable_conflict = error;
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-4000-8000-0000000003e9","role":"authenticated","app_metadata":{"organization_id":"10000000-0000-4000-8000-000000000001"}}', false);
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SELECT count(*) FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+SQL
+uses="$(grep -c 'using appointments_setter_created_at_idx on appointments' "$WORK/auto_explain.txt" || true)"
+seqs="$(grep -c 'Seq Scan on appointments' "$WORK/auto_explain.txt" || true)"
+[ "$uses" -ge 7 ] && [ "$seqs" -eq 0 ] \
+  || { echo "FAIL: the RPC's own plan does not use the setter index (uses=$uses seq=$seqs)"; grep -n 'appointments' "$WORK/auto_explain.txt" | head -20; exit 1; }
+echo "   OK (auto_explain: all 7 RPC executions, custom and cached generic plans, use appointments_setter_created_at_idx; 0 seq scans)"
 
 echo "== ALL GROUP LEADERBOARD CHECKS PASSED =="

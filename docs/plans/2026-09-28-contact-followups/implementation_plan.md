@@ -1490,3 +1490,64 @@ fails (main baseline, no Supabase env). Full suite: branch 249 files, 3,819 pass
 error; new main 232 files, 3,518 / 1 / 12, 1 unhandled error — identical 12-file failed set, the same failing test
 (voicemail v29 byte-identity) and the same Twilio-mock unhandled rejection; +17 files, +301 passing, +10 LA-gated skips.
 SQL: Group suite on PG16.13 and PG17.6; Reports suite on PG16.13; org-leaderboard backend harness 32/32 on PG17.6.
+
+## §20. Revision — complete Group leaderboard repair before push (Chris, 2026-09-29)
+
+**Authority:** Chris did not approve the attribution-only migration for production because the RPC would stay unusable
+(42702). Required: fix 42702 with the smallest qualification (no membership change, no wider access), keep the setter
+credit, investigate the index regression on PG17.6 and keep an index only on evidence, rename the never-pushed,
+never-applied migration, and expand the suite. Out of scope and untouched: the `appsWeekly` Performance-tab issue,
+Reports, the org leaderboard, Dashboard workload semantics, Dialer/Twilio, production Supabase. This section supersedes
+§19's Group leaderboard subsection; §19's other results stand.
+
+**Final migration:** `supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql` (replaces
+`20260929160000_group_leaderboard_appointment_setter_credit.sql`, which was never pushed or applied); guarded rollback
+`supabase/migrations/rollback/20260929170000_group_leaderboard_repair_membership_setter_credit.rollback.sql`.
+1. **42702 fix:** `      AND organization_id = v_caller_org` → `      AND agency_group_members.organization_id = v_caller_org`
+   inside the `EXISTS (SELECT 1 FROM public.agency_group_members WHERE agency_group_id = p_group_id AND … AND
+   status = 'active')` check — the column the check always meant; nothing else in the check changes.
+2. **Attribution:** `    WHERE ap.user_id = p.id` → `    WHERE COALESCE(ap.created_by, ap.user_id) = p.id`
+   (`ap.created_at >= v_period_start` unchanged; no status filter).
+3. **Index:** `CREATE INDEX appointments_setter_created_at_idx ON public.appointments USING btree
+   ((COALESCE(created_by, user_id)), created_at)`, created inside the guarded block after the function checks.
+- Guard: definition md5 `e1283b5b05d295c1d25888485cc08346` (production; identical on PG16 and PG17.6) → post-image
+  `8bd49ee01e0b92abd3e66548569f36bb`; owner `postgres`; ACL `{=X,postgres=X,anon=X,authenticated=X,service_role=X}`
+  exact; each replacement location unique; the index name must not exist; pg_proc metadata unchanged (defaults via
+  `pg_get_function_arguments`); exact index definition verified. `lock_timeout 1s`, `statement_timeout 5s` (production
+  has 65 appointments; a busy table makes it refuse cleanly rather than wait). Reconcile the filename to the stamped
+  version after an approved `apply_migration` and update the runner's `MIG`/`ROLLBACK` paths (AGENT_RULES #35).
+
+**Index evidence (PG17.6, `group_leaderboard_perf_data.sql`: 60 orgs, 2,400 profiles, a 3-org/120-profile group roster,
+600,000 appointments over two years — 85% self-set, 10% delegated, 5% legacy NULL `created_by` — 300k calls, 40k clients;
+production indexes replicated; `VACUUM ANALYZE`; `EXPLAIN (ANALYZE, BUFFERS)` of the function's exact lookup, month period):**
+
+| State | Time | Buffers | Appointments access |
+|---|---|---|---|
+| lookup, pre-repair `ap.user_id = p.id` | 21.4 ms | 1,962 | Index Scan `idx_appointments_user_id` |
+| lookup, setter predicate, NO new index | 9,941 ms | 3,199,410 | Seq Scan (×120) |
+| lookup, setter predicate + index | 1.5 ms | 1,546 | Index Scan `appointments_setter_created_at_idx` |
+| RPC, pre-repair (only under `use_column`) | 9.2 ms | 2,844 | — |
+| RPC, repaired | 3.7 ms | 2,428 | — |
+| RPC, repaired, index dropped | 10,468 ms | 3,200,306 | — |
+
+auto_explain of the RPC itself: all 7 executions (custom and the cached generic plan) use the index, 0 sequential scans.
+Index size 23 MB / build 0.85 s at 600k rows. Kept on this evidence.
+
+**Suite (`scripts/run_group_leaderboard_tests.sh`, PG17.6, all pass):** harness mirrors production appointment columns and
+indexes; seed `group_leaderboard_seed.sql`; suite `group_leaderboard_rpc.sql` under `variable_conflict = error` with no
+workaround: T0 executes; T1 A books for B → A +1, B 0; T2 legacy NULL → `user_id`; T3 self once; T4 cancelled /
+completed / no-show / rescheduled keep credit; T5 booking window; T7 other member org; T8 active membership gates access
+(second member org allowed; invited, other-group, `Active`-cased, anon and revoked denied; profile-fallback org kept);
+T9 SECURITY DEFINER, plpgsql, volatility, search_path, owner, ACL, signature, defaults, return shape, exact two-line delta;
+T10 index definition. Runner: negative controls (pre-repair → 42702; 42702-fix-only → fails T1), body / ACL /
+existing-index drift refusal, replay refusal, rollback to the exact preimage + ACL with the index dropped (and rollback
+replay refusal), access differential (`group_leaderboard_access_matrix.sql`: 14 caller/period scenarios, identical
+between pre-repair read as intended and repaired under `error`), index proof (`group_leaderboard_index_proof.sql`).
+
+**Verification (vs `main` @ `d05f4754`):** focused 68 files 1,096 passed + 10 LA-gated skips (UTC) / 1,106 (LA), only the
+`contactName` env baseline failing; app typecheck 90 = 90 (only the pre-existing AddTaskModal message reworded); root
+tsc 0. No frontend file changed in this revision.
+
+**Push:** approved once this is clean, as a history rewrite of the remote's `20c4f1f9`:
+`git push --force-with-lease=claude/contact-followups-appointment-fix-rruo7i:20c4f1f9 -u origin claude/contact-followups-appointment-fix-rruo7i`.
+Not approved: applying the migration, merge, deploy.

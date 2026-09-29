@@ -1,6 +1,6 @@
 name: Group leaderboard backend verification
-# Real PostgreSQL proof of the Group leaderboard "Appointments Set" setter-credit migration
-# (supabase/migrations/20260929160000_group_leaderboard_appointment_setter_credit.sql). Synthetic tenants only; the
+# Real PostgreSQL proof of the Group leaderboard repair migration (42702 fix, setter credit, setter index)
+# (supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql). Synthetic tenants only; the
 # runner refuses any non-localhost database, and no production credential exists in this job.
 on:
   pull_request:
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17.6
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Group leaderboard suite, negative control, drift/replay refusal, rollback, pre-existing 42702 proof
+      - name: Group leaderboard suite, negative controls, drift/replay refusal, rollback, access differential, index proof
         env:
           PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55434
         run: |

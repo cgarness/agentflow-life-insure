@@ -1158,3 +1158,6 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   §19 — Reports and the org leaderboard verified unchanged; GoalProgress and `getPerformance` now credit the setter; the
   Group leaderboard migration `20260929160000` is PREPARED, NOT APPLIED. Pre-existing Group 42702 defect documented (§19).
   Awaiting Chris: (A) the Group migration, (B) the push (a `--force-with-lease` after the rebase), (C) merge/release.
+- **Revision (2026-09-29):** the Group migration is now the complete repair
+  `20260929170000_group_leaderboard_repair_membership_setter_credit.sql` (42702 fix + setter credit + setter index),
+  superseding `20260929160000`; PREPARED, NOT APPLIED. Evidence and suite in plan §20.

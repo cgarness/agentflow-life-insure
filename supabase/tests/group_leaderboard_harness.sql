@@ -69,14 +69,26 @@ CREATE TABLE public.calls (
   duration   integer DEFAULT 0
 );
 
+-- Every production column (baseline 20260806000000), so row width — and therefore scan cost — is realistic.
 CREATE TABLE public.appointments (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL,
-  user_id         uuid,
-  created_by      uuid,
-  status          text NOT NULL DEFAULT 'Scheduled',
-  start_time      timestamptz NOT NULL,
-  created_at      timestamptz DEFAULT now()
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title                   text NOT NULL DEFAULT '',
+  contact_name            text,
+  contact_id              uuid,
+  type                    text NOT NULL DEFAULT 'Sales Call',
+  status                  text NOT NULL DEFAULT 'Scheduled',
+  start_time              timestamptz NOT NULL,
+  end_time                timestamptz,
+  notes                   text,
+  created_by              uuid,
+  created_at              timestamptz DEFAULT now(),
+  updated_at              timestamptz DEFAULT now(),
+  user_id                 uuid,
+  external_event_id       text,
+  external_provider       text,
+  external_last_synced_at timestamptz,
+  sync_source             text NOT NULL DEFAULT 'internal',
+  organization_id         uuid NOT NULL
 );
 
 CREATE TABLE public.clients (
@@ -85,11 +97,56 @@ CREATE TABLE public.clients (
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
--- Assertion helpers (schema gt): a failure raises, so psql -v ON_ERROR_STOP=1 exits non-zero.
+-- The production indexes these reads can use (read-only pg_indexes check, 2026-09-29; baseline definitions).
+CREATE INDEX appointments_org_start_time_idx  ON public.appointments USING btree (organization_id, start_time);
+CREATE INDEX appointments_user_start_time_idx ON public.appointments USING btree (user_id, start_time);
+CREATE INDEX idx_appointments_organization_id ON public.appointments USING btree (organization_id);
+CREATE INDEX idx_appointments_user_id         ON public.appointments USING btree (user_id);
+CREATE INDEX idx_calls_agent_id               ON public.calls USING btree (agent_id);
+CREATE INDEX idx_clients_assigned_agent_id    ON public.clients USING btree (assigned_agent_id);
+CREATE INDEX idx_profiles_organization_id     ON public.profiles USING btree (organization_id);
+CREATE INDEX idx_agency_group_members_group   ON public.agency_group_members USING btree (agency_group_id);
+CREATE UNIQUE INDEX idx_agency_group_members_one_active_group ON public.agency_group_members USING btree (organization_id)
+  WHERE status = ANY (ARRAY['active'::text, 'invited'::text]);
+
+-- Assertion helpers (schema gt): a failure raises, so psql -v ON_ERROR_STOP=1 exits non-zero. They run as the
+-- CALLING role (SECURITY INVOKER), so an access check made through them is the caller's own.
 CREATE SCHEMA gt;
+GRANT USAGE ON SCHEMA gt TO anon, authenticated;
 CREATE FUNCTION gt.eq(label text, got anyelement, want anyelement) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   IF got IS DISTINCT FROM want THEN
     RAISE EXCEPTION 'ASSERT FAILED [%]: got %, want %', label, got, want;
   END IF;
+END $$;
+
+-- The group board's roster (first names, alphabetical) for the current caller.
+CREATE FUNCTION gt.roster(p_period text DEFAULT 'month') RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN (SELECT string_agg(b.agent_first_name, ',' ORDER BY b.agent_first_name)
+            FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', p_period) b);
+END $$;
+
+-- The current caller must be refused by the membership check (and by nothing else).
+CREATE FUNCTION gt.expect_denied(label text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM * FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+  RAISE EXCEPTION 'ASSERT FAILED [%]: the group board was returned', label;
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM NOT LIKE 'Access denied%' THEN RAISE; END IF;
+END $$;
+
+-- Access-differential probe: the outcome for the current caller and period, with every column EXCEPT
+-- appointments_set (the one metric the repair changes by design) fingerprinted.
+CREATE FUNCTION gt.probe(label text, p_period text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE n int; sig text;
+BEGIN
+  SELECT count(*), md5(coalesce(string_agg(format('%s|%s|%s|%s|%s|%s|%s|%s|%s', b.organization_id, b.organization_name,
+           b.agent_id, b.agent_first_name, b.agent_last_name, b.agent_avatar_url, b.calls_made, b.policies_sold,
+           b.talk_time_seconds), ';' ORDER BY b.agent_id), ''))
+    INTO n, sig
+    FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', p_period) b;
+  RAISE NOTICE 'MATRIX % | ok | % rows | %', label, n, sig;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'MATRIX % | % | %', label, SQLSTATE, SQLERRM;
 END $$;
