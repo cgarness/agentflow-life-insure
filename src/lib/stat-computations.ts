@@ -2,7 +2,7 @@
  * stat-computations.ts — the Reports stat-card registry.
  *
  * Every AVAILABLE stat is computed from canonical fields returned by the secured report RPCs
- * (Calls Made, Talk Time, Contacted, Contact Rate, Converted, Policies Sold, Appointments, session
+ * (Calls Made, Talk Time, Contacted, Call Contact Rate, Converted, Policies Sold, Appointments, session
  * time — AGENT_RULES #8/#12/#13/#17/#23) or is plain arithmetic over two of them. A stat with no
  * documented definition is UNAVAILABLE: it shows its reason, never a number, and is not offered in
  * the layout picker. Stat ids are unchanged so saved layouts stay compatible.
@@ -66,7 +66,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_followup_calls", label: "Follow-up calls", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_voicemails_left", label: "Voicemails left", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_total_contacted", label: "Contacted", category: "activity" },
-  { id: "stat_contact_rate", label: "Contact rate", category: "activity" },
+  { id: "stat_contact_rate", label: "Call contact rate", category: "activity" },
   { id: "stat_first_dial_contact", label: "First dial contact rate", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_followup_contact_rate", label: "Follow-up contact rate", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_avg_dials_to_contact", label: "Avg dials to contact", category: "activity", unavailable: NOT_TRACKED },
@@ -109,7 +109,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   // Team
   { id: "stat_top_performer", label: "Top performer", category: "team" },
   { id: "stat_top_dialer", label: "Top dialer", category: "team" },
-  { id: "stat_best_contact_agent", label: "Best contact rate", category: "team" },
+  { id: "stat_best_contact_agent", label: "Best call contact rate", category: "team" },
   { id: "stat_best_conv_agent", label: "Best conv rate", category: "team", unavailable: NO_CONVERSION },
   { id: "stat_avg_calls_agent", label: "Avg calls per dialing agent", category: "team" },
   { id: "stat_avg_sales_agent", label: "Avg sales/agent", category: "team", unavailable: NO_DEFINITION },
@@ -193,7 +193,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_total_contacted":
       return { value: formatCount(t.contacted) };
     case "stat_contact_rate":
-      return { value: formatRate(t.contact_rate_pct), subtitle: "contacted ÷ calls made" };
+      return { value: formatRate(t.contact_rate_pct), subtitle: "contacted calls ÷ calls made" };
     case "stat_total_talk_time":
       return { value: dur(t.talk_time_seconds), subtitle: "outbound, carrier-timed" };
     case "stat_avg_duration_all":
@@ -228,7 +228,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     }
     case "stat_best_contact_agent": {
       const best = leader(dialers, (a) => a.contact_rate_pct, (a) => a.name);
-      return best ? { value: best.name, subtitle: `${best.score.toFixed(1)}% contact rate`, smallValue: true } : { value: DASH };
+      return best ? { value: best.name, subtitle: `${best.score.toFixed(1)}% call contact rate`, smallValue: true } : { value: DASH };
     }
     case "stat_avg_calls_agent":
       return { value: num(ratio(t.calls_made - s.unattributed.calls_made, dialers.length)), subtitle: `${dialers.length} dialing agent${dialers.length === 1 ? "" : "s"}` };

@@ -10,7 +10,6 @@
  * - The permission gate ("Export Reports", resolved server-side as `can_export`) is applied by the
  *   callers; this module never decides authorization.
  */
-import { timeZoneLabel } from "@/lib/reports-format";
 import type { ReportScopeKind, ReportWindow } from "@/lib/reports-schemas";
 
 export type CsvCell = string | number | null | undefined;
@@ -49,7 +48,7 @@ export function buildReportCsv(context: ReportExportContext, headers: string[], 
     ["Scope", SCOPE_LABELS[context.scope]],
     ["Agent filter", context.agentLabel],
     ["Period", `${context.window.start_date} to ${context.window.end_date}`],
-    ["Time zone", timeZoneLabel(context.window.time_zone, context.window.time_zone_source)],
+    ["Time zone", context.window.time_zone],
     ["Generated", (context.generatedAt ?? new Date()).toISOString()],
   ];
   const lines = [

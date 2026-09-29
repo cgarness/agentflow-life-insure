@@ -105,7 +105,7 @@ const Reports: React.FC = () => {
     const t = s.data.totals;
     exportFor("summary")?.("Report Summary", ["Metric", "Value"], [
       ["Calls made (outbound)", t.calls_made], ["Inbound calls", t.inbound_calls], ["Contacted", t.contacted],
-      ["Contact rate %", t.contact_rate_pct], ["Talk time (seconds)", t.talk_time_seconds],
+      ["Call contact rate %", t.contact_rate_pct], ["Talk time (seconds)", t.talk_time_seconds],
       ["Converted leads/clients", t.converted], ["Policies sold", t.policies_sold],
       ["Appointments set", t.appointments_set], ["Dialer session time (seconds)", t.session_seconds],
     ]);
@@ -139,7 +139,12 @@ const Reports: React.FC = () => {
         <ReportNotice title="Reports" tone="denied" message="You don't have access to Reports."
           detail="Your role's report permissions don't allow viewing reports. Ask an admin if you need access." />
       )}
-      {scope.state.status === "error" && scope.state.error.kind !== "denied" && (
+      {scope.state.status === "error" && scope.state.error.kind === "configuration" && (
+        <ReportNotice title="Reports" tone="unavailable" message="The agency time zone must be configured before official Reports can be calculated."
+          detail="An admin must set the agency time zone in Settings → Company Branding. Report periods, day and hour buckets, the heatmap and exports are never calculated in a guessed time zone."
+          onRetry={scope.reload} />
+      )}
+      {scope.state.status === "error" && scope.state.error.kind !== "denied" && scope.state.error.kind !== "configuration" && (
         <ReportNotice title="Reports" tone="error" message="Reports are temporarily unavailable."
           detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.reload} />
       )}

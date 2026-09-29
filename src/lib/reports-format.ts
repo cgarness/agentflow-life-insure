@@ -222,6 +222,3 @@ export function ratio(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
-export function timeZoneLabel(timeZone: string, source: "agency_settings" | "default"): string {
-  return source === "default" ? `${timeZone} (agency default — not configured)` : timeZone;
-}

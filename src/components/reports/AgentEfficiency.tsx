@@ -30,13 +30,13 @@ interface Point {
   y: number;
 }
 
-const HEADERS = ["Agent", "Calls made", "Session time", "Calls per session hour", "Contact rate", "Talk time", "Policies sold"];
+const HEADERS = ["Agent", "Calls made", "Session time", "Calls per session hour", "Call contact rate", "Talk time", "Policies sold"];
 const EXPORT_HEADERS = [
   "Agent",
   "Calls made",
   "Session time (s)",
   "Calls per session hour",
-  "Contact rate %",
+  "Call contact rate %",
   "Talk time (s)",
   "Policies sold",
 ];
@@ -52,7 +52,7 @@ const PointTooltip: React.FC<{ active?: boolean; payload?: Array<{ payload?: Poi
     <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
       <p className="font-bold text-foreground mb-1">{p.name}</p>
       <p className="text-muted-foreground">Calls per session hour: {p.x.toFixed(1)}</p>
-      <p className="text-muted-foreground">Contact rate: {formatRate(p.y)}</p>
+      <p className="text-muted-foreground">Call contact rate: {formatRate(p.y)}</p>
     </div>
   );
 };
@@ -147,7 +147,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
           </div>
 
           <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-            Calls per session hour vs contact rate
+            Calls per session hour vs call contact rate
           </h4>
           {points.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
@@ -167,11 +167,11 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
                 <YAxis
                   type="number"
                   dataKey="y"
-                  name="Contact rate"
+                  name="Call contact rate"
                   unit="%"
                   domain={[0, 100]}
                   tick={tick}
-                  label={{ value: "Contact rate %", angle: -90, position: "insideLeft", style: axisLabel }}
+                  label={{ value: "Call contact rate %", angle: -90, position: "insideLeft", style: axisLabel }}
                 />
                 <Tooltip cursor={{ strokeDasharray: "3 3", stroke: "hsl(var(--border))" }} content={<PointTooltip />} />
                 <Scatter data={points} fill="hsl(var(--primary))" />

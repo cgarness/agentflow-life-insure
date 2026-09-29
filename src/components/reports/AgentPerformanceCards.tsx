@@ -19,7 +19,7 @@ const EXPORT_HEADERS = [
   "Status",
   "Calls made",
   "Contacted",
-  "Contact rate %",
+  "Call contact rate %",
   "Talk time (s)",
   "Policies sold",
   "Converted",
@@ -48,7 +48,7 @@ const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
   <div className="grid grid-cols-3 gap-x-3 gap-y-3">
     <Stat label="Calls made" value={formatCount(a.calls_made)} />
     <Stat label="Contacted" value={formatCount(a.contacted)} />
-    <Stat label="Contact rate" value={formatRate(a.contact_rate_pct)} />
+    <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
     <Stat label="Policies sold" value={formatCount(a.policies_sold)} />
     <Stat label="Converted" value={formatCount(a.converted)} />
   </div>

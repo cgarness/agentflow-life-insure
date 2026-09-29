@@ -17,7 +17,7 @@ const COLUMNS: { label: string; numeric: boolean }[] = [
   { label: "Type", numeric: false },
   { label: "Calls made", numeric: true },
   { label: "Contacted calls", numeric: true },
-  { label: "Contact rate", numeric: true },
+  { label: "Call contact rate", numeric: true },
   { label: "Leads dialed", numeric: true },
   { label: "Contacted leads", numeric: true },
   { label: "Converted leads", numeric: true },
@@ -52,7 +52,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
     ? () =>
         onExport(
           "Campaign Performance",
-          COLUMNS.map((c) => (c.label === "Contact rate" ? "Contact rate %" : c.label)),
+          COLUMNS.map((c) => (c.label === "Call contact rate" ? "Call contact rate %" : c.label)),
           rows.map((c) => [
             c.name,
             c.type,

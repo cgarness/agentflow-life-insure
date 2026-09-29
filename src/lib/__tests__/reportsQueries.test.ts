@@ -98,6 +98,21 @@ describe("failure contract — never a zero report", () => {
     respond(null, { code: "22023", message: "reports: date range is longer than 366 days" });
     await expectKind(fetchReportVolume(REQ), "invalid");
   });
+  it("maps 55000 (no valid agency time zone) to configuration — never a report in a guessed zone", async () => {
+    respond(null, { code: "55000", message: "reports: the agency time zone is not configured" });
+    await expectKind(fetchReportScope(), "configuration");
+    respond(null, { code: "55000", message: "reports: the agency time zone setting is not a valid IANA zone" });
+    await expectKind(fetchReportVolume(REQ), "configuration");
+    const e = new ReportsQueryError("configuration");
+    expect(e.message).toBe("The agency time zone must be configured before official Reports can be calculated.");
+  });
+  it("rejects a payload that claims a defaulted (unconfigured) time zone", async () => {
+    respond(reportScope({ time_zone_source: "default" as never }));
+    await expectKind(fetchReportScope(), "unavailable");
+    const s = reportSummary();
+    respond({ ...s, window: { ...s.window, time_zone_source: "default" } });
+    await expectKind(fetchReportSummary(REQ), "unavailable");
+  });
   it("maps a missing function / any other provider error to unavailable", async () => {
     respond(null, { code: "PGRST202", message: "Could not find the function" });
     await expectKind(fetchReportCampaigns(REQ), "unavailable");

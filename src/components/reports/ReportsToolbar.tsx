@@ -16,7 +16,6 @@ import {
   calendarDateToPickerDate,
   longDateLabel,
   pickedDayToCalendarDate,
-  timeZoneLabel,
   type CalendarRange,
   type RangeProblem,
   type ReportPreset,
@@ -69,7 +68,7 @@ const DatePick: React.FC<{ label: string; value: string | null; onChange: (d: st
 );
 
 const ReportsToolbar: React.FC<Props> = (p) => {
-  const tz = p.scope ? timeZoneLabel(p.scope.time_zone, p.scope.time_zone_source) : null;
+  const tz = p.scope ? p.scope.time_zone : null;
   const multiAgent = p.scope !== null && p.scope.scope !== "own";
 
   return (

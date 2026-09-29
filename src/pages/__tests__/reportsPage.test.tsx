@@ -53,7 +53,7 @@ import Reports from "@/pages/Reports";
 import { ReportsQueryError } from "@/lib/reports-queries";
 
 const ready = (data: unknown) => ({ status: "ready", data });
-const failed = (kind: "unavailable" | "denied" = "unavailable") => ({ status: "error", error: new ReportsQueryError(kind) });
+const failed = (kind: "unavailable" | "denied" | "configuration" = "unavailable") => ({ status: "error", error: new ReportsQueryError(kind) });
 const allReady = () => ({
   summary: ready(reportSummary()), volume: ready(reportVolume()), dispositions: ready(reportDispositions()),
   campaigns: ready(reportCampaigns()), leadSources: ready(reportLeadSources()),
@@ -84,6 +84,22 @@ describe("scope states", () => {
     expect(screen.getByText("You don't have access to Reports.")).toBeInTheDocument();
     expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
     expect(screen.queryByText("Campaign Performance")).not.toBeInTheDocument();
+  });
+
+  it("an unconfigured agency time zone says so, computes nothing and offers Retry", () => {
+    h.scopeState = failed("configuration");
+    const { container } = renderPage();
+    expect(screen.getByText("The agency time zone must be configured before official Reports can be calculated.")).toBeInTheDocument();
+    expect(screen.getByText(/Settings → Company Branding/)).toBeInTheDocument();
+    expect(screen.queryByText("You don't have access to Reports.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reports are temporarily unavailable.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /csv/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^export$/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("report-period")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-report-state="unavailable"]')!.textContent).not.toMatch(/\d/);
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(h.retryScope).toHaveBeenCalledTimes(1);
   });
 
   it("an unavailable scope offers Retry and never shows zeros", () => {
@@ -152,6 +168,22 @@ describe("panel states", () => {
     expect(h.retryPanel).toHaveBeenCalledWith("summary");
   });
 
+  it("a panel refused for an unconfigured agency time zone says so instead of an error or a zero", () => {
+    h.panels = { ...allReady(), volume: failed("configuration") };
+    renderPage();
+    expect(screen.getAllByText("The agency time zone must be configured before official Reports can be calculated.").length).toBeGreaterThan(0);
+  });
+
+  it("labels the call-level rate 'Call contact rate' everywhere, never a bare 'Contact rate'", async () => {
+    const { container } = renderPage();
+    expect(screen.getAllByText(/Call contact rate/).length).toBeGreaterThan(0);
+    expect(container.textContent).not.toMatch(/(?<!call )contact rate/i);
+    fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
+    await waitFor(() => expect(h.downloads).toHaveLength(1));
+    expect(h.downloads[0].csv).toContain(`"Call contact rate %",57.9`);
+    expect(h.downloads[0].csv).not.toMatch(/(?<!Call )Contact rate/);
+  });
+
   it("shows the genuine empty state only after a successful empty result", () => {
     const zeroVolume = reportVolume();
     zeroVolume.by_date = zeroVolume.by_date.map((d) => ({ ...d, calls_made: 0, contacted: 0, inbound_calls: 0, policies_sold: 0 }));
@@ -187,10 +219,10 @@ describe("filters follow the server scope", () => {
     expect(screen.queryByLabelText("Agent filter")).not.toBeInTheDocument();
   });
 
-  it("shows the agency time zone, labelled when it is the default", () => {
-    h.scopeState = ready(reportScope({ time_zone: "America/Chicago", time_zone_source: "default" }));
+  it("shows the agency time zone from the organization's settings", () => {
     renderPage();
-    expect(screen.getByText(/America\/Chicago \(agency default — not configured\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/America\/Los_Angeles/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/default/i)).not.toBeInTheDocument();
   });
 
   it("presets use the agency today (July 2026 in the fixture)", () => {

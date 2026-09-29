@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatCount, formatRate, ratio, timeZoneLabel } from "@/lib/reports-format";
+import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportVolume } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface Row {
   label: string;
   calls: number;
   contacted: number;
-  /** Contact rate in percent, null when no calls were made in the bucket. */
+  /** Call contact rate in percent, null when no calls were made in the bucket. */
   rate: number | null;
 }
 
@@ -62,7 +62,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
     ? () =>
         onExport(
           tab === "hour" ? "Call Flow by Hour" : "Call Flow by Day",
-          [tab === "hour" ? "Hour" : "Day", "Calls made", "Contacted", "Contact rate %"],
+          [tab === "hour" ? "Hour" : "Day", "Calls made", "Contacted", "Call contact rate %"],
           rows.map((r) => [r.label, r.calls, r.contacted, r.rate]),
         )
     : undefined;
@@ -107,7 +107,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
             </BarChart>
           </ResponsiveContainer>
 
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-5 mb-2">Contact rate</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-5 mb-2">Call contact rate</p>
           <ResponsiveContainer width="100%" height={150}>
             <LineChart data={rows} syncId="call-flow" margin={{ left: 0, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -117,7 +117,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
                 contentStyle={tooltipStyle}
                 labelStyle={textStyle}
                 itemStyle={textStyle}
-                formatter={(v: number | null) => [formatRate(v), "Contact rate"]}
+                formatter={(v: number | null) => [formatRate(v), "Call contact rate"]}
               />
               <Line
                 type="monotone"
@@ -126,15 +126,15 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
                 strokeWidth={2}
                 dot={{ r: 3, fill: "hsl(var(--primary))" }}
                 connectNulls={false}
-                name="Contact rate"
+                name="Call contact rate"
               />
             </LineChart>
           </ResponsiveContainer>
 
           <p className="text-[11px] text-muted-foreground mt-3">
-            Contact rate is contacted calls divided by calls made; buckets with no calls show no rate.{" "}
+            Call contact rate is contacted outbound calls divided by outbound calls made; buckets with no calls show no rate.{" "}
             {tab === "hour" ? "Hours" : "Days"} are in the agency time zone:{" "}
-            {timeZoneLabel(volume.window.time_zone, volume.window.time_zone_source)}.
+            {volume.window.time_zone}.
           </p>
         </>
       )}

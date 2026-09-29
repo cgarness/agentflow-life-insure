@@ -37,9 +37,10 @@ INSERT INTO rt.ids VALUES
   ('CB',     '22000000-0000-0000-0000-0000000000f1'),
   ('L1',     '11000000-0000-0000-0000-000000000011'), ('L2',     '11000000-0000-0000-0000-000000000012'),
   ('L3',     '11000000-0000-0000-0000-000000000013'), ('L4',     '11000000-0000-0000-0000-000000000014'),
-  ('L5',     '11000000-0000-0000-0000-000000000015'),
+  ('L5',     '11000000-0000-0000-0000-000000000015'), ('L6',     '11000000-0000-0000-0000-000000000016'),
   ('CL1',    '11000000-0000-0000-0000-000000000021'), ('CL2',    '11000000-0000-0000-0000-000000000022'),
   ('CL3',    '11000000-0000-0000-0000-000000000023'),
+  ('CL6A',   '11000000-0000-0000-0000-000000000026'), ('CL6B',   '11000000-0000-0000-0000-000000000027'),
   ('CLIENT99','11000000-0000-0000-0000-000000000099');
 
 CREATE FUNCTION rt.id(p text) RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT id FROM rt.ids WHERE name = p $$;
@@ -110,6 +111,14 @@ BEGIN
   END IF;
 END $$;
 
+-- The agency-time-zone configuration refusal (55000), never a report in a guessed zone.
+CREATE FUNCTION rt.unconfigured(p_label text, p_result text, p_fragment text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_result NOT LIKE '55000:%' OR position(p_fragment IN p_result) = 0 THEN
+    RAISE EXCEPTION '% FAIL: expected 55000 containing "%", got [%]', p_label, p_fragment, p_result;
+  END IF;
+END $$;
+
 -- =====================================================================================================
 -- FIXTURES (synthetic). Report window W = 2026-07-01 .. 2026-07-31 in America/Los_Angeles (PDT, UTC-7):
 -- [2026-07-01T07:00Z, 2026-08-01T07:00Z).
@@ -171,7 +180,7 @@ SELECT rt.reset_perms();
 INSERT INTO public.company_settings (organization_id, timezone) VALUES
   (rt.id('O1'), 'America/Los_Angeles'),
   (rt.id('O3'), 'Not/AZone');            -- invalid on purpose (the production trigger would refuse it)
--- O2 has no settings row -> agency default America/Chicago.
+-- O2 has NO settings row -> official Reports fail closed (55000), never a guessed zone (T6, T15).
 
 INSERT INTO public.pipeline_stages (id, name, convert_to_client, organization_id) VALUES
   (rt.id('PS_CONV'), 'Won', true, rt.id('O1'));
@@ -197,12 +206,16 @@ INSERT INTO public.leads (id, first_name, last_name, phone, lead_source, assigne
   (rt.id('L2'), 'Lead', 'Two',   '5550000002', ' Google ', rt.id('A2'), rt.id('A2'), '2026-07-03T18:00:00Z', rt.id('O1')),
   (rt.id('L3'), 'Lead', 'Three', '5550000003', 'Facebook', rt.id('A3'), rt.id('A3'), '2026-07-04T18:00:00Z', rt.id('O1')),
   (rt.id('L4'), 'Lead', 'Four',  '5550000004', '',         rt.id('A1'), rt.id('A1'), '2026-06-15T18:00:00Z', rt.id('O1')),
-  (rt.id('L5'), 'Lead', 'Five',  '5550000005', 'Referral', rt.id('A2'), rt.id('A2'), '2026-07-20T18:00:00Z', rt.id('O1'));
+  (rt.id('L5'), 'Lead', 'Five',  '5550000005', 'Referral', rt.id('A2'), rt.id('A2'), '2026-07-20T18:00:00Z', rt.id('O1')),
+  -- L6: ONE person with membership in TWO campaigns (T14). Created in May so no July test sees it.
+  (rt.id('L6'), 'Lead', 'Six',   '5550000006', 'Referral', rt.id('A2'), rt.id('A2'), '2026-05-01T18:00:00Z', rt.id('O1'));
 
 INSERT INTO public.campaign_leads (id, campaign_id, lead_id, organization_id) VALUES
   (rt.id('CL1'), rt.id('C1'), rt.id('L1'), rt.id('O1')),
   (rt.id('CL2'), rt.id('C1'), rt.id('L2'), rt.id('O1')),
-  (rt.id('CL3'), rt.id('C2'), rt.id('L3'), rt.id('O1'));
+  (rt.id('CL3'), rt.id('C2'), rt.id('L3'), rt.id('O1')),
+  (rt.id('CL6A'), rt.id('C1'), rt.id('L6'), rt.id('O1')),
+  (rt.id('CL6B'), rt.id('C2'), rt.id('L6'), rt.id('O1'));
 
 -- Calls. id suffix = fixture number. started_at deliberately equals created_at except k25.
 CREATE FUNCTION rt.call_row(p_n int, p_agent text, p_dir text, p_at timestamptz, p_dur int, p_disp text,
@@ -253,6 +266,9 @@ SELECT rt.call_row(29, 'A2',    'outbound', '2026-11-02T08:00:00Z',   10, 'D_NI'
 -- k30/k31 exist for the America/Havana midnight fall-back case in T9 (outside every Los Angeles window tested).
 SELECT rt.call_row(30, 'A2',    'outbound', '2026-10-31T12:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Oct 31 08:00 CDT Havana
 SELECT rt.call_row(31, 'A2',    'outbound', '2026-11-01T04:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 00:30 CDT Havana (first 00:30)
+-- k32/k33: the SAME contact (L6) converts through TWO different campaign_lead memberships in May (T14).
+SELECT rt.call_row(32, 'A2',    'outbound', '2026-05-12T18:00:00Z',  120, 'D_SOLD', NULL,          'C1', 'CL6A', rt.id('L6'), 'lead');  -- converting via CL6A
+SELECT rt.call_row(33, 'A2',    'outbound', '2026-05-14T18:00:00Z',   90, 'D_SOLD', NULL,          'C2', 'CL6B', rt.id('L6'), 'lead');  -- converting via CL6B
 
 \o
 
@@ -457,7 +473,7 @@ BEGIN
   PERFORM rt.eq('T8 talk time (outbound, negative clamped)', (j -> 'totals' ->> 'talk_time_seconds')::int, 740);
   PERFORM rt.eq('T8 avg talk per dial', (j -> 'totals' ->> 'avg_talk_per_dial_seconds')::numeric, 38.9);
   PERFORM rt.eq('T8 inbound talk', (j -> 'totals' ->> 'inbound_talk_seconds')::int, 340);
-  PERFORM rt.eq('T8 converted = distinct contacts (CL2 twice + client)', (j -> 'totals' ->> 'converted')::int, 2);
+  PERFORM rt.eq('T8 converted = distinct contacts (L2 twice + client)', (j -> 'totals' ->> 'converted')::int, 2);
   PERFORM rt.eq('T8 policies sold = wins (two policies, one client)', (j -> 'totals' ->> 'policies_sold')::int, 5);
   PERFORM rt.eq('T8 appointments (created_by, user_id rescue, cancelled counts)', (j -> 'totals' ->> 'appointments_set')::int, 4);
   PERFORM rt.eq('T8 dnc calls', (j -> 'totals' ->> 'dnc_calls')::int, 1);
@@ -496,16 +512,22 @@ BEGIN
   PERFORM rt.denied('T5 super admin cross-tenant agent', rt.err('authenticated', rt.id('SUPER'), rt.id('O1'),
     format('SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', %L)', rt.id('B1'))), 'outside your report scope');
 
-  -- The other tenant sees only itself (and its data never appears in O1).
+  -- The other tenant has NO agency time zone configured: its official Reports fail closed (55000) —
+  -- no default zone is guessed (plan §R3.2).
+  PERFORM rt.unconfigured('T6 O2 unconfigured zone refuses the report', rt.err('authenticated', rt.id('B_ADMIN'), rt.id('O2'),
+    'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not configured');
+  -- Once O2 configures a zone, it sees only itself (and its data never appears in O1). Block-local.
+  INSERT INTO public.company_settings (organization_id, timezone) VALUES (rt.id('O2'), 'America/Chicago');
   j := rt.summary('B_ADMIN', '2026-07-01', '2026-07-31');
   PERFORM rt.eq('T6 tenant isolation O2 calls', (j -> 'totals' ->> 'calls_made')::int, 1);
   PERFORM rt.eq('T6 O2 contacted', (j -> 'totals' ->> 'contacted')::int, 1);
   PERFORM rt.eq('T6 O2 policies', (j -> 'totals' ->> 'policies_sold')::int, 1);
-  PERFORM rt.eq('T6 O2 default zone', j -> 'window' ->> 'time_zone', 'America/Chicago');
-  PERFORM rt.eq('T6 O2 default zone labelled', j -> 'window' ->> 'time_zone_source', 'default');
+  PERFORM rt.eq('T6 O2 configured zone', j -> 'window' ->> 'time_zone', 'America/Chicago');
+  PERFORM rt.eq('T6 O2 zone source', j -> 'window' ->> 'time_zone_source', 'agency_settings');
   PERFORM rt.eq('T6 O2 window start (CDT midnight)', j -> 'window' ->> 'start_at', '2026-07-01T05:00:00Z');
+  DELETE FROM public.company_settings WHERE organization_id = rt.id('O2');
   RAISE NOTICE 'T5 OK  Admin/Super Admin: home organization only; narrowing works; cross-tenant agent refused';
-  RAISE NOTICE 'T6 OK  tenant isolation: O2 sees only O2, with the labelled agency default zone';
+  RAISE NOTICE 'T6 OK  tenant isolation: O2 sees only O2 once configured; unconfigured O2 fails closed';
   RAISE NOTICE 'T8 OK  metric canon: Calls Made, Talk Time, Contacted, Converted vs Policies Sold, appointments, sessions, null rates';
 END $$;
 
@@ -652,11 +674,11 @@ BEGIN
     RAISE EXCEPTION 'T9 FAIL null start accepted'; END IF;
   PERFORM rt.eq('T9 366-day window accepted',
     rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'), 'SELECT public.get_report_call_summary(''2025-07-31'', ''2026-07-31'', NULL)'), 'OK');
-  -- Invalid stored agency zone fails closed.
-  IF rt.err('authenticated', rt.id('C_ADMIN'), rt.id('O3'), 'SELECT public.get_report_scope()') NOT LIKE 'P0001:%not a valid IANA zone%' THEN
-    RAISE EXCEPTION 'T9 FAIL invalid agency zone not refused'; END IF;
-  IF rt.err('authenticated', rt.id('C_ADMIN'), rt.id('O3'), 'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)') NOT LIKE 'P0001:%' THEN
-    RAISE EXCEPTION 'T9 FAIL invalid agency zone not refused (summary)'; END IF;
+  -- Invalid stored agency zone fails closed (same configuration condition as a missing one; T15).
+  PERFORM rt.unconfigured('T9 invalid agency zone refused (scope)',
+    rt.err('authenticated', rt.id('C_ADMIN'), rt.id('O3'), 'SELECT public.get_report_scope()'), 'not a valid IANA zone');
+  PERFORM rt.unconfigured('T9 invalid agency zone refused (summary)',
+    rt.err('authenticated', rt.id('C_ADMIN'), rt.id('O3'), 'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not a valid IANA zone');
   RAISE NOTICE 'T9 OK  agency-zone half-open window, zero-filled local buckets, DST 25h day, midnight fall-back (Havana), every-day boundary property, validation, invalid zone fails closed';
 END $$;
 
@@ -765,5 +787,59 @@ BEGIN
   RAISE NOTICE 'T13 OK  a successful empty window is well-formed JSON with zeros and null rates';
 END $$;
 
+-- =====================================================================================================
+-- T14 Converted identity — one person, two campaign_lead memberships, counts ONCE
+-- =====================================================================================================
+DO $$
+DECLARE j jsonb; a jsonb; c jsonb;
+BEGIN
+  -- May 2026 holds only k32 (L6 via CL6A, campaign C1) and k33 (L6 via CL6B, campaign C2), both converting.
+  j := rt.summary('ADMIN', '2026-05-01', '2026-05-31');
+  PERFORM rt.eq('T14 May calls made', (j -> 'totals' ->> 'calls_made')::int, 2);
+  PERFORM rt.eq('T14 same contact via two campaign leads = 1 converted', (j -> 'totals' ->> 'converted')::int, 1);
+  a := rt.agent_row(j, 'A2');
+  PERFORM rt.eq('T14 A2 converted (same contact) = 1', (a ->> 'converted')::int, 1);
+  PERFORM rt.eq('T14 agent-narrowed converted = 1', (rt.summary('ADMIN', '2026-05-01', '2026-05-31', 'A2') -> 'totals' ->> 'converted')::int, 1);
+  -- Campaign Performance keeps its campaign-specific semantics: each campaign counts ITS campaign lead.
+  j := rt.rpc('get_report_campaign_performance', 'ADMIN', '2026-05-01', '2026-05-31');
+  SELECT e INTO c FROM jsonb_array_elements(j -> 'campaigns') e WHERE (e ->> 'campaign_id')::uuid = rt.id('C1');
+  PERFORM rt.eq('T14 C1 converted leads (its own campaign lead)', (c ->> 'converted_leads')::int, 1);
+  SELECT e INTO c FROM jsonb_array_elements(j -> 'campaigns') e WHERE (e ->> 'campaign_id')::uuid = rt.id('C2');
+  PERFORM rt.eq('T14 C2 converted leads (its own campaign lead)', (c ->> 'converted_leads')::int, 1);
+  RAISE NOTICE 'T14 OK  Converted counts one person once across campaign_lead memberships; campaign converted leads stay per campaign';
+END $$;
+
+-- =====================================================================================================
+-- T15 Official Reports require a configured agency time zone — never a guessed default
+-- =====================================================================================================
+DO $$
+DECLARE fn text; v text;
+BEGIN
+  -- O2 has no settings row: the scope and EVERY report RPC refuse with 55000 before computing anything.
+  PERFORM rt.unconfigured('T15 O2 scope', rt.err('authenticated', rt.id('B_ADMIN'), rt.id('O2'), 'SELECT public.get_report_scope()'), 'not configured');
+  FOREACH fn IN ARRAY ARRAY['get_report_call_summary', 'get_report_call_volume', 'get_report_disposition_breakdown',
+                            'get_report_campaign_performance', 'get_report_lead_source_performance'] LOOP
+    PERFORM rt.unconfigured('T15 O2 ' || fn, rt.err('authenticated', rt.id('B_ADMIN'), rt.id('O2'),
+      format('SELECT public.%I(''2026-07-01'', ''2026-07-31'', NULL)', fn)), 'not configured');
+  END LOOP;
+  -- Authorization is decided FIRST: an unauthorized caller learns nothing about configuration.
+  PERFORM rt.denied('T15 unauthorized O2 agent still 42501', rt.err('authenticated', rt.id('B1'), rt.id('O2'), 'SELECT public.get_report_scope()'), 'not enabled');
+  PERFORM rt.eq('T15 anon still denied', left(rt.err('anon', NULL, NULL, 'SELECT public.get_report_scope()'), 5), '42501');
+  -- A row whose zone is NULL, blank or unknown is not a configured zone either (O1, block-local).
+  FOREACH v IN ARRAY ARRAY['', '   '] LOOP
+    UPDATE public.company_settings SET timezone = v WHERE organization_id = rt.id('O1');
+    PERFORM rt.unconfigured('T15 blank zone [' || v || ']', rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'), 'SELECT public.get_report_scope()'), 'not configured');
+  END LOOP;
+  UPDATE public.company_settings SET timezone = NULL WHERE organization_id = rt.id('O1');
+  PERFORM rt.unconfigured('T15 NULL zone', rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'),
+    'SELECT public.get_report_call_volume(''2026-07-01'', ''2026-07-31'', NULL)'), 'not configured');
+  UPDATE public.company_settings SET timezone = 'Mars/Olympus_Mons' WHERE organization_id = rt.id('O1');
+  PERFORM rt.unconfigured('T15 unknown zone', rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'),
+    'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not a valid IANA zone');
+  UPDATE public.company_settings SET timezone = 'America/Los_Angeles' WHERE organization_id = rt.id('O1');
+  PERFORM rt.eq('T15 configured again', rt.call(rt.id('ADMIN'), rt.id('O1'), 'SELECT public.get_report_scope()') ->> 'time_zone_source', 'agency_settings');
+  RAISE NOTICE 'T15 OK  missing / NULL / blank / unknown agency zone fails closed (55000) for scope and every RPC; authorization first';
+END $$;
+
 \echo ''
-\echo '================ ALL REPORTS RPC PROOFS PASSED (T0-T13) ================'
+\echo '================ ALL REPORTS RPC PROOFS PASSED (T0-T15) ================'

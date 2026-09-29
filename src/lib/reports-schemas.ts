@@ -15,9 +15,13 @@ const count = z.number().int().nonnegative();
 const rate = z.number().nullable();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// The server never reports in a guessed zone: an unconfigured agency time zone is an error (55000),
+// so the only source a payload can carry is the organization's own setting.
+const timeZoneSource = z.literal("agency_settings");
+
 export const reportWindowSchema = z.object({
   time_zone: z.string().min(1),
-  time_zone_source: z.enum(["agency_settings", "default"]),
+  time_zone_source: timeZoneSource,
   start_date: isoDate,
   end_date: isoDate,
   start_at: z.string(),
@@ -38,7 +42,7 @@ export const reportScopeSchema = z.object({
   can_export: z.boolean(),
   self_id: z.string().uuid(),
   time_zone: z.string().min(1),
-  time_zone_source: z.enum(["agency_settings", "default"]),
+  time_zone_source: timeZoneSource,
   today: isoDate,
   max_range_days: z.number().int().positive(),
   agents: z.array(

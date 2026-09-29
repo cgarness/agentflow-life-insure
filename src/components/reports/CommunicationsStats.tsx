@@ -69,10 +69,10 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     },
     {
       icon: Percent,
-      label: "Contact rate",
+      label: "Call contact rate",
       value: formatRate(t.contact_rate_pct),
-      subtitle: "Contacted ÷ calls made",
-      exportLabel: "Contact rate (%)",
+      subtitle: "Contacted calls ÷ calls made",
+      exportLabel: "Call contact rate (%)",
       raw: t.contact_rate_pct,
     },
     {

@@ -4,8 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { buildReportCsv, csvFileName, sanitizeCsvText } from "@/lib/reports-export";
 import {
-  addDays, autoGrouping, bucketKey, dayCount, formatHours, formatRate, groupDailySeries, presetRange, ratio, timeZoneLabel,
-  validateRange,
+  addDays, autoGrouping, bucketKey, dayCount, formatHours, formatRate, groupDailySeries, presetRange, ratio, validateRange,
 } from "@/lib/reports-format";
 import { reportWindow } from "./reportsFixtures";
 
@@ -30,14 +29,15 @@ describe("CSV export", () => {
 
   it("labels every file with report, scope, agent filter, agency period and time zone", () => {
     const csv = buildReportCsv(
-      { report: "Report Summary", scope: "organization", agentLabel: "All agents", window: reportWindow({ time_zone: "America/Chicago", time_zone_source: "default" }) },
+      { report: "Report Summary", scope: "organization", agentLabel: "All agents", window: reportWindow({ time_zone: "America/Chicago" }) },
       ["Metric", "Value"],
       [["Calls made (outbound)", 19]],
     );
     expect(csv).toContain(`"Scope","Organization"`);
     expect(csv).toContain(`"Agent filter","All agents"`);
     expect(csv).toContain(`"Period","2026-07-01 to 2026-07-31"`);
-    expect(csv).toContain(`"Time zone","America/Chicago (agency default — not configured)"`);
+    expect(csv).toContain(`"Time zone","America/Chicago"`);
+    expect(csv).not.toMatch(/default/i);
     expect(csvFileName("Report Summary", reportWindow())).toBe("report-summary-2026-07-01-to-2026-07-31.csv");
   });
 });
@@ -92,7 +92,6 @@ describe("agency calendar arithmetic", () => {
     expect(formatRate(57.9)).toBe("57.9%");
     expect(formatRate(0)).toBe("0.0%");
     expect(ratio(3, 0)).toBeNull();
-    expect(timeZoneLabel("America/Los_Angeles", "agency_settings")).toBe("America/Los_Angeles");
   });
 
   it("formats hours without ever producing a 60-minute remainder", () => {

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCount, formatRate, ratio, timeZoneLabel } from "@/lib/reports-format";
+import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportVolume } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,7 @@ const LEGEND_STEPS = ["bg-primary/20", "bg-primary/40", "bg-primary/60", "bg-pri
 type Tab = "calls" | "rate";
 const TABS: { key: Tab; label: string }[] = [
   { key: "calls", label: "Calls made" },
-  { key: "rate", label: "Contact rate" },
+  { key: "rate", label: "Call contact rate" },
 ];
 
 interface Props {
@@ -72,7 +72,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
     return maxRate > 0 && cell.rate !== null ? cell.rate / maxRate : 0;
   };
 
-  const tzCaption = `Hours are in the agency time zone: ${timeZoneLabel(volume.window.time_zone, volume.window.time_zone_source)}.`;
+  const tzCaption = `Hours are in the agency time zone: ${volume.window.time_zone}.`;
 
   return (
     <ReportSection title="Calling Heatmap" badge="Activity" onExport={handleExport}>
@@ -139,7 +139,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
                                 <p>Calls made: <span className="text-foreground">{formatCount(cell.calls)}</span></p>
                                 <p>Contacted: <span className="text-foreground">{formatCount(cell.contacted)}</span></p>
                                 <p>
-                                  Contact rate: <span className="text-foreground">{formatRate(cell.rate === null ? null : cell.rate * 100)}</span>
+                                  Call contact rate: <span className="text-foreground">{formatRate(cell.rate === null ? null : cell.rate * 100)}</span>
                                 </p>
                               </div>
                             </TooltipContent>

@@ -8,8 +8,9 @@
 # extracted VERBATIM from the repository migrations, applies the migration under test in ONE
 # transaction (as apply_migration does), and runs:
 #   1. the behaviour + authorization suite (supabase/tests/reports_rpc.sql)
-#   2. two NEGATIVE CONTROLS (a broken Contacted rule and a removed agent-narrowing guard) that the
-#      suite MUST reject — proof the assertions bite
+#   2. four NEGATIVE CONTROLS the suite MUST reject — proof the assertions bite: a broken Contacted
+#      rule, a removed agent-narrowing guard, a campaign-lead-first Converted identity, and a silent
+#      default agency time zone
 #   3. DRIFT refusal  — a changed legacy body makes the migration abort with nothing applied
 #   4. REPLAY refusal — a second apply aborts with nothing changed
 #   5. ROLLBACK proof — new objects dropped, legacy seal re-asserted (never re-granted), data unchanged
@@ -158,6 +159,35 @@ DB_NEG2="reports_rpc_neg2_$SUFFIX"
 build "$DB_NEG2" "$WORK/mig_neg_scope.sql"
 expect_fail "removed narrowing guard" "T3 other agent FAIL" psql "$PGURL/$DB_NEG2" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 
+echo; echo "== 2c. negative control: Converted identity campaign-lead-first (T14 must fire) =="
+python3 - "$MIG" "$WORK/mig_neg_converted.sql" <<'PY'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+old = "coalesce('contact:' || b.contact_id::text, 'campaign_lead:' || b.campaign_lead_id::text, 'call:' || b.id::text)"
+new = "coalesce('campaign_lead:' || b.campaign_lead_id::text, 'contact:' || b.contact_id::text, 'call:' || b.id::text)"
+if src.count(old) != 1: sys.exit("mutation 2c did not apply")
+open(sys.argv[2], "w", encoding="utf-8").write(src.replace(old, new))
+PY
+DB_NEG3="reports_rpc_neg3_$SUFFIX"
+build "$DB_NEG3" "$WORK/mig_neg_converted.sql"
+expect_fail "campaign-lead-first Converted identity" "T14 same contact via two campaign leads = 1 converted FAIL: got \[2\] want \[1\]" \
+  psql "$PGURL/$DB_NEG3" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+
+echo; echo "== 2d. negative control: silent America/Chicago default for an unconfigured zone (T6 must fire) =="
+python3 - "$MIG" "$WORK/mig_neg_zone.sql" <<'PY'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+old = ("    RAISE EXCEPTION 'reports: the agency time zone is not configured'\n"
+       "      USING ERRCODE = '55000', HINT = 'An admin must set the time zone in Settings > Company Branding.';\n")
+new = "    RETURN QUERY SELECT 'America/Chicago'::text, 'agency_settings'::text;\n    RETURN;\n"
+if src.count(old) != 1: sys.exit("mutation 2d did not apply")
+open(sys.argv[2], "w", encoding="utf-8").write(src.replace(old, new))
+PY
+DB_NEG4="reports_rpc_neg4_$SUFFIX"
+build "$DB_NEG4" "$WORK/mig_neg_zone.sql"
+expect_fail "silent default zone" "T6 O2 unconfigured zone refuses the report FAIL" \
+  psql "$PGURL/$DB_NEG4" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+
 # ── 3. Drift refusal ─────────────────────────────────────────────────────────────────────────────
 echo; echo "== 3. drift refusal: a changed legacy body aborts the migration atomically =="
 DB_DRIFT="reports_rpc_drift_$SUFFIX"
@@ -231,7 +261,7 @@ echo "   OK"
 
 echo
 echo "======================================================================"
-echo " ALL REPORTS RPC PROOFS PASSED (suite + 2 negative controls + drift +"
+echo " ALL REPORTS RPC PROOFS PASSED (suite + 4 negative controls + drift +"
 echo " replay + disable/enable + rollback). Databases dropped. Nothing hosted"
 echo " was touched."
 echo "======================================================================"

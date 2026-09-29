@@ -83,6 +83,22 @@ describe("migration security contract", () => {
   it("has no conversion-rate field", () => {
     expect(sql).not.toMatch(/conversion_rate/i);
   });
+
+  it("never reports in a guessed zone: no default zone, and an unconfigured or invalid zone raises 55000", () => {
+    expect(sql).not.toMatch(/America\/Chicago/);
+    expect(sql).not.toMatch(/'default'/);
+    const tz = sql.slice(sql.indexOf("CREATE FUNCTION private.report_agency_time_zone"), sql.indexOf("CREATE FUNCTION private.report_permission_flags"));
+    expect(tz.match(/USING ERRCODE = '55000'/g)).toHaveLength(2);
+    expect(tz).toMatch(/IF NOT FOUND OR v_tz IS NULL OR btrim\(v_tz\) = '' THEN\s+RAISE EXCEPTION 'reports: the agency time zone is not configured'/);
+    expect(tz).not.toMatch(/RETURN QUERY SELECT '[A-Za-z_]+\/[A-Za-z_]+'/);
+  });
+
+  it("counts a converted person by the durable contact identity first (contact, then campaign lead, then call)", () => {
+    const facts = sql.slice(sql.indexOf("CREATE FUNCTION private.report_call_facts"), sql.indexOf("CREATE FUNCTION private.report_session_seconds"));
+    expect(facts).toContain("coalesce('contact:' || b.contact_id::text, 'campaign_lead:' || b.campaign_lead_id::text, 'call:' || b.id::text)");
+    // Campaign Performance keeps its campaign-specific count of that campaign's campaign leads.
+    expect(sql).toContain("count(DISTINCT f.campaign_lead_id) FILTER (WHERE f.is_converting) AS converted_leads");
+  });
 });
 
 describe("server permission defaults mirror permissionDefaults.ts", () => {
@@ -126,6 +142,19 @@ describe("frontend data-path contract", () => {
       expect(src, f).not.toMatch(/@\/integrations\/supabase\/client/);
       expect(src, f).not.toMatch(/rpc_report_|\.from\(["']/);
       expect(src, f).not.toMatch(/downloadCSV|agent_scorecards|dialer_daily_stats/);
+    }
+  });
+
+  it("the call-level rate is labelled 'Call contact rate' on every Reports surface (never a bare 'Contact rate')", () => {
+    const files = ["src/pages/Reports.tsx", "src/lib/stat-computations.ts", ...readdirSync(join(ROOT, "src/components/reports"))
+      .filter((f) => f.endsWith(".tsx")).map((f) => `src/components/reports/${f}`)];
+    for (const f of files) {
+      const code = stripTsComments(read(f));
+      for (const m of code.matchAll(/([A-Za-z-]+) contact rate/gi)) {
+        // Allowed: "Call contact rate", and the two explicitly UNAVAILABLE lead-level placeholders.
+        expect(["call", "dial", "follow-up"], `${f}: "${m[0]}"`).toContain(m[1].toLowerCase());
+      }
+      for (const m of code.matchAll(/["'`>]Contact rate/g)) expect.fail(`${f}: bare label ${m[0]}`);
     }
   });
 

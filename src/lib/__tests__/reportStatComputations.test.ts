@@ -34,6 +34,8 @@ describe("canonical stat values", () => {
     expect(v("stat_calls_per_day").value).toBe("0.6");
     expect(v("stat_dials_per_sale").value).toBe("3.8");
     expect(v("stat_dials_per_sale").label).toBe("Dials per policy sold");
+    expect(v("stat_contact_rate").label).toBe("Call contact rate");
+    expect(v("stat_best_contact_agent").label).toBe("Best call contact rate");
   });
 
   it("session-based ratios use only agents with session time (no unattributed calls or session-less agents)", () => {

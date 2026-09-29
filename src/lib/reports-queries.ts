@@ -28,10 +28,11 @@ import {
   type ReportVolume,
 } from "@/lib/reports-schemas";
 
-export type ReportsErrorKind = "denied" | "invalid" | "timeout" | "aborted" | "unavailable";
+export type ReportsErrorKind = "denied" | "configuration" | "invalid" | "timeout" | "aborted" | "unavailable";
 
 const USER_MESSAGES: Record<ReportsErrorKind, string> = {
   denied: "You don't have access to this report.",
+  configuration: "The agency time zone must be configured before official Reports can be calculated.",
   invalid: "That date range can't be reported. Choose up to 366 days with the end on or after the start.",
   timeout: "The report took too long to load.",
   aborted: "The request was cancelled.",
@@ -84,6 +85,8 @@ const PLATFORM_PRIVILEGE_ERROR = /^permission denied for (function|schema|table|
 function kindForProviderError(error: PostgrestLikeError): ReportsErrorKind {
   const code = error.code ?? "";
   if (code === "42501") return PLATFORM_PRIVILEGE_ERROR.test(error.message ?? "") ? "unavailable" : "denied";
+  // 55000: the organization has no valid agency time zone. Reports never guess one (plan §R3.2).
+  if (code === "55000") return "configuration";
   if (code === "22023") return "invalid";
   return "unavailable";
 }

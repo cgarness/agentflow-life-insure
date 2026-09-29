@@ -50,16 +50,22 @@
 --   actor's organization; callers pass LOCAL AGENCY CALENDAR DATES, never a zone. The window is the
 --   half-open [p_start_date 00:00, (p_end_date + 1) 00:00) in that zone (IANA rules handle DST).
 --   Every bucket (day / hour / day-of-week / heatmap) uses the same zone, and every payload returns it.
---   No settings row or a NULL zone -> the platform agency default 'America/Chicago' (the column default
---   and BrandingContext DEFAULTS), labelled time_zone_source = 'default'. An invalid stored zone fails.
+--   There is NO default zone: an organization with no settings row, a NULL / blank zone, or a zone
+--   PostgreSQL does not know FAILS CLOSED with SQLSTATE 55000 (object_not_in_prerequisite_state) —
+--   after authorization, before any window, bucket or business read — so nothing is ever computed in a
+--   guessed zone. The UI shows "agency time zone required". time_zone_source is always
+--   'agency_settings'.
 --
 -- METRIC CANON (AGENT_RULES #8, #12, #13, #17, #23; plan rev 2 D-2..D-6)
 --   Calls Made      outbound (lower(coalesce(direction,'')) IN ('outbound','outgoing')), calls.created_at.
 --   Talk Time       SUM(greatest(coalesce(calls.duration,0),0)) over Calls Made (Twilio-written only).
 --   Contacted       outbound AND NOT resolved-name 'no answer' AND (duration > 45 OR the disposition's
 --                   counts_as_contacted, by disposition_id, else org-scoped lower(name) fallback).
---   Converted       DISTINCT contacts (campaign lead, else contact, else call) with >= 1 outbound call
---                   whose disposition's pipeline stage has convert_to_client = true.
+--   Converted       DISTINCT converted people: the durable contact/client identity (calls.contact_id),
+--                   else the campaign lead, else the call, with >= 1 outbound call whose disposition's
+--                   pipeline stage has convert_to_client = true. One contact reached through several
+--                   campaign_lead memberships counts ONCE. (Campaign Performance's converted_leads is a
+--                   separate, campaign-specific count of that campaign's campaign leads.)
 --   Policies Sold   COUNT(wins) by wins.created_at, attributed to wins.agent_id. Never clients.
 --   Appointments    appointments by created_at, attributed COALESCE(created_by, user_id), no status filter.
 --   Session time    server-timestamped dialer_sessions only, each session CLIPPED to the window
@@ -148,15 +154,16 @@ BEGIN
     FROM public.company_settings cs
    WHERE cs.organization_id = p_org;
 
+  -- Official Reports are never calculated in a guessed zone (plan §R3.2): no row, NULL, blank or an
+  -- unknown zone all fail closed with 55000, which the UI renders as "agency time zone required".
   IF NOT FOUND OR v_tz IS NULL OR btrim(v_tz) = '' THEN
-    -- Platform agency default: company_settings.timezone column default and BrandingContext DEFAULTS.
-    RETURN QUERY SELECT 'America/Chicago'::text, 'default'::text;
-    RETURN;
+    RAISE EXCEPTION 'reports: the agency time zone is not configured'
+      USING ERRCODE = '55000', HINT = 'An admin must set the time zone in Settings > Company Branding.';
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name = v_tz) THEN
     RAISE EXCEPTION 'reports: the agency time zone setting is not a valid IANA zone'
-      USING ERRCODE = 'P0001', HINT = 'Fix the time zone in Settings > Company Branding.';
+      USING ERRCODE = '55000', HINT = 'An admin must set the time zone in Settings > Company Branding.';
   END IF;
 
   RETURN QUERY SELECT v_tz, 'agency_settings'::text;
@@ -487,7 +494,9 @@ AS $$
     b.duration_seconds,
     b.campaign_id,
     b.campaign_lead_id,
-    coalesce(b.campaign_lead_id::text, b.contact_id::text, b.id::text),
+    -- Converted identity: contact first, so one person reached through two campaign_lead memberships
+    -- counts once. Prefixed so ids from different tables can never collide.
+    coalesce('contact:' || b.contact_id::text, 'campaign_lead:' || b.campaign_lead_id::text, 'call:' || b.id::text),
     b.lead_id,
     coalesce(nullif(btrim(b.raw_lead_source), ''), '(No source)'),
     CASE
