@@ -51,6 +51,7 @@ import {
 } from "@/lib/incomingCallAlerts";
 import { getPhonePresence, installPhonePresenceWindowHooks } from "@/lib/phonePresenceClient";
 import { applyRingtoneOutputs } from "@/lib/ringtoneOutputs";
+import { handleOutboundRinging, stopOutboundRingback } from "@/lib/outboundRingback";
 import { DeviceLifecycle, LifecycleDeferredError } from "@/lib/deviceLifecycle";
 import {
   startRecording as startBrowserCallRecording,
@@ -1362,6 +1363,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     console.log("[TwilioContext] Initiating hangup.", { callId, controlId });
 
+    // Agent hang-up or ring-timeout teardown: silence the synthetic ringback at once.
+    stopOutboundRingback();
+
     // Stop browser recording and upload before setting endStateProcessedRef,
     // which would cause finalizeEnded() to skip the recording path.
     stopAndUploadBrowserRecording(callId, orgForUpload, "hangup");
@@ -1714,6 +1718,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsOnHold(false);
         clearIncomingDisplay();
       }
+      // A new call replaces the current one: the previous call's ringback never carries into it.
+      stopOutboundRingback();
       callRef.current = call;
       setCurrentCall(call);
       try {
@@ -1750,6 +1756,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
 
       const finalizeEnded = () => {
+        stopOutboundRingback(call);
         if (endStateProcessedRef.current) return;
         endStateProcessedRef.current = true;
         outboundRingStartedAtRef.current = 0;
@@ -1798,14 +1805,20 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         getPhonePresence().noteRing(Date.now() - started, outcome);
       };
 
-      call.on("ringing", () => {
+      call.on("ringing", (hasEarlyMedia: boolean) => {
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
           callStateRef.current = "dialing";
           setCallState("dialing");
+          // Carrier early media plays by itself; without it the agent hears the synthetic ringback.
+          // Only the current, unanswered, unfinished call may drive the tone.
+          if (callRef.current === call && !endStateProcessedRef.current && !outboundRemoteAnsweredRef.current) {
+            handleOutboundRinging(call, hasEarlyMedia);
+          }
         }
       });
 
       call.on("accept", () => {
+        stopOutboundRingback(call);
         // Do not clear outboundRingTimerRef here — Voice.js "accept" is browser media up, not PSTN answer;
         // the ring watchdog clears itself when getCallStatus() === "open" or on timeout.
         if (!isVoiceSdkInboundDirection(getCallDirection(call))) {
@@ -2117,6 +2130,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
    * and a Device that finishes late is retired instead of registered for nobody.
    */
   const destroyClient = useCallback(() => {
+    stopOutboundRingback();
     closeIncomingDesktopNotification();
     twilioVoiceOrgIdRef.current = null;
     twilioVoiceReadyRef.current = false;
@@ -2158,6 +2172,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return () => window.removeEventListener("beforeunload", onLeave);
     }
   }, []);
+
+  // Backstop: the synthetic ringback only ever belongs to the outbound ring phase (`dialing`); every
+  // other state silences it even if an end path were missed. Unmount silences it too.
+  useEffect(() => {
+    if (callState !== "dialing") stopOutboundRingback();
+  }, [callState]);
+  useEffect(() => () => stopOutboundRingback(), []);
 
   // Call duration timer — start when active, stop otherwise
   useEffect(() => {
@@ -2222,6 +2243,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     endStateProcessedRef.current = false;
+    // A new outbound call: no earlier call's ringback may still be sounding.
+    stopOutboundRingback();
 
     const { data: { session: existing }, error: getErr } = await supabase.auth.getSession();
     const nowSec = Math.floor(Date.now() / 1000);
@@ -2444,6 +2467,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
        // Instead of calling hangUp() which bypasses wrap-up, transition to "ended" state.
        // This forces the DialerPage wrap-up phase so the agent can log the drop.
        if (callState === "active" || callState === "dialing" || callState === "incoming") {
+         stopOutboundRingback();
          setConnectionDropped(true);
          setCallState("ended");
          setIdentifiedContact(null);
