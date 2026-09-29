@@ -1,100 +1,156 @@
 import React, { useMemo, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
-import { downloadCSV, formatDuration, ReportDispositionBreakdown } from "@/lib/reports-queries";
+import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatCount, formatDuration } from "@/lib/reports-format";
+import type { ReportExportFn } from "@/lib/reports-export";
+import type { ReportDispositions } from "@/lib/reports-schemas";
+import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
 
-interface Props { breakdown?: ReportDispositionBreakdown; loading: boolean; }
+type Tab = "disposition" | "distribution";
+const TABS: { key: Tab; label: string }[] = [
+  { key: "disposition", label: "By disposition" },
+  { key: "distribution", label: "Distribution" },
+];
+const TOP_N = 10;
 
-const CallDurationAnalysis: React.FC<Props> = ({ breakdown, loading }) => {
-  const [view, setView] = useState<"histogram" | "byDisp">("histogram");
+interface Props {
+  dispositions: ReportDispositions;
+  onExport?: ReportExportFn;
+}
 
-  const { byDisposition, histogram, insight } = useMemo(() => {
-    if (!breakdown) return { byDisposition: [], histogram: [], insight: "" };
+type DispositionRow = ReportDispositions["by_disposition"][number];
 
-    const formatted = (breakdown.by_disposition || [])
-      .map(d => ({
-        name: d.disposition_name,
-        avgDuration: Math.round(d.avg_duration || 0),
-        count: d.count,
-        color: d.color
-      }))
-      .sort((a, b) => b.avgDuration - a.avgDuration);
+/** Call-weighted average of per-disposition averages; null when the group has no calls. */
+function weightedAvg(rows: DispositionRow[]): number | null {
+  const calls = rows.reduce((s, r) => s + r.calls, 0);
+  if (calls === 0) return null;
+  return rows.reduce((s, r) => s + r.avg_duration_seconds * r.calls, 0) / calls;
+}
 
-    const soldAvg = formatted.find(d => d.name.toLowerCase().includes("sold"));
-    const niAvg = formatted.find(d => d.name.toLowerCase().includes("not interested"));
-    
-    let insightStr = "";
-    if (soldAvg && niAvg && niAvg.avgDuration > 0) {
-      const ratio = (soldAvg.avgDuration / niAvg.avgDuration).toFixed(1);
-      insightStr = `Sold calls average ${formatDuration(soldAvg.avgDuration)} — ${ratio}x longer than Not Interested calls (${formatDuration(niAvg.avgDuration)})`;
-    }
+const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  color: "hsl(var(--foreground))",
+};
+const textStyle = { color: "hsl(var(--foreground))" };
 
-    const hist = breakdown.duration_histogram || [];
+const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
+  const [tab, setTab] = useState<Tab>("disposition");
 
-    return { byDisposition: formatted, histogram: hist, insight: insightStr };
-  }, [breakdown]);
+  const { top, truncated, insight } = useMemo(() => {
+    // Server order is calls DESC, so the first N rows are the top N by calls.
+    const rows = dispositions.by_disposition;
+    const convertAvg = weightedAvg(rows.filter((r) => r.converts));
+    const otherAvg = weightedAvg(rows.filter((r) => !r.converts));
+    return {
+      top: rows.slice(0, TOP_N),
+      truncated: rows.length > TOP_N,
+      insight:
+        convertAvg !== null && otherAvg !== null
+          ? `Calls with a converting disposition averaged ${formatDuration(convertAvg)}, versus ${formatDuration(otherAvg)} for all other dispositions.`
+          : null,
+    };
+  }, [dispositions]);
 
-  const handleExport = () => {
-    if (view === "byDisp") {
-      downloadCSV("call-duration-by-disposition", ["Disposition", "Avg Duration", "Count"], 
-        byDisposition.map(d => [d.name, formatDuration(d.avgDuration), String(d.count)])
-      );
-    } else {
-      downloadCSV("call-duration-histogram", ["Range", "Count"], 
-        histogram.map(h => [h.range, String(h.count)])
-      );
-    }
-  };
+  const histogram = dispositions.duration_histogram;
+  const empty = dispositions.total_calls === 0;
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-[280px]" /></div>;
+  const handleExport = onExport
+    ? () => {
+        if (tab === "disposition") {
+          onExport(
+            "Call Duration by Disposition",
+            ["Disposition", "Calls", "Avg duration (s)"],
+            dispositions.by_disposition.map((d) => [d.name, d.calls, d.avg_duration_seconds]),
+          );
+        } else {
+          onExport("Call Duration Distribution", ["Range", "Calls"], histogram.map((h) => [h.range, h.calls]));
+        }
+      }
+    : undefined;
 
   return (
-    <ReportSection title="Call Duration Analysis" defaultOpen={false} onExport={handleExport}>
-      <div className="flex items-center gap-1 mb-3">
-        {[{ k: "histogram", l: "Distribution" }, { k: "byDisp", l: "By Disposition" }].map(v => (
-          <button key={v.k} onClick={() => setView(v.k as any)}
-            className={`px-2.5 py-1 text-xs rounded-md ${v.k === view ? "bg-primary text-primary-foreground" : "bg-accent text-muted-foreground hover:text-foreground"}`}>
-            {v.l}
-          </button>
-        ))}
-      </div>
-
-      {view === "histogram" && (
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={histogram}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-            <XAxis dataKey="range" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-            <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
-            <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
-            <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-
-      {view === "byDisp" && (
+    <ReportSection title="Call Duration" defaultOpen={false} onExport={handleExport}>
+      {empty ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
+      ) : (
         <>
-          {byDisposition.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">No disposition data for this period</p>
-          ) : (
+          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit" role="group" aria-label="Call duration view">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                aria-pressed={t.key === tab}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
+                  t.key === tab ? "bg-card text-primary shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "disposition" && (
             <>
-              <ResponsiveContainer width="100%" height={Math.max(200, byDisposition.length * 30)}>
-                <BarChart data={byDisposition} layout="vertical" margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-                  <XAxis type="number" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} unit="s" />
-                  <YAxis type="category" dataKey="name" width={130} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }}
-                    formatter={(v: number, name: string) => {
-                      if (name === "avgDuration") return [formatDuration(v), "Avg Duration"];
-                      return [v, name];
-                    }} 
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+                Average duration{truncated ? ` · top ${TOP_N} dispositions by calls` : ""}
+              </p>
+              <ResponsiveContainer width="100%" height={Math.max(200, top.length * 34)}>
+                <BarChart data={top} layout="vertical" margin={{ left: 8, right: 48 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" tick={tick} tickFormatter={(v: number) => formatDuration(v)} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={tick} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    labelStyle={textStyle}
+                    itemStyle={textStyle}
+                    cursor={{ fill: "hsl(var(--muted))" }}
+                    formatter={(v: number, _n: string, item: { payload?: DispositionRow }) => [
+                      `${formatDuration(v)} across ${formatCount(item.payload?.calls ?? 0)} calls`,
+                      "Avg duration",
+                    ]}
                   />
-                  <Bar dataKey="avgDuration" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="avgDuration" />
+                  <Bar dataKey="avg_duration_seconds" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Avg duration">
+                    <LabelList
+                      dataKey="avg_duration_seconds"
+                      position="right"
+                      formatter={(v: number) => formatDuration(v)}
+                      fill="hsl(var(--foreground))"
+                      fontSize={11}
+                    />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
-              {insight && <p className="text-xs text-muted-foreground mt-2 bg-primary/5 rounded-lg p-2.5">💡 {insight}</p>}
+              {insight && <p className="text-xs text-muted-foreground mt-3 bg-primary/5 border border-primary/10 rounded-lg p-2.5">{insight}</p>}
             </>
           )}
+
+          {tab === "distribution" && (
+            <>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Calls by duration</p>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={histogram} margin={{ left: 0, right: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="range" tick={tick} />
+                  <YAxis tick={tick} allowDecimals={false} width={40} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    labelStyle={textStyle}
+                    itemStyle={textStyle}
+                    cursor={{ fill: "hsl(var(--muted))" }}
+                    formatter={(v: number) => [formatCount(v), "Calls"]}
+                  />
+                  <Bar dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls" />
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
+
+          <p className="text-[11px] text-muted-foreground mt-3">Outbound calls; durations are carrier-timed.</p>
         </>
       )}
     </ReportSection>

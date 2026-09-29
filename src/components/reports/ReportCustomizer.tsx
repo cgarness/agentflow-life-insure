@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   editMode: boolean;
-  isAdmin: boolean;
+  /** Admin / Super Admin only (role, not data scope): writes the organization default layout. */
+  canSetOrgDefault: boolean;
   onSave: () => void;
   onReset: () => void;
   onSaveAsDefault: () => void;
 }
 
 const ReportCustomizer: React.FC<Props> = ({
-  editMode, isAdmin, onSave, onReset, onSaveAsDefault
+  editMode, canSetOrgDefault, onSave, onReset, onSaveAsDefault
 }) => {
   if (!editMode) return null;
 
@@ -32,7 +33,7 @@ const ReportCustomizer: React.FC<Props> = ({
           Reset to default
         </button>
         
-        {isAdmin && (
+        {canSetOrgDefault && (
           <button 
             onClick={onSaveAsDefault}
             className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors pl-2 border-l border-border"

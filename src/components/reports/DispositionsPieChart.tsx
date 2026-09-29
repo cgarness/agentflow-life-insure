@@ -1,87 +1,172 @@
 import React, { useMemo } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { Skeleton } from "@/components/ui/skeleton";
-import { downloadCSV, ReportCallSummary, ReportDispositionBreakdown } from "@/lib/reports-queries";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { formatCount, formatRate, ratio } from "@/lib/reports-format";
+import type { ReportExportFn } from "@/lib/reports-export";
+import type { ReportDispositions } from "@/lib/reports-schemas";
 import ReportSection from "./ReportSection";
 
-interface Props {
-  breakdown?: ReportDispositionBreakdown;
-  summary?: ReportCallSummary;
-  loading: boolean;
+const TOP_N = 8;
+const OTHER_COLOR = "hsl(var(--muted-foreground))";
+
+type DispositionRow = ReportDispositions["by_disposition"][number];
+type FlagField = "counts_as_contacted" | "converts" | "dnc" | "callback" | "appointment";
+
+const FLAGS: { field: FlagField; label: string }[] = [
+  { field: "counts_as_contacted", label: "Contacted" },
+  { field: "converts", label: "Converts" },
+  { field: "dnc", label: "DNC" },
+  { field: "callback", label: "Callback" },
+  { field: "appointment", label: "Appointment" },
+];
+
+interface Slice {
+  key: string;
+  name: string;
+  color: string;
+  calls: number;
+  /** Share of total outbound calls as a percentage; null when there are no calls. */
+  share: number | null;
+  flags: string[];
+  /** For the "Other" slice: how many dispositions it groups. */
+  grouped?: number;
 }
 
-const DispositionsPieChart: React.FC<Props> = ({ breakdown, summary, loading }) => {
-  const { pieData, funnel, totalCalls } = useMemo(() => {
-    const pieData = (breakdown?.by_disposition || [])
-      .map(d => ({
-        name: d.disposition_name,
-        value: d.count,
-        color: d.color || "hsl(var(--primary))",
-      }))
-      .sort((a, b) => b.value - a.value);
+interface Props {
+  dispositions: ReportDispositions;
+  onExport?: ReportExportFn;
+}
 
-    const total = summary?.total_calls || 0;
-    const connected = summary?.contacted || 0;
-    const sold = summary?.converted || 0;
+const pct = (part: number, whole: number): number | null => {
+  const r = ratio(part, whole);
+  return r === null ? null : r * 100;
+};
 
-    const funnel = [
-      { stage: "Total Calls", value: total, pct: "100%" },
-      { stage: "Contacted", value: connected, pct: total > 0 ? `${Math.round(connected / total * 100)}%` : "0%" },
-      { stage: "Converted", value: sold, pct: connected > 0 ? `${Math.round(sold / connected * 100)}%` : "0%" },
-    ];
+const flagsOf = (d: DispositionRow): string[] => FLAGS.filter((f) => d[f.field]).map((f) => f.label);
+const yesNo = (v: boolean) => (v ? "Yes" : "No");
 
-    return { pieData, funnel, totalCalls: total };
-  }, [breakdown, summary]);
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  color: "hsl(var(--foreground))",
+};
+const textStyle = { color: "hsl(var(--foreground))" };
 
-  const handleExport = () => {
-    downloadCSV("disposition-breakdown", ["Disposition", "Count", "%"],
-      pieData.map(d => [d.name, String(d.value), `${totalCalls > 0 ? Math.round(d.value / totalCalls * 100) : 0}%`]));
-  };
+const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
+  const total = dispositions.total_calls;
 
-  if (loading) return <div className="bg-card rounded-xl border p-5"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-[350px]" /></div>;
+  const slices = useMemo<Slice[]>(() => {
+    // Server order is calls DESC, so the first N rows are the top N by calls.
+    const rows = dispositions.by_disposition.filter((d) => d.calls > 0);
+    const top: Slice[] = rows.slice(0, TOP_N).map((d) => ({
+      key: d.key,
+      name: d.name,
+      color: d.color,
+      calls: d.calls,
+      share: pct(d.calls, total),
+      flags: flagsOf(d),
+    }));
+    const rest = rows.slice(TOP_N);
+    if (rest.length > 0) {
+      const calls = rest.reduce((s, d) => s + d.calls, 0);
+      top.push({ key: "__other__", name: "Other", color: OTHER_COLOR, calls, share: pct(calls, total), flags: [], grouped: rest.length });
+    }
+    return top;
+  }, [dispositions, total]);
+
+  const handleExport = onExport
+    ? () =>
+        onExport(
+          "Disposition Breakdown",
+          ["Disposition", "Calls", "Share %", "Counts as contacted", "Converts", "DNC", "Callback", "Appointment"],
+          dispositions.by_disposition.map((d) => {
+            const share = pct(d.calls, total);
+            return [
+              d.name,
+              d.calls,
+              share === null ? null : Math.round(share * 10) / 10,
+              yesNo(d.counts_as_contacted),
+              yesNo(d.converts),
+              yesNo(d.dnc),
+              yesNo(d.callback),
+              yesNo(d.appointment),
+            ];
+          }),
+        )
+    : undefined;
 
   return (
-    <ReportSection title="Call Outcomes & Dispositions" onExport={handleExport}>
-      {totalCalls === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No call data for this period</p>
+    <ReportSection title="Disposition Breakdown" onExport={handleExport}>
+      {total === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Pie */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
           <div className="relative">
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={240}>
               <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={2}>
-                  {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                <Pie data={slices} cx="50%" cy="50%" innerRadius={62} outerRadius={96} dataKey="calls" nameKey="name" paddingAngle={2} stroke="hsl(var(--card))">
+                  {slices.map((s) => (
+                    <Cell key={s.key} fill={s.color} />
+                  ))}
                 </Pie>
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  labelStyle={textStyle}
+                  itemStyle={textStyle}
+                  formatter={(v: number, name: string, item: { payload?: Slice }) => [
+                    `${formatCount(v)} calls · ${formatRate(item.payload?.share)}`,
+                    name,
+                  ]}
+                />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center"><p className="text-2xl font-bold text-foreground">{totalCalls}</p><p className="text-xs text-muted-foreground">calls</p></div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {pieData.slice(0, 6).map(d => (
-                <div key={d.name} className="flex items-center gap-1.5 text-xs">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className="text-muted-foreground">{d.name}</span>
-                  <span className="font-medium text-foreground">{d.value}</span>
-                </div>
-              ))}
+              <div className="text-center">
+                <p className="text-2xl font-black text-foreground tracking-tight">{formatCount(total)}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">outbound calls</p>
+              </div>
             </div>
           </div>
-          {/* Funnel */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Conversion Funnel</p>
-            {funnel.map((f, i) => (
-              <div key={f.stage} className="rounded-md bg-primary/5 py-2.5 px-3 flex items-center justify-between"
-                style={{ width: `${Math.max(30, 100 - i * 18)}%`, marginLeft: `${i * 4}%` }}>
-                <span className="text-xs font-medium text-foreground">{f.stage}</span>
-                <span className="text-xs"><span className="font-bold text-foreground">{f.value}</span>{i > 0 && <span className="text-primary ml-1">({f.pct})</span>}</span>
-              </div>
-            ))}
+
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+              {slices.some((s) => s.grouped) ? `Top ${TOP_N} dispositions by calls` : "Dispositions by calls"}
+            </p>
+            <ul className="divide-y divide-border/60">
+              {slices.map((s) => (
+                <li key={s.key} className="flex items-center gap-3 py-2">
+                  {/* Swatch colour is the disposition's configured colour (data-driven). */}
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground truncate">{s.name}</p>
+                    {(s.flags.length > 0 || s.grouped) && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {s.grouped ? (
+                          <span className="text-[10px] text-muted-foreground">{s.grouped} more dispositions</span>
+                        ) : (
+                          s.flags.map((f) => (
+                            <span
+                              key={f}
+                              className="text-[9px] font-black uppercase tracking-wider bg-muted text-muted-foreground px-1.5 py-0.5 rounded"
+                            >
+                              {f}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-foreground tabular-nums">{formatCount(s.calls)}</p>
+                    <p className="text-[11px] text-muted-foreground tabular-nums">{formatRate(s.share)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
+      {total > 0 && <p className="text-[11px] text-muted-foreground mt-3">Outbound calls by disposition; share is of all outbound calls in this period.</p>}
     </ReportSection>
   );
 };

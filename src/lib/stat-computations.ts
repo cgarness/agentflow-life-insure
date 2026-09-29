@@ -1,490 +1,284 @@
-import type {
-  ReportCallSummary,
-  ReportDispositionBreakdown,
-  ReportCallVolumeTimeseries,
-  AgentProfile,
-} from "@/lib/reports-queries";
-import { differenceInDays, format, getISOWeek, getISOWeekYear } from "date-fns";
+/**
+ * stat-computations.ts — the Reports stat-card registry.
+ *
+ * Every AVAILABLE stat is computed from canonical fields returned by the secured report RPCs
+ * (Calls Made, Talk Time, Contacted, Call Contact Rate, Converted, Policies Sold, Appointments, session
+ * time — AGENT_RULES #8/#12/#13/#17/#23) or is plain arithmetic over two of them. A stat with no
+ * documented definition is UNAVAILABLE: it shows its reason, never a number, and is not offered in
+ * the layout picker. Stat ids are unchanged so saved layouts stay compatible.
+ *
+ * There is deliberately NO conversion rate of any kind (plan rev 2 §R2.2): Policies Sold counts
+ * policies (one client may buy several), so policies ÷ dials is not a lead conversion rate. The only
+ * dial-to-policy figure is explicitly named "Dials per policy sold".
+ */
+import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
+import type { LoadState } from "@/hooks/useReportsData";
+import { addDays, formatCount, formatRate, ratio } from "@/lib/reports-format";
 
-export type StatCategory =
-  | "activity"
-  | "results"
-  | "pipeline"
-  | "team";
+export type StatCategory = "activity" | "results" | "pipeline" | "team";
 
 export const STAT_CATEGORIES: Record<StatCategory, { label: string; color: string }> = {
-  activity:    { label: "Activity",    color: "#378ADD" },
-  results:     { label: "Results",     color: "#639922" },
-  pipeline:    { label: "Pipeline",    color: "#1D9E75" },
-  team:        { label: "Team",        color: "#BA7517" },
+  activity: { label: "Activity", color: "#378ADD" },
+  results: { label: "Results", color: "#639922" },
+  pipeline: { label: "Pipeline", color: "#1D9E75" },
+  team: { label: "Team", color: "#BA7517" },
 };
+
+export interface StatDefinition {
+  id: string;
+  label: string;
+  category: StatCategory;
+  /** Set when there is no approved definition; the card shows this reason instead of a value. */
+  unavailable?: string;
+  invertTrend?: boolean;
+}
+
+export type StatState = "ready" | "loading" | "error" | "unavailable";
 
 export interface StatResult {
   id: string;
   label: string;
   category: StatCategory;
+  state: StatState;
+  /** Display value; "—" when the value is unknown or its denominator is zero. */
   value: string;
   subtitle?: string;
-  noData?: boolean;
-  comingSoon?: boolean;
-  /** when true, render value at 16px instead of 20px (used for agent names) */
+  /** When true, render the value smaller (used for agent names). */
   smallValue?: boolean;
 }
 
-export interface StatDataSources {
-  summary?: ReportCallSummary;
-  breakdown?: ReportDispositionBreakdown;
-  volume?: ReportCallVolumeTimeseries;
-  sessions?: { duration_seconds?: number }[];
-  agents?: AgentProfile[];
-  activeLeadsCount?: number;
-  dispositions?: {
-    name: string;
-    dnc_auto_add?: boolean;
-    callback_scheduler?: boolean;
-    appointment_scheduler?: boolean;
-  }[];
-  dateRange?: { from?: Date; to?: Date };
+const NO_DEFINITION = "No approved definition yet";
+const NO_CONVERSION = "No approved conversion-rate definition";
+const NOT_TRACKED = "Not tracked by the report data yet";
+
+export const STAT_DEFINITIONS: StatDefinition[] = [
+  // Activity
+  { id: "stat_total_dials", label: "Calls made", category: "activity" },
+  { id: "stat_outbound", label: "Outbound calls", category: "activity" },
+  { id: "stat_inbound", label: "Inbound calls", category: "activity" },
+  { id: "stat_calls_today", label: "Calls today", category: "activity" },
+  { id: "stat_calls_this_week", label: "Calls this week", category: "activity" },
+  { id: "stat_calls_per_day", label: "Calls per day", category: "activity" },
+  { id: "stat_calls_per_hour", label: "Calls per session hour", category: "activity" },
+  { id: "stat_session_time", label: "Dialer session time", category: "activity" },
+  { id: "stat_unique_leads", label: "Unique leads dialed", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_new_leads_dialed", label: "New leads dialed", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_followup_calls", label: "Follow-up calls", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_voicemails_left", label: "Voicemails left", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_total_contacted", label: "Contacted", category: "activity" },
+  { id: "stat_contact_rate", label: "Call contact rate", category: "activity" },
+  { id: "stat_first_dial_contact", label: "First dial contact rate", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_followup_contact_rate", label: "Follow-up contact rate", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_avg_dials_to_contact", label: "Avg dials to contact", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_speed_to_contact", label: "Speed to contact", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_total_talk_time", label: "Talk time", category: "activity" },
+  { id: "stat_avg_duration_all", label: "Avg talk time per dial", category: "activity" },
+  { id: "stat_avg_talk_contacted", label: "Avg talk time (contacted)", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_longest_call", label: "Longest call", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_shortest_connected", label: "Shortest connected", category: "activity", unavailable: NOT_TRACKED },
+  { id: "stat_talk_time_ratio", label: "Talk time share of session", category: "activity" },
+  { id: "stat_dnc_count", label: "DNC dispositions", category: "activity" },
+  { id: "stat_dnc_rate", label: "DNC per 100 dials", category: "activity", invertTrend: true },
+
+  // Results
+  { id: "stat_policies_sold", label: "Policies sold", category: "results" },
+  { id: "stat_call_to_close", label: "Call to close rate", category: "results", unavailable: NO_CONVERSION },
+  { id: "stat_contacted_to_close", label: "Contacted to close", category: "results", unavailable: NO_CONVERSION },
+  { id: "stat_appt_to_close", label: "Appt to close rate", category: "results", unavailable: NO_CONVERSION },
+  { id: "stat_dials_per_sale", label: "Dials per policy sold", category: "results", invertTrend: true },
+  { id: "stat_avg_days_to_close", label: "Avg days to close", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_best_closing_hour", label: "Best closing hour", category: "results", unavailable: NOT_TRACKED },
+  { id: "stat_best_closing_day", label: "Best closing day", category: "results", unavailable: NOT_TRACKED },
+  { id: "stat_appointments_set", label: "Appointments set", category: "results" },
+  { id: "stat_appt_set_rate", label: "Appt set rate", category: "results", unavailable: NO_DEFINITION },
+  { id: "stat_contacted_to_appt", label: "Contacted to appt", category: "results", unavailable: NO_DEFINITION },
+  { id: "stat_appts_kept", label: "Appointments kept", category: "results", unavailable: NOT_TRACKED },
+  { id: "stat_appt_noshow_rate", label: "Appt no-show rate", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_avg_dials_to_appt", label: "Avg dials to appt", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_not_interested_rate", label: "Not interested rate", category: "results", unavailable: NO_DEFINITION, invertTrend: true },
+
+  // Pipeline
+  { id: "stat_active_leads", label: "Active leads", category: "pipeline", unavailable: NO_DEFINITION },
+  { id: "stat_leads_contacted", label: "Leads contacted", category: "pipeline", unavailable: NOT_TRACKED },
+  { id: "stat_leads_converted", label: "Converted leads/clients", category: "pipeline" },
+  { id: "stat_callback_rate", label: "Callbacks scheduled", category: "pipeline" },
+  { id: "stat_callbacks_completed", label: "Callbacks completed", category: "pipeline", unavailable: NOT_TRACKED },
+  { id: "stat_callback_conv_rate", label: "Callback conv rate", category: "pipeline", unavailable: NO_CONVERSION },
+  { id: "stat_lead_exhaustion", label: "Lead exhaustion rate", category: "pipeline", unavailable: NOT_TRACKED, invertTrend: true },
+
+  // Team
+  { id: "stat_top_performer", label: "Top performer", category: "team" },
+  { id: "stat_top_dialer", label: "Top dialer", category: "team" },
+  { id: "stat_best_contact_agent", label: "Best call contact rate", category: "team" },
+  { id: "stat_best_conv_agent", label: "Best conv rate", category: "team", unavailable: NO_CONVERSION },
+  { id: "stat_avg_calls_agent", label: "Avg calls per dialing agent", category: "team" },
+  { id: "stat_avg_sales_agent", label: "Avg sales/agent", category: "team", unavailable: NO_DEFINITION },
+  { id: "stat_agents_active", label: "Agents dialing", category: "team" },
+  { id: "stat_dials_per_contact", label: "Dials per contacted call", category: "team", invertTrend: true },
+  { id: "stat_dials_per_appt", label: "Dials per appointment", category: "team", invertTrend: true },
+  { id: "stat_talk_mins_per_sale", label: "Talk minutes per policy sold", category: "team", invertTrend: true },
+  { id: "stat_sessions_per_sale", label: "Sessions per sale", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_cost_per_lead", label: "Cost per lead", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_cost_per_appt", label: "Cost per appt", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
+  { id: "stat_cost_per_sale", label: "Cost per sale", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
+];
+
+export const STAT_DEFINITION_MAP: Record<string, StatDefinition> = Object.fromEntries(STAT_DEFINITIONS.map((d) => [d.id, d]));
+
+export function isStatAvailable(id: string): boolean {
+  const def = STAT_DEFINITION_MAP[id];
+  return !!def && !def.unavailable;
 }
 
-// ─── Formatters ────────────────────────────────────────────────────────────
-const fmtPct = (n: number): string => {
-  if (n === 0) return "0%";
-  return `${n.toFixed(1)}%`;
-};
-const fmtCount = (n: number): string => {
-  if (n >= 1000) return n.toLocaleString("en-US");
-  return Math.round(n).toString();
-};
-const fmtDuration = (seconds: number): string => {
-  if (!isFinite(seconds) || seconds < 0) return "—";
+// ─── Formatting ──────────────────────────────────────────────────────────────────────────────────
+
+const DASH = "—";
+const dur = (seconds: number | null): string => {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return DASH;
   const s = Math.round(seconds);
   if (s < 60) return `${s}s`;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
   if (h >= 1) return `${h}h ${m}m`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
 };
+const num = (n: number | null, digits = 1): string => (n === null || !Number.isFinite(n) ? DASH : n.toFixed(digits));
 
-// ─── Aggregation helpers (no string matching for classification) ───────────
-const dispoFlagSet = (
-  dispositions: StatDataSources["dispositions"],
-  flag: "dnc_auto_add" | "callback_scheduler" | "appointment_scheduler",
-): Set<string> => {
-  if (!dispositions) return new Set();
-  return new Set(
-    dispositions.filter((d) => d[flag]).map((d) => d.name.toLowerCase()),
+// ─── Computation ─────────────────────────────────────────────────────────────────────────────────
+
+export interface StatInputs {
+  summary: LoadState<ReportSummary>;
+  volume: LoadState<ReportVolume>;
+  /** Days in the reported agency window. */
+  dayCount: number;
+  /** Agency calendar today (`get_report_scope().today`). */
+  agencyToday: string;
+}
+
+type Computed = { value: string; subtitle?: string; smallValue?: boolean } | { unknown: string };
+
+function leader<T>(rows: T[], score: (r: T) => number | null, name: (r: T) => string): { name: string; score: number } | null {
+  let best: { name: string; score: number } | null = null;
+  for (const r of rows) {
+    const s = score(r);
+    if (s === null || s <= 0) continue;
+    const n = name(r);
+    if (!best || s > best.score || (s === best.score && n.localeCompare(best.name) < 0)) best = { name: n, score: s };
+  }
+  return best;
+}
+
+function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): Computed {
+  const t = s.totals;
+  const dialers = s.by_agent.filter((a) => a.calls_made > 0);
+  // Session-based ratios use ONE population: agents with session time. Unattributed calls and agents
+  // who never opened a dialer session have no session denominator, so they are not in the numerator.
+  const withSessions = s.by_agent.filter((a) => a.session_seconds > 0);
+  const sessionPop = withSessions.reduce(
+    (acc, a) => ({ calls: acc.calls + a.calls_made, talk: acc.talk + a.talk_time_seconds, secs: acc.secs + a.session_seconds }),
+    { calls: 0, talk: 0, secs: 0 },
   );
-};
-const sumDispoByFlag = (
-  bd: ReportDispositionBreakdown | undefined,
-  flagSet: Set<string>,
-): number => {
-  if (!bd) return 0;
-  return bd.by_disposition
-    .filter((d) => flagSet.has(d.disposition_name.toLowerCase()))
-    .reduce((a, c) => a + c.count, 0);
-};
-
-// ─── Compute helpers ───────────────────────────────────────────────────────
-const safeDiv = (n: number, d: number): number | null => (d > 0 ? n / d : null);
-
-interface Aggregates {
-  total: number;
-  outbound: number;
-  contacted: number;
-  converted: number;
-  appts: number;
-  dnc: number;
-  callbacks: number;
-  totalDuration: number;
-  avgDurationContacted: number;
-}
-
-const aggregate = (
-  s: ReportCallSummary | undefined,
-  bd: ReportDispositionBreakdown | undefined,
-  dispositions: StatDataSources["dispositions"],
-): Aggregates => {
-  const apptSet = dispoFlagSet(dispositions, "appointment_scheduler");
-  const dncSet = dispoFlagSet(dispositions, "dnc_auto_add");
-  const cbSet = dispoFlagSet(dispositions, "callback_scheduler");
-  return {
-    total: s?.total_calls ?? 0,
-    outbound: s?.outbound ?? 0,
-    contacted: s?.contacted ?? 0,
-    converted: s?.converted ?? 0,
-    appts: sumDispoByFlag(bd, apptSet),
-    dnc: sumDispoByFlag(bd, dncSet),
-    callbacks: sumDispoByFlag(bd, cbSet),
-    totalDuration: s?.total_duration_seconds ?? 0,
-    avgDurationContacted: s?.avg_duration_seconds ?? 0,
-  };
-};
-
-const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const fmtHour = (h: number): string => {
-  const ampm = h < 12 ? "AM" : "PM";
-  const hr = h % 12 === 0 ? 12 : h % 12;
-  return `${hr} ${ampm}`;
-};
-
-const agentName = (agents: AgentProfile[] | undefined, id: string): string => {
-  const a = agents?.find((x) => x.id === id);
-  if (!a) return id.slice(0, 8);
-  const full = `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim();
-  return full || a.email || id.slice(0, 8);
-};
-
-// ─── Stat Definition Registry ──────────────────────────────────────────────
-export interface StatDefinition {
-  id: string;
-  label: string;
-  category: StatCategory;
-  invertTrend?: boolean;
-  comingSoon?: boolean;
-}
-
-export const STAT_DEFINITIONS: StatDefinition[] = [
-  // Activity (blue)
-  { id: "stat_total_dials",       label: "Total dials",        category: "activity" },
-  { id: "stat_outbound",          label: "Outbound calls",     category: "activity" },
-  { id: "stat_inbound",           label: "Inbound calls",      category: "activity" },
-  { id: "stat_calls_today",       label: "Calls today",        category: "activity" },
-  { id: "stat_calls_this_week",   label: "Calls this week",    category: "activity" },
-  { id: "stat_calls_per_day",     label: "Calls per day",      category: "activity" },
-  { id: "stat_calls_per_hour",    label: "Calls per hour",     category: "activity" },
-  { id: "stat_session_time",      label: "Session time",       category: "activity" },
-  { id: "stat_unique_leads",      label: "Unique leads dialed",category: "activity", comingSoon: true },
-  { id: "stat_new_leads_dialed",  label: "New leads dialed",   category: "activity", comingSoon: true },
-  { id: "stat_followup_calls",    label: "Follow-up calls",    category: "activity", comingSoon: true },
-  { id: "stat_voicemails_left",   label: "Voicemails left",    category: "activity", comingSoon: true },
-  { id: "stat_total_contacted",   label: "Total contacted",    category: "activity" },
-  { id: "stat_contact_rate",      label: "Contact rate",       category: "activity" },
-  { id: "stat_first_dial_contact",label: "First dial contact rate", category: "activity", comingSoon: true },
-  { id: "stat_followup_contact_rate", label: "Follow-up contact rate", category: "activity", comingSoon: true },
-  { id: "stat_avg_dials_to_contact",label: "Avg dials to contact", category: "activity", comingSoon: true },
-  { id: "stat_speed_to_contact",  label: "Speed to contact",   category: "activity", comingSoon: true },
-  { id: "stat_total_talk_time",   label: "Total talk time",    category: "activity" },
-  { id: "stat_avg_duration_all",  label: "Avg call duration",  category: "activity" },
-  { id: "stat_avg_talk_contacted",label: "Avg talk time",      category: "activity" },
-  { id: "stat_longest_call",      label: "Longest call",       category: "activity", comingSoon: true },
-  { id: "stat_shortest_connected",label: "Shortest connected", category: "activity", comingSoon: true },
-  { id: "stat_talk_time_ratio",   label: "Talk time ratio",    category: "activity" },
-  { id: "stat_dnc_count",         label: "DNC count",          category: "activity" },
-  { id: "stat_dnc_rate",          label: "DNC rate",           category: "activity", invertTrend: true },
-
-  // Results (green)
-  { id: "stat_policies_sold",     label: "Policies sold",      category: "results" },
-  { id: "stat_call_to_close",     label: "Call to close rate", category: "results" },
-  { id: "stat_contacted_to_close",label: "Contacted to close", category: "results" },
-  { id: "stat_appt_to_close",     label: "Appt to close rate", category: "results" },
-  { id: "stat_dials_per_sale",    label: "Dials per sale",     category: "results", invertTrend: true },
-  { id: "stat_avg_days_to_close", label: "Avg days to close",  category: "results", comingSoon: true, invertTrend: true },
-  { id: "stat_best_closing_hour", label: "Best closing hour",  category: "results" },
-  { id: "stat_best_closing_day",  label: "Best closing day",   category: "results" },
-  { id: "stat_appointments_set",  label: "Appointments set",   category: "results" },
-  { id: "stat_appt_set_rate",     label: "Appt set rate",      category: "results" },
-  { id: "stat_contacted_to_appt", label: "Contacted to appt",  category: "results" },
-  { id: "stat_appts_kept",        label: "Appointments kept",  category: "results", comingSoon: true },
-  { id: "stat_appt_noshow_rate",  label: "Appt no-show rate",  category: "results", comingSoon: true, invertTrend: true },
-  { id: "stat_avg_dials_to_appt", label: "Avg dials to appt",  category: "results", comingSoon: true, invertTrend: true },
-  { id: "stat_not_interested_rate",label: "Not interested rate", category: "results", invertTrend: true },
-
-  // Pipeline (teal)
-  { id: "stat_active_leads",      label: "Active leads",       category: "pipeline" },
-  { id: "stat_leads_contacted",   label: "Leads contacted",    category: "pipeline", comingSoon: true },
-  { id: "stat_leads_converted",   label: "Leads converted",    category: "pipeline" },
-  { id: "stat_callback_rate",     label: "Callback rate",      category: "pipeline" },
-  { id: "stat_callbacks_completed",label: "Callbacks completed",category: "pipeline", comingSoon: true },
-  { id: "stat_callback_conv_rate",label: "Callback conv rate", category: "pipeline", comingSoon: true },
-  { id: "stat_lead_exhaustion",   label: "Lead exhaustion rate",category: "pipeline", comingSoon: true, invertTrend: true },
-
-  // Team (amber)
-  { id: "stat_top_performer",     label: "Top performer",      category: "team" },
-  { id: "stat_top_dialer",        label: "Top dialer",         category: "team" },
-  { id: "stat_best_contact_agent",label: "Best contact rate",  category: "team" },
-  { id: "stat_best_conv_agent",   label: "Best conv rate",     category: "team" },
-  { id: "stat_avg_calls_agent",   label: "Avg calls/agent",    category: "team" },
-  { id: "stat_avg_sales_agent",   label: "Avg sales/agent",    category: "team" },
-  { id: "stat_agents_active",     label: "Agents active",      category: "team", comingSoon: true },
-  { id: "stat_dials_per_contact", label: "Dials per contact",  category: "team", invertTrend: true },
-  { id: "stat_dials_per_appt",    label: "Dials per appt",     category: "team", invertTrend: true },
-  { id: "stat_talk_mins_per_sale",label: "Talk mins per sale", category: "team", invertTrend: true },
-  { id: "stat_sessions_per_sale", label: "Sessions per sale",  category: "team", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_lead",     label: "Cost per lead",      category: "team", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_appt",     label: "Cost per appt",      category: "team", comingSoon: true, invertTrend: true },
-  { id: "stat_cost_per_sale",     label: "Cost per sale",      category: "team", comingSoon: true, invertTrend: true },
-];
-
-export const STAT_DEFINITION_MAP: Record<string, StatDefinition> = STAT_DEFINITIONS.reduce(
-  (acc, def) => { acc[def.id] = def; return acc; },
-  {} as Record<string, StatDefinition>,
-);
-
-// ─── Main computation ──────────────────────────────────────────────────────
-export function computeAllStats(data: StatDataSources): Map<string, StatResult> {
-  const result = new Map<string, StatResult>();
-  const { summary, breakdown, volume, sessions, agents, activeLeadsCount, dispositions, dateRange } = data;
-
-  const A = aggregate(summary, breakdown, dispositions);
-
-  // Session hours
-  const totalSessionSeconds = (sessions ?? []).reduce((acc, s) => acc + (s.duration_seconds ?? 0), 0);
-  const totalSessionHours = totalSessionSeconds / 3600;
-
-  // Days in range
-  let daysInRange = 1;
-  if (dateRange?.from && dateRange?.to) {
-    daysInRange = Math.max(1, differenceInDays(dateRange.to, dateRange.from) + 1);
-  }
-
-  // Active agents (with calls)
-  const activeAgents = summary?.calls_by_agent?.filter((a) => a.total > 0) ?? [];
-  const agentCount = activeAgents.length;
-
-  const put = (id: string, partial: Partial<StatResult>) => {
-    const def = STAT_DEFINITION_MAP[id];
-    if (!def) return;
-    result.set(id, {
-      id,
-      label: def.label,
-      category: def.category,
-      value: "—",
-      comingSoon: def.comingSoon,
-      noData: def.comingSoon ? false : partial.noData,
-      ...partial,
-    });
-  };
-
-  // Coming-soon stub for all flagged stats
-  for (const def of STAT_DEFINITIONS) {
-    if (def.comingSoon) put(def.id, { value: "—", comingSoon: true });
-  }
-
-  // IMPORTANT: total_dials = outbound only. Inbound calls are not dials.
-  
-  // ── ACTIVITY ────────────────────────────────────────────────────────────
-  put("stat_total_dials", { value: fmtCount(A.outbound) });
-  put("stat_outbound", { value: fmtCount(summary?.outbound ?? 0) });
-  put("stat_inbound", { value: fmtCount(summary?.inbound ?? 0) });
-
-  // Calls today
-  {
-    const todayStr = format(new Date(), "yyyy-MM-dd");
-    const byDate = volume?.by_date ?? [];
-    const todayEntry = byDate.find((d) => d.date === todayStr);
-    const inRange = !!(dateRange?.from && dateRange?.to && new Date() >= dateRange.from && new Date() <= dateRange.to);
-    if (!inRange) put("stat_calls_today", { value: "—", noData: true });
-    else put("stat_calls_today", { value: fmtCount(todayEntry?.total ?? 0) });
-  }
-
-  // Calls this week (ISO)
-  {
-    const now = new Date();
-    const week = getISOWeek(now);
-    const year = getISOWeekYear(now);
-    const byDate = volume?.by_date ?? [];
-    let weekTotal = 0;
-    let anyMatch = false;
-    for (const entry of byDate) {
-      const d = new Date(entry.date + "T00:00:00");
-      if (getISOWeek(d) === week && getISOWeekYear(d) === year) {
-        weekTotal += entry.total;
-        anyMatch = true;
-      }
+  switch (id) {
+    case "stat_total_dials":
+    case "stat_outbound":
+      return { value: formatCount(t.calls_made), subtitle: "outbound" };
+    case "stat_inbound":
+      return { value: formatCount(t.inbound_calls) };
+    case "stat_calls_per_day":
+      return { value: num(ratio(t.calls_made, inputs.dayCount)), subtitle: `over ${inputs.dayCount} day${inputs.dayCount === 1 ? "" : "s"}` };
+    case "stat_calls_per_hour":
+      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "agents with session time only" };
+    case "stat_session_time":
+      return { value: dur(t.session_seconds), subtitle: "server-timestamped sessions" };
+    case "stat_total_contacted":
+      return { value: formatCount(t.contacted) };
+    case "stat_contact_rate":
+      return { value: formatRate(t.contact_rate_pct), subtitle: "contacted calls ÷ calls made" };
+    case "stat_total_talk_time":
+      return { value: dur(t.talk_time_seconds), subtitle: "outbound, carrier-timed" };
+    case "stat_avg_duration_all":
+      return { value: dur(t.avg_talk_per_dial_seconds), subtitle: "talk time ÷ calls made" };
+    case "stat_talk_time_ratio": {
+      const r = ratio(sessionPop.talk, sessionPop.secs);
+      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "their talk time ÷ their session time" };
     }
-    const rangeIncludesWeek = !!(dateRange?.from && dateRange?.to)
-      && dateRange.to >= startOfWeekFor(year, week)
-      && dateRange.from <= endOfWeekFor(year, week);
-    if (!anyMatch && !rangeIncludesWeek) put("stat_calls_this_week", { value: "—", noData: true });
-    else put("stat_calls_this_week", { value: fmtCount(weekTotal) });
-  }
-
-  put("stat_calls_per_day", {
-    value: daysInRange > 0 ? fmtCount(A.outbound / daysInRange) : "—",
-    noData: daysInRange === 0,
-  });
-  {
-    const v = safeDiv(A.outbound, totalSessionHours);
-    put("stat_calls_per_hour", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-  put("stat_session_time", {
-    value: totalSessionSeconds > 0 ? fmtDuration(totalSessionSeconds) : "—",
-    noData: totalSessionSeconds === 0,
-  });
-
-  // ── CONTACT ────────────────────────────────────────────────────────────
-  put("stat_total_contacted", { value: fmtCount(A.contacted) });
-  {
-    const r = safeDiv(A.contacted, A.outbound);
-    put("stat_contact_rate", r === null
-      ? { value: "—", noData: true }
-      : { value: fmtPct(r * 100), subtitle: `${fmtCount(A.contacted)} contacted` });
-  }
-  put("stat_dnc_count", { value: fmtCount(A.dnc) });
-  {
-    const r = safeDiv(A.dnc, A.outbound);
-    put("stat_dnc_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  put("stat_total_talk_time", {
-    value: A.totalDuration > 0 ? fmtDuration(A.totalDuration) : "—",
-    noData: A.totalDuration === 0,
-  });
-  {
-    const v = safeDiv(A.totalDuration, A.total);
-    put("stat_avg_duration_all", v === null ? { value: "—", noData: true } : { value: fmtDuration(v) });
-  }
-  put("stat_avg_talk_contacted", {
-    value: A.avgDurationContacted > 0 ? fmtDuration(A.avgDurationContacted) : "—",
-    subtitle: "contacted only",
-    noData: A.avgDurationContacted === 0,
-  });
-  {
-    const r = safeDiv(A.totalDuration, totalSessionSeconds);
-    put("stat_talk_time_ratio", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-
-  // ── APPOINTMENT ─────────────────────────────────────────────────────────
-  put("stat_appointments_set", { value: fmtCount(A.appts) });
-  {
-    const r = safeDiv(A.appts, A.outbound);
-    put("stat_appt_set_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  {
-    const r = safeDiv(A.appts, A.contacted);
-    put("stat_contacted_to_appt", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-
-  // ── CONVERSION ──────────────────────────────────────────────────────────
-  put("stat_policies_sold", { value: fmtCount(A.converted) });
-  {
-    const r = safeDiv(A.converted, A.outbound);
-    put("stat_call_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  {
-    const r = safeDiv(A.converted, A.contacted);
-    put("stat_contacted_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  {
-    const r = safeDiv(A.converted, A.appts);
-    put("stat_appt_to_close", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  {
-    const r = safeDiv(A.outbound, A.converted);
-    put("stat_dials_per_sale", r === null ? { value: "—", noData: true } : { value: fmtCount(r) });
-  }
-  {
-    const byHour = volume?.by_hour ?? [];
-    const best = byHour.reduce<{ hour: number; converted: number } | null>(
-      (acc, e) => (e.converted > 0 && (!acc || e.converted > acc.converted) ? { hour: e.hour, converted: e.converted } : acc),
-      null,
-    );
-    put("stat_best_closing_hour", best
-      ? { value: fmtHour(best.hour), subtitle: `${fmtCount(best.converted)} sales` }
-      : { value: "—", noData: true });
-  }
-  {
-    const byDow = volume?.by_day_of_week ?? [];
-    const best = byDow.reduce<{ dow: number; name?: string; converted: number } | null>(
-      (acc, e) => (e.converted > 0 && (!acc || e.converted > acc.converted) ? { dow: e.dow, name: e.dow_name, converted: e.converted } : acc),
-      null,
-    );
-    put("stat_best_closing_day", best
-      ? { value: best.name ?? DOW[best.dow] ?? "—", subtitle: `${fmtCount(best.converted)} sales` }
-      : { value: "—", noData: true });
-  }
-
-  // ── PIPELINE ────────────────────────────────────────────────────────────
-  put("stat_active_leads", {
-    value: activeLeadsCount !== undefined ? fmtCount(activeLeadsCount) : "—",
-    noData: activeLeadsCount === undefined,
-  });
-  put("stat_leads_converted", { value: fmtCount(A.converted) });
-  {
-    const r = safeDiv(A.callbacks, A.contacted);
-    put("stat_callback_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
-  }
-  {
-    const ni = breakdown?.by_disposition.find((d) => d.disposition_name.toLowerCase() === "not interested");
-    if (!ni) put("stat_not_interested_rate", { value: "—", noData: true });
-    else {
-      const r = safeDiv(ni.count, A.outbound);
-      put("stat_not_interested_rate", r === null ? { value: "—", noData: true } : { value: fmtPct(r * 100) });
+    case "stat_dnc_count":
+      return { value: formatCount(t.dnc_calls) };
+    case "stat_dnc_rate": {
+      const r = ratio(t.dnc_calls, t.calls_made);
+      return { value: r === null ? DASH : num(r * 100), subtitle: "DNC dispositions per 100 calls" };
     }
+    case "stat_policies_sold":
+      return { value: formatCount(t.policies_sold), subtitle: "policies (wins)" };
+    case "stat_dials_per_sale":
+      return { value: num(ratio(t.calls_made, t.policies_sold)), subtitle: "calls made ÷ policies sold" };
+    case "stat_appointments_set":
+      return { value: formatCount(t.appointments_set) };
+    case "stat_leads_converted":
+      return { value: formatCount(t.converted), subtitle: "unique contacts" };
+    case "stat_callback_rate":
+      return { value: formatCount(t.callback_calls), subtitle: "callback dispositions" };
+    case "stat_top_performer": {
+      const best = leader(s.by_agent, (a) => a.policies_sold, (a) => a.name);
+      return best ? { value: best.name, subtitle: `${best.score} polic${best.score === 1 ? "y" : "ies"} sold`, smallValue: true } : { value: DASH, subtitle: "no policies sold" };
+    }
+    case "stat_top_dialer": {
+      const best = leader(s.by_agent, (a) => a.calls_made, (a) => a.name);
+      return best ? { value: best.name, subtitle: `${formatCount(best.score)} calls made`, smallValue: true } : { value: DASH, subtitle: "no calls made" };
+    }
+    case "stat_best_contact_agent": {
+      const best = leader(dialers, (a) => a.contact_rate_pct, (a) => a.name);
+      return best ? { value: best.name, subtitle: `${best.score.toFixed(1)}% call contact rate`, smallValue: true } : { value: DASH };
+    }
+    case "stat_avg_calls_agent":
+      return { value: num(ratio(t.calls_made - s.unattributed.calls_made, dialers.length)), subtitle: `${dialers.length} dialing agent${dialers.length === 1 ? "" : "s"}` };
+    case "stat_agents_active":
+      return { value: formatCount(dialers.length), subtitle: "with at least one call" };
+    case "stat_dials_per_contact":
+      return { value: num(ratio(t.calls_made, t.contacted)), subtitle: "calls made ÷ contacted calls" };
+    case "stat_dials_per_appt":
+      return { value: num(ratio(t.calls_made, t.appointments_set)) };
+    case "stat_talk_mins_per_sale":
+      return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)), subtitle: "talk minutes ÷ policies sold" };
+    default:
+      return { unknown: NOT_TRACKED };
   }
-
-  // ── AGENT ──────────────────────────────────────────────────────────────
-  const byAgent = summary?.calls_by_agent ?? [];
-  const topConv = byAgent.reduce<typeof byAgent[number] | null>((acc, a) => (!acc || a.converted > acc.converted ? a : acc), null);
-  put("stat_top_performer", topConv && topConv.converted > 0
-    ? { value: agentName(agents, topConv.agent_id), subtitle: `${fmtCount(topConv.converted)} sales`, smallValue: true }
-    : { value: "—", noData: true });
-
-  const topDial = byAgent.reduce<typeof byAgent[number] | null>((acc, a) => (!acc || a.total > acc.total ? a : acc), null);
-  put("stat_top_dialer", topDial && topDial.total > 0
-    ? { value: agentName(agents, topDial.agent_id), subtitle: `${fmtCount(topDial.total)} calls`, smallValue: true }
-    : { value: "—", noData: true });
-
-  const bestContact = byAgent.reduce<{ id: string; rate: number } | null>((acc, a) => {
-    if (a.total === 0) return acc;
-    const r = a.contacted / a.total;
-    return !acc || r > acc.rate ? { id: a.agent_id, rate: r } : acc;
-  }, null);
-  put("stat_best_contact_agent", bestContact
-    ? { value: agentName(agents, bestContact.id), subtitle: fmtPct(bestContact.rate * 100), smallValue: true }
-    : { value: "—", noData: true });
-
-  const bestConv = byAgent.reduce<{ id: string; rate: number } | null>((acc, a) => {
-    if (a.total === 0) return acc;
-    const r = a.converted / a.total;
-    return !acc || r > acc.rate ? { id: a.agent_id, rate: r } : acc;
-  }, null);
-  put("stat_best_conv_agent", bestConv && bestConv.rate > 0
-    ? { value: agentName(agents, bestConv.id), subtitle: fmtPct(bestConv.rate * 100), smallValue: true }
-    : { value: "—", noData: true });
-
-  {
-    const v = safeDiv(A.total, agentCount);
-    put("stat_avg_calls_agent", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-  {
-    const v = safeDiv(A.converted, agentCount);
-    put("stat_avg_sales_agent", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-
-  // ── EFFICIENCY ─────────────────────────────────────────────────────────
-  {
-    const v = safeDiv(A.outbound, A.contacted);
-    put("stat_dials_per_contact", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-  {
-    const v = safeDiv(A.outbound, A.appts);
-    put("stat_dials_per_appt", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-  {
-    const v = safeDiv(A.totalDuration / 60, A.converted);
-    put("stat_talk_mins_per_sale", v === null ? { value: "—", noData: true } : { value: fmtCount(v) });
-  }
-
-  return result;
 }
 
-// Helpers for week-range checks
-function startOfWeekFor(year: number, week: number): Date {
-  const jan4 = new Date(year, 0, 4);
-  const jan4Day = jan4.getDay() || 7;
-  const mondayWeek1 = new Date(jan4);
-  mondayWeek1.setDate(jan4.getDate() - (jan4Day - 1));
-  const start = new Date(mondayWeek1);
-  start.setDate(mondayWeek1.getDate() + (week - 1) * 7);
-  return start;
+function computeFromVolume(id: string, v: ReportVolume, inputs: StatInputs): Computed {
+  const inWindow = (d: string) => d >= v.window.start_date && d <= v.window.end_date;
+  if (id === "stat_calls_today") {
+    if (!inWindow(inputs.agencyToday)) return { unknown: "Today is outside the selected period" };
+    const row = v.by_date.find((d) => d.date === inputs.agencyToday);
+    return { value: formatCount(row?.calls_made ?? 0), subtitle: "agency calendar day" };
+  }
+  // Week = Sunday..Saturday of the agency today, and only when the whole week-to-date is in range.
+  const today = new Date(`${inputs.agencyToday}T00:00:00Z`);
+  const weekStart = addDays(inputs.agencyToday, -today.getUTCDay());
+  if (!inWindow(weekStart) || !inWindow(inputs.agencyToday)) return { unknown: "Select a period that includes this whole week" };
+  const total = v.by_date.filter((d) => d.date >= weekStart && d.date <= inputs.agencyToday).reduce((a, d) => a + d.calls_made, 0);
+  return { value: formatCount(total), subtitle: "Sunday to today, agency calendar" };
 }
-function endOfWeekFor(year: number, week: number): Date {
-  const s = startOfWeekFor(year, week);
-  const e = new Date(s);
-  e.setDate(s.getDate() + 6);
-  e.setHours(23, 59, 59, 999);
-  return e;
+
+const VOLUME_STATS = new Set(["stat_calls_today", "stat_calls_this_week"]);
+
+export function computeStat(def: StatDefinition, inputs: StatInputs): StatResult {
+  const base = { id: def.id, label: def.label, category: def.category };
+  if (def.unavailable) return { ...base, state: "unavailable", value: DASH, subtitle: def.unavailable };
+  const source = VOLUME_STATS.has(def.id) ? inputs.volume : inputs.summary;
+  if (source.status === "loading") return { ...base, state: "loading", value: DASH };
+  if (source.status === "error") {
+    return source.error.kind === "configuration"
+      ? { ...base, state: "unavailable", value: DASH, subtitle: "Agency time zone not configured" }
+      : { ...base, state: "error", value: DASH, subtitle: "Couldn't load — not a zero" };
+  }
+  const c = VOLUME_STATS.has(def.id)
+    ? computeFromVolume(def.id, source.data as ReportVolume, inputs)
+    : computeFromSummary(def.id, source.data as ReportSummary, inputs);
+  if ("unknown" in c) return { ...base, state: "unavailable", value: DASH, subtitle: c.unknown };
+  return { ...base, state: "ready", ...c };
+}
+
+export function computeAllStats(inputs: StatInputs): Map<string, StatResult> {
+  return new Map(STAT_DEFINITIONS.map((def) => [def.id, computeStat(def, inputs)]));
 }

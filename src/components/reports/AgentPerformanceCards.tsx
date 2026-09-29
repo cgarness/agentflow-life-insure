@@ -1,97 +1,166 @@
-import React, { useMemo } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AgentProfile, ReportCallSummary } from "@/lib/reports-queries";
+import React from "react";
+import { formatCount, formatHours, formatRate } from "@/lib/reports-format";
+import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
+import type { ReportAgentRow, ReportSummary } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
+import ReportSection from "./ReportSection";
 
 interface Props {
-  summary?: ReportCallSummary;
-  agents: AgentProfile[];
-  goals: any[];
-  selectedAgent: string;
-  onSelectAgent: (id: string) => void;
-  loading: boolean;
+  summary: ReportSummary;
+  selectedAgentId: string | null;
+  /** Agents the viewer may filter to; any other card is not clickable. */
+  selectableAgentIds: ReadonlySet<string>;
+  onSelectAgent: (id: string | null) => void;
+  onExport?: ReportExportFn;
 }
 
-const AgentPerformanceCards: React.FC<Props> = ({ summary, agents, goals, selectedAgent, onSelectAgent, loading }) => {
-  const nonAdmin = useMemo(() => agents, [agents]);
+const EXPORT_HEADERS = [
+  "Agent",
+  "Status",
+  "Calls made",
+  "Contacted",
+  "Call contact rate %",
+  "Talk time (s)",
+  "Policies sold",
+  "Converted",
+  "Appointments",
+  "Session time (s)",
+];
 
-  const agentStats = useMemo(() => {
-    if (!summary) return [];
+const statusSuffix = (status: string | null) => (status && status !== "Active" ? ` (${status.toLowerCase()})` : "");
 
-    return nonAdmin.map(agent => {
-      const agentData = summary.calls_by_agent.find(a => a.agent_id === agent.id) || {
-        total: 0,
-        contacted: 0,
-        converted: 0,
-      };
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p.charAt(0).toUpperCase())
+    .join("");
 
-      // Goal progress (simplified)
-      const callGoal = goals.find(g => g.metric === "calls" && g.period === "daily");
-      const goalTarget = callGoal?.target_value || 50;
-      // Since period could be anything, goalPct is just relative to the data. 
-      // If we don't know the days, we just do a rough pct or cap it at 100.
-      const goalPct = Math.min(100, Math.round(agentData.total / goalTarget * 100));
+const Stat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="min-w-0">
+    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider truncate">{label}</p>
+    <p className="text-base font-black text-foreground leading-none mt-1 tabular-nums">{value}</p>
+  </div>
+);
 
-      return {
-        id: agent.id,
-        name: `${agent.first_name} ${agent.last_name?.charAt(0) || ""}.`,
-        initials: `${agent.first_name?.charAt(0) || ""}${agent.last_name?.charAt(0) || ""}`,
-        callsPeriod: agentData.total,
-        policiesPeriod: agentData.converted,
-        goalPct,
-      };
-    });
-  }, [nonAdmin, summary, goals]);
+const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
+  <div className="grid grid-cols-3 gap-x-3 gap-y-3">
+    <Stat label="Calls made" value={formatCount(a.calls_made)} />
+    <Stat label="Contacted" value={formatCount(a.contacted)} />
+    <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
+    <Stat label="Policies sold" value={formatCount(a.policies_sold)} />
+    <Stat label="Converted" value={formatCount(a.converted)} />
+  </div>
+);
 
-  if (loading) return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 w-48 shrink-0 rounded-xl" />)}
-    </div>
-  );
+/**
+ * Agent Performance — one card per agent in the secured summary, in server order. A card toggles the
+ * agent filter only when the viewer may filter to that agent. Converted (unique contacts) and
+ * Policies sold (wins) are separate counts; there is no conversion rate and no goal bar.
+ */
+const AgentPerformanceCards: React.FC<Props> = ({
+  summary,
+  selectedAgentId,
+  selectableAgentIds,
+  onSelectAgent,
+  onExport,
+}) => {
+  const agents = summary.by_agent;
+  const u = summary.unattributed;
+  const hasUnattributed = Object.values(u).some((n) => n > 0);
 
-  if (agentStats.length === 0) return null;
+  const handleExport = onExport
+    ? () => {
+        const rows: CsvCell[][] = agents.map((a) => [
+          a.name,
+          a.status,
+          a.calls_made,
+          a.contacted,
+          a.contact_rate_pct,
+          a.talk_time_seconds,
+          a.policies_sold,
+          a.converted,
+          a.appointments_set,
+          a.session_seconds,
+        ]);
+        if (hasUnattributed) {
+          rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null, u.appointments_set, null]);
+        }
+        onExport("Agent Performance", EXPORT_HEADERS, rows);
+      }
+    : undefined;
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
-      {agentStats.map(a => (
-        <button key={a.id}
-          onClick={() => onSelectAgent(selectedAgent === a.id ? "" : a.id)}
-          className={cn(
-            "shrink-0 w-48 rounded-2xl border p-4 text-left transition-all duration-200 group",
-            selectedAgent === a.id 
-              ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" 
-              : "bg-card border-slate-200/60 dark:border-slate-800/60 hover:border-primary/40 hover:shadow-md"
-          )}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-sm font-bold text-primary transition-transform group-hover:scale-105">
-              {a.initials}
+    <ReportSection title="Agent Performance" onExport={handleExport}>
+      {agents.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-12">No agents in this report.</p>
+      )}
+      {(agents.length > 0 || hasUnattributed) && (
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {agents.map((a) => {
+            const selectable = selectableAgentIds.has(a.agent_id);
+            const selected = selectedAgentId === a.agent_id;
+            const cardClass = cn(
+              "shrink-0 w-60 rounded-2xl border p-4 text-left transition-all duration-200",
+              selected ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" : "bg-card border-border/60",
+              selectable && !selected && "group hover:border-primary/40 hover:shadow-md",
+            );
+            const header = (
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0 transition-transform group-hover:scale-105">
+                  {initials(a.name)}
+                </div>
+                <p className="text-sm font-bold text-foreground truncate min-w-0" title={a.name + statusSuffix(a.status)}>
+                  {a.name}
+                  {a.status && a.status !== "Active" && (
+                    <span className="font-medium text-muted-foreground">{statusSuffix(a.status)}</span>
+                  )}
+                </p>
+              </div>
+            );
+            return selectable ? (
+              <button
+                key={a.agent_id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onSelectAgent(selected ? null : a.agent_id)}
+                className={cardClass}
+              >
+                {header}
+                <AgentStats a={a} />
+              </button>
+            ) : (
+              <div key={a.agent_id} className={cardClass}>
+                {header}
+                <AgentStats a={a} />
+              </div>
+            );
+          })}
+          {hasUnattributed && (
+            <div className="shrink-0 w-60 rounded-2xl border border-dashed border-border/60 bg-muted/30 p-4">
+              <div className="mb-4">
+                <p className="text-sm font-bold text-muted-foreground">Unattributed</p>
+                <p className="text-[11px] text-muted-foreground">Activity not linked to an agent</p>
+              </div>
+              <div className="grid grid-cols-3 gap-x-3 gap-y-3">
+                <Stat label="Calls made" value={formatCount(u.calls_made)} />
+                <Stat label="Inbound" value={formatCount(u.inbound_calls)} />
+                <Stat label="Policies sold" value={formatCount(u.policies_sold)} />
+                <Stat label="Appointments" value={formatCount(u.appointments_set)} />
+                <Stat label="Talk time" value={formatHours(u.talk_time_seconds)} />
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-foreground truncate">{a.name}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div>
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Calls</p>
-              <p className="text-base font-black text-foreground leading-none mt-1">{a.callsPeriod}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Sold</p>
-              <p className="text-base font-black text-foreground leading-none mt-1">{a.policiesPeriod}</p>
-            </div>
-          </div>
-          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-            <div 
-              className={cn(
-                "h-full rounded-full transition-all duration-1000 ease-out", 
-                a.goalPct >= 80 ? "bg-emerald-500" : a.goalPct >= 50 ? "bg-amber-500" : "bg-rose-500"
-              )} 
-              style={{ width: `${a.goalPct}%` }} 
-            />
-          </div>
-        </button>
-      ))}
-    </div>
+          )}
+        </div>
+      )}
+      {agents.length > 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          Converted counts unique contacts converted; Policies sold counts policies won. One client can buy more than
+          one policy.
+        </p>
+      )}
+    </ReportSection>
   );
 };
 

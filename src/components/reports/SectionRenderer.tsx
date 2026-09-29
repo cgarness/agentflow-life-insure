@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import DraggableSection from "./DraggableSection";
 import { SectionConfig, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
-import { StatCategory, STAT_CATEGORIES, STAT_DEFINITION_MAP } from "@/lib/stat-computations";
+import { StatCategory, STAT_CATEGORIES, STAT_DEFINITION_MAP, isStatAvailable } from "@/lib/stat-computations";
 import { EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,7 +9,8 @@ interface Props {
   sections: SectionConfig[];
   components: Record<string, React.ReactNode>;
   editMode: boolean;
-  isAdmin: boolean;
+  /** True when the server scope covers more than the viewer (team / organization). */
+  showTeamSections: boolean;
   onSectionsChange: (sections: SectionConfig[]) => void;
 }
 
@@ -17,7 +18,7 @@ const TEAM_SECTIONS = ["agent_performance_cards", "agent_efficiency", "goal_trac
 const CATEGORY_ORDER: StatCategory[] = ["activity", "results", "pipeline", "team"];
 
 const SectionRenderer: React.FC<Props> = ({
-  sections, components, editMode, isAdmin, onSectionsChange,
+  sections, components, editMode, showTeamSections, onSectionsChange,
 }) => {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -60,10 +61,11 @@ const SectionRenderer: React.FC<Props> = ({
   const otherSections: SectionConfig[] = [];
 
   for (const s of sections) {
-    if (!isAdmin && TEAM_SECTIONS.includes(s.id)) continue;
+    if (!showTeamSections && TEAM_SECTIONS.includes(s.id)) continue;
     if (s.id.startsWith("stat_")) {
       if (s.visible) visibleStatSections.push(s);
-      else hiddenStatSections.push(s);
+      // Stats with no approved definition are never offered in the picker.
+      else if (isStatAvailable(s.id)) hiddenStatSections.push(s);
     } else {
       otherSections.push(s);
     }

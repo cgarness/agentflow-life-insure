@@ -1,10 +1,196 @@
+/**
+ * reports-queries.ts — the ONE data layer for the Reports page.
+ *
+ * Every report number comes from the secured, scope-enforcing `get_report_*` RPCs
+ * (supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql). The server derives the caller,
+ * organization, permitted scope and the agency time zone; the browser only sends local AGENCY
+ * calendar dates and an optional agent id, which the server may only use to NARROW the scope.
+ *
+ * Failure contract (AGENT_RULES #22/#23/#34): every fetcher THROWS a `ReportsQueryError` — it never
+ * returns a zero-shaped object. A failed or mis-shaped response is an error state in the UI, never 0.
+ * The RPCs are absent from the generated types, so they are called through a narrow cast, as with the
+ * other aggregate RPCs (AGENT_RULES #14/#16/#17).
+ */
+import type { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { startOfDay, endOfDay, format, differenceInDays, parseISO, startOfMonth, subDays } from "date-fns";
+import {
+  reportCampaignsSchema,
+  reportDispositionsSchema,
+  reportLeadSourcesSchema,
+  reportScopeSchema,
+  reportSummarySchema,
+  reportVolumeSchema,
+  type ReportCampaigns,
+  type ReportDispositions,
+  type ReportLeadSources,
+  type ReportScope,
+  type ReportSummary,
+  type ReportVolume,
+} from "@/lib/reports-schemas";
 
-export interface DateRange {
-  start: Date;
-  end: Date;
+export type ReportsErrorKind = "denied" | "configuration" | "invalid" | "timeout" | "aborted" | "unavailable";
+
+const USER_MESSAGES: Record<ReportsErrorKind, string> = {
+  denied: "You don't have access to this report.",
+  configuration: "The agency time zone must be configured before official Reports can be calculated.",
+  invalid: "That date range can't be reported. Choose up to 366 days with the end on or after the start.",
+  timeout: "The report took too long to load.",
+  aborted: "The request was cancelled.",
+  unavailable: "Reports are temporarily unavailable.",
+};
+
+export class ReportsQueryError extends Error {
+  readonly kind: ReportsErrorKind;
+  /** The raw provider error, for console diagnostics only — never rendered. */
+  readonly cause: unknown;
+  constructor(kind: ReportsErrorKind, cause?: unknown) {
+    super(USER_MESSAGES[kind]);
+    this.name = "ReportsQueryError";
+    this.kind = kind;
+    this.cause = cause;
+  }
 }
+
+export function isReportsQueryError(e: unknown): e is ReportsQueryError {
+  return e instanceof ReportsQueryError;
+}
+
+/** Bound on a single report request; afterwards it is reported as `timeout`, never left spinning. */
+export const REPORT_REQUEST_TIMEOUT_MS = 25_000;
+
+export const REPORT_RPC = {
+  scope: "get_report_scope",
+  summary: "get_report_call_summary",
+  volume: "get_report_call_volume",
+  dispositions: "get_report_disposition_breakdown",
+  campaigns: "get_report_campaign_performance",
+  leadSources: "get_report_lead_source_performance",
+} as const;
+
+type ReportRpcName = (typeof REPORT_RPC)[keyof typeof REPORT_RPC];
+
+interface PostgrestLikeError {
+  code?: string | null;
+  message?: string | null;
+}
+
+/**
+ * SQLSTATE 42501 is two different things (AGENT_RULES #37). The RPCs' own authorization refusals are
+ * a decision about the viewer → `denied`. `permission denied for function …` is a platform state —
+ * EXECUTE revoked by `supabase/ops/reports_disable.sql` or grant drift — and is never reported as the
+ * viewer's own lack of permission → `unavailable` (with Retry).
+ */
+const PLATFORM_PRIVILEGE_ERROR = /^permission denied for (function|schema|table|relation|sequence)\b/i;
+
+function kindForProviderError(error: PostgrestLikeError): ReportsErrorKind {
+  const code = error.code ?? "";
+  if (code === "42501") return PLATFORM_PRIVILEGE_ERROR.test(error.message ?? "") ? "unavailable" : "denied";
+  // 55000: the organization has no valid agency time zone. Reports never guess one (plan §R3.2).
+  if (code === "55000") return "configuration";
+  if (code === "22023") return "invalid";
+  return "unavailable";
+}
+
+/** Local AGENCY calendar date, `YYYY-MM-DD`. Validated so a malformed value never reaches the server. */
+export type ReportDate = string;
+const REPORT_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface ReportRequest {
+  startDate: ReportDate;
+  endDate: ReportDate;
+  /** Narrows to one agent inside the caller's scope. `null` = the caller's whole permitted scope. */
+  agentId: string | null;
+}
+
+async function callReportRpc<T>(
+  fn: ReportRpcName,
+  args: Record<string, unknown>,
+  schema: z.ZodType<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REPORT_REQUEST_TIMEOUT_MS);
+  const forwardAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", forwardAbort, { once: true });
+  }
+
+  try {
+    if (controller.signal.aborted) throw new ReportsQueryError(timedOut ? "timeout" : "aborted");
+    let response: { data: unknown; error: PostgrestLikeError | null };
+    try {
+      response = await (supabase as any).rpc(fn, args).abortSignal(controller.signal);
+    } catch (thrown) {
+      if (signal?.aborted) throw new ReportsQueryError("aborted", thrown);
+      if (timedOut) throw new ReportsQueryError("timeout", thrown);
+      throw new ReportsQueryError("unavailable", thrown);
+    }
+    // postgrest-js reports an abort as an ordinary error with an empty code, so the cause is decided
+    // by which signal fired, never by the error's shape.
+    if (signal?.aborted) throw new ReportsQueryError("aborted", response?.error);
+    if (timedOut) throw new ReportsQueryError("timeout", response?.error);
+    if (!response) throw new ReportsQueryError("unavailable");
+    if (response.error) {
+      const kind = kindForProviderError(response.error);
+      console.error(`[Reports] ${fn} failed (${kind}):`, response.error);
+      throw new ReportsQueryError(kind, response.error);
+    }
+    if (response.data === null || response.data === undefined) {
+      console.error(`[Reports] ${fn} returned no data`);
+      throw new ReportsQueryError("unavailable");
+    }
+    const parsed = schema.safeParse(response.data);
+    if (!parsed.success) {
+      console.error(`[Reports] ${fn} returned an unexpected shape:`, parsed.error.issues.slice(0, 5));
+      throw new ReportsQueryError("unavailable", parsed.error);
+    }
+    return parsed.data;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+function windowArgs(req: ReportRequest): Record<string, unknown> {
+  if (!REPORT_DATE.test(req.startDate) || !REPORT_DATE.test(req.endDate)) {
+    throw new ReportsQueryError("invalid");
+  }
+  return { p_start_date: req.startDate, p_end_date: req.endDate, p_agent_id: req.agentId ?? null };
+}
+
+export function fetchReportScope(signal?: AbortSignal): Promise<ReportScope> {
+  return callReportRpc(REPORT_RPC.scope, {}, reportScopeSchema, signal);
+}
+
+export async function fetchReportSummary(req: ReportRequest, signal?: AbortSignal): Promise<ReportSummary> {
+  return callReportRpc(REPORT_RPC.summary, windowArgs(req), reportSummarySchema, signal);
+}
+
+export async function fetchReportVolume(req: ReportRequest, signal?: AbortSignal): Promise<ReportVolume> {
+  return callReportRpc(REPORT_RPC.volume, windowArgs(req), reportVolumeSchema, signal);
+}
+
+export async function fetchReportDispositions(req: ReportRequest, signal?: AbortSignal): Promise<ReportDispositions> {
+  return callReportRpc(REPORT_RPC.dispositions, windowArgs(req), reportDispositionsSchema, signal);
+}
+
+export async function fetchReportCampaigns(req: ReportRequest, signal?: AbortSignal): Promise<ReportCampaigns> {
+  return callReportRpc(REPORT_RPC.campaigns, windowArgs(req), reportCampaignsSchema, signal);
+}
+
+export async function fetchReportLeadSources(req: ReportRequest, signal?: AbortSignal): Promise<ReportLeadSources> {
+  return callReportRpc(REPORT_RPC.leadSources, windowArgs(req), reportLeadSourcesSchema, signal);
+}
+
+// ─── Legacy saved / scheduled report CRUD ─────────────────────────────────────────────────────────
+// Kept ONLY so the unmounted CustomReportBuilder / ScheduledReportsModal files still compile. The
+// Reports page no longer mounts either feature (plan D-8: saved reports cannot be run, scheduled
+// reports are never delivered). Do not wire these back without a separately approved design.
 
 export interface AgentProfile {
   id: string;
@@ -14,161 +200,16 @@ export interface AgentProfile {
   email: string;
 }
 
-export type Grouping = "daily" | "weekly" | "monthly";
-
-export function autoGrouping(range: DateRange): Grouping {
-  const days = differenceInDays(range.end, range.start);
-  if (days < 14) return "daily";
-  if (days <= 60) return "weekly";
-  return "monthly";
-}
-
-export function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-export function formatHours(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-}
-
-export async function fetchProfiles(orgId?: string | null): Promise<AgentProfile[]> {
-  let q = supabase
-    .from("profiles")
-    .select("id, first_name, last_name, role, email")
-    .eq("status", "Active")
-    .order("first_name");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return (data || []) as AgentProfile[];
-}
-
-export async function fetchCallsRaw(range: DateRange, orgId?: string | null, agentId?: string) {
-  let q = supabase
-    .from("calls")
-    .select("id, agent_id, started_at, duration, direction, disposition_name, disposition_id, outcome, contact_name, contact_id, contact_phone, campaign_id, campaign_lead_id")
-    .gte("started_at", startOfDay(range.start).toISOString())
-    .lte("started_at", endOfDay(range.end).toISOString());
-  if (orgId) q = q.eq("organization_id", orgId);
-  if (agentId) q = q.eq("agent_id", agentId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchDispositions(orgId?: string | null) {
-  let q = supabase.from("dispositions").select("id, name, color, pipeline_stage_id, dnc_auto_add, callback_scheduler, appointment_scheduler");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchActiveLeadsCount(orgId?: string | null): Promise<number> {
-  let q = supabase
-    .from("leads")
-    .select("id", { count: "exact", head: true })
-    .not("status", "in", "('Sold','DNC','Not Interested')");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { count, error } = await q;
-  if (error) {
-    console.error("fetchActiveLeadsCount error:", error);
-    return 0;
-  }
-  return count || 0;
-}
-
-export async function fetchPipelineStages(orgId?: string | null) {
-  let q = supabase
-    .from("pipeline_stages")
-    .select("id, convert_to_client")
-    .eq("pipeline_type", "lead");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchCampaignsWithStats(orgId?: string | null) {
-  let q = supabase
-    .from("campaigns")
-    .select("id, name, type, status, total_leads, leads_contacted, leads_converted")
-    .gt("total_leads", 0)
-    .order("leads_converted", { ascending: false });
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchLeads(range: DateRange, orgId?: string | null, agentId?: string) {
-  let q = supabase
-    .from("leads")
-    .select("id, lead_source, status, last_contacted_at, created_at, assigned_agent_id, phone, state")
-    .gte("created_at", startOfDay(range.start).toISOString())
-    .lte("created_at", endOfDay(range.end).toISOString());
-  if (orgId) q = q.eq("organization_id", orgId);
-  if (agentId) q = q.eq("assigned_agent_id", agentId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchDialerSessions(range: DateRange, orgId?: string | null, agentId?: string) {
-  let q = supabase
-    .from("dialer_sessions")
-    .select("id, agent_id, started_at, ended_at")
-    .gte("started_at", startOfDay(range.start).toISOString())
-    .lte("started_at", endOfDay(range.end).toISOString());
-  if (orgId) q = q.eq("organization_id", orgId);
-  if (agentId) q = q.eq("agent_id", agentId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchGoals(orgId?: string | null) {
-  let q = supabase.from("goals").select("*");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchCampaignLeads(range: DateRange, orgId?: string | null) {
-  let q = supabase
-    .from("campaign_leads")
-    .select("id, campaign_id, call_attempts, first_name, last_name, status, disposition, created_at, state")
-    .gte("created_at", startOfDay(range.start).toISOString())
-    .lte("created_at", endOfDay(range.end).toISOString());
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function fetchLeadSourceCosts(orgId?: string | null) {
-  let q = supabase.from("lead_source_costs").select("*");
-  if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
-}
-
-export async function upsertLeadSourceCost(leadSource: string, cost: number) {
-  const { error } = await supabase.from("lead_source_costs").upsert(
-    { lead_source: leadSource, cost, updated_at: new Date().toISOString() },
-    { onConflict: "lead_source" }
-  );
-  if (error) throw error;
-}
-
 export async function fetchSavedReports(orgId?: string | null) {
-  let q = supabase
-    .from("saved_reports")
-    .select("*")
-    .order("created_at", { ascending: false });
+  let q = supabase.from("saved_reports").select("*").order("created_at", { ascending: false });
   if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function createSavedReport(name: string, config: any, userId: string, organizationId: string | null = null) {
-  const { error } = await supabase.from("saved_reports").insert({ name, config, created_by: userId, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const { error } = await supabase.from("saved_reports").insert({ name, config, created_by: userId, organization_id: organizationId } as any);
   if (error) throw error;
 }
 
@@ -178,17 +219,15 @@ export async function deleteSavedReport(id: string) {
 }
 
 export async function fetchScheduledReports(orgId?: string | null) {
-  let q = supabase
-    .from("scheduled_reports")
-    .select("*")
-    .order("created_at", { ascending: false });
+  let q = supabase.from("scheduled_reports").select("*").order("created_at", { ascending: false });
   if (orgId) q = q.eq("organization_id", orgId);
-  const { data } = await q;
-  return data || [];
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function createScheduledReport(report: any, organizationId: string | null = null) {
-  const { error } = await supabase.from("scheduled_reports").insert({ ...report, organization_id: organizationId } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const { error } = await supabase.from("scheduled_reports").insert({ ...report, organization_id: organizationId } as any);
   if (error) throw error;
 }
 
@@ -201,137 +240,3 @@ export async function deleteScheduledReport(id: string) {
   const { error } = await supabase.from("scheduled_reports").delete().eq("id", id);
   if (error) throw error;
 }
-
-export function groupByDate(dateStr: string, grouping: Grouping): string {
-  const d = parseISO(dateStr);
-  if (grouping === "daily") return format(d, "MMM dd");
-  if (grouping === "weekly") {
-    const weekStart = new Date(d);
-    weekStart.setDate(d.getDate() - d.getDay());
-    return `Week of ${format(weekStart, "MMM dd")}`;
-  }
-  return format(d, "MMM yyyy");
-}
-
-/** Format lead DOB for CSV export (MM/DD/YYYY). Use when building rows that include date_of_birth. */
-export { formatDobForCsv } from "@/utils/dobUtils";
-
-export function downloadCSV(filename: string, headers: string[], rows: string[][]) {
-  const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${(c ?? "").toString().replace(/"/g, '""')}"`).join(","))].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${filename}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export function getAgentName(agents: AgentProfile[], id: string): string {
-  const a = agents.find(a => a.id === id);
-  return a ? `${a.first_name} ${a.last_name?.charAt(0) || ""}.` : "Unknown";
-}
-
-// ─── Phase 3 RPC Data Shapes & Fetchers ─────────────────────────────────────
-
-export interface ReportCallSummary {
-  total_calls: number;
-  outbound: number;
-  inbound: number;
-  contacted: number;
-  converted: number;
-  total_duration_seconds: number;
-  avg_duration_seconds: number;
-  answer_rate_pct: number;
-  conversion_rate_pct: number;
-  calls_by_agent: {
-    agent_id: string;
-    agent_name: string;
-    total: number;
-    contacted: number;
-    converted: number;
-    total_duration: number;
-    avg_duration: number;
-  }[];
-  calls_by_direction: { outbound: number; inbound: number };
-}
-
-export interface ReportCallVolumeTimeseries {
-  by_hour: { hour: number; total: number; contacted: number; converted: number }[];
-  by_day_of_week: { dow: number; dow_name: string; total: number; contacted: number; converted: number }[];
-  by_date: { date: string; total: number; contacted: number; converted: number }[];
-  heatmap: { dow: number; hour: number; total: number; contacted: number }[];
-}
-
-export interface ReportDispositionBreakdown {
-  by_disposition: { disposition_name: string; color: string; count: number; avg_duration: number; is_converted: boolean }[];
-  by_agent: { agent_id: string; dispositions: Record<string, number> }[];
-  by_campaign: { campaign_id: string; campaign_name: string; dispositions: Record<string, number> }[];
-  duration_histogram: { range: string; count: number }[];
-}
-
-export interface ReportCampaignPerformance {
-  campaigns: { campaign_id: string; campaign_name: string; campaign_type: string; total_leads: number; contacted: number; converted: number; conversion_rate_pct: number }[];
-  by_lead_source: { lead_source: string; total: number; contacted: number; converted: number; conversion_rate_pct: number }[];
-}
-
-export async function fetchReportCallSummary(orgId: string, range: DateRange, agentId?: string): Promise<ReportCallSummary> {
-  const { data, error } = await supabase.rpc("rpc_report_call_summary", {
-    p_org_id: orgId,
-    p_start_date: range.start.toISOString(),
-    p_end_date: range.end.toISOString(),
-    p_agent_id: agentId || null
-  });
-  if (error || !data) {
-    console.error("fetchReportCallSummary error:", error);
-    return {
-      total_calls: 0, outbound: 0, inbound: 0, contacted: 0, converted: 0,
-      total_duration_seconds: 0, avg_duration_seconds: 0, answer_rate_pct: 0, conversion_rate_pct: 0,
-      calls_by_agent: [], calls_by_direction: { outbound: 0, inbound: 0 }
-    };
-  }
-  return data as unknown as ReportCallSummary;
-}
-
-export async function fetchReportCallVolumeTimeseries(orgId: string, range: DateRange, agentId?: string): Promise<ReportCallVolumeTimeseries> {
-  const { data, error } = await supabase.rpc("rpc_report_call_volume_timeseries", {
-    p_org_id: orgId,
-    p_start_date: range.start.toISOString(),
-    p_end_date: range.end.toISOString(),
-    p_agent_id: agentId || null
-  });
-  if (error || !data) {
-    console.error("fetchReportCallVolumeTimeseries error:", error);
-    return { by_hour: [], by_day_of_week: [], by_date: [], heatmap: [] };
-  }
-  return data as unknown as ReportCallVolumeTimeseries;
-}
-
-export async function fetchReportDispositionBreakdown(orgId: string, range: DateRange, agentId?: string): Promise<ReportDispositionBreakdown> {
-  const { data, error } = await supabase.rpc("rpc_report_disposition_breakdown", {
-    p_org_id: orgId,
-    p_start_date: range.start.toISOString(),
-    p_end_date: range.end.toISOString(),
-    p_agent_id: agentId || null
-  });
-  if (error || !data) {
-    console.error("fetchReportDispositionBreakdown error:", error);
-    return { by_disposition: [], by_agent: [], by_campaign: [], duration_histogram: [] };
-  }
-  return data as unknown as ReportDispositionBreakdown;
-}
-
-export async function fetchReportCampaignPerformance(orgId: string, range: DateRange, agentId?: string): Promise<ReportCampaignPerformance> {
-  const { data, error } = await supabase.rpc("rpc_report_campaign_performance", {
-    p_org_id: orgId,
-    p_start_date: range.start.toISOString(),
-    p_end_date: range.end.toISOString(),
-    p_agent_id: agentId || null
-  });
-  if (error || !data) {
-    console.error("fetchReportCampaignPerformance error:", error);
-    return { campaigns: [], by_lead_source: [] };
-  }
-  return data as unknown as ReportCampaignPerformance;
-}
-

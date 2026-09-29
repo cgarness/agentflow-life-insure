@@ -1098,3 +1098,30 @@ This preparation changes only this root plan, the new payload plan, incident ver
 Chris approved the exact staged release at 23:26:58 UTC. Fresh dialing checks passed; #390 merged at `4af2e588` and #391 at `775005cf`, with the tested tree preserved. Vercel production `dpl_HPuZtNbMjSsSrHqZZuGp2ZbBxKhM` is READY. Preparation `20260926233422_leaderboard_payload_prepare` and reopening `20260926233524_leaderboard_payload_reopen` are applied with their exact approved bytes. Active hash `c8b1f9d0c7cf5f8dfb7e437577029278`, security and Group verified; source migration filenames were reconciled to actual provider versions.
 
 The signed-in Today/Week/Month, Calls Made, photos, TV totals and Dashboard Refresh checks pass. Exact 23:36–23:46 UTC observation: 22 standings requests all 200, 34–151 ms API origin latency, p95 65 ms; 234 other REST requests all 200, ordinary non-OPTIONS p95 153 ms. Two separate photo GETs (198/187 ms) demonstrate cold load and five-minute reuse. No stop rule fired; no re-pause or restoration was required. Final metadata/Group matched with zero lock waiters. Production standings remain live. Detailed limits, one-minute counts and recovery references are in payload plan §9 and incident verification. This is a bounded release check, not sustained busy-period capacity certification.
+
+---
+
+## §16. Reports & Analytics overnight build (2026-09-28) — plan awaiting approval
+
+The Reports security/accuracy/reliability plan lives in its own file so the leaderboard record above stays intact:
+**`docs/plans/2026-09-28-reports-analytics/implementation_plan.md`**.
+
+- **Why:** the four live `public.rpc_report_*` functions are `SECURITY DEFINER`, trust a caller-supplied `p_org_id` and are
+  executable by `anon` (read-only production catalog check, 2026-09-28): a cross-tenant aggregate exposure. Reports metrics
+  also deviate from the documented canon (Contacted, Calls Made window, Policies Sold), one RPC reads a nonexistent column, and
+  every failure renders as zero.
+- **Proposed:** one new migration with a secured `public.get_report_*` family (scope from `auth.uid()` + profile, existing
+  Reports permissions enforced server-side, agent id may only narrow) that revokes legacy EXECUTE; a keyed, generation-guarded
+  frontend with truthful loading/empty/error/denied states and gated, sanitized exports; SQL + vitest coverage.
+- **Boundaries:** no leaderboard, Dashboard, Dialer, telephony, RLS or `report-utils.ts` change. No production action until
+  Chris's separate approval (plan §9).
+- **Status update (2026-09-28, appended; the heading above is historical):**
+  - Rev 2 was approved for branch implementation and testing only.
+  - It is implemented and locally tested on `claude/reports-analytics-overnight-c69826`.
+  - The migration is **not applied**, and nothing is merged or deployed.
+  - The release packet, test results, metric decisions and rollback are in
+    `docs/plans/2026-09-28-reports-analytics/MORNING_HANDOFF.md`.
+- **Status update (2026-09-29, appended):**
+  - Chris's three final corrections are implemented on the branch: contact-first Converted identity, a fail-closed
+    agency time zone with no default, and the "Call contact rate" label. They are recorded in the Reports plan §R3.
+  - A PR against `main` is opened so the Reports backend CI runs. It is not merged, and the migration is not applied.
