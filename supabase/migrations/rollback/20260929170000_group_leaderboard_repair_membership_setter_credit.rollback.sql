@@ -1,8 +1,11 @@
 -- ROLLBACK for 20260929170000_group_leaderboard_repair_membership_setter_credit.sql — NOT a forward migration.
 -- STATUS: prepared, never applied. Apply only with Chris's separate exact approval, as a NEW migration.
 -- Restores the exact pre-repair state: the function returns to the production preimage (md5
--- e1283b5b05d295c1d25888485cc08346 — which raises 42702 on every call under variable_conflict = error) and the
--- setter index is dropped. Refuses anything but the exact post-repair function, owner, ACL and index; replay refuses.
+-- e1283b5b05d295c1d25888485cc08346 — which raises 42702 on every call under variable_conflict = error), the setter
+-- index is dropped, and EXECUTE returns to the exact production ACL, element order included:
+-- {=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres} (which
+-- re-opens PUBLIC/anon EXECUTE — only with explicit approval). Refuses anything but the exact post-repair function,
+-- owner, ACL and index; replay refuses.
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5s';
 DO $group_repair_rollback$
@@ -25,7 +28,7 @@ BEGIN
     RAISE EXCEPTION 'Group leaderboard definition is not the repaired version; refusing rollback';
   END IF;
   IF (SELECT proowner <> 'postgres'::regrole
-      OR proacl IS DISTINCT FROM ARRAY['=X/postgres','postgres=X/postgres','anon=X/postgres','authenticated=X/postgres','service_role=X/postgres']::aclitem[]
+      OR proacl IS DISTINCT FROM ARRAY['postgres=X/postgres','authenticated=X/postgres','service_role=X/postgres']::aclitem[]
       FROM pg_catalog.pg_proc WHERE oid = target) THEN
     RAISE EXCEPTION 'Group leaderboard owner or ACL changed; refusing rollback';
   END IF;
@@ -50,5 +53,17 @@ BEGIN
     RAISE EXCEPTION 'Unexpected body change; rolling back the rollback';
   END IF;
   EXECUTE 'DROP INDEX public.appointments_setter_created_at_idx';
+  -- Rebuild the production ACL in its original element order: clear every entry (the owner's included), then grant
+  -- in the order production's array lists them.
+  EXECUTE 'REVOKE ALL ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) FROM PUBLIC, postgres, anon, authenticated, service_role';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO PUBLIC';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO postgres';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO anon';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO authenticated';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO service_role';
+  IF (SELECT proacl IS DISTINCT FROM ARRAY['=X/postgres','postgres=X/postgres','anon=X/postgres','authenticated=X/postgres','service_role=X/postgres']::aclitem[]
+      FROM pg_catalog.pg_proc WHERE oid = target) THEN
+    RAISE EXCEPTION 'Production ACL not restored exactly; rolling back the rollback';
+  END IF;
 END;
 $group_repair_rollback$;

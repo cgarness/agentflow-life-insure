@@ -8,12 +8,15 @@
 # VERBATIM from the baseline migration (production ACL re-created), and proves, for
 # supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql:
 #   1. the suite passes after the migration (applied in ONE transaction, as apply_migration does), under
-#      production's plpgsql.variable_conflict = error with no workaround
-#   2. NEGATIVE CONTROLS — the suite FAILS on the pre-repair function (42702) and on a copy carrying only the
-#      42702 fix (assignee credit)
-#   3. DRIFT refusal  — a changed body, a changed ACL, or an existing index name aborts with nothing applied
+#      production's plpgsql.variable_conflict = error with no workaround; EXECUTE is hardened to
+#      {postgres, authenticated, service_role}
+#   2. NEGATIVE CONTROLS — the suite FAILS on the pre-repair function (42702), on a copy carrying only the 42702
+#      fix (assignee credit), and on a repaired copy whose PUBLIC/anon EXECUTE was left open
+#   3. DRIFT refusal  — a changed body, a changed ACL (incl. hardening done by hand), or an existing index name
+#      aborts with nothing applied
 #   4. REPLAY refusal — a second apply aborts with nothing changed
-#   5. ROLLBACK proof — the exact pre-repair definition and ACL come back, the index is dropped; replay refuses
+#   5. ROLLBACK proof — the exact pre-repair definition and the exact production ACL (element order included) come
+#      back, the index is dropped; rollback replay refuses; the forward migration then re-applies cleanly
 #   6. ACCESS DIFFERENTIAL — every membership decision, roster, period and non-appointment metric is identical
 #      between the pre-repair function (read as intended) and the repaired one
 #   7. INDEX PROOF — on 600k appointments the setter lookup uses appointments_setter_created_at_idx (EXPLAIN
@@ -58,6 +61,7 @@ BASELINE="$ROOT/supabase/migrations/20260806000000_baseline_production_schema.sq
 PRE_MD5="e1283b5b05d295c1d25888485cc08346"
 POST_MD5="8bd49ee01e0b92abd3e66548569f36bb"
 PROD_ACL="{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+HARD_ACL="{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
 QUALIFY_ONLY="DO \$q\$ DECLARE d text := pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure); n text := E'      AND organization_id = v_caller_org\\n'; BEGIN IF (length(d) - length(replace(d, n, ''))) / length(n) <> 1 THEN RAISE EXCEPTION 'membership reference not unique'; END IF; EXECUTE replace(d, n, E'      AND agency_group_members.organization_id = v_caller_org\\n'); END \$q\$;"
 
 WORK="$(mktemp -d)"
@@ -133,8 +137,9 @@ echo "   OK (definition md5 $PRE_MD5, production ACL)"
 echo "== 1. suite after migration (plpgsql.variable_conflict = error) =="
 build "gl_main_$SUFFIX" "$MIG"
 [ "$(defmd5 "gl_main_$SUFFIX")" = "$POST_MD5" ] || { echo "FAIL: post-image md5 mismatch"; exit 1; }
+[ "$(acl "gl_main_$SUFFIX")" = "$HARD_ACL" ] || { echo "FAIL: post-repair ACL is not $HARD_ACL"; exit 1; }
 psql "$PGURL/gl_main_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
-echo "   OK (suite passed; definition md5 $POST_MD5)"
+echo "   OK (suite passed; definition md5 $POST_MD5; ACL $HARD_ACL)"
 
 # ── 2. Negative controls ─────────────────────────────────────────────────────────────────────────────
 echo "== 2. negative controls =="
@@ -144,6 +149,10 @@ build "gl_qual_$SUFFIX"
 psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$QUALIFY_ONLY"
 expect_fail "42702 fix only (assignee credit)" "T1/T3/T4/T5 setter A appointments_set" \
   psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+build "gl_open_$SUFFIX" "$MIG"
+psql "$PGURL/gl_open_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO PUBLIC, anon;"
+expect_fail "repaired but PUBLIC/anon EXECUTE left open" "T8g anon cannot EXECUTE" \
+  psql "$PGURL/gl_open_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 
 # ── 3. Drift refusal (body, ACL, existing index name) ────────────────────────────────────────────────
 echo "== 3. drift refusal =="
@@ -160,6 +169,13 @@ expect_fail "drifted ACL" "owner or ACL changed" \
   psql "$PGURL/gl_acl_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
 [ "$(defmd5 "gl_acl_$SUFFIX")" = "$PRE_MD5" ] && [ "$(setter_index "gl_acl_$SUFFIX")" = "absent" ] \
   || { echo "FAIL: ACL refusal changed something"; exit 1; }
+build "gl_acl2_$SUFFIX"
+psql "$PGURL/gl_acl2_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "REVOKE EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) FROM PUBLIC;"
+acl_before="$(acl "gl_acl2_$SUFFIX")"
+expect_fail "EXECUTE hardened by hand first" "owner or ACL changed" \
+  psql "$PGURL/gl_acl2_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
+[ "$(defmd5 "gl_acl2_$SUFFIX")" = "$PRE_MD5" ] && [ "$(acl "gl_acl2_$SUFFIX")" = "$acl_before" ] && [ "$(setter_index "gl_acl2_$SUFFIX")" = "absent" ] \
+  || { echo "FAIL: hand-hardening refusal changed something"; exit 1; }
 build "gl_idx_$SUFFIX"
 psql "$PGURL/gl_idx_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "CREATE INDEX appointments_setter_created_at_idx ON public.appointments (user_id);"
 expect_fail "existing index name" "already exists" \
@@ -170,20 +186,26 @@ expect_fail "existing index name" "already exists" \
 echo "== 4. replay refusal =="
 expect_fail "replay" "definition changed" \
   psql "$PGURL/gl_main_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
-[ "$(defmd5 "gl_main_$SUFFIX")" = "$POST_MD5" ] || { echo "FAIL: replay changed the function"; exit 1; }
+[ "$(defmd5 "gl_main_$SUFFIX")" = "$POST_MD5" ] && [ "$(acl "gl_main_$SUFFIX")" = "$HARD_ACL" ] || { echo "FAIL: replay changed something"; exit 1; }
 
 # ── 5. Rollback ──────────────────────────────────────────────────────────────────────────────────────
 echo "== 5. rollback =="
 build "gl_rb_$SUFFIX" "$MIG"
 psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$ROLLBACK"
 [ "$(defmd5 "gl_rb_$SUFFIX")" = "$PRE_MD5" ] || { echo "FAIL: rollback did not restore the preimage"; exit 1; }
-[ "$(acl "gl_rb_$SUFFIX")" = "$PROD_ACL" ] || { echo "FAIL: rollback changed the ACL"; exit 1; }
+[ "$(acl "gl_rb_$SUFFIX")" = "$PROD_ACL" ] || { echo "FAIL: rollback did not restore the exact production ACL"; acl "gl_rb_$SUFFIX"; exit 1; }
 [ "$(setter_index "gl_rb_$SUFFIX")" = "absent" ] || { echo "FAIL: rollback left the index"; exit 1; }
-echo "   OK (rollback restored $PRE_MD5 with the production ACL and dropped the index)"
+[ "$(q "gl_rb_$SUFFIX" "SELECT has_function_privilege('anon', 'public.get_agency_group_leaderboard(uuid,text)'::regprocedure, 'EXECUTE')")" = "t" ] \
+  || { echo "FAIL: rollback did not restore anon EXECUTE"; exit 1; }
+echo "   OK (rollback restored $PRE_MD5, the exact production ACL $PROD_ACL, and dropped the index)"
 expect_fail "rollback replay" "not the repaired version" \
   psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$ROLLBACK"
 expect_fail "suite after rollback" "is ambiguous" \
   psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+psql "$PGURL/gl_rb_$SUFFIX" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
+[ "$(defmd5 "gl_rb_$SUFFIX")" = "$POST_MD5" ] && [ "$(acl "gl_rb_$SUFFIX")" = "$HARD_ACL" ] && [ "$(setter_index "gl_rb_$SUFFIX")" != "absent" ] \
+  || { echo "FAIL: the forward migration did not re-apply cleanly after the rollback"; exit 1; }
+echo "   OK (after the rollback the forward migration re-applies cleanly)"
 
 # ── 6. Access differential ───────────────────────────────────────────────────────────────────────────
 echo "== 6. access differential (pre-repair read as intended vs repaired under production settings) =="
@@ -194,12 +216,12 @@ for d in gl_dpre gl_dpost; do
 done
 psql "$PGURL/gl_dpre_$SUFFIX"  -v ON_ERROR_STOP=1 -q -v conflict_mode=use_column -f "$MATRIX" 2>&1 | grep -o 'MATRIX .*' > "$WORK/matrix_pre.txt"
 psql "$PGURL/gl_dpost_$SUFFIX" -v ON_ERROR_STOP=1 -q -v conflict_mode=error      -f "$MATRIX" 2>&1 | grep -o 'MATRIX .*' > "$WORK/matrix_post.txt"
-[ "$(wc -l < "$WORK/matrix_post.txt")" -eq 14 ] || { echo "FAIL: expected 14 matrix lines"; cat "$WORK/matrix_post.txt"; exit 1; }
+[ "$(wc -l < "$WORK/matrix_post.txt")" -eq 13 ] || { echo "FAIL: expected 13 matrix lines"; cat "$WORK/matrix_post.txt"; exit 1; }
 diff "$WORK/matrix_pre.txt" "$WORK/matrix_post.txt" || { echo "FAIL: access/roster/metrics differ between pre-repair and repaired"; exit 1; }
-[ "$(grep -c '| ok |' "$WORK/matrix_post.txt")" -eq 9 ] && [ "$(grep -c '| P0001 | Access denied' "$WORK/matrix_post.txt")" -eq 5 ] \
+[ "$(grep -c '| ok |' "$WORK/matrix_post.txt")" -eq 9 ] && [ "$(grep -c '| P0001 | Access denied' "$WORK/matrix_post.txt")" -eq 4 ] \
   || { echo "FAIL: unexpected access outcomes"; cat "$WORK/matrix_post.txt"; exit 1; }
 sed 's/^/   /' "$WORK/matrix_post.txt"
-echo "   OK (14 scenarios identical: 9 allowed, 5 denied by the membership check)"
+echo "   OK (13 authenticated scenarios identical: 9 allowed, 4 denied by the membership check)"
 
 # ── 7. Index proof on large data ─────────────────────────────────────────────────────────────────────
 echo "== 7. index proof (600k appointments, 120-profile roster) =="

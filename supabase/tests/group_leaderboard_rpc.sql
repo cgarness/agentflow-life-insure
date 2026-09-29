@@ -6,7 +6,8 @@
 -- pre-repair function this suite fails with 42702; on a copy with only the 42702 fix it fails at T1.
 --
 -- Canon (AGENT_RULES #23 / #38): Appointments Set credits COALESCE(created_by, user_id) on appointments.created_at,
--- with no status filter. Membership, access, roster, other metrics, security and shape are asserted unchanged.
+-- with no status filter. EXECUTE is hardened to authenticated + service_role (PUBLIC and anon revoked); the
+-- membership authorization, roster, other metrics, security and shape are asserted otherwise unchanged.
 -- =====================================================================================================
 \set ON_ERROR_STOP 1
 SET plpgsql.variable_conflict = error;
@@ -77,9 +78,26 @@ SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-4000-8000-0000000
 SELECT gt.eq('T8f organization from the profile fallback', gt.roster(), 'Avery,Blake,Casey') \gset
 RESET ROLE;
 
+-- T8g anon cannot EXECUTE the RPC at all (42501 before the body runs), with or without member claims.
 SET ROLE anon;
 SELECT set_config('request.jwt.claims', '{"role":"anon"}', false) \gset
-SELECT gt.expect_denied('T8g anon (no organization)') \gset
+SELECT gt.expect_no_execute('T8g anon cannot EXECUTE') \gset
+SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-4000-8000-00000000000a","role":"anon","app_metadata":{"organization_id":"10000000-0000-4000-8000-000000000001"}}', false) \gset
+SELECT gt.expect_no_execute('T8g anon with member claims cannot EXECUTE') \gset
+RESET ROLE;
+
+-- T8i PUBLIC does not retain EXECUTE: a role holding nothing but PUBLIC's privileges is refused.
+SET ROLE gl_public_probe;
+SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-4000-8000-00000000000a","app_metadata":{"organization_id":"10000000-0000-4000-8000-000000000001"}}', false) \gset
+SELECT gt.expect_no_execute('T8i PUBLIC-only role cannot EXECUTE') \gset
+RESET ROLE;
+
+-- T8j service_role keeps EXECUTE; the membership authorization still decides what it sees.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claims', '{"role":"service_role","app_metadata":{"organization_id":"10000000-0000-4000-8000-000000000001"}}', false) \gset
+SELECT gt.eq('T8j service_role with a member organization executes', gt.roster(), 'Avery,Blake,Casey') \gset
+SELECT set_config('request.jwt.claims', '{"role":"service_role"}', false) \gset
+SELECT gt.expect_denied('T8j service_role without an organization reaches the membership check and is denied') \gset
 RESET ROLE;
 
 -- T8h revoking a membership takes effect immediately; restoring it restores access.
@@ -93,7 +111,7 @@ SELECT gt.eq('T8h revoked organization leaves the roster', gt.roster(), 'Avery,B
 RESET ROLE;
 UPDATE public.agency_group_members SET status = 'active'
  WHERE agency_group_id = '99999999-0000-4000-8000-000000000001' AND organization_id = '10000000-0000-4000-8000-000000000002';
-\echo 'T8 OK  active membership gates access; invited / other-group / mis-cased / anon / revoked denied; profile fallback kept'
+\echo 'T8 OK  members execute; non-members (invited / other-group / mis-cased / revoked) denied by the membership check; anon and PUBLIC cannot EXECUTE; service_role executes; profile fallback kept'
 
 -- T9 security metadata, signature, return shape, grants and the exact two-line body delta.
 DO $t$
@@ -107,8 +125,13 @@ BEGIN
   PERFORM gt.eq('language', (SELECT l.lanname::text FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = f), 'plpgsql');
   PERFORM gt.eq('search_path', (SELECT proconfig FROM pg_proc WHERE oid = f), ARRAY['search_path=public']);
   PERFORM gt.eq('owner', (SELECT proowner::regrole::text FROM pg_proc WHERE oid = f), 'postgres');
-  PERFORM gt.eq('acl', (SELECT proacl::text FROM pg_proc WHERE oid = f),
-    '{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}');
+  PERFORM gt.eq('acl (hardened)', (SELECT proacl::text FROM pg_proc WHERE oid = f),
+    '{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}');
+  PERFORM gt.eq('no PUBLIC grant', (SELECT count(*) FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid = f AND a.grantee = 0), 0::bigint);
+  PERFORM gt.eq('anon EXECUTE', has_function_privilege('anon', f, 'EXECUTE'), false);
+  PERFORM gt.eq('PUBLIC-only role EXECUTE', has_function_privilege('gl_public_probe', f, 'EXECUTE'), false);
+  PERFORM gt.eq('authenticated EXECUTE', has_function_privilege('authenticated', f, 'EXECUTE'), true);
+  PERFORM gt.eq('service_role EXECUTE', has_function_privilege('service_role', f, 'EXECUTE'), true);
   PERFORM gt.eq('signature', pg_get_function_identity_arguments(f), 'p_group_id uuid, p_period text');
   PERFORM gt.eq('arguments (with default)', pg_get_function_arguments(f), 'p_group_id uuid, p_period text DEFAULT ''month''::text');
   PERFORM gt.eq('return shape', pg_get_function_result(f),
@@ -123,7 +146,7 @@ BEGIN
   back := replace(replace(d, 'AND agency_group_members.organization_id = v_caller_org', 'AND organization_id = v_caller_org'),
                   'WHERE COALESCE(ap.created_by, ap.user_id) = p.id', 'WHERE ap.user_id = p.id');
   PERFORM gt.eq('only those two lines changed', md5(back), 'e1283b5b05d295c1d25888485cc08346');
-  RAISE NOTICE 'T9 OK  SECURITY DEFINER, plpgsql, volatility, search_path, owner, ACL, signature, return shape, two-line delta';
+  RAISE NOTICE 'T9 OK  SECURITY DEFINER, plpgsql, volatility, search_path, owner, hardened ACL + effective EXECUTE, signature, return shape, two-line delta';
 END $t$;
 
 -- T10 the setter index exists exactly as specified.

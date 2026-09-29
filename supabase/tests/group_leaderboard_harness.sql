@@ -23,6 +23,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')          THEN CREATE ROLE anon NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')  THEN CREATE ROLE service_role NOLOGIN; END IF;
+  -- A role with NO grants of its own: whatever it may execute, it holds only through PUBLIC.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gl_public_probe') THEN CREATE ROLE gl_public_probe NOLOGIN; END IF;
 END$$;
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -112,7 +114,7 @@ CREATE UNIQUE INDEX idx_agency_group_members_one_active_group ON public.agency_g
 -- Assertion helpers (schema gt): a failure raises, so psql -v ON_ERROR_STOP=1 exits non-zero. They run as the
 -- CALLING role (SECURITY INVOKER), so an access check made through them is the caller's own.
 CREATE SCHEMA gt;
-GRANT USAGE ON SCHEMA gt TO anon, authenticated;
+GRANT USAGE ON SCHEMA gt TO anon, authenticated, service_role, gl_public_probe;
 CREATE FUNCTION gt.eq(label text, got anyelement, want anyelement) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   IF got IS DISTINCT FROM want THEN
@@ -134,6 +136,20 @@ BEGIN
   RAISE EXCEPTION 'ASSERT FAILED [%]: the group board was returned', label;
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM NOT LIKE 'Access denied%' THEN RAISE; END IF;
+END $$;
+
+-- The current caller must be refused EXECUTE itself (42501, "permission denied for function …"), before the
+-- function body — and so before the membership check — ever runs.
+CREATE FUNCTION gt.expect_no_execute(label text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM * FROM public.get_agency_group_leaderboard('99999999-0000-4000-8000-000000000001', 'month');
+  RAISE EXCEPTION 'ASSERT FAILED [%]: the call executed and returned the group board', label;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    IF SQLERRM NOT LIKE 'permission denied for function get_agency_group_leaderboard%' THEN RAISE; END IF;
+  WHEN raise_exception THEN
+    IF SQLERRM LIKE 'ASSERT FAILED%' THEN RAISE; END IF;
+    RAISE EXCEPTION 'ASSERT FAILED [%]: the call executed and reached the function body (%)', label, SQLERRM;
 END $$;
 
 -- Access-differential probe: the outcome for the current caller and period, with every column EXCEPT

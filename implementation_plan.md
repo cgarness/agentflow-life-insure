@@ -1161,3 +1161,6 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
 - **Revision (2026-09-29):** the Group migration is now the complete repair
   `20260929170000_group_leaderboard_repair_membership_setter_credit.sql` (42702 fix + setter credit + setter index),
   superseding `20260929160000`; PREPARED, NOT APPLIED. Evidence and suite in plan §20.
+- **Revision (2026-09-29):** the same unapplied repair migration now also hardens EXECUTE (PUBLIC and anon revoked;
+  authenticated and service_role kept; final ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`);
+  the rollback restores the exact production ACL. Plan §21.

@@ -1,4 +1,4 @@
--- Group leaderboard repair. Production requires Chris's separate exact approval. Exactly three changes:
+-- Group leaderboard repair. Production requires Chris's separate exact approval. Exactly four changes:
 --   1. 42702 fix. The membership check's unqualified `organization_id` collides with the function's own
 --      RETURNS TABLE column; production runs plpgsql.variable_conflict = error, so EVERY call raised 42702.
 --      Qualified as agency_group_members.organization_id — the column the check always meant. Membership
@@ -6,6 +6,9 @@
 --   2. Appointments Set = setter credit (AGENT_RULES #23 / #38): ap.user_id = p.id becomes
 --      COALESCE(ap.created_by, ap.user_id) = p.id; booking window on created_at unchanged; no status filter.
 --   3. appointments_setter_created_at_idx ON (COALESCE(created_by, user_id), created_at): keeps (2) on an index path.
+--   4. EXECUTE hardening: this SECURITY DEFINER function loses its PUBLIC and anon EXECUTE (flagged by the Supabase
+--      advisors; there is no anonymous use); authenticated and service_role keep it. The function's own membership
+--      authorization is unchanged. Final ACL {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}.
 -- Standalone NEW migration only; refuses a drifted definition, owner, ACL, an existing index name, or a replay.
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5s';
@@ -57,6 +60,18 @@ BEGIN
   IF pg_get_indexdef('public.appointments_setter_created_at_idx'::regclass)
      <> 'CREATE INDEX appointments_setter_created_at_idx ON public.appointments USING btree (COALESCE(created_by, user_id), created_at)' THEN
     RAISE EXCEPTION 'Unexpected index definition; rolling back repair';
+  END IF;
+  EXECUTE 'REVOKE EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) FROM PUBLIC';
+  EXECUTE 'REVOKE EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) FROM anon';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO authenticated';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_agency_group_leaderboard(UUID, TEXT) TO service_role';
+  IF (SELECT proowner <> 'postgres'::regrole
+      OR proacl IS DISTINCT FROM ARRAY['postgres=X/postgres','authenticated=X/postgres','service_role=X/postgres']::aclitem[]
+      FROM pg_catalog.pg_proc WHERE oid = target)
+     OR has_function_privilege('anon', target, 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', target, 'EXECUTE')
+     OR NOT has_function_privilege('service_role', target, 'EXECUTE') THEN
+    RAISE EXCEPTION 'Unexpected EXECUTE privileges; rolling back repair';
   END IF;
 END;
 $group_repair$;

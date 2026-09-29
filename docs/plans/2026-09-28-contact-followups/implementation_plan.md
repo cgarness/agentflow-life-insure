@@ -1551,3 +1551,36 @@ tsc 0. No frontend file changed in this revision.
 **Push:** approved once this is clean, as a history rewrite of the remote's `20c4f1f9`:
 `git push --force-with-lease=claude/contact-followups-appointment-fix-rruo7i:20c4f1f9 -u origin claude/contact-followups-appointment-fix-rruo7i`.
 Not approved: applying the migration, merge, deploy.
+
+## §21. Revision — EXECUTE hardening in the Group leaderboard repair (Chris, 2026-09-29)
+
+**Why:** the live Supabase advisors flag `public.get_agency_group_leaderboard(uuid,text)` as SECURITY DEFINER and
+executable by anon/PUBLIC. Every AgentFlow caller (`useLeaderboardData`, `useLeaderboardWidgetStandings`) runs inside
+`ProtectedRoute` with an authenticated session, and no Edge Function calls it, so there is no legitimate anonymous use.
+No other advisor finding is touched. Supersedes the ACL statements in §19 and §20; everything else in §20 stands.
+
+**Change (same still-UNAPPLIED migration `20260929170000_group_leaderboard_repair_membership_setter_credit.sql`):** after
+the function and index steps, inside the same guarded block:
+`REVOKE EXECUTE … FROM PUBLIC; REVOKE EXECUTE … FROM anon; GRANT EXECUTE … TO authenticated; GRANT EXECUTE … TO service_role;`
+- Precondition (unchanged): the exact live ACL `{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`
+  (re-read 2026-09-29, with the preimage md5 and no setter index).
+- Postcondition: ACL exactly `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`, and effectively
+  anon cannot EXECUTE, authenticated and service_role can. The definition md5 is unaffected (`8bd49ee0…`). The
+  membership authorization is untouched.
+- Rollback: requires the hardened ACL, restores the function preimage, drops the index, then rebuilds the production
+  ACL in its original ELEMENT ORDER (REVOKE ALL from PUBLIC, postgres, anon, authenticated, service_role; GRANT to
+  PUBLIC, postgres, anon, authenticated, service_role, in that order) and verifies it exactly — so the forward
+  migration re-applies cleanly afterwards. Rolling back re-opens PUBLIC/anon EXECUTE and needs explicit approval.
+
+**Tests (PG17.6, all pass):** T8 — authenticated active members execute; authenticated non-members (invited, other
+group, mis-cased status, revoked) are refused by the membership check (P0001 "Access denied"), not by privileges; anon
+(with or without member claims) cannot EXECUTE (42501); a role holding only PUBLIC's privileges cannot EXECUTE;
+service_role executes (member claims → board; no org → membership denial). T9 — hardened ACL string, no PUBLIC grant
+(`aclexplode`), `has_function_privilege` for anon / PUBLIC-only / authenticated / service_role, plus SECURITY DEFINER,
+owner, search_path, signature, return shape and the exact two-line body delta. Runner — new negative control (repaired
+but PUBLIC/anon left open fails T8g); new drift case (EXECUTE hardened by hand first → refused, nothing changed); replay
+leaves md5 and ACL unchanged; rollback restores the exact production ACL string and anon EXECUTE, rollback replay
+refuses, and the forward migration re-applies cleanly; the access differential now covers the 13 authenticated
+scenarios (anon's outcome changes by design and is asserted in T8g); the index proof is unchanged.
+Focused vitest 68 files unchanged (1,096 + 10 LA-gated skips UTC / 1,106 LA; only the `contactName` env baseline);
+app typecheck 90 = 90 vs `main` `d05f4754`. No frontend file changed.

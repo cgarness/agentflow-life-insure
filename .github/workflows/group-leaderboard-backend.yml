@@ -1,5 +1,5 @@
 name: Group leaderboard backend verification
-# Real PostgreSQL proof of the Group leaderboard repair migration (42702 fix, setter credit, setter index)
+# Real PostgreSQL proof of the Group leaderboard repair migration (42702 fix, setter credit, setter index, EXECUTE hardening)
 # (supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql). Synthetic tenants only; the
 # runner refuses any non-localhost database, and no production credential exists in this job.
 on:
