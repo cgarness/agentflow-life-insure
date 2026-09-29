@@ -10,8 +10,8 @@ import { DEFAULT_DATA_ACCESS, DEFAULT_FEATURES, DEFAULT_PAGES } from "@/config/p
 
 const ROOT = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
-const MIGRATION = "supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql";
-const ROLLBACK = "supabase/migrations/rollback/20260928120000_reports_secure_scoped_rpcs.rollback.sql";
+const MIGRATION = "supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql";
+const ROLLBACK = "supabase/migrations/rollback/20260929152553_reports_secure_scoped_rpcs.rollback.sql";
 const OPS = ["supabase/ops/reports_disable.sql", "supabase/ops/reports_enable.sql"];
 const PUBLIC_RPCS = [
   "get_report_scope()",
