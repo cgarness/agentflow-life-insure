@@ -14,7 +14,13 @@
 -- under production's plpgsql.variable_conflict = 'error' EVERY call raises 42702 "column reference ... is
 -- ambiguous" (production: 0 agency groups on 2026-09-29, so it is latent). To exercise the attribution the
 -- migration DOES change, this session resolves the name the way the query evidently intends (the table column).
-SET plpgsql.variable_conflict = use_column;
+-- The runner's step 6b re-runs T1-T8 with conflict_mode=error against a copy whose ONLY extra change qualifies that
+-- one reference, proving the migrated attribution query itself has no name clash under the production setting.
+\if :{?conflict_mode}
+\else
+\set conflict_mode use_column
+\endif
+SET plpgsql.variable_conflict = :conflict_mode;
 
 -- One transaction for the data and the main read, so now() — and therefore the period start — is one instant.
 BEGIN;
@@ -141,7 +147,11 @@ EXCEPTION WHEN raise_exception THEN
 END $t$;
 RESET ROLE;
 
--- T9 security metadata, grants and the one-predicate body delta.
+-- T9 security metadata, grants and the one-predicate body delta (skipped only by step 6b, whose copy carries the
+-- extra qualification on purpose).
+\if :{?skip_body_pin}
+\echo 'T9 skipped (step 6b copy)'
+\else
 DO $t$
 DECLARE
   f oid := 'public.get_agency_group_leaderboard(uuid,text)'::regprocedure;
@@ -162,3 +172,4 @@ BEGIN
     md5(replace(d, 'WHERE COALESCE(ap.created_by, ap.user_id) = p.id', 'WHERE ap.user_id = p.id')), 'e1283b5b05d295c1d25888485cc08346');
   RAISE NOTICE 'T8-T9 OK  membership check, anon refusal, SECURITY DEFINER, search_path, owner, grants, one-line delta';
 END $t$;
+\endif

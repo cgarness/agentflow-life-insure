@@ -12,11 +12,20 @@
 #   4. REPLAY refusal — a second apply aborts with nothing changed
 #   5. ROLLBACK proof — the rollback restores the exact pre-migration definition; a second rollback refuses
 #   6. PRE-EXISTING DEFECT — under production's plpgsql.variable_conflict = 'error', the function raises 42702
-#      (ambiguous organization_id) both before AND after the migration: the migration neither fixes nor worsens it
+#      (ambiguous organization_id) both before AND after the migration; 6b qualifies ONLY that reference in a copy
+#      and re-runs T1-T8 under 'error', proving the migrated attribution query adds no name clash of its own
 # Every database is dropped on exit. Nothing here touches a hosted project.
 set -euo pipefail
 
 PGURL="${PGURL:?set PGURL to a LOCAL postgres, e.g. postgresql://postgres:pw@127.0.0.1:5432}"
+# The runner appends "/<dbname>", so a query string or a second '@' could redirect the host or swallow the name;
+# libpq environment overrides could redirect the host too. Refuse all of them outright.
+case "$PGURL" in
+  *'?'*|*@*@*) echo "REFUSING: PGURL must be scheme://user[:pw]@host:port with no query string (AGENT_RULES invariant #28)"; exit 2 ;;
+esac
+for v in PGHOST PGHOSTADDR PGSERVICE PGSERVICEFILE PGDATABASE; do
+  if [ -n "${!v:-}" ]; then echo "REFUSING: unset $v — it can override the host or database in PGURL"; exit 2; fi
+done
 PGHOST_PART="$(printf '%s' "$PGURL" | sed -E 's#^[a-z]+://##; s#^.*@##; s#[:/].*$##')"
 case "$PGHOST_PART" in
   127.0.0.1|localhost) ;;
@@ -77,6 +86,7 @@ build() {   # build <dbname> [migration-file]
   local db="$1" mig="${2:-}"
   DBS+=("$db")
   psql "$PGURL/postgres" -qc "CREATE DATABASE $db;"
+  [ "$(psql "$PGURL/$db" -tAc 'SELECT current_database()')" = "$db" ] || { echo "REFUSING: connected to the wrong database"; exit 2; }
   psql "$PGURL/$db" -v ON_ERROR_STOP=1 -q -f "$HARNESS"
   psql "$PGURL/$db" -v ON_ERROR_STOP=1 -q -f "$WORK/deps.sql"
   if [ -n "$mig" ]; then
@@ -159,5 +169,9 @@ expect_fail "production setting, pre-migration" "is ambiguous" \
   psql "$PGURL/gl_pre_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$CALL_AS_MEMBER"
 expect_fail "production setting, post-migration" "is ambiguous" \
   psql "$PGURL/gl_main_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "$CALL_AS_MEMBER"
+build "gl_qual_$SUFFIX" "$MIG"
+psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -c "DO \$q\$ DECLARE d text := pg_get_functiondef('public.get_agency_group_leaderboard(uuid,text)'::regprocedure); n text := E'      AND organization_id = v_caller_org\\n'; BEGIN IF (length(d) - length(replace(d, n, ''))) / length(n) <> 1 THEN RAISE EXCEPTION 'membership reference not unique'; END IF; EXECUTE replace(d, n, E'      AND agency_group_members.organization_id = v_caller_org\\n'); END \$q\$;"
+psql "$PGURL/gl_qual_$SUFFIX" -v ON_ERROR_STOP=1 -q -v conflict_mode=error -v skip_body_pin=1 -f "$SUITE"
+echo "   OK (6b: with only the membership reference qualified, T1-T8 pass under variable_conflict = error)"
 
 echo "== ALL GROUP LEADERBOARD CHECKS PASSED =="
