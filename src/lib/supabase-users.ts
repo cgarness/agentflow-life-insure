@@ -1,6 +1,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, UserStatus } from "@/lib/types";
+import { appointmentSetterOrExpression } from "@/lib/appointmentAttribution";
 
 function rowToUser(row: any): User & { profile: UserProfile } {
   return {
@@ -742,12 +743,12 @@ export const usersSupabaseApi = {
         .select("duration, created_at")
         .eq("agent_id", userId)
         .gte("created_at", startOfMonth),
+      // Appointments Set: booked this month by this user (setter credit), whatever happened to it since.
       supabase
         .from("appointments")
         .select("id, created_at")
-        .eq("user_id", userId)
-        .gte("created_at", startOfMonth)
-        .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)"),
+        .or(appointmentSetterOrExpression(userId))
+        .gte("created_at", startOfMonth),
       supabase
         .from("wins")
         .select("premium_amount")
