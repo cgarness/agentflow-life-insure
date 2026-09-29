@@ -123,9 +123,9 @@ export const useDashboardStats = (
         return q.abortSignal(signal);
       };
 
-      // Still filters `status = 'Scheduled'` and still uses `start_time` (occurrence)
-      // rather than `created_at` (booking). The Appointments Set definition is Build 2;
-      // Build 1 only adds the missing upper bound.
+      // WORKLOAD, not "Appointments Set": Scheduled appointments occurring in the window
+      // (`start_time`), owned by the assignee (`user_id`). Setter credit on `created_at` is
+      // the Reports / leaderboard metric (AGENT_RULES #23) and is deliberately not used here.
       const buildApptQuery = (start: string, end: string) => {
         let q = supabase
           .from("appointments")

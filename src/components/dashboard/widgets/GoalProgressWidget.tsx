@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
+import { appointmentSetterOrExpression } from "@/lib/appointmentAttribution";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
@@ -97,12 +98,12 @@ async function loadGoalProgress(userId: string, monthStart: Date, signal: AbortS
       .eq("agent_id", userId)
       .gte("created_at", startOfMonth)
       .abortSignal(signal),
+    // Appointments Set: booked this month by this user (setter credit), whatever happened to it since.
     supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
+      .or(appointmentSetterOrExpression(userId))
       .gte("created_at", startOfMonth)
-      .not("status", "in", "(Canceled,Cancelled,Rescheduled,canceled,cancelled,rescheduled)")
       .abortSignal(signal),
   ]);
   const failure = [profileRes, callsRes, winsRes, apptsRes].find((r) => r.error);

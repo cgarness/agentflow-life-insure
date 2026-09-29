@@ -15,18 +15,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/use-toast';
 import { useEffect, useState } from 'react';
 import { usersSupabaseApi } from '@/lib/supabase-users';
+import { isLocalDateInputTodayOrLater, localDateInputToIso, todayLocalDateInput } from '@/lib/taskDates';
 
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   task_type: z.enum(['Send Quote', 'Follow Up', 'Check Application', 'Policy Review', 'General'], {
     required_error: 'Task type is required'
   }),
-  due_date: z.string().refine((val) => {
-    const date = new Date(val);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return date >= today;
-  }, 'Due date must be today or in the future'),
+  // The picked date is a LOCAL calendar date (parsing 'YYYY-MM-DD' with `new Date()` reads it as UTC
+  // midnight, which rejected "today" in US time zones).
+  due_date: z.string().refine((val) => isLocalDateInputTodayOrLater(val), 'Due date must be today or in the future'),
   assigned_to: z.string().min(1, 'Assignee is required'),
   notes: z.string().optional()
 });
@@ -76,7 +74,7 @@ export function AddTaskModal({ open, onOpenChange, contactId, contactType, agent
     defaultValues: {
       title: '',
       task_type: 'Follow Up',
-      due_date: new Date().toISOString().split('T')[0],
+      due_date: todayLocalDateInput(),
       assigned_to: user?.id || '',
       notes: ''
     }
@@ -86,6 +84,8 @@ export function AddTaskModal({ open, onOpenChange, contactId, contactType, agent
     mutationFn: (values: z.infer<typeof taskSchema>) => {
       return tasksApi.createTask({
         ...values,
+        // Persist local midnight of the picked date (timestamptz), not UTC midnight.
+        due_date: localDateInputToIso(values.due_date) ?? values.due_date,
         organization_id: organizationId!,
         contact_id: contactId,
         contact_type: contactType

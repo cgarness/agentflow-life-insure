@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from '@/lib/tasksApi';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { formatDistanceToNow, isPast, isToday } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { Plus, CheckCircle2, Clock } from 'lucide-react';
 import { AddTaskModal } from './AddTaskModal';
 import { useToast } from '@/components/ui/use-toast';
+import { getTaskDueStatus } from '@/lib/taskDates';
 
 interface TasksPanelProps {
   contactId: string;
@@ -38,13 +39,8 @@ export function TasksPanel({ contactId, contactType, organizationId, agents }: T
     return <div className="p-4 flex justify-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div></div>;
   }
 
-  const getTaskStatus = (task: any) => {
-    if (task.completed_at) return 'completed';
-    const dueDate = new Date(task.due_date);
-    if (isPast(dueDate) && !isToday(dueDate)) return 'overdue';
-    if (isToday(dueDate)) return 'today';
-    return 'upcoming';
-  };
+  // Shared with the Follow-ups card so both surfaces always agree.
+  const getTaskStatus = (task: any) => getTaskDueStatus(task.due_date, task.completed_at);
 
   const overdueTasks = tasks?.filter((t: any) => getTaskStatus(t) === 'overdue') || [];
   const todayTasks = tasks?.filter((t: any) => getTaskStatus(t) === 'today') || [];

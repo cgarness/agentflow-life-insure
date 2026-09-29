@@ -1125,3 +1125,42 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - Chris's three final corrections are implemented on the branch: contact-first Converted identity, a fail-closed
     agency time zone with no default, and the "Call contact rate" label. They are recorded in the Reports plan §R3.
   - A PR against `main` is opened so the Reports backend CI runs. It is not merged, and the migration is not applied.
+
+---
+
+## §17. Contact Follow-ups card + appointment ownership/reminders BUGFIX (2026-09-28) — plan awaiting approval
+
+The full plan lives in its own file so the records above, including the Reports §16 pointer when it lands, stay
+intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
+
+- **Why:** an explicitly chosen appointment assignee is overwritten on three live save paths (`CalendarPage.handleSave`,
+  `CalendarContext.addAppointment`, `FullScreenContactView`'s Schedule). A CalendarPage edit also reassigns the row
+  and rewrites `created_by`.
+- **Reminders:** they also fire for Cancelled, Completed and No Show appointments. An assignee never learns of an
+  appointment booked for them until a reload, because `appointments` is not in the realtime publication.
+- **Proposed:**
+  - one tested ownership rule: `user_id` = the responsible person, who is the reminder recipient; `created_by` = the
+    scheduler, never rewritten;
+  - a pure reminder-eligibility rule, a bounded visible-tab refresh and a Google create-sync guard;
+  - a compact read-only Follow-ups card on the existing contact view, merging appointments, campaign callbacks and
+    tasks for one contact. It reuses the `dashboard-callbacks.ts` constants without editing that file.
+- **Boundaries:**
+  - frontend only: no migration, RLS, RPC, Edge Function or deploy;
+  - no Reports/Analytics, Dialer/telephony or canonical callback-writer change;
+  - no production action. The only production access was read-only catalog and aggregate queries.
+  - Decisions D-1…D-23 await Chris.
+- **Status (2026-09-29):** approved 2026-09-28 with redlines (plan §16). Implemented and verified locally on
+  `claude/contact-followups-appointment-fix-rruo7i` (plan §17); not pushed, merged or deployed.
+- **Pre-merge gate (2026-09-29):** do not merge to `main` until appointment attribution is reconciled with the
+  Reports work — "Appointments Set" credits `created_by` (scheduler), workload/reminders credit `user_id`
+  (assignee). See plan §18. Branch push approved by Chris; no merge or deploy.
+- **Final reconciliation (2026-09-29, after Reports):** rebased onto `main` @ `d05f4754`; the §18 gate is reconciled in plan
+  §19 — Reports and the org leaderboard verified unchanged; GoalProgress and `getPerformance` now credit the setter; the
+  Group leaderboard migration `20260929160000` is PREPARED, NOT APPLIED. Pre-existing Group 42702 defect documented (§19).
+  Awaiting Chris: (A) the Group migration, (B) the push (a `--force-with-lease` after the rebase), (C) merge/release.
+- **Revision (2026-09-29):** the Group migration is now the complete repair
+  `20260929170000_group_leaderboard_repair_membership_setter_credit.sql` (42702 fix + setter credit + setter index),
+  superseding `20260929160000`; PREPARED, NOT APPLIED. Evidence and suite in plan §20.
+- **Revision (2026-09-29):** the same unapplied repair migration now also hardens EXECUTE (PUBLIC and anon revoked;
+  authenticated and service_role kept; final ACL `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`);
+  the rollback restores the exact production ACL. Plan §21.

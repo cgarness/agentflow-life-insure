@@ -20,6 +20,13 @@ import { useCalendar, CalendarAppointment } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import {
+  applySnooze,
+  isReminderStillEligible,
+  selectDueReminders,
+  type ReminderState,
+} from "@/lib/calendar/reminderEligibility";
+import { useAppointmentsFreshness } from "@/hooks/useAppointmentsFreshness";
 
 // Web Audio API chime generator (matching WinCelebration style)
 function playReminderChime() {
@@ -50,7 +57,7 @@ const AGENT_REMINDER_SOUND_KEY = "agent_reminder_sound";
 const ReminderPopup: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { appointments } = useCalendar();
+  const { appointments, fetchAppointments } = useCalendar();
   
   const [leadTimeMinutes, setLeadTimeMinutes] = useState(10);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -61,7 +68,12 @@ const ReminderPopup: React.FC = () => {
   
   // Track which appointments have been shown to avoid duplicates
   // Map of apptId -> timestamp of when it was shown/dismissed (or next snooze time)
-  const reminderStateRef = useRef<Record<string, { shown: boolean, snoozeUntil: number | null }>>({});
+  const reminderStateRef = useRef<ReminderState>({});
+  const currentIdRef = useRef<string | null>(null);
+  currentIdRef.current = currentReminder?.id ?? null;
+
+  // Keep the list fresh so an assignee learns of appointments booked for them by someone else.
+  useAppointmentsFreshness(() => fetchAppointments({ silent: true }), !!user?.id);
 
   // Load preferences
   useEffect(() => {
@@ -89,43 +101,43 @@ const ReminderPopup: React.FC = () => {
   }, [user?.id]);
 
   const checkReminders = useCallback(() => {
-    const now = Date.now();
-    const newReminders: CalendarAppointment[] = [];
-    
-    appointments.forEach(appt => {
-      if (!appt.start_time) return;
-      
-      // Only remind for appointments belonging to the current user
-      if (appt.user_id !== user?.id) return;
-      
-      const startTime = new Date(appt.start_time).getTime();
-      const leadTimeMs = leadTimeMinutes * 60 * 1000;
-      const triggerTime = startTime - leadTimeMs;
-      
-      const state = reminderStateRef.current[appt.id] || { shown: false, snoozeUntil: null };
-      
-      // Trigger if:
-      // 1. Current time is past trigger time
-      // 2. Appointment isn't in the past (allow 30 min buffer)
-      // 3. Not shown yet OR snooze interval has passed
-      const isPastTrigger = now >= triggerTime;
-      const isTooOld = now > startTime + (30 * 60 * 1000);
-      const readyForShow = !state.shown || (state.snoozeUntil && now >= state.snoozeUntil);
-      
-      if (isPastTrigger && !isTooOld && readyForShow) {
-        newReminders.push(appt);
-        // Mark as "about to be shown" to avoid multiple triggers before state updates
-        reminderStateRef.current[appt.id] = { ...state, shown: true, snoozeUntil: null };
-      }
+    // Recipient = the responsible user only; open (Scheduled/Confirmed) appointments only.
+    const { due, nextState } = selectDueReminders(appointments, {
+      userId: user?.id,
+      now: Date.now(),
+      leadTimeMinutes,
+      state: reminderStateRef.current,
     });
-    
-    if (newReminders.length > 0) {
-      setActiveReminders(prev => [...prev, ...newReminders]);
+    reminderStateRef.current = nextState;
+
+    if (due.length > 0) {
+      setActiveReminders(prev => [...prev, ...due]);
       if (soundEnabled) {
         playReminderChime();
       }
     }
-  }, [appointments, leadTimeMinutes, soundEnabled]);
+  }, [appointments, leadTimeMinutes, soundEnabled, user?.id]);
+
+  // A refreshed list can show a queued or on-screen reminder reassigned away, cancelled or deleted.
+  // A dropped reminder is forgotten, so it can fire again if the appointment becomes eligible again.
+  useEffect(() => {
+    const eligible = (id: string) => isReminderStillEligible(id, appointments, user?.id);
+    const forget = (id: string) => {
+      const { [id]: _forgotten, ...rest } = reminderStateRef.current;
+      reminderStateRef.current = rest;
+    };
+    setActiveReminders(prev => {
+      const kept = prev.filter(r => eligible(r.id));
+      if (kept.length === prev.length) return prev;
+      prev.forEach(r => { if (!eligible(r.id)) forget(r.id); });
+      return kept;
+    });
+    if (currentReminder && !eligible(currentReminder.id)) {
+      forget(currentReminder.id);
+      setIsOpen(false);
+      setCurrentReminder(null);
+    }
+  }, [appointments, user?.id, currentReminder]);
 
   // Periodic check
   useEffect(() => {
@@ -135,36 +147,42 @@ const ReminderPopup: React.FC = () => {
     return () => clearInterval(timer);
   }, [checkReminders]);
 
-  // Handle showing the next reminder in queue
+  // Handle showing the next reminder in queue: the first still-eligible one, removed by id so a
+  // concurrent revalidation of the queue can never make this drop a different reminder.
   useEffect(() => {
-    if (!currentReminder && activeReminders.length > 0) {
-      setCurrentReminder(activeReminders[0]);
-      setActiveReminders(prev => prev.slice(1));
-      setIsOpen(true);
-    }
-  }, [activeReminders, currentReminder]);
+    if (currentReminder) return;
+    const next = activeReminders.find(r => isReminderStillEligible(r.id, appointments, user?.id));
+    if (!next) return;
+    setActiveReminders(prev => prev.filter(r => r.id !== next.id));
+    setCurrentReminder(next);
+    setIsOpen(true);
+  }, [activeReminders, currentReminder, appointments, user?.id]);
 
-  const handleDismiss = () => {
+  // Closes only the reminder it was aimed at: a late dismiss never clears a newer reminder.
+  const dismissReminder = (id: string | undefined) => {
+    if (!id || currentIdRef.current !== id) return;
     setIsOpen(false);
-    setTimeout(() => setCurrentReminder(null), 200);
+    setTimeout(() => setCurrentReminder(cur => (cur?.id === id ? null : cur)), 200);
   };
+
+  const handleDismiss = () => dismissReminder(currentReminder?.id);
 
   const handleSnooze = () => {
     if (currentReminder) {
       // Snooze for 5 minutes
-      const snoozeUntil = Date.now() + 5 * 60 * 1000;
-      reminderStateRef.current[currentReminder.id] = { shown: true, snoozeUntil };
+      reminderStateRef.current = applySnooze(reminderStateRef.current, currentReminder.id, Date.now());
     }
     handleDismiss();
   };
 
   const handleCall = async () => {
-    if (currentReminder?.contactId) {
+    const reminder = currentReminder;
+    if (reminder?.contactId) {
       try {
         const { data, error } = await supabase
           .from("leads")
           .select("phone")
-          .eq("id", currentReminder.contactId)
+          .eq("id", reminder.contactId)
           .single();
           
         if (error) throw error;
@@ -172,24 +190,24 @@ const ReminderPopup: React.FC = () => {
         const event = new CustomEvent("quick-call", {
           detail: {
             phone: data?.phone || "",
-            contactId: currentReminder.contactId,
-            name: currentReminder.contactName
+            contactId: reminder.contactId,
+            name: reminder.contactName
           }
         });
         window.dispatchEvent(event);
-        handleDismiss();
+        dismissReminder(reminder.id);
       } catch (err) {
         console.error("Error fetching phone for call:", err);
         // Fallback: trigger with no phone but name/id
         const event = new CustomEvent("quick-call", {
           detail: {
             phone: "0000000000", // placeholder to trigger dialer open
-            contactId: currentReminder.contactId,
-            name: currentReminder.contactName
+            contactId: reminder.contactId,
+            name: reminder.contactName
           }
         });
         window.dispatchEvent(event);
-        handleDismiss();
+        dismissReminder(reminder.id);
       }
     }
   };

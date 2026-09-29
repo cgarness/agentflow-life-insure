@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/PermissionGate";
 import ContactMiniCard from "./ContactMiniCard";
+import AppointmentAssigneeField from "./AppointmentAssigneeField";
 import { DateInput } from "@/components/shared/DateInput";
 import { cn } from "@/lib/utils";
 
@@ -160,7 +161,12 @@ const TimeSelect: React.FC<{
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSave: (data: Omit<CalendarAppointment, "id">) => void;
+  /**
+   * Return a boolean (or a promise of one) to own the outcome: the modal then closes only on `true` and
+   * shows no toast of its own, because the parent reports success and failure. A `void` return keeps the
+   * legacy behaviour (toast + close immediately).
+   */
+  onSave: (data: Omit<CalendarAppointment, "id">) => void | boolean | Promise<boolean | void>;
   onDelete?: (id: string) => void;
   editing?: CalendarAppointment | null;
   defaultDate?: Date;
@@ -185,6 +191,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [miniCardOpen, setMiniCardOpen] = useState(false);
   const [miniCardRect, setMiniCardRect] = useState<DOMRect | null>(null);
 
@@ -230,6 +237,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     return apptDate < today && nonTerminalStatuses.includes(status);
   })();
 
+  // Each open is a new session: a save still pending from an earlier session neither closes this one
+  // nor holds its CONFIRM disabled.
+  const openSessionRef = useRef(0);
+  useEffect(() => {
+    if (!open) return;
+    openSessionRef.current += 1;
+    setSaving(false);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     setConfirmDelete(false);
@@ -250,7 +266,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
       setStartTime(editing.startTime);
       setEndTime(editing.endTime);
-      setAssignedAgentId(editing.user_id || user?.id || "");
+      // Invariant #22: a NULL user_id row (quick-call callback) belongs to its creator, not the editor.
+      setAssignedAgentId(editing.user_id || editing.created_by || user?.id || "");
       setNotes(editing.notes);
     } else {
       const defaultType = pickDefaultAppointmentTypeName(apptTypes);
@@ -324,27 +341,39 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     return Object.keys(e).length === 0;
   };
 
-  const handleSave = () => {
-    if (!validate()) return;
+  const handleSave = async () => {
+    if (saving || !validate()) return;
     const [y, m, d] = date.split("-").map(Number);
     const dateObj = new Date(y, m - 1, d);
     const contactIdPayload = editing?.contactId ?? prefillContactId ?? selectedContactId ?? "";
     
     const agentRecord = agents.find(a => a.id === assignedAgentId);
+    const isViewerAssignee = !assignedAgentId || assignedAgentId === user?.id;
     const agentDisplayName = agentRecord
       ? `${agentRecord.firstName} ${agentRecord.lastName}`
-      : profile ? `${profile.first_name} ${profile.last_name}` : "";
+      : isViewerAssignee && profile ? `${profile.first_name} ${profile.last_name}` : "";
 
-    onSave({
-      title: title.trim(), type, status,
-      contactName: contactName.trim(),
-      contactId: contactIdPayload,
-      date: dateObj, startTime, endTime,
-      agent: agentDisplayName.trim(),
-      notes: notes.trim(),
-      user_id: assignedAgentId || user?.id,
-    } as any);
-    toastSonner.success(editing ? "Saved" : "Scheduled");
+    const session = openSessionRef.current;
+    setSaving(true);
+    let result: boolean | void;
+    try {
+      result = await onSave({
+        title: title.trim(), type, status,
+        contactName: contactName.trim(),
+        contactId: contactIdPayload,
+        date: dateObj, startTime, endTime,
+        agent: agentDisplayName.trim(),
+        notes: notes.trim(),
+        user_id: assignedAgentId || user?.id,
+      } as any);
+    } catch {
+      result = false;
+    }
+    if (session !== openSessionRef.current) return;
+    setSaving(false);
+    // Never report a save that did not happen: stay open on failure (the parent showed the error).
+    if (result === false) return;
+    if (result !== true) toastSonner.success(editing ? "Saved" : "Scheduled");
     onClose();
   };
 
@@ -602,21 +631,14 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Assigned Agent</label>
-                {isAgent ? (
-                  <p className="h-8 px-2 flex items-center text-xs text-foreground font-medium">
-                    {profile?.first_name} {profile?.last_name}
-                  </p>
-                ) : (
-                  <select
-                    value={assignedAgentId}
-                    onChange={e => setAssignedAgentId(e.target.value)}
-                    className="w-full h-8 px-2 rounded-lg bg-muted/20 text-xs text-foreground border border-border focus:ring-1 focus:ring-primary shadow-sm transition-all"
-                  >
-                    {agents.map(a => (
-                      <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>
-                    ))}
-                  </select>
-                )}
+                <AppointmentAssigneeField
+                  isAgent={isAgent}
+                  agents={agents}
+                  value={assignedAgentId}
+                  onChange={setAssignedAgentId}
+                  viewerId={user?.id}
+                  viewerName={`${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim()}
+                />
               </div>
             </div>
 
@@ -657,8 +679,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
           </Button>
           <Button
             size="sm"
-            onClick={handleSave}
-            disabled={isPastUnresolved}
+            onClick={() => { void handleSave(); }}
+            disabled={isPastUnresolved || saving}
             className="h-8 px-6 text-[10px] font-bold uppercase tracking-widest bg-primary shadow-lg shadow-primary/20 hover:shadow-xl hover:translate-y-[-1px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
           >
             CONFIRM
