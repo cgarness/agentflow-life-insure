@@ -148,13 +148,16 @@ describe("frontend data-path contract", () => {
   it("the call-level rate is labelled 'Call contact rate' on every Reports surface (never a bare 'Contact rate')", () => {
     const files = ["src/pages/Reports.tsx", "src/lib/stat-computations.ts", ...readdirSync(join(ROOT, "src/components/reports"))
       .filter((f) => f.endsWith(".tsx")).map((f) => `src/components/reports/${f}`)];
+    // The only other "contact rate" strings are two explicitly UNAVAILABLE lead-level placeholder stats.
+    const placeholders = ["First dial contact rate", "Follow-up contact rate"];
     for (const f of files) {
-      const code = stripTsComments(read(f));
-      for (const m of code.matchAll(/([A-Za-z-]+) contact rate/gi)) {
-        // Allowed: "Call contact rate", and the two explicitly UNAVAILABLE lead-level placeholders.
-        expect(["call", "dial", "follow-up"], `${f}: "${m[0]}"`).toContain(m[1].toLowerCase());
+      let code = stripTsComments(read(f));
+      for (const p of placeholders) code = code.split(p).join("");
+      // Every remaining occurrence, in any case and position (JSX text, template, prop), must read "call contact rate".
+      for (const m of code.matchAll(/contact\s+rate/gi)) {
+        const at = m.index ?? 0;
+        expect(code.slice(Math.max(0, at - 5), at).toLowerCase(), `${f}: …${code.slice(Math.max(0, at - 24), at + 12)}…`).toBe("call ");
       }
-      for (const m of code.matchAll(/["'`>]Contact rate/g)) expect.fail(`${f}: bare label ${m[0]}`);
     }
   });
 

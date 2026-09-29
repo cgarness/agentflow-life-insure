@@ -18,7 +18,7 @@
 -- WHAT THIS MIGRATION DOES
 --   1. Preflight: refuses unless the legacy bodies are the audited production preimages (prosrc
 --      md5), owned by postgres, SECURITY DEFINER, with no unexpected grantee; refuses a replay.
---   2. Creates private helpers (REVOKEd from PUBLIC/anon/authenticated) and seven public RPCs:
+--   2. Creates private helpers (REVOKEd from PUBLIC/anon/authenticated) and six public RPCs:
 --        get_report_scope()
 --        get_report_call_summary(date, date, uuid)
 --        get_report_call_volume(date, date, uuid)
@@ -50,11 +50,14 @@
 --   actor's organization; callers pass LOCAL AGENCY CALENDAR DATES, never a zone. The window is the
 --   half-open [p_start_date 00:00, (p_end_date + 1) 00:00) in that zone (IANA rules handle DST).
 --   Every bucket (day / hour / day-of-week / heatmap) uses the same zone, and every payload returns it.
---   There is NO default zone: an organization with no settings row, a NULL / blank zone, or a zone
---   PostgreSQL does not know FAILS CLOSED with SQLSTATE 55000 (object_not_in_prerequisite_state) —
---   after authorization, before any window, bucket or business read — so nothing is ever computed in a
---   guessed zone. The UI shows "agency time zone required". time_zone_source is always
---   'agency_settings'.
+--   There is NO default zone: an organization with no settings row, a NULL / blank zone, a zone
+--   PostgreSQL does not know, or a non-agency pseudo-zone (Factory, localtime, posixrules) FAILS CLOSED
+--   with SQLSTATE 55000 (object_not_in_prerequisite_state; PostgREST answers HTTP 500 with that code) —
+--   after authorization, before any window, bucket or business read — so Reports never substitute a
+--   zone of their own. The UI says "The agency time zone must be configured before official Reports can
+--   be calculated." A valid zone STORED by other code (e.g. a platform default written at provisioning)
+--   cannot be told apart from a chosen one and is used as the agency's setting. time_zone_source is
+--   always 'agency_settings'.
 --
 -- METRIC CANON (AGENT_RULES #8, #12, #13, #17, #23; plan rev 2 D-2..D-6)
 --   Calls Made      outbound (lower(coalesce(direction,'')) IN ('outbound','outgoing')), calls.created_at.
@@ -154,14 +157,17 @@ BEGIN
     FROM public.company_settings cs
    WHERE cs.organization_id = p_org;
 
-  -- Official Reports are never calculated in a guessed zone (plan §R3.2): no row, NULL, blank or an
-  -- unknown zone all fail closed with 55000, which the UI renders as "agency time zone required".
+  -- Reports never substitute a zone (plan §R3.2): no row, NULL, blank, an unknown zone or a non-agency
+  -- pseudo-zone all fail closed with 55000, which the UI renders as the configuration-required state.
   IF NOT FOUND OR v_tz IS NULL OR btrim(v_tz) = '' THEN
     RAISE EXCEPTION 'reports: the agency time zone is not configured'
       USING ERRCODE = '55000', HINT = 'An admin must set the time zone in Settings > Company Branding.';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name = v_tz) THEN
+  -- Factory (IANA's "zone not set" placeholder), localtime (the database host's zone) and posixrules are
+  -- listed by pg_timezone_names but are not an agency's zone.
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name = v_tz)
+     OR lower(v_tz) IN ('factory', 'localtime', 'posixrules') THEN
     RAISE EXCEPTION 'reports: the agency time zone setting is not a valid IANA zone'
       USING ERRCODE = '55000', HINT = 'An admin must set the time zone in Settings > Company Branding.';
   END IF;
@@ -350,7 +356,8 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------------------------
--- 4. private.report_window(org, start_date, end_date) — agency-zone half-open window. 22023 on bad input.
+-- 4. private.report_window(org, start_date, end_date) — agency-zone half-open window. 22023 on bad input;
+--    55000 (from the zone resolver) when the agency time zone is missing or invalid.
 -- -----------------------------------------------------------------------------------------------
 CREATE FUNCTION private.report_window(p_org uuid, p_start_date date, p_end_date date)
 RETURNS TABLE (time_zone text, time_zone_source text, start_date date, end_date date,
@@ -1273,7 +1280,7 @@ REVOKE EXECUTE ON FUNCTION public.rpc_report_campaign_performance(uuid, timestam
 REVOKE EXECUTE ON FUNCTION public.rpc_report_disposition_breakdown(uuid, timestamptz, timestamptz, uuid)  FROM PUBLIC, anon, authenticated;
 
 COMMENT ON FUNCTION public.get_report_scope() IS
-  'Reports scope for auth.uid(): own | team | organization (home org only), export flag, agency time zone and today, and the ONLY allowed agent list (names only). Raises 42501 when Reports is not permitted.';
+  'Reports scope for auth.uid(): own | team | organization (home org only), export flag, agency time zone and today, and the ONLY allowed agent list (names only). Raises 42501 when Reports is not permitted, and 55000 when the organization has no valid agency time zone (never a default).';
 COMMENT ON FUNCTION private.report_access(uuid) IS
   'Reports authorization: actor via private.campaign_actor(); Admin/Super Admin -> home organization; Agent/Team Leader -> role_permissions (page Reports, View Own/Team Reports, Dashboard & Reports scope) with permissionDefaults.ts defaults. p_agent_id only narrows. Raises 42501.';
 

@@ -8,9 +8,10 @@
 # extracted VERBATIM from the repository migrations, applies the migration under test in ONE
 # transaction (as apply_migration does), and runs:
 #   1. the behaviour + authorization suite (supabase/tests/reports_rpc.sql)
-#   2. four NEGATIVE CONTROLS the suite MUST reject — proof the assertions bite: a broken Contacted
-#      rule, a removed agent-narrowing guard, a campaign-lead-first Converted identity, and a silent
-#      default agency time zone
+#   2. six NEGATIVE CONTROLS the suite MUST reject — proof the assertions bite: a broken Contacted
+#      rule, a removed agent-narrowing guard, a campaign-lead-first Converted identity, a silent default
+#      agency time zone, a Converted identity without its campaign-lead fallback, and Campaign
+#      Performance counting people instead of campaign leads
 #   3. DRIFT refusal  — a changed legacy body makes the migration abort with nothing applied
 #   4. REPLAY refusal — a second apply aborts with nothing changed
 #   5. ROLLBACK proof — new objects dropped, legacy seal re-asserted (never re-granted), data unchanged
@@ -188,6 +189,33 @@ build "$DB_NEG4" "$WORK/mig_neg_zone.sql"
 expect_fail "silent default zone" "T6 O2 unconfigured zone refuses the report FAIL" \
   psql "$PGURL/$DB_NEG4" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 
+mutate() {   # mutate <out> <old> <new> : exact, single-occurrence replacement or abort
+  python3 - "$MIG" "$1" "$2" "$3" <<'PY'
+import sys
+src, out, old, new = open(sys.argv[1], encoding="utf-8").read(), sys.argv[2], sys.argv[3], sys.argv[4]
+if src.count(old) != 1: sys.exit(f"mutation did not apply: {old[:60]}")
+open(out, "w", encoding="utf-8").write(src.replace(old, new))
+PY
+}
+
+echo; echo "== 2e. negative control: Converted without the campaign-lead fallback (T14 must fire) =="
+mutate "$WORK/mig_neg_fallback.sql" \
+  "coalesce('contact:' || b.contact_id::text, 'campaign_lead:' || b.campaign_lead_id::text, 'call:' || b.id::text)" \
+  "coalesce('contact:' || b.contact_id::text, 'call:' || b.id::text)"
+DB_NEG5="reports_rpc_neg5_$SUFFIX"
+build "$DB_NEG5" "$WORK/mig_neg_fallback.sql"
+expect_fail "Converted without campaign-lead fallback" "T14 NULL-contact fallbacks (campaign lead once, each call once) FAIL: got \[5\] want \[4\]" \
+  psql "$PGURL/$DB_NEG5" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+
+echo; echo "== 2f. negative control: Campaign Performance counts people, not campaign leads (T14 must fire) =="
+mutate "$WORK/mig_neg_campaign.sql" \
+  "count(DISTINCT f.campaign_lead_id) FILTER (WHERE f.is_converting) AS converted_leads" \
+  "count(DISTINCT f.converted_key) FILTER (WHERE f.is_converting) AS converted_leads"
+DB_NEG6="reports_rpc_neg6_$SUFFIX"
+build "$DB_NEG6" "$WORK/mig_neg_campaign.sql"
+expect_fail "campaign converted leads counted as people" "T14 April C1 converted leads = campaign leads, not people FAIL: got \[2\] want \[1\]" \
+  psql "$PGURL/$DB_NEG6" -v ON_ERROR_STOP=1 -q -f "$SUITE"
+
 # ── 3. Drift refusal ─────────────────────────────────────────────────────────────────────────────
 echo; echo "== 3. drift refusal: a changed legacy body aborts the migration atomically =="
 DB_DRIFT="reports_rpc_drift_$SUFFIX"
@@ -261,7 +289,7 @@ echo "   OK"
 
 echo
 echo "======================================================================"
-echo " ALL REPORTS RPC PROOFS PASSED (suite + 4 negative controls + drift +"
+echo " ALL REPORTS RPC PROOFS PASSED (suite + 6 negative controls + drift +"
 echo " replay + disable/enable + rollback). Databases dropped. Nothing hosted"
 echo " was touched."
 echo "======================================================================"

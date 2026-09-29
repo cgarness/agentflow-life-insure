@@ -114,7 +114,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_avg_calls_agent", label: "Avg calls per dialing agent", category: "team" },
   { id: "stat_avg_sales_agent", label: "Avg sales/agent", category: "team", unavailable: NO_DEFINITION },
   { id: "stat_agents_active", label: "Agents dialing", category: "team" },
-  { id: "stat_dials_per_contact", label: "Dials per contact", category: "team", invertTrend: true },
+  { id: "stat_dials_per_contact", label: "Dials per contacted call", category: "team", invertTrend: true },
   { id: "stat_dials_per_appt", label: "Dials per appointment", category: "team", invertTrend: true },
   { id: "stat_talk_mins_per_sale", label: "Talk minutes per policy sold", category: "team", invertTrend: true },
   { id: "stat_sessions_per_sale", label: "Sessions per sale", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
@@ -235,7 +235,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_agents_active":
       return { value: formatCount(dialers.length), subtitle: "with at least one call" };
     case "stat_dials_per_contact":
-      return { value: num(ratio(t.calls_made, t.contacted)) };
+      return { value: num(ratio(t.calls_made, t.contacted)), subtitle: "calls made ÷ contacted calls" };
     case "stat_dials_per_appt":
       return { value: num(ratio(t.calls_made, t.appointments_set)) };
     case "stat_talk_mins_per_sale":
@@ -267,7 +267,11 @@ export function computeStat(def: StatDefinition, inputs: StatInputs): StatResult
   if (def.unavailable) return { ...base, state: "unavailable", value: DASH, subtitle: def.unavailable };
   const source = VOLUME_STATS.has(def.id) ? inputs.volume : inputs.summary;
   if (source.status === "loading") return { ...base, state: "loading", value: DASH };
-  if (source.status === "error") return { ...base, state: "error", value: DASH, subtitle: "Couldn't load — not a zero" };
+  if (source.status === "error") {
+    return source.error.kind === "configuration"
+      ? { ...base, state: "unavailable", value: DASH, subtitle: "Agency time zone not configured" }
+      : { ...base, state: "error", value: DASH, subtitle: "Couldn't load — not a zero" };
+  }
   const c = VOLUME_STATS.has(def.id)
     ? computeFromVolume(def.id, source.data as ReportVolume, inputs)
     : computeFromSummary(def.id, source.data as ReportSummary, inputs);

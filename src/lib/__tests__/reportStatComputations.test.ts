@@ -36,6 +36,9 @@ describe("canonical stat values", () => {
     expect(v("stat_dials_per_sale").label).toBe("Dials per policy sold");
     expect(v("stat_contact_rate").label).toBe("Call contact rate");
     expect(v("stat_best_contact_agent").label).toBe("Best call contact rate");
+    expect(v("stat_best_contact_agent").subtitle).toBe("100.0% call contact rate");
+    expect(v("stat_dials_per_contact").label).toBe("Dials per contacted call");
+    expect(v("stat_dials_per_contact").subtitle).toBe("calls made ÷ contacted calls");
   });
 
   it("session-based ratios use only agents with session time (no unattributed calls or session-less agents)", () => {
@@ -75,6 +78,16 @@ describe("unknown is never zero", () => {
     expect(stats.get("stat_dials_per_sale")!.value).toBe("—");
     expect(stats.get("stat_calls_per_hour")!.value).toBe("—");
     expect(stats.get("stat_top_performer")!.value).toBe("—");
+  });
+
+  it("a panel refused for an unconfigured agency time zone is 'unavailable' with the reason, never a zero or a generic error", () => {
+    const zone = { status: "error" as const, error: new ReportsQueryError("configuration") };
+    const stats = computeAllStats(inputs({ summary: zone, volume: zone }));
+    for (const id of ["stat_total_dials", "stat_contact_rate", "stat_calls_today"]) {
+      expect(stats.get(id)!.state).toBe("unavailable");
+      expect(stats.get(id)!.subtitle).toBe("Agency time zone not configured");
+      expect(stats.get(id)!.value).not.toMatch(/\d/);
+    }
   });
 
   it("loading stats show no value", () => {

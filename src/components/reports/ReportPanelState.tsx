@@ -72,7 +72,7 @@ function ReportPanelState<T>({ title, state, onRetry, children }: Props<T>): Rea
     if (state.error.kind === "configuration") {
       return (
         <ReportNotice title={title} tone="unavailable" message={state.error.message}
-          detail="An admin must set it in Settings → Company Branding. Nothing is calculated in a guessed time zone." onRetry={onRetry} />
+          detail="An admin must choose and save it in Settings → Company Branding. Nothing is calculated in a guessed time zone." onRetry={onRetry} />
       );
     }
     return (

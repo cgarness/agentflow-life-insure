@@ -30,6 +30,8 @@ const SCOPE_BADGE: Record<ReportScope["scope"], string> = {
 
 interface Props {
   scope: ReportScope | null;
+  /** Header text while there is no resolved scope (loading, denied, unconfigured zone, unavailable). */
+  scopeStatusText: string;
   preset: ReportPreset;
   onPreset: (p: ReportPreset) => void;
   customStart: string | null;
@@ -81,7 +83,7 @@ const ReportsToolbar: React.FC<Props> = (p) => {
           <div>
             <h1 className="text-2xl md:text-3xl font-black tracking-tight text-foreground leading-none mb-1.5">Performance Analytics</h1>
             <p className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">
-              {p.scope ? SCOPE_BADGE[p.scope.scope] : "Loading your report scope…"}
+              {p.scope ? SCOPE_BADGE[p.scope.scope] : p.scopeStatusText}
               {tz ? ` · ${tz}` : ""}
             </p>
           </div>
@@ -134,6 +136,7 @@ const ReportsToolbar: React.FC<Props> = (p) => {
             size="icon"
             className={cn("w-10 h-10 rounded-xl border border-border/50", p.editMode ? "text-primary border-primary bg-primary/5" : "text-muted-foreground")}
             onClick={p.onToggleEdit}
+            disabled={!p.scope}
             title="Customize Layout"
             aria-label="Customize layout"
           >

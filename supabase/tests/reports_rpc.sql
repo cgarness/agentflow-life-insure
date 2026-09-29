@@ -38,6 +38,7 @@ INSERT INTO rt.ids VALUES
   ('L1',     '11000000-0000-0000-0000-000000000011'), ('L2',     '11000000-0000-0000-0000-000000000012'),
   ('L3',     '11000000-0000-0000-0000-000000000013'), ('L4',     '11000000-0000-0000-0000-000000000014'),
   ('L5',     '11000000-0000-0000-0000-000000000015'), ('L6',     '11000000-0000-0000-0000-000000000016'),
+  ('L7',     '11000000-0000-0000-0000-000000000017'), ('CL7',    '11000000-0000-0000-0000-000000000028'),
   ('CL1',    '11000000-0000-0000-0000-000000000021'), ('CL2',    '11000000-0000-0000-0000-000000000022'),
   ('CL3',    '11000000-0000-0000-0000-000000000023'),
   ('CL6A',   '11000000-0000-0000-0000-000000000026'), ('CL6B',   '11000000-0000-0000-0000-000000000027'),
@@ -208,14 +209,17 @@ INSERT INTO public.leads (id, first_name, last_name, phone, lead_source, assigne
   (rt.id('L4'), 'Lead', 'Four',  '5550000004', '',         rt.id('A1'), rt.id('A1'), '2026-06-15T18:00:00Z', rt.id('O1')),
   (rt.id('L5'), 'Lead', 'Five',  '5550000005', 'Referral', rt.id('A2'), rt.id('A2'), '2026-07-20T18:00:00Z', rt.id('O1')),
   -- L6: ONE person with membership in TWO campaigns (T14). Created in May so no July test sees it.
-  (rt.id('L6'), 'Lead', 'Six',   '5550000006', 'Referral', rt.id('A2'), rt.id('A2'), '2026-05-01T18:00:00Z', rt.id('O1'));
+  (rt.id('L6'), 'Lead', 'Six',   '5550000006', 'Referral', rt.id('A2'), rt.id('A2'), '2026-05-01T18:00:00Z', rt.id('O1')),
+  -- L7: the Converted fallbacks (T14). Created in April so no July test sees it.
+  (rt.id('L7'), 'Lead', 'Seven', '5550000007', 'Referral', rt.id('A1'), rt.id('A1'), '2026-04-01T18:00:00Z', rt.id('O1'));
 
 INSERT INTO public.campaign_leads (id, campaign_id, lead_id, organization_id) VALUES
   (rt.id('CL1'), rt.id('C1'), rt.id('L1'), rt.id('O1')),
   (rt.id('CL2'), rt.id('C1'), rt.id('L2'), rt.id('O1')),
   (rt.id('CL3'), rt.id('C2'), rt.id('L3'), rt.id('O1')),
   (rt.id('CL6A'), rt.id('C1'), rt.id('L6'), rt.id('O1')),
-  (rt.id('CL6B'), rt.id('C2'), rt.id('L6'), rt.id('O1'));
+  (rt.id('CL6B'), rt.id('C2'), rt.id('L6'), rt.id('O1')),
+  (rt.id('CL7'),  rt.id('C1'), rt.id('L7'), rt.id('O1'));
 
 -- Calls. id suffix = fixture number. started_at deliberately equals created_at except k25.
 CREATE FUNCTION rt.call_row(p_n int, p_agent text, p_dir text, p_at timestamptz, p_dur int, p_disp text,
@@ -269,6 +273,12 @@ SELECT rt.call_row(31, 'A2',    'outbound', '2026-11-01T04:30:00Z',   10, 'D_NI'
 -- k32/k33: the SAME contact (L6) converts through TWO different campaign_lead memberships in May (T14).
 SELECT rt.call_row(32, 'A2',    'outbound', '2026-05-12T18:00:00Z',  120, 'D_SOLD', NULL,          'C1', 'CL6A', rt.id('L6'), 'lead');  -- converting via CL6A
 SELECT rt.call_row(33, 'A2',    'outbound', '2026-05-14T18:00:00Z',   90, 'D_SOLD', NULL,          'C2', 'CL6B', rt.id('L6'), 'lead');  -- converting via CL6B
+-- k34..k38 (April): the Converted FALLBACKS when a call carries no contact_id (T14).
+SELECT rt.call_row(34, 'A1',    'outbound', '2026-04-10T18:00:00Z',   60, 'D_SOLD', NULL,          'C1', 'CL7', NULL,        NULL);    -- no contact -> campaign lead CL7
+SELECT rt.call_row(35, 'A1',    'outbound', '2026-04-11T18:00:00Z',   60, 'D_SOLD', NULL,          'C1', 'CL7', NULL,        NULL);    -- same campaign lead -> same key
+SELECT rt.call_row(36, 'A1',    'outbound', '2026-04-12T18:00:00Z',   60, 'D_SOLD', NULL,          NULL, NULL,  NULL,        NULL);    -- no contact, no campaign lead -> the call
+SELECT rt.call_row(37, 'A1',    'outbound', '2026-04-13T18:00:00Z',   60, 'D_SOLD', NULL,          NULL, NULL,  NULL,        NULL);    -- another call -> its own key
+SELECT rt.call_row(38, 'A1',    'outbound', '2026-04-14T18:00:00Z',   60, 'D_SOLD', NULL,          'C1', NULL,  rt.id('L7'), 'lead');  -- in C1 with NO campaign lead: contact L7
 
 \o
 
@@ -513,7 +523,7 @@ BEGIN
     format('SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', %L)', rt.id('B1'))), 'outside your report scope');
 
   -- The other tenant has NO agency time zone configured: its official Reports fail closed (55000) —
-  -- no default zone is guessed (plan §R3.2).
+  -- no default zone is substituted (plan §R3.2).
   PERFORM rt.unconfigured('T6 O2 unconfigured zone refuses the report', rt.err('authenticated', rt.id('B_ADMIN'), rt.id('O2'),
     'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not configured');
   -- Once O2 configures a zone, it sees only itself (and its data never appears in O1). Block-local.
@@ -806,7 +816,20 @@ BEGIN
   PERFORM rt.eq('T14 C1 converted leads (its own campaign lead)', (c ->> 'converted_leads')::int, 1);
   SELECT e INTO c FROM jsonb_array_elements(j -> 'campaigns') e WHERE (e ->> 'campaign_id')::uuid = rt.id('C2');
   PERFORM rt.eq('T14 C2 converted leads (its own campaign lead)', (c ->> 'converted_leads')::int, 1);
-  RAISE NOTICE 'T14 OK  Converted counts one person once across campaign_lead memberships; campaign converted leads stay per campaign';
+
+  -- April holds k34..k38, none with a contact on k34..k37. Keys: campaign_lead:CL7 (k34, k35 -> once),
+  -- call:k36, call:k37, contact:L7 (k38) = 4. Dropping the campaign-lead level gives 5; dropping the
+  -- call level gives 2 (NULL keys are not counted).
+  j := rt.summary('ADMIN', '2026-04-01', '2026-04-30');
+  PERFORM rt.eq('T14 April calls made', (j -> 'totals' ->> 'calls_made')::int, 5);
+  PERFORM rt.eq('T14 NULL-contact fallbacks (campaign lead once, each call once)', (j -> 'totals' ->> 'converted')::int, 4);
+  -- Campaign Performance counts converting CAMPAIGN LEADS of C1: CL7 only (k38 has no campaign lead),
+  -- so it differs from the person count (campaign_lead:CL7 + contact:L7 = 2 within C1).
+  j := rt.rpc('get_report_campaign_performance', 'ADMIN', '2026-04-01', '2026-04-30');
+  SELECT e INTO c FROM jsonb_array_elements(j -> 'campaigns') e WHERE (e ->> 'campaign_id')::uuid = rt.id('C1');
+  PERFORM rt.eq('T14 April C1 calls', (c ->> 'calls_made')::int, 3);
+  PERFORM rt.eq('T14 April C1 converted leads = campaign leads, not people', (c ->> 'converted_leads')::int, 1);
+  RAISE NOTICE 'T14 OK  Converted counts one person once across campaign_lead memberships; NULL-contact fallbacks; campaign converted leads stay per campaign lead';
 END $$;
 
 -- =====================================================================================================
@@ -836,9 +859,16 @@ BEGIN
   UPDATE public.company_settings SET timezone = 'Mars/Olympus_Mons' WHERE organization_id = rt.id('O1');
   PERFORM rt.unconfigured('T15 unknown zone', rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'),
     'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not a valid IANA zone');
+  -- Names pg_timezone_names may list that are not an agency's zone: IANA's "not set" placeholder, the
+  -- database host's zone and the POSIX rules file. Each would silently mean UTC / the server's zone.
+  FOREACH v IN ARRAY ARRAY['Factory', 'localtime', 'posixrules', 'factory'] LOOP
+    UPDATE public.company_settings SET timezone = v WHERE organization_id = rt.id('O1');
+    PERFORM rt.unconfigured('T15 pseudo-zone [' || v || ']', rt.err('authenticated', rt.id('ADMIN'), rt.id('O1'),
+      'SELECT public.get_report_call_summary(''2026-07-01'', ''2026-07-31'', NULL)'), 'not a valid IANA zone');
+  END LOOP;
   UPDATE public.company_settings SET timezone = 'America/Los_Angeles' WHERE organization_id = rt.id('O1');
   PERFORM rt.eq('T15 configured again', rt.call(rt.id('ADMIN'), rt.id('O1'), 'SELECT public.get_report_scope()') ->> 'time_zone_source', 'agency_settings');
-  RAISE NOTICE 'T15 OK  missing / NULL / blank / unknown agency zone fails closed (55000) for scope and every RPC; authorization first';
+  RAISE NOTICE 'T15 OK  missing / NULL / blank / unknown / pseudo agency zone fails closed (55000) for scope and every RPC; authorization first';
 END $$;
 
 \echo ''

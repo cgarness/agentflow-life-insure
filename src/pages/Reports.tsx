@@ -76,10 +76,17 @@ const Reports: React.FC = () => {
   const scopeDrift = !!scopeData && Object.values(reports.panels).some((p) =>
     p.status === "ready" &&
     (p.data.scope !== scopeData.scope || p.data.window.time_zone !== scopeData.time_zone || p.data.filter_agent_id !== agentId));
+  // A panel refused because the agency zone is now missing/invalid: nothing is shown in the old zone.
+  const panelZoneMissing = Object.values(reports.panels).some((p) => p.status === "error" && p.error.kind === "configuration");
+  const withheld = scopeDrift || panelZoneMissing;
+  const scopeError = scope.state.status === "error" ? scope.state.error.kind : null;
+  const zoneRequired = scopeError === "configuration" || panelZoneMissing;
+  const scopeStatusText = scope.state.status === "loading" ? "Loading your report scope…"
+    : scopeError === "denied" ? "No report access" : zoneRequired ? "Agency time zone not configured" : "Reports unavailable";
 
   const exportFor = useCallback(
     (panel: PanelKey): ReportExportFn | undefined => {
-      if (!scopeData?.can_export || scopeDrift) return undefined;
+      if (!scopeData?.can_export || withheld) return undefined;
       const state = reports.panels[panel];
       const panelKey = reports.key;
       return (report, headers, rows) => {
@@ -96,7 +103,7 @@ const Reports: React.FC = () => {
         downloadCsv(csvFileName(report, win), csv);
       };
     },
-    [scopeData, scopeDrift, reports],
+    [scopeData, withheld, reports],
   );
 
   const exportSummary = useCallback(() => {
@@ -111,7 +118,7 @@ const Reports: React.FC = () => {
     ]);
   }, [reports.panels.summary, exportFor]);
 
-  const sections = scopeData && range && !rangeProblem && !scopeDrift
+  const sections = scopeData && range && !rangeProblem && !withheld
     ? buildReportSections({
         panels: reports.panels, retry: reports.retryPanel, exportFor, grouping, onGroupingChange: setGroupingSel,
         dayCount: dayCount(range), agencyToday: scopeData.today, selectedAgentId: agentId, selectableAgentIds,
@@ -127,28 +134,28 @@ const Reports: React.FC = () => {
   return (
     <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
       <ReportsToolbar
-        scope={scopeData} preset={preset} onPreset={setPreset}
+        scope={scopeData} scopeStatusText={scopeStatusText} preset={preset} onPreset={setPreset}
         customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
         range={range} rangeProblem={rangeProblem} agentId={agentId} onAgent={onAgent}
         editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} onRefresh={scope.reload}
-        canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !scopeDrift} onExport={exportSummary}
+        canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !withheld} onExport={exportSummary}
       />
 
       {scope.state.status === "loading" && <ReportPanelSkeleton title="Loading your reports" />}
-      {scope.state.status === "error" && scope.state.error.kind === "denied" && (
+      {scopeError === "denied" && (
         <ReportNotice title="Reports" tone="denied" message="You don't have access to Reports."
           detail="Your role's report permissions don't allow viewing reports. Ask an admin if you need access." />
       )}
-      {scope.state.status === "error" && scope.state.error.kind === "configuration" && (
+      {zoneRequired && (
         <ReportNotice title="Reports" tone="unavailable" message="The agency time zone must be configured before official Reports can be calculated."
-          detail="An admin must set the agency time zone in Settings → Company Branding. Report periods, day and hour buckets, the heatmap and exports are never calculated in a guessed time zone."
+          detail="An admin must choose and save the agency time zone in Settings → Company Branding. Report periods, day and hour buckets, the heatmap and exports are never calculated in a guessed time zone."
           onRetry={scope.reload} />
       )}
-      {scope.state.status === "error" && scope.state.error.kind !== "denied" && scope.state.error.kind !== "configuration" && (
+      {scopeError !== null && scopeError !== "denied" && scopeError !== "configuration" && (
         <ReportNotice title="Reports" tone="error" message="Reports are temporarily unavailable."
           detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.reload} />
       )}
-      {scopeDrift && (
+      {scopeDrift && !panelZoneMissing && (
         <ReportNotice title="Reports" tone="unavailable" message="Your report access changed while this page was open."
           detail="Reload to see reports for your current access." onRetry={scope.reload} />
       )}

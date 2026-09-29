@@ -97,6 +97,9 @@ describe("scope states", () => {
     expect(screen.queryByRole("button", { name: /csv/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^export$/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("report-period")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading your report scope/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Agency time zone not configured/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Customize layout" })).toBeDisabled();
     expect(container.querySelector('[data-report-state="unavailable"]')!.textContent).not.toMatch(/\d/);
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(h.retryScope).toHaveBeenCalledTimes(1);
@@ -168,10 +171,17 @@ describe("panel states", () => {
     expect(h.retryPanel).toHaveBeenCalledWith("summary");
   });
 
-  it("a panel refused for an unconfigured agency time zone says so instead of an error or a zero", () => {
+  it("a panel refused for an unconfigured agency time zone withholds the whole report and re-resolves the scope", () => {
     h.panels = { ...allReady(), volume: failed("configuration") };
     renderPage();
-    expect(screen.getAllByText("The agency time zone must be configured before official Reports can be calculated.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("The agency time zone must be configured before official Reports can be calculated.")).toHaveLength(1);
+    expect(screen.queryByText("Calls made")).not.toBeInTheDocument(); // no section renders in the old zone
+    expect(screen.queryByText(/Couldn't load/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /csv/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^export$/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(h.retryScope).toHaveBeenCalledTimes(1);
+    expect(h.retryPanel).not.toHaveBeenCalled();
   });
 
   it("labels the call-level rate 'Call contact rate' everywhere, never a bare 'Contact rate'", async () => {
