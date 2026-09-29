@@ -1,7 +1,7 @@
 -- =====================================================================================================
 -- Group leaderboard repair — behaviour, access, shape and metadata suite.
 -- STATUS: disposable LOCAL PostgreSQL only, via scripts/run_group_leaderboard_tests.sh (AGENT_RULES #28).
--- Runs AFTER supabase/migrations/20260929170000_group_leaderboard_repair_membership_setter_credit.sql, under
+-- Runs AFTER supabase/migrations/20260929215047_group_leaderboard_repair_membership_setter_credit.sql, under
 -- production's plpgsql.variable_conflict = error with NO workaround. Negative controls (runner step 2): on the
 -- pre-repair function this suite fails with 42702; on a copy with only the 42702 fix it fails at T1.
 --

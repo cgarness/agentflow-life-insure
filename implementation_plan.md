@@ -1260,3 +1260,42 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
     EXECUTE were fixed by the Group repair applied 2026-09-29, next bullet)".
   - **D-3 rollback header (recommended: retain).** The AGENT_RULES #35-block bullet permits correcting a rollback
     header but does not require it. This brief requires byte-identical rollback content.
+
+### §18 result (2026-09-29) — reconciled and verified locally; NOT pushed
+
+- **Chris's decisions:**
+  - D-1: a NEW branch `claude/group-leaderboard-production-record` from `main` @ `196ea9a1`. The merged PR #395
+    branch stays historical at `d719845e` and is not reused or force-pushed.
+  - D-2: approved; the `AGENT_RULES.md:204` parenthetical was updated.
+  - D-3: approved; the rollback header was kept.
+- **Renamed (100% similarity), with sha256 and blob identical before and after:**
+  - forward → `supabase/migrations/20260929215047_group_leaderboard_repair_membership_setter_credit.sql` (sha256
+    `ee4a6d4973ab12c55b6775f741fc0fa3c541a7d67a64bf36514aff462636773d`, blob `34d4c66e`, 5,434 bytes);
+  - rollback → `supabase/migrations/rollback/20260929215047_group_leaderboard_repair_membership_setter_credit.rollback.sql`
+    (sha256 `d192f97115d7d9efca090867dfd749b778804fa1363a58b4854009c3cffcd5e9`, blob `3091e86c`, 4,784 bytes).
+- **Production match:** the stored `statements` of version `20260929215047` have md5
+  `fe1c3033e7ce8b947b2b987eaea42dd7` and 5,434 bytes, equal to the renamed forward file. This was one read-only
+  SELECT at 22:52 UTC; production still has 289 migrations, the latest being `20260929215047`.
+- **Updated:**
+  - runner `MIG` / `ROLLBACK` paths and its header;
+  - the CI workflow header;
+  - the SQL suite header (one comment line);
+  - `AGENT_RULES.md` lines 204 and 205;
+  - the new top `WORK_LOG.md` entry;
+  - the new `PRODUCTION_RELEASE_2026-09-29.md`.
+- **Remaining `20260929170000`, all intentional:**
+  - WORK_LOG's two earlier Group entries;
+  - root §17's dated revision bullet;
+  - contact-followups plan §20/§21;
+  - the rollback's first-line comment;
+  - the new records that name the authored file (`AGENT_RULES.md:205` "authored as", this §18, the new WORK_LOG
+    entry, `PRODUCTION_RELEASE_2026-09-29.md`).
+
+  No filename carries it.
+- **Checks:**
+  - The Group runner on local PostgreSQL 16.13 passed steps 0–7: preimage, suite, three negative controls, drift and
+    replay refusal, exact-ACL rollback and re-apply, the 13-scenario access differential, and the index proof, where
+    auto_explain showed 7/7 index use.
+  - Root `npx tsc --noEmit`: 0 errors. App tsconfig: 90, the same as `main`, since no TS file changed.
+  - No `src/`, TS/JS or migration-content change.
+  - No production write, apply, rollback, Vercel action or advisor fix.
