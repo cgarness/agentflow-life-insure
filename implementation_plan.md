@@ -1125,3 +1125,33 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - Chris's three final corrections are implemented on the branch: contact-first Converted identity, a fail-closed
     agency time zone with no default, and the "Call contact rate" label. They are recorded in the Reports plan §R3.
   - A PR against `main` is opened so the Reports backend CI runs. It is not merged, and the migration is not applied.
+
+---
+
+## §18. Floating Dialer — Create Lead from an unmatched phone number (2026-09-29) — plan awaiting approval
+
+(§17 is reserved by open PR #395, Contact Follow-ups.) The full plan lives in its own file:
+**`docs/plans/2026-09-29-floating-dialer-create-lead/implementation_plan.md`**.
+
+- **Why:** the floating dialer's lookup has several problems:
+  - it is leads-only, uses a contiguous-substring match and has no org filter;
+  - it equates numbers by their last 10 digits;
+  - it treats errors as "no contacts" and has no stale-result guard;
+  - it never runs for keypad or backspace entry;
+  - there is no way to create a lead from an unknown number.
+- **Also confirmed on the Add Lead path:**
+  - a refused save closes the form;
+  - lead sources arriving wipes typed values;
+  - there is no synchronous double-submit guard.
+- **Proposed:**
+  - a strict-key, RLS- and org-scoped three-table lookup, with debounce, abort, generation and status, under the number;
+  - "No matching contact found" plus "+ Create Lead", shown only after a successful lookup of a complete US number;
+  - the existing Add Lead modal with a new create-prefill, a resolved `{kind}` outcome contract and shared create
+    orchestration extracted from Contacts;
+  - guarded selection of the DB-returned lead and a Contacts refresh event;
+  - a call-busy predicate and a call-start guard.
+- **Boundaries:**
+  - frontend only: no migration, RPC, RLS or Edge Function change;
+  - no `TwilioContext.tsx`, caller-ID, DNC or duplicate-policy semantic change;
+  - no production action, deploy or merge.
+- **Status (2026-09-29):** plan only. Decisions D-1…D-18 await Chris.
