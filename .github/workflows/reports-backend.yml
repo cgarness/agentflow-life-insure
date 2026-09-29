@@ -1,6 +1,6 @@
 name: Reports backend verification
 # Real PostgreSQL proof of the Reports RPC security + metric contract
-# (supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql). Synthetic tenants only; the
+# (supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql). Synthetic tenants only; the
 # runner refuses any non-localhost database, and no production credential exists in this job.
 on:
   pull_request:
