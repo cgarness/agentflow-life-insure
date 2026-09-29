@@ -227,6 +227,21 @@ const CalendarPage: React.FC = () => {
     return data?.email || null;
   };
 
+  /**
+   * Google sync runs detached: the modal closes on the database write alone, so a slow sync can never
+   * close (or hold the saving state of) a modal the user has opened in the meantime.
+   */
+  const syncToGoogleInBackground = (
+    run: () => Promise<{ success: boolean }>,
+    failure: { title: string; description: string },
+  ) => {
+    void run()
+      .catch(() => ({ success: false }))
+      .then((result) => {
+        if (!result.success) toast({ ...failure, variant: "destructive" });
+      });
+  };
+
   /** Resolves true only once the appointment row was actually written (AppointmentModal awaits it). */
   const handleSave = async (data: Omit<CalendarAppointment, "id">): Promise<boolean> => {
     if (!organizationId || !user?.id) {
@@ -279,19 +294,20 @@ const CalendarPage: React.FC = () => {
         await updateAppointment(modalEditing.id, updatePayload);
         toast({ title: "Appointment updated" });
         setModalOpen(false);
-        const syncResult = await syncAppointmentToGoogle({
-          action: "update",
-          appointmentId: modalEditing.id,
-          title: data.title,
-          notes: data.notes,
-          startTime: startDate.toISOString(),
-          endTime: endDate.toISOString(),
-          attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
-          externalEventId: existingMeta?.externalEventId,
-        });
-        if (!syncResult.success) {
-          toast({ title: "Appointment updated", description: "Google Calendar sync failed — changes saved locally only.", variant: "destructive" });
-        }
+        const appointmentId = modalEditing.id;
+        syncToGoogleInBackground(
+          async () => syncAppointmentToGoogle({
+            action: "update",
+            appointmentId,
+            title: data.title,
+            notes: data.notes,
+            startTime: startDate.toISOString(),
+            endTime: endDate.toISOString(),
+            attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
+            externalEventId: existingMeta?.externalEventId,
+          }),
+          { title: "Appointment updated", description: "Google Calendar sync failed — changes saved locally only." },
+        );
         return true;
       } catch (error) {
         toast({ title: "Failed to update appointment", variant: "destructive" });
@@ -320,18 +336,18 @@ const CalendarPage: React.FC = () => {
       }
 
       toast({ title: "Appointment scheduled" });
-      const syncResult = await syncAppointmentToGoogle({
-        action: "create",
-        appointmentId: (inserted as any).id,
-        title: data.title,
-        notes: data.notes,
-        startTime: startDate.toISOString(),
-        endTime: endDate.toISOString(),
-        attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
-      });
-      if (!syncResult.success) {
-        toast({ title: "Appointment saved", description: "Google Calendar sync failed — appointment saved locally only.", variant: "destructive" });
-      }
+      syncToGoogleInBackground(
+        async () => syncAppointmentToGoogle({
+          action: "create",
+          appointmentId: (inserted as any).id,
+          title: data.title,
+          notes: data.notes,
+          startTime: startDate.toISOString(),
+          endTime: endDate.toISOString(),
+          attendeeEmail: await resolveAttendeeEmail(contactId, attendeeEmail),
+        }),
+        { title: "Appointment saved", description: "Google Calendar sync failed — appointment saved locally only." },
+      );
       return true;
     } catch (error) {
       console.error("Save error", error);

@@ -119,12 +119,29 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const organizationId = realProfile?.organization_id ?? null;
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [loading, setLoading] = useState(true);
-  // Newest fetch wins; a fetch that started before a local write is discarded and re-issued, so a
-  // pre-write snapshot can never drop an added row, restore a deleted one, or revert an edit.
+  // Newest fetch wins. A fetch that overlaps a local write (started before it settled, or landed
+  // while it was pending) is discarded and re-issued once no write is pending, so a pre-commit
+  // snapshot can never drop an added row, restore a deleted one, or revert an edit.
   const fetchGenRef = useRef(0);
   const writeSeqRef = useRef(0);
+  const pendingWritesRef = useRef(0);
+  const refetchAfterWritesRef = useRef(false);
   const inFlightRef = useRef(0);
+  const loadingFetchesRef = useRef(0);
   const fetchRef = useRef<((opts?: FetchAppointmentsOptions) => Promise<void>) | null>(null);
+
+  const beginWrite = useCallback(() => {
+    pendingWritesRef.current += 1;
+    writeSeqRef.current += 1;
+  }, []);
+  const endWrite = useCallback(() => {
+    pendingWritesRef.current -= 1;
+    writeSeqRef.current += 1;
+    if (pendingWritesRef.current === 0 && refetchAfterWritesRef.current) {
+      refetchAfterWritesRef.current = false;
+      void fetchRef.current?.({ silent: true });
+    }
+  }, []);
 
   const mapAppointment = useCallback((appt: any): CalendarAppointment => {
     const startDate = new Date(appt.start_time);
@@ -156,7 +173,7 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const fetchAppointments = useCallback(async (opts?: FetchAppointmentsOptions) => {
     const silent = opts?.silent === true;
     if (!user?.id || !organizationId) {
-      if (!silent) setLoading(false);
+      if (!silent && loadingFetchesRef.current === 0) setLoading(false);
       return;
     }
     if (silent && inFlightRef.current > 0) return;
@@ -164,7 +181,10 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const gen = ++fetchGenRef.current;
     const writeSeqAtStart = writeSeqRef.current;
     inFlightRef.current += 1;
-    if (!silent) setLoading(true);
+    if (!silent) {
+      loadingFetchesRef.current += 1;
+      setLoading(true);
+    }
     let reissue = false;
 
     try {
@@ -184,13 +204,17 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // A failed refresh keeps the current list.
         console.error('Error fetching appointments:', error);
       } else if (data && gen === fetchGenRef.current) {
-        if (writeSeqRef.current !== writeSeqAtStart) reissue = true;
+        if (pendingWritesRef.current > 0) refetchAfterWritesRef.current = true;
+        else if (writeSeqRef.current !== writeSeqAtStart) reissue = true;
         else setAppointments(data.map(mapAppointment));
       }
     } finally {
       inFlightRef.current -= 1;
-      // A non-silent call always clears its spinner, even when its data was superseded.
-      if (!silent) setLoading(false);
+      // The spinner clears when the last non-silent fetch settles, even when its data was superseded.
+      if (!silent) {
+        loadingFetchesRef.current -= 1;
+        if (loadingFetchesRef.current === 0) setLoading(false);
+      }
     }
 
     if (reissue) void fetchRef.current?.({ silent: true });
@@ -205,38 +229,42 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // No optimistic insert: the row id comes from the DB. The caller's object is passed through
     // untouched (no camelCase→column mapping); only the ownership columns are stamped, and an
     // explicit `user_id` (the assignee) is preserved.
-    const { data, error } = await supabase
-      .from('appointments')
-      .insert([{
-        ...a,
-        ...buildAppointmentInsertOwnership({
-          explicitAssigneeId: a?.user_id,
-          creatorUserId: user.id,
-          organizationId,
-        }),
-      }] as any)
-      .select()
-      .single();
+    beginWrite();
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .insert([{
+          ...a,
+          ...buildAppointmentInsertOwnership({
+            explicitAssigneeId: a?.user_id,
+            creatorUserId: user.id,
+            organizationId,
+          }),
+        }] as any)
+        .select()
+        .single();
 
-    if (error) {
-      console.error('Error adding appointment:', error);
-      throw error;
+      if (error) {
+        console.error('Error adding appointment:', error);
+        throw error;
+      }
+
+      if (data) {
+        const mapped = mapAppointment(data);
+        setAppointments(prev => [...prev.filter(x => x.id !== mapped.id), mapped].sort((a, b) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        ));
+      }
+      return data;
+    } finally {
+      endWrite();
     }
-    
-    if (data) {
-      const mapped = mapAppointment(data);
-      writeSeqRef.current += 1;
-      setAppointments(prev => [...prev, mapped].sort((a, b) => 
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      ));
-    }
-    return data;
-  }, [user?.id, organizationId, mapAppointment]);
+  }, [user?.id, organizationId, mapAppointment, beginWrite, endWrite]);
 
   const updateAppointment = useCallback(async (id: string, data: any) => {
     if (!user?.id || !organizationId) throw new Error("Cannot update appointment: missing user or organization context");
     // Optimistic update
-    writeSeqRef.current += 1;
+    beginWrite();
     setAppointments(prev => prev.map(a => {
       if (a.id !== id) return a;
       const raw_status = typeof data?.status === "string" ? data.status : a.raw_status;
@@ -245,39 +273,54 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // `.select("id")`: an update RLS hides affects zero rows WITHOUT an error. Treat that as a failure
     // so the UI never reports a save or reassignment that did not happen.
-    const { data: updated, error } = await supabase
-      .from('appointments')
-      .update(data)
-      .eq('id', id)
-      .eq('organization_id', organizationId)
-      .select('id');
-    const failure = error ?? (!updated || updated.length === 0
-      ? new Error("Appointment update was not applied (not found or not permitted)")
-      : null);
+    let failure: unknown = null;
+    try {
+      const { data: updated, error } = await supabase
+        .from('appointments')
+        .update(data)
+        .eq('id', id)
+        .eq('organization_id', organizationId)
+        .select('id');
+      failure = error ?? (!updated || updated.length === 0
+        ? new Error("Appointment update was not applied (not found or not permitted)")
+        : null);
+    } catch (e) {
+      failure = e;
+    } finally {
+      endWrite();
+    }
     if (failure) {
       console.error('Error updating appointment:', failure);
       void fetchAppointments({ silent: true });
       throw failure;
     }
-  }, [fetchAppointments, mapAppointment, organizationId, user?.id]);
+  }, [fetchAppointments, mapAppointment, organizationId, user?.id, beginWrite, endWrite]);
 
   const deleteAppointment = useCallback(async (id: string) => {
     if (!user?.id || !organizationId) throw new Error("Cannot delete appointment: missing user or organization context");
     // Optimistic update
-    writeSeqRef.current += 1;
+    beginWrite();
     setAppointments(prev => prev.filter(a => a.id !== id));
 
-    const { error } = await supabase
-      .from('appointments')
-      .delete()
-      .eq('id', id)
-      .eq('organization_id', organizationId);
-    if (error) {
-      console.error('Error deleting appointment:', error);
-      void fetchAppointments({ silent: true });
-      throw error;
+    let failure: unknown = null;
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('id', id)
+        .eq('organization_id', organizationId);
+      failure = error ?? null;
+    } catch (e) {
+      failure = e;
+    } finally {
+      endWrite();
     }
-  }, [fetchAppointments, organizationId, user?.id]);
+    if (failure) {
+      console.error('Error deleting appointment:', failure);
+      void fetchAppointments({ silent: true });
+      throw failure;
+    }
+  }, [fetchAppointments, organizationId, user?.id, beginWrite, endWrite]);
 
   useEffect(() => {
     fetchAppointments();

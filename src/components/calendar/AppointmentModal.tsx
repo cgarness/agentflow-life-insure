@@ -237,6 +237,15 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     return apptDate < today && nonTerminalStatuses.includes(status);
   })();
 
+  // Each open is a new session: a save still pending from an earlier session neither closes this one
+  // nor holds its CONFIRM disabled.
+  const openSessionRef = useRef(0);
+  useEffect(() => {
+    if (!open) return;
+    openSessionRef.current += 1;
+    setSaving(false);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     setConfirmDelete(false);
@@ -344,6 +353,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       ? `${agentRecord.firstName} ${agentRecord.lastName}`
       : isViewerAssignee && profile ? `${profile.first_name} ${profile.last_name}` : "";
 
+    const session = openSessionRef.current;
     setSaving(true);
     let result: boolean | void;
     try {
@@ -358,9 +368,9 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       } as any);
     } catch {
       result = false;
-    } finally {
-      setSaving(false);
     }
+    if (session !== openSessionRef.current) return;
+    setSaving(false);
     // Never report a save that did not happen: stay open on failure (the parent showed the error).
     if (result === false) return;
     if (result !== true) toastSonner.success(editing ? "Saved" : "Scheduled");

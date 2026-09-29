@@ -98,20 +98,31 @@ export function ContactFollowUpsCard({
         )}
 
         {state === "ready" && !primary && (
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">No follow-ups scheduled</p>
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-7 text-[10px] font-bold uppercase tracking-wider gap-1.5">
-                  <Plus className="w-3 h-3" /> Add follow-up
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onAddAppointment}>Appointment</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setTaskOpen(true)}>Task</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">No follow-ups scheduled</p>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7 text-[10px] font-bold uppercase tracking-wider gap-1.5">
+                    <Plus className="w-3 h-3" /> Add follow-up
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={onAddAppointment}>Appointment</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setTaskOpen(true)}>Task</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            {/* An empty list whose latest read failed must not read as "nothing scheduled" alone. */}
+            {refreshFailed && (
+              <p className="text-[10px] text-muted-foreground truncate">
+                Couldn't refresh ·{" "}
+                <button type="button" onClick={refetch} className="text-primary hover:underline">
+                  Retry
+                </button>
+              </p>
+            )}
+          </>
         )}
 
         {state === "ready" && primary && (

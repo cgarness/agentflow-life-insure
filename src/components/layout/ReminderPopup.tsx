@@ -69,6 +69,8 @@ const ReminderPopup: React.FC = () => {
   // Track which appointments have been shown to avoid duplicates
   // Map of apptId -> timestamp of when it was shown/dismissed (or next snooze time)
   const reminderStateRef = useRef<ReminderState>({});
+  const currentIdRef = useRef<string | null>(null);
+  currentIdRef.current = currentReminder?.id ?? null;
 
   // Keep the list fresh so an assignee learns of appointments booked for them by someone else.
   useAppointmentsFreshness(() => fetchAppointments({ silent: true }), !!user?.id);
@@ -117,12 +119,21 @@ const ReminderPopup: React.FC = () => {
   }, [appointments, leadTimeMinutes, soundEnabled, user?.id]);
 
   // A refreshed list can show a queued or on-screen reminder reassigned away, cancelled or deleted.
+  // A dropped reminder is forgotten, so it can fire again if the appointment becomes eligible again.
   useEffect(() => {
+    const eligible = (id: string) => isReminderStillEligible(id, appointments, user?.id);
+    const forget = (id: string) => {
+      const { [id]: _forgotten, ...rest } = reminderStateRef.current;
+      reminderStateRef.current = rest;
+    };
     setActiveReminders(prev => {
-      const kept = prev.filter(r => isReminderStillEligible(r.id, appointments, user?.id));
-      return kept.length === prev.length ? prev : kept;
+      const kept = prev.filter(r => eligible(r.id));
+      if (kept.length === prev.length) return prev;
+      prev.forEach(r => { if (!eligible(r.id)) forget(r.id); });
+      return kept;
     });
-    if (currentReminder && !isReminderStillEligible(currentReminder.id, appointments, user?.id)) {
+    if (currentReminder && !eligible(currentReminder.id)) {
+      forget(currentReminder.id);
       setIsOpen(false);
       setCurrentReminder(null);
     }
@@ -136,19 +147,25 @@ const ReminderPopup: React.FC = () => {
     return () => clearInterval(timer);
   }, [checkReminders]);
 
-  // Handle showing the next reminder in queue
+  // Handle showing the next reminder in queue: the first still-eligible one, removed by id so a
+  // concurrent revalidation of the queue can never make this drop a different reminder.
   useEffect(() => {
-    if (!currentReminder && activeReminders.length > 0) {
-      setCurrentReminder(activeReminders[0]);
-      setActiveReminders(prev => prev.slice(1));
-      setIsOpen(true);
-    }
-  }, [activeReminders, currentReminder]);
+    if (currentReminder) return;
+    const next = activeReminders.find(r => isReminderStillEligible(r.id, appointments, user?.id));
+    if (!next) return;
+    setActiveReminders(prev => prev.filter(r => r.id !== next.id));
+    setCurrentReminder(next);
+    setIsOpen(true);
+  }, [activeReminders, currentReminder, appointments, user?.id]);
 
-  const handleDismiss = () => {
+  // Closes only the reminder it was aimed at: a late dismiss never clears a newer reminder.
+  const dismissReminder = (id: string | undefined) => {
+    if (!id || currentIdRef.current !== id) return;
     setIsOpen(false);
-    setTimeout(() => setCurrentReminder(null), 200);
+    setTimeout(() => setCurrentReminder(cur => (cur?.id === id ? null : cur)), 200);
   };
+
+  const handleDismiss = () => dismissReminder(currentReminder?.id);
 
   const handleSnooze = () => {
     if (currentReminder) {
@@ -159,12 +176,13 @@ const ReminderPopup: React.FC = () => {
   };
 
   const handleCall = async () => {
-    if (currentReminder?.contactId) {
+    const reminder = currentReminder;
+    if (reminder?.contactId) {
       try {
         const { data, error } = await supabase
           .from("leads")
           .select("phone")
-          .eq("id", currentReminder.contactId)
+          .eq("id", reminder.contactId)
           .single();
           
         if (error) throw error;
@@ -172,24 +190,24 @@ const ReminderPopup: React.FC = () => {
         const event = new CustomEvent("quick-call", {
           detail: {
             phone: data?.phone || "",
-            contactId: currentReminder.contactId,
-            name: currentReminder.contactName
+            contactId: reminder.contactId,
+            name: reminder.contactName
           }
         });
         window.dispatchEvent(event);
-        handleDismiss();
+        dismissReminder(reminder.id);
       } catch (err) {
         console.error("Error fetching phone for call:", err);
         // Fallback: trigger with no phone but name/id
         const event = new CustomEvent("quick-call", {
           detail: {
             phone: "0000000000", // placeholder to trigger dialer open
-            contactId: currentReminder.contactId,
-            name: currentReminder.contactName
+            contactId: reminder.contactId,
+            name: reminder.contactName
           }
         });
         window.dispatchEvent(event);
-        handleDismiss();
+        dismissReminder(reminder.id);
       }
     }
   };

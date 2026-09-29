@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/lib/tasksApi";
 import type { ContactType } from "@/lib/dashboard-contact-identity";
 import {
@@ -44,8 +44,13 @@ export function useContactFollowUps(args: {
   const { contactId, contactType, organizationId, refreshKey = 0 } = args;
   const enabled = !!contactId && !!organizationId;
 
+  const queryClient = useQueryClient();
+  const rowsKey = useMemo(
+    () => ["contact-followups", organizationId, contactType, contactId] as const,
+    [organizationId, contactType, contactId],
+  );
   const rowsQuery = useQuery({
-    queryKey: ["contact-followups", organizationId, contactType, contactId],
+    queryKey: rowsKey,
     queryFn: ({ signal }) =>
       fetchContactFollowUpRows({ contactId, contactType, organizationId: organizationId as string, signal }),
     enabled,
@@ -69,9 +74,15 @@ export function useContactFollowUps(args: {
     if (lastRefreshKey.current === refreshKey) return;
     lastRefreshKey.current = refreshKey;
     if (!enabled) return;
-    void refetchRows();
+    void (async () => {
+      // With no data yet, a refetch would join the first request, which started before the write.
+      if (queryClient.getQueryData(rowsKey) === undefined) {
+        await queryClient.cancelQueries({ queryKey: rowsKey, exact: true });
+      }
+      await refetchRows();
+    })();
     void refetchTasks();
-  }, [refreshKey, enabled, refetchRows, refetchTasks]);
+  }, [refreshKey, enabled, queryClient, rowsKey, refetchRows, refetchTasks]);
 
   // Overdue / in-progress flags follow the clock.
   const [now, setNow] = useState(() => new Date());
