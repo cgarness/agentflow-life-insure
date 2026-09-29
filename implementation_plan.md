@@ -1151,3 +1151,6 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   - Decisions D-1…D-23 await Chris.
 - **Status (2026-09-29):** approved 2026-09-28 with redlines (plan §16). Implemented and verified locally on
   `claude/contact-followups-appointment-fix-rruo7i` (plan §17); not pushed, merged or deployed.
+- **Pre-merge gate (2026-09-29):** do not merge to `main` until appointment attribution is reconciled with the
+  Reports work — "Appointments Set" credits `created_by` (scheduler), workload/reminders credit `user_id`
+  (assignee). See plan §18. Branch push approved by Chris; no merge or deploy.

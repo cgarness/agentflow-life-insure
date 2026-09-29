@@ -18,6 +18,14 @@ Pre-Twilio entries archived to `docs/archive/WORK_LOG_2026_pre_twilio.md`.
 
 ---
 
+2026-09-29 UTC | [CONTACT FOLLOW-UPS BRANCH — PUSH APPROVED; PRE-MERGE ATTRIBUTION GATE RECORDED]
+
+**Authority:** Chris approved pushing `claude/contact-followups-appointment-fix-rruo7i` only. No merge to `main`, no production PR unless asked, no deploy, no Supabase change, no Reports/Analytics/leaderboard/goal change, and the Dialer timestamp follow-up is not started.
+
+**Canonical attribution (Chris):** `appointments.created_by` = the scheduler (who SET it); `appointments.user_id` = the assignee (who HANDLES it). "Appointments Set" production/reporting metrics credit the scheduler (`created_by`, with only explicitly approved legacy fallback behaviour); upcoming/assigned workload and reminders credit `user_id`. This branch writes both columns that way and its workload/reminder readers follow `user_id`.
+
+**Pre-merge gate (intentional, not fixed here):** the branch must not merge until appointment attribution is reconciled with the concurrent Reports work. Readers still counting booked appointments by `user_id` (Group leaderboard, `GoalProgressWidget`, `getPerformance`/UserGoalsTab, and the Dashboard appointments tile pending classification) and the org leaderboard's `COALESCE(created_by, user_id)` fallback are listed with a checklist in plan §18. Docs only: plan §14/§18, AGENT_RULES #22 bullet, root plan status, this entry. No app code, test, migration or deploy changed.
+
 2026-09-29 UTC | [CONTACT FOLLOW-UPS + APPOINTMENT ASSIGNMENT BUGFIX — IMPLEMENTED, VERIFIED LOCALLY; NOT PUSHED]
 
 **Authority/scope:** Chris approved D-1…D-23 on 2026-09-28 with redlines (plan §16): no Reports/Analytics/leaderboard/goal/reporting-reader change (D-19 is a post-Reports reconciliation item); fail closed on denied reassignments (D-22), with no RLS weakening, SECURITY DEFINER path, auth-claim or backend change; the Dialer 7-hour appointment/callback timestamp bug stays out of scope as the next separate bugfix; compact Follow-ups card on the EXISTING contact page, no redesign. Isolated branch `claude/contact-followups-appointment-fix-rruo7i` from `main` @ `5d37e5f`. Plan: `docs/plans/2026-09-28-contact-followups/implementation_plan.md` (§17 implementation record).

@@ -1227,7 +1227,7 @@ CalendarContext, `tasksApi`/AddTaskModal and `dashboard-callbacks` all create th
     - The durable fix is a narrow per-user upcoming-reminder feed, or realtime (item 2).
 11. The ReminderPopup "Call Now" button looks up the phone in `leads` only. Client and recruit appointments fall back
     to a placeholder number. "View Contact" navigates with no contact type.
-12. **Post-Reports reconciliation item (D-19, Chris's redline 1):** unify the attribution of booked appointments. The
+12. **PRE-MERGE GATE — see §18 (D-19, Chris's redline 1; made a merge gate 2026-09-29):** unify the attribution of booked appointments. The
     Group leaderboard, GoalProgressWidget and getPerformance count by `user_id` (the assignee), while the org
     leaderboard uses `COALESCE(created_by, user_id)` (the scheduler). No Reports, Analytics, leaderboard, goal-widget
     or reporting-reader file changed in this branch; reconcile after the Reports session lands. Only NEW
@@ -1326,3 +1326,48 @@ Focused suite (52 files) 818 passed / 10 LA-gated skips in UTC and 828 passed in
 failure is `contactName.test.ts`, a `main` baseline failure (no Supabase environment in this container). Full suite:
 240 files, 3,715 passed / 1 failed / 22 skipped, 1 unhandled error — the same 12 failed files, the same failing
 test (voicemail v29 byte-identity) and the same unhandled Twilio-mock rejection as `main` (226 files, 3,435 / 1 / 12).
+
+## §18. PRE-MERGE GATE — appointment attribution reconciliation (Chris, 2026-09-29)
+
+**This branch must NOT be merged to `main` until appointment attribution is reconciled with the concurrent Reports
+work.** The gate is intentional. It is not fixed in this branch: no Reports, Analytics, leaderboard, goal or
+reporting-reader file changes here (redline 1).
+
+**Canonical definition going forward (Chris):**
+- `appointments.created_by` = the **scheduler** — the person who actually SET the appointment.
+- `appointments.user_id` = the **assignee** — the person responsible for HANDLING the appointment.
+- **"Appointments Set" production/reporting metrics credit the scheduler:** `created_by`, with only explicitly
+  approved legacy fallback behaviour.
+- **Upcoming/assigned appointment workload and reminders credit `user_id`.**
+
+**What this branch already does:** writes both columns to that definition (explicit assignee → `user_id`, session
+user → `created_by`, never rewritten), and the workload/reminder side follows `user_id`: ReminderPopup,
+`AppointmentsWidget` (upcoming schedule), the Dashboard callback feed (#22, unchanged) and the Follow-ups card's
+assignee.
+
+**Readers to reconcile before merge (read on `main` @ `5d37e5f`; none changed here):**
+| Reader | Credits today | Canonical |
+|---|---|---|
+| `get_org_leaderboard_stats` (org leaderboard "Appointments Set") | `COALESCE(created_by, user_id)` | scheduler; confirm whether the `user_id` fallback is an approved legacy fallback |
+| `get_agency_group_leaderboard` (Group leaderboard) | `user_id` | scheduler |
+| `GoalProgressWidget` | `user_id` | scheduler, if it measures appointments set |
+| `supabase-users.getPerformance` → UserGoalsTab | `user_id` (by `created_at`) | scheduler |
+| `useDashboardStats` appointments tile + `DashboardDetailModal` drill-down | `user_id` (Scheduled, by `start_time`) | classify: "set" → scheduler; "upcoming workload" → `user_id` |
+| `AgentScorecardModal` (not mounted) | `created_by` | scheduler (already) |
+| Reports session's planned RPC | scheduler (per its plan) | scheduler |
+
+**Gate checklist (each item needs its own approval; none is executed here):**
+1. Classify every appointment reader as "Appointments Set" (scheduler) or "workload/reminders" (assignee), including
+   the Dashboard appointments tile.
+2. Decide the approved legacy fallback, if any, for rows without `created_by`. Today the Dialer's `saveAppointment`
+   writes no `created_by` (the next separate bugfix, still not started), so those rows are credited only through a
+   fallback.
+3. Land the reader changes through the Reports work (or a dedicated approved change), with tests pinning the
+   canonical columns — the leaderboard SQL test T6 (`created_by` wins) and `dashboardCallbacks.test.ts` (`user_id`
+   wins for callbacks) stay as the anchors.
+4. Rebase or merge this branch onto that result, re-run the full suite and the app typecheck, and only then merge.
+
+Until then, a cross-assigned booking made with this branch credits the assignee in the `user_id` readers above and
+the scheduler in the org leaderboard. Production had 0 rows with `user_id ≠ created_by` on 2026-09-28, so nothing
+historical moves; the divergence would start only with new cross-assigned bookings after a merge — which the gate
+prevents.
