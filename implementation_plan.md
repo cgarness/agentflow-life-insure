@@ -1154,4 +1154,6 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - frontend only: no migration, RPC, RLS or Edge Function change;
   - no `TwilioContext.tsx`, caller-ID, DNC or duplicate-policy semantic change;
   - no production action, deploy or merge.
-- **Status (2026-09-29):** plan only. Decisions D-1…D-18 await Chris.
+- **Status (2026-09-29/30):** plan only.
+  - Rev 1 folds in an adversarial review of rev 0: 45 findings, 41 upheld (fully or partly).
+  - Decisions D-1…D-19 await Chris. D-19 is a one-line z-index fix for Contacts' hidden duplicate prompt.
