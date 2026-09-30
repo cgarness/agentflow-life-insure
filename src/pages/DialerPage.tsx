@@ -782,7 +782,9 @@ export default function DialerPage() {
     };
   }, [user?.id]);
 
-  const { addAppointment } = useCalendar();
+  // Calendar state is synchronised by a silent READ after the Dialer's own appointment write
+  // (dialer-api.saveAppointment). CalendarContext.addAppointment is a real INSERT, never a state helper.
+  const { fetchAppointments } = useCalendar();
   const [availableScripts, setAvailableScripts] = useState<any[]>([]);
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
   const [isEditingContact, setIsEditingContact] = useState(false);
@@ -3587,7 +3589,9 @@ export default function DialerPage() {
       // for all normal (non-converting) dispositions.
       const contactWriteId = convertedClientId || masterId;
       const contactWriteType = convertedClientId ? "client" : undefined;
-      
+      // True once at least one scheduler write (appointment / callback shadow) actually succeeded.
+      let schedulerWriteSucceeded = false;
+
       // 1. Save appointment if needed
       if (selectedDisp?.appointmentScheduler) {
         if (!aptTitle || !aptDate || !aptStartTime || !aptEndTime) {
@@ -3609,27 +3613,10 @@ export default function DialerPage() {
             end_time: aptEndTime,
             notes: aptNotes || noteText,
           }, organizationId);
+          schedulerWriteSucceeded = true;
         } catch (apptErr: any) {
           console.warn("[DialerPage] saveAppointment failed", apptErr);
           toast.error("Appointment may not have saved — continuing call save: " + (apptErr?.message ?? apptErr), { duration: 6000 });
-        }
-        
-        // Add to local calendar context for immediate UI feedback
-        try {
-          addAppointment({
-            title: aptTitle,
-            type: aptType as any,
-            status: "Scheduled",
-            contactName: `${currentLead.first_name} ${currentLead.last_name}`,
-            contactId: masterId,
-            date: new Date(aptDate),
-            startTime: aptStartTime,
-            endTime: aptEndTime,
-            agent: user.email || "Me",
-            notes: aptNotes || noteText,
-          });
-        } catch (e) {
-          console.warn("Failed to update local calendar state", e);
         }
       }
 
@@ -3672,9 +3659,21 @@ export default function DialerPage() {
             end_time: "",
             notes: noteText,
           }, organizationId);
+          schedulerWriteSucceeded = true;
         } catch (cbErr: any) {
           console.warn("[DialerPage] callback saveAppointment failed", cbErr);
           toast.error("Callback may not have saved — continuing call save: " + (cbErr?.message ?? cbErr), { duration: 6000 });
+        }
+      }
+
+      // One silent Calendar/reminder refresh (a READ) after the scheduler writes above — only when one
+      // actually succeeded. Fire-and-forget: a refresh problem never makes a saved appointment look failed
+      // and never blocks the call / disposition save or the canonical advancement below.
+      if (schedulerWriteSucceeded) {
+        try {
+          void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {});
+        } catch {
+          /* never let a refresh affect the save */
         }
       }
 
@@ -4914,7 +4913,7 @@ export default function DialerPage() {
           }
         }}
         onSave={(data) => {
-          addAppointment(data);
+          // ONE write (saveAppointment), then a silent Calendar read — never CalendarContext.addAppointment.
           if (currentLead && user && selectedCampaignId) {
             const masterId = currentLead.lead_id || currentLead.id;
             saveAppointment({
@@ -4927,7 +4926,9 @@ export default function DialerPage() {
               time: data.startTime,
               end_time: data.endTime,
               notes: data.notes,
-            }, organizationId).catch(() => {});
+            }, organizationId)
+              .then(() => { void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {}); })
+              .catch(() => {});
           }
           setShowAppointmentModal(false);
           if (shouldAdvanceAfterModal) {
