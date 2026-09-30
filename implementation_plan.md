@@ -1589,7 +1589,7 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
     `created_by = user_id` → row-count and postcondition checks). Status is untouched, so there is no workflow
     dispatch. It is PROPOSED ONLY and needs Chris's separate approval; nothing was mutated.
 
-## §20. Reports Policies Sold source (2026-09-30) — BUGFIX; PLAN ONLY, awaiting Chris's approval
+## §20. Reports Policies Sold source (2026-09-30) — BUGFIX; rev 2 APPROVED by Chris for branch implementation + isolated testing (§20.11 supersedes where they differ)
 
 - **Authority / scope:** Chris's brief "BUGFIX — Reports Policies Sold uses the wrong source".
   - Base: `main` @ `5fc4649f` (re-checked 2026-09-30; includes #393 Reports, #395/#396 Group, #397 Dialer writer).
@@ -1787,3 +1787,84 @@ Verification run: Reports SQL suite + new regressions; `scripts/run_profile_rpc_
   (recommended), or "unavailable".
 - **D-3** Accept current-assignee attribution with the documented limitation (recommended; no schema change).
 - **D-4** Frontend refuses payloads without `policy_source` (recommended) — makes the release order migration → frontend.
+
+### 20.11 Rev 2 — Chris's approval with required adjustments (2026-09-30; supersedes 20.3–20.10 where they differ)
+
+Approval covers branch implementation and isolated local testing only: no merge, production SQL, migration apply,
+deploy, data or configuration change. Main re-checked: still `5fc4649f`; no concurrent branch touches Reports SQL.
+Repo bodies built locally on PG16.13 hash to the live md5s in 20.1 (summary `f221e1d4…`, volume `604abca3…`, campaign
+`9d151bf9…`, `report_access` `27116a40…`, `report_window` `1107da18…`).
+
+1. **Source / sale date (D-1 = server canon).** Normalized stored policies exactly as `get_profile_book_stats`
+   (20.2), reusing `private.profile_parse_iso_date`; `coalesce(soldDate, issueDate)` before parsing; JSON-null
+   container counts malformed. Both SQL-vs-TS discrepancies are pinned by SQL tests; aligning
+   `normalized-policy.ts` is a separate follow-up; Profile behaviour is untouched. Undated policies are never dated by
+   `created_at` or a guess. Quality counts (`undated_policies`, `malformed_additional_policies`) are returned under
+   `policy_quality` with `basis: 'scope_wide_all_time'` and labelled in the UI as "across this scope, all dates — not
+   known to belong to this period". Dialer, Leaderboard and Dashboard keep event (wins) semantics.
+2. **Campaign attribution (D-2).** Verified before coding: `mergeCustomFieldsOnConversion`
+   (`src/lib/supabase-conversion.ts:28-44`, via `convert_lead_to_client_atomic`, which stamps `clients.lead_id`) is the
+   only code that writes an `additional_policies` array; every other path carries the key by reference
+   (`supabase-clients.ts`, `teamOpenLeadEdit.ts`, `FullScreenContactView.tsx`) and `import-contacts` never writes it.
+   The assumption holds, so attribution proceeds. Per client (one lateral row, so no join can multiply policies):
+   attributed to campaign X only when, among same-organization wins with `contact_id = client.id` and a non-null
+   `campaign_id`, exactly one carries `idempotency_key = 'conversion:' || clients.lead_id`, all of them name the same
+   campaign X, and X is a campaign of the same organization. Otherwise (no lineage, conflicting campaigns,
+   foreign-organization campaign, manual/imported client with no `lead_id`) the client's policies are counted in
+   `policies_without_campaign`. Campaign rows lose the `policies_sold` (COUNT(wins)) field; they carry
+   `attributed_policies`; the payload carries `policies_in_period`, `policies_without_campaign` and
+   `policy_attribution: 'conversion_lineage_only'`. UI: "Policies (campaign-attributed)" with the note "Conversion-lineage
+   attribution only: not complete campaign sales attribution and not proof the campaign caused the sale." No ROI, no
+   conversion rate.
+3. **Current assignment is not seller credit (D-3).** Per-agent policy counts are "Policies (current assignment)" in
+   Agent Performance, Agent Efficiency and every CSV (metadata `Note` rows state the basis). Top Performer becomes
+   **"Most policies — current assignments"**. "Dials per policy sold" and "Talk minutes per policy sold" are shown ONLY
+   for organization scope with no agent filter, described as "calls (or talk minutes) in the period ÷ dated stored
+   policies in the period"; for own/team scope or an agent filter they are unavailable ("Not available: policies are
+   credited to current assignment, not the original seller"). Reassignment regression added (SQL + Vitest). No seller
+   ledger, ownership rewrite or win backfill.
+4. **Fail-closed recovery (supersedes the 20.3.6 / 20.9 rollback).** Restoring the preimage bodies is NOT a production
+   rollback: an old tab would accept win counts. Procedure, each step a NEW migration with Chris's approval:
+   (a) `supabase/ops/reports_disable.sql` (unchanged) — revokes all six `get_report_*` from authenticated; old AND new
+   tabs render "Reports are temporarily unavailable"; legacy stays sealed.
+   (b) Optional, only while disabled: the preimage fixture
+   `supabase/migrations/rollback/20260930120000_…rollback.sql` — refuses unless all six are client-disabled, restores the
+   win-based bodies verbatim, drops the two helpers, and leaves everything disabled.
+   (c) Re-enable only via `supabase/ops/reports_enable.sql`, now guarded: it refuses unless summary / volume / campaign
+   carry the verified policy-based bodies (exact md5s). So the only path back is re-applying the forward migration
+   (which preserves whatever ACL state it finds, i.e. stays disabled) and then enabling.
+   Legacy `rpc_report_*` stay sealed at every step. Tested locally end to end; the fixture is never described as a
+   standalone production rollback.
+   Frontend: `policy_source: 'normalized_policies'` is required by the new schema (a win-based payload → `unavailable`);
+   a disabled function (`permission denied for function`) → `unavailable` for old and new code alike.
+5. **Release sequence (for separate approval; nothing changed or deployed now).** Facts: the Vercel production project
+   deploys `main` automatically through its Git integration (every prior release, e.g. `dpl_4Lu4ibn8…`); the Supabase
+   GitHub integration's "Deploy to production" is DISABLED (AGENT_RULES #30), so merging never applies a migration —
+   migrations go only through the deliberate MCP `apply_migration`. Therefore "merge, then apply" is frontend-FIRST.
+   Designed to be order-safe:
+   - New frontend + old functions: the summary / volume / campaign panels show "unavailable" (no `policy_source`),
+     never win counts under the new labels; other panels are unaffected.
+   - Old tab + new functions: summary and volume parse (field names unchanged) and show the correct policy counts,
+     but with the old labels ("policies (wins)", "Top performer", per-agent dials-per-policy); the campaign panel
+     fails validation (no `policies_sold`) → unavailable. A reload is required; stated in the release note.
+   - Controlled order: (1) CI green on the PR; (2) read-only preflight (live md5s = 20.1, 0 active dialer sessions);
+     (3) merge → Vercel production READY (new UI, three policy panels "unavailable"); (4) `apply_migration` with the
+     exact file; (5) verify md5s/ACLs + an authenticated September read = 4; (6) ask signed-in users to reload.
+     Neither order depends on winning a deployment race. Integration settings are not changed.
+6. **Verification** as listed in the approval; pre-existing failures reported separately.
+
+**Revised exact file list (rev 2):**
+- New: `supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql`;
+  `supabase/migrations/rollback/20260930120000_reports_policies_sold_normalized_source.rollback.sql` (preimage fixture);
+  `supabase/tests/reports_policy_facts.sql`.
+- Modified SQL/ops/test infra: `supabase/ops/reports_enable.sql` (policy-body guard); `supabase/tests/reports_harness.sql`
+  (production-shaped `clients`, win `idempotency_key`); `supabase/tests/reports_rpc.sql` (policy expectations);
+  `scripts/run_reports_rpc_tests.sh` (policy migration, suite, mutations, drift/replay, recovery proof);
+  `.github/workflows/reports-backend.yml` (path filter, if needed).
+- Modified app: `src/lib/reports-schemas.ts`, `src/lib/stat-computations.ts`, `src/lib/reports-export.ts` (notes rows),
+  `src/pages/Reports.tsx` (policy notes on exports, summary export labels), `src/components/reports/PoliciesSoldChart.tsx`,
+  `src/components/reports/CampaignPerformance.tsx`, `src/components/reports/AgentPerformanceCards.tsx`,
+  `src/components/reports/AgentEfficiency.tsx`.
+- Modified tests: `src/lib/__tests__/reportsFixtures.ts`, `reportStatComputations.test.ts`, `reportsContracts.test.ts`,
+  `reportsExportFormat.test.ts`, `reportsQueries.test.ts` (if needed), `src/pages/__tests__/reportsPage.test.tsx`.
+- Docs: `AGENT_RULES.md` (#38, cross-refs in #17/#34), `WORK_LOG.md` (prepended), this plan.
