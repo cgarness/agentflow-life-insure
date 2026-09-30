@@ -90,9 +90,10 @@ describe("parseDialBridged — safeguard 5 (absent ≠ false)", () => {
 
 describe("v2 voicemail TwiML — the mailbox rides the SIGNED recording callback URL", () => {
   it("keeps the retry fragment and the source/mailbox query; D6 agent greeting URL wins over text", () => {
-    const rec = "https://x.supabase.co/functions/v1/twilio-recording-status?source=voicemail&mailbox=agent%3Aaaaaaaaa-0000-0000-0000-0000000000a1&call_row_id=c&org_id=o&attempt_id=a";
+    // the agent form issued since the 2026-09-30 callback repair (no colon-dependent identity)
+    const rec = "https://x.supabase.co/functions/v1/twilio-recording-status?source=voicemail&mailbox=agent&mailbox_agent_id=aaaaaaaa-0000-0000-0000-0000000000a1&call_row_id=c&org_id=o&attempt_id=a";
     const xml = buildVoicemailTwiml(rec, "https://x/done?stage=voicemail_done", "text greeting", "https://cdn/greeting.mp3");
-    expect(xml).toContain("source=voicemail&amp;mailbox=agent%3Aaaaaaaaa-0000-0000-0000-0000000000a1");
+    expect(xml).toContain("source=voicemail&amp;mailbox=agent&amp;mailbox_agent_id=aaaaaaaa-0000-0000-0000-0000000000a1");
     expect(xml).toContain("#rc=3&amp;rp=5xx,ct,rt");
     expect(xml).toContain("<Play>https://cdn/greeting.mp3</Play>");
     expect(xml).not.toContain("text greeting");

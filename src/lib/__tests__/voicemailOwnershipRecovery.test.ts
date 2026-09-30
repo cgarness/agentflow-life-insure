@@ -86,6 +86,10 @@ interface Model {
   beforeOwnerWrite?: () => void;
   /** Status the provider returns for a DELETE. */
   deleteStatus: number;
+  /** Every download, upload, DELETE and RPC in the order the handler performed them. */
+  events: string[];
+  /** Every table the handler opened through `from()`. */
+  tables: string[];
   /**
    * Mirrors `coalesce(v.provider_account_sid, EXCLUDED.provider_account_sid)` when a concurrent
    * insert already established a different owner: the upsert returns THAT owner, not ours.
@@ -184,15 +188,16 @@ function makeClient(model: Model) {
   }
 
   return {
-    from: (t: string) => builder(t),
+    from: (t: string) => { model.tables.push(t); return builder(t); },
     storage: {
       from: () => ({
-        upload: async (p: string) => { model.uploads.push(p); return { data: { path: p }, error: null }; },
+        upload: async (p: string) => { model.uploads.push(p); model.events.push("upload"); return { data: { path: p }, error: null }; },
         remove: async () => ({ data: [], error: null }),
       }),
     },
     async rpc(fn: string, args: Record<string, unknown>) {
       model.rpcs.push({ fn, args });
+      model.events.push(`rpc:${fn}`);
       const sid = String(args.p_recording_sid ?? "");
       const row = model.rows.find((r) => r.recording_sid === sid);
       if (fn === "mark_voicemail_source_deleted") {
@@ -253,8 +258,9 @@ async function loadCallback(model: Model, baseline = false): Promise<Handler> {
   globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
     const u = String(url);
     model.fetches.push({ url: u, method: init?.method });
-    if (init?.method === "DELETE") return new Response(null, { status: model.deleteStatus });
+    if (init?.method === "DELETE") { model.events.push("DELETE"); return new Response(null, { status: model.deleteStatus }); }
     model.downloads.push(u);
+    model.events.push("download");
     return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
   }) as typeof globalThis.fetch;
 
@@ -355,7 +361,7 @@ async function runWorker(model: Model) {
 }
 
 function model(over: Partial<Model> & { rows: VmRow[] }): Model {
-  return { fetches: [], rpcs: [], uploads: [], downloads: [], deleteStatus: 503, ...over };
+  return { fetches: [], rpcs: [], uploads: [], downloads: [], deleteStatus: 503, events: [], tables: [], ...over };
 }
 
 const CALLBACK_PARAMS = {
@@ -565,5 +571,174 @@ describe("the initial upsert's authoritative owner decides", () => {
     expect(m.rows[0].provider_account_sid).toBe(ACCOUNT_B);
     expect(m.fetches.find((f) => f.method === "DELETE")?.url).toContain(`/Accounts/${ACCOUNT_B}/`);
     expect(res.status).toBe(200);
+  });
+});
+
+// ── Agent-voicemail callback repair (2026-09-30), executed through the REAL handler ─────────────────────
+// New agent callbacks carry `mailbox=agent&mailbox_agent_id=<uuid>` (only [A-Za-z0-9._-]); the legacy signed
+// forms stay accepted. Signature validation is unchanged: it runs first, over the exact received URL.
+describe("agent-voicemail callback repair — executed", () => {
+  const AGENT = "33333333-3333-4333-8333-333333333333";
+  const AGENT2 = "55555555-5555-4555-8555-555555555555";
+  const ATTEMPT = "44444444-4444-4444-8444-444444444444";
+  const ids = `call_row_id=${CALL_ROW}&org_id=${ORG}&attempt_id=${ATTEMPT}`;
+  const NEW_AGENT = `?source=voicemail&mailbox=agent&mailbox_agent_id=${AGENT}&${ids}`;
+  const LEGACY_AGENT = `?source=voicemail&mailbox=agent%3A${AGENT}&${ids}`;
+  const GROUP = `?source=voicemail&mailbox=group&${ids}`;
+  const FN_URL = `${SUPABASE_URL}/functions/v1/twilio-recording-status`;
+
+  /** Signed over one URL, delivered on another (identical when `sentSearch` is omitted). */
+  function signedOver(signedSearch: string, sentSearch = signedSearch, opts: { token?: string; sentParams?: Record<string, string>; noSignature?: boolean } = {}): Request {
+    let signing = `${FN_URL}${signedSearch}`;
+    for (const k of Object.keys(CALLBACK_PARAMS).sort()) signing += k + (CALLBACK_PARAMS as Record<string, string>)[k];
+    const signature = createHmac("sha1", opts.token ?? AUTH_TOKEN).update(signing, "utf8").digest("base64");
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (!opts.noSignature) headers["x-twilio-signature"] = signature;
+    return new Request(`${FN_URL}${sentSearch}`, { method: "POST", headers, body: new URLSearchParams(opts.sentParams ?? CALLBACK_PARAMS).toString() });
+  }
+  const fresh = () => model({ rows: [], deleteStatus: 204 });
+  const upsertArgs = (m: Model) => m.rpcs.filter((r) => r.fn === "upsert_voicemail_from_recording").map((r) => r.args);
+  const consoleText = () => JSON.stringify([
+    ...vi.mocked(console.log).mock.calls, ...vi.mocked(console.warn).mock.calls, ...vi.mocked(console.error).mock.calls,
+  ]);
+  const expectNothingTouched = (m: Model) => {
+    expect(m.rpcs).toEqual([]);
+    expect(m.uploads).toEqual([]);
+    expect(m.fetches).toEqual([]);
+    expect(m.tables).toEqual([]);
+  };
+
+  it("NEW form: a signed agent voicemail is stored for that agent; order upload → persist → delete → notify is unchanged", async () => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(NEW_AGENT));
+    expect(res.status).toBe(200);
+    expect(upsertArgs(m)).toEqual([expect.objectContaining({
+      p_recording_sid: REC, p_call_row_id: CALL_ROW, p_org_id: ORG, p_attempt_id: ATTEMPT,
+      p_mailbox: `agent:${AGENT}`, p_status: "stored", p_account_sid: ACCOUNT_B,
+    })]);
+    expect(m.uploads).toHaveLength(1);
+    expect(m.fetches.find((f) => f.method === "DELETE")?.url).toContain(`/Accounts/${ACCOUNT_B}/Recordings/${REC}`);
+    expect(m.rows[0].source_cleanup_state).toBe("deleted");
+    const at = (e: string) => m.events.indexOf(e);
+    expect(at("download")).toBeGreaterThanOrEqual(0);
+    expect(at("download")).toBeLessThan(at("upload"));
+    expect(at("upload")).toBeLessThan(at("rpc:upsert_voicemail_from_recording"));
+    expect(at("rpc:upsert_voicemail_from_recording")).toBeLessThan(at("DELETE"));
+    expect(at("DELETE")).toBeLessThan(at("rpc:mark_voicemail_source_deleted"));
+    expect(at("rpc:mark_voicemail_source_deleted")).toBeLessThan(at("rpc:converge_inbound_notifications"));
+  });
+
+  it("NEW form: a duplicate delivery is idempotent — no second download, upload or DELETE", async () => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    expect((await handler(signedOver(NEW_AGENT))).status).toBe(200);
+    const again = await handler(signedOver(NEW_AGENT));
+    expect(again.status).toBe(200);
+    expect(m.downloads).toHaveLength(1);
+    expect(m.uploads).toHaveLength(1);
+    expect(m.fetches.filter((f) => f.method === "DELETE")).toHaveLength(1);
+    expect(m.rows).toHaveLength(1);
+    expect(m.rows[0].status).toBe("stored");
+  });
+
+  it("LEGACY COMPATIBILITY: a correctly signed legacy agent:<uuid> callback still proceeds through the pipeline", async () => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(LEGACY_AGENT));
+    expect(res.status).toBe(200);
+    expect(upsertArgs(m)).toEqual([expect.objectContaining({ p_mailbox: `agent:${AGENT}`, p_status: "stored", p_attempt_id: ATTEMPT })]);
+    expect(m.rows[0].source_cleanup_state).toBe("deleted");
+  });
+
+  it("GROUP unchanged: a signed legacy group callback is stored as the group mailbox", async () => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(GROUP));
+    expect(res.status).toBe(200);
+    expect(upsertArgs(m)).toEqual([expect.objectContaining({ p_mailbox: "group", p_status: "stored" })]);
+  });
+
+  it("OLD-DEFECT NEGATIVE CONTROL: signed over one colon canonicalization, delivered with another ⇒ 403, nothing written", async () => {
+    // Twilio-side canonicalization differs from the received bytes: the historical failure is still representable.
+    for (const [signed, sent] of [
+      [`?source=voicemail&mailbox=agent:${AGENT}&${ids}`, LEGACY_AGENT], // signed decoded, received %3A
+      [LEGACY_AGENT, `?source=voicemail&mailbox=agent:${AGENT}&${ids}`], // signed %3A, received decoded
+    ]) {
+      const m = fresh();
+      const handler = await loadCallback(m);
+      const res = await handler(signedOver(signed, sent));
+      expect(res.status).toBe(403);
+      expectNothingTouched(m);
+    }
+  });
+
+  it.each([
+    ["mailbox_agent_id changed after signing", NEW_AGENT, NEW_AGENT.replace(AGENT, AGENT2), {}],
+    ["agent mailbox swapped to group after signing", NEW_AGENT, GROUP, {}],
+    ["group mailbox swapped to agent after signing", GROUP, NEW_AGENT, {}],
+    ["body parameter changed after signing", NEW_AGENT, NEW_AGENT, { sentParams: { ...CALLBACK_PARAMS, RecordingDuration: "8" } }],
+    ["signed with another token", NEW_AGENT, NEW_AGENT, { token: "someone-elses-token" }],
+    ["no signature at all", NEW_AGENT, NEW_AGENT, { noSignature: true }],
+  ] as const)("TAMPERED (%s) ⇒ 403 with zero persistence", async (_label, signed, sent, opts) => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(signed, sent, opts as Parameters<typeof signedOver>[2]));
+    expect(res.status).toBe(403);
+    expectNothingTouched(m);
+  });
+
+  it.each([
+    ["legacy agent + mailbox_agent_id (same id)", `?source=voicemail&mailbox=agent%3A${AGENT}&mailbox_agent_id=${AGENT}&${ids}`, "conflicting_mailbox"],
+    ["legacy agent + a different mailbox_agent_id", `?source=voicemail&mailbox=agent%3A${AGENT}&mailbox_agent_id=${AGENT2}&${ids}`, "conflicting_mailbox"],
+    ["group + mailbox_agent_id", `?source=voicemail&mailbox=group&mailbox_agent_id=${AGENT}&${ids}`, "conflicting_mailbox"],
+    ["mailbox=agent without an id", `?source=voicemail&mailbox=agent&${ids}`, "invalid_mailbox_agent_id"],
+    ["mailbox=agent with a non-UUID id", `?source=voicemail&mailbox=agent&mailbox_agent_id=nope&${ids}`, "invalid_mailbox_agent_id"],
+    ["upper-case legacy prefix", `?source=voicemail&mailbox=AGENT%3A${AGENT}&${ids}`, "invalid_mailbox"],
+    ["duplicated mailbox_agent_id", `?source=voicemail&mailbox=agent&mailbox_agent_id=${AGENT}&mailbox_agent_id=${AGENT2}&${ids}`, "duplicate_param"],
+    ["duplicated mailbox", `?source=voicemail&mailbox=group&mailbox=agent&mailbox_agent_id=${AGENT}&${ids}`, "duplicate_param"],
+  ])("FAIL CLOSED after a VALID signature (%s) ⇒ acknowledged, nothing read or written, no query value logged", async (_label, search, reason) => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(search));
+    expect(res.status).toBe(200); // acknowledged; the Twilio source is preserved (no DELETE)
+    expectNothingTouched(m);
+    const out = consoleText();
+    expect(out).toContain(reason);
+    for (const v of [AGENT, AGENT2, CALL_ROW, ORG, ATTEMPT]) expect(out).not.toContain(v);
+  });
+
+  it.each([
+    ["source=x then source=voicemail", `?source=x&source=voicemail&mailbox=group&${ids}`],
+    ["source=voicemail then source=x", `?source=voicemail&source=x&mailbox=group&${ids}`],
+    ["source=Voicemail (wrong case)", `?source=Voicemail&mailbox=group&${ids}`],
+  ])("DISPATCH GUARD (%s) ⇒ acknowledged, never the conversation-recording pipeline", async (_label, search) => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(search));
+    expect(res.status).toBe(200);
+    expectNothingTouched(m); // in particular: no `calls` read, no download, upload or DELETE
+  });
+
+  it("CONTROL: a callback with NO source still takes the conversation-recording path (it reads `calls`)", async () => {
+    const m = fresh();
+    const handler = await loadCallback(m);
+    const res = await handler(signedOver(""));
+    expect(res.status).toBe(200); // unmatched CallSid in this model: acknowledged without download/upload/delete
+    expect(m.tables).toContain("calls");
+    expect(m.fetches).toEqual([]);
+  });
+
+  it("LOG HYGIENE: the success log carries the mailbox TYPE only — never the mailbox identity or other query values", async () => {
+    for (const [search, kind] of [[NEW_AGENT, "agent"], [LEGACY_AGENT, "agent"], [GROUP, "group"]] as const) {
+      vi.mocked(console.log).mockClear(); vi.mocked(console.warn).mockClear(); vi.mocked(console.error).mockClear();
+      const m = fresh();
+      const handler = await loadCallback(m);
+      expect((await handler(signedOver(search))).status).toBe(200);
+      const pipelineLog = vi.mocked(console.log).mock.calls.find((c) => String(c[0]).includes("voicemail pipeline"));
+      expect(pipelineLog?.[1]).toEqual({ recordingSid: REC, callSid: CALL_SID, mailbox_kind: kind, outcome: "stored" });
+      const out = consoleText();
+      for (const v of [AGENT, CALL_ROW, ATTEMPT, `agent:${AGENT}`]) expect(out).not.toContain(v);
+    }
   });
 });

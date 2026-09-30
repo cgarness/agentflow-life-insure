@@ -425,15 +425,46 @@ export async function runVoicemailCleanupRetry(deps: {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Legacy signed form `agent:<uuid>`: the prefix is case-SENSITIVE (SQL classifies with LIKE 'agent:%', so an
+// 'AGENT:' value would be stored as a group voicemail); the UUID hex may be either case.
+const LEGACY_AGENT_MAILBOX_RE = /^agent:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
-/** The SIGNED voicemail callback query (server-issued by twilio-voice-inbound; validated, never trusted blindly). */
+export type VoicemailCallbackQuery =
+  | { ok: true; mailbox: string; callRowId: string; orgId: string; attemptId: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * The SIGNED voicemail callback query (server-issued by twilio-voice-inbound; validated, never trusted blindly).
+ * Accepted mailbox forms — anything else, and any mixed form, fails closed:
+ *   mailbox=group                                  → 'group'
+ *   mailbox=agent & mailbox_agent_id=<uuid>        → 'agent:<uuid>'   (form issued since the 2026-09-30 repair)
+ *   mailbox=agent:<uuid>                           → 'agent:<uuid>'   (legacy form, still accepted)
+ * `mailbox_agent_id` is PRESENT whenever the key exists (null/undefined only when absent), so an empty value can
+ * never make a group or legacy form look unconflicted. The result's `mailbox` is the canonical internal string
+ * `upsert_voicemail_from_recording` has always received.
+ */
 export function parseVoicemailCallbackQuery(q: {
-  source?: string | null; mailbox?: string | null; call_row_id?: string | null; org_id?: string | null; attempt_id?: string | null;
-}): { ok: true; mailbox: string; callRowId: string; orgId: string; attemptId: string | null } | { ok: false; reason: string } {
+  source?: string | null; mailbox?: string | null; mailbox_agent_id?: string | null;
+  call_row_id?: string | null; org_id?: string | null; attempt_id?: string | null;
+}): VoicemailCallbackQuery {
   if ((q.source || "") !== "voicemail") return { ok: false, reason: "not_voicemail" };
-  const mailbox = (q.mailbox || "").trim();
-  if (mailbox !== "group" && !/^agent:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mailbox)) {
-    return { ok: false, reason: "invalid_mailbox" };
+  const rawMailbox = (q.mailbox || "").trim();
+  const agentIdPresent = q.mailbox_agent_id !== undefined && q.mailbox_agent_id !== null;
+  let mailbox: string;
+  if (rawMailbox === "group") {
+    // A group mailbox never takes an agent id as ownership authority.
+    if (agentIdPresent) return { ok: false, reason: "conflicting_mailbox" };
+    mailbox = "group";
+  } else if (rawMailbox === "agent") {
+    const agentId = (q.mailbox_agent_id || "").trim();
+    if (!UUID_RE.test(agentId)) return { ok: false, reason: "invalid_mailbox_agent_id" };
+    mailbox = `agent:${agentId.toLowerCase()}`;
+  } else {
+    const legacy = LEGACY_AGENT_MAILBOX_RE.exec(rawMailbox);
+    if (!legacy) return { ok: false, reason: "invalid_mailbox" };
+    // Two identities in one callback are never reconciled or guessed.
+    if (agentIdPresent) return { ok: false, reason: "conflicting_mailbox" };
+    mailbox = `agent:${legacy[1].toLowerCase()}`;
   }
   const callRowId = (q.call_row_id || "").trim();
   const orgId = (q.org_id || "").trim();
@@ -441,4 +472,25 @@ export function parseVoicemailCallbackQuery(q: {
   const attemptRaw = (q.attempt_id || "").trim();
   if (attemptRaw && !UUID_RE.test(attemptRaw)) return { ok: false, reason: "invalid_attempt_id" };
   return { ok: true, mailbox, callRowId, orgId, attemptId: attemptRaw || null };
+}
+
+const VOICEMAIL_CALLBACK_KEYS = ["source", "mailbox", "mailbox_agent_id", "call_row_id", "org_id", "attempt_id"] as const;
+
+/**
+ * Reads the voicemail callback query straight from the request URL. A key that appears more than once fails
+ * closed (`URLSearchParams.get` would silently take the first value), then `parseVoicemailCallbackQuery` applies.
+ */
+export function readVoicemailCallbackQuery(search: URLSearchParams): VoicemailCallbackQuery {
+  for (const key of VOICEMAIL_CALLBACK_KEYS) {
+    if (search.getAll(key).length > 1) return { ok: false, reason: "duplicate_param" };
+  }
+  const one = (key: string): string | null => (search.has(key) ? search.get(key) : null);
+  return parseVoicemailCallbackQuery({
+    source: one("source"),
+    mailbox: one("mailbox"),
+    mailbox_agent_id: one("mailbox_agent_id"),
+    call_row_id: one("call_row_id"),
+    org_id: one("org_id"),
+    attempt_id: one("attempt_id"),
+  });
 }

@@ -1,3 +1,62 @@
+## 2026-09-30 — Agent-voicemail recording callback repair (B1 Phase 2) — IMPLEMENTED LOCALLY; NOT DEPLOYED; NOT VERIFIED IN PRODUCTION
+
+- **Status:** implemented and verified locally on `claude/b1-phase2-voicemail-callback-repair`, from `main` `d675a4b`,
+  under Chris's 2026-09-30 approval of plan rev 2 for LOCAL implementation (13 files). The record is in
+  `docs/plans/2026-09-30-agent-voicemail-callback-repair/implementation_plan.md` §11.
+  - **Nothing deployed.** Production is unchanged: `twilio-recording-status` v36 and `twilio-voice-inbound` v45, both
+    byte-identical to `main`.
+  - **Not done:** a production write, a controlled call, a live test, a PR or a merge. **`main` is unchanged.**
+- **Supersedes:** the B1 controlled diagnostic test (Chris, 2026-09-30). The B1 diagnostic is not shipped, and the B1
+  A/B/C/D1 approval of 2026-09-28 is void.
+- **Defect:** agent-mailbox voicemail callbacks carried `mailbox=agent%3A<uuid>` and failed X-Twilio-Signature
+  validation: 4/4 lost in 30 days, while group callbacks (`mailbox=group`) were stored 14/14. The canonicalization step
+  was not measured, so the repair does not depend on it.
+- **Change:**
+  - **Producer:** new agent callbacks use `mailbox=agent&mailbox_agent_id=<uuid>`, which contains only `[A-Za-z0-9._-]`.
+    Group callbacks are byte-identical to before.
+  - **Consumer:**
+    - accepts the new, legacy `agent:<uuid>` and group forms;
+    - fails closed on mixed or conflicting identities, a missing or invalid `mailbox_agent_id`, wrong casing and
+      duplicate keys;
+    - routes any `source` key to the voicemail handler, never the conversation pipeline;
+    - its success log shows only `mailbox_kind`.
+  - **Unchanged:** signature validation, the organization/call/attempt checks, storage ordering (source deleted only after
+    storage and DB persistence), notifications, missed-call attribution, duration/status/disposition, the mobile-forward
+    policy and the single-leg outbound path.
+  - **Database:** no change and no migration.
+  - **P0 packaging support:** `edge_payload.mjs` closure support cherry-picked from B1 (`8e56b6c`, `111ea91`).
+- **Verification (local):**
+
+  *Tests:*
+  - **Focused Vitest:** 205 passed, 1 skipped.
+  - **Related suites:** 600 passed; 1 pre-existing failure (the v29 byte check, identical on `main`).
+  - **Full Vitest:** 3,960 tests versus `main`'s 3,842. The 12 failing files are identical on both (11 need an unset
+    Supabase URL, 1 is the v29 check), and 0 tests changed status.
+  - **Canonicalization matrix:** the new form is stored under 6 canonical forms in both directions. A correctly signed
+    legacy `agent:<uuid>` is still stored. A legacy callback signed over one colon form but delivered with another gets
+    403 with zero writes.
+  - **Mutations:** 12 of 12 caught, plus 16 by an independent reviewer.
+  - **Differential against `main`:** 23 stage scenarios are identical except the agent voicemail-callback query.
+
+  *Other checks:*
+  - **App tsc:** 90 errors, identical to `main`. Root tsc covers no files.
+  - **Exact Deno check** (2.1.4, esm.sh, supabase-js 2.117.2): the same pre-existing errors as `main`, 0 new; not a clean
+    pass.
+  - **PostgreSQL 17.6** inbound/voicemail SQL suites: pass.
+- **Packages** (built and verified; not deployed):
+  - **`twilio-recording-status`:** 2 files, manifest `125a3cd8…`, payload `5b33d169…`.
+  - **`twilio-voice-inbound`:** 10 files, manifest `22c56d17…`, payload `31d1cf5a…` (214,531 B).
+  - **Recovery packages** (from a fresh live read, 0 differences in both directions): v36 manifest `0893d95c…` / payload
+    `73e1f28f…`; v45 manifest `6aeaeee6…` / payload `f3c1f0e1…`.
+- **Adversarial review:** 7 findings, 6 confirmed (all minor: plan status, exact query pins on every path, the recorded
+  differential, a commit message), 1 refuted. All fixed.
+- **Next (separate approvals):**
+  - **Production release:** `twilio-recording-status` first, then `twilio-voice-inbound`, with a byte read-back of every
+    file.
+  - **Production verification:** natural traffic and bounded read-only checks.
+  - **Later:** the AGENT_RULES amendment after the first stored agent voicemail; the ownership cross-check follow-up;
+    Task A reconciliation (its S6 test must move to the new form).
+
 ## 2026-09-29 — Contact Follow-ups + Group leaderboard repair production release — PRODUCTION VERIFIED
 
 - **Status:** released and verified in production (`jncvvsvckxhqgqvkppmj`). Record:
