@@ -1,4 +1,4 @@
-# Implementation Plan — Floating Dialer: Create Lead from an unmatched phone number (rev 1 — awaiting approval)
+# Implementation Plan — Floating Dialer: Create Lead from an unmatched phone number (rev 1.1 — awaiting approval)
 
 > **STATUS: PLAN ONLY. This needs Chris's explicit approval (AGENT_RULES §8) before any application edit.**
 >
@@ -19,7 +19,8 @@
 
 When the agent enters a complete number in the floating dialer, the dialer runs a scoped **exact** lookup over
 leads, clients and recruits. It fires however the number is entered: typed, pasted, keyed on the keypad, or finished
-with backspace. The lookup respects the organization and RLS and never downloads the contact book.
+with backspace. The lookup respects the organization and RLS and never downloads the contact book. The existing
+save-time agency duplicate check still reads every visible lead, as Contacts Add Lead does today (D-20).
 
 | Lookup outcome | What the dialer shows, right under the number |
 | --- | --- |
@@ -213,7 +214,8 @@ reduced to `[\d*#+]`. In the table below, "national" means the 10-digit number a
 | `unsupported` | Any of: contains `*` or `#`; a misplaced or repeated `+`; `+0…`; more than 15 digits; 11 digits without `+` that do not start with `1`; 12 or more digits without `+` (including `00…` and `011…`); 10 digits starting with `0` | no (neutral line, §4.5) | – |
 | `nanp` | 10 digits, `1`+10, or `+1`+10, with the national number's first digit `[2-9]` → `key = '1'+national`. Also carries `creatable` (next row) | **yes** | only if `creatable` |
 | `nanp` + `creatable` | NPA `[2-9]XX`, not N11 (211…911); exchange `[2-9]XX` | yes | **yes** |
-| `international` | `+` followed by 10–15 digits, not starting with `0` or `1` → `key = digits` | yes (positive outcomes only, §4.5) | no (D-4) |
+| `international` | `+` followed by 10–15 digits, not starting with `0` or `1` → `key = digits` | yes. It never shows `none`; error, denied and too_many display as they do for `nanp` (§4.5) | no (D-4) |
+| `unsupported` (catch-all) | **Any other input**. Examples: `+11234567890` and `11234567890` (national number starts with 0 or 1); `+1555234567890` (`+1` with more than 11 digits) | no (neutral line) | – |
 
 Two consequences of this split:
 - `555-123-4567` (exchange starts with 1) and fake test numbers are still **looked up**, so existing contacts stored
@@ -429,8 +431,9 @@ The **unique exact match** (`match`) is applied through `selectFromLookup` by an
 
 **Match row.** `DialerNumberMatchPanel` renders **directly under the manual number input row**, after `:1278` and
 before the keypad grid.
-- The Call buttons keep their current conditions: 10 or more digits and `canPlaceCall`.
-- The only addition is `disabled` while `callStarting` (§4.7).
+- The keypad Call keeps its current condition, `digits ≥ 10 && canPlaceCall` (`:1291-1296`).
+- The card Call keeps its current condition, `canPlaceCall` only (`:1248-1253`).
+- The only addition, on both, is `disabled` while `callStarting` (§4.7).
 
 **Type badge.** A new `ContactTypeBadge` component replaces the two existing inline badge copies (`:1013-1018`,
 `:1228-1233`). It is also added to the selected-contact card, but **only when `selectedContact.id` is non-empty**, so an
@@ -482,6 +485,8 @@ The row is Tailwind-only and compact (`text-[11px]`). It is **hidden while the c
   equal the current effective viewer and org.
 - The modal and confirm card render **only when `sessionActive`**. If the viewer changes to null or another id, they
   are removed in the same commit (AGENT_RULES #31, "clear at render time"). Any pending confirm resolves `false`.
+- **An inactive session is cleared at render time.** `start()` and the availability check both treat it as absent, so
+  it neither blocks a new session nor shows "Add Lead form is open".
 
 **Settings and assignee list.**
 - Settings: `contactManagementSettingsSupabaseApi.getSettings(org)` loads with an explicit status: loading, ready or
@@ -506,10 +511,20 @@ modal card, the host collapses the panel so it does not cover the form:
 - narrower widths: **close** it.
 
 It records the prior `open` and `minimized` values. When the session ends, it restores them **only if** the panel is
-still in the collapsed state the host set. The panel is never moved or resized. An incoming call still opens the panel
-through the existing effect. The rev 0 "un-minimize on call start" idea has been **dropped**, for two reasons:
+still in the collapsed state the host set. The panel is never moved or resized.
+
+**A call releases the collapse.** While the host holds a collapse, any transition to busy — `twilioCallState` becoming
+`incoming` or `dialing` — makes the host immediately set `open=true` and `minimized=false`, and give up its pending
+restore. This matters because the minimized strip has only expand and close buttons (`:861-888`), and the incoming
+effect only calls `setOpen(true)` (`:664-671`). Without this rule, an inbound ring during form entry at 1024 px would
+show no Answer or Decline.
+
+The rule applies **only to a collapse the host itself created**. The rev 0 idea of un-minimizing on any call start
+while the form is open was dropped, for two reasons:
 - it was unnecessary, because the panel already sits above the backdrop;
 - it could present a DialerPage call under the dialer's typed number.
+
+The general "Answer hidden while minimized" issue stays follow-up §10 #11.
 
 **Duplicate confirmation.** A **non-Radix** inline card, fixed and centred at `z-[210]`, with **"Save anyway"** and
 **"Back"**.
@@ -547,26 +562,30 @@ through the existing effect. The rev 0 "un-minimize on call start" idea has been
 7. **Refused** → `{kind:'refused'}`.
    **Failed** → the error propagates and AddLeadModal toasts it and stays open. Failures include a thrown insert, and
    the legacy check's `block` throw from inside `leadsSupabaseApi.create`.
-8. **Created**, carrying the **DB-returned `lead`**:
-   - toast "Lead added";
-   - `dispatchContactsChanged({type:'lead', id})`;
-   - `lookup.invalidate()`;
-   - close the session.
+8. **Created**, carrying the **DB-returned `lead`**.
+   - **First, evaluate the selection predicate**, before the session is closed. All of these must hold:
+     - the host is still mounted and the session is still the captured `sessionId`;
+     - the viewer and org are unchanged;
+     - `!busyRef.current`;
+     - `selectionGenRef.current === originGen` — the agent has not changed the number, the search or the selection
+       since opening the form;
+     - `storedPhoneKey(lead.phone) === originKey` — the lead was saved with the number the dialer holds.
+   - **Then:**
+     - toast "Lead added";
+     - `dispatchContactsChanged({type:'lead', id, source:'dialer'})`;
+     - `lookup.invalidate()`;
+     - close the session.
+   - **If the predicate was true, select the lead:**
+     `handleSelectContact({ id, first_name, last_name, phone: lead.phone, type:'lead' })`. This is a single batched
+     write that costs one caller-ID LRU stamp, the same as today's selection. `lead.phone` is the clean normalized
+     value the form stored.
+   - **If the predicate was false,** nothing in the dialer changes. The toast adds one of these reasons:
+     - "It wasn't selected because a call is in progress";
+     - "…because the dialer changed";
+     - "Saved with a different number — not selected".
 
-   Then **select the lead only if** all of these hold:
-   - the host is still mounted and the session is still the captured `sessionId`;
-   - the viewer and org are unchanged;
-   - `!busyRef.current`;
-   - `selectionGenRef.current === originGen` — the agent has not changed the number, the search or the selection
-     since opening the form.
-
-   The selection is `handleSelectContact({ id, first_name, last_name, phone: lead.phone, type:'lead' })`, a single
-   batched write that costs one caller-ID LRU stamp, the same as today's selection. `lead.phone` is the clean
-   normalized value the form stored.
-
-   Otherwise nothing in the dialer changes, and the toast adds either "It wasn't selected because a call is in
-   progress" or "…because the dialer changed". Once the dialer is idle and back on that number, the invalidated lookup
-   finds the lead on its own. There is **no navigation and no `makeCall`**.
+     Once the dialer is idle and back on that number, the invalidated lookup finds the lead on its own.
+   - There is **no navigation and no `makeCall`**.
 
 **Cancel and close.**
 - The dialer's number, search and selection are untouched, because the modal never wrote them.
@@ -725,12 +744,21 @@ The new file `src/lib/contactsChangedEvent.ts` follows the typed `quick-call.ts`
 
 ```ts
 CONTACTS_CHANGED_EVENT = "agentflow:contacts-changed"
-dispatchContactsChanged({ type, id })
+dispatchContactsChanged({ type, id, source: "dialer" | "contacts" })
 onContactsChanged(handler)
 ```
 
-**`Contacts.tsx`.** An effect keyed on `[fetchData, fetchKanban, view, tab, isImpersonating]` subscribes to the event.
-It returns early while impersonating or when `tab !== "Leads"`. Otherwise it calls:
+**Who dispatches.**
+- The dialer dispatches with `source:"dialer"` after a create.
+- `Contacts.handleAddLead`, `handleAddClient` and `handleAddRecruit` each dispatch with `source:"contacts"` on a
+  successful create (one line each). A dialer that is showing "No matching contact found" for that number therefore
+  re-checks instead of offering to create an existing contact.
+- Contacts **updates** do not dispatch. If an update changes a phone, the dialer's save-time recheck (step 5) still
+  catches it; this is recorded in §9.
+
+**`Contacts.tsx` listener.** An effect keyed on `[fetchData, fetchKanban, view, tab, isImpersonating]` subscribes to the
+event. It returns early in any of these cases: while impersonating, when `source === "contacts"` (Contacts already
+refreshed itself), or when `tab !== "Leads"`. Otherwise it calls:
 - `fetchData({ silent: true })`;
 - `fetchKanban({ silent: true })`, when `view === "kanban"`.
 
@@ -769,7 +797,8 @@ No other surface listens. The Dashboard keeps its "no automatic refresh" rule.
 | `src/components/contacts/AddLeadFormFooter.tsx` | Cancel disabled while saving |
 | `src/components/contacts/useAddLeadModalForm.ts` | Reset trigger, prefill merge, lead-source default |
 | `src/lib/contactSavePolicy.ts` | Adds `evaluateContactPreSave` |
-| `src/pages/Contacts.tsx` | `enforceContactPreSave` delegates; `handleAddLead` uses `createLeadWithPolicy` and returns an outcome; the memo uses `resolveAssignableLeadAgents`; contacts-changed listener; D-19 one line |
+| `src/pages/Contacts.tsx` | `enforceContactPreSave` delegates; `handleAddLead` uses `createLeadWithPolicy` and returns an outcome; the memo uses `resolveAssignableLeadAgents`; contacts-changed listener; the three Add handlers dispatch `source:"contacts"`; D-19 one line |
+| `src/lib/__tests__/floatingDialerRecent.test.ts` (existing test, extended) | A history row: a `calls` row with `contact_id` = the saved lead's UUID and `contact_type:'lead'` resolves through `buildRecentCallDisplay` to the lead's name and type |
 
 **New tests.** Every suite mocks `@/integrations/supabase/client`, and `@/hooks/usePermissions` where needed, following
 `contactsViewAsFailClosed.test.tsx:62-130`. None may join the "supabaseUrl is required" failure set.
@@ -817,13 +846,14 @@ No other surface listens. The Dashboard keeps its "no automatic refresh" rule.
 | D-10 | Assignment from the dialer | Parity with Contacts: a lazy list, defaulting to self. Alternative: self only. |
 | D-11 | Save finishes during a call | Never select. Toast, refresh and invalidate; the post-call lookup finds the lead. |
 | D-12 | Call-start guard | **Yes**: ownership rule, double-click no-op, and the Call Anyway guard. **D-12b** (Call Anyway identity snapshot): optional, off by default. |
-| D-13 | Panel and modal overlap | On session open while idle, **minimize** the panel (close it below 768 px) if it overlaps the form, and restore it afterwards. Alternative: leave it; the agent drags or minimizes it manually. |
+| D-13 | Panel and modal overlap | On session open while idle, **minimize** the panel (close it below 768 px) if it overlaps the form, and restore it afterwards. **Any call that starts or rings releases the collapse immediately** (the panel opens with Answer and Decline, or Hang Up, visible). Alternative: leave it; the agent drags or minimizes it manually. |
 | D-14 | Closing during a save | Disable Cancel, X and the backdrop while saving, on both hosts. |
 | D-15 | Required custom fields on Add | Keep parity (`enforceCustomFields:false`). Correct the AGENT_RULES "Required-field enforcement" row, which claims Add enforces them. |
 | D-16 | DNC on quick calls | None exists today. **Do not add it** under this task; it is a separate decision. |
 | D-17 | Name/partial typeahead | Stays leads-only. Add the org filter; never show "No contacts" on an error or for a number of 10 or more digits. |
 | D-18 | AGENT_RULES updates (same commit) | (a) #36: the create `{kind}` contract. (b) A new invariant for the dialer lookup: strict key, no last-10, RLS plus org, errors are not absence, the stale-result rule, the recheck deviation. (c) A **Known Tech Debt** note, *not* a rewrite of #22 or #34, that the floating-dialer disposition panel is unreachable; #22's dual-source "not dead data" rule stays. (d) The D-15 row correction. |
 | D-19 | Contacts duplicate prompt hidden under the modal | **Fix it**: one line, `z-[210]` on `ConfirmDialogContent`. |
+| D-20 | Save-time duplicate read | Creating a lead from the dialer still calls the existing `findDuplicates`, which reads **every RLS-visible lead in the org** at save time (the whole org for an Admin) — the same as Contacts Add Lead today. **Accept this as parity for this task**, and bound it in follow-up §10 #2. Alternative: bring the bounded prefilter into scope now; the digits-exact semantics stay the same. |
 
 ---
 
@@ -843,6 +873,11 @@ unmodified source, then against the change. The Contacts characterization block 
 | Missing permission, permissions still loading, or a permissions error → no offer | integration |
 | A double submit → one create; a second Create Lead click while a session is open → no new session | modal, integration |
 | A save while `dialing` or `active` does not change the selection; after the call, the lookup shows `checking` and then the lead, **never** "No matching contact found" | integration |
+| The happy path selects: the predicate is evaluated before the session closes. A lead saved with a phone edited in the form is **not** selected, with the "different number" toast | integration |
+| Form open at 1024 px (panel collapsed by the host), then an incoming ring → Answer and Decline are rendered and the host's restore is dropped | integration |
+| A lead created in Contacts (`source:"contacts"`) → the dialer invalidates and re-checks; the Contacts listener ignores its own dispatch | integration, page |
+| History: a `calls` row with the saved lead's UUID and `contact_type:'lead'` resolves to the lead's name and type | `floatingDialerRecent` (extended) |
+| Disposition characterization (passes on `main` and after the change): after Hang Up in the real FloatingDialer, the disposition panel is not rendered and `saveCall` is not called | integration |
 | An unmount or a viewer change during a deferred `findDuplicates` → no `leads` insert and no attach; deleting `isStillCurrent` makes this test fail | policy, integration |
 | A default submit assigns to the effective viewer (mocked different from `useAuth().user`); the assignee list per role, fail-closed | hook, integration |
 | Call-start: a double-click → one `makeCall`; a blank-phone Recent row, then a valid Call, works; `makeCall` returning `undefined` or throwing releases the flag; Call Anyway keeps `busy` until settled; warning Cancel releases the flag | integration |
@@ -874,13 +909,15 @@ With a UUID lead, it asserts:
 - `outboundPathPinned`, `inboundBrowserLifecycleWrites` (6 `calls` mutation sites, no duration), `twilioVoiceLifecycle`,
   `voiceStatusConvergence`, `twilioStatusDuration`, `twilioStatusTerminalGuard`, `twilioProviderLifecycle`,
   `teamOpenRevealIntegration`.
-- `floatingDialerRecent`, `inboundDeviceLifetime`, `viewAsRouteAllowlist`, `quickCall`, `dialerRecentCalls`.
+- `floatingDialerRecent` (extended; its source pin also forbids adding `[user, organizationId]` above
+  `fetchRecentCalls`), `inboundDeviceLifetime`, `viewAsRouteAllowlist`, `quickCall`.
 - `contactsViewAsFailClosed`, `contactsFullScreenDuplicateParity`, `contactsFullScreenSaveIntegrity`,
   `contactDeepLinkDuplicateParity`, `contactSavePolicy`.
 
-**Status updates, history and logs.** These are covered by the provider test above. History (the Recent tab) resolves
-by `contact_id` and `contact_type`, so it shows the new lead by id; the `dialerRecentCalls` suite covers this.
-Disposition is documented as unreachable today (§2.5) and is unchanged.
+**Status updates, history and logs.**
+- Status updates and logs are covered by the provider test above.
+- History (the Recent tab) is covered by the extended `floatingDialerRecent` row.
+- Disposition is pinned by the characterization row: it is unreachable today (§2.5) and stays unchanged.
 
 **Commands.**
 1. Run the new suites, then the must-stay-green suites.
@@ -899,7 +936,7 @@ Disposition is documented as unreachable today (§2.5) and is unchanged.
 - every field, X, Cancel and Add Lead are reachable;
 - the State and DOB popovers appear above the card;
 - the inline duplicate confirm is clickable;
-- a simulated incoming ring while the form is open opens the panel;
+- with the form open, a simulated incoming ring shows Answer and Decline at both 1440 and 1024×768;
 - the Contacts Add Lead duplicate "warn" prompt is visible, Save Anyway creates exactly one lead, and Cancel keeps the
   form.
 
@@ -942,6 +979,10 @@ container.
   i.e. unlinked.
 - **Closing the gap** needs a server-side create RPC (an advisory lock plus an org-wide existence check) and a decision
   about disclosing existence. That is a follow-up requiring approval.
+
+**Contacts updates do not refresh the dialer.** Only creates dispatch the refresh event (§4.11). If a phone is edited in
+Contacts while the dialer shows that number, the dialer's row can be stale until the number is re-entered. The
+save-time recheck (step 5) still stops a duplicate create.
 
 **Residual write window.** `leadsSupabaseApi.create` still makes two awaited reads, the settings and the legacy check,
 between `isStillCurrent()` and its INSERT. Closing that needs an edit to `supabase-contacts.ts`, which is out of scope.
@@ -1007,6 +1048,19 @@ The dialer's own recheck covers US variants and all three tables, among visible 
 
 - **rev 0** (2026-09-29): first draft. Committed as `b9b16ee` and pushed to the feature branch only, not to `main`.
 - **rev 1** (2026-09-29): folds in the adversarial review of rev 0 (§12).
+- **rev 1.1** (2026-09-30): folds in a final completeness critic of rev 1. All 9 findings were accepted:
+  - **Major 1:** a D-13 collapse is released when a call starts or rings.
+  - **Major 2:** the step-8 selection predicate is evaluated *before* the session closes. As rev 1 was written, it
+    could never select.
+  - **Major 3:** D-20 discloses the save-time whole-visible-table duplicate read.
+  - **Minor 4:** the classifier has a catch-all row, and the international display rule is corrected.
+  - **Minor 5:** a test suite that does not exist was replaced by the extended `floatingDialerRecent`.
+  - **Minor 6:** a disposition characterization row was added.
+  - **Minor 7:** an `originKey` check was added to selection, and an inactive session counts as absent.
+  - **Minor 8:** Contacts' Add handlers now dispatch the refresh event.
+  - **Minor 9:** the Call-button conditions are now stated exactly.
+
+  The line references were spot-checked and held.
 
 ---
 

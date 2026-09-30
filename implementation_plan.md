@@ -1156,4 +1156,5 @@ The Reports security/accuracy/reliability plan lives in its own file so the lead
   - no production action, deploy or merge.
 - **Status (2026-09-29/30):** plan only.
   - Rev 1 folds in an adversarial review of rev 0: 45 findings, 41 upheld (fully or partly).
-  - Decisions D-1…D-19 await Chris. D-19 is a one-line z-index fix for Contacts' hidden duplicate prompt.
+  - Rev 1.1 folds in a final critic pass (9 findings, all accepted).
+  - Decisions D-1…D-20 await Chris. D-19 is a one-line z-index fix for Contacts' hidden duplicate prompt; D-20 discloses the save-time duplicate read.
