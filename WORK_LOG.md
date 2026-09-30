@@ -1,3 +1,149 @@
+## 2026-09-30 — B1 Phase 2 production release: APPROVED WITH EXECUTION CONDITIONS; NOT DEPLOYED — BLOCKED before the first deployment
+
+- **Authority.** Chris's 2026-09-30 approval covers the exact production packages from source `02b8ba5`, project
+  `jncvvsvckxhqgqvkppmj`:
+  - `twilio-recording-status` first (manifest `125a3cd8…`, payload `5b33d169…`), then `twilio-voice-inbound` (manifest
+    `22c56d17…`, payload `31d1cf5a…`), both `verify_jwt=false`;
+  - **option B:** MCP for the receiver, a file-based CLI upload for the inbound function;
+  - recovery artifacts v36 (`0893d95c…` / `73e1f28f…`) and v45 (`6aeaeee6…` / `f3c1f0e1…`).
+
+  The approval is subject to execution conditions. The only repository edits authorized are the plan and this WORK_LOG.
+  The approval is recorded verbatim in `docs/plans/2026-09-30-agent-voicemail-callback-repair/implementation_plan.md`
+  §12.11, condensed with every condition retained in the plan's top block. The corrected release procedure is §12.
+- **Outcome: NOTHING DEPLOYED.** Production is unchanged:
+  - `twilio-recording-status` v36 (ezbr `a75e7c80…`);
+  - `twilio-voice-inbound` v45 (`354441f2…`);
+  - `twilio-voice-status` v42 (`d9bbe55c…`).
+
+  No production write, no call and no data change took place. Every production access was read-only: listing and
+  reading functions, read-only SQL, and log queries.
+- **Why it is blocked (plan §12.1).** U1–U3 must clear before S1; U4 is needed before the S11 record commit only.
+  - **U1 — access.** Nobody available in this session can run the CLI upload or its rollback:
+    - no `supabase` binary, no `SUPABASE_ACCESS_TOKEN` and no stored login;
+    - the environment's egress policy denies `api.supabase.com` and the project host (proxy `CONNECT` 403).
+
+    Chris's condition forbids starting the first deployment while the second deployment or its recovery depends on
+    unavailable access, so the receiver was not deployed either. The operator must also stay able to run the rollback
+    through a defined recovery-availability period.
+  - **U2 — #32 rulings.** The RELEASE_READINESS §4 drain gate (read-only, 14:25 UTC) shows:
+    - a1 = **17** open attempts, all old and individually identified in §12.6.3;
+    - a3 = **1** organization on v2;
+    - every other check 0.
+
+    a3 is not an old stalled record, so the allowed exclusion does not cover it. Two rulings follow:
+    - **(a)** Either a3 does not apply to restoring the v2-era v36 receiver, or any receiver fault is
+      stop-and-escalate.
+    - **(b)** Confirm that "a producer fault may trigger the exact inbound-only rollback" authorizes that rollback
+      without the drain gate or quiet period. Without that, the second deployment has no recovery.
+  - **U3 — entrypoints.** The CLI records `supabase/functions/…` where v45 has `functions/…`. The entry module and bytes
+    are identical, but ezbr and names change. The plan reads "preserve entrypoints" as the same entry module and bytes;
+    Chris confirms.
+  - **U4 — AGENT_RULES record.** AGENT_RULES §9 requires the CLI deploy quirks to be recorded there. Chris either
+    authorizes that edit in the S11 commit or defers it.
+- **Read-only evidence gathered.**
+  - **Records re-read:** AGENT_RULES.md, VISION.md and the newest WORK_LOG entries.
+    - `origin/main` moved to `5fc4649` (#397, frontend only; `supabase/` is identical to `d675a4b`). Merging later
+      conflicts textually in WORK_LOG only.
+    - There is no freeze and no other telephony release. Task A is unapplied; B1 is void.
+  - **Packages:** in the isolated detached worktrees `/home/user/pin-02b8ba5` and `/home/user/pin-d675a4b`, all four
+    packages rebuilt with `02b8ba5`'s `edge_payload.mjs` match the approved manifests and payloads exactly. `d675a4b`'s
+    own pre-P0 copy must not be used.
+  - **Established preflight (14:16 UTC):**
+    - 0 recent nonterminal calls, 0 fresh dialer sessions, 0 open ringing attempts, 0 reservations, 0 lock waiters;
+    - latest call end 01:34:55;
+    - known stale rows recorded individually and not modified: 8 calls, 4 dialer sessions, 17 attempts.
+  - **Edge logs** carry `version` and `request.search` for at least 7 days, so each callback's format is classified from
+    actual evidence.
+    - Validated on 2026-09-24 data: 2 `mailbox=agent%3A` callbacks were answered 403, and 7 group callbacks 200.
+    - The new initial-versus-staged query works: that day v45 served 20 initial requests, 1 `owner_browser` and 9
+      `voicemail_done`.
+    - Measured delay from `voicemail_done` to the recording callback: 1.0–6.7 s (n = 9). That is an observation, not a
+      bound.
+  - **Research (repository and public docs):**
+    - producer paths that can emit agent voicemail: the initial webhook, `owner_browser` and `owner_mobile`, including
+      attempt-less fallbacks;
+    - receiver completion predicates;
+    - Twilio override semantics: retries happen only within ≤15 s, 4xx and 2xx are never retried, and recording
+      processing has no documented bound;
+    - CLI 2.118.0 `--use-api` mechanics.
+  - **Runbook gate tests** (real CLI 2.118.0, local stand-in API, stubbed guards; never against production).
+    - **v2:**
+      - a failed guard or preflight produced **0** uploads;
+      - the all-pass forward run produced exactly 1 upload: 10 files, manifest `22c56d17…`, `verify_jwt:false`;
+      - the all-pass rollback produced exactly 1 upload: 10 files, manifest `6aeaeee6…`.
+    - **v3 and v4,** v4 being the recorded version (sha256 `ceafe07e…f5ef`):
+      - an inherited token is discarded;
+      - with the receiver not yet deployed, or with a stale G5, the forward block sends **0** uploads;
+      - the forward block runs once per G5;
+      - the rollback requires a hand-set `R_IN_REASON`, which is consumed after one use;
+      - an operator-set `RX_EXPECTED` is honoured, and the default refuses a mismatch.
+- **Adversarial review of the recorded procedure**, in two passes.
+  - **Pass 1:** 4 lenses (conditions, drain/recovery, facts/commands, scope/records), with an independent skeptic
+    challenging every finding. 45 findings: 43 confirmed (2 blocker, 9 major, 32 minor) and 2 refuted.
+  - **Pass 2:** fix verification plus a fresh regression skeptic. Of the 43 confirmed findings, 40 were fully resolved,
+    3 were partly resolved, and 1 new gap was found. The skeptic reported 11 further findings, 2 of them major:
+    - the pre-cutover receiver restore had lost its drain-script and quiet-period requirement;
+    - entrypoint comparisons had no normalization rule, while live entrypoints embed a versioned path.
+  - **Pass 3:** a final check found 5 minor residuals:
+    - a known-stale baseline that rejected rows added later;
+    - F17/F6/F11 keyed on the exit code rather than the live version;
+    - a G5 5-minute versus 10-minute mismatch;
+    - hard-coded expected versions;
+    - these WORK_LOG counts.
+
+  All of them are now applied. The main changes:
+  - **The runbook's guards did not gate the upload.** They only printed a warning (the blocker, found twice). It now
+    uses hard `if`-gates plus a G5 readiness block, and the gate test above confirms it.
+  - **§6.2's older decision table and §9 item 9 were still in force.** They are marked superseded, so §12.7 is the only
+    table.
+  - **The MCP receiver deploy must pass `entrypoint_path` `functions/twilio-recording-status/index.ts` explicitly.** The
+    MCP default is `index.ts`, which matches no uploaded name.
+  - **Rollback gating.** R-IN is gated by U2(b). One rule now governs receiver faults after the cutover, and a new F15
+    covers a failed recovery.
+  - **R-RX checks.** R-RX has pre-deploy checks of the producer and the logs, and the full read-back standard.
+  - **Drain-set windows come from evidence.** The window is min/max of T_p0/T_b and the first/last new-version log
+    row. A log-completeness check is required before "no request" counts as proof. A group-mode attempt alone is no
+    longer proof.
+  - **The known-stale rule can be checked:** an enumeration query, a `last_change` ≤ 14:20 UTC baseline (or the value
+    recorded when a row is added later), and a separate rule for each row kind.
+  - **Entrypoints compare by the path after `/source/`,** and the MCP receiver deploy passes the literal key.
+  - **A pre-cutover R-RX also needs the RELEASE_READINESS §4 drain script and the quiet period,** unless Chris rules it
+    exempt.
+  - **Receiver faults after the cutover are stop and escalate;** R-IN then runs only on Chris's instruction.
+  - **New table rows:** F16 (a new-form callback acknowledged but not stored) and F17 (a forward deploy after which
+    live is still the pre-deploy version: nothing to roll back).
+  - **Runbook v4** enforces receiver-before-producer and arming of the rollback. It honours operator-set expected
+    versions and labels failures by live state.
+  - **Corrected rationale for the 17-record exclusion:** age and v45 issuance; sweep-written end times are not relied
+    on.
+  - **§12.10 recipient reference for attempt-less calls:** `resolveOwnerCandidate` precedence.
+  - **The #29 mechanism is stated per function.**
+- **Unchanged records.** The §11 local verification results keep their baseline limitations:
+  - app typecheck: 90 errors, the same as main;
+  - exact Deno check: 2 pre-existing errors per function;
+  - 12 failing Vitest files, identical to main;
+  - PostgreSQL 17.6 suites pass.
+- **Commits.** The implementation commit `02b8ba5c91def63ebfe7670c33a4981dc452037b` (on top of `8e56b6c` and `111ea91`)
+  is pushed to `origin/claude/b1-phase2-voicemail-callback-repair`. This documentation update is committed and pushed
+  separately to the same branch, touching the two authorized files only.
+- **Production verification: pending.** Each of the four statuses is pending:
+  1. deployed and source-verified;
+  2. agent voicemail stored;
+  3. correct recipient and notification;
+  4. playback confirmed by the recipient.
+
+  Nothing monitors production while no session is active.
+- **Next.**
+  - **U1:** Chris names the CLI operator. That is either himself with the §12.9 runbook in bash, or a new Claude session
+    given a scoped token secret, `api.supabase.com` network access and a reviewed non-interactive runbook variant.
+  - **U2–U3:** Chris rules on (a) and (b), and confirms U3. He also accepts that a producer fault is stop and escalate
+    whenever the operator cannot run R-IN, including after the recovery-availability period.
+  - **U4 (before the S11 record commit only):** Chris authorizes an AGENT_RULES.md record of the CLI deploy quirks, or
+    defers it.
+  - Then the fresh gates and the release run as §12.5.
+  - Task A stays blocked until this repair is verified in production. After that, its S6 assertions move to the new
+    form, and its full verification is re-run on top of Phase 2.
+
 ## 2026-09-30 — Agent-voicemail recording callback repair (B1 Phase 2) — IMPLEMENTED LOCALLY; NOT DEPLOYED; NOT VERIFIED IN PRODUCTION
 
 - **Status:** implemented and verified locally on `claude/b1-phase2-voicemail-callback-repair`, from `main` `d675a4b`,
