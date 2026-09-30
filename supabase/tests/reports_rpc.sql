@@ -1,6 +1,8 @@
 -- =====================================================================================================
 -- Reports RPC suite — behaviour, metric canon and authorization for
--- supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql.
+-- supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql as amended by
+-- supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql (Policies Sold =
+-- normalized stored policies; the dedicated policy regressions live in reports_policy_facts.sql).
 -- Run ONLY through scripts/run_reports_rpc_tests.sh on a disposable LOCAL database (AGENT_RULES #28).
 -- Synthetic tenants and users only. Every expected number below was computed BY HAND from the fixture
 -- table in this file (see the comments next to each fixture); none is read back from the function
@@ -42,7 +44,11 @@ INSERT INTO rt.ids VALUES
   ('CL1',    '11000000-0000-0000-0000-000000000021'), ('CL2',    '11000000-0000-0000-0000-000000000022'),
   ('CL3',    '11000000-0000-0000-0000-000000000023'),
   ('CL6A',   '11000000-0000-0000-0000-000000000026'), ('CL6B',   '11000000-0000-0000-0000-000000000027'),
-  ('CLIENT99','11000000-0000-0000-0000-000000000099');
+  ('CLIENT99','11000000-0000-0000-0000-000000000099'),
+  -- Stored-policy clients (Policies Sold source, migration 20260930120000; plan §20).
+  ('LC99',   '11000000-0000-0000-0000-000000000098'), ('K_A3',   '11000000-0000-0000-0000-0000000000a9'),
+  ('K_UN',   '11000000-0000-0000-0000-0000000000aa'), ('K_A1IN', '11000000-0000-0000-0000-0000000000ab'),
+  ('K_A1OUT','11000000-0000-0000-0000-0000000000ac'), ('K_B1',   '22000000-0000-0000-0000-0000000000ab');
 
 CREATE FUNCTION rt.id(p text) RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT id FROM rt.ids WHERE name = p $$;
 
@@ -126,7 +132,7 @@ END $$;
 -- =====================================================================================================
 TRUNCATE public.organizations, public.profiles, public.role_permissions, public.company_settings,
          public.pipeline_stages, public.dispositions, public.campaigns, public.leads, public.campaign_leads,
-         public.calls, public.wins, public.appointments, public.dialer_sessions CASCADE;
+         public.calls, public.wins, public.appointments, public.dialer_sessions, public.clients CASCADE;
 
 INSERT INTO public.organizations VALUES (rt.id('O1'), 'Alpha Agency'), (rt.id('O2'), 'Beta Agency'), (rt.id('O3'), 'Gamma Agency');
 
@@ -282,14 +288,33 @@ SELECT rt.call_row(38, 'A1',    'outbound', '2026-04-14T18:00:00Z',   60, 'D_SOL
 
 \o
 
-INSERT INTO public.wins (id, agent_id, contact_id, campaign_id, created_at, organization_id) VALUES
-  ('11000000-0000-0000-0000-0000000005a1', rt.id('A2'), rt.id('CLIENT99'), rt.id('C1'), '2026-07-15T18:00:00Z', rt.id('O1')), -- two policies,
-  ('11000000-0000-0000-0000-0000000005a2', rt.id('A2'), rt.id('CLIENT99'), rt.id('C1'), '2026-07-15T18:05:00Z', rt.id('O1')), -- one client
-  ('11000000-0000-0000-0000-0000000005a3', rt.id('A3'), NULL,              NULL,        '2026-07-21T18:00:00Z', rt.id('O1')),
-  ('11000000-0000-0000-0000-0000000005a4', NULL,        NULL,              NULL,        '2026-07-22T18:00:00Z', rt.id('O1')), -- unattributed
-  ('11000000-0000-0000-0000-0000000005a5', rt.id('A1'), NULL,              NULL,        '2026-08-01T07:00:00Z', rt.id('O1')), -- OUT (end)
-  ('11000000-0000-0000-0000-0000000005a6', rt.id('A1'), NULL,              NULL,        '2026-07-01T07:00:00Z', rt.id('O1')), -- IN (start)
-  ('11000000-0000-0000-0000-0000000005b1', rt.id('B1'), NULL,              rt.id('CB'), '2026-07-10T18:00:00Z', rt.id('O2'));
+-- Wins are an EVENT log and no longer a Reports source: every policy assertion below counts the STORED
+-- policies (public.clients further down), which deliberately mirror these wins' agents and local dates
+-- so the pre-existing expectations still hold. The wins stay to prove they are ignored.
+INSERT INTO public.wins (id, agent_id, contact_id, campaign_id, created_at, organization_id, idempotency_key) VALUES
+  ('11000000-0000-0000-0000-0000000005a1', rt.id('A2'), rt.id('CLIENT99'), rt.id('C1'), '2026-07-15T18:00:00Z', rt.id('O1'),
+   'conversion:' || rt.id('LC99')),                                                                                   -- conversion win
+  ('11000000-0000-0000-0000-0000000005a2', rt.id('A2'), rt.id('CLIENT99'), rt.id('C1'), '2026-07-15T18:05:00Z', rt.id('O1'), NULL), -- same client
+  ('11000000-0000-0000-0000-0000000005a3', rt.id('A3'), NULL,              NULL,        '2026-07-21T18:00:00Z', rt.id('O1'), NULL),
+  ('11000000-0000-0000-0000-0000000005a4', NULL,        NULL,              NULL,        '2026-07-22T18:00:00Z', rt.id('O1'), NULL), -- unattributed
+  ('11000000-0000-0000-0000-0000000005a5', rt.id('A1'), NULL,              NULL,        '2026-08-01T07:00:00Z', rt.id('O1'), NULL), -- OUT (end)
+  ('11000000-0000-0000-0000-0000000005a6', rt.id('A1'), NULL,              NULL,        '2026-07-01T07:00:00Z', rt.id('O1'), NULL), -- IN (start)
+  ('11000000-0000-0000-0000-0000000005b1', rt.id('B1'), NULL,              rt.id('CB'), '2026-07-10T18:00:00Z', rt.id('O2'), NULL);
+
+-- Stored policies (the Reports source). Hand-computed July: CLIENT99 (A2) = primary + 1 additional, both
+-- sold 07-15 = 2; K_A3 (A3) 07-21 = 1; K_UN (unassigned) 07-22 = 1; K_A1IN (A1) 07-01 = 1 (first day, IN);
+-- K_A1OUT (A1) 08-01 = OUT. Organization = 5, unattributed 1, A2 = 2; A1 own = 1; TL team (A1, A2) = 3.
+-- CLIENT99's lineage (conversion win a1 + a2, both C1) attributes its 2 policies to C1. O2: K_B1 07-10.
+INSERT INTO public.clients (id, first_name, last_name, carrier, policy_number, premium, sold_date, custom_fields, lead_id,
+                            assigned_agent_id, created_at, organization_id) VALUES
+  (rt.id('CLIENT99'), 'Client', 'NinetyNine', 'Americo', 'AM-99', 50, '2026-07-15',
+   '{"additional_policies": [{"policyType": "Whole Life", "carrier": "Americo", "premiumAmount": "$30/mo", "soldDate": "2026-07-15"}]}',
+   rt.id('LC99'), rt.id('A2'), '2026-07-15T18:00:00Z', rt.id('O1')),
+  (rt.id('K_A3'),    'Kay', 'Three',   '', 'P-A3', 0,  '2026-07-21', NULL, NULL, rt.id('A3'), '2026-03-02T18:00:00Z', rt.id('O1')),
+  (rt.id('K_UN'),    'Kay', 'Nobody',  '', '',     20, '2026-07-22', NULL, NULL, NULL,        '2026-03-02T18:00:00Z', rt.id('O1')),
+  (rt.id('K_A1IN'),  'Kay', 'First',   'Aetna', '', 0, '2026-07-01', NULL, NULL, rt.id('A1'), '2026-06-30T18:00:00Z', rt.id('O1')),
+  (rt.id('K_A1OUT'), 'Kay', 'Late',    'Aetna', '', 0, '2026-08-01', NULL, NULL, rt.id('A1'), '2026-07-31T18:00:00Z', rt.id('O1')),
+  (rt.id('K_B1'),    'Kay', 'Beta',    'Aetna', '', 0, '2026-07-10', NULL, NULL, rt.id('B1'), '2026-07-10T18:00:00Z', rt.id('O2'));
 
 INSERT INTO public.appointments (id, type, status, created_by, user_id, created_at, organization_id) VALUES
   ('11000000-0000-0000-0000-0000000006a1', 'Call',      'Scheduled', rt.id('A1'), NULL,        '2026-07-10T18:00:00Z', rt.id('O1')),
@@ -406,7 +431,7 @@ BEGIN
   PERFORM rt.eq('T3 null agent = self calls', (j -> 'totals' ->> 'calls_made')::int, 10);
   PERFORM rt.eq('T3 contacted', (j -> 'totals' ->> 'contacted')::int, 4);
   PERFORM rt.eq('T3 talk', (j -> 'totals' ->> 'talk_time_seconds')::int, 264);
-  PERFORM rt.eq('T3 policies (w6)', (j -> 'totals' ->> 'policies_sold')::int, 1);
+  PERFORM rt.eq('T3 policies (stored K_A1IN, first day)', (j -> 'totals' ->> 'policies_sold')::int, 1);
   PERFORM rt.eq('T3 appointments (a1)', (j -> 'totals' ->> 'appointments_set')::int, 1);
   PERFORM rt.eq('T3 sessions', (j -> 'totals' ->> 'session_seconds')::int, 9000);
   PERFORM rt.eq('T3 by_agent only self', jsonb_array_length(j -> 'by_agent'), 1);
@@ -484,7 +509,7 @@ BEGIN
   PERFORM rt.eq('T8 avg talk per dial', (j -> 'totals' ->> 'avg_talk_per_dial_seconds')::numeric, 38.9);
   PERFORM rt.eq('T8 inbound talk', (j -> 'totals' ->> 'inbound_talk_seconds')::int, 340);
   PERFORM rt.eq('T8 converted = distinct contacts (L2 twice + client)', (j -> 'totals' ->> 'converted')::int, 2);
-  PERFORM rt.eq('T8 policies sold = wins (two policies, one client)', (j -> 'totals' ->> 'policies_sold')::int, 5);
+  PERFORM rt.eq('T8 policies sold = stored policies (two policies, one client)', (j -> 'totals' ->> 'policies_sold')::int, 5);
   PERFORM rt.eq('T8 appointments (created_by, user_id rescue, cancelled counts)', (j -> 'totals' ->> 'appointments_set')::int, 4);
   PERFORM rt.eq('T8 dnc calls', (j -> 'totals' ->> 'dnc_calls')::int, 1);
   PERFORM rt.eq('T8 callback calls', (j -> 'totals' ->> 'callback_calls')::int, 1);
@@ -621,7 +646,7 @@ BEGIN
   PERFORM rt.eq('T9 first day holds only k17 (k16 was June 30 local)', (j -> 'by_date' -> 0 ->> 'calls_made')::int, 1);
   PERFORM rt.eq('T9 last day holds k14 (23:59:59 local)', (j -> 'by_date' -> 30 ->> 'calls_made')::int, 1);
   PERFORM rt.eq('T9 by_date sums to calls made', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 19);
-  PERFORM rt.eq('T9 by_date policies (wins by local date)', (SELECT sum((e ->> 'policies_sold')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 5);
+  PERFORM rt.eq('T9 by_date policies (stored, by sale date)', (SELECT sum((e ->> 'policies_sold')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 5);
   PERFORM rt.eq('T9 24 hours', jsonb_array_length(j -> 'by_hour'), 24);
   PERFORM rt.eq('T9 7 weekdays', jsonb_array_length(j -> 'by_day_of_week'), 7);
   PERFORM rt.eq('T9 heatmap 7x24', jsonb_array_length(j -> 'heatmap'), 168);
@@ -737,7 +762,11 @@ BEGIN
   PERFORM rt.eq('T11 C1 leads dialed', (c ->> 'leads_dialed')::int, 2);
   PERFORM rt.eq('T11 C1 contacted leads', (c ->> 'contacted_leads')::int, 2);
   PERFORM rt.eq('T11 C1 converted leads', (c ->> 'converted_leads')::int, 1);
-  PERFORM rt.eq('T11 C1 policies', (c ->> 'policies_sold')::int, 2);
+  PERFORM rt.eq('T11 C1 attributed policies (CLIENT99 lineage, primary + additional)', (c ->> 'attributed_policies')::int, 2);
+  PERFORM rt.eq('T11 no COUNT(wins) policies_sold field', c ? 'policies_sold', false);
+  PERFORM rt.eq('T11 policies in period', (j ->> 'policies_in_period')::int, 5);
+  PERFORM rt.eq('T11 policies without campaign', (j ->> 'policies_without_campaign')::int, 3);
+  PERFORM rt.eq('T11 attribution basis', j ->> 'policy_attribution', 'conversion_lineage_only');
   PERFORM rt.eq('T11 C1 type column', c ->> 'type', 'Team');
   PERFORM rt.eq('T11 no all-time size field', c ? 'total_leads', false);
   PERFORM rt.eq('T11 unattributed calls', (j ->> 'unattributed_calls')::int, 13);
@@ -745,7 +774,8 @@ BEGIN
   j := rt.rpc('get_report_campaign_performance', 'A1', '2026-07-01', '2026-07-31');
   PERFORM rt.eq('T11 agent sees only campaigns they dialed', jsonb_array_length(j -> 'campaigns'), 1);
   PERFORM rt.eq('T11 agent C1 calls (own only)', (j -> 'campaigns' -> 0 ->> 'calls_made')::int, 2);
-  PERFORM rt.eq('T11 agent never sees org policies', (j -> 'campaigns' -> 0 ->> 'policies_sold')::int, 0);
+  PERFORM rt.eq('T11 agent never sees org policies', (j -> 'campaigns' -> 0 ->> 'attributed_policies')::int, 0);
+  PERFORM rt.eq('T11 agent policies in period = own (K_A1IN)', (j ->> 'policies_in_period')::int, 1);
   PERFORM rt.eq('T11 personal campaign of another agent hidden', position(rt.id('C2')::text IN j::text), 0);
   RAISE NOTICE 'T11 OK  campaign attribution + restricted users never receive organization totals';
 END $$;

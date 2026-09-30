@@ -8,6 +8,8 @@
  *
  * Rates are `number | null` — `null` means the denominator was zero and renders as "—", never "0%".
  * There is deliberately no conversion-rate field anywhere (plan rev 2 §R2.2).
+ *
+ * Policy fields follow supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql.
  */
 import { z } from "zod";
 
@@ -29,6 +31,21 @@ export const reportWindowSchema = z.object({
 });
 
 export const reportScopeKindSchema = z.enum(["own", "team", "organization"]);
+
+/**
+ * Policies Sold comes from NORMALIZED STORED POLICIES (clients + additional_policies, by the policy's
+ * sale date), never from wins (migration 20260930120000). The marker is REQUIRED: a payload without it
+ * is a win-based function (not yet migrated, or a recovery state) and is treated as UNAVAILABLE, never
+ * shown under the policy labels.
+ */
+const policySource = z.literal("normalized_policies");
+
+/** Scope-wide, ALL-TIME data-quality counts — never implied to belong to the selected period. */
+export const policyQualitySchema = z.object({
+  basis: z.literal("scope_wide_all_time"),
+  undated_policies: count,
+  malformed_additional_policies: count,
+});
 
 const reportMetaSchema = z.object({
   scope: reportScopeKindSchema,
@@ -95,6 +112,13 @@ export const reportSummarySchema = reportMetaSchema.extend({
     policies_sold: count,
     appointments_set: count,
   }),
+  policy_source: policySource,
+  /** Per-agent policy counts are the client's CURRENT assignment — not original seller credit. */
+  policy_basis: z.object({
+    sale_date: z.literal("policy_sold_date"),
+    agent_attribution: z.literal("current_assignment"),
+  }),
+  policy_quality: policyQualitySchema,
 });
 
 export const reportVolumeSchema = reportMetaSchema.extend({
@@ -115,6 +139,8 @@ export const reportVolumeSchema = reportMetaSchema.extend({
   heatmap: z
     .array(z.object({ dow: z.number().int().min(0).max(6), hour: z.number().int().min(0).max(23), calls_made: count, contacted: count }))
     .length(168),
+  policy_source: policySource,
+  policy_quality: policyQualitySchema,
 });
 
 const dispositionCounts = z.record(z.string(), count);
@@ -152,10 +178,15 @@ export const reportCampaignsSchema = reportMetaSchema.extend({
       leads_dialed: count,
       contacted_leads: count,
       converted_leads: count,
-      policies_sold: count,
+      /** Normalized policies attributed by CONVERSION LINEAGE only (never COUNT(wins)). */
+      attributed_policies: count,
     }),
   ),
   unattributed_calls: count,
+  policy_source: policySource,
+  policy_attribution: z.literal("conversion_lineage_only"),
+  policies_in_period: count,
+  policies_without_campaign: count,
 });
 
 export const reportLeadSourcesSchema = reportMetaSchema.extend({
@@ -185,3 +216,4 @@ export type ReportVolume = z.infer<typeof reportVolumeSchema>;
 export type ReportDispositions = z.infer<typeof reportDispositionsSchema>;
 export type ReportCampaigns = z.infer<typeof reportCampaignsSchema>;
 export type ReportLeadSources = z.infer<typeof reportLeadSourcesSchema>;
+export type ReportPolicyQuality = z.infer<typeof policyQualitySchema>;

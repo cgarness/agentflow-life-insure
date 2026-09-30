@@ -1868,3 +1868,37 @@ Repo bodies built locally on PG16.13 hash to the live md5s in 20.1 (summary `f22
 - Modified tests: `src/lib/__tests__/reportsFixtures.ts`, `reportStatComputations.test.ts`, `reportsContracts.test.ts`,
   `reportsExportFormat.test.ts`, `reportsQueries.test.ts` (if needed), `src/pages/__tests__/reportsPage.test.tsx`.
 - Docs: `AGENT_RULES.md` (#38, cross-refs in #17/#34), `WORK_LOG.md` (prepended), this plan.
+
+### 20.12 As built (2026-09-30) — branch `claude/reports-policies-sold-source-vqvh26`; NOT merged, NOT applied, NOT deployed
+
+- **Migration (NEW; the applied `20260929152553` is byte-identical to main, pinned by test):**
+  `supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql`, SHA-256
+  `b4cfc36c2b0eb370435a29456f08259ea0dfebc4ac18f6e80bb046477e1118a0` (42,160 bytes). Authored version; `apply_migration` will
+  stamp its own version, and the filename (plus runner/test references) is reconciled afterwards with bytes unchanged (#35).
+  - Preflight: live md5s of summary `f221e1d4…`, volume `604abca3…`, campaign `9d151bf9…`, `report_access` `27116a40…`,
+    `report_window` `1107da18…`, `profile_parse_iso_date` `be24ed08…` (all equal to the repo build on PG16.13); owner/SECURITY
+    DEFINER/STABLE/search_path; ACL exactly enabled or exactly disabled; clients/wins column shape; replay refusal.
+  - Three private helpers; three `CREATE OR REPLACE` bodies generated from the applied bodies by exact single-occurrence
+    replacements of the wins source only. Resulting body md5s: summary `826736e666a12d0d85ec3797b2556792`, volume
+    `b4f7d891d7fb29962c86b668a1a2aee6`, campaign `ad2e005906f5d38dc1ee0308ad368f04` (embedded in the enable guard and the fixture).
+  - Postconditions: metadata, ACL unchanged from preflight (never re-enables), no body reads `public.wins`, helpers
+    client-unreachable, legacy sealed.
+- **Recovery files:** preimage fixture `supabase/migrations/rollback/20260930120000_…rollback.sql` SHA-256
+  `5bdb986618e42aac0d22833f618b3d8d49eab95d779d9723e5e2d76b22f1c771` (refuses unless all six `get_report_*` are
+  client-disabled; restores the three preimage bodies verbatim; drops the helpers; stays disabled). `supabase/ops/reports_enable.sql`
+  SHA-256 `16770f3da54a2fad1942f19732c27ea1ba64e831f5cf5b95350b11726d9f9885` gains the POLICY-SOURCE GUARD before any grant.
+  `supabase/ops/reports_disable.sql` unchanged (`8cc967c4…`).
+- **Additional-policy writer assumption re-verified before coding** (see 20.11.2) — holds.
+- **Frontend:** schema requires `policy_source` / `policy_basis` / `policy_quality` (summary), `policy_source` / `policy_quality`
+  (volume) and the campaign lineage fields; one wording module `src/lib/reports-policy-text.ts` (new — added to the 20.11 list)
+  for on-screen notes and CSV `Note` rows; "Most policies — current assignments"; "Policies (current assignment)";
+  "Policies (campaign-attributed)"; per-policy ratios organization-unfiltered only.
+- **Expected production result (Chris's org, 2026-09-01 … 2026-09-29, organization scope, from the 20.1 read-only facts):**
+  `totals.policies_sold = 4` (4 primary, 0 additional; wins would say 2); `by_date` sums to 4; `policy_quality` 0 / 0;
+  Dials per policy sold = outbound calls made ÷ 4; Campaign Performance: at most 1 of those 4 can be campaign-attributed
+  (only 1 of the org's 8 policies has a campaign-bearing conversion win) and the rest appear in `policies_without_campaign`.
+  These are predictions from read-only aggregates; they are verified only after an approved apply.
+- **Remaining limitations:** current-assignment attribution (no seller ledger); conversion-lineage-only campaign attribution;
+  the TS/SQL edge divergences (follow-up: align `normalized-policy.ts`); Dialer header / Leaderboard / Group still count
+  wins or clients by design; old tabs need a reload after release; `report_policy_quality` re-reads the facts (fine at
+  current volume; revisit with an index plan if client counts grow by orders of magnitude).

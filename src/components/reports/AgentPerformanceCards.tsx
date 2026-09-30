@@ -1,6 +1,7 @@
 import React from "react";
 import { formatCount, formatHours, formatRate } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
+import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
 import type { ReportAgentRow, ReportSummary } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
@@ -21,7 +22,7 @@ const EXPORT_HEADERS = [
   "Contacted",
   "Call contact rate %",
   "Talk time (s)",
-  "Policies sold",
+  "Policies (current assignment)",
   "Converted",
   "Appointments",
   "Session time (s)",
@@ -49,7 +50,7 @@ const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
     <Stat label="Calls made" value={formatCount(a.calls_made)} />
     <Stat label="Contacted" value={formatCount(a.contacted)} />
     <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
-    <Stat label="Policies sold" value={formatCount(a.policies_sold)} />
+    <Stat label="Policies (current)" value={formatCount(a.policies_sold)} />
     <Stat label="Converted" value={formatCount(a.converted)} />
   </div>
 );
@@ -57,7 +58,8 @@ const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
 /**
  * Agent Performance — one card per agent in the secured summary, in server order. A card toggles the
  * agent filter only when the viewer may filter to that agent. Converted (unique contacts) and
- * Policies sold (wins) are separate counts; there is no conversion rate and no goal bar.
+ * policies (stored client policies by sale date, credited to the client's CURRENT agent — not the original
+ * seller) are separate counts; there is no conversion rate and no goal bar.
  */
 const AgentPerformanceCards: React.FC<Props> = ({
   summary,
@@ -146,7 +148,7 @@ const AgentPerformanceCards: React.FC<Props> = ({
               <div className="grid grid-cols-3 gap-x-3 gap-y-3">
                 <Stat label="Calls made" value={formatCount(u.calls_made)} />
                 <Stat label="Inbound" value={formatCount(u.inbound_calls)} />
-                <Stat label="Policies sold" value={formatCount(u.policies_sold)} />
+                <Stat label="Policies (no agent)" value={formatCount(u.policies_sold)} />
                 <Stat label="Appointments" value={formatCount(u.appointments_set)} />
                 <Stat label="Talk time" value={formatHours(u.talk_time_seconds)} />
               </div>
@@ -156,8 +158,8 @@ const AgentPerformanceCards: React.FC<Props> = ({
       )}
       {agents.length > 0 && (
         <p className="text-xs text-muted-foreground mt-3">
-          Converted counts unique contacts converted; Policies sold counts policies won. One client can buy more than
-          one policy.
+          Converted counts unique contacts converted. Policies are stored client policies on their sale date; one client
+          can hold several. {CURRENT_ASSIGNMENT_NOTE}
         </p>
       )}
     </ReportSection>

@@ -4,10 +4,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
-import { computeAllStats, STAT_DEFINITIONS, isStatAvailable } from "@/lib/stat-computations";
+import { computeAllStats, STAT_DEFINITIONS, isStatAvailable, POLICY_RATIO_SCOPE_REASON } from "@/lib/stat-computations";
 import { DEFAULT_LAYOUT, DEFAULT_VISIBLE_STATS, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
 import { ReportsQueryError } from "@/lib/reports-queries";
-import { emptySummary, reportSummary, reportVolume } from "./reportsFixtures";
+import { AGENT_A, emptySummary, reportSummary, reportVolume } from "./reportsFixtures";
+import type { ReportSummary } from "@/lib/reports-schemas";
 
 const ready = <T,>(data: T) => ({ status: "ready" as const, data });
 const inputs = (over: Partial<Parameters<typeof computeAllStats>[0]> = {}) => ({
@@ -32,7 +33,7 @@ describe("canonical stat values", () => {
     expect(v("stat_appointments_set").value).toBe("4");
     expect(v("stat_session_time").value).toBe("2h 40m");
     expect(v("stat_calls_per_day").value).toBe("0.6");
-    expect(v("stat_dials_per_sale").value).toBe("3.8");
+    expect(v("stat_policies_sold").subtitle).toBe("stored policies, by sale date");
     expect(v("stat_dials_per_sale").label).toBe("Dials per policy sold");
     expect(v("stat_contact_rate").label).toBe("Call contact rate");
     expect(v("stat_best_contact_agent").label).toBe("Best call contact rate");
@@ -48,7 +49,9 @@ describe("canonical stat values", () => {
   });
 
   it("derives team leaders from per-agent canonical rows", () => {
-    expect(v("stat_top_performer").value).toBe("Bob Agent"); // 2 policies
+    expect(v("stat_top_performer").value).toBe("Bob Agent"); // 2 policies, current assignment
+    expect(v("stat_top_performer").label).toBe("Most policies — current assignments");
+    expect(v("stat_top_performer").subtitle).toBe("2 policies currently assigned");
     expect(v("stat_top_dialer").value).toBe("Alice Agent"); // 10 calls
     expect(v("stat_agents_active").value).toBe("2");
   });
@@ -58,6 +61,53 @@ describe("canonical stat values", () => {
     const outside = computeAllStats(inputs({ agencyToday: "2026-08-02" })).get("stat_calls_today")!;
     expect(outside.state).toBe("unavailable");
     expect(outside.value).toBe("—");
+  });
+});
+
+// Policy counts are the client's CURRENT assignment (plan §20 rev 2), not original seller credit.
+const org = (s: ReportSummary, filter: string | null = null): ReportSummary => ({ ...s, scope: "organization", filter_agent_id: filter });
+
+describe("per-policy ratios are organization-period figures, never agent or team efficiency", () => {
+  it("organization scope with no agent filter: calls / talk in the period ÷ dated stored policies in the period", () => {
+    const stats = computeAllStats(inputs({ summary: ready(org(reportSummary())) }));
+    expect(stats.get("stat_dials_per_sale")!.value).toBe("3.8"); // 19 calls ÷ 5 policies
+    expect(stats.get("stat_dials_per_sale")!.subtitle).toBe("calls in period ÷ dated stored policies in period");
+    expect(stats.get("stat_talk_mins_per_sale")!.value).toBe("2.5"); // 740 s = 12.33 min ÷ 5
+    expect(stats.get("stat_talk_mins_per_sale")!.subtitle).toBe("talk minutes in period ÷ dated stored policies in period");
+  });
+
+  it.each([
+    ["team scope", reportSummary()],
+    ["own scope", { ...reportSummary(), scope: "own" as const }],
+    ["organization scope filtered to one agent", org(reportSummary(), AGENT_A)],
+  ])("%s: both ratios are unavailable, with the reason and no number", (_label, summary) => {
+    const stats = computeAllStats(inputs({ summary: ready(summary) }));
+    for (const id of ["stat_dials_per_sale", "stat_talk_mins_per_sale"]) {
+      expect(stats.get(id)!.state).toBe("unavailable");
+      expect(stats.get(id)!.value).toBe("—");
+      expect(stats.get(id)!.subtitle).toBe(POLICY_RATIO_SCOPE_REASON);
+    }
+  });
+
+  it("a reassigned client moves the ranking, never the total, the calls or an efficiency figure", () => {
+    const before = reportSummary();
+    // Bob's client (2 policies) reassigned to Alice: same organization total, calls stay with the caller.
+    const after = reportSummary({}, before.by_agent.map((a) => (a.agent_id === AGENT_A ? { ...a, policies_sold: 3 } : { ...a, policies_sold: 0 })));
+    const b = computeAllStats(inputs({ summary: ready(before) }));
+    const a = computeAllStats(inputs({ summary: ready(after) }));
+    expect(b.get("stat_top_performer")!.value).toBe("Bob Agent");
+    expect(a.get("stat_top_performer")!.value).toBe("Alice Agent");
+    expect(a.get("stat_top_performer")!.label).toBe("Most policies — current assignments");
+    expect(a.get("stat_policies_sold")!.value).toBe(b.get("stat_policies_sold")!.value);
+    expect(a.get("stat_top_dialer")!.value).toBe("Alice Agent"); // 10 calls, unchanged
+    for (const id of ["stat_dials_per_sale", "stat_talk_mins_per_sale"]) expect(a.get(id)!.state).toBe("unavailable");
+    const orgAfter = computeAllStats(inputs({ summary: ready(org(after)) }));
+    const orgBefore = computeAllStats(inputs({ summary: ready(org(before)) }));
+    expect(orgAfter.get("stat_dials_per_sale")!.value).toBe(orgBefore.get("stat_dials_per_sale")!.value);
+  });
+
+  it("no policy stat is labelled as seller credit", () => {
+    for (const def of STAT_DEFINITIONS) expect(def.label).not.toMatch(/top performer|seller/i);
   });
 });
 
@@ -75,8 +125,9 @@ describe("unknown is never zero", () => {
     const stats = computeAllStats(inputs({ summary: ready(emptySummary()) }));
     expect(stats.get("stat_total_dials")!.value).toBe("0"); // a real, successful zero
     expect(stats.get("stat_contact_rate")!.value).toBe("—");
-    expect(stats.get("stat_dials_per_sale")!.value).toBe("—");
     expect(stats.get("stat_calls_per_hour")!.value).toBe("—");
+    const orgEmpty = computeAllStats(inputs({ summary: ready(org(emptySummary())) }));
+    expect(orgEmpty.get("stat_dials_per_sale")!.value).toBe("—"); // zero policies: a dash, never Infinity
     expect(stats.get("stat_top_performer")!.value).toBe("—");
   });
 

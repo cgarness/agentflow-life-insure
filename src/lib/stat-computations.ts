@@ -10,6 +10,12 @@
  * There is deliberately NO conversion rate of any kind (plan rev 2 §R2.2): Policies Sold counts
  * policies (one client may buy several), so policies ÷ dials is not a lead conversion rate. The only
  * dial-to-policy figure is explicitly named "Dials per policy sold".
+ *
+ * Policies Sold = normalized STORED policies by sale date (plan §20). Per-agent policy counts are the
+ * client's CURRENT assignment, not original seller credit, so: the policy ranking is labelled "Most
+ * policies — current assignments", and the two call/talk-per-policy ratios exist ONLY for the whole
+ * organization with no agent filter (period activity ÷ dated stored policies) — never as an agent or
+ * team efficiency figure.
  */
 import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import type { LoadState } from "@/hooks/useReportsData";
@@ -107,7 +113,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_lead_exhaustion", label: "Lead exhaustion rate", category: "pipeline", unavailable: NOT_TRACKED, invertTrend: true },
 
   // Team
-  { id: "stat_top_performer", label: "Top performer", category: "team" },
+  { id: "stat_top_performer", label: "Most policies — current assignments", category: "team" },
   { id: "stat_top_dialer", label: "Top dialer", category: "team" },
   { id: "stat_best_contact_agent", label: "Best call contact rate", category: "team" },
   { id: "stat_best_conv_agent", label: "Best conv rate", category: "team", unavailable: NO_CONVERSION },
@@ -143,6 +149,15 @@ const dur = (seconds: number | null): string => {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 };
 const num = (n: number | null, digits = 1): string => (n === null || !Number.isFinite(n) ? DASH : n.toFixed(digits));
+
+/** Why the per-policy ratios are withheld outside an unfiltered organization view. */
+export const POLICY_RATIO_SCOPE_REASON =
+  "Organization view only: policies are credited to the client's current agent, not the original seller";
+
+/** Calls/talk per policy are period-level ratios, never seller efficiency: whole organization, no agent filter. */
+function orgWidePolicyRatio(s: ReportSummary): boolean {
+  return s.scope === "organization" && s.filter_agent_id === null;
+}
 
 // ─── Computation ─────────────────────────────────────────────────────────────────────────────────
 
@@ -209,9 +224,10 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       return { value: r === null ? DASH : num(r * 100), subtitle: "DNC dispositions per 100 calls" };
     }
     case "stat_policies_sold":
-      return { value: formatCount(t.policies_sold), subtitle: "policies (wins)" };
+      return { value: formatCount(t.policies_sold), subtitle: "stored policies, by sale date" };
     case "stat_dials_per_sale":
-      return { value: num(ratio(t.calls_made, t.policies_sold)), subtitle: "calls made ÷ policies sold" };
+      if (!orgWidePolicyRatio(s)) return { unknown: POLICY_RATIO_SCOPE_REASON };
+      return { value: num(ratio(t.calls_made, t.policies_sold)), subtitle: "calls in period ÷ dated stored policies in period" };
     case "stat_appointments_set":
       return { value: formatCount(t.appointments_set) };
     case "stat_leads_converted":
@@ -219,8 +235,11 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_callback_rate":
       return { value: formatCount(t.callback_calls), subtitle: "callback dispositions" };
     case "stat_top_performer": {
+      // A ranking by CURRENT assignment — not original sales credit (clients can be reassigned).
       const best = leader(s.by_agent, (a) => a.policies_sold, (a) => a.name);
-      return best ? { value: best.name, subtitle: `${best.score} polic${best.score === 1 ? "y" : "ies"} sold`, smallValue: true } : { value: DASH, subtitle: "no policies sold" };
+      return best
+        ? { value: best.name, subtitle: `${best.score} polic${best.score === 1 ? "y" : "ies"} currently assigned`, smallValue: true }
+        : { value: DASH, subtitle: "no policies in this period" };
     }
     case "stat_top_dialer": {
       const best = leader(s.by_agent, (a) => a.calls_made, (a) => a.name);
@@ -239,7 +258,8 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_dials_per_appt":
       return { value: num(ratio(t.calls_made, t.appointments_set)) };
     case "stat_talk_mins_per_sale":
-      return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)), subtitle: "talk minutes ÷ policies sold" };
+      if (!orgWidePolicyRatio(s)) return { unknown: POLICY_RATIO_SCOPE_REASON };
+      return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)), subtitle: "talk minutes in period ÷ dated stored policies in period" };
     default:
       return { unknown: NOT_TRACKED };
   }

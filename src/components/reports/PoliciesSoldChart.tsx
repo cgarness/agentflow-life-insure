@@ -4,6 +4,7 @@ import { Calendar, TrendingUp, Trophy, type LucideIcon } from "lucide-react";
 import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import { formatCount, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
+import { CURRENT_ASSIGNMENT_NOTE, POLICY_SOURCE_NOTE, policyQualityNote } from "@/lib/reports-policy-text";
 import ReportSection from "./ReportSection";
 
 interface Props {
@@ -61,8 +62,9 @@ const Tile: React.FC<TileProps> = ({ icon: Icon, label, value, subtitle }) => (
 );
 
 /**
- * Policies Sold — canonical wins per AGENCY-calendar period. This is a count of policies, not of
- * clients, and is deliberately never divided into a rate of any kind.
+ * Policies Sold — normalized STORED policies (primary + additional) per AGENCY-calendar period, on each
+ * policy's sale date; never wins. A count of policies, not clients, never divided into a rate. The
+ * agent ranking is by CURRENT assignment, so it is labelled that way and never as seller credit.
  */
 const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExport }) => {
   const series = useMemo(
@@ -82,6 +84,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
   );
 
   const total = useMemo(() => series.reduce((sum, b) => sum + b.policies_sold, 0), [series]);
+  const qualityNote = policyQualityNote(volume.policy_quality);
 
   const peak = useMemo(() => {
     let best: (typeof series)[number] | null = null;
@@ -131,10 +134,14 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
         <Tile icon={TrendingUp} label="Total policies sold" value={formatCount(total)} />
         <Tile
           icon={Trophy}
-          label="Top performer"
+          label="Most policies — current assignments"
           value={topPerformer ? topPerformer.name : "—"}
           subtitle={
-            !summaryReady ? "Agent summary not loaded" : topPerformer ? policiesLabel(topPerformer.policies_sold) : undefined
+            !summaryReady
+              ? "Agent summary not loaded"
+              : topPerformer
+                ? `${policiesLabel(topPerformer.policies_sold)} currently assigned`
+                : undefined
           }
         />
         <Tile
@@ -146,8 +153,9 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
       </div>
 
       <p className="text-[11px] text-muted-foreground mt-3">
-        Policies sold are counted from wins; one client can buy several policies.
+        {POLICY_SOURCE_NOTE} One client can hold several policies. {CURRENT_ASSIGNMENT_NOTE}
       </p>
+      {qualityNote && <p className="text-[11px] text-muted-foreground mt-1">{qualityNote}</p>}
     </ReportSection>
   );
 };

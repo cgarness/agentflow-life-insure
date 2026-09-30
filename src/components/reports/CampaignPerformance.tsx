@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { Badge } from "@/components/ui/badge";
 import { formatCount, formatRate } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
+import { CAMPAIGN_ATTRIBUTION_NOTE } from "@/lib/reports-policy-text";
 import type { ReportCampaigns } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
@@ -21,7 +22,7 @@ const COLUMNS: { label: string; numeric: boolean }[] = [
   { label: "Leads dialed", numeric: true },
   { label: "Contacted leads", numeric: true },
   { label: "Converted leads", numeric: true },
-  { label: "Policies sold", numeric: true },
+  { label: "Policies (campaign-attributed)", numeric: true },
 ];
 
 interface Props {
@@ -62,7 +63,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
             c.leads_dialed,
             c.contacted_leads,
             c.converted_leads,
-            c.policies_sold,
+            c.attributed_policies,
           ]),
         )
     : undefined;
@@ -150,7 +151,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
                     <td className={cellClass}>{formatCount(c.leads_dialed)}</td>
                     <td className={cellClass}>{formatCount(c.contacted_leads)}</td>
                     <td className={cellClass}>{formatCount(c.converted_leads)}</td>
-                    <td className="py-3 px-4 text-right tabular-nums font-bold text-foreground">{formatCount(c.policies_sold)}</td>
+                    <td className="py-3 px-4 text-right tabular-nums font-bold text-foreground">{formatCount(c.attributed_policies)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -160,7 +161,13 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
       )}
       {rows.length > 0 && (
         <p className="text-[11px] text-muted-foreground mt-3">
-          Outbound calls. Converted leads are unique campaign leads given a converting disposition; policies sold are recorded wins.
+          Outbound calls. Converted leads are unique campaign leads given a converting disposition. {CAMPAIGN_ATTRIBUTION_NOTE}
+        </p>
+      )}
+      {campaigns.policies_without_campaign > 0 && (
+        <p className="text-[11px] text-muted-foreground mt-1">
+          {formatCount(campaigns.policies_without_campaign)} of {formatCount(campaigns.policies_in_period)} policies sold in this
+          period have no provable campaign and are not attributed to any campaign.
         </p>
       )}
       {campaigns.unattributed_calls > 0 && (

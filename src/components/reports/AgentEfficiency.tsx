@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatHours, formatRate, ratio } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
+import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
 import type { ReportSummary } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
@@ -30,7 +31,7 @@ interface Point {
   y: number;
 }
 
-const HEADERS = ["Agent", "Calls made", "Session time", "Calls per session hour", "Call contact rate", "Talk time", "Policies sold"];
+const HEADERS = ["Agent", "Calls made", "Session time", "Calls per session hour", "Call contact rate", "Talk time", "Policies (current assignment)"];
 const EXPORT_HEADERS = [
   "Agent",
   "Calls made",
@@ -38,7 +39,7 @@ const EXPORT_HEADERS = [
   "Calls per session hour",
   "Call contact rate %",
   "Talk time (s)",
-  "Policies sold",
+  "Policies (current assignment)",
 ];
 
 const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
@@ -179,7 +180,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
             </ResponsiveContainer>
           )}
           <p className="text-xs text-muted-foreground mt-3">
-            Session time is server-timestamped dialer sessions, clipped to the selected period.
+            Session time is server-timestamped dialer sessions, clipped to the selected period. {CURRENT_ASSIGNMENT_NOTE}
           </p>
         </>
       )}

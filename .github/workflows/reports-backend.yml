@@ -1,6 +1,7 @@
 name: Reports backend verification
 # Real PostgreSQL proof of the Reports RPC security + metric contract
-# (supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql). Synthetic tenants only; the
+# (supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql + the Policies Sold source fix
+# 20260930120000_reports_policies_sold_normalized_source.sql). Synthetic tenants only; the
 # runner refuses any non-localhost database, and no production credential exists in this job.
 on:
   pull_request:
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17.6
@@ -41,7 +42,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Reports RPC suite, negative controls, drift/replay refusal, disable/enable, rollback
+      - name: Reports RPC + Policies Sold suites, negative controls, drift/replay refusal, disable/enable, fail-closed recovery, rollback
         env:
           PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
         run: |
