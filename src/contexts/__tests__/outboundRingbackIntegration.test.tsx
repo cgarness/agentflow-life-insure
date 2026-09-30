@@ -2,7 +2,9 @@
  * Outbound ringback × the REAL TwilioProvider event wiring (fake SDK wrapper, same pattern as
  * teamOpenRevealIntegration.test). The real `@/lib/outboundRingback` helper runs against a fake
  * `window.AudioContext` that records every buffer source, so "audible loops" is counted exactly:
- * a source is audible from `start()` until `stop()`.
+ * a source is audible from `start()` until `stop()`. "Stops immediately" is sampled INSIDE the act()
+ * callback, right after the event fires and before React renders or runs any effect, so each stop is
+ * proven synchronous in its own handler, not merely achieved by the `callState` backstop a render later.
  *
  * It proves the app's mapping from Voice.js Call events to what the agent hears; it does not prove
  * Twilio's network behaviour (see outboundRingbackSdkPinned.test.ts for the pinned SDK facts).
@@ -109,7 +111,7 @@ function fakeCall(direction: "OUTGOING" | "INCOMING") {
     emit(ev: string, ...a: unknown[]) {
       if (ev === "ringing") st = "ringing";
       if (ev === "accept") st = "open";
-      if (["disconnect", "cancel", "reject", "error"].includes(ev)) st = "closed";
+      if (["disconnect", "cancel", "reject", "error", "transportClose"].includes(ev)) st = "closed";
       for (const fn of [...(listeners.get(ev) ?? [])]) fn(...a);
     },
     count: (ev: string) => (listeners.get(ev) ?? []).length,
@@ -164,6 +166,12 @@ async function dial(call: FakeCall) {
 }
 async function emit(call: FakeCall, ev: string, ...a: unknown[]) {
   await act(async () => { call.emit(ev, ...a); });
+}
+/** Audible loops at the instant `fire` returns — before React renders or runs effects (no backstop yet). */
+async function audibleRightAfter(fire: () => void): Promise<number> {
+  let n = -1;
+  await act(async () => { fire(); n = audible(); });
+  return n;
 }
 
 beforeAll(() => {
@@ -232,8 +240,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await emit(call, "accept");
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => call.emit("accept"))).toBe(0);
     await waitFor(() => expect(callState()).toBe("active"));
     expect(audible()).toBe(0);
   }, 15_000);
@@ -244,8 +251,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await emit(call, ev);
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => call.emit(ev))).toBe(0);
     await waitFor(() => expect(callState()).toMatch(/ended|idle/));
   }, 15_000);
 
@@ -255,8 +261,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await emit(call, "error", { message: "31005 connection error" });
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => call.emit("error", { message: "31005 connection error" }))).toBe(0);
   }, 15_000);
 
   it("6b — the agent hanging up stops it", async () => {
@@ -265,8 +270,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await click("hangup");
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => screen.getByText("hangup").click())).toBe(0);
     expect(callState()).toMatch(/ended|idle/);
   }, 15_000);
 
@@ -308,8 +312,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     expect(isOutboundRingbackPlaying(second)).toBe(true);
     expect(audible()).toBe(1);
 
-    await emit(second, "accept");
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => second.emit("accept"))).toBe(0);
   }, 20_000);
 
   it("8b — an inbound call replacing a ringing outbound call silences the ringback", async () => {
@@ -319,8 +322,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await emit(out, "ringing", false);
     expect(audible()).toBe(1);
     const inbound = fakeCall("INCOMING");
-    await act(async () => { voice.incoming!(inbound); });
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => voice.incoming!(inbound))).toBe(0);
     await emit(out, "ringing", false); // the replaced Call is no longer current
     expect(audible()).toBe(0);
   }, 15_000);
@@ -341,8 +343,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(lateMedia);
     await emit(lateMedia, "ringing", false);
     expect(audible()).toBe(1);
-    await emit(lateMedia, "ringing", true); // carrier early media begins mid-ring
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => lateMedia.emit("ringing", true))).toBe(0); // carrier early media begins mid-ring
     await emit(lateMedia, "ringing", false); // and stays the ringback for the rest of the call
     expect(audible()).toBe(0);
     await click("hangup");
@@ -356,14 +357,24 @@ describe("outbound ringback × real TwilioProvider", () => {
     expect(isOutboundRingbackPlaying()).toBe(false);
   }, 20_000);
 
+  it("a ringing Call closed by a signaling drop (`transportClose` only, no disconnect) stops it", async () => {
+    await ready();
+    const call = fakeCall("OUTGOING");
+    await dial(call);
+    await emit(call, "ringing", false);
+    expect(audible()).toBe(1);
+    expect(await audibleRightAfter(() => call.emit("transportClose"))).toBe(0);
+    expect(isOutboundRingbackPlaying()).toBe(false);
+    expect(callState()).toBe("dialing"); // the provider's (pre-existing) state is untouched; the stop is its own
+  }, 15_000);
+
   it("a network drop mid-ring stops it", async () => {
     await ready();
     const call = fakeCall("OUTGOING");
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await act(async () => { window.dispatchEvent(new Event("offline")); });
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => window.dispatchEvent(new Event("offline")))).toBe(0);
   }, 15_000);
 
   it("provider teardown (sign-out) and unmount stop it", async () => {
@@ -372,8 +383,7 @@ describe("outbound ringback × real TwilioProvider", () => {
     await dial(call);
     await emit(call, "ringing", false);
     expect(audible()).toBe(1);
-    await click("destroy");
-    expect(audible()).toBe(0);
+    expect(await audibleRightAfter(() => screen.getByText("destroy").click())).toBe(0);
     r.unmount();
 
     const r2 = await ready();

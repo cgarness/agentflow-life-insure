@@ -252,6 +252,14 @@ describe("OutboundRingback — release and context lifecycle", () => {
     expect(ctx().sources[0].stopped).toBe(true);
     expect(ctx().sources[0].disconnected).toBe(true);
   });
+
+  it("a stop while start()'s resume is still in flight queues a suspend, so the idle device is not left open", () => {
+    const { ringback, ctx } = setup({ initialState: "suspended", resume: "pending" });
+    ringback.start({});
+    expect(ctx().resumeCalls).toBe(1);
+    ringback.stop();
+    expect(ctx().suspendCalls).toBe(1);
+  });
 });
 
 describe("OutboundRingback — audio failures never reach the call", () => {

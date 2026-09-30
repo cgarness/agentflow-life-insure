@@ -1812,7 +1812,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // Carrier early media plays by itself; without it the agent hears the synthetic ringback.
           // Only the current, unanswered, unfinished call may drive the tone.
           if (callRef.current === call && !endStateProcessedRef.current && !outboundRemoteAnsweredRef.current) {
-            handleOutboundRinging(call, hasEarlyMedia);
+            const ringback = handleOutboundRinging(call, hasEarlyMedia);
+            console.log("[TwilioContext] Outbound ringing", { hasEarlyMedia, ringback });
           }
         }
       });
@@ -1914,6 +1915,12 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       call.on("error", (err: { message?: string }) => {
         console.warn("[TwilioContext] Call error:", err);
         finalizeEnded();
+      });
+
+      // SDK 2.18.1 closes a still-ringing Call whose signaling drops with ONLY `transportClose` (no
+      // `disconnect`/`error`); its ringback must not keep telling the agent the lead's phone rings.
+      call.on("transportClose", () => {
+        stopOutboundRingback(call);
       });
 
       if (isVoiceSdkInboundDirection(getCallDirection(call))) {

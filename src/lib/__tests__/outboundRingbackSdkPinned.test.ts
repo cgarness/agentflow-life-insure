@@ -31,6 +31,23 @@ describe("outbound ringback — Voice SDK preconditions", () => {
     expect(onRinging).toContain("_this._status !== Call.State.Connecting && _this._status !== Call.State.Ringing");
   });
 
+  it("a ringing Call whose signaling drops closes with ONLY `transportClose` (no disconnect/error)", () => {
+    const onClose = sdk.slice(sdk.indexOf("_this._onTransportClose = function"), sdk.indexOf("_this._onTransportClose = function") + 900);
+    expect(onClose).toContain("_this.emit('transportClose');");
+    expect(onClose).toContain("if (_this._signalingReconnectToken) {");
+    expect(onClose).toContain("_this._status = Call.State.Closed;");
+    expect(onClose).not.toContain("emit('disconnect'");
+    expect(onClose).not.toContain("emit('error'");
+    // A fresh outbound Call gets its reconnect token only with the `answer` payload; the one other
+    // source is `Device.connect({ connectToken })` (resuming a call), which AgentFlow never uses.
+    const onAnswer = sdk.slice(sdk.indexOf("_this._onAnswer = function"), sdk.indexOf("_this._onAnswer = function") + 300);
+    expect(onAnswer).toContain("_this._signalingReconnectToken = payload.reconnect;");
+    expect(sdk.split("_this._signalingReconnectToken = ").length - 1).toBe(2);
+    expect(sdk).toContain("_this._signalingReconnectToken = _this._options.reconnectToken;");
+    const voice = read("src/lib/twilio-voice.ts");
+    expect(voice).not.toMatch(/connectToken|reconnectToken/);
+  });
+
   it("the SDK's `outgoing` sound is a one-shot chime on `accept` (after answer) — not a ringback", () => {
     const device = read("node_modules/@twilio/voice-sdk/es5/twilio/device.js");
     const acceptIdx = device.indexOf("call$1.once('accept', function () {");
@@ -44,9 +61,14 @@ describe("outbound ringback — Voice SDK preconditions", () => {
 });
 
 describe("outbound ringback — app wiring pins", () => {
-  it("the Device keeps the ringing state enabled and the post-answer outgoing chime off", () => {
+  it("the ringing state is always on in SDK 2.x, and the post-answer outgoing chime stays off", () => {
+    // `enableRingingState` was removed in 2.0 and is assumed true, so `ringing` always fires for outbound
+    // calls; the option still passed in twilio-voice.ts is inert.
+    const changelog = read("node_modules/@twilio/voice-sdk/CHANGELOG.md");
+    const removed = changelog.slice(changelog.indexOf("### Device Option Deprecations"), changelog.indexOf("### Device Option Deprecations") + 400);
+    expect(removed).toContain("* `enableRingingState`");
+    expect(removed).toContain("The above three removed options are now assumed `true`.");
     const voice = read("src/lib/twilio-voice.ts");
-    expect(voice).toContain("enableRingingState: true,");
     expect(voice).toContain("device.audio?.outgoing(false);");
   });
 
@@ -57,5 +79,6 @@ describe("outbound ringback — app wiring pins", () => {
     const handler = ctx.slice(idx, idx + 700);
     expect(handler).toContain("handleOutboundRinging(call, hasEarlyMedia);");
     expect(handler).toContain("callRef.current === call");
+    expect(ctx).toContain('call.on("transportClose", () => {\n        stopOutboundRingback(call);');
   });
 });

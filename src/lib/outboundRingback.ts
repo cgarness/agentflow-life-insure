@@ -231,10 +231,14 @@ export class OutboundRingback {
     finish();
   }
 
-  /** An idle context is suspended so no audio thread runs between calls; start() resumes it. */
+  /**
+   * An idle context is suspended so no audio thread runs between calls; start() resumes it. Also
+   * issued when the context still reads "suspended": a resume() from start() may be in flight, and
+   * the queued suspend() lands after it instead of leaving the device open.
+   */
   private suspendIfIdle(): void {
     const ctx = this.ctx;
-    if (!ctx || this.playback || ctx.state !== "running") return;
+    if (!ctx || this.playback || ctx.state === "closed") return;
     try {
       void Promise.resolve(ctx.suspend()).catch(() => { /* resumed or closed meanwhile */ });
     } catch {
