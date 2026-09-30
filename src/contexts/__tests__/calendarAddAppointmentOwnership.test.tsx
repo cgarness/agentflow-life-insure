@@ -322,7 +322,8 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
   it("the ...a pass-through is untouched: a camelCase object reaches insert with its keys unmapped", async () => {
     await mountSettled();
     const before = ctx().appointments.length;
-    // Same shape DialerPage sends (out of scope; PostgREST rejects it today, so it can never duplicate a row).
+    // The camelCase shape DialerPage used to send (removed by the Dialer writer fix, root plan §19;
+    // PostgREST rejects it, so it could never duplicate a row).
     const date = new Date(2026, 9, 6);
     const camel = {
       title: "Dialer appointment",

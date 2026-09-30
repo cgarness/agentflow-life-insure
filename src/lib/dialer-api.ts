@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
+import { localDateTimeToIso } from "@/lib/calendar/localDateTime";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -598,14 +599,19 @@ export async function saveAppointment(data: {
   end_time: string;
   notes: string;
 }, organizationId: string | null = null) {
-  const startTime = `${data.date}T${convertTo24h(data.time)}`;
-  const endTime = data.end_time
-    ? `${data.date}T${convertTo24h(data.end_time)}`
-    : null;
+  // The picked date + wall-clock time are the dialing agent's LOCAL time; store that absolute instant
+  // (the same construction as the canonical campaign callback — src/lib/calendar/localDateTime.ts).
+  const startTime = localDateTimeToIso(data.date, data.time);
+  const endTime = data.end_time ? localDateTimeToIso(data.date, data.end_time) : null;
+  if (!startTime || (data.end_time && !endTime)) {
+    throw new Error("Invalid appointment date or time — nothing was saved");
+  }
 
+  // Main-Dialer ownership: the dialing agent is both the responsible user and the scheduler.
   const { error: aptError } = await supabase.from("appointments").insert({
     contact_id: data.master_lead_id,
     user_id: data.agent_id,
+    created_by: data.agent_id,
     title: data.title,
     start_time: startTime,
     end_time: endTime,
@@ -623,16 +629,4 @@ export async function saveAppointment(data: {
     organization_id: organizationId,
   } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
   if (actError) throw new Error(actError.message);
-}
-
-/** Convert "2:30 PM" style time to "14:30:00" for timestamp construction */
-function convertTo24h(timeStr: string): string {
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-  if (!match) return timeStr; // already 24h or unparseable
-  let hours = parseInt(match[1], 10);
-  const minutes = match[2];
-  const period = match[3]?.toUpperCase();
-  if (period === "PM" && hours < 12) hours += 12;
-  if (period === "AM" && hours === 12) hours = 0;
-  return `${hours.toString().padStart(2, "0")}:${minutes}:00`;
 }

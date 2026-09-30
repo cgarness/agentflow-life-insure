@@ -1,3 +1,48 @@
+## 2026-09-30 — Dialer appointment timezone + `created_by` writer fix — IMPLEMENTED AND VERIFIED LOCALLY; NOT PUSHED
+
+- **Status:**
+  - Local branch `claude/dialer-appointment-timezone-created-by` from `main` `d675a4b1`; not pushed, merged or deployed.
+  - Root `implementation_plan.md` §19 holds the plan, the review revisions and the as-built record.
+- **Root cause:**
+  - `dialer-api.saveAppointment` sent `${date}T${time}` with no offset. `timestamptz` reads that as UTC, so shadows land
+    7 h early in PDT and 8 h in PST.
+  - It omitted `created_by`.
+  - DialerPage also called `CalendarContext.addAppointment` with camelCase fields: a second, always-rejected INSERT
+    per appointment save.
+- **Change:**
+  - NEW `src/lib/calendar/localDateTime.ts`: local wall-clock → `toISOString()`, the same construction as the canonical
+    `callbackDueAtISO`.
+  - `saveAppointment` uses it, throws before any write on malformed input, and stamps `created_by = user_id =` the
+    dialing agent, with no `type`.
+  - DialerPage no longer uses `addAppointment`. It runs ONE silent, non-blocking `fetchAppointments({ silent: true })`
+    only after a successful scheduler write.
+  - Unchanged: the canonical campaign callback (`advance_campaign_lead`), queue, locks, telephony, Twilio, Reports,
+    Dashboard, leaderboards, CalendarPage and the date prefill.
+  - D-2 DEFERRED. Follow-up: "local-date appointment prefill" plus "explicit past-time validation/warning".
+- **Tests:**
+  - 5 new files (helper, payload, forced-LA, source contract, real-page save) and 1 mock update.
+  - Fail-first on `main`: UTC 23 failed / 6 passed / 2 skipped; LA 25 failed / 6 passed.
+  - Branch: UTC 71 passed / 9 skipped; LA 79 passed / 1 skipped.
+  - Focused 65 files, 0 failed: UTC 940 passed / 29 skipped; LA 968 passed / 1 skipped.
+  - Full suite, same as `main` in both zones:
+    - 12 failed files (pre-existing env imports and `recordingRetentionVoicemail`);
+    - 1 failed test;
+    - 1 pre-existing Twilio-mock unhandled rejection;
+    - +5 files and +50 tests.
+  - Typecheck: root 0 = 0; app 90 = 90, identical set.
+  - Commands (LA-only cases skip under UTC, and no CI runs vitest):
+    - `TZ=UTC npx vitest run src/lib/calendar/__tests__/localDateTime.test.ts src/lib/__tests__/saveAppointmentPayload.test.ts src/lib/__tests__/dialerAppointmentForcedLA.test.ts src/pages/__tests__/dialerAppointmentSaveContract.test.ts src/pages/__tests__/dialerAppointmentSave.test.tsx src/pages/__tests__/dialerRenderStability.test.tsx src/contexts/__tests__/calendarAddAppointmentOwnership.test.tsx`
+    - `TZ=America/Los_Angeles npx vitest run` with the same files.
+    - `TZ=UTC npx vitest run` and `TZ=America/Los_Angeles npx vitest run` for the full suite.
+- **Docs:**
+  - `AGENT_RULES.md` #22: the Main Dialer writer exception is closed. #23: AgentScorecardModal counts `created_by` only.
+- **Production:**
+  - READ-ONLY checks only. At 02:35 UTC there were 3 future shifted shadows (`2f5f498a…`, `47edce25…`,
+    `18858a30…`), each exactly 7 h before its `campaign_leads.callback_due_at`. The past row `35cb701c…` is excluded.
+  - The ID-bounded, fail-closed repair is PROPOSED, not run.
+  - Migrations: none. Deploys: none. Production writes: none.
+- **Next:** Chris's approval to push/PR, then separately to run the 3-row repair.
+
 ## 2026-09-29 — Contact Follow-ups + Group leaderboard repair production release — PRODUCTION VERIFIED
 
 - **Status:** released and verified in production (`jncvvsvckxhqgqvkppmj`). Record:

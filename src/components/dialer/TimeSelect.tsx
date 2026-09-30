@@ -60,7 +60,9 @@ interface TimeSelectProps {
  *
  * Emits 12-hour "h:mm AM/PM" strings in 15-minute increments across the full
  * day. This format is accepted by both dialer save paths: appointments via
- * `convertTo24h` (dialer-api) and callbacks via the inline parser in DialerPage.
+ * `localDateTimeToIso` (src/lib/calendar/localDateTime.ts, used by dialer-api
+ * saveAppointment) and callbacks via the inline parser in DialerPage — both
+ * produce the same local-time instant.
  * Replaces the prior native `<input type="time">` controls (manual entry +
  * 12h/24h format mismatch).
  */

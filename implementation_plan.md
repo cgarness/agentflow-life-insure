@@ -1299,3 +1299,292 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   - Root `npx tsc --noEmit`: 0 errors. App tsconfig: 90, the same as `main`, since no TS file changed.
   - No `src/`, TS/JS or migration-content change.
   - No production write, apply, rollback, Vercel action or advisor fix.
+
+## §19. Dialer appointment timezone + `created_by` writer fix (2026-09-30) — BUGFIX; implemented and verified locally (as-built below); not pushed
+
+(Root-plan §19. It is not the contact-followups plan's §19 cited in §17 above.)
+
+- **Authority / scope:** Chris's brief "DIALER APPOINTMENT TIMEZONE + CREATED_BY WRITER FIX" (label BUGFIX).
+  - Base: `main` @ `d675a4b1`.
+  - Local branch `claude/dialer-appointment-timezone-created-by` from `main` `d675a4b1`; this plan is committed
+    locally only. Nothing is pushed.
+  - Frontend-only writer fix. No schema, RLS, RPC, migration or production change.
+  - Telephony, queue, canonical callback writer and Reports are untouched.
+- **Verified root cause (code read + a throwaway probe that drove the real `saveCallData`; nothing committed):**
+  1. **Timezone.** `dialer-api.saveAppointment` builds `start_time`/`end_time` as `${date}T${convertTo24h(time)}`, with
+     no offset. `appointments.start_time` is `timestamptz`, so Postgres reads that wall-clock as UTC.
+     - The probe ran under `TZ=America/Los_Angeles` for a 2:30 PM 2026-10-15 callback. The shadow insert sent
+       `start_time: '2026-10-15T14:30:00'`, while `advance_campaign_lead` got
+       `p_callback_due_at: '2026-10-15T21:30:00.000Z'`. The shadow is 7 h early.
+     - The canonical DialerPage computation `new Date(y, m, d, h, min).toISOString()` is correct and is not changed.
+  2. **`created_by` omitted.** The insert writes `contact_id, user_id, title, start_time, end_time, notes, status,
+     organization_id` but no `created_by`.
+  3. **Invalid second writer.** After `saveAppointment`, the appointmentScheduler path calls
+     `CalendarContext.addAppointment({title,type,status,contactName,contactId,date,startTime,endTime,agent,notes})`.
+     - The call is not awaited, inside a synchronous try/catch.
+     - `addAppointment` inserts `{...a, ...ownership}` unmapped. PostgREST rejects the unknown camelCase columns, so
+       today no second row lands, but there is a second INSERT attempt, an unhandled rejection and a `console.error`.
+     - With the real CalendarProvider mounted, the probe recorded **2** `appointments` inserts per save.
+- **Path audit (DialerPage):**
+  - LIVE: `saveCallData` appointmentScheduler (`:3601`, plus `addAppointment` at `:3619`) and callbackScheduler
+    (`:3664`). Both are reached from Save (`proceedSaveOnly`) and Save & Next (`proceedSaveAndNext`).
+  - UNREACHABLE: `handleSaveCallback` (`:4256`; the Callback dialog's `setShowCallbackModal(true)` is never called)
+    and the `AppointmentModal` `onSave` (`:4908`; `setShowAppointmentModal(true)` is never called).
+- **Reader audit:**
+  - Every reader parses `start_time` as an absolute instant; none compensates for the naive value.
+  - The Main-Dialer shadow is never identified by time or `created_by`:
+    - ContactFollowUps (`isMainDialerCallbackShadow`) matches title "Callback" plus a non-callback `type`;
+    - appointmentFilters (`isDialerCallbackAppointment`, CalendarPage's List view) matches the title ("Callback" or
+      a "Callback:" prefix) or the dialer notes marker, and deliberately never reads `type`;
+    - dashboard-callbacks excludes it by `type` (it reads only callback types).
+  - So the shadow must keep NO explicit `type` (DB default `Sales Call`): ContactFollowUps and dashboard-callbacks
+    depend on it.
+  - Reminders fire from `start_time`; today Dialer reminders fire 7 h early in PDT (8 h in PST).
+- **Proposed implementation (surgical):**
+  1. **NEW pure helper `src/lib/calendar/localDateTime.ts`:**
+     - `parseWallClockTime(time)` accepts `h:mm AM/PM` (TimeSelect) and `HH:mm`, is anchored and range-checked, and
+       returns null otherwise.
+     - `localDateTimeToIso(dateYmd, time)` validates `yyyy-MM-dd` strictly (reusing `taskDates.parseLocalDateInput`,
+       which rejects rollovers). It then returns `new Date(y, m-1, d, h, min, 0, 0).toISOString()`, the same
+       construction as the canonical `callbackDueAtISO`, or null.
+     - It never uses `new Date("yyyy-MM-dd")`, never appends `Z`, and has no fixed offsets. DST follows JS
+       local-time rules, identically to the canonical value.
+  2. **`dialer-api.saveAppointment`:**
+     - `start_time` = helper(date, time). `end_time` = helper(date, end_time) when non-empty, else null.
+     - If the date, the start or a non-empty end is invalid, it throws a clear Error BEFORE any write. Both live
+       callers already catch and toast, so the call save continues.
+     - Adds `created_by: data.agent_id`. `user_id` stays `data.agent_id`, the dialing agent, which equals
+       `auth.uid()`, and RLS `appointments_insert` passes.
+     - Every other column, the absence of `type`, and the `contact_activities` insert are unchanged. The now-unused
+       `convertTo24h` is removed, and TimeSelect's doc comment is updated to name the helper (comment only).
+  3. **`DialerPage.tsx`:**
+     - `const { fetchAppointments } = useCalendar()` replaces `addAppointment`.
+     - appointmentScheduler path: remove the `addAppointment` block. After a SUCCESSFUL `saveAppointment`, call
+       `void fetchAppointments({ silent: true })`.
+     - callbackScheduler path: the same silent refresh after success.
+     - Dead `AppointmentModal` `onSave`: remove `addAppointment(data)` and refresh on success; not otherwise
+       changed and not wired to anything.
+     - `handleSaveCallback` stays unchanged; it is dead and inherits the fixed writer.
+     - Unchanged: the canonical `callbackDueAtISO` (both copies), the `advanceCampaignLead` arguments, `saveCall`,
+       `saveNote`, `updateLeadStatus`, queue, locks, Twilio, and the defense-in-depth try/catch (a shadow failure
+       never blocks the call save or advancement).
+- **Decisions for Chris:**
+  - **D-1 CalendarPage (recommended: leave untouched).** Its `timeStringToDate` has different fallback semantics
+    (unanchored regex; returns the base date on a parse failure). The new helper documents and tests the same
+    contract without redesigning CalendarPage.
+  - **D-2 appointment date prefill (recommended: include, one line).** `DialerPage.tsx:3458` defaults `aptDate` to
+    the UTC date (`new Date().toISOString().split('T')[0]`), which is tomorrow after about 5 PM PDT. This is
+    pre-existing and independent of the writer, but it is the same form's local-time contract. The fix is
+    `todayLocalDateInput()` from `taskDates.ts`.
+  - **D-3 branch name:** as above, or another name you prefer.
+- **Tests (fail-first: each is run against the current code first and shown failing, then passing):**
+  1. **`src/lib/calendar/__tests__/localDateTime.test.ts`:**
+     - equality with `new Date(y,m,d,h,min).toISOString()` in any zone;
+     - ISO `Z` format;
+     - 12 AM / 12 PM, 24h input, malformed input and rollover dates rejected.
+     - LA-only literals:
+       - 2026-09-30 2:30 PM → `2026-09-30T21:30:00.000Z`
+       - winter 2026-12-15 2:30 PM → `2026-12-15T22:30:00.000Z`
+       - 2026-10-31 11:30 PM → `2026-11-01T06:30:00.000Z`
+       - 2026-11-02 9:00 AM → `2026-11-02T17:00:00.000Z`
+     - UTC-only: 2:30 PM → `14:30:00.000Z`.
+  2. **`src/lib/__tests__/saveAppointmentPayload.test.ts`:**
+     - start (with offset) and end instants, or null;
+     - `user_id = created_by = agent_id`; `organization_id`, `status` Scheduled and `contact_id`/title/notes
+       unchanged; no `type`; the activity row unchanged;
+     - invalid time throws with ZERO inserts; an insert error throws.
+  3. **`src/pages/__tests__/dialerAppointmentSave.test.tsx`:** real DialerPage save path, for Save and Save & Next.
+     - Callback: exactly 1 `saveAppointment`, 1 `appointments` insert and 0 `addAppointment`.
+     - **The shadow `start_time` equals the `advance_campaign_lead` `p_callback_due_at`,** with an offset guard,
+       because an offset-less string would also parse locally in JS.
+     - `created_by = user_id = USER`, and a silent refresh after the insert.
+     - Appointment: the same checks, plus the expected start/end instants.
+     - Failure: an appointments insert error → `toast.error`; the call save and advancement still happen; the
+       success toast fires; no refresh.
+  4. **Source contract:** DialerPage contains no `addAppointment(` call.
+- **Verification:**
+  - `npx tsc --noEmit`, plus the app `tsconfig.app.json` count vs the `main` baseline (90).
+  - Under `TZ=UTC` and `TZ=America/Los_Angeles`:
+    - the new tests;
+    - dialerRenderStability, dialerTeamOpenWiring, dialerCallGate;
+    - calendarAddAppointmentOwnership, reminderPopupRecipient, reminderEligibility;
+    - contactFollowUps(+Queries), dashboardCallbacks, appointmentFilters, calendarPageListFilter;
+    - fullScreenContactViewSchedule, taskDates;
+    - the full suite vs the `main` baseline.
+- **Docs after verification:**
+  - AGENT_RULES #22: the ownership bullet's "Out-of-scope writers" clause becomes the fixed state. Legacy rows stay
+    shifted until an approved repair.
+  - A newest-first WORK_LOG entry.
+  - This §19 as-built result.
+- **Production:** none. After verification, a fresh read-only recount of the shadow candidates and a SEPARATE
+  ID-bounded, fail-closed repair proposal. Any production mutation needs Chris's separate approval.
+- **Known, not in scope (report only):**
+  - existing rows stay shifted until repaired;
+  - a silent refresh is skipped while another fetch is in flight, so the row then appears on the next 5-minute tick;
+  - DialerActions shows `callbackDate` via `toISOString()`, which is off by a day beyond ±11 h zones;
+  - FloatingDialer's writer is already correct;
+  - google inbound all-day events are stored at UTC midnight;
+  - the Dialer writes no `contact_name`.
+
+### §19 review revisions (2026-09-30; independent read-only plan review — supersede the matching items above)
+
+- **Writer scope confirmed:**
+  - `saveCallData` `:3601`/`:3664` are the only live shadow writers. They are reached from Save, Save & Next
+    (Personal and Team/Open) and both conversion paths, where `contact_id` is the new client id.
+  - `autoSaveNoAnswer` / `handleAutoDispose` write no shadow. A callback-scheduler disposition named "no answer"
+    auto-saves on selection and books no callback; this is unchanged and consistent with the canonical write.
+  - FloatingDialer (native `type="time"`) is already correct.
+- **Parity proven:**
+  - The helper equals the canonical split-based parser for all 96 TimeSelect labels. This was checked on DST gap and
+    overlap dates in LA, UTC, Santiago, Auckland, Chatham and Kolkata.
+  - LA gap 2027-03-14 2:30 AM → `10:30:00.000Z`; LA overlap 2026-11-01 1:30 AM → `08:30:00.000Z`, the first
+    instant.
+  - The only divergence is years 0000–0099, where the canonical gives 19xx and the helper rejects. That needs a
+    date caught mid-typing and is documented, not handled.
+- **Refresh placement (replaces the per-path refresh):**
+  - ONE `fetchAppointments({ silent: true })` after BOTH shadow blocks, only when at least one shadow save succeeded.
+  - It sits outside the inner try/catch and is guarded as `?.(...)` with `.catch(() => {})`. `fetchAppointments`
+    has no catch, and a missing function must never raise a false "may not have saved" toast.
+  - Cost: one extra org-scoped ±180-day `select` per save that booked a shadow, and none for other saves.
+- **Visible consequences of correct instants (a direct result of the fix; report, not scope creep):**
+  - **Reminders.** A callback or appointment set within the reminder lead time (default 10 min) now pops the
+    existing modal ReminderPopup soon after Save. Today in PDT these shadows are hours in the past and never
+    remind. The immediate refresh only moves that moment from "within 5 min" to "now".
+  - **Scorecard.** `AgentScorecardModal:58` counts `created_by` only, so new Dialer rows would count. It is
+    currently not imported anywhere, so nothing is visible. Reports, org/Group leaderboards, GoalProgress and
+    `getPerformance` use `COALESCE(created_by, user_id)` / `appointmentSetterOrExpression` and are unchanged.
+  - **End at or before start.** This is possible today, e.g. a start of 11:45 PM, or a start changed after picking
+    an end. It is not thrown on; noted as a known pre-existing issue.
+- **Decisions (updated):**
+  - **D-1 CalendarPage:** unchanged (leave untouched).
+  - **D-2 appointment date prefill: recommendation changed to DEFER.** A local-today default in the evening lets an
+    agent who picks "10:00 AM" without touching the date book a past appointment silently: no reminder, and it
+    leaves the Follow-ups card at once. Today's accidental UTC-tomorrow default hides that. Fixing it properly
+    needs a past-time warning (UI), which belongs in its own change. Alternative: include it with a non-blocking
+    past-time warning toast.
+  - **D-4 (new) immediate refresh: recommendation KEEP** the single silent refresh, accepting that a near-term
+    callback reminds promptly. Alternative: drop it and rely on the existing 5-minute freshness.
+- **Test additions:**
+  - **Helper test:**
+    - a table test of all 96 labels against a verbatim, commented copy of the canonical parser, on the DST gap and
+      overlap dates;
+    - LA literals for the gap, the overlap, 12:00 AM and 12:45 PM.
+    - Its fail-first is only "module missing"; the real fail-first proof is the payload test and the page test.
+  - **Source contract:** pins the two canonical `callbackDueAtISO` parse blocks (`saveCallData` and
+    `proceedSaveAndNext`) unchanged, and requires no `addAppointment(` in DialerPage.
+  - **Page test:**
+    - exact string equality of `start_time` and `p_callback_due_at` (never `Date.parse`);
+    - an offset guard on both `start_time` and `end_time`;
+    - a spied `fetchAppointments` called exactly once;
+    - cases: Personal Save and Save & Next, Team/Open Save & Next, a conversion (`contact_id` = client id), both
+      schedulers (one refresh, two inserts), and the failure path.
+  - **TZ commands:** `TZ=UTC npx vitest run …` and `TZ=America/Los_Angeles npx vitest run …`, recorded in the
+    WORK_LOG, because LA-only cases skip in this UTC container and no CI runs vitest.
+- **Docs additions (after verification):**
+  - AGENT_RULES #22: name `dialer-api.saveAppointment` as also stamping `created_by`, and replace the
+    "Out-of-scope writers" clause.
+  - AGENT_RULES #23: note AgentScorecardModal's `created_by`-only count.
+  - Fix the stale comment in `calendarAddAppointmentOwnership.test.tsx:325`.
+  - Historical WORK_LOG lines are never rewritten.
+- **Repair proposal note (for later):**
+  - Identify shifted rows by `created_by IS NULL` plus the Main-Dialer shadow signature and a match to
+    `campaign_leads`, not by a `created_at` cutoff; browser tabs running old code can keep writing after deploy.
+  - Callback shadows take their exact instant from `campaign_leads.callback_due_at`. Dialer appointment rows have
+    no canonical twin, so they need a separate decision.
+
+
+### §19 as-built (2026-09-30; approved with D-1 leave CalendarPage, D-2 DEFER, D-3 this branch, D-4 keep the single silent refresh)
+
+- **Branch:** `claude/dialer-appointment-timezone-created-by` from `main` `d675a4b1`. Committed locally only; not
+  pushed, merged or deployed.
+- **Decisions as applied:**
+  - D-1: CalendarPage is untouched.
+  - D-2: DEFERRED. The `aptDate` UTC-date prefill (`DialerPage.tsx`) is unchanged. Follow-up: "local-date
+    appointment prefill" plus "explicit past-time validation/warning", as one change.
+  - D-3: this branch.
+  - D-4: ONE silent `fetchAppointments({ silent: true })` in `saveCallData`, only when at least one scheduler write
+    succeeded. It is fire-and-forget: wrapped in `Promise.resolve(...).catch(() => {})` inside a try/catch, so a
+    missing, throwing or rejecting refresh never turns a successful save into a failure, never shows the "may not
+    have saved" toast, and never delays the call save, disposition or canonical advancement.
+- **Files (application):**
+  - NEW `src/lib/calendar/localDateTime.ts`: `parseWallClockTime`, `localDateTimeToDate`, `localDateTimeToIso`.
+  - `src/lib/dialer-api.ts`: `saveAppointment` builds `start_time`/`end_time` with `localDateTimeToIso`, throws
+    `"Invalid appointment date or time — nothing was saved"` BEFORE any write on malformed input, and adds
+    `created_by: data.agent_id` (`user_id` stays `data.agent_id`). No `type`. The `contact_activities` row is
+    unchanged. `convertTo24h` is removed.
+  - `src/pages/DialerPage.tsx`: `const { fetchAppointments } = useCalendar();` replaces `addAppointment`. The
+    `addAppointment` block after the appointmentScheduler write is removed. `schedulerWriteSucceeded` is set after
+    each awaited `saveAppointment`, and the guarded refresh runs after the callback block. The dead
+    `AppointmentModal` `onSave` no longer calls `addAppointment`; it refreshes after a successful save.
+    `handleSaveCallback` (dead), the `aptDate` prefill and both canonical `callbackDueAt(ISO)` blocks are unchanged.
+  - Comment only: `src/components/dialer/TimeSelect.tsx` and
+    `src/contexts/__tests__/calendarAddAppointmentOwnership.test.tsx` (stale comment).
+- **Files (tests):**
+  - NEW `src/lib/calendar/__tests__/localDateTime.test.ts`: all 96 TimeSelect labels against a verbatim copy of the
+    canonical parser on 10 dates, including the DST gap and overlap; edge and reject cases; LA-only and UTC-only
+    literals.
+  - NEW `src/lib/__tests__/saveAppointmentPayload.test.ts` (10): exact payload keys, `created_by = user_id =`
+    agent, no `type`, activity row unchanged, malformed input throws with 0 inserts, insert error throws.
+  - NEW `src/lib/__tests__/dialerAppointmentForcedLA.test.ts` (3): pins `TZ=America/Los_Angeles` in its own forked
+    process (with a precondition test), so real Pacific/DST instants are checked even in a UTC run. It is the only
+    guard against a helper that treats the wall-clock as UTC (e.g. appends "Z"), which UTC cannot distinguish; a
+    naive offset-less value is also caught in any zone by the payload and page tests. Proven with a temporary
+    naive-Z helper (then restored byte-identically).
+  - NEW `src/pages/__tests__/dialerAppointmentSaveContract.test.ts` (8): no `addAppointment` outside whole-line
+    comments; exactly two `saveAppointment(` and one refresh in `saveCallData`; refresh guarded by the flag, which
+    is set only after each awaited write; both canonical parse blocks pinned verbatim;
+    `callbackDueAt: callbackDueAtISO`; the writer uses the helper and stamps `created_by`/`user_id` with no `type`.
+  - NEW `src/pages/__tests__/dialerAppointmentSave.test.tsx` (13): real DialerPage mount.
+    - Personal Save and Save & Next (callback and appointment).
+    - Both schedulers: 2 inserts, 1 refresh.
+    - A failed shadow write does not block the save.
+    - Conversion: `contact_id` is the client id.
+    - Team/Open Save & Next: lock released.
+    - Refresh reject, throw or missing: success toast, no false failure toast, no unhandled rejection.
+    - Appointment-only failure: no refresh. Mixed failure: 1 refresh.
+    - Time coverage (string comparisons, never `Date.parse`):
+      - The 9 cases that write a callback shadow (Personal callback Save and Save & Next, both schedulers,
+        conversion, Team/Open, the 3 refresh-isolation cases, mixed failure) assert the shadow `start_time` is
+        string-equal to `p_callback_due_at`. Four of them (the two Personal callback cases, both schedulers,
+        Team/Open) also apply the explicit offset guard; elsewhere equality with a `toISOString()` value already
+        implies the "Z".
+      - The two appointment cases assert exact `start_time`/`end_time` instants with the offset guard.
+      - The failed-shadow case asserts the canonical `p_callback_due_at` instant only; the appointment-only failure
+        case asserts no refresh, the call save and advancement, and no instant.
+  - `src/pages/__tests__/dialerRenderStability.test.tsx`: the `useCalendar` mock now supplies `fetchAppointments`.
+- **Before → after (LA, callback 2026-10-15 2:30 PM):** shadow `start_time` `'2026-10-15T14:30:00'` (naive; Postgres
+  stores 14:30Z = 7:30 AM PDT, 7 h early) → `'2026-10-15T21:30:00.000Z'`, string-equal to `p_callback_due_at`. PST
+  2026-12-15 2:30 PM → `22:30:00.000Z`; UTC 2:30 PM → `14:30:00.000Z`.
+- **Results:**
+  - Fail-first on `main` (the same 5 new/hardened files):
+    - UTC: 23 failed, 6 passed, 2 skipped.
+    - LA: 25 failed, 6 passed.
+    - The helper and forced-LA files fail on import.
+    - The 6 that pass are invariants that hold on both codebases.
+  - Branch, the 7-file set (the new files plus dialerRenderStability and calendarAddAppointmentOwnership):
+    - UTC: 71 passed, 9 skipped.
+    - LA: 79 passed, 1 skipped.
+  - Focused 65-file set:
+    - Branch: UTC 940 passed / 29 skipped; LA 968 passed / 1 skipped; 0 failed in both.
+    - `main`: UTC 908 passed / 20 skipped; LA 928 passed.
+  - Full suite:
+    - `main`: 249 files, 12 failed; 3842 tests, 1 failed; 1 unhandled error.
+    - Branch: 254 files, 12 failed; 3892 tests, 1 failed; 1 unhandled error.
+    - Both zones; the failed-file set is identical to `main`.
+    - The 12 files are pre-existing Supabase-env import failures plus the `recordingRetentionVoicemail` "byte-identical
+      to deployed v29" test.
+    - The unhandled error is the pre-existing Twilio mock `findTwilioRemoteAudioElement` rejection, identical on `main`.
+  - Typecheck: root `npx tsc --noEmit` 0 = 0; app `tsconfig.app.json` 90 = 90, with an identical error set.
+- **Production (read-only, 2026-09-30 02:35 UTC):**
+  - 71 appointments; 30 with `created_by` NULL.
+  - 17 Main-Dialer shadows, all `created_by` NULL.
+  - 4 shadows match a campaign callback, each exactly +07:00:00. 3 of them are future:
+    - `2f5f498a-feb2-41de-afa2-2a2912e65c11`: 2026-10-12 10:30Z, due 17:30Z.
+    - `47edce25-38d7-43ac-9772-472096d6fe01`: 2026-10-16 10:00Z, due 17:00Z.
+    - `18858a30-72a4-4aea-98b4-2373664c012d`: 2026-10-27 15:00Z, due 22:00Z.
+  - Past row `35cb701c-59dc-40bd-af57-b0f15784e9d1` (due 2026-09-21) is excluded.
+  - All 4 belong to one agent and one org, with no external event.
+  - No appointment was written or updated after 2026-09-29 22:49 UTC.
+  - Repair: an ID-bounded, fail-closed DO block (re-verify 3 locked candidates → `start_time = callback_due_at`,
+    `created_by = user_id` → row-count and postcondition checks). Status is untouched, so there is no workflow
+    dispatch. It is PROPOSED ONLY and needs Chris's separate approval; nothing was mutated.

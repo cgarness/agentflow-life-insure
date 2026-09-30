@@ -136,7 +136,8 @@ vi.mock("@/contexts/TwilioContext", () => ({
 }));
 
 vi.mock("@/contexts/CalendarContext", () => ({
-  useCalendar: () => ({ addAppointment: vi.fn() }),
+  // DialerPage only reads `fetchAppointments` (a silent refresh after its own appointment write).
+  useCalendar: () => ({ fetchAppointments: vi.fn(async () => {}) }),
 }));
 
 vi.mock("@/contexts/BrandingContext", () => ({
