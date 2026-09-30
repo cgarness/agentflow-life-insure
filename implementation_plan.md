@@ -1332,9 +1332,13 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
     and the `AppointmentModal` `onSave` (`:4908`; `setShowAppointmentModal(true)` is never called).
 - **Reader audit:**
   - Every reader parses `start_time` as an absolute instant; none compensates for the naive value.
-  - The Main-Dialer shadow is identified only by title "Callback" and a non-callback `type` (ContactFollowUps,
-    appointmentFilters), or excluded by `type` (dashboard-callbacks). It is never identified by time or `created_by`.
-  - So the shadow must keep NO explicit `type` (DB default `Sales Call`).
+  - The Main-Dialer shadow is never identified by time or `created_by`:
+    - ContactFollowUps (`isMainDialerCallbackShadow`) matches title "Callback" plus a non-callback `type`;
+    - appointmentFilters (`isDialerCallbackAppointment`, CalendarPage's List view) matches the title ("Callback" or
+      a "Callback:" prefix) or the dialer notes marker, and deliberately never reads `type`;
+    - dashboard-callbacks excludes it by `type` (it reads only callback types).
+  - So the shadow must keep NO explicit `type` (DB default `Sales Call`): ContactFollowUps and dashboard-callbacks
+    depend on it.
   - Reminders fire from `start_time`; today Dialer reminders fire 7 h early in PDT (8 h in PST).
 - **Proposed implementation (surgical):**
   1. **NEW pure helper `src/lib/calendar/localDateTime.ts`:**
@@ -1522,8 +1526,10 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
   - NEW `src/lib/__tests__/saveAppointmentPayload.test.ts` (10): exact payload keys, `created_by = user_id =`
     agent, no `type`, activity row unchanged, malformed input throws with 0 inserts, insert error throws.
   - NEW `src/lib/__tests__/dialerAppointmentForcedLA.test.ts` (3): pins `TZ=America/Los_Angeles` in its own forked
-    process (with a precondition test), so a naive or "Z"-appended regression fails even in a UTC run. Proven with
-    a temporary naive-Z helper (then restored byte-identically).
+    process (with a precondition test), so real Pacific/DST instants are checked even in a UTC run. It is the only
+    guard against a helper that treats the wall-clock as UTC (e.g. appends "Z"), which UTC cannot distinguish; a
+    naive offset-less value is also caught in any zone by the payload and page tests. Proven with a temporary
+    naive-Z helper (then restored byte-identically).
   - NEW `src/pages/__tests__/dialerAppointmentSaveContract.test.ts` (8): no `addAppointment` outside whole-line
     comments; exactly two `saveAppointment(` and one refresh in `saveCallData`; refresh guarded by the flag, which
     is set only after each awaited write; both canonical parse blocks pinned verbatim;
@@ -1536,8 +1542,15 @@ intact: **`docs/plans/2026-09-28-contact-followups/implementation_plan.md`**.
     - Team/Open Save & Next: lock released.
     - Refresh reject, throw or missing: success toast, no false failure toast, no unhandled rejection.
     - Appointment-only failure: no refresh. Mixed failure: 1 refresh.
-    - Every case checks exact string equality of the shadow `start_time` and `p_callback_due_at`, with an offset
-      guard.
+    - Time coverage (string comparisons, never `Date.parse`):
+      - The 9 cases that write a callback shadow (Personal callback Save and Save & Next, both schedulers,
+        conversion, Team/Open, the 3 refresh-isolation cases, mixed failure) assert the shadow `start_time` is
+        string-equal to `p_callback_due_at`. Four of them (the two Personal callback cases, both schedulers,
+        Team/Open) also apply the explicit offset guard; elsewhere equality with a `toISOString()` value already
+        implies the "Z".
+      - The two appointment cases assert exact `start_time`/`end_time` instants with the offset guard.
+      - The failed-shadow case asserts the canonical `p_callback_due_at` instant only; the appointment-only failure
+        case asserts no refresh, the call save and advancement, and no instant.
   - `src/pages/__tests__/dialerRenderStability.test.tsx`: the `useCalendar` mock now supplies `fetchAppointments`.
 - **Before → after (LA, callback 2026-10-15 2:30 PM):** shadow `start_time` `'2026-10-15T14:30:00'` (naive; Postgres
   stores 14:30Z = 7:30 AM PDT, 7 h early) → `'2026-10-15T21:30:00.000Z'`, string-equal to `p_callback_due_at`. PST

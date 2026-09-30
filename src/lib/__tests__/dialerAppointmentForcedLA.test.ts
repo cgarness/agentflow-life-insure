@@ -1,11 +1,13 @@
 /**
  * Forced America/Los_Angeles run of the Main-Dialer appointment instant contract (root plan §19).
  *
- * The zone-specific checks elsewhere skip unless the whole suite runs under `TZ=America/Los_Angeles`, and
- * no CI runs vitest — so in a UTC run a regression back to a naive `YYYY-MM-DDTHH:mm:ss` (or a helper that
- * appends "Z" to the wall-clock) would pass, because UTC wall-clock == UTC instant. This file pins the zone
- * itself: Vitest 3 runs each test file in its own forked process and Node applies a runtime `TZ` change, so
- * the override is isolated to this file. The first test proves the override is in effect.
+ * A naive offset-less `YYYY-MM-DDTHH:mm:ss` regression is already caught in ANY zone, UTC included, by
+ * saveAppointmentPayload.test.ts and dialerAppointmentSave.test.tsx (offset guard + exact ISO equality).
+ * This file protects real Pacific / DST behaviour: the LA-literal checks elsewhere skip unless the whole suite
+ * runs under `TZ=America/Los_Angeles`, and no CI runs vitest, so a UTC run alone cannot tell a correct local
+ * instant from a helper that treats the wall-clock as UTC (e.g. appends "Z"). This file pins the zone itself:
+ * Vitest 3 runs each test file in its own forked process and Node applies a runtime `TZ` change, so the
+ * override is isolated to this file. The first test proves the override is in effect.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
