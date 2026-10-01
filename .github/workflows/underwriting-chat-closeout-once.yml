@@ -1,0 +1,117 @@
+name: Underwriting chat verification closeout (one time)
+
+on:
+  push:
+    branches: ['work/fflagent-underwriting-v1']
+    paths: ['.github/workflows/underwriting-chat-closeout-once.yml']
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  record:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require successful checks on the exact candidate; preserve all original documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess, time, urllib.request
+          from pathlib import Path
+          repo = 'cgarness/agentflow-life-insure'
+          candidate = '12a469d784a6e1c61220fb4bbcc41d253380e879'
+          run_id = 36877086251
+          assert os.environ['GITHUB_REF'] == 'refs/heads/work/fflagent-underwriting-v1'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip() == candidate
+          def get(path):
+              req = urllib.request.Request('https://api.github.com/repos/'+repo+path,
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          for _ in range(48):
+              run = get('/actions/runs/'+str(run_id))
+              assert run['head_sha'] == candidate
+              if run['status'] == 'completed': break
+              time.sleep(10)
+          assert run['status'] == 'completed' and run['conclusion'] == 'success', 'Candidate verification has not passed'
+          jobs = get('/actions/runs/'+str(run_id)+'/jobs')['jobs']
+          job = next(j for j in jobs if j['name'] == 'frontend')
+          assert job['conclusion'] == 'success'
+          for label in ['Strict checks, evaluator tests, React host tests and production build',
+                        'Compare application TypeScript diagnostics to the unchanged base',
+                        'Lint only the changed feature', 'Exercise the actual built public route']:
+              assert next(s for s in job['steps'] if s['name'] == label)['conclusion'] == 'success', label
+          log = Path('WORK_LOG.md')
+          assert subprocess.check_output(['git','hash-object',str(log)],text=True).strip() == '17b05d777408840f8c5747111a526e1f4455245f'
+          original = log.read_bytes()
+          assert len(original) > 2_000_000
+          plan = Path('docs/plans/2026-09-30-underwriting/chat/implementation_plan.md')
+          original_plan = plan.read_bytes()
+          verification = Path('docs/plans/2026-09-30-underwriting/chat/VERIFICATION.md')
+          original_verification = verification.read_bytes()
+          entry = '''## 2026-10-01 — AgentFlow dark chat underwriting — REVIEW BUILD VERIFIED; NOT RELEASED
+
+          - Continued directly under Chris's approved chat-first/dark AgentFlow build. Feature branch work/fflagent-underwriting-v1; draft PR #398; no main merge.
+          - Candidate 12a469d784a6e1c61220fb4bbcc41d253380e879 passed isolated run 36877086251: root/strict feature TypeScript, core/chat/source and React tests, full Vite build, baseline app diagnostic comparison, scoped lint, and actual built-route Chromium plus WebKit scripts. Browser reports must say completed=true; physical iPhone is not claimed.
+          - Hardened tests/underwriting/browser.py: primitive-only security observations, unique script sentinel, authored literal-note retention, injected node/event/request checks, exact source/script fingerprints, and persisted exception/incomplete-run evidence. No eligibility rule or application component changed in this continuation.
+          - User-facing revision already implemented: AgentFlow dark styling/logo, compact basics, a single chat composer, confirmation of medication spelling suggestions, at most two targeted follow-ups, and short green/yellow/red carrier cards with collapsed explanations.
+          - Boundaries remain: bounded local phrase matching, not a connected language model/RxNorm; unrecognized input stays unresolved; no verified commission schedules or default payout ordering; carrier state/combination gaps and public-presentation review remain. Do not advertise unrestricted open-ended AI underwriting or guaranteed approval.
+          - Files in this continuation: browser test harness, task verification/implementation plan, this newest-first entry, and a temporary branch-only documentation job removed after use. Entire pre-existing Work Log and plan preserved byte-for-byte.
+          - Production: no deployment/promotion, Supabase/database/RLS, DNS/environment, CRM/dialer or telephony changes. Existing Git integration may generate preview builds only.
+          - Next: hosted review and Chris's feedback; separately approve any remote AI endpoint/provider activation and eventual production release.
+
+          '''
+          entry = '\n'.join(line[10:] if line.startswith(' '*10) else line for line in entry.split('\n'))
+          log.write_bytes(entry.encode()+original)
+          assert log.read_bytes()[len(entry.encode()):] == original
+          assert hashlib.sha256(log.read_bytes()[len(entry.encode()):]).digest() == hashlib.sha256(original).digest()
+          final = '''# Chat-first preview: completed verification, 2026-10-01
+
+          Candidate: `12a469d784a6e1c61220fb4bbcc41d253380e879`.
+          Successful exact-source push run: https://github.com/cgarness/agentflow-life-insure/actions/runs/36877086251
+
+          The runner passed root and strict feature TypeScript, core/source/chat and React tests, full Vite production build, scoped ESLint, unchanged-base application diagnostic comparison, and both actual-built-route Chromium and WebKit scripts. This supersedes the incomplete-browser status in older records below. No unexecuted check is treated as passed; inspect the per-browser completed flag and checked_out_sha in the retained artifact.
+
+          Coverage includes blank direct routes and alias; existing AgentFlow dark logo/theme; 320/375/390/768/1440 widths; short typed-case flow; at most two prompts; medication correction confirmation without diagnosis inference; unknown answers; adverse corrections; reset and page lifecycle; exact literal hostile-note preservation with no injected nodes/events/requests; identifying-format rejection; Enter/Shift+Enter.
+
+          This continuation changes the test harness and documentation only, not carrier eligibility logic or UI components. Security snapshots are primitive browser reads and locator observations; they do not inject a helper, reset a sentinel or sanitize the application under test. Failure/partial execution is recorded with exact source and script fingerprints.
+
+          Remaining limits: local supported-phrase interpretation rather than live generative AI/RxNorm; missing verified compensation schedules; incomplete state/combination authority for some recommendations; producer-material presentation review; physical iPhone and final hosted acceptance. Existing application baseline diagnostics remain and unrelated full-suite tests are not claimed. No main merge, production release, database/backend, DNS or environment mutation.
+
+          ## Earlier verification history (preserved)
+
+          '''
+          final = '\n'.join(line[10:] if line.startswith(' '*10) else line for line in final.split('\n'))
+          verification.write_bytes(final.encode()+original_verification)
+          plan.write_bytes(original_plan+b'\n\n## 2026-10-01 continuation closeout\n\nExact candidate 12a469d784a6e1c61220fb4bbcc41d253380e879 passed isolated run 36877086251, including actual built-route Chromium and WebKit. This completes the browser-verification step for the local-parser dark chat preview, not the remaining live-AI, commission, source-coverage or production-release gates. See the newest verification record. Work Log history is preserved.\n')
+          own = Path('.github/workflows/underwriting-chat-closeout-once.yml')
+          own.unlink()
+          allowed = {str(log),str(plan),str(verification),str(own)}
+          changed = set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed == allowed, changed
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          print('Successful candidate verified. Preserved Work Log bytes:',len(original))
+          PY
+      - name: Commit only the bounded documentation closeout to the approved branch
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/work/fflagent-underwriting-v1'
+          git config user.name 'AgentFlow implementation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: record verified dark chat preview and preserve work history'
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          actual=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" ls-remote origin refs/heads/work/fflagent-underwriting-v1 | cut -f1)
+          test "$actual" = "$GITHUB_SHA"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/work/fflagent-underwriting-v1
