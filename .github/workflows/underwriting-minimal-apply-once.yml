@@ -1,0 +1,194 @@
+name: Underwriting minimal integration (temporary)
+on:
+  push:
+    branches: ['work/fflagent-underwriting-v1']
+    paths: ['.github/workflows/underwriting-minimal-apply-once.yml']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - name: Verify exact approved patch, original blobs and file scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,gzip,hashlib,os,subprocess
+          from pathlib import Path
+          assert os.environ['GITHUB_REF']=='refs/heads/work/fflagent-underwriting-v1'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='3927a4e3bb4151442dff275d2363ea0cd3884c25'
+          originals={
+            'AGENT_RULES.md':'a0eccca53ffca68c78b236084b6d8058c0a7edfe',
+            'WORK_LOG.md':'688878127a7d7ede66dd2c138100142da75f44e6',
+            'docs/plans/2026-09-30-underwriting/minimal/SOURCE_REVIEW.md':None,
+            'docs/plans/2026-09-30-underwriting/minimal/VERIFICATION.md':None,
+            'docs/plans/2026-09-30-underwriting/minimal/implementation_plan.md':'fba6bd9ceadb034058c6462603c6c3cba3833e27',
+            'src/underwriting/__tests__/host.test.tsx':'a2fa6b3e04b99f87aaa60f10f7fc218510c03c15',
+            'src/underwriting/chat/BasicsPanel.tsx':'46cb0db7b1f5b2e769ce806276cf9863b5de903a',
+            'src/underwriting/chat/CapturedFacts.tsx':'49c3e5745553980e1a9b24827c02d9091332d46c',
+            'src/underwriting/chat/CarrierCards.tsx':'e5bdaffd537f8cd9aac0f1f10349b879bf6b57df',
+            'src/underwriting/chat/ChatComposer.tsx':'38e8dabf0e14c9b13bc44647fac3bd4f75fc8a35',
+            'src/underwriting/chat/QuickUnderwriting.tsx':'ce9e253df65a5c61cef42a9a1f3ef37554275d66',
+            'src/underwriting/chat/assumptions.ts':'0c6fb31ef8570edb5383320e3f636f8d456fdb9b',
+            'src/underwriting/chat/evaluate.ts':'3900948beaba52190020d3bbe969023c826f3c98',
+            'src/underwriting/chat/medicationContext.ts':None,
+            'src/underwriting/chat/parse.ts':'6bb86e626fde5c054ad4f7667b70ade1e71209e2',
+            'src/underwriting/chat/placement.ts':None,
+            'tests/underwriting/browser.py':'368b5cc5144cd0471c0b2f7c4d4cfc43ce7ddddc',
+            'tests/underwriting/chat.test.cjs':'f4afc3b7e6f002f3847bd17c4a4c558af4b0a949',
+            'tests/underwriting/minimal.test.cjs':None,
+          }
+          for path,sha in originals.items():
+              if sha is None:assert not Path(path).exists(),path
+              else:assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha,path
+          old_log=Path('WORK_LOG.md').read_bytes()
+          payload=Path('.github/underwriting-minimal-payload')
+          chunks=[payload/f'{i:02}.b64' for i in range(1,5)]
+          encoded=''.join(p.read_text().strip() for p in chunks)
+          assert len(encoded)==24840, len(encoded)
+          patch=gzip.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='af1c1b908768a2fca4f07e01163a49bc4eeeac6a5494401570330552969fcaaa'
+          temp=Path(os.environ['RUNNER_TEMP'])/'minimal.patch';temp.write_bytes(patch)
+          paths={line.split('\t')[-1] for line in subprocess.check_output(['git','apply','--numstat',str(temp)],text=True).splitlines()}
+          assert paths==set(originals),paths
+          subprocess.run(['git','apply','--unidiff-zero','--check',str(temp)],check=True)
+          subprocess.run(['git','apply','--unidiff-zero',str(temp)],check=True)
+          assert Path('WORK_LOG.md').read_bytes().endswith(old_log)
+          assert len(old_log)==2174042
+          cleanup=chunks+[Path('.github/workflows/underwriting-minimal-export-once.yml'),Path('.github/workflows/underwriting-minimal-apply-once.yml')]
+          for p in cleanup:p.unlink()
+          allowed=set(originals)|{str(p) for p in cleanup}
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          staged=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert staged==allowed,staged
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','config','user.name','AgentFlow implementation'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','commit','-m','feat: simplify internal underwriting and remove blanket yellow gates'],check=True)
+          out=Path('.underwriting-check');out.mkdir(exist_ok=True)
+          candidate=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          (out/'candidate.txt').write_text(candidate)
+          print('Exact candidate:',candidate,'preserved original Work Log bytes:',len(old_log))
+          PY
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Root and strict feature TypeScript, tests, lint and full Vite build
+        run: |
+          set -euo pipefail
+          bash scripts/underwriting/check.sh 2>&1 | tee .underwriting-check/frontend.log
+          npx --no-install eslint src/main.tsx src/underwriting
+      - name: Compare full application diagnostics to unchanged base
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/underwriting-minimal-base"
+          git worktree add --detach "$base" 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$base/node_modules"
+          set +e
+          (cd "$base" && ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false) > .underwriting-check/tsc-base.log 2>&1
+          before_status=$?
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false > .underwriting-check/tsc-current.log 2>&1
+          after_status=$?
+          set -e
+          test "$before_status" -le 2 && test "$after_status" -le 2
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from collections import Counter
+          root=Path('.underwriting-check')
+          before=Counter((root/'tsc-base.log').read_text().splitlines())
+          after=Counter((root/'tsc-current.log').read_text().splitlines())
+          added=after-before
+          assert not added,'New diagnostics:\n'+'\n'.join(added.elements())
+          record={'base':sum(before.values()),'candidate':sum(after.values()),'new':sum(added.values())}
+          (root/'diagnostics.json').write_text(json.dumps(record,indent=2));print(record)
+          PY
+      - name: Install real-browser test harness
+        run: |
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium webkit
+      - name: Exercise actual Vite build in Chromium and WebKit
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 > .underwriting-check/preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4173/underwriting > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          python3 tests/underwriting/browser.py 2>&1 | tee .underwriting-check/chromium.log
+          UW_BROWSER=webkit python3 tests/underwriting/browser.py 2>&1 | tee .underwriting-check/webkit.log
+      - name: Record successful exact-source evidence and preserve history
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          out=Path('.underwriting-check');candidate=(out/'candidate.txt').read_text().strip()
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==candidate
+          script_hash=hashlib.sha256(Path('tests/underwriting/browser.py').read_bytes()).hexdigest()
+          reports={b:json.loads((out/f'browser-tests-{b}.json').read_text()) for b in ['chromium','webkit']}
+          for browser,report in reports.items():
+              assert report['completed'] and report['failure'] is None and report['passed']==33,report
+              assert report['checked_out_sha']==candidate and report['script_sha256']==script_hash,report
+          frontend=(out/'frontend.log').read_text()
+          assert re.search(r'# tests 552\b',frontend) and re.search(r'# pass 552\b',frontend)
+          assert re.search(r'24 passed',frontend), 'React host count not established'
+          diagnostics=json.loads((out/'diagnostics.json').read_text())
+          run='https://github.com/cgarness/agentflow-life-insure/actions/runs/'+os.environ['GITHUB_RUN_ID']
+          record={'candidate':candidate,'run':run,'core_tests':552,'react_tests':24,'browsers':{b:r['passed'] for b,r in reports.items()},'diagnostics':diagnostics,'browser_script_sha256':script_hash}
+          (out/'verification.json').write_text(json.dumps(record,indent=2))
+          v=Path('docs/plans/2026-09-30-underwriting/minimal/VERIFICATION.md')
+          previous=v.read_bytes()
+          final=(f'# Minimal internal underwriting — VERIFIED REVIEW BUILD, 2026-10-01\n\nTested application candidate: `{candidate}`.\nSuccessful runner: {run}\n\n'
+            'Root npx tsc --noEmit and strict feature checks, 552 core/source/chat tests, 24 actual React host tests, scoped ESLint and the full Vite production build passed. Chromium and WebKit each completed 33 actual-built-route groups, including five widths, compact no-footer/Why/About UI, baseline all-carrier green, supported medications and combinations, retained source exclusions, explicit unknowns, corrections, reset/lifecycle, literal-input security, no case-entry requests and keyboard controls.\n\n'
+            f'Full application diagnostics: base {diagnostics["base"]}, candidate {diagnostics["candidate"]}, new {diagnostics["new"]}. Existing unrelated errors are not erased. Browser script SHA256: `{script_hash}`. Reports and security evidence carry the exact tested SHA; incomplete runs are not passed runs.\n\n'
+            'Green means preliminary carrier-level consideration under the approved internal stated-history assumption, not an exact tier or offer. Source gaps and truly unclear entered data remain. No live AI/RxNorm, verified commissions, physical iPhone or hosted-browser acceptance, production/main merge, backend, secrets, DNS or environment changes are claimed. This final record changes documentation only after the tested candidate.\n\n## Earlier local record (preserved)\n\n').encode()
+          v.write_bytes(final+previous)
+          log=Path('WORK_LOG.md');old=log.read_bytes()
+          entry=(f'## 2026-10-01 — Minimal internal underwriting — REVIEW BUILD VERIFIED; NOT RELEASED\n\n'
+            f'- Tested application `{candidate}`; runner {run}. 552 core/source/chat tests, 24 React host tests, 33 Chromium and 33 WebKit groups, root/strict feature TypeScript, scoped lint and full Vite build passed. App diagnostics: base {diagnostics["base"]}, candidate {diagnostics["candidate"]}, new {diagnostics["new"]}.\n'
+            '- Minimal AgentFlow basics/chat/cards UI has no footer, Why, About, repeated guidance or tier/commission placeholders. Source-linked carrier-level placement removes blanket one-carrier/medication/count/smoker restrictions while keeping actual exclusions and meaningful unknowns. All provenance remains internal.\n'
+            '- Temporary source-export/payload/integration files removed. Original Work Log preserved. Final closeout changes only WORK_LOG.md and minimal/VERIFICATION.md. No main/production/backend/DNS/env/telephony mutation; no physical iPhone, hosted browser or live-model claim. Next: Chris’s preview review; source/AI/compensation/release gates remain.\n\n').encode()
+          log.write_bytes(entry+old);assert log.read_bytes()[len(entry):]==old
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          assert changed=={str(log),str(v)},changed
+          subprocess.run(['git','add','--',str(log),str(v)],check=True)
+          subprocess.run(['git','commit','-m','docs: record verified minimal internal underwriting preview'],check=True)
+          (out/'published-head.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip())
+          print(json.dumps(record,indent=2))
+          PY
+      - name: Publish only approved preview branch if it has not moved
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/work/fflagent-underwriting-v1'
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          current=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" ls-remote origin refs/heads/work/fflagent-underwriting-v1 | cut -f1)
+          test "$current" = "$GITHUB_SHA"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/work/fflagent-underwriting-v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: underwriting-minimal-verification-${{ github.run_id }}
+          path: |
+            .underwriting-check/*.log
+            .underwriting-check/*.json
+            .underwriting-check/*.txt
+            .underwriting-check/screenshots/*.png
+          include-hidden-files: true
+          retention-days: 14
