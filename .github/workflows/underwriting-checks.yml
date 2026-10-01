@@ -78,7 +78,7 @@ jobs:
       - name: Install the browser test harness
         run: |
           python3 -m pip install playwright==1.57.0
-          python3 -m playwright install --with-deps chromium
+          python3 -m playwright install --with-deps chromium webkit
       - name: Exercise the actual built public route
         run: |
           set -euo pipefail
@@ -90,6 +90,7 @@ jobs:
             sleep 1
           done
           python3 tests/underwriting/browser.py
+          UW_BROWSER=webkit python3 tests/underwriting/browser.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

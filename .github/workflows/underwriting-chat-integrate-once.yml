@@ -1,0 +1,119 @@
+name: Underwriting dark chat integration (one time)
+on:
+  push:
+    branches: [work/fflagent-underwriting-v1]
+    paths: [.github/workflows/underwriting-chat-integrate-once.yml]
+permissions: {}
+jobs:
+  integrate:
+    if: github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check immutable patch, exact preimages and approved file scope
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import lzma,hashlib,json,os,subprocess
+          root=Path.cwd()
+          prefix='docs/plans/2026-09-30-underwriting/chat/stage/'
+          parts=[prefix+f'part-{i:02d}.bin' for i in range(1,5)]
+          raw=b''.join(Path(p).read_bytes() for p in parts)
+          assert len(raw)==36888
+          assert hashlib.sha256(raw).hexdigest()=='39a530bfd32c97a289b505e4e576c2c3ff6aa3a4dcd55a6061d97dce4e3127f5'
+          decoder=lzma.LZMADecompressor(memlimit=256*1024*1024)
+          decoded=decoder.decompress(raw,max_length=1_000_001)
+          assert decoder.eof and not decoder.unused_data and len(decoded)<=1_000_000
+          payload=json.loads(decoded)
+          assert set(payload)=={'patch','files','worklog_entry','worklog_preimage'}
+          allowed=set('''.github/workflows/underwriting-checks.yml
+          docs/plans/2026-09-30-underwriting/chat/VERIFICATION.md
+          docs/plans/2026-09-30-underwriting/chat/implementation_plan.md
+          docs/plans/2026-09-30-underwriting/implementation_plan.md
+          src/underwriting/UnderwritingPage.tsx
+          src/underwriting/__tests__/host.test.tsx
+          src/underwriting/chat/BasicsPanel.tsx
+          src/underwriting/chat/CapturedFacts.tsx
+          src/underwriting/chat/CarrierCards.tsx
+          src/underwriting/chat/ChatComposer.tsx
+          src/underwriting/chat/Followups.tsx
+          src/underwriting/chat/QuickUnderwriting.tsx
+          src/underwriting/chat/basics.ts
+          src/underwriting/chat/clinical.ts
+          src/underwriting/chat/evaluate.ts
+          src/underwriting/chat/medications.ts
+          src/underwriting/chat/parse.ts
+          src/underwriting/chat/phrases.ts
+          src/underwriting/chat/questions.ts
+          src/underwriting/chat/session.ts
+          src/underwriting/chat/types.ts
+          src/underwriting/chat/useQuickUnderwriting.ts
+          src/underwriting/rules/americo.ts
+          src/underwriting/rules/mutual.ts
+          src/underwriting/rules/transamerica.ts
+          tests/underwriting/browser.py
+          tests/underwriting/chat.test.cjs
+          tests/underwriting/source-contract.test.cjs'''.split())
+          files=payload['files']
+          assert len(files)==len(allowed)==28 and {f['path'] for f in files}==allowed
+          workflow='.github/workflows/underwriting-checks.yml'
+          def blob(p): return subprocess.check_output(['git','hash-object',p],text=True).strip()
+          assert payload['worklog_preimage']=='694acfc3350f6aef470813dfd820beff4e975787'
+          assert blob('WORK_LOG.md')==payload['worklog_preimage']
+          old_log=Path('WORK_LOG.md').read_bytes()
+          assert len(old_log)==2164952
+          for f in files:
+              p=PurePosixPath(f['path'])
+              assert not p.is_absolute() and '..' not in p.parts
+              target=root.joinpath(*p.parts)
+              assert target.resolve().is_relative_to(root)
+              assert not any(q.is_symlink() for q in [target,*target.parents])
+              if f['path']==workflow:
+                  assert hashlib.sha256(target.read_bytes()).hexdigest()==f['sha256']
+              elif f['preimage'] is None: assert not target.exists(),f['path']
+              else: assert blob(str(target))==f['preimage'],f['path']
+          patch=Path(os.environ['RUNNER_TEMP'])/'underwriting-chat-approved.patch'
+          patch.write_text(payload['patch'])
+          subprocess.run(['git','apply','--check','--exclude='+workflow,str(patch)],check=True)
+          subprocess.run(['git','apply','--exclude='+workflow,str(patch)],check=True)
+          for f in files:
+              assert hashlib.sha256(Path(f['path']).read_bytes()).hexdigest()==f['sha256'],f['path']
+          Path('WORK_LOG.md').write_bytes(payload['worklog_entry'].encode()+old_log)
+          assert Path('WORK_LOG.md').read_bytes().endswith(old_log)
+          subprocess.run(['git','add','--',*sorted(allowed-{workflow}),'WORK_LOG.md'],check=True)
+          subprocess.run(['git','rm','--',*parts],check=True)
+          changed=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert changed==(allowed-{workflow})|{'WORK_LOG.md'}|set(parts),changed
+          print('Verified 28 files, installed 27 (CI already updated by connector), preserved',len(old_log),'Work Log bytes.')
+          PY
+      - name: Commit to the approved feature branch only
+        id: commit
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/work/fflagent-underwriting-v1
+          git config user.name 'AgentFlow implementation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: replace underwriting wizard with AgentFlow dark quick-case chat'
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          actual=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" ls-remote origin refs/heads/work/fflagent-underwriting-v1 | cut -f1)
+          test "$actual" = "$GITHUB_SHA"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/work/fflagent-underwriting-v1
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  verify:
+    needs: integrate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/underwriting-checks.yml
+    with:
+      source_ref: ${{ needs.integrate.outputs.commit }}
