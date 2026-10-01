@@ -1,3 +1,14 @@
+## 2026-09-30 — Public underwriting direct integration — FEATURE BRANCH ONLY; REPOSITORY CHECKS PENDING
+
+- Authority: Chris explicitly requested ChatGPT carry out the implementation rather than hand off to Cursor or Claude. Plan: docs/plans/2026-09-30-underwriting/implementation_plan.md.
+- Branch: work/fflagent-underwriting-v1 from main 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326. Public destination /underwriting, with /underwritin alias on FFLAGENT.com.
+- Changes: standalone public entry before importing App; mobile-first underwriting UI; strict Zod forms; sourced preliminary evaluator; optional in-memory unverified commission reference; invalidation/reset; full-document home link; pagehide/pageshow sensitive-state clearing.
+- Files: src/main.tsx; src/underwriting/**; tests/underwriting/**; scripts/underwriting/check.sh; tsconfig.underwriting.json and tsconfig.underwriting.core.json; task plan/source/verification documents; isolated feature checks workflow; this log.
+- Verification before repository integration: 163 core/source tests and 18 offline browser groups passed. Actual React/Zod/Tailwind 3 integration and built-route checks run separately and are PENDING at this commit; do not represent them as passed yet.
+- Source gates: Americo uses approved 11/25 guide with ceilings distinct from offers; Transamerica is held for inconsistent retrieved versions; Mutual of Omaha state-form coverage is partial; no verified commission schedule or default highest-paying carrier. Public producer-material use review remains required.
+- Production: no main merge, production deployment, DNS/environment change, Supabase mutation/migration or telephony change. The original Work Log is preserved byte-for-byte after this entry.
+- Next: complete isolated runner checks, inspect the exact final diff and open a draft PR. Release needs separately reviewed approval and source-readiness resolution.
+
 ## 2026-09-30 — Dialer appointment timezone + `created_by` writer fix — IMPLEMENTED AND VERIFIED LOCALLY; NOT PUSHED
 
 - **Status:**

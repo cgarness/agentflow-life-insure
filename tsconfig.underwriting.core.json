@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": ".underwriting-check/compiled",
+    "rootDir": "src",
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "src/underwriting/**/*.ts"
+  ],
+  "exclude": [
+    "src/underwriting/schema.ts",
+    "src/underwriting/__tests__/**"
+  ]
+}
