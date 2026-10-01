@@ -1,0 +1,36 @@
+name: Underwriting chat isolated checkout (one time)
+on:
+  push:
+    branches: [work/fflagent-underwriting-v1]
+    paths: [.github/workflows/underwriting-chat-checkout-once.yml]
+permissions:
+  contents: read
+jobs:
+  checkout:
+    if: github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Archive exact public source and locked tooling; no production access
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/work/fflagent-underwriting-v1
+          npm ci --ignore-scripts --no-audit --no-fund
+          mkdir -p "$RUNNER_TEMP/underwriting-checkout"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/underwriting-checkout/source.tar.gz"
+          tar -czf "$RUNNER_TEMP/underwriting-checkout/tooling.tar.gz" node_modules
+          git rev-parse HEAD > "$RUNNER_TEMP/underwriting-checkout/source-sha.txt"
+          cd "$RUNNER_TEMP/underwriting-checkout"
+          sha256sum source.tar.gz tooling.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: underwriting-chat-checkout-${{ github.run_id }}
+          path: ${{ runner.temp }}/underwriting-checkout/*
+          retention-days: 1
+          compression-level: 0
