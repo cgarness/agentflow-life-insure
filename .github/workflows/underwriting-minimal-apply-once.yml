@@ -26,7 +26,7 @@ jobs:
           import base64,gzip,hashlib,os,subprocess
           from pathlib import Path
           assert os.environ['GITHUB_REF']=='refs/heads/work/fflagent-underwriting-v1'
-          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='3927a4e3bb4151442dff275d2363ea0cd3884c25'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='78234f3630eb90120b8bc52a71deb2b7eb7160fa'
           originals={
             'AGENT_RULES.md':'a0eccca53ffca68c78b236084b6d8058c0a7edfe',
             'WORK_LOG.md':'688878127a7d7ede66dd2c138100142da75f44e6',
@@ -52,10 +52,9 @@ jobs:
               if sha is None:assert not Path(path).exists(),path
               else:assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha,path
           old_log=Path('WORK_LOG.md').read_bytes()
-          payload=Path('.github/underwriting-minimal-payload')
-          chunks=[payload/f'{i:02}.b64' for i in range(1,5)]
+          chunks=[Path('.github/underwriting-minimal-payload')/f'{i:02}.b64' for i in range(1,5)]
           encoded=''.join(p.read_text().strip() for p in chunks)
-          assert len(encoded)==24840, len(encoded)
+          assert len(encoded)==24840,len(encoded)
           patch=gzip.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(patch).hexdigest()=='af1c1b908768a2fca4f07e01163a49bc4eeeac6a5494401570330552969fcaaa'
           temp=Path(os.environ['RUNNER_TEMP'])/'minimal.patch';temp.write_bytes(patch)
@@ -78,8 +77,9 @@ jobs:
           out=Path('.underwriting-check');out.mkdir(exist_ok=True)
           candidate=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
           (out/'candidate.txt').write_text(candidate)
-          print('Exact candidate:',candidate,'preserved original Work Log bytes:',len(old_log))
+          print('Exact candidate:',candidate,'preserved Work Log bytes:',len(old_log))
           PY
+          git archive --format=tar HEAD src/underwriting tests/underwriting docs/plans/2026-09-30-underwriting/minimal AGENT_RULES.md VISION.md WORK_LOG.md | gzip > .underwriting-check/candidate-source.tar.gz
       - name: Install locked dependencies without lifecycle scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Root and strict feature TypeScript, tests, lint and full Vite build
@@ -112,10 +112,13 @@ jobs:
           record={'base':sum(before.values()),'candidate':sum(after.values()),'new':sum(added.values())}
           (root/'diagnostics.json').write_text(json.dumps(record,indent=2));print(record)
           PY
-      - name: Install real-browser test harness
+      - name: Install real-browser test harness with bounded network waits
+        timeout-minutes: 7
         run: |
-          python3 -m pip install playwright==1.57.0
-          python3 -m playwright install --with-deps chromium webkit
+          set -euo pipefail
+          timeout 120 python3 -m pip install --timeout 20 --retries 2 playwright==1.57.0 2>&1 | tee .underwriting-check/browser-setup.log
+          printf 'Acquire::Retries "1";\nAcquire::http::Timeout "25";\nAcquire::https::Timeout "25";\n' | sudo tee /etc/apt/apt.conf.d/99-underwriting-network-timeouts > /dev/null
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=30000 timeout 270 python3 -m playwright install --with-deps chromium webkit 2>&1 | tee -a .underwriting-check/browser-setup.log
       - name: Exercise actual Vite build in Chromium and WebKit
         run: |
           set -euo pipefail
@@ -145,22 +148,23 @@ jobs:
               assert report['checked_out_sha']==candidate and report['script_sha256']==script_hash,report
           frontend=(out/'frontend.log').read_text()
           assert re.search(r'# tests 552\b',frontend) and re.search(r'# pass 552\b',frontend)
-          assert re.search(r'24 passed',frontend), 'React host count not established'
+          assert re.search(r'24 passed',frontend),'React host count not established'
           diagnostics=json.loads((out/'diagnostics.json').read_text())
           run='https://github.com/cgarness/agentflow-life-insure/actions/runs/'+os.environ['GITHUB_RUN_ID']
           record={'candidate':candidate,'run':run,'core_tests':552,'react_tests':24,'browsers':{b:r['passed'] for b,r in reports.items()},'diagnostics':diagnostics,'browser_script_sha256':script_hash}
           (out/'verification.json').write_text(json.dumps(record,indent=2))
-          v=Path('docs/plans/2026-09-30-underwriting/minimal/VERIFICATION.md')
-          previous=v.read_bytes()
+          v=Path('docs/plans/2026-09-30-underwriting/minimal/VERIFICATION.md');previous=v.read_bytes()
           final=(f'# Minimal internal underwriting — VERIFIED REVIEW BUILD, 2026-10-01\n\nTested application candidate: `{candidate}`.\nSuccessful runner: {run}\n\n'
             'Root npx tsc --noEmit and strict feature checks, 552 core/source/chat tests, 24 actual React host tests, scoped ESLint and the full Vite production build passed. Chromium and WebKit each completed 33 actual-built-route groups, including five widths, compact no-footer/Why/About UI, baseline all-carrier green, supported medications and combinations, retained source exclusions, explicit unknowns, corrections, reset/lifecycle, literal-input security, no case-entry requests and keyboard controls.\n\n'
             f'Full application diagnostics: base {diagnostics["base"]}, candidate {diagnostics["candidate"]}, new {diagnostics["new"]}. Existing unrelated errors are not erased. Browser script SHA256: `{script_hash}`. Reports and security evidence carry the exact tested SHA; incomplete runs are not passed runs.\n\n'
+            'Continuation: the earlier runner stalled during browser setup. Retried the identical checksum-pinned application patch on a fresh runner with bounded network waits and setup logs; no application rule or test assertion was weakened. The candidate source archive is retained for audit.\n\n'
             'Green means preliminary carrier-level consideration under the approved internal stated-history assumption, not an exact tier or offer. Source gaps and truly unclear entered data remain. No live AI/RxNorm, verified commissions, physical iPhone or hosted-browser acceptance, production/main merge, backend, secrets, DNS or environment changes are claimed. This final record changes documentation only after the tested candidate.\n\n## Earlier local record (preserved)\n\n').encode()
           v.write_bytes(final+previous)
           log=Path('WORK_LOG.md');old=log.read_bytes()
           entry=(f'## 2026-10-01 — Minimal internal underwriting — REVIEW BUILD VERIFIED; NOT RELEASED\n\n'
             f'- Tested application `{candidate}`; runner {run}. 552 core/source/chat tests, 24 React host tests, 33 Chromium and 33 WebKit groups, root/strict feature TypeScript, scoped lint and full Vite build passed. App diagnostics: base {diagnostics["base"]}, candidate {diagnostics["candidate"]}, new {diagnostics["new"]}.\n'
             '- Minimal AgentFlow basics/chat/cards UI has no footer, Why, About, repeated guidance or tier/commission placeholders. Source-linked carrier-level placement removes blanket one-carrier/medication/count/smoker restrictions while keeping actual exclusions and meaningful unknowns. All provenance remains internal.\n'
+            '- Continuation retried the unchanged application patch after the earlier browser setup stalled; bounded runner-only network timeouts and setup logs added. No application or test weakening.\n'
             '- Temporary source-export/payload/integration files removed. Original Work Log preserved. Final closeout changes only WORK_LOG.md and minimal/VERIFICATION.md. No main/production/backend/DNS/env/telephony mutation; no physical iPhone, hosted browser or live-model claim. Next: Chris’s preview review; source/AI/compensation/release gates remain.\n\n').encode()
           log.write_bytes(entry+old);assert log.read_bytes()[len(entry):]==old
           changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
@@ -189,6 +193,7 @@ jobs:
             .underwriting-check/*.log
             .underwriting-check/*.json
             .underwriting-check/*.txt
+            .underwriting-check/*.tar.gz
             .underwriting-check/screenshots/*.png
           include-hidden-files: true
           retention-days: 14
