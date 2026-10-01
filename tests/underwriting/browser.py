@@ -14,7 +14,7 @@ OUT = ROOT / '.underwriting-check'
 BROWSER = os.environ.get('UW_BROWSER', 'chromium')
 SHOTS = OUT / 'screenshots'
 SHOTS.mkdir(parents=True, exist_ok=True)
-BASE = os.environ.get('UW_TEST_URL', 'http://127.0.0.1:4173')
+BASE = os.environ.get('UW_TEST_URL', 'http://127.0.0.1:4173').rstrip('/')
 LOCAL = os.environ.get('UW_LOCAL_RENDER') == '1'
 checks = []
 complete = False
@@ -74,7 +74,7 @@ def load(browser, width=390, route='/underwriting'):
         page.goto(BASE + route, wait_until='networkidle')
         page.wait_for_selector('#quick-note')
         assert not any('/assets/App-' in u or 'supabase' in u or 'twilio' in u for u in initial), initial
-    page.on('request', lambda r: requests.append(r.url))
+    page.on('request', lambda r: requests.append({'url': r.url, 'method': r.method, 'body': r.post_data}))
     return context, page, errors, requests
 
 
@@ -95,11 +95,37 @@ def answer(page, q, text):
     page.locator(f'[data-question="{q}"]').get_by_role('button', name=text, exact=True).click()
 
 
-def safe(context, page, errors, requests):
+def assert_case_network(requests, restored=False):
+    if restored:
+        # React deliberately remounts a blank page after pageshow. Its one public
+        # logo may load again. Only this exact bodyless GET is permitted; no
+        # query parameters, API requests, identifying payloads or other hosts.
+        public_logo = {'url': BASE + '/agentflow-logo-full-on-dark.png', 'method': 'GET', 'body': None}
+        assert all(request == public_logo for request in requests), requests
+    else:
+        assert not requests, requests
+
+
+def safe(context, page, errors, requests, restored=False):
     no_overflow(page)
     assert not errors, errors
-    assert not requests, requests
+    assert_case_network(requests, restored)
     context.close()
+
+
+# Negative controls: the restoration allowance must not mask case traffic.
+assert_case_network([{'url': BASE + '/agentflow-logo-full-on-dark.png', 'method': 'GET', 'body': None}], True)
+for forbidden in [
+    {'url': BASE + '/agentflow-logo-full-on-dark.png?case=COPD', 'method': 'GET', 'body': None},
+    {'url': BASE + '/agentflow-logo-full-on-dark.png', 'method': 'POST', 'body': 'COPD'},
+    {'url': BASE + '/api/underwriting', 'method': 'GET', 'body': None},
+]:
+    try:
+        assert_case_network([forbidden], True)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('Network assertion accepted a forbidden request')
 
 
 def security_snapshot(page):
@@ -200,13 +226,15 @@ with sync_playwright() as p:
     assert page.locator('[data-question="oxygen"]').count() == 0
     assert page.locator('[data-fit="green"]').count() == 0
     record('Unknown is not No; no repeated prompt trap')
+    assert_case_network(requests)
     page.evaluate("window.dispatchEvent(new Event('pagehide'))")
     expect(page.locator('#quick-note')).to_have_count(0)
     page.evaluate("window.dispatchEvent(new Event('pageshow'))")
     expect(page.locator('#quick-age')).to_have_value(''); expect(page.locator('#quick-note')).to_have_value('')
     assert page.locator('[data-carrier]').count() == 0
-    record('Page lifecycle clears health data')
-    safe(ctx, page, errors, requests)
+    page.wait_for_load_state('networkidle')
+    record('Page lifecycle clears health data; restoration permits only the public logo GET')
+    safe(ctx, page, errors, requests, restored=True)
     ctx, page, errors, requests = load(browser)
     basics(page)
     before = security_snapshot(page)
