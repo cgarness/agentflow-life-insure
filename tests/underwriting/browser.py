@@ -1,5 +1,7 @@
 """Exercise the built chat route. Optional local-render mode is visual-only evidence."""
+import atexit
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +15,23 @@ SHOTS.mkdir(parents=True, exist_ok=True)
 BASE = os.environ.get('UW_TEST_URL', 'http://127.0.0.1:4173')
 LOCAL = os.environ.get('UW_LOCAL_RENDER') == '1'
 checks = []
+complete = False
+script_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+def write_report():
+    report = {
+        'passed': len(checks),
+        'completed': complete,
+        'script_sha256': script_sha256,
+        'checked_out_sha': os.environ.get('UW_SOURCE_SHA', ''),
+        'browser': BROWSER,
+        'environment': 'Local isolated render; not a hosted route test' if LOCAL else 'Actual Vite production build on isolated runner; not physical iOS',
+        'checks': checks,
+    }
+    (OUT / f'browser-tests-{BROWSER}.json').write_text(json.dumps(report, indent=2))
+
+atexit.register(write_report)
+print('Browser script SHA256:', script_sha256, flush=True)
 
 def record(name):
     checks.append(name)
@@ -178,13 +197,20 @@ with sync_playwright() as p:
     record('Obvious identifying email/phone/SSN formats are rejected; no case network requests')
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
-    basics(page);page.locator('#quick-note').fill('COPD');page.locator('#quick-note').press('Shift+Enter')
+    basics(page)
+    note = page.locator('#quick-note')
+    note.focus()
+    expect(note).to_be_focused()
+    note.fill('COPD')
+    note.press('Shift+Enter')
     assert page.locator('[data-carrier]').count() == 0
     page.locator('#quick-note').press('Enter')
     expect(page.locator('[data-carrier]')).to_have_count(3)
     record('Keyboard Enter sends, Shift+Enter preserves multiline entry')
     safe(ctx, page, errors, requests)
     browser.close()
-report = {'passed':len(checks),'failed':0,'environment': 'Local isolated render; not a hosted route test' if LOCAL else f'{BROWSER}; real repository production Vite build served locally on runner; not physical iOS', 'checks':checks}
+complete = True
+write_report()
+report = {'script_sha256': script_sha256, 'passed':len(checks),'failed':0,'environment': 'Local isolated render; not a hosted route test' if LOCAL else f'{BROWSER}; real repository production Vite build served locally on runner; not physical iOS', 'checks':checks}
 (OUT/f'browser-tests-{BROWSER}.json').write_text(json.dumps(report,indent=2))
 print(json.dumps(report,indent=2))
