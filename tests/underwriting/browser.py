@@ -1,10 +1,11 @@
-"""Exercise the built chat route; preserve partial results and security observations."""
+"""Exercise the built chat route; retain incomplete-run and security evidence."""
 import atexit
 import base64
 import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -17,25 +18,40 @@ BASE = os.environ.get('UW_TEST_URL', 'http://127.0.0.1:4173')
 LOCAL = os.environ.get('UW_LOCAL_RENDER') == '1'
 checks = []
 complete = False
+failure = None
 script_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 source_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
+
 def write_report():
-    report = {'passed': len(checks), 'completed': complete, 'script_sha256': script_sha256,
-              'checked_out_sha': source_sha, 'browser': BROWSER,
+    report = {'passed': len(checks), 'completed': complete, 'failure': failure,
+              'script_sha256': script_sha256, 'checked_out_sha': source_sha,
+              'browser': BROWSER,
               'environment': 'Local isolated render' if LOCAL else 'Actual Vite production build; not physical iOS',
               'checks': checks}
     (OUT / f'browser-tests-{BROWSER}.json').write_text(json.dumps(report, indent=2))
 
+
+def report_exception(kind, value, traceback):
+    global failure
+    failure = f'{kind.__name__}: {value}'
+    write_report()
+    sys.__excepthook__(kind, value, traceback)
+
+
+sys.excepthook = report_exception
 atexit.register(write_report)
 print('Browser script SHA256:', script_sha256, 'checkout:', source_sha, flush=True)
+
 
 def record(name):
     checks.append(name)
     print('PASS:', name, flush=True)
 
+
 def no_overflow(page):
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Horizontal overflow'
+
 
 def load(browser, width=390, route='/underwriting'):
     context = browser.new_context(viewport={'width': width, 'height': 900}, device_scale_factor=1)
@@ -61,6 +77,7 @@ def load(browser, width=390, route='/underwriting'):
     page.on('request', lambda r: requests.append(r.url))
     return context, page, errors, requests
 
+
 def basics(page, smoking='nonsmoker'):
     page.locator('#quick-age').fill('65')
     page.locator('#quick-state').select_option('TX')
@@ -68,12 +85,15 @@ def basics(page, smoking='nonsmoker'):
     page.locator('#quick-weight').fill('170')
     page.locator('#quick-smoking').select_option(smoking)
 
+
 def send(page, text):
     page.locator('#quick-note').fill(text)
     page.get_by_role('button', name='Send health note', exact=True).click()
 
+
 def answer(page, q, text):
     page.locator(f'[data-question="{q}"]').get_by_role('button', name=text, exact=True).click()
+
 
 def safe(context, page, errors, requests):
     no_overflow(page)
@@ -81,15 +101,20 @@ def safe(context, page, errors, requests):
     assert not requests, requests
     context.close()
 
+
 def security_snapshot(page):
-    # Separate primitive observations retain evidence without a serialized JS closure.
+    # Only primitive expressions and native locator operations. Do not inject a
+    # JavaScript helper, reset sentinels, or modify the application under test.
     return {
-        'sentinelType': page.evaluate('typeof window.pwned'),
-        'sentinelTruthy': page.evaluate('Boolean(window.pwned)'),
-        'imageCount': page.locator('img').count(),
-        'eventAttributeCount': page.locator('[onerror], [onload]').count(),
+        'sentinelType': page.evaluate('typeof window.__uwChatScriptExecuted'),
+        'sentinelTruthy': page.evaluate('Boolean(window.__uwChatScriptExecuted)'),
+        'imageCount': page.locator('#root img').count(),
+        'eventAttributeCount': page.locator('#root [onerror], #root [onload], #root [onclick]').count(),
+        'injectedNodeCount': page.locator('#root img[src*="__uw_chat_xss_probe"], #root script').count(),
+        'text': page.locator('#root').inner_text(),
         'html': page.locator('#root').inner_html(),
     }
+
 
 with sync_playwright() as p:
     executable = os.environ.get('UW_CHROMIUM_PATH')
@@ -188,16 +213,20 @@ with sync_playwright() as p:
     evidence_path = OUT / f'security-evidence-{BROWSER}.json'
     evidence_path.write_text(json.dumps({'source_sha': source_sha, 'before': before}, indent=2))
     assert not before['sentinelTruthy'], 'Security sentinel present before note'
-    send(page, '<img src=x onerror="window.pwned=true"> COPD')
+    payload = '<img src="/__uw_chat_xss_probe" onerror="window.__uwChatScriptExecuted=true"> COPD'
+    send(page, payload)
     expect(page.locator('[data-carrier]')).to_have_count(3)
     page.wait_for_timeout(250)
     after = security_snapshot(page)
-    evidence_path.write_text(json.dumps({'source_sha': source_sha, 'script_sha256': script_sha256, 'before': before, 'after': after, 'requests': requests, 'errors': errors}, indent=2))
+    evidence_path.write_text(json.dumps({'source_sha': source_sha, 'script_sha256': script_sha256, 'payload': payload, 'before': before, 'after': after, 'requests': requests, 'errors': errors}, indent=2))
     page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-literal-input.png'), full_page=True)
     assert not after['sentinelTruthy'], 'Unexpected script execution; inspect security evidence'
-    assert after['imageCount'] == 1, 'An unexpected image was inserted'
+    assert after['imageCount'] == before['imageCount'] == 1, 'An unexpected image was inserted'
     assert after['eventAttributeCount'] == 0, 'An event attribute was inserted'
+    assert after['injectedNodeCount'] == 0, 'An executable case element was inserted'
+    assert payload in after['text'], 'Authored note was not retained as literal text'
     assert '&lt;img' in after['html'], 'Note is not retained as escaped literal text'
+    assert not requests and not errors, {'requests': requests, 'errors': errors}
     record('Hostile note remains literal; no script, injected element or request')
     page.get_by_role('button', name='New case').click(); basics(page)
     send(page, 'client@example.com has COPD')
