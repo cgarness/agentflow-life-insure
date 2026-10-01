@@ -538,3 +538,15 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 
 - Split **`DialerPage.tsx`** into subcomponents.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
+
+
+## Public underwriting quick-screen assumptions (2026-10-01)
+
+Chris approved a standalone stated-history quick screen: unlisted conditions/screening items may be evaluated as absent only in a disclosed, ephemeral scenario. Never write these assumptions into captured facts, confirmed medical answers, CRM records or carrier-application attestations. An entered unrecognized/uncertain/conflicting detail is not unlisted; retain it and prevent unsupported green recommendations. Missing qualifiers of a listed condition (e.g. BP control, cancer type, diagnosis age, last-treatment date) are not absence assumptions. A recognized term without a verified product-specific rule stays carrier review. Routine screening questions are not mounted in the quick chat; optional missing details belong on result cards. Full carrier evaluators retain their default confirmation requirements. No model/provider activation, production release or invented commission ranking follows from this UI approval.
+
+
+### Minimal internal-agent presentation and carrier-level placement (2026-10-01)
+
+Chris explicitly approved removing the visible assumption footer, Why/source sections, About, introductory prose and unresolved-tier placeholders for his internal-agent preview. This supersedes the earlier requirement to render the disclosure and optional explanatory card notes; it does not change the ephemeral/non-attested nature of assumptions. Keep sources, native results and uncertainty metadata in the evaluator/task documentation, not the agent UI. “Internal” describes intended users, not a newly implemented access-control boundary.
+
+Separate carrier-level field consideration from exact-tier certainty. Do not hardcode only one carrier as eligible for green, or make any medication, smoking or condition count alone force yellow. Use the approved guide’s supported paths and combination rules, with declared medication context explicitly separated from underwriting authority. Unknown entered language, conflicting facts, genuine unclassified qualifiers, actual exclusions, product ages/build/state limits and missing coverage authority still apply. A medication identity does not establish a diagnosis or treatment success. Broad unknown cancer history is not a green case; an omitted tier-only event date need not block a carrier whose documented possible classes all remain available. Never write scenario defaults into captured facts, application attestations or CRM records. Full native evaluators keep their stricter defaults. No live model/RxNorm, compensation, production release or credentials are activated by this UI revision.

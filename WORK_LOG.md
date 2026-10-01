@@ -1,3 +1,86 @@
+## 2026-10-01 — Minimal internal underwriting — REVIEW BUILD VERIFIED; NOT RELEASED
+
+- Tested application `46dbe59c21fdf0910aa9dd1dc325d2751856625c`; runner https://github.com/cgarness/agentflow-life-insure/actions/runs/36898189575. 552 core/source/chat tests, 24 React host tests, 33 Chromium and 33 WebKit groups, root/strict feature TypeScript, scoped lint and full Vite build passed. App diagnostic lines: base 253, candidate 253, new 0.
+- Minimal AgentFlow basics/chat/cards UI has no footer, Why, About, repeated guidance or tier/commission placeholders. Source-linked carrier-level placement removes blanket one-carrier/medication/count/smoker restrictions while keeping actual exclusions and meaningful unknowns. All provenance remains internal.
+- Earlier browser OS-dependency installation did not finish. The unchanged application/test patch passed using version-matched preinstalled Chromium/WebKit in the official Playwright Python image; exact image digest, source archive and evidence retained. No application or test weakening.
+- Temporary source-export/payload/integration files removed. Original Work Log preserved. Final closeout changes only WORK_LOG.md and minimal/VERIFICATION.md. No main/production/backend/DNS/env/telephony mutation; no physical iPhone, hosted browser or live-model claim. Next: Chris’s preview review; source/AI/compensation/release gates remain.
+
+## 2026-10-01 — Minimal internal-agent underwriting — IMPLEMENTED; FINAL RUNNER VERIFICATION PENDING
+
+- Chris approved basics → health note → compact carrier cards only. Removed the visible footer/assumption notice, Why/source sections, About, introductory/assistant prose, commission-pending text and unresolved-tier placeholders. AgentFlow dark logo, New case, compact editable basics and necessary inline corrections remain.
+- Removed the Transamerica-only green gate and blanket medication/condition-count/smoking restrictions. Added source-linked carrier-level screening separate from exact-tier certainty; all native exclusions/medical review results remain internally available. No completed application answers or persisted client history are invented.
+- Omitted conditions/medications remain absent only in an evaluation copy. Explicit unknowns, contradictory insulin, unidentified input, unclassified medication contexts, cancer/BP qualifiers and unsupported combinations remain unresolved. Narrow declared medication-context inference is documented separately from carrier authority. No exact tier, approval probability, premium or commission was fabricated.
+- Files: chat presentation components including BasicsPanel; assumptions/evaluate/parse; new placement/medicationContext helpers; focused rule/React/browser regressions; minimal task docs; AGENT_RULES presentation/placement invariant; this newest-first Work Log entry. Existing history preserved. CRM/dialer, App.tsx, global CSS, dependencies, database/RLS, telephony and production settings untouched.
+- Local verification: root/strict feature TypeScript, 552 core/source/chat tests, 24 actual React host tests, scoped ESLint and full Vite build pass. Exact-source built-route Chromium/WebKit and unchanged-base full-app diagnostic comparison are runner gates, not yet claimed. Physical iPhone is not inferred from WebKit automation.
+- Scope: feature-branch preview only, PR #398. No main merge, backend/provider/key/env/DNS change or production promotion. AI, verified compensation and remaining carrier authority/release gates remain open.
+
+## 2026-10-01 — Instant underwriting revision — PREVIEW VERIFIED; NOT RELEASED
+
+- Tested candidate f1566dd57ff8697825f2787eef2f4b4b71ade0d8; isolated run 36885925972. No automatic routine questions. Unlisted items use a visible, evaluation-only screening assumption; entered unknowns are never assumed absent.
+- High blood pressure aliases recognized. Transamerica controlled-systemic hypertension and pulmonary hypertension remain separate source-backed rules; missing control/subtype/treatment timing stays optional/yellow. Historical BP control and unassessed readings never silently become current clearance.
+- Verified 519 core/source/chat tests, 20 React tests, root/strict TypeScript, scoped lint, Vite build, unchanged-base app diagnostics, and 27 Chromium + 27 WebKit built-route groups. Physical iOS/hosted browser acceptance and the unrelated full suite are not claimed.
+- Application files and earlier implementation record below retained. This closeout touches WORK_LOG.md and instant/VERIFICATION.md only. Temporary transport/check-out/integration helpers removed from final branch tree.
+- No main merge/production release, Supabase/RLS/database, DNS/env, CRM/dialer or telephony changes. Local parser only; live AI, commissions and remaining source authority are still separate completion gates.
+
+## 2026-10-01 — Instant stated-history underwriting — IMPLEMENTED; EXACT-COMMIT BROWSER CHECKS PENDING
+
+- Chris approved removing the routine follow-up questionnaire and assuming unlisted conditions absent for a disclosed quick screen. Direct implementation on work/fflagent-underwriting-v1 / draft PR #398; no main/production approval. Plan: docs/plans/2026-09-30-underwriting/instant/implementation_plan.md.
+- Active chat no longer mounts routine oxygen/care/hospital/other-condition questions or infers replies against hidden questions. Results appear immediately; missing qualifiers are short optional card notes.
+- Added an ephemeral stated-history adapter. Captured/confirmed answers are untouched; explicit yes/unknown/conflicts, mentioned-but-unclear items and missing qualifiers take precedence. Unrecognized entered conditions never become absent.
+- Fixed HBP/high BP/HTN/hypertension recognition; preserved distinct pulmonary hypertension, low BP and other common identities. Transamerica controlled-hypertension Premier (p12) and pulmonary-hypertension Select (p13) use the pinned 08/26 source. Unknown/uncontrolled BP is not guessed as controlled; recognition-only conditions retain carrier review where rules are not verified.
+- Unknown original clauses stay visible; confirmable condition-spelling suggestions and targeted Edit wording replace the silent dismissal control. Medication confirmation remains separate from diagnosis. Source and parser gaps are not represented as carrier declines.
+- Files: src/underwriting/chat/{assumptions,cardNotes,corrections,recognition}.ts; chat parser/patterns/session/evaluate/hook and relevant UI; underwriting/data.ts; rules/transamerica-conditions.ts; unit/host/browser tests; instant task docs; AGENT_RULES.md; this log. Temporary branch-bound checkout/apply helpers are removed at integration. Entire earlier Work Log is preserved.
+- Local verification: root/strict feature TypeScript, 513 core/source/chat/instant tests and 20 React host tests pass; scoped lint and full Vite build rerun before integration. Exact-commit Chromium/WebKit and baseline app diagnostics comparison follow in isolated CI; not claimed passed yet.
+- Production/backend: no main merge/push, production release, Supabase/database/RLS, secrets/provider activation, DNS/environment, CRM/dialer or telephony mutation. Verified commission schedules, live AI integration, source/state gaps and public-presentation approval remain separate.
+- Next: finish exact-commit runner checks and present the refreshed preview. Physical iPhone acceptance remains outstanding.
+
+## 2026-10-01 — AgentFlow dark chat underwriting — REVIEW BUILD VERIFIED; NOT RELEASED
+
+- Continued directly under Chris’s approved chat-first/dark AgentFlow implementation. Feature branch work/fflagent-underwriting-v1, draft PR #398; no main merge.
+- Verified exact candidate 2bfda65f8334de5d1d64c269be58130598a8fcca with successful isolated run 36877635480: root/strict feature TypeScript, core/source/chat and React tests, full Vite build, unchanged-base application diagnostic comparison, scoped lint, and actual built-route Chromium plus WebKit scripts.
+- Fixed the continuation test failure: pagehide/pageshow deliberately remounts the blank public page, which may reload its logo. The lifecycle check now permits only the exact same-origin bodyless GET for that static logo; query-bearing, POST and API requests have negative controls. All ordinary case-entry flows still require zero requests.
+- Browser security evidence uses primitive observations, a unique script sentinel, authored literal-note preservation, injected node/event/request assertions, exact source/script fingerprints, and persisted failure/incomplete-run evidence. Security checks were not disabled.
+- Existing implemented UI: AgentFlow dark styling/logo; compact basics; one chat composer; confirmable medication spelling; no more than two prompts; short green/yellow/red carrier cards and collapsed explanations.
+- Capability limits: bounded local phrase matching, not a connected language model or live RxNorm; no verified compensation/default payout ordering; incomplete state/combination authority remains visible. No guaranteed approvals.
+- Files in this continuation: tests/underwriting/browser.py; task verification/plan; newest-first Work Log; temporary branch-only documentation workflow removed after use. Existing history is preserved byte-for-byte.
+- Production: no main merge, deployment/promotion, Supabase/database/RLS, DNS/environment, CRM/dialer or telephony mutation. Existing Git integration generates preview builds only.
+- Next: hosted review and feedback; separate exact approval for live AI endpoint/provider activation and eventual production release. Physical iPhone testing and source/public-presentation/commission gates remain.
+
+## 2026-09-30 Pacific — AgentFlow quick underwriting dark chat — IMPLEMENTED ON FEATURE BRANCH; HOSTED CHECKS PENDING
+
+- Authority: Chris explicitly approved direct build of the chat-first replacement with AgentFlow dark styles and existing branding, outside the CRM. Plan: docs/plans/2026-09-30-underwriting/chat/implementation_plan.md. Branch work/fflagent-underwriting-v1 / draft PR #398; no main merge or production approval.
+- Replaced the four-stage route with compact five-field basics, a persistent notes composer, at most two follow-ups, editable captured facts, medication spelling confirmation and short green/yellow/red carrier cards. Existing AgentFlow dark theme tokens and logo are reused; no CRM shell, provider, database, telephony or global styling changes.
+- Clinical safety: explicit facts only, negation/family/uncertainty handling, treatment dates not inferred from diagnosis dates, no current-no to historical-no conversion, medication suggestions require confirmation, no drug-to-diagnosis inference, adverse edits invalidate previous results. Unknown or unsupported language remains visible.
+- Native evaluators keep their full-evaluation defaults. The quick adapter explicitly skips amount checks (no synthetic amount) and never manufactures completed carrier-application answers. Green is a preliminary stated medical-screen match; source-incomplete Americo/Mutual paths remain yellow, known exclusions red. No approval probabilities or fabricated commission order.
+- Honest capability boundary: bounded on-device phrase matching, not a connected AI model or live RxNorm service. The UI discloses this. Full open-ended AI interpretation and verified commission schedules are not connected. No secrets, remote health-data processing, persistence or new backend deployment.
+- Files: src/underwriting/UnderwritingPage.tsx; src/underwriting/chat/**; optional amount-check guard in rules/{americo,mutual,transamerica}.ts; host tests; tests/underwriting/{chat.test.cjs,source-contract.test.cjs,browser.py}; isolated feature CI; task plans and verification; this entry.
+- Local verification: root and strict feature/core tsc passed; 467 Node tests, 12 React host tests, scoped lint and full Vite build passed. 20 isolated-render browser scenarios passed at 320/375/390/768/1440; actual hosted-route Chromium/WebKit and app baseline comparison are pending the runner. Local full-app tsc timed out, not passed.
+- Production: no main merge, production deploy, Supabase command/migration, environment, DNS or dialer change. Temporary branch-bound integration support is removed after use. All previous Work Log bytes remain unchanged after this entry.
+- Next: finish isolated hosted checks and publish the updated preview. Remaining product gates: secured live AI interpretation, current carrier/state/combination gaps, producer-material public-use review, actual commission schedules and physical iPhone review.
+
+## 2026-09-30 Pacific — Underwriting: direct source reconciliation and implemented Transamerica rules — FEATURE BRANCH
+
+- Directly performed by ChatGPT under Chris's approved integration request. No Cursor/Claude handoff.
+- The actual supplied Transamerica PDF was retrieved through read-only run 36814852215. Its bytes, text and locally rendered pages agree on 3247945R12 (08/26), Premier and the 100k age-qualified maximum. SHA256 and per-page review are in SOURCE_RECONCILIATION.md. The earlier inconsistent web rendering is not merged into this source.
+- Implemented Transamerica's supported single-condition factors, exact measured build bands, current-medication exclusions, qualified cancer rows, tobacco/nonmedical checks and required current-application confirmation. Unknown diagnoses/medication impact, exact undefined time boundaries and uncertain combinations remain review; ceilings are not offers.
+- Added carrier-specific progressive follow-ups and 226 new source/boundary regressions. Valid complete commission references may order equivalent candidate peers, never override underwriting/benefit priority. Missing schedules still produce no invented payout ranking.
+- Visually verified the exact Mutual of Omaha Living Promise build and Rx columns against the pinned April 2026 PDF. State-specific health-form mapping remains partial. Corrected progress-label wrapping and unconfirmed-benefit wording.
+- Files: src/underwriting/{transamerica-data,engine,sources,data}.ts; rules/{transamerica,transamerica-conditions,mutual}.ts; ui/{transamerica-questions,questions,health,mount,results}.ts; tests/underwriting/{engine.test,transamerica.test}.cjs and browser.py; source reconciliation; plan; this log. Temporary transport files/workflow are removed after use.
+- Verification: 389 local core/source regressions and strict core tsc passed. Before this expansion, integrated run 36814772583 passed the full Vite build, strict React/Zod checks, 4 host tests, 22 built-browser groups and no new application TypeScript diagnostics relative to main's 90 pre-existing errors. The expanded full-repository run follows this commit; its final evidence belongs in VERIFICATION.md.
+- No main merge, production deployment, Supabase command/migration, RLS, DNS/environment or telephony change. Original Work Log history is preserved byte-for-byte.
+- Remaining release gates: physical iOS Safari; current state-form coverage review; producer-only material presentation permission; actual applicable commission schedules. Review build is not a guaranteed-approval tool.
+
+## 2026-09-30 — Public underwriting direct integration — FEATURE BRANCH ONLY; REPOSITORY CHECKS PENDING
+
+- Authority: Chris explicitly requested ChatGPT carry out the implementation rather than hand off to Cursor or Claude. Plan: docs/plans/2026-09-30-underwriting/implementation_plan.md.
+- Branch: work/fflagent-underwriting-v1 from main 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326. Public destination /underwriting, with /underwritin alias on FFLAGENT.com.
+- Changes: standalone public entry before importing App; mobile-first underwriting UI; strict Zod forms; sourced preliminary evaluator; optional in-memory unverified commission reference; invalidation/reset; full-document home link; pagehide/pageshow sensitive-state clearing.
+- Files: src/main.tsx; src/underwriting/**; tests/underwriting/**; scripts/underwriting/check.sh; tsconfig.underwriting.json and tsconfig.underwriting.core.json; task plan/source/verification documents; isolated feature checks workflow; this log.
+- Verification before repository integration: 163 core/source tests and 18 offline browser groups passed. Actual React/Zod/Tailwind 3 integration and built-route checks run separately and are PENDING at this commit; do not represent them as passed yet.
+- Source gates: Americo uses approved 11/25 guide with ceilings distinct from offers; Transamerica is held for inconsistent retrieved versions; Mutual of Omaha state-form coverage is partial; no verified commission schedule or default highest-paying carrier. Public producer-material use review remains required.
+- Production: no main merge, production deployment, DNS/environment change, Supabase mutation/migration or telephony change. The original Work Log is preserved byte-for-byte after this entry.
+- Next: complete isolated runner checks, inspect the exact final diff and open a draft PR. Release needs separately reviewed approval and source-readiness resolution.
+
 ## 2026-09-30 — Dialer appointment timezone + `created_by` writer fix — IMPLEMENTED AND VERIFIED LOCALLY; NOT PUSHED
 
 - **Status:**
