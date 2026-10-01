@@ -1,0 +1,102 @@
+name: Underwriting isolated frontend checks
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        type: string
+        required: true
+  pull_request:
+    paths:
+      - 'src/underwriting/**'
+      - 'src/main.tsx'
+      - 'tests/underwriting/**'
+      - 'scripts/underwriting/**'
+      - 'tsconfig.underwriting*.json'
+      - '.github/workflows/underwriting-checks.yml'
+  push:
+    branches: ['work/fflagent-underwriting-v1']
+    paths:
+      - 'src/underwriting/**'
+      - 'src/main.tsx'
+      - 'tests/underwriting/**'
+      - 'scripts/underwriting/**'
+      - 'tsconfig.underwriting*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    if: github.repository == 'cgarness/agentflow-life-insure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_SHA: 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Strict checks, evaluator tests, React host tests and production build
+        run: |
+          set -euo pipefail
+          mkdir -p .underwriting-check
+          bash scripts/underwriting/check.sh 2>&1 | tee .underwriting-check/frontend.log
+      - name: Compare application TypeScript diagnostics to the unchanged base
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/underwriting-base"
+          git worktree add --detach "$baseline" "$BASE_SHA"
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$baseline/node_modules"
+          set +e
+          (cd "$baseline" && ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false) > .underwriting-check/tsc-base.log 2>&1
+          base_status=$?
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false > .underwriting-check/tsc-current.log 2>&1
+          current_status=$?
+          set -e
+          test "$base_status" -le 2 && test "$current_status" -le 2
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          root=Path('.underwriting-check')
+          before=Counter(root.joinpath('tsc-base.log').read_text().splitlines())
+          after=Counter(root.joinpath('tsc-current.log').read_text().splitlines())
+          added=after-before
+          assert not added, 'New TypeScript diagnostics:\n'+'\n'.join(added.elements())
+          print('Application diagnostics: base',sum(before.values()),'current',sum(after.values()),'new',sum(added.values()))
+          PY
+      - name: Lint only the changed feature
+        run: npx --no-install eslint src/main.tsx src/underwriting
+      - name: Install the browser test harness
+        run: |
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium
+      - name: Exercise the actual built public route
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 > .underwriting-check/preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4173/underwriting > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 tests/underwriting/browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: underwriting-checks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .underwriting-check/*.log
+            .underwriting-check/*.json
+            .underwriting-check/screenshots/*.png
+          include-hidden-files: true
+          retention-days: 14
