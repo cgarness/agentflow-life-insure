@@ -6,7 +6,7 @@ const contains=(list:string[],s:string)=>list.some(x=>normalizeMedication(x)===n
 export function mutual(c:CaseInput):Result {
   const r:Result={carrier:'mutual',name:'Mutual of Omaha',product:'Living Promise',status:'review',tier:'Level / Graded unconfirmed',
     tierKind:'unknown',benefit:'unconfirmed',reasons:[],gaps:[],warnings:[
-      'April 2026 text extraction. Build and medication tables require final visual verification before public release.',
+      'April 2026 source text and Living Promise build/Rx tables visually verified; exact state-application mapping remains partial.',
       'The carrier uses MIB, pharmaceutical and medical-data checks; this is not an approval.']};
   const age=+c.age,face=+c.face,a=c.answers;
   const outside=(rule:string,text:string,page:string)=>{r.status='outside';r.reasons.push(e(rule,text,page));};
@@ -14,10 +14,10 @@ export function mutual(c:CaseInput):Result {
   if(face<2000||face>50000)outside('MO-FACE','Requested coverage is outside the published Level range of $2,000–$50,000 (state variations apply).','1');
   const i=+c.height-mutualBuild.first,lo=mutualBuild.min[i],level=mutualBuild.level[i],graded=mutualBuild.graded[i];
   let needsGraded=false;
-  if(lo===undefined||level===undefined||graded===undefined)r.gaps.push('Height has no row in the extracted Living Promise build chart.');
-  else if(+c.weight<lo||+c.weight>graded)outside('MO-BUILD',`Outside extracted build limits ${lo}–${graded} lb; verify the current chart.`,'2');
-  else if(+c.weight>level){needsGraded=true;r.reasons.push(e('MO-BUILD-GRADED',`Above the extracted Level maximum ${level} lb; within Graded maximum ${graded} lb.`,'2'));}
-  else r.reasons.push(e('MO-BUILD-LEVEL',`Within the extracted Level build range ${lo}–${level} lb.`,'2'));
+  if(lo===undefined||level===undefined||graded===undefined)r.gaps.push('Height has no row in the published Living Promise build chart.');
+  else if(+c.weight<lo||+c.weight>graded)outside('MO-BUILD',`Outside published build limits ${lo}–${graded} lb; verify the current chart.`,'2');
+  else if(+c.weight>level){needsGraded=true;r.reasons.push(e('MO-BUILD-GRADED',`Above the published Level maximum ${level} lb; within Graded maximum ${graded} lb.`,'2'));}
+  else r.reasons.push(e('MO-BUILD-LEVEL',`Within the published Level build range ${lo}–${level} lb.`,'2'));
   for(const med of c.medications) {
     if(med.status==='stopped'){r.gaps.push(`${med.name}: discontinued treatment needs the applicable condition/lookback assessment.`);continue;}
     if(med.status==='unknown'){r.gaps.push(`${med.name}: confirm whether currently taken.`);continue;}

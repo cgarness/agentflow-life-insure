@@ -9,9 +9,23 @@ export function evaluate(c:CaseInput):Result[] {
   return [americo(c),mutual(c),transamerica(c)];
 }
 // No numeric approval score; preserve carrier-native outcomes and distinct benefit structures.
-export function orderResults(results:Result[]):Result[] {
+export function orderResults(results:Result[],schedule?:CommissionSchedule,today?:string):Result[] {
   const rank:Record<Result['status'],number>={candidate:0,possible:1,review:2,hold:3,outside:4};
-  return [...results].sort((a,b)=>rank[a.status]-rank[b.status]||a.name.localeCompare(b.name));
+  const benefitRank={immediate:0,graded:1,unconfirmed:2};
+  const comparable=schedule&&today&&validSchedule(schedule,today);
+  return [...results].sort((a,b)=>{
+    const underwriting=rank[a.status]-rank[b.status]||benefitRank[a.benefit]-benefitRank[b.benefit];
+    if(underwriting)return underwriting;
+    if(comparable&&a.status==='candidate'&&b.status==='candidate'&&a.tierKind==='candidate'&&b.tierKind==='candidate'&&
+      a.commissionKey&&b.commissionKey&&a.commissionGroup&&a.commissionGroup===b.commissionGroup){
+      const peers=results.filter(r=>r.status==='candidate'&&r.tierKind==='candidate'&&r.commissionGroup===a.commissionGroup);
+      if(peers.length>1&&peers.every(r=>r.commissionKey&&schedule.rates[r.commissionKey]!==undefined&&schedule.rates[r.commissionKey]!=='')){
+        const commission=+schedule.rates[b.commissionKey]!-+schedule.rates[a.commissionKey]!;
+        if(commission)return commission;
+      }
+    }
+    return a.name.localeCompare(b.name);
+  });
 }
 export function commissionLeaders(results:Result[],s:CommissionSchedule,today:string):string[] {
   if(!validSchedule(s,today))return [];

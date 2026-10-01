@@ -1,3 +1,15 @@
+## 2026-09-30 Pacific — Underwriting: direct source reconciliation and implemented Transamerica rules — FEATURE BRANCH
+
+- Directly performed by ChatGPT under Chris's approved integration request. No Cursor/Claude handoff.
+- The actual supplied Transamerica PDF was retrieved through read-only run 36814852215. Its bytes, text and locally rendered pages agree on 3247945R12 (08/26), Premier and the 100k age-qualified maximum. SHA256 and per-page review are in SOURCE_RECONCILIATION.md. The earlier inconsistent web rendering is not merged into this source.
+- Implemented Transamerica's supported single-condition factors, exact measured build bands, current-medication exclusions, qualified cancer rows, tobacco/nonmedical checks and required current-application confirmation. Unknown diagnoses/medication impact, exact undefined time boundaries and uncertain combinations remain review; ceilings are not offers.
+- Added carrier-specific progressive follow-ups and 226 new source/boundary regressions. Valid complete commission references may order equivalent candidate peers, never override underwriting/benefit priority. Missing schedules still produce no invented payout ranking.
+- Visually verified the exact Mutual of Omaha Living Promise build and Rx columns against the pinned April 2026 PDF. State-specific health-form mapping remains partial. Corrected progress-label wrapping and unconfirmed-benefit wording.
+- Files: src/underwriting/{transamerica-data,engine,sources,data}.ts; rules/{transamerica,transamerica-conditions,mutual}.ts; ui/{transamerica-questions,questions,health,mount,results}.ts; tests/underwriting/{engine.test,transamerica.test}.cjs and browser.py; source reconciliation; plan; this log. Temporary transport files/workflow are removed after use.
+- Verification: 389 local core/source regressions and strict core tsc passed. Before this expansion, integrated run 36814772583 passed the full Vite build, strict React/Zod checks, 4 host tests, 22 built-browser groups and no new application TypeScript diagnostics relative to main's 90 pre-existing errors. The expanded full-repository run follows this commit; its final evidence belongs in VERIFICATION.md.
+- No main merge, production deployment, Supabase command/migration, RLS, DNS/environment or telephony change. Original Work Log history is preserved byte-for-byte.
+- Remaining release gates: physical iOS Safari; current state-form coverage review; producer-only material presentation permission; actual applicable commission schedules. Review build is not a guaranteed-approval tool.
+
 ## 2026-09-30 — Public underwriting direct integration — FEATURE BRANCH ONLY; REPOSITORY CHECKS PENDING
 
 - Authority: Chris explicitly requested ChatGPT carry out the implementation rather than hand off to Cursor or Claude. Plan: docs/plans/2026-09-30-underwriting/implementation_plan.md.

@@ -1,4 +1,5 @@
 import { CaseInput, Question } from '../types';
+import { transamericaQuestions } from './transamerica-questions';
 import { conditions } from '../data';
 import { el, add, note } from './dom';
 import { answer, input } from './fields';
@@ -20,7 +21,7 @@ export function dynamicQuestions(c:CaseInput):Question[] {
 export function questions(c:CaseInput,change:()=>void,rerender:()=>void):HTMLElement {
   const root=el('div','space-y-5');
   add(root,note('Answer what is known','Unknown or unanswered facts remain visible in results. No clinical diagnosis is inferred, and no carrier’s exclusions are transferred to another carrier.'));
-  for(const q of [...safetyQuestions,...dynamicQuestions(c)])add(root,answer(q.id,q.title,c.answers[q.id]??'',v=>{c.answers[q.id]=v;c.answers.moReviewed='';c.answers.moPart1='';c.answers.moPart2='';change();rerender();},q.help));
+  for(const q of [...safetyQuestions,...dynamicQuestions(c)])add(root,answer(q.id,q.title,c.answers[q.id]??'',v=>{c.answers[q.id]=v;c.answers.moReviewed='';c.answers.moPart1='';c.answers.moPart2='';c.answers.taReviewed='';change();rerender();},q.help));
   const details=el('details','rounded-xl border border-slate-200 p-4');
   add(details,el('summary','min-h-[44px] cursor-pointer text-sm font-semibold leading-6 text-slate-800','Carrier / state verification — optional, improves the review'));
   const inside=el('div','mt-4 space-y-4');
@@ -32,5 +33,5 @@ export function questions(c:CaseInput,change:()=>void,rerender:()=>void):HTMLEle
     ['moPart2','Any Yes answers in Living Promise Part Two?','A Yes limits consideration to Graded, subject to the other requirements.']
   ])add(inside,answer(id!,title!,c.answers[id!]??'',v=>{c.answers[id!]=v;change();rerender();},help));
   add(inside,input('moForm','Living Promise form / version / application state',c.details.moForm??'',v=>{c.details.moForm=v;change();},{placeholder:'Form number, revision and state — no client information',maxLength:250}));
-  add(details,inside);add(root,details);return root;
+  add(details,inside);add(root,transamericaQuestions(c,change,rerender),details);return root;
 }

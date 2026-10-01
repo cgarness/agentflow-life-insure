@@ -47,3 +47,7 @@ No Supabase changes or backend commands. No production data access needed. No he
 
 ## Status
 Feature branch created. Implementation and full-repository checks in progress; no application commit, PR, merge or deployment is claimed by this initial plan entry.
+
+## As-built source expansion — 2026-09-30 Pacific
+
+The preceding initial Transamerica hold is historical. Exact direct PDF retrieval resolved the mismatch; see SOURCE_RECONCILIATION.md for hashes and supported scope. Added transamerica-data.ts, rules/transamerica-conditions.ts and ui/transamerica-questions.ts, extended source/boundary and real-browser tests, and visually verified Living Promise table columns. Local core tests: 389 passed. The full integrated first release passed run 36814772583; expanded integration checks follow this commit. All code remains on the approved feature branch, with no production changes. Final verification is recorded separately; unknown rules and missing commission schedules are not silently filled.

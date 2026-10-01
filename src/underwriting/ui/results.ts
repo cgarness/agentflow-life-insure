@@ -7,7 +7,7 @@ export function resultsView(c:CaseInput,results:Result[],schedule:CommissionSche
   const root=el('div','space-y-5'),top=el('div','space-y-3');
   add(top,el('p','text-sm font-medium text-slate-500',caseSummary(c)),note('Underwriting guidance, not approval odds','Results separate documented restrictions, tier ceilings and facts still needing review. These are not quotes or final underwriting decisions.'));
   add(root,top);const leaders=commissionLeaders(results,schedule,today);
-  for(const r of orderResults(results))root.append(resultCard(r,leaders.includes(r.carrier)));
+  for(const r of orderResults(results,schedule,today))root.append(resultCard(r,leaders.includes(r.carrier)));
   return root;
 }
 function resultCard(r:Result,isLeader:boolean):HTMLElement {
@@ -31,7 +31,7 @@ function resultCard(r:Result,isLeader:boolean):HTMLElement {
   }
   const meta=el('div','grid grid-cols-1 gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 text-xs sm:grid-cols-2 sm:px-6');
   add(meta,add(el('div'),el('p','font-semibold text-slate-500','Benefit structure'),el('p','mt-1 text-sm font-medium text-slate-800',
-    r.benefit==='immediate'?'Immediate benefit candidate':r.benefit==='graded'?'Graded consideration · limitations apply':'Not yet established')),
+    r.benefit==='immediate'?(r.status==='candidate'?'Immediate benefit candidate':'Immediate structure · eligibility unconfirmed'):r.benefit==='graded'?'Graded consideration · limitations apply':'Not yet established')),
     add(el('div'),el('p','font-semibold text-slate-500','Commission comparison'),el('p','mt-1 text-sm font-medium text-slate-800',
       isLeader?'Highest agent-supplied rate in peer group':'Unavailable until suitable tiers and comparable rates are established')));
   const details=el('details','border-t border-slate-100 px-5 py-3 sm:px-6');

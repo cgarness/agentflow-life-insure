@@ -13,11 +13,11 @@ export function mountUnderwriting(host:HTMLElement,options:MountOptions={}):()=>
   let c=freshCase(),schedule=freshSchedule(),appliedSchedule=freshSchedule(),step=0,results:Result[]=[],errors:ValidationIssue[]=[],closed=false;
   const today=currentLocalDate;
   const dirty=()=>{results=[];appliedSchedule=freshSchedule();schedule.acknowledged=false;};
-  const clinicalDirty=()=>{dirty();c.answers.moReviewed='';c.answers.moPart1='';c.answers.moPart2='';c.answers.amState='';c.answers.moState='';schedule.acknowledged=false;};
+  const clinicalDirty=()=>{dirty();c.answers.moReviewed='';c.answers.moPart1='';c.answers.moPart2='';c.answers.amState='';c.answers.moState='';c.answers.taReviewed='';c.answers.taEligibility='';schedule.acknowledged=false;};
   const repaint=()=>render(true);
   const jump=(n:number)=>{step=n;errors=[];render(false);};
   const reset=()=>{c=freshCase();schedule=freshSchedule();appliedSchedule=freshSchedule();results=[];errors=[];step=0;render(false);};
-  const labels=['Client basics','Health & medications','Follow-up questions','Carrier review'];
+  const labels=['Client basics','Health & meds','Follow-ups','Carrier review'];
   function next():void {
     errors=validateCase(c,step);
     if(errors.length){render(true);focusError();return;}
@@ -83,7 +83,7 @@ export function mountUnderwriting(host:HTMLElement,options:MountOptions={}):()=>
     const footer=el('footer','mt-7 space-y-4');
     add(footer,add(el('div','flex flex-wrap items-center justify-between gap-3'),pill('Review build · not a carrier decision','slate'),
       button('Clear case & session reference','min-h-[44px] text-xs font-semibold text-slate-500 underline underline-offset-4',reset)),
-      el('p','text-xs leading-6 text-slate-500','Americo · 11/25 baseline. Living Promise · 04/26 partial criteria. Transamerica · source verification pending. No premium quotes or commission dollars. Cases are not saved or transmitted.'),
+      el('p','text-xs leading-6 text-slate-500','Americo · 11/25 baseline. Living Promise · 04/26 partial criteria. Transamerica · 08/26 verified source, partial rules. No premium quotes or commission dollars. Cases are not saved or transmitted.'),
       el('p','text-xs leading-6 text-slate-400','For agent field review. Final eligibility, benefits and compensation are determined by the carrier. Public release requires verified sources, applicable state forms and permission to use producer-only material.'));
     add(main,footer);add(page,main);host.append(page);
     if(preserve){for(const d of host.querySelectorAll('details'))if(openSummaries.includes(d.querySelector('summary')?.textContent))d.open=true;

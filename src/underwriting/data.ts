@@ -35,7 +35,7 @@ export const americoBuild = {
   min:[79,81,84,87,90,93,96,99,102,106,109,112,116,119,122,126,130,133,137,141,144,148,152,156],
   max:[198,205,212,220,227,235,243,251,259,267,275,284,292,301,310,319,328,337,346,356,365,375,385,395]
 };
-// MO2604 printed p2 / PDF p5. TEXT extraction only: gated pending visual verification.
+// MO2604 printed p2 / PDF p5. Text and all rows visually verified against pinned April 2026 PDF.
 export const mutualBuild = {
   first:56,
   min:[74,77,79,82,85,88,91,94,97,100,103,106,109,112,115,119,122,126,129,133,136,140,143,147,151,154,158],
@@ -63,6 +63,6 @@ export const commissionProducts = [
   ['am-s1-n','Americo · Select 1 Non-nicotine'],['am-s1-y','Americo · Select 1 Nicotine'],
   ['am-s2-n','Americo · Select 2 Non-nicotine'],['am-s2-y','Americo · Select 2 Nicotine'],['am-s3','Americo · Select 3'],
   ['mo-level','Mutual of Omaha · Living Promise Level'],['mo-graded','Mutual of Omaha · Living Promise Graded'],
-  ['ta-premier','Transamerica · Premier — source on hold'],['ta-select','Transamerica · Select — source on hold'],
-  ['ta-graded','Transamerica · Graded — source on hold']
+  ['ta-premier','Transamerica · Premier'],['ta-select-n','Transamerica · Select Nontobacco'],['ta-select-y','Transamerica · Select Tobacco'],
+  ['ta-graded-n','Transamerica · Graded Nontobacco'],['ta-graded-y','Transamerica · Graded Tobacco']
 ] as const;
