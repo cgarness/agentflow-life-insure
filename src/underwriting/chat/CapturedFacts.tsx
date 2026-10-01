@@ -6,7 +6,7 @@ export function CapturedFacts({ notes, remove, accept, reject, clearUnresolved }
   return <div className="space-y-3">
     {notes.suggestions.map(s => <div key={s.id} className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4">
       <p className="flex items-center gap-2 text-sm text-amber-200"><CircleHelp size={16} /><span>“{s.entered}” — did you mean:</span></p>
-      <div className="mt-3 flex flex-wrap gap-2">{s.candidates.map(name => <button type="button" key={name} onClick={() => accept(s.id, name)} className="flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-300/25 px-3 text-sm text-amber-100 transition hover:bg-amber-300/10"><Check size={13} />{name}</button>)}
+      <div className="mt-3 flex flex-wrap gap-2">{s.candidates.map(name => <button type="button" key={name} aria-label={name} onClick={() => accept(s.id, name)} className="flex min-h-10 items-center gap-1.5 rounded-xl border border-amber-300/25 px-3 text-sm text-amber-100 transition hover:bg-amber-300/10"><Check size={13} aria-hidden="true" />{name}</button>)}
         <button type="button" onClick={() => reject(s.id)} className="min-h-10 rounded-xl px-3 text-xs text-muted-foreground hover:text-foreground">None of these</button>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">Confirm the actual medication. No diagnosis is inferred.</p>
