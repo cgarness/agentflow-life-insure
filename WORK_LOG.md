@@ -1,3 +1,15 @@
+## 2026-10-01 — Instant stated-history underwriting — IMPLEMENTED; EXACT-COMMIT BROWSER CHECKS PENDING
+
+- Chris approved removing the routine follow-up questionnaire and assuming unlisted conditions absent for a disclosed quick screen. Direct implementation on work/fflagent-underwriting-v1 / draft PR #398; no main/production approval. Plan: docs/plans/2026-09-30-underwriting/instant/implementation_plan.md.
+- Active chat no longer mounts routine oxygen/care/hospital/other-condition questions or infers replies against hidden questions. Results appear immediately; missing qualifiers are short optional card notes.
+- Added an ephemeral stated-history adapter. Captured/confirmed answers are untouched; explicit yes/unknown/conflicts, mentioned-but-unclear items and missing qualifiers take precedence. Unrecognized entered conditions never become absent.
+- Fixed HBP/high BP/HTN/hypertension recognition; preserved distinct pulmonary hypertension, low BP and other common identities. Transamerica controlled-hypertension Premier (p12) and pulmonary-hypertension Select (p13) use the pinned 08/26 source. Unknown/uncontrolled BP is not guessed as controlled; recognition-only conditions retain carrier review where rules are not verified.
+- Unknown original clauses stay visible; confirmable condition-spelling suggestions and targeted Edit wording replace the silent dismissal control. Medication confirmation remains separate from diagnosis. Source and parser gaps are not represented as carrier declines.
+- Files: src/underwriting/chat/{assumptions,cardNotes,corrections,recognition}.ts; chat parser/patterns/session/evaluate/hook and relevant UI; underwriting/data.ts; rules/transamerica-conditions.ts; unit/host/browser tests; instant task docs; AGENT_RULES.md; this log. Temporary branch-bound checkout/apply helpers are removed at integration. Entire earlier Work Log is preserved.
+- Local verification: root/strict feature TypeScript, 513 core/source/chat/instant tests and 20 React host tests pass; scoped lint and full Vite build rerun before integration. Exact-commit Chromium/WebKit and baseline app diagnostics comparison follow in isolated CI; not claimed passed yet.
+- Production/backend: no main merge/push, production release, Supabase/database/RLS, secrets/provider activation, DNS/environment, CRM/dialer or telephony mutation. Verified commission schedules, live AI integration, source/state gaps and public-presentation approval remain separate.
+- Next: finish exact-commit runner checks and present the refreshed preview. Physical iPhone acceptance remains outstanding.
+
 ## 2026-10-01 — AgentFlow dark chat underwriting — REVIEW BUILD VERIFIED; NOT RELEASED
 
 - Continued directly under Chris’s approved chat-first/dark AgentFlow implementation. Feature branch work/fflagent-underwriting-v1, draft PR #398; no main merge.

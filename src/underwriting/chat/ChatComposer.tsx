@@ -9,7 +9,7 @@ export function ChatComposer({ value, onChange, onSend, error, active }: Props) 
       <textarea id="quick-note" value={value} onChange={e => onChange(e.target.value)} maxLength={3000} rows={active ? 2 : 3}
         onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !composing.current && !e.nativeEvent.isComposing) { e.preventDefault(); onSend(); } }}
-        placeholder={active ? 'Add a detail, answer a question, or correct something…' : 'Type 2 diabetes, COPD, had cancer 7 years ago…'}
+        placeholder={active ? 'Add or correct a health detail…' : 'Type 2 diabetes, COPD, had cancer 7 years ago…'}
         aria-describedby="quick-note-help" aria-invalid={!!error} autoComplete="off" autoCorrect="off" spellCheck={false}
         className="block w-full resize-none rounded-2xl bg-transparent px-4 pb-1 pt-4 text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground/70 sm:px-5" />
       <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-1 sm:px-5">

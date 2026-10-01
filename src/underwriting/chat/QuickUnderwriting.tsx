@@ -4,7 +4,7 @@ import { BasicsPanel } from './BasicsPanel';
 import { ChatComposer } from './ChatComposer';
 import { CapturedFacts } from './CapturedFacts';
 import { CarrierCards } from './CarrierCards';
-import { Followups } from './Followups';
+import { assumptionNotice } from './assumptions';
 import { useQuickUnderwriting } from './useQuickUnderwriting';
 
 export default function QuickUnderwriting() {
@@ -36,12 +36,13 @@ export default function QuickUnderwriting() {
         {app.turns.length > 2 && <details className="px-1 text-xs text-muted-foreground"><summary className="cursor-pointer">Earlier notes ({Math.floor((app.turns.length - 2) / 2)})</summary><div className="mt-3 space-y-3">{app.turns.slice(0, -2).filter(t => t.role === 'user').map(t => <p key={t.id} className="whitespace-pre-wrap break-words rounded-xl bg-card p-3">{t.text}</p>)}</div></details>}
         <div className="flex justify-end"><p className="max-w-[92%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md border border-border bg-secondary/50 px-4 py-3 text-sm leading-6">{app.turns[app.turns.length - 2]?.text}</p></div>
         <div ref={update} aria-live="polite" className="flex items-center gap-2.5"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary"><Zap size={14} /></span><p className="text-sm leading-6 text-muted-foreground">{app.turns[app.turns.length - 1]?.text}</p></div>
-        <CapturedFacts notes={app.notes} remove={app.remove} accept={app.acceptMedication} reject={app.rejectMedication} clearUnresolved={app.clearUnresolved} />
+        <CapturedFacts notes={app.notes} remove={app.remove} accept={app.acceptMedication} reject={app.rejectMedication} editWording={app.editWording} acceptCondition={app.acceptCondition} />
         {app.ready ? <CarrierCards cards={app.cards} /> : <p className="text-sm text-amber-300">Complete the edited basics to refresh carrier results.</p>}
-        <Followups questions={app.questions} onAnswer={app.answer} />
       </div>}
+      <p data-assumption-notice className="mt-4 text-center text-[11px] leading-5 text-muted-foreground">{assumptionNotice}</p>
+      {app.editingWording && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-amber-200"><span>Editing an unrecognized detail</span><button type="button" onClick={app.cancelWording} className="min-h-10 rounded px-3 hover:bg-card">Cancel edit</button></div>}
       <ChatComposer value={app.draft} onChange={app.setDraft} onSend={app.send} error={app.error} active={app.turns.length > 0} />
-      <details className="pb-7 text-center text-[10px] leading-5 text-muted-foreground"><summary className="cursor-pointer">About this quick screen</summary><p className="mx-auto mt-2 max-w-lg">On-device phrase matching—not a connected language model. Review the captured details. Unknown language stays flagged; medication suggestions require confirmation. Nothing is saved to the CRM. This preview does not quote prices or replace a carrier application.</p></details>
+      <details className="pb-7 text-center text-[10px] leading-5 text-muted-foreground"><summary className="cursor-pointer">About this quick screen</summary><p className="mx-auto mt-2 max-w-lg">On-device phrase matching—not a connected language model. Review the captured details. Unknown language stays flagged; medication suggestions require confirmation. Unlisted screening items are assumptions, not confirmed application answers. Nothing is saved to the CRM. This preview does not quote prices or replace a carrier application.</p></details>
     </main>
   </div>;
 }

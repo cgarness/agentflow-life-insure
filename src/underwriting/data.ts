@@ -1,5 +1,12 @@
 export const states = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
 export const conditions: {id:string; label:string; module:string}[] = [
+  {id:'hypertension',label:'High blood pressure',module:'blood-pressure'},
+  {id:'pulmonary_hypertension',label:'Pulmonary hypertension',module:'respiratory'},
+  {id:'high_cholesterol',label:'High cholesterol',module:'other'},
+  {id:'hypotension',label:'Low blood pressure',module:'other'},
+  {id:'hypothyroidism',label:'Underactive thyroid',module:'other'},
+  {id:'hyperthyroidism',label:'Overactive thyroid',module:'other'},
+  {id:'arthritis',label:'Arthritis — type unspecified',module:'other'},
   {id:'copd',label:'COPD / emphysema / chronic bronchitis',module:'respiratory'},
   {id:'asthma',label:'Asthma',module:'respiratory'},
   {id:'diabetes',label:'Diabetes',module:'diabetes'},

@@ -1,6 +1,13 @@
 // Deliberately bounded phrase recognizer. Unsupported or uncertain text is not
 // claimed to have been understood by a general-purpose language model.
 export const diagnosisPatterns: [string, string, RegExp][] = [
+  ['pulmonary_hypertension', 'Pulmonary hypertension', /\bpulmonary(?:\s+arterial)?\s+(?:hypertension|htn)\b/gi],
+  ['hypertension', 'High blood pressure', /\b(?:hypertension|high\s+(?:blood\s+pressure|bp)|hbp|htn)\b/gi],
+  ['high_cholesterol', 'High cholesterol', /\b(?:high cholesterol|hyperlipidemia|hypercholesterolemia)\b/gi],
+  ['hypotension', 'Low blood pressure', /\b(?:hypotension|low blood pressure|low bp)\b/gi],
+  ['hypothyroidism', 'Underactive thyroid', /\b(?:hypothyroidism|underactive thyroid)\b/gi],
+  ['hyperthyroidism', 'Overactive thyroid', /\b(?:hyperthyroidism|overactive thyroid)\b/gi],
+  ['arthritis', 'Arthritis — type unspecified', /\barthritis\b/gi],
   ['copd', 'COPD', /\b(?:copd|emphysema|chronic bronchitis)\b/gi],
   ['asthma', 'Asthma', /\basthma\b/gi],
   ['diabetes', 'Diabetes', /\b(?:type\s*[12]\s*diabet(?:es|ic)|diabet(?:es|ic)|t[12]d(?:m)?)\b/gi],
@@ -29,7 +36,7 @@ export const diagnosisPatterns: [string, string, RegExp][] = [
 export function contextStatus(clause: string, start: number): 'yes' | 'no' | 'unknown' | 'family' {
   const prefix = clause.slice(0, start).toLowerCase();
   if (/\b(?:mother|father|sister|brother|parent|family history|husband|wife)\b/.test(prefix)) return 'family';
-  if (/\b(?:maybe|possible|possibly|might|suspected|unsure|not sure|rule out|waiting to see)\b/.test(prefix)) return 'unknown';
+  if (/\b(?:maybe|possible|possibly|might|suspected|unsure|unknown|not sure|rule out|waiting to see)\b/.test(prefix)) return 'unknown';
   const afterNegation = prefix.match(/\b(?:no|never|denies|without|does not have|doesn't have)\b(.*)$/);
   // A positive verb ends the scope: “no insulin but has COPD”.
   if (afterNegation && !/\b(?:but|has|had|with|takes?|taking|on)\b/.test(afterNegation[1] ?? '')) return 'no';

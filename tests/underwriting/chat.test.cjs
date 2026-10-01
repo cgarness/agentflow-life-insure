@@ -61,8 +61,8 @@ test('wrong or invented confirmation rejected',()=>{const s=note('takes metforni
 test('stopped medication is not a current exclusion',()=>{const s=note('stopped Aricept');assert.equal(s.case.medications[0].status,'stopped');assert.notEqual(quickCards(basics,s).find(c=>c.carrier==='mutual').color,'red');});
 test('medication uncertainty not current use',()=>assert.equal(note('maybe taking Aricept').case.medications[0].status,'unknown'));
 test('nearby exact look-alike medication names are not substituted',()=>{assert.deepEqual(suggestMedication('hydralazine'),['Hydralazine']);assert.deepEqual(suggestMedication('hydroxyzine'),['Hydroxyzine']);});
-test('unknown medication name stays visible for review',()=>assert.ok(note('takes blorptin').unresolved.includes('blorptin')));
-test('unknown diagnosis is not dropped beside a known one',()=>{const s=note('COPD and sarcoidosis');assert.ok(s.unresolved.includes('sarcoidosis'));assert.equal(ta(s).color,'yellow');});
+test('unknown medication name stays visible for review',()=>assert.ok(note('takes blorptin').unresolved.includes('takes blorptin')));
+test('unknown diagnosis is not dropped beside a known one',()=>{const s=note('COPD and sarcoidosis');assert.ok(s.unresolved.includes('COPD and sarcoidosis'));assert.equal(ta(s).color,'yellow');});
 test('informal negative cannot silently erase prior positive',()=>{const s=note('no copd',note('COPD'));assert.equal(s.facts.find(f=>f.key==='copd').value,'unknown');assert.equal(ta(s).color,'yellow');});
 test('explicit correction replaces a wrong diagnosis',()=>{const s=note('actually no COPD',note('COPD'));assert.equal(s.case.conditions.length,0);assert.equal(s.facts.find(f=>f.key==='copd').value,'no');});
 test('new adverse information invalidates a prior green screen',()=>{const s=greenCase();assert.equal(ta(s).color,'green');const next=note('on oxygen',s);assert.equal(am(next).color,'red');assert.notEqual(ta(next).color,'green');});

@@ -23,7 +23,7 @@ export function CarrierCards({ cards }: { cards: QuickCard[] }) {
           <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] text-muted-foreground">Why? <ChevronDown size={12} /></summary>
           <div className="mt-3 space-y-2 text-xs leading-5 text-muted-foreground">
             {c.evidence.map((e, i) => <p key={`${e.rule}-${i}`}>{e.text}<span className="ml-1 text-muted-foreground/70">{sources[e.source as keyof typeof sources]?.version ?? e.source}, p. {e.page}.</span></p>)}
-            {c.gaps.length > 0 && <div className="rounded-lg bg-black/10 p-3"><p className="mb-1 font-medium text-foreground/80">Still to verify</p>{c.gaps.slice(0, 5).map((g, i) => <p key={i}>{g}</p>)}{c.gaps.length > 5 && <p>Additional carrier application checks apply.</p>}</div>}
+            {c.gaps.length > 0 && <div className="rounded-lg bg-black/10 p-3"><p className="mb-1 font-medium text-foreground/80">Optional details / carrier checks</p>{c.gaps.slice(0, 5).map((g, i) => <p key={i}>{g}</p>)}{c.gaps.length > 5 && <p>Additional carrier application checks apply.</p>}</div>}
             <p>Field screening only. The carrier decides eligibility, benefit and final class. Green is not an approval; yellow is not a numerical probability.</p>
           </div>
         </details>

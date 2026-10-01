@@ -36,7 +36,8 @@ describe('standalone AgentFlow dark chat', () => {
     render(<UnderwritingPage />); fillBasics(); send('type 2 diabetes copd had cancer 7 years ago');
     expect(screen.getByRole('region', { name: 'Carrier results' })).toBeInTheDocument();
     expect(screen.getAllByRole('article')).toHaveLength(3);
-    expect(screen.getByText('What type of cancer?')).toBeInTheDocument();
+    expect(document.querySelector('[data-question]')).toBeNull();
+    expect(screen.getByText('Cancer type and last treatment date could change the result.')).toBeInTheDocument();
     expect(screen.queryByText('No name needed')).not.toBeInTheDocument();
     expect(screen.queryByText('Highest commission')).not.toBeInTheDocument();
   });
@@ -97,5 +98,67 @@ describe('standalone AgentFlow dark chat', () => {
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
     fireEvent.compositionEnd(textarea); fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(screen.getAllByRole('article')).toHaveLength(3);
+  });
+});
+
+describe('instant stated-history review', () => {
+  it('gets a source-supported screen without confirming other conditions', () => {
+    render(<UnderwritingPage />); fillBasics(); send('COPD');
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+    expect(document.querySelector('[data-question]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Nothing else' })).not.toBeInTheDocument();
+    expect(screen.getByText('Based on the details entered. Unlisted conditions are assumed absent for this quick screen.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Remove No oxygen/ })).not.toBeInTheDocument();
+  });
+  it('recognizes high blood pressure but does not fabricate control status', () => {
+    render(<UnderwritingPage />); fillBasics(); send('high blood pressure');
+    expect(screen.getByRole('button', { name: 'Remove High blood pressure' })).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'yellow');
+    send('blood pressure controlled');
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+    expect(document.querySelector('[data-question]')).toBeNull();
+  });
+  it('offers a condition spelling suggestion without committing it', () => {
+    render(<UnderwritingPage />); fillBasics(); send('controlled hypertention');
+    expect(document.querySelector('[data-fit="green"]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Did you mean High blood pressure?' }));
+    expect(screen.getByRole('button', { name: 'Remove High blood pressure' })).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+  });
+  it('edits unknown wording without offering a silent dismissal', () => {
+    render(<UnderwritingPage />); fillBasics(); send('blood presure');
+    expect(screen.queryByRole('button', { name: /Remove unmatched/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit wording: blood presure' }));
+    expect(screen.getByRole('button', { name: 'Cancel edit' })).toBeInTheDocument();
+    send('controlled hypertension');
+    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+  });
+  it('retains an unknown condition beside COPD; new facts cannot clear it', () => {
+    render(<UnderwritingPage />); fillBasics(); send('COPD and zorb syndrome');
+    expect(document.querySelector('[data-fit="green"]')).toBeNull();
+    send('blood pressure controlled');
+    expect(document.querySelector('[data-fit="green"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit wording: COPD and zorb syndrome' })).toBeInTheDocument();
+  });
+  it('new oxygen information overrides the omission assumption immediately', () => {
+    render(<UnderwritingPage />); fillBasics(); send('COPD');
+    send('on oxygen');
+    expect(document.querySelector('[data-carrier="americo"]')).toHaveAttribute('data-fit', 'red');
+    expect(document.querySelector('[data-fit="green"]')).toBeNull();
+  });
+  it('does not anchor an unqualified duration to an invisible cancer question', () => {
+    render(<UnderwritingPage />); fillBasics(); send('cancer'); send('7 years ago');
+    expect(screen.queryByRole('button', { name: /Remove Cancer treatment complete/ })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-fit="green"]')).toBeNull();
+  });
+  it('clears an unfinished wording correction on New case', () => {
+    render(<UnderwritingPage />); fillBasics(); send('zorb syndrome');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit wording: zorb syndrome' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New case' }));
+    expect(screen.queryByRole('button', { name: 'Cancel edit' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Health and medication notes')).toHaveValue('');
   });
 });

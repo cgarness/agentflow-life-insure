@@ -538,3 +538,8 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 
 - Split **`DialerPage.tsx`** into subcomponents.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
+
+
+## Public underwriting quick-screen assumptions (2026-10-01)
+
+Chris approved a standalone stated-history quick screen: unlisted conditions/screening items may be evaluated as absent only in a disclosed, ephemeral scenario. Never write these assumptions into captured facts, confirmed medical answers, CRM records or carrier-application attestations. An entered unrecognized/uncertain/conflicting detail is not unlisted; retain it and prevent unsupported green recommendations. Missing qualifiers of a listed condition (e.g. BP control, cancer type, diagnosis age, last-treatment date) are not absence assumptions. A recognized term without a verified product-specific rule stays carrier review. Routine screening questions are not mounted in the quick chat; optional missing details belong on result cards. Full carrier evaluators retain their default confirmation requirements. No model/provider activation, production release or invented commission ranking follows from this UI approval.

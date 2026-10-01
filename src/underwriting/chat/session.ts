@@ -72,7 +72,7 @@ export function removeFact(state: NotesState, id: string): NotesState {
   // the display chip. Removing a negative never counts as a new No answer.
   if (removed.kind === 'condition') {
     const prefixes: Record<string, string[]> = { diabetes: ['taDiabetes', 'diabetes', 'taInsulin'], cancer: ['taCancer', 'cancerHistory'],
-      heart_attack: ['taMi', 'taMultipleMi'], heart_surgery: ['taSurgery'], stroke: ['taStroke'], liver: ['taLiver'] };
+      hypertension: ['taBp'], heart_attack: ['taMi', 'taMultipleMi'], heart_surgery: ['taSurgery'], stroke: ['taStroke'], liver: ['taLiver'] };
     facts = facts.filter(f => !(prefixes[removed.key] ?? []).some(p => f.key.startsWith(p)));
   }
   const medications = removed.kind === 'medication' ? state.case.medications.filter(m => m.id !== removed.key) : state.case.medications;

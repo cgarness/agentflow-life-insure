@@ -25,6 +25,11 @@ export function transamericaConditions(c:CaseInput):{factors:TransamericaFactor[
   for(const id of c.conditions){
     if(fixed[id]){const [tier,page,label]=fixed[id]!;add(`TA-${id}`,tier,page,`${label}: ${tier} in the single-condition chart.`);continue;}
     switch(id){
+      case 'hypertension':
+        if(a.taBpControlled==='yes')add('TA-HYPERTENSION-CONTROLLED','Premier','12','Controlled hypertension: Premier in the single-condition chart.');
+        else gaps.push('High blood pressure recognized; the published Premier rule requires controlled hypertension. Control status is not assumed.');break;
+      case 'pulmonary_hypertension':
+        add('TA-PULMONARY-HYPERTENSION','Select','13','Pulmonary hypertension: Select in the single-condition chart; distinct from systemic high blood pressure.');break;
       case 'cad':
         if(a.taCadSimple==='yes')add('TA-CAD','Premier','11','Coronary artery disease without myocardial infarction or surgery: Premier individual factor.');
         else gaps.push('Coronary disease: the Premier row applies only with no myocardial infarction or surgery.');break;

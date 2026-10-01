@@ -162,14 +162,14 @@ with sync_playwright() as p:
         page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-start-{width}.png'), full_page=True)
         basics(page); send(page, 'type 2 diabetes copd had cancer 7 years ago')
         expect(page.locator('[data-carrier]')).to_have_count(3)
-        assert page.locator('[data-question]').count() <= 2
+        assert page.locator('[data-question]').count() == 0
         assert page.locator('[data-fit="green"]').count() == 0
         assert page.get_by_role('button', name='Edit', exact=True).count() == 1
         page.locator('summary').filter(has_text='Picked up').click()
         assert 'Cancer treatment complete' not in page.locator('body').inner_text()
         page.locator('summary').filter(has_text='Picked up').click()
         page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-results-{width}.png'), full_page=True)
-        record(f'{width}px: shorthand case, 3 cards, at most 2 questions, no invented treatment end')
+        record(f'{width}px: shorthand case, 3 cards, no routine follow-up questions, no invented treatment end')
         safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     send(page, 'COPD')
@@ -200,13 +200,15 @@ with sync_playwright() as p:
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     basics(page); send(page, 'COPD')
-    answer(page, 'oxygen', 'No'); answer(page, 'care', 'No'); answer(page, 'recent', 'No'); answer(page, 'complete', 'Nothing else')
+    assert page.locator('[data-question]').count() == 0
+    expect(page.locator('[data-assumption-notice]')).to_be_visible()
+    assert page.get_by_role('button', name='Nothing else', exact=True).count() == 0
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
     expect(page.locator('[data-carrier="americo"]')).to_have_attribute('data-fit', 'yellow')
     expect(page.locator('[data-carrier="mutual"]')).to_have_attribute('data-fit', 'yellow')
     expect(page.get_by_text('Commission order is pending your verified schedules. No payout ranking is assumed.', exact=True)).to_be_visible()
     page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-green-screen.png'), full_page=True)
-    record('Stated preliminary screen versus source gaps; no invented commission')
+    record('Immediate stated-history screen without routine questions; no invented commission')
     send(page, 'on oxygen')
     expect(page.locator('[data-carrier="americo"]')).to_have_attribute('data-fit', 'red')
     assert page.locator('[data-fit="green"]').count() == 0
@@ -222,10 +224,10 @@ with sync_playwright() as p:
     record('New case clears session')
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
-    basics(page); send(page, 'COPD'); answer(page, 'oxygen', 'Not sure')
+    basics(page); send(page, 'COPD'); send(page, 'not sure about oxygen')
     assert page.locator('[data-question="oxygen"]').count() == 0
     assert page.locator('[data-fit="green"]').count() == 0
-    record('Unknown is not No; no repeated prompt trap')
+    record('Explicit unknown overrides the omission assumption; no follow-up chain')
     assert_case_network(requests)
     page.evaluate("window.dispatchEvent(new Event('pagehide'))")
     expect(page.locator('#quick-note')).to_have_count(0)
@@ -262,6 +264,54 @@ with sync_playwright() as p:
     assert page.locator('[data-carrier]').count() == 0
     record('Identifying email format rejected before storing a note')
     safe(ctx, page, errors, requests)
+    ctx, page, errors, requests = load(browser)
+    basics(page); send(page, 'high blood pressure')
+    page.locator('summary').filter(has_text='Picked up').click()
+    expect(page.get_by_role('button', name='Remove High blood pressure', exact=True)).to_have_count(1)
+    page.locator('summary').filter(has_text='Picked up').click()
+    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    assert page.locator('[data-question]').count() == 0
+    expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'yellow')
+    page.screenshot(path=str(SHOTS / f'{BROWSER}-instant-blood-pressure.png'), full_page=True)
+    record('High blood pressure is recognized; control status remains an optional card note')
+    send(page, 'blood pressure controlled')
+    expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
+    assert page.locator('[data-question]').count() == 0
+    record('Voluntary BP control detail updates the documented preliminary tier')
+    safe(ctx, page, errors, requests)
+    ctx, page, errors, requests = load(browser)
+    basics(page); send(page, 'controlled hypertention')
+    assert page.locator('[data-fit="green"]').count() == 0
+    page.get_by_role('button', name='Did you mean High blood pressure?', exact=True).click()
+    expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
+    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    record('Condition spelling confirmation preserves the entered qualifier')
+    safe(ctx, page, errors, requests)
+    ctx, page, errors, requests = load(browser)
+    basics(page); send(page, 'COPD and zorb syndrome')
+    assert page.locator('[data-fit="green"]').count() == 0
+    assert page.get_by_role('button', name='Remove unmatched detail', exact=False).count() == 0
+    expect(page.get_by_role('button', name='Edit wording: COPD and zorb syndrome', exact=True)).to_be_visible()
+    page.screenshot(path=str(SHOTS / f'{BROWSER}-instant-unknown-condition.png'), full_page=True)
+    record('Unidentified entered condition is preserved, not absent or silently dismissible')
+    safe(ctx, page, errors, requests)
+    ctx, page, errors, requests = load(browser)
+    basics(page); send(page, 'blood presure')
+    page.get_by_role('button', name='Edit wording: blood presure', exact=True).click()
+    expect(page.get_by_role('button', name='Cancel edit', exact=True)).to_be_visible()
+    send(page, 'controlled hypertension')
+    expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
+    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    record('Editing unmatched wording replaces only that unresolved detail')
+    safe(ctx, page, errors, requests)
+    for text in ['high blood pressure was controlled 7 years ago', 'controlled high blood pressure 180/120']:
+        ctx, page, errors, requests = load(browser)
+        basics(page); send(page, text)
+        expect(page.locator('[data-carrier]')).to_have_count(3)
+        expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'yellow')
+        assert page.locator('[data-question]').count() == 0
+        record(f'BP qualifier retained without assumed current clearance: {text}')
+        safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     basics(page)
     note = page.locator('#quick-note'); note.focus(); expect(note).to_be_focused(); note.fill('COPD')
