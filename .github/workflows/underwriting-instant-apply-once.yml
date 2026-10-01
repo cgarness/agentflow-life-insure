@@ -1,0 +1,206 @@
+name: Underwriting instant integration (temporary)
+on:
+  push:
+    branches: ['work/fflagent-underwriting-v1']
+    paths: ['.github/workflows/underwriting-instant-apply-once.yml']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - name: Validate exact patch and bounded file scope before applying
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,subprocess
+          from pathlib import Path
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='75e14a59169f5c8484e4521590c86c51b65a5bc8'
+          base='90f4cba66447e13c522b321f7b1c984223913368'
+          changes=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
+          transport={'.github/workflows/underwriting-instant-checkout-once.yml','.github/workflows/underwriting-instant-apply-once.yml',*[f'.github/uw-instant-patch-{i}.txt' for i in range(3)]}
+          assert set(changes)==transport,changes
+          digests=['698312328ffdaefbb123c0ef08b28d5f1b3e28e8ac9f853448cc037018aa4524','0ee2edb1f143ea2b7573bcaedae2145177e3b448294338b8971a683a8ad8d7fc','c921b9876ca37062cf13dcd4da295fa277276d11a2e0afd5a066a985b3b4f0c8']
+          chunks=[]
+          for i,digest in enumerate(digests):
+              s=Path(f'.github/uw-instant-patch-{i}.txt').read_text().strip()
+              if i==2:
+                  # Restore identified text-transport transcription differences.
+                  # The pinned original hash below remains the acceptance gate.
+                  repairs=[
+                    ('V2L/jXPNDcfhUHL4Qh0','V2L/jXh6IJ7ui2cvxF/2xPNDcfhUHL4Qh0'),
+                    ('OhBHP4ijl5+Lof4ijl','OhBHP4uj5+Lof4ijl'),
+                    ('mapLlXsnJJqa/Hr','mapLlXsnJqa/Hr'),
+                    ('ud/sbGhZqd7C4mSeqg0qn9BuV4mq86ovbFn1l684YWyencpERnVtSS8Y','ud/sbGZqd7C4m6tdc5tOvW92Seqg0qn9BuV4mq86ovbFn1l684YWy29cZq/IyencpERnVtS8Y'),
+                    ('jbmTvrwZZq/5','jbmTvrwZq/5'),
+                    ('Uov/obGGtw76','Uov/obGtw76')]
+                  for entered,original in repairs:s=s.replace(entered,original)
+              actual=hashlib.sha256(s.encode()).hexdigest()
+              assert actual==digest,f'Transport part {i}: {len(s)} chars, SHA256 {actual}; expected {digest}'
+              chunks.append(s)
+          raw=gzip.decompress(base64.b64decode(''.join(chunks),validate=True))
+          assert len(raw)==77507
+          assert hashlib.sha256(raw).hexdigest()=='a24598134657c83c9b5fe1d959b7e9d5e21ce6246444bc0e0984d3af499daf07'
+          patch=Path('/tmp/underwriting-instant.patch');patch.write_bytes(raw)
+          old_log=Path('WORK_LOG.md').read_bytes();old_rules=Path('AGENT_RULES.md').read_bytes()
+          subprocess.run(['git','apply','--check',str(patch)],check=True)
+          subprocess.run(['git','apply',str(patch)],check=True)
+          assert Path('WORK_LOG.md').read_bytes().endswith(old_log)
+          assert Path('AGENT_RULES.md').read_bytes().startswith(old_rules)
+          allowed={'AGENT_RULES.md','WORK_LOG.md',
+            'docs/plans/2026-09-30-underwriting/instant/SOURCE_REVIEW.md',
+            'docs/plans/2026-09-30-underwriting/instant/VERIFICATION.md',
+            'docs/plans/2026-09-30-underwriting/instant/implementation_plan.md',
+            'src/underwriting/__tests__/host.test.tsx',
+            *['src/underwriting/chat/'+p for p in ['CapturedFacts.tsx','CarrierCards.tsx','ChatComposer.tsx','QuickUnderwriting.tsx','assumptions.ts','cardNotes.ts','corrections.ts','evaluate.ts','parse.ts','phrases.ts','recognition.ts','session.ts','useQuickUnderwriting.ts']],
+            'src/underwriting/data.ts','src/underwriting/rules/transamerica-conditions.ts',
+            'tests/underwriting/browser.py','tests/underwriting/chat.test.cjs','tests/underwriting/instant.test.cjs'}
+          tracked=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          new=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert tracked|new==allowed,(tracked|new)-allowed
+          for p in transport:Path(p).unlink()
+          subprocess.run(['git','add','--',*sorted(allowed|transport)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','config','user.name','AgentFlow implementation'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','commit','-m','feat: make underwriting an instant stated-history screen with condition recognition'],check=True)
+          Path('.underwriting-check').mkdir(exist_ok=True)
+          Path('.underwriting-check/candidate.json').write_text(json.dumps({'candidate_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'patch_sha256':hashlib.sha256(raw).hexdigest(),'preserved_work_log_bytes':len(old_log),'application_files':sorted(allowed)},indent=2))
+          PY
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Root and strict feature TypeScript, all feature tests and Vite build
+        run: |
+          set -euo pipefail
+          bash scripts/underwriting/check.sh 2>&1 | tee .underwriting-check/frontend.log
+          npx --no-install eslint src/main.tsx src/underwriting
+      - name: Compare full application TypeScript to the unchanged base
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/underwriting-instant-base"
+          git worktree add --detach "$baseline" 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$baseline/node_modules"
+          set +e
+          (cd "$baseline" && ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false) > .underwriting-check/tsc-base.log 2>&1
+          base_status=$?
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json --pretty false > .underwriting-check/tsc-current.log 2>&1
+          current_status=$?
+          set -e
+          test "$base_status" -le 2 && test "$current_status" -le 2
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import Counter
+          import json
+          p=Path('.underwriting-check')
+          before=p.joinpath('tsc-base.log').read_text();after=p.joinpath('tsc-current.log').read_text()
+          added=Counter(after.splitlines())-Counter(before.splitlines())
+          assert not added,'New application diagnostics: '+repr(added)
+          result={'base_errors':before.count('error TS'),'candidate_errors':after.count('error TS'),'new_diagnostic_lines':sum(added.values())}
+          p.joinpath('application-types.json').write_text(json.dumps(result,indent=2));print(result)
+          PY
+      - name: Install actual browser test harness
+        run: |
+          python3 -m pip install playwright==1.57.0
+          python3 -m playwright install --with-deps chromium webkit
+      - name: Test actual built route in Chromium and WebKit
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 > .underwriting-check/preview.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4173/underwriting >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          python3 tests/underwriting/browser.py 2>&1 | tee .underwriting-check/chromium.log
+          UW_BROWSER=webkit python3 tests/underwriting/browser.py 2>&1 | tee .underwriting-check/webkit.log
+      - name: Record verified evidence and preserve work history
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,re,subprocess
+          out=Path('.underwriting-check')
+          candidate=json.loads(out.joinpath('candidate.json').read_text())['candidate_sha']
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==candidate
+          frontend=out.joinpath('frontend.log').read_text()
+          assert re.search(r'# pass 513\b',frontend), 'Expected all 513 core tests'
+          assert re.search(r'# fail 0\b',frontend), 'Failed core test'
+          browsers={}
+          for name in ['chromium','webkit']:
+              report=json.loads(out.joinpath('browser-tests-'+name+'.json').read_text())
+              assert report['completed'] is True and report['failure'] is None
+              assert report['checked_out_sha']==candidate and report['passed']==25,report
+              assert report['script_sha256']==hashlib.sha256(Path('tests/underwriting/browser.py').read_bytes()).hexdigest()
+              evidence=json.loads(out.joinpath('security-evidence-'+name+'.json').read_text())
+              assert evidence['source_sha']==candidate and not evidence['after']['sentinelTruthy']
+              assert evidence['after']['injectedNodeCount']==0 and evidence['after']['eventAttributeCount']==0
+              assert not evidence['requests'] and not evidence['errors']
+              browsers[name]=report['passed']
+          types=json.loads(out.joinpath('application-types.json').read_text())
+          run=os.environ['GITHUB_RUN_ID']
+          summary={'candidate_sha':candidate,'run_id':run,'core_tests':513,'react_tests':20,'browsers':browsers,'application_types':types,'production_mutations':False}
+          out.joinpath('verified-summary.json').write_text(json.dumps(summary,indent=2))
+          record='\n'.join([
+            '# Instant stated-history preview — verified 2026-10-01','',
+            'Tested application candidate: `'+candidate+'`.',
+            'Runner: https://github.com/cgarness/agentflow-life-insure/actions/runs/'+run,'',
+            'Passed: root and strict feature TypeScript; 513 core/source/chat tests; 20 real React host tests; scoped ESLint; full Vite build; unchanged-base application diagnostic comparison; 25 actual-built-route groups in Chromium and 25 in WebKit. Exact source and browser-script fingerprints are in the run artifact.',
+            'Full application errors: base '+str(types['base_errors'])+', candidate '+str(types['candidate_errors'])+', new diagnostic lines '+str(types['new_diagnostic_lines'])+'. Existing unrelated diagnostics were not erased.',
+            '',
+            'Verified flows: no automatic follow-up cards; immediate stated-history results; high blood pressure aliases and controlled/unknown control handling; systemic vs pulmonary hypertension; literal unknown phrases and optional spelling/edit corrections; explicit unknowns and adverse updates; no cancer date inference; five layout widths; reset/lifecycle; keyboard; XSS and zero case-entry network requests. A restored blank page may reload only its public logo GET.',
+            '',
+            'This is a local supported-language preview, not a connected AI model. Unknown conditions or missing carrier qualifiers remain yellow. Americo/Mutual source gaps, verified commission schedules, producer-material public-presentation review, physical iPhone and final hosted acceptance remain. No main merge, production/backend/DNS/environment mutation. Subsequent closeout commit changes documentation only.',
+            '',
+            '## Earlier local verification (preserved)','', ''])
+          v=Path('docs/plans/2026-09-30-underwriting/instant/VERIFICATION.md');old=v.read_bytes();v.write_bytes(record.encode()+old)
+          log=Path('WORK_LOG.md');old=log.read_bytes()
+          entry='\n'.join(['## 2026-10-01 — Instant underwriting revision — PREVIEW VERIFIED; NOT RELEASED','',
+            '- Tested candidate '+candidate+'; isolated run '+run+'. No automatic routine questions. Unlisted items use a visible, evaluation-only screening assumption; entered unknowns are never assumed absent.',
+            '- High blood pressure aliases recognized. Transamerica controlled-systemic hypertension and pulmonary hypertension remain separate source-backed rules; missing control, subtype, or treatment timing stays optional/yellow.',
+            '- Verified 513 core/source/chat tests, 20 React tests, root/strict TypeScript, scoped lint, Vite build, unchanged-base app diagnostics, and 25 Chromium + 25 WebKit built-route groups. Physical iOS/hosted browser acceptance and the unrelated full suite are not claimed.',
+            '- Application files and earlier implementation record below retained. This closeout touches WORK_LOG.md and instant/VERIFICATION.md only. Temporary transport/check-out/integration helpers removed from final branch tree.',
+            '- No main merge/production release, Supabase/RLS/database, DNS/env, CRM/dialer or telephony changes. Local parser only; live AI, commissions and remaining source authority are still separate completion gates.','', ''])
+          log.write_bytes(entry.encode()+old);assert log.read_bytes()[len(entry.encode()):]==old
+          allowed={str(log),str(v)}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==allowed
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          subprocess.run(['git','commit','-m','docs: record verified instant underwriting preview'],check=True)
+          summary['closeout_sha']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          out.joinpath('verified-summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PY
+      - name: Publish only the approved preview branch without overwriting newer work
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/work/fflagent-underwriting-v1'
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          actual=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" ls-remote origin refs/heads/work/fflagent-underwriting-v1 | cut -f1)
+          test "$actual" = "$GITHUB_SHA"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/work/fflagent-underwriting-v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: underwriting-instant-verification-${{ github.run_id }}
+          path: |
+            .underwriting-check/*.log
+            .underwriting-check/*.json
+            .underwriting-check/screenshots/*.png
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
