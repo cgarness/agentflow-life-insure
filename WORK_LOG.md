@@ -1,3 +1,15 @@
+## 2026-09-30 Pacific — AgentFlow quick underwriting dark chat — IMPLEMENTED ON FEATURE BRANCH; HOSTED CHECKS PENDING
+
+- Authority: Chris explicitly approved direct build of the chat-first replacement with AgentFlow dark styles and existing branding, outside the CRM. Plan: docs/plans/2026-09-30-underwriting/chat/implementation_plan.md. Branch work/fflagent-underwriting-v1 / draft PR #398; no main merge or production approval.
+- Replaced the four-stage route with compact five-field basics, a persistent notes composer, at most two follow-ups, editable captured facts, medication spelling confirmation and short green/yellow/red carrier cards. Existing AgentFlow dark theme tokens and logo are reused; no CRM shell, provider, database, telephony or global styling changes.
+- Clinical safety: explicit facts only, negation/family/uncertainty handling, treatment dates not inferred from diagnosis dates, no current-no to historical-no conversion, medication suggestions require confirmation, no drug-to-diagnosis inference, adverse edits invalidate previous results. Unknown or unsupported language remains visible.
+- Native evaluators keep their full-evaluation defaults. The quick adapter explicitly skips amount checks (no synthetic amount) and never manufactures completed carrier-application answers. Green is a preliminary stated medical-screen match; source-incomplete Americo/Mutual paths remain yellow, known exclusions red. No approval probabilities or fabricated commission order.
+- Honest capability boundary: bounded on-device phrase matching, not a connected AI model or live RxNorm service. The UI discloses this. Full open-ended AI interpretation and verified commission schedules are not connected. No secrets, remote health-data processing, persistence or new backend deployment.
+- Files: src/underwriting/UnderwritingPage.tsx; src/underwriting/chat/**; optional amount-check guard in rules/{americo,mutual,transamerica}.ts; host tests; tests/underwriting/{chat.test.cjs,source-contract.test.cjs,browser.py}; isolated feature CI; task plans and verification; this entry.
+- Local verification: root and strict feature/core tsc passed; 467 Node tests, 12 React host tests, scoped lint and full Vite build passed. 20 isolated-render browser scenarios passed at 320/375/390/768/1440; actual hosted-route Chromium/WebKit and app baseline comparison are pending the runner. Local full-app tsc timed out, not passed.
+- Production: no main merge, production deploy, Supabase command/migration, environment, DNS or dialer change. Temporary branch-bound integration support is removed after use. All previous Work Log bytes remain unchanged after this entry.
+- Next: finish isolated hosted checks and publish the updated preview. Remaining product gates: secured live AI interpretation, current carrier/state/combination gaps, producer-material public-use review, actual commission schedules and physical iPhone review.
+
 ## 2026-09-30 Pacific — Underwriting: direct source reconciliation and implemented Transamerica rules — FEATURE BRANCH
 
 - Directly performed by ChatGPT under Chris's approved integration request. No Cursor/Claude handoff.

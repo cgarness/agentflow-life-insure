@@ -1,30 +1,26 @@
-import { useEffect, useRef } from 'react';
-import { mountUnderwriting } from './ui/mount';
-import { validateWithZod, scheduleSchema } from './schema';
+import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
+import QuickUnderwriting from './chat/QuickUnderwriting';
 
-/** Public lifecycle host. Case data never enters the CRM or browser storage. */
+/** Standalone AgentFlow utility: same branding, no CRM providers or persistence. */
 export default function UnderwritingPage() {
-  const host = useRef<HTMLDivElement>(null);
+  const [generation, setGeneration] = useState(0);
+  const [visible, setVisible] = useState(true);
   useEffect(() => {
-    const previousTitle = document.title;
-    document.title = 'Underwriting | FFL Agent';
-    if (!host.current) return;
-    const element = host.current;
-    const options = {
-      validateCase: validateWithZod,
-      validateSchedule: (schedule: Parameters<typeof scheduleSchema.parse>[0]) => { scheduleSchema.parse(schedule); },
-    };
-    let dispose: (() => void) | undefined = mountUnderwriting(element, options);
-    const clear = () => { dispose?.(); dispose = undefined; };
-    const restore = () => { if (!dispose) dispose = mountUnderwriting(element, options); };
-    window.addEventListener('pagehide', clear);
-    window.addEventListener('pageshow', restore);
+    const title = document.title;
+    const wasDark = document.documentElement.classList.contains('dark');
+    document.documentElement.classList.add('dark');
+    document.title = 'Quick Underwriting | AgentFlow';
+    const hide = () => { flushSync(() => { setVisible(false); setGeneration(v => v + 1); }); };
+    const show = () => { setVisible(true); };
+    window.addEventListener('pagehide', hide);
+    window.addEventListener('pageshow', show);
     return () => {
-      window.removeEventListener('pagehide', clear);
-      window.removeEventListener('pageshow', restore);
-      clear();
-      document.title = previousTitle;
+      window.removeEventListener('pagehide', hide);
+      window.removeEventListener('pageshow', show);
+      document.title = title;
+      if (!wasDark) document.documentElement.classList.remove('dark');
     };
   }, []);
-  return <div ref={host} />;
+  return visible ? <QuickUnderwriting key={generation} /> : <div className="dark min-h-dvh bg-background" />;
 }

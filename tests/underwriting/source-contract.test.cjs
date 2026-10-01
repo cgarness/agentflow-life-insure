@@ -10,8 +10,8 @@ test('feature contains no browser service-role or private-provider imports',()=>
  for(const forbidden of ['SUPABASE_SERVICE_ROLE_KEY','TwilioContext','AuthContext','CalendarContext','NotificationContext','@supabase','@twilio'])assert.ok(!content.includes(forbidden),forbidden);
 });
 test('rendering never evaluates user HTML',()=>{assert.ok(!/\.innerHTML\s*=|insertAdjacentHTML|eval\s*\(|new Function/.test(content));});
-test('React integration injects real Zod validation',()=>{const host=fs.readFileSync(path.join(root,'src/underwriting/UnderwritingPage.tsx'),'utf8');assert.match(host,/validateCase: validateWithZod/);assert.match(host,/scheduleSchema\.parse/);});
+test('chat forms use real Zod validation',()=>{const validation=fs.readFileSync(path.join(root,'src/underwriting/chat/basics.ts'),'utf8');const hook=fs.readFileSync(path.join(root,'src/underwriting/chat/useQuickUnderwriting.ts'),'utf8');assert.match(validation,/import \{ z \} from 'zod'/);assert.match(hook,/noteSchema\.safeParse/);assert.match(hook,/basicsErrors\(basics\)/);});
 test('entry-point loads CRM only in the non-underwriting branch',()=>{const entry=fs.readFileSync(path.join(root,'src/main.tsx'),'utf8');assert.match(entry,/if \(isUnderwritingPath/);assert.match(entry,/else \{[\s\S]*import\('\.\/App\.tsx'\)/);assert.ok(!/import App from/.test(entry));});
 test('route alias is anchored, not a catchall prefix',()=>{const route=fs.readFileSync(path.join(root,'src/underwriting/routing.ts'),'utf8');assert.ok(!route.includes('startsWith'));});
 test('all UI modules remain under 200 lines',()=>{for(const f of sources.filter(f=>f.includes('/ui/')||f.endsWith('.tsx')))assert.ok(fs.readFileSync(f,'utf8').split('\n').length<200,path.basename(f));});
-test('home navigation is a full document anchor',()=>{const view=fs.readFileSync(path.join(root,'src/underwriting/ui/mount.ts'),'utf8');assert.match(view,/brand.href='\/';/);});
+test('home navigation is a full document anchor',()=>{const view=fs.readFileSync(path.join(root,'src/underwriting/chat/QuickUnderwriting.tsx'),'utf8');assert.match(view,/<a href="\/"/);assert.ok(!view.includes('<Link'));});

@@ -2,14 +2,14 @@ import { CaseInput, Result, Evidence } from '../types';
 import { americoBuild, americoKnockouts, labelOf } from '../data';
 import { nicotineClass } from '../validation';
 const e=(rule:string,text:string,page='10'):Evidence=>({rule,source:'AM2511',page,text});
-export function americo(c:CaseInput):Result {
+export function americo(c:CaseInput, options: { checkAmount?: boolean } = {}):Result {
   const r:Result={carrier:'americo',name:'Americo',product:'Eagle Select',status:'possible',tier:'Tier not established',
     tierKind:'unknown',benefit:'unconfirmed',reasons:[],gaps:[],warnings:['Field guidance only. Americo also evaluates third-party medical and prescription information.']};
   const age=+c.age,face=+c.face,nic=nicotineClass(c,24), a=c.answers;
   const outside=(rule:string,text:string,page='10')=>{r.status='outside';r.reasons.push(e(rule,text,page));};
   if(age<40||age>85)outside('AM-AGE','Outside the documented Eagle Select issue ages of 40–85.','5');
   if(c.state==='NY')outside('AM-NY','The guide identifies the issuing company as not authorized in New York.','11');
-  if(face<5000||face>(age<=75?50000:40000))outside('AM-FACE','Requested coverage is outside the age-specific published range.','5');
+  if(options.checkAmount!==false&&(face<5000||face>(age<=75?50000:40000)))outside('AM-FACE','Requested coverage is outside the age-specific published range.','5');
   const i=+c.height-americoBuild.first,lo=americoBuild.min[i],hi=americoBuild.max[i];
   if(lo===undefined||hi===undefined)r.gaps.push('Height is not in the published build chart. Do not interpolate.');
   else if(+c.weight<lo||+c.weight>hi)outside('AM-BUILD',`Outside the published ${lo}–${hi} lb range for this height.`);

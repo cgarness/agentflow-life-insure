@@ -3,7 +3,7 @@ import { mutualBuild, mutualRxExclude, mutualRxStarred, mutualRxIndication, norm
 import { nicotineClass } from '../validation';
 const e=(rule:string,text:string,page:string):Evidence=>({rule,source:'MO2604',page,text});
 const contains=(list:string[],s:string)=>list.some(x=>normalizeMedication(x)===normalizeMedication(s));
-export function mutual(c:CaseInput):Result {
+export function mutual(c:CaseInput, options: { checkAmount?: boolean } = {}):Result {
   const r:Result={carrier:'mutual',name:'Mutual of Omaha',product:'Living Promise',status:'review',tier:'Level / Graded unconfirmed',
     tierKind:'unknown',benefit:'unconfirmed',reasons:[],gaps:[],warnings:[
       'April 2026 source text and Living Promise build/Rx tables visually verified; exact state-application mapping remains partial.',
@@ -11,7 +11,7 @@ export function mutual(c:CaseInput):Result {
   const age=+c.age,face=+c.face,a=c.answers;
   const outside=(rule:string,text:string,page:string)=>{r.status='outside';r.reasons.push(e(rule,text,page));};
   if(age<45||age>85)outside('MO-AGE','Outside published Living Promise issue ages of 45–85.','1');
-  if(face<2000||face>50000)outside('MO-FACE','Requested coverage is outside the published Level range of $2,000–$50,000 (state variations apply).','1');
+  if(options.checkAmount!==false&&(face<2000||face>50000))outside('MO-FACE','Requested coverage is outside the published Level range of $2,000–$50,000 (state variations apply).','1');
   const i=+c.height-mutualBuild.first,lo=mutualBuild.min[i],level=mutualBuild.level[i],graded=mutualBuild.graded[i];
   let needsGraded=false;
   if(lo===undefined||level===undefined||graded===undefined)r.gaps.push('Height has no row in the published Living Promise build chart.');
@@ -42,7 +42,7 @@ export function mutual(c:CaseInput):Result {
   }else if(a.moPart2!=='no')r.gaps.push('Part Two health answers have not been confirmed.');
   if(needsGraded){
     r.tier='Graded consideration only';r.tierKind='ceiling';r.benefit='graded';
-    if(age>80||face>20000)outside('MO-GRADED-LIMIT','Graded consideration does not fit the requested age or amount: maximum age 80 / $20,000.','1');
+    if(age>80||(options.checkAmount!==false&&face>20000))outside('MO-GRADED-LIMIT','Graded consideration does not fit the requested age or amount: maximum age 80 / $20,000.','1');
   }
   if(nicotineClass(c,12)==='unknown')r.gaps.push('Confirm the 12-month nicotine history.');
   if(c.conditionsStatus==='unknown'||c.medicationsStatus==='unknown')r.gaps.push('Complete the diagnosis and medication history.');

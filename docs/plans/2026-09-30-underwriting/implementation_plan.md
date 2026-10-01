@@ -51,3 +51,6 @@ Feature branch created. Implementation and full-repository checks in progress; n
 ## As-built source expansion — 2026-09-30 Pacific
 
 The preceding initial Transamerica hold is historical. Exact direct PDF retrieval resolved the mismatch; see SOURCE_RECONCILIATION.md for hashes and supported scope. Added transamerica-data.ts, rules/transamerica-conditions.ts and ui/transamerica-questions.ts, extended source/boundary and real-browser tests, and visually verified Living Promise table columns. Local core tests: 389 passed. The full integrated first release passed run 36814772583; expanded integration checks follow this commit. All code remains on the approved feature branch, with no production changes. Final verification is recorded separately; unknown rules and missing commission schedules are not silently filled.
+
+## Approved chat-first revision
+Chris rejected the four-stage form in favor of compact basics, one notes composer, concise color-coded results and medication spelling confirmation. He approved the AgentFlow dark style and existing logo, with no CRM integration. Detailed approval/scope and as-built limitations are in chat/implementation_plan.md. This supersedes only the public entry UX, not carrier-source or production-release gates.

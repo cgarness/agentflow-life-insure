@@ -3,7 +3,7 @@ import { normalizeMedication } from '../data';
 import { transamericaBuild, transamericaRxExclude, TransamericaFactor, TransamericaTier } from '../transamerica-data';
 import { transamericaConditions } from './transamerica-conditions';
 const rank:Record<TransamericaTier,number>={Premier:0,Select:1,Graded:2,Decline:3};
-export function transamerica(c:CaseInput):Result {
+export function transamerica(c:CaseInput, options: { checkAmount?: boolean } = {}):Result {
   const r:Result={carrier:'transamerica',name:'Transamerica',product:'FE Express / Graded FE Express',status:'review',
     tier:'Classification unconfirmed',tierKind:'unknown',benefit:'unconfirmed',reasons:[],gaps:[],warnings:[
       'Source: visually verified 08/26 guide. Individual classifications are preliminary, not a carrier offer.',
@@ -13,7 +13,7 @@ export function transamerica(c:CaseInput):Result {
   const outside=(rule:string,text:string,page:string)=>{r.status='outside';evidence(rule,text,page);};
   if(age<18||age>85)outside('TA-AGE','FE Express issue ages are 18–85; Graded ends at 80.','4');
   if(c.state==='NY')outside('TA-NY','New York is excluded in this product guide.','4');
-  if(face<5000||face>(age<=75?100000:25000))outside('TA-FACE','Requested coverage is outside the published FE Express amount for this age.','4');
+  if(options.checkAmount!==false&&(face<5000||face>(age<=75?100000:25000)))outside('TA-FACE','Requested coverage is outside the published FE Express amount for this age.','4');
   const row=transamericaBuild.find(x=>x[0]===+c.height);
   if(!row)r.gaps.push('No published Transamerica build row at this height; no extrapolation.');
   else {
@@ -53,8 +53,8 @@ export function transamerica(c:CaseInput):Result {
   for(const f of factors)evidence(f.id,f.text,f.page);
   const tier=factors.reduce<TransamericaTier>((worst,f)=>rank[f.tier]>rank[worst]?f.tier:worst,'Premier');
   if(tier==='Decline')outside('TA-DECLINE-FACTOR','A documented individual factor is rated Decline; it is not overridden by a favorable build or another condition.','9');
-  if(tier==='Graded'&&(age>80||face>25000))outside('TA-GRADED-LIMIT','Graded criteria do not fit the requested case: maximum age 80 and $25,000.','4');
-  if(tier==='Premier'&&(c.state==='CA'||face<10000))r.gaps.push('Premier is unavailable in California and below $10,000. Confirm the available Select offer with the carrier.');
+  if(tier==='Graded'&&(age>80||(options.checkAmount!==false&&face>25000)))outside('TA-GRADED-LIMIT','Graded criteria do not fit the requested case: maximum age 80 and $25,000.','4');
+  if(tier==='Premier'&&(c.state==='CA'||(options.checkAmount!==false&&face<10000)))r.gaps.push('Premier is unavailable in California and below $10,000. Confirm the available Select offer with the carrier.');
   const tobacco=a.taTobacco12==='yes'?'Tobacco':a.taTobacco12==='no'?'Nontobacco':'tobacco status unknown';
   if(r.status!=='outside'&&factors.length){
     r.tier=`${tier}${tier==='Premier'?'':' '+tobacco} — individual-factor classification`;
