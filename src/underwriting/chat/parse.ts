@@ -45,6 +45,11 @@ export function extractNote(text: string, previous: NotesState): Extraction {
     const drugs = findMedications(clause);
     out.medications.push(...drugs.medications); out.suggestions.push(...drugs.suggestions); spans.push(...drugs.spans);
     out.facts.push(...clinicalFacts(clause, [...allIds]), ...bloodPressureFacts(clause, [...allIds]));
+    if (/^(?:the )?(?:conditions (?:are )?unrelated|unrelated conditions)$/i.test(clause)) {
+      out.facts.push(fact('answer', 'taUnrelated', 'yes', 'Conditions reported unrelated', clause));
+      spans.push([0, clause.length]);
+    }
+
     if (/\b(?:on|takes?|taking|with|uses?) (?:\w+ )?(?:meds|medications?|pills|prescriptions)\b/i.test(clause) &&
       !drugs.medications.length && !/\b(?:no|not|none|never)\b/i.test(clause)) {
       out.facts.push(fact('detail', 'medicationMention', 'yes', 'Medication name not provided', clause));

@@ -71,7 +71,7 @@ test('no false quote-range declines when amount is intentionally omitted',()=>as
 test('two conditions cannot be green by ignoring combination uncertainty',()=>assert.equal(ta(note('CHF',greenCase())).color,'yellow'));
 test('unsupported user language prevents green',()=>assert.equal(ta(note('also pulmonary fibrosis',greenCase())).color,'yellow'));
 test('pending spelling correction prevents green',()=>assert.equal(ta(note('takes metfornin',greenCase())).color,'yellow'));
-test('source-incomplete Americo and Mutual do not become falsely green',()=>{const cards=quickCards(basics,greenCase());assert.equal(cards.find(c=>c.carrier==='americo').color,'yellow');assert.equal(cards.find(c=>c.carrier==='mutual').color,'yellow');});
+test('carrier consideration is separate from an exact tier or missing Living Promise mapping',()=>{const cards=quickCards(basics,greenCase());const am=cards.find(c=>c.carrier==='americo');assert.equal(am.color,'green');assert.equal(am.tier,'');assert.equal(am.benefit,'unconfirmed');assert.equal(cards.find(c=>c.carrier==='mutual').color,'yellow');});
 test('source exclusions remain red despite unknown additional facts',()=>assert.equal(am(note('Parkinson’s and something unclear')).color,'red'));
 test('unknown answer does not loop or turn into No',()=>{let s=note('COPD');s=answer(s,'oxygen','unknown');assert.equal(s.case.answers.oxygen12,'unknown');assert.ok(!nextQuestions(s).some(q=>q.id==='oxygen'));});
 test('compound care Yes is not five inferred positive answers',()=>{let s=note('COPD');s=answer(s,'oxygen','no');s=answer(s,'care','yes');assert.equal(s.case.answers.adl12,'unknown');assert.equal(s.case.answers.hospice12,'unknown');assert.equal(am(s).color,'yellow');});

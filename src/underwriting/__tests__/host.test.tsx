@@ -37,7 +37,8 @@ describe('standalone AgentFlow dark chat', () => {
     expect(screen.getByRole('region', { name: 'Carrier results' })).toBeInTheDocument();
     expect(screen.getAllByRole('article')).toHaveLength(3);
     expect(document.querySelector('[data-question]')).toBeNull();
-    expect(screen.getByText('Cancer type and last treatment date could change the result.')).toBeInTheDocument();
+    expect(screen.queryByText('Cancer type and last treatment date could change the result.')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'yellow');
     expect(screen.queryByText('No name needed')).not.toBeInTheDocument();
     expect(screen.queryByText('Highest commission')).not.toBeInTheDocument();
   });
@@ -107,13 +108,13 @@ describe('instant stated-history review', () => {
     expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
     expect(document.querySelector('[data-question]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Nothing else' })).not.toBeInTheDocument();
-    expect(screen.getByText('Based on the details entered. Unlisted conditions are assumed absent for this quick screen.')).toBeVisible();
+    expect(document.querySelector('[data-assumption-notice]')).toBeNull();
     expect(screen.queryByRole('button', { name: /Remove No oxygen/ })).not.toBeInTheDocument();
   });
   it('recognizes high blood pressure but does not fabricate control status', () => {
     render(<UnderwritingPage />); fillBasics(); send('high blood pressure');
     expect(screen.getByRole('button', { name: 'Remove High blood pressure' })).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized/)).not.toBeInTheDocument();
     expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'yellow');
     send('blood pressure controlled');
     expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
@@ -124,7 +125,7 @@ describe('instant stated-history review', () => {
     expect(document.querySelector('[data-fit="green"]')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Did you mean High blood pressure?' }));
     expect(screen.getByRole('button', { name: 'Remove High blood pressure' })).toBeInTheDocument();
-    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized/)).not.toBeInTheDocument();
     expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
   });
   it('edits unknown wording without offering a silent dismissal', () => {
@@ -133,7 +134,7 @@ describe('instant stated-history review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit wording: blood presure' }));
     expect(screen.getByRole('button', { name: 'Cancel edit' })).toBeInTheDocument();
     send('controlled hypertension');
-    expect(screen.queryByText(/Couldn’t fully identify/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unrecognized/)).not.toBeInTheDocument();
     expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
   });
   it('retains an unknown condition beside COPD; new facts cannot clear it', () => {
@@ -160,5 +161,46 @@ describe('instant stated-history review', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New case' }));
     expect(screen.queryByRole('button', { name: 'Cancel edit' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Health and medication notes')).toHaveValue('');
+  });
+});
+
+describe('minimal internal-agent presentation', () => {
+  it('removes competing introduction, Why, About, footer and commission placeholders', () => {
+    render(<UnderwritingPage />);
+    expect(screen.queryByText('No name needed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/The basics\. A few health/)).not.toBeInTheDocument();
+    fillBasics(); send('healthy');
+    expect(document.querySelectorAll('[data-fit="green"]')).toHaveLength(3);
+    expect(document.querySelector('footer')).toBeNull();
+    expect(document.querySelector('[data-assumption-notice]')).toBeNull();
+    expect(screen.queryByText('Why?')).not.toBeInTheDocument();
+    expect(screen.queryByText('About this quick screen')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Private session|Not an approval|Tier to confirm|Commission order is pending/)).not.toBeInTheDocument();
+    for (const card of screen.getAllByRole('article')) {
+      expect(card.querySelector('details')).toBeNull();
+      expect(card.querySelector('a')).toBeNull();
+      expect(card.textContent!.length).toBeLessThan(120);
+    }
+  });
+  it('keeps a condition medication case useful without displaying the evaluator log', () => {
+    render(<UnderwritingPage />); fillBasics(); send('type 2 diabetes metformin');
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+    expect(document.querySelector('[data-carrier="americo"]')).toHaveAttribute('data-fit', 'green');
+    expect(screen.queryByText(/Carrier-level placement from supported/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-question]')).toBeNull();
+  });
+  it('retains a compact medication correction only when a spelling actually needs it', () => {
+    render(<UnderwritingPage />); fillBasics(); send('diabetes takes metfornin');
+    expect(screen.getByRole('button', { name: 'Metformin' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Metformin' }));
+    expect(screen.queryByText('“metfornin” — did you mean:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Confirm the actual medication. No diagnosis is inferred.')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-carrier="transamerica"]')).toHaveAttribute('data-fit', 'green');
+  });
+  it('preserves necessary status text beside colors', () => {
+    render(<UnderwritingPage />); fillBasics(); send('Parkinsons');
+    expect(screen.getByText('Likely fit')).toBeInTheDocument();
+    expect(screen.getByText('Possible fit')).toBeInTheDocument();
+    expect(screen.getByText('Likely decline')).toBeInTheDocument();
   });
 });

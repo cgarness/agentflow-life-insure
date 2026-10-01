@@ -24,7 +24,23 @@ export function statedHistoryScreen(notes: NotesState, input: CaseInput): { case
   if (!c.medications.length && !notes.suggestions.length && !notes.unresolved.length && !c.details.medicationMention) {
     c.medicationsStatus = 'none'; assumed.push('unlisted medications');
   }
-  // Do NOT fill diagnosis age, cancer type/treatment dates, BP control, insulin
-  // timing, relatedness, state availability, citizenship or application review.
+  // Absence of a reported treatment/complication is the approved scenario, not
+  // a confirmed historical answer. An explicit unknown or historical mention wins.
+  const assumeNo = (key: string) => { if (!c.answers[key]) { c.answers[key] = 'no'; assumed.push(key); } };
+  if (c.conditions.includes('diabetes')) {
+    if (!c.details.insulinCurrent && !c.medications.some(m => /insulin|lantus|levemir|humalog|novolog|basaglar|tresiba/i.test(m.name))) assumeNo('taInsulin12');
+    if (c.medications.some(m => /^insulin$/i.test(m.name) && m.status === 'current') && !c.answers.taInsulin12) {
+      c.answers.taInsulin12 = 'yes'; assumed.push('current reported insulin treatment');
+    }
+    if (!c.conditions.some(id => ['kidney', 'pvd', 'amputation'].includes(id))) {
+      assumeNo('diabetesComplication'); assumeNo('taDiabetesComplication');
+    }
+    if (!c.conditions.some(id => ['chf', 'cad', 'heart_attack', 'heart_surgery', 'stroke', 'pvd', 'kidney', 'liver'].includes(id))) assumeNo('taDiabetesRelated');
+  }
+  if (c.conditions.includes('cad') && !c.conditions.some(id => ['heart_attack', 'heart_surgery'].includes(id)) && !c.answers.taCadSimple) {
+    c.answers.taCadSimple = 'yes'; assumed.push('no unlisted heart attack or heart surgery');
+  }
+  // Do NOT invent diagnosis age, cancer type/treatment dates, BP control,
+  // condition relatedness, state availability, citizenship or application review.
   return { case: c, assumed };
 }

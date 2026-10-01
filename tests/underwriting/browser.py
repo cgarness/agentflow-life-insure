@@ -128,6 +128,18 @@ for forbidden in [
         raise AssertionError('Network assertion accepted a forbidden request')
 
 
+
+def minimal_screen(page):
+    assert page.locator('footer, [data-assumption-notice]').count() == 0
+    for text in ['Why?', 'Why', 'About this quick screen', 'Tier to confirm', 'Commission order is pending']:
+        assert page.get_by_text(text, exact=True).count() == 0, text
+    assert page.locator('[data-question]').count() == 0
+    assert page.locator('main a, [data-carrier] details, [data-carrier] [title]').count() == 0
+    for card in page.locator('[data-carrier]').all():
+        assert len(card.inner_text()) < 120, card.inner_text()
+        assert any(label in card.inner_text() for label in ['Likely fit', 'Possible fit', 'Likely decline'])
+
+
 def security_snapshot(page):
     # Only primitive expressions and native locator operations. Do not inject a
     # JavaScript helper, reset sentinels, or modify the application under test.
@@ -147,7 +159,7 @@ with sync_playwright() as p:
     browser = getattr(p, BROWSER).launch(**({'executable_path': executable, 'args': ['--no-sandbox']} if executable and BROWSER == 'chromium' else {}))
     for route in ['/underwriting', '/underwritin', '/underwriting/']:
         ctx, page, errors, requests = load(browser, route=route)
-        expect(page.get_by_role('heading', name='Quick underwriting.')).to_be_visible()
+        expect(page.get_by_role('heading', name='Quick underwriting.')).to_have_count(1)
         expect(page.locator('#quick-age')).to_have_value('')
         expect(page.locator('#quick-note')).to_have_value('')
         expect(page.get_by_role('button', name='Send health note')).to_be_disabled()
@@ -155,6 +167,7 @@ with sync_playwright() as p:
         assert page.locator('img[alt="AgentFlow"]').evaluate('img => img.complete && img.naturalWidth > 0')
         assert page.locator('a[aria-label="AgentFlow home"]').get_attribute('href') == '/'
         assert page.locator('[data-carrier]').count() == 0
+        minimal_screen(page)
         record(f'{route}: blank dark AgentFlow chat; isolated public entry')
         safe(ctx, page, errors, requests)
     for width in [320, 375, 390, 768, 1440]:
@@ -165,11 +178,12 @@ with sync_playwright() as p:
         assert page.locator('[data-question]').count() == 0
         assert page.locator('[data-fit="green"]').count() == 0
         assert page.get_by_role('button', name='Edit', exact=True).count() == 1
-        page.locator('summary').filter(has_text='Picked up').click()
+        page.locator('summary').filter(has_text='Edit details').click()
         assert 'Cancer treatment complete' not in page.locator('body').inner_text()
-        page.locator('summary').filter(has_text='Picked up').click()
+        page.locator('summary').filter(has_text='Edit details').click()
         page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-results-{width}.png'), full_page=True)
-        record(f'{width}px: shorthand case, 3 cards, no routine follow-up questions, no invented treatment end')
+        minimal_screen(page)
+        record(f'{width}px: minimal shorthand case, 3 compact cards, no footer or routine questions, no invented treatment end')
         safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     send(page, 'COPD')
@@ -193,7 +207,7 @@ with sync_playwright() as p:
     page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-medication-confirmation.png'), full_page=True)
     page.get_by_role('button', name='Metformin', exact=True).click()
     expect(page.get_by_text('“metfornin” — did you mean:', exact=True)).to_have_count(0)
-    page.locator('summary').filter(has_text='Picked up').click()
+    page.locator('summary').filter(has_text='Edit details').click()
     expect(page.get_by_role('button', name='Remove Metformin', exact=True)).to_have_count(1)
     assert page.get_by_role('button', name='Remove Diabetes', exact=True).count() == 0
     record('Medication typo requires confirmation and never establishes a diagnosis')
@@ -201,12 +215,12 @@ with sync_playwright() as p:
     ctx, page, errors, requests = load(browser)
     basics(page); send(page, 'COPD')
     assert page.locator('[data-question]').count() == 0
-    expect(page.locator('[data-assumption-notice]')).to_be_visible()
+    expect(page.locator('[data-assumption-notice]')).to_have_count(0)
     assert page.get_by_role('button', name='Nothing else', exact=True).count() == 0
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
-    expect(page.locator('[data-carrier="americo"]')).to_have_attribute('data-fit', 'yellow')
+    expect(page.locator('[data-carrier="americo"]')).to_have_attribute('data-fit', 'green')
     expect(page.locator('[data-carrier="mutual"]')).to_have_attribute('data-fit', 'yellow')
-    expect(page.get_by_text('Commission order is pending your verified schedules. No payout ranking is assumed.', exact=True)).to_be_visible()
+    expect(page.get_by_text('Commission order is pending your verified schedules. No payout ranking is assumed.', exact=True)).to_have_count(0)
     page.screenshot(path=str(SHOTS / f'{BROWSER}-chat-green-screen.png'), full_page=True)
     record('Immediate stated-history screen without routine questions; no invented commission')
     send(page, 'on oxygen')
@@ -266,25 +280,25 @@ with sync_playwright() as p:
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     basics(page); send(page, 'high blood pressure')
-    page.locator('summary').filter(has_text='Picked up').click()
+    page.locator('summary').filter(has_text='Edit details').click()
     expect(page.get_by_role('button', name='Remove High blood pressure', exact=True)).to_have_count(1)
-    page.locator('summary').filter(has_text='Picked up').click()
-    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    page.locator('summary').filter(has_text='Edit details').click()
+    assert page.get_by_text('Unrecognized:', exact=False).count() == 0
     assert page.locator('[data-question]').count() == 0
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'yellow')
     page.screenshot(path=str(SHOTS / f'{BROWSER}-instant-blood-pressure.png'), full_page=True)
-    record('High blood pressure is recognized; control status remains an optional card note')
+    record('High blood pressure recognized without a questionnaire or explanatory card prose')
     send(page, 'blood pressure controlled')
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
     assert page.locator('[data-question]').count() == 0
-    record('Voluntary BP control detail updates the documented preliminary tier')
+    record('Voluntary BP control detail updates carrier fit without an exact-tier claim')
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     basics(page); send(page, 'controlled hypertention')
     assert page.locator('[data-fit="green"]').count() == 0
     page.get_by_role('button', name='Did you mean High blood pressure?', exact=True).click()
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
-    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    assert page.get_by_text('Unrecognized:', exact=False).count() == 0
     record('Condition spelling confirmation preserves the entered qualifier')
     safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
@@ -301,7 +315,7 @@ with sync_playwright() as p:
     expect(page.get_by_role('button', name='Cancel edit', exact=True)).to_be_visible()
     send(page, 'controlled hypertension')
     expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
-    assert page.get_by_text('Couldn’t fully identify:', exact=False).count() == 0
+    assert page.get_by_text('Unrecognized:', exact=False).count() == 0
     record('Editing unmatched wording replaces only that unresolved detail')
     safe(ctx, page, errors, requests)
     for text in ['high blood pressure was controlled 7 years ago', 'controlled high blood pressure 180/120']:
@@ -312,6 +326,31 @@ with sync_playwright() as p:
         assert page.locator('[data-question]').count() == 0
         record(f'BP qualifier retained without assumed current clearance: {text}')
         safe(ctx, page, errors, requests)
+    for text, green, graded in [
+        ('healthy', ['americo', 'mutual', 'transamerica'], None),
+        ('type 2 diabetes on metformin', ['americo', 'transamerica'], None),
+        ('CAD and diabetes', ['americo'], None),
+        ('AFib and controlled high blood pressure; conditions unrelated', ['transamerica'], None),
+        ('Spiriva', ['mutual'], 'mutual'),
+    ]:
+        ctx, page, errors, requests = load(browser)
+        basics(page); send(page, text)
+        expect(page.locator('[data-carrier]')).to_have_count(3)
+        for carrier in green:
+            expect(page.locator(f'[data-carrier="{carrier}"]')).to_have_attribute('data-fit', 'green')
+        if graded:
+            expect(page.locator(f'[data-carrier="{graded}"]')).to_contain_text('Graded benefit')
+        minimal_screen(page)
+        page.screenshot(path=str(SHOTS / f'{BROWSER}-minimal-{green[0]}-{len(green)}-{len(text)}.png'), full_page=True)
+        record(f'Minimal carrier placement without blanket medication/combination gates: {text}')
+        safe(ctx, page, errors, requests)
+    ctx, page, errors, requests = load(browser)
+    basics(page, 'smoker'); send(page, 'COPD')
+    expect(page.locator('[data-carrier="americo"]')).to_have_attribute('data-fit', 'green')
+    expect(page.locator('[data-carrier="transamerica"]')).to_have_attribute('data-fit', 'green')
+    minimal_screen(page)
+    record('Smoker with supported condition is not blanket yellow')
+    safe(ctx, page, errors, requests)
     ctx, page, errors, requests = load(browser)
     basics(page)
     note = page.locator('#quick-note'); note.focus(); expect(note).to_be_focused(); note.fill('COPD')

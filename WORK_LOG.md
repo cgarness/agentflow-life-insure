@@ -1,3 +1,12 @@
+## 2026-10-01 — Minimal internal-agent underwriting — IMPLEMENTED; FINAL RUNNER VERIFICATION PENDING
+
+- Chris approved basics → health note → compact carrier cards only. Removed the visible footer/assumption notice, Why/source sections, About, introductory/assistant prose, commission-pending text and unresolved-tier placeholders. AgentFlow dark logo, New case, compact editable basics and necessary inline corrections remain.
+- Removed the Transamerica-only green gate and blanket medication/condition-count/smoking restrictions. Added source-linked carrier-level screening separate from exact-tier certainty; all native exclusions/medical review results remain internally available. No completed application answers or persisted client history are invented.
+- Omitted conditions/medications remain absent only in an evaluation copy. Explicit unknowns, contradictory insulin, unidentified input, unclassified medication contexts, cancer/BP qualifiers and unsupported combinations remain unresolved. Narrow declared medication-context inference is documented separately from carrier authority. No exact tier, approval probability, premium or commission was fabricated.
+- Files: chat presentation components including BasicsPanel; assumptions/evaluate/parse; new placement/medicationContext helpers; focused rule/React/browser regressions; minimal task docs; AGENT_RULES presentation/placement invariant; this newest-first Work Log entry. Existing history preserved. CRM/dialer, App.tsx, global CSS, dependencies, database/RLS, telephony and production settings untouched.
+- Local verification: root/strict feature TypeScript, 552 core/source/chat tests, 24 actual React host tests, scoped ESLint and full Vite build pass. Exact-source built-route Chromium/WebKit and unchanged-base full-app diagnostic comparison are runner gates, not yet claimed. Physical iPhone is not inferred from WebKit automation.
+- Scope: feature-branch preview only, PR #398. No main merge, backend/provider/key/env/DNS change or production promotion. AI, verified compensation and remaining carrier authority/release gates remain open.
+
 ## 2026-10-01 — Instant underwriting revision — PREVIEW VERIFIED; NOT RELEASED
 
 - Tested candidate f1566dd57ff8697825f2787eef2f4b4b71ade0d8; isolated run 36885925972. No automatic routine questions. Unlisted items use a visible, evaluation-only screening assumption; entered unknowns are never assumed absent.

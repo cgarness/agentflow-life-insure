@@ -17,3 +17,6 @@ Use the already approved carrier documents, not generic medical assumptions, for
 
 ## Verification and delivery
 Run npx tsc --noEmit, strict feature checks, all underwriting tests, actual React tests, scoped lint, Vite build, unchanged-base application diagnostics and actual-built-route Chromium/WebKit. Record exact tested source and completed results; physical iPhone is not inferred from emulation. Check the Vercel Git-generated preview and give Chris the new link. Temporary checksum- and branch-bound export/integration files may be used and removed after use. No paid AI/RxNorm activation or compensation invented. Remain a draft preview pending independent AI/source/commission/release gates.
+
+## Implementation outcome before final runner
+The minimal UI is implemented; no evidence/Why/footer or placeholder text is mounted. The matching layer is now carrier-level rather than exact-tier-only, with narrowly sourced treatment/combination paths and preserved exclusions. The current full Work Log was read from the exact export and preserved byte-for-byte with a newest-first entry. Local tests/build pass; final pinned integration verification is pending.

@@ -14,7 +14,6 @@ export function BasicsPanel({ value, onChange, errors, expanded, onToggle, canCo
   return <section aria-label="Client basics" className="rounded-2xl border border-border bg-card/60 p-4 sm:p-5">
     <div className="mb-4 flex items-center justify-between"><h2 className="text-sm font-semibold">Client basics</h2>
       {canCollapse && <button type="button" onClick={onToggle} className="flex items-center gap-1 rounded-lg p-1 text-xs text-primary"><Check size={14} />Done</button>}
-      {!canCollapse && <span className="text-xs text-muted-foreground">No name needed</span>}
     </div>
     <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-5">
       <label className="min-w-0 text-xs text-muted-foreground" htmlFor="quick-age">Age
@@ -34,13 +33,12 @@ export function BasicsPanel({ value, onChange, errors, expanded, onToggle, canCo
         {errors.weight && <span role="alert" className="mt-1 block text-rose-300">{errors.weight}</span>}
       </label>
       <label className="col-span-2 min-w-0 text-xs text-muted-foreground sm:col-span-1" htmlFor="quick-smoking">Smoking / nicotine
-        <select id="quick-smoking" aria-invalid={!!errors.smoking} value={value.smoking} onChange={e => change('smoking', e.target.value)} aria-describedby="nicotine-help" className={input}>
-          <option value="">Select</option><option value="smoker">Smoker</option><option value="nonsmoker">Nonsmoker</option><option value="former">Recently quit</option><option value="other">Other nicotine</option><option value="unknown">Not sure</option>
+        <select id="quick-smoking" aria-invalid={!!errors.smoking} value={value.smoking} onChange={e => change('smoking', e.target.value)} className={input}>
+          <option value="">Select</option><option value="smoker">Smoker</option><option value="nonsmoker">Nonsmoker (24+ months)</option><option value="former">Recently quit</option><option value="other">Other nicotine</option><option value="unknown">Not sure</option>
         </select>
         {errors.smoking && <span role="alert" className="mt-1 block text-rose-300">Choose a smoking status.</span>}
       </label>
     </div>
-    <p id="nicotine-help" className="mt-3 text-[11px] leading-5 text-muted-foreground">Nonsmoker = no nicotine for 24+ months. Vaping, patches or gum? Choose other nicotine.</p>
     {value.smoking === 'former' && <label className="mt-3 block max-w-xs text-xs text-muted-foreground" htmlFor="quick-quit">Months since last nicotine use
       <input id="quick-quit" value={value.quitMonths} onChange={e => change('quitMonths', e.target.value)} inputMode="numeric" maxLength={4} className={input} />
       {errors.quitMonths && <span className="text-rose-300">{errors.quitMonths}</span>}
