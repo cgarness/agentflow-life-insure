@@ -1,0 +1,47 @@
+name: Underwriting one-time source verification
+
+# Read-only retrieval of Chris's two supplied public carrier sources.
+# No repository writes, application changes, credentials or production requests.
+on:
+  push:
+    branches: ['work/fflagent-underwriting-v1']
+    paths: ['.github/workflows/underwriting-source-review-once.yml']
+permissions:
+  contents: read
+jobs:
+  sources:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/work/fflagent-underwriting-v1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve the exact supplied PDFs and record byte-level identity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import urllib.request,hashlib,json,datetime
+          out=Path('carrier-source-review');out.mkdir()
+          sources={
+            'transamerica':'https://cdn.bfldr.com/86JM1UOD/as/m7q69ngk78kw39p7w5923h/Transamerica_FE_Expres%E2%80%A6',
+            'mutual':'https://cdn.mutualofomaha.com/assets/ad238be6-67ff-4113-821f-c6dcba1df065'
+          }
+          manifest={}
+          for key,url in sources.items():
+              try:
+                  request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
+                  with urllib.request.urlopen(request,timeout=45) as response:
+                      body=response.read(20_000_001)
+                      assert len(body)<=20_000_000,'PDF exceeds review size limit'
+                      assert body.startswith(b'%PDF-'),'Source did not return a PDF'
+                      out.joinpath(key+'.pdf').write_bytes(body)
+                      manifest[key]={'url':url,'resolved_url':response.url,'sha256':hashlib.sha256(body).hexdigest(),'bytes':len(body),'content_type':response.headers.get('Content-Type'),'last_modified':response.headers.get('Last-Modified'),'retrieved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+              except Exception as error:
+                  manifest[key]={'url':url,'error':str(error)}
+          out.joinpath('manifest.json').write_text(json.dumps(manifest,indent=2))
+          print(json.dumps(manifest,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: underwriting-source-review-${{ github.run_id }}
+          path: carrier-source-review/
+          retention-days: 1
+          if-no-files-found: error
