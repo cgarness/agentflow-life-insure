@@ -1,3 +1,11 @@
+## 2026-10-01 — Instant underwriting revision — PREVIEW VERIFIED; NOT RELEASED
+
+- Tested candidate f1566dd57ff8697825f2787eef2f4b4b71ade0d8; isolated run 36885925972. No automatic routine questions. Unlisted items use a visible, evaluation-only screening assumption; entered unknowns are never assumed absent.
+- High blood pressure aliases recognized. Transamerica controlled-systemic hypertension and pulmonary hypertension remain separate source-backed rules; missing control/subtype/treatment timing stays optional/yellow. Historical BP control and unassessed readings never silently become current clearance.
+- Verified 519 core/source/chat tests, 20 React tests, root/strict TypeScript, scoped lint, Vite build, unchanged-base app diagnostics, and 27 Chromium + 27 WebKit built-route groups. Physical iOS/hosted browser acceptance and the unrelated full suite are not claimed.
+- Application files and earlier implementation record below retained. This closeout touches WORK_LOG.md and instant/VERIFICATION.md only. Temporary transport/check-out/integration helpers removed from final branch tree.
+- No main merge/production release, Supabase/RLS/database, DNS/env, CRM/dialer or telephony changes. Local parser only; live AI, commissions and remaining source authority are still separate completion gates.
+
 ## 2026-10-01 — Instant stated-history underwriting — IMPLEMENTED; EXACT-COMMIT BROWSER CHECKS PENDING
 
 - Chris approved removing the routine follow-up questionnaire and assuming unlisted conditions absent for a disclosed quick screen. Direct implementation on work/fflagent-underwriting-v1 / draft PR #398; no main/production approval. Plan: docs/plans/2026-09-30-underwriting/instant/implementation_plan.md.
