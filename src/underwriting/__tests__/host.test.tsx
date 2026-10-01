@@ -43,10 +43,10 @@ describe('standalone AgentFlow dark chat', () => {
   it('requires confirmation before using a medication correction', () => {
     render(<UnderwritingPage />); fillBasics(); send('takes metfornin');
     expect(screen.getByText('“metfornin” — did you mean:')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Metformin', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Metformin' }));
     expect(screen.queryByText('“metfornin” — did you mean:')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove Metformin' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Remove Diabetes', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Diabetes' })).not.toBeInTheDocument();
   });
   it('resets all captured notes, basics and medication suggestions', () => {
     render(<UnderwritingPage />); fillBasics(); send('takes metfornin');
