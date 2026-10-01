@@ -37,3 +37,8 @@ Language interpretation in this preview is bounded on-device phrase matching, no
 Quick green means a fully captured, source-backed single-condition medical screen, not carrier-issued eligibility. Current Americo and Mutual application/tier gaps remain yellow unless an explicit exclusion is found. The full native evaluators continue to return review when their current-application checks are absent; the quick adapter never sets those hidden answers. No claims of 50% odds, approval or automatic highest-paying carrier.
 
 Local checks: root tsc, strict feature and core checks, 467 core/source/chat tests, 12 real React host tests, scoped lint and full production Vite build passed. Local visual harness passed 20 scenario groups across five widths using an isolated render (not hosted route verification). System browser denied localhost navigation; the actual built-route Chromium/WebKit tests therefore run in the isolated GitHub runner. Local whole-app tsc exceeded its execution limit; the exact base comparison is pending the runner, not reported as passed.
+
+
+## 2026-10-01 continuation closeout
+
+Candidate 2bfda65f8334de5d1d64c269be58130598a8fcca passed isolated run 36877635480, including Chromium and WebKit on the actual Vite build. This closes the browser-verification step for the local-parser dark chat preview, not live-AI, commission, source-coverage or release gates. Work Log history is preserved; see newest verification record.

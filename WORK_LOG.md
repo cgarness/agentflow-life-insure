@@ -1,3 +1,15 @@
+## 2026-10-01 — AgentFlow dark chat underwriting — REVIEW BUILD VERIFIED; NOT RELEASED
+
+- Continued directly under Chris’s approved chat-first/dark AgentFlow implementation. Feature branch work/fflagent-underwriting-v1, draft PR #398; no main merge.
+- Verified exact candidate 2bfda65f8334de5d1d64c269be58130598a8fcca with successful isolated run 36877635480: root/strict feature TypeScript, core/source/chat and React tests, full Vite build, unchanged-base application diagnostic comparison, scoped lint, and actual built-route Chromium plus WebKit scripts.
+- Fixed the continuation test failure: pagehide/pageshow deliberately remounts the blank public page, which may reload its logo. The lifecycle check now permits only the exact same-origin bodyless GET for that static logo; query-bearing, POST and API requests have negative controls. All ordinary case-entry flows still require zero requests.
+- Browser security evidence uses primitive observations, a unique script sentinel, authored literal-note preservation, injected node/event/request assertions, exact source/script fingerprints, and persisted failure/incomplete-run evidence. Security checks were not disabled.
+- Existing implemented UI: AgentFlow dark styling/logo; compact basics; one chat composer; confirmable medication spelling; no more than two prompts; short green/yellow/red carrier cards and collapsed explanations.
+- Capability limits: bounded local phrase matching, not a connected language model or live RxNorm; no verified compensation/default payout ordering; incomplete state/combination authority remains visible. No guaranteed approvals.
+- Files in this continuation: tests/underwriting/browser.py; task verification/plan; newest-first Work Log; temporary branch-only documentation workflow removed after use. Existing history is preserved byte-for-byte.
+- Production: no main merge, deployment/promotion, Supabase/database/RLS, DNS/environment, CRM/dialer or telephony mutation. Existing Git integration generates preview builds only.
+- Next: hosted review and feedback; separate exact approval for live AI endpoint/provider activation and eventual production release. Physical iPhone testing and source/public-presentation/commission gates remain.
+
 ## 2026-09-30 Pacific — AgentFlow quick underwriting dark chat — IMPLEMENTED ON FEATURE BRANCH; HOSTED CHECKS PENDING
 
 - Authority: Chris explicitly approved direct build of the chat-first replacement with AgentFlow dark styles and existing branding, outside the CRM. Plan: docs/plans/2026-09-30-underwriting/chat/implementation_plan.md. Branch work/fflagent-underwriting-v1 / draft PR #398; no main merge or production approval.
