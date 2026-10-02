@@ -89,3 +89,11 @@ The release is live from the task branch. A later PR/merge and reconciliation wi
 ## Filename/reference closeout verification
 
 GitHub run 37065331283 passed the 22 activation/recovery tests, full inbound SQL and rollback proofs, generated types and negative controls on isolated PostgreSQL 17.6 with recorded filenames. The rebuilt status package retains the approved checksum. Root tsc checks no application files; earlier full-suite and application baseline results are not claimed rerun. No production access occurred. An earlier record-only run passed these checks but its push was refused because GITHUB_TOKEN cannot modify workflow files; publication now excludes that file, which is finalized separately through the authorized connector.
+
+## Subsequent natural-traffic evidence — 21:11 UTC
+
+A read-only production check at 2026-10-02 21:11:46.685552 UTC confirmed both activation flags remain true, all otherwise-eligible agency numbers remain in scope, and no other organization is enabled. One normal outbound call has now completed and produced one provider-verified `answered` evidence row classified `contact`. That saved-contact context is correctly ineligible for the new unsaved-caller tier. There are still zero recent-outbound routing attempts. One normal inbound call also completed.
+
+The bounded logs queried from 20:53:25 through 21:11:47 UTC returned four HTTP requests for the relevant functions, all 200 (one inbound-handler v46 and three status-handler v44). The same sample contained one dial-evidence log and no matched 403, 5xx or error events. These are results of the particular log query and window, not a universal error-free claim. The stored evidence confirms the deployed capture path can verify and persist a real outbound call; it does not prove unanswered capture or actual unsaved-number callback routing. Individual-agent voicemail storage/access/playback remain awaiting appropriate natural traffic and recipient confirmation.
+
+Performance advisors were also read after deployment. Existing index and RLS performance recommendations were not modified. No complete before/after advisor delta was established.
