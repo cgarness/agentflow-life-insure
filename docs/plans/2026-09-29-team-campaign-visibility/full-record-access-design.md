@@ -1,7 +1,33 @@
 # Team full-record access — separate coordinated authorization design
 
-Status: REVIEW DRAFT ONLY. No SQL, RLS/grant change, backend command, migration, or production
-action is implemented or approved by this document. The Team frontend display build is independent.
+Status: Chris authorized the next implementation and verification steps on October 2 with
+“Start the next steps and complete the task.” This authorizes a reviewable branch build and isolated
+verification of the coordinated design below. Exact production application, legacy-association
+validation targets, and the P1 observation/P2 transition remain separate release decisions under
+AGENT_RULES invariant #28 and R6-C. No hosted mutation is authorized or performed by this document.
+
+## October 2 implementation scope and as-built status
+
+Catalog-only refresh confirmed the original claim body, client INSERT/identity policies and missing
+lock provenance remain live; the September 25 recent-call queue guard is present. Build staged P1
+provenance, then P2/P3 containment and a whitelisted display reader. Keep five-minute TTL, renewal,
+callback/retry/SKIP LOCKED ordering and old-client signatures. Preserve unproven old lock lifetimes.
+New explicit attachments validate source access; a separate manager-only operation validates a
+historical association against its exact current campaign/org/master IDs, without changing business rows.
+No historical association is auto-approved. The display DTO never becomes the master/edit/Sold record.
+
+Files to touch before implementation:
+- New CLI-created staged migrations for queue provenance/association proof and claim/identity/reader;
+  a fail-closed reader-disable operations file (no inverse that reopens unsafe claim authority).
+- New `supabase/tests/team_dialer_*` fixtures, authenticated assertions and compatibility/concurrency
+  checks; `scripts/run_team_dialer_access_tests.sh`; isolated PostgreSQL workflow.
+- New `src/hooks/useTeamDialerLeadDetails.ts` and visit/response tests; narrow DialerPage/details wiring
+  and real-page tests. Existing master, edit, conversion and telephony code stays distinct.
+- This design, the scoped implementation plan, root plan pointer and newest-first WORK_LOG entry.
+
+Gate: exact candidate SQL must pass authenticated legitimate/forged/foreign/legacy cases, concurrent
+queue/claim tests, old-client renewal/save behavior, drift/replay refusal and reader disable recovery.
+Before production P2, observe the P1 unproven-lock count and review exact legacy association targets.
 
 ## Problem and evidence
 
@@ -136,3 +162,22 @@ Recovery disables the new reader/client path and restores the existing campaign-
 must preserve the approved ownership/provenance protections. Do not roll back to takeover-capable
 claim behavior or widen RLS as a recovery shortcut. Exact disable SQL and old-client replay evidence
 are required with the candidate implementation.
+
+
+## As-built release sequence and verification
+
+Three candidate migrations are built, not applied. Exact production approval precedes P1 and P1B.
+P2 refuses while any unproven active lock remains or a nonterminal Team/Open association lacks
+exact reviewed source provenance. Locks must expire or release naturally; never shorten/delete
+locks for deployment. Historical associations need individual manager review through
+`validate_team_queue_association(queue_id,campaign_id,lead_id)` using genuine app authentication.
+No blind backfill, actor spoof or blanket approval. Only then release P2 and the frontend.
+Recovery: revoke the new reader with `supabase/ops/team_dialer_display_disable.sql` and roll back
+the frontend; retain the hardened claim, immutable identities and contained ACLs. Recheck owners,
+grants, search paths, function preimages, policies and triggers before any production application.
+
+All staged authenticated SQL/RLS suites pass in isolated PostgreSQL WASM. Native multi-session
+races, staged refusals and negative mutations run in the new PostgreSQL CI job; its exact-head
+result is mandatory before release. Build/root tsc pass; app tsc retains 90 existing diagnostics;
+changed-file lint has zero errors and 18 existing warnings. Final CI evidence is recorded in PR401.
+Earlier proposal-only wording below the implementation scope is historical design rationale.

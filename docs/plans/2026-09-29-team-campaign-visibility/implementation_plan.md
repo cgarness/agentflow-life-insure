@@ -17,7 +17,7 @@ file changed in that main update. This resolves the documentation conflicts that
 Branch: `codex/team-campaign-lead-visibility`.
 Status: frontend implemented, verified and published in draft PR #401:
 https://github.com/cgarness/agentflow-life-insure/pull/401. No production writes or deployments.
-Complete full-record access for every Agent remains a separate dependency.
+The subsequent “Start the next steps and complete the task” authorizes the coordinated backend/frontend branch build and isolated verification, now implemented. Exact production application remains gated under invariant #28; see full-record-access-design.md for the staged release and recovery.
 
 Read: AGENT_RULES.md, VISION.md, the latest WORK_LOG.md, the existing root plan, the September 24
 authorization findings, DialerPage, LeadCard, the Team/Open field/master/edit/reveal paths,

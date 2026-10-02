@@ -41,6 +41,8 @@ const h = vi.hoisted(() => ({
   failAppointmentInsert: false,
   failCallWrite: false,
   emptyQueue: false,
+  teamDisplayPayload: null as Record<string, unknown> | null,
+  teamDisplayError: false,
   renewal: "owned" as "owned" | "lost" | "error",
   /** Fail only the appointments INSERTs whose payload matches (e.g. the appointment but not the shadow). */
   failAppointmentWhen: null as null | ((payload: Record<string, unknown>) => boolean),
@@ -99,6 +101,9 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (name: string, args: Record<string, unknown>) => {
       h.rpc.push({ name, args });
       h.events.push(`rpc:${name}`);
+      if (name === "get_team_dialer_lead_details") return Promise.resolve({
+        data: h.teamDisplayPayload, error: h.teamDisplayError ? { message: "display read failed" } : null,
+      });
       if (name === "advance_campaign_lead") {
         return Promise.resolve({ data: {
           id: args.p_campaign_lead_id, call_attempts: 1, last_called_at: new Date().toISOString(),
@@ -238,6 +243,7 @@ beforeEach(() => {
   h.writes = []; h.rpc = []; h.events = []; h.failAppointmentInsert = false; h.campaignType = "Personal";
   h.failAppointmentWhen = null; h.refreshMode = "resolve"; calendar.v = null;
   h.failCallWrite = false; h.emptyQueue = false; h.renewal = "owned";
+  h.teamDisplayPayload = null; h.teamDisplayError = false;
   h.tableData = {};
   stable.twilio.makeCall.mockClear();
   calendar.addAppointment.mockClear(); h.fetchAppointments.mockClear(); api.saveAppointmentSpy.mockClear();
@@ -437,6 +443,49 @@ const AUTHORIZED_MASTER = {
 };
 
 describe("Team lead details with the existing lock lifecycle", () => {
+  it("loads full Team display fields when the RLS master is hidden, without granting Edit or Sold", async () => {
+    h.teamDisplayPayload = {
+      ...AUTHORIZED_MASTER, campaign_id: CAMP, campaign_lead_id: CL,
+      date_of_birth: "1960-01-01", best_time_to_call: "Afternoon", custom_fields: {
+        CoverageGoal: "Display-only coverage", Score: 0, Smoker: false, Empty: "", __agentflow: "hidden",
+      },
+    };
+    await mountOnLead("Team", null);
+    const grid = await screen.findByTestId("team-open-lead-details");
+    expect(await within(grid).findByText("Display-only coverage")).toBeInTheDocument();
+    expect(within(grid).getByText("0")).toBeInTheDocument();
+    expect(within(grid).getByText("No")).toBeInTheDocument();
+    expect(within(grid).getByText("Afternoon")).toBeInTheDocument();
+    expect(grid.textContent).not.toContain("__agentflow");
+    // Startup can briefly mask and restore the confirmed lead, creating a fresh visit.
+    // Hook tests pin one read per visit; every page read must use the confirmed queue identity.
+    const displayReads = h.rpc.filter(r => r.name === "get_team_dialer_lead_details");
+    expect(displayReads.length).toBeGreaterThan(0);
+    expect(displayReads.every(r => r.args.p_campaign_lead_id === CL)).toBe(true);
+    expect(h.events.indexOf("rpc:get_team_dialer_lead_details")).toBeGreaterThan(h.events.indexOf("rpc:get_next_queue_lead"));
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+    expect(screen.getByTitle(/Editing is available once this lead is connected/)).toBeDisabled();
+    pickDisposition(/^sold later$/i);
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalled());
+    expect(h.writes.filter(w => ["calls", "leads", "clients", "campaign_leads"].includes(w.table))).toEqual([]);
+    expect(h.rpc.some(r => ["claim_lead", "advance_campaign_lead", "release_lead_lock"].includes(r.name))).toBe(false);
+  }, 30000);
+
+  it("offers one explicit display retry after an error and never claims the lead to load details", async () => {
+    h.teamDisplayError = true;
+    await mountOnLead("Team", null);
+    const grid = await screen.findByTestId("team-open-lead-details");
+    await within(grid).findByText(/could not be loaded/);
+    const readsBeforeRetry = h.rpc.filter(r => r.name === "get_team_dialer_lead_details").length;
+    h.teamDisplayError = false;
+    h.teamDisplayPayload = { ...AUTHORIZED_MASTER, campaign_id: CAMP, campaign_lead_id: CL };
+    fireEvent.click(within(grid).getByRole("button", { name: /retry/i }));
+    expect(await within(grid).findByText("Final expense")).toBeInTheDocument();
+    expect(h.rpc.filter(r => r.name === "get_team_dialer_lead_details")).toHaveLength(readsBeforeRetry + 1);
+    expect(h.rpc.some(r => r.name === "claim_lead")).toBe(false);
+  }, 30000);
+
   it("shows the authorized master fields before calling while Edit and Sold/Convert stay gated", async () => {
     await mountOnLead("Team", AUTHORIZED_MASTER);
     const grid = await screen.findByTestId("team-open-lead-details");
@@ -447,6 +496,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     expect(grid.textContent).not.toContain("__agentflow");
     expect(stable.twilio.makeCall).not.toHaveBeenCalled();
     expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
+    expect(h.rpc.some((r) => r.name === "get_team_dialer_lead_details")).toBe(false);
     expect(screen.getByTitle(/Editing is available once this lead is connected/)).toBeDisabled();
     pickDisposition(/^sold later$/i);
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -463,7 +513,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     await mountOnLead("Team", null);
     const grid = await screen.findByTestId("team-open-lead-details");
     expect(within(grid).getByText("Jane")).toBeInTheDocument();
-    expect(within(grid).getByText(/full contact record isn't available to you yet/)).toBeInTheDocument();
+    expect(await within(grid).findByText(/full lead details aren't available for this queue entry/i)).toBeInTheDocument();
     expect(within(grid).queryByText("Final expense")).toBeNull();
     expect(stable.twilio.makeCall).not.toHaveBeenCalled();
     expect(h.rpc.some((r) => r.name === "claim_lead")).toBe(false);
@@ -475,6 +525,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     expect(screen.queryByTestId("team-open-lead-details")).toBeNull();
     expect(screen.queryByText("Final expense")).toBeNull();
     expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+    expect(h.rpc.some(r => r.name === "get_team_dialer_lead_details")).toBe(false);
   }, 30000);
 
   it("keeps Personal on its existing full card without acquiring a Team lock", async () => {
@@ -482,6 +533,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     expect(await screen.findByText("Jane")).toBeInTheDocument();
     expect(screen.queryByTestId("team-open-lead-details")).toBeNull();
     expect(h.rpc.some((r) => r.name === "get_next_queue_lead")).toBe(false);
+    expect(h.rpc.some(r => r.name === "get_team_dialer_lead_details")).toBe(false);
   }, 30000);
 
   it.each(["owned", "error"] as const)("renews the same queue-row lock every 30 seconds and keeps details on %s", async (renewal) => {

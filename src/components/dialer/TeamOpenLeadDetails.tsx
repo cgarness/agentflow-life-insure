@@ -15,16 +15,17 @@ export interface TeamOpenLeadDetailsProps {
   saving: boolean;
   onChange: (id: string, value: string) => void;
   onRetry: () => void;
+  unavailableMessage?: string;
 }
 
-function Notice({ status, onRetry }: { status: TeamOpenMasterStatus; onRetry: () => void }) {
+function Notice({ status, onRetry, unavailableMessage }: { status: TeamOpenMasterStatus; onRetry: () => void; unavailableMessage?: string }) {
   if (status === "loaded") return null;
   const text =
     status === "loading"
       ? "Loading the full contact record…"
       : status === "error"
         ? "The full contact record could not be loaded. Showing this campaign's copy only."
-        : "The full contact record isn't available to you yet — showing this campaign's copy. More details appear once this lead is claimed.";
+        : unavailableMessage ?? "The full contact record isn't available to you yet — showing this campaign's copy. More details appear once this lead is claimed.";
   return (
     <div
       role="status"
@@ -60,12 +61,13 @@ export default function TeamOpenLeadDetails({
   saving,
   onChange,
   onRetry,
+  unavailableMessage,
 }: TeamOpenLeadDetailsProps) {
   const shown = isEditing ? editModeLeadFields(fields) : visibleLeadFields(fields);
 
   return (
     <div data-testid="team-open-lead-details">
-      <Notice status={masterStatus} onRetry={onRetry} />
+      <Notice status={masterStatus} onRetry={onRetry} unavailableMessage={unavailableMessage} />
       {definitionsUnavailable && masterStatus === "loaded" && (
         <p className="mb-3 text-[11px] text-muted-foreground">
           Custom field settings could not be loaded; saved custom values are shown read-only.

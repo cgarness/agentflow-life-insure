@@ -1,3 +1,12 @@
+## 2026-10-02 — Team full-record access — IMPLEMENTED; NATIVE CI AND PRODUCTION RELEASE GATED
+
+- **Authority:** Chris’s “Start the next steps and complete the task” authorizes the coordinated branch build and isolated verification. No production mutation, merge or deploy.
+- **Implementation:** canonical queue lock provenance; exact private source-association provenance from authorized attachments or explicit manager review; immutable client identities/contained ACLs; same-signature guarded claim; authenticated Team-only whitelisted display DTO, separate from the RLS master used for Edit/Sold/Convert.
+- **Preserved:** TTL/heartbeat, queue ordering/SKIP LOCKED, retry/recent-call guard, callback priority, Skip, Save Only/Save & Next, hard-claim threshold and telephony. Old lock timestamps unchanged; general Contacts SELECT policies unchanged.
+- **Evidence:** staged authenticated SQL/RLS suites pass in isolated PostgreSQL WASM; build/root tsc pass; app tsc retains 90 baseline diagnostics; lint zero errors/18 existing warnings. Native concurrency/refusal/mutation controls must pass new backend CI before release.
+- **Release:** P1 → P1B → natural departure of old locks → explicit bounded historical review → P2 → frontend. No blanket backfill or forced unlock. Recovery revokes only the new reader and retains containment.
+- **Files:** three CLI-created `20261002*team_dialer*.sql` migrations; synthetic SQL suites/disable ops; dependency extractor/isolated runner/backend workflow; display hook/tests; DialerPage/details/page tests; scoped plan/design and this log. PR #401 is the review surface.
+
 ## 2026-10-02 — [DONE] Team campaign lead details frontend — IMPLEMENTED AND VERIFIED; PRODUCTION RELEASE PENDING
 
 - **Authority:** Chris requested full Team details with unchanged locks (September 29), then instructed
