@@ -1,0 +1,42 @@
+name: Reports frontend verification
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/verify_reports_frontend.py'
+      - 'supabase/**reports*'
+      - '.github/workflows/reports-frontend.yml'
+permissions:
+  contents: read
+concurrency:
+  group: reports-frontend-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Compare the exact candidate against the PR base
+        env:
+          REPORTS_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REPORTS_BASE_WORKTREE: ${{ runner.temp }}/reports-base
+          REPORTS_EVIDENCE: ${{ runner.temp }}/reports-frontend-evidence
+        run: |
+          git worktree add --detach "$REPORTS_BASE_WORKTREE" "$REPORTS_BASE_SHA"
+          python3 scripts/verify_reports_frontend.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-frontend-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/reports-frontend-evidence
+          retention-days: 7
