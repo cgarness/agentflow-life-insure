@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 30
     env:
       PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55432
+      PGOPTIONS: '-c plpgsql.variable_conflict=error'
       TZ: UTC
     services:
       postgres:
@@ -23,7 +24,9 @@ jobs:
           POSTGRES_PASSWORD: isolated-test-only
           POSTGRES_DB: postgres
         ports: ['55432:5432']
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -32,7 +35,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
         with:
           deno-version: v2.1.4
       - name: Prepare pinned integration without production access
@@ -87,6 +90,63 @@ jobs:
           CODE
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Isolated PostgreSQL 17.6 rollback permissions and one-org operations
+        run: |
+          set -euo pipefail
+          [ "$PGURL" = 'postgresql://postgres:isolated-test-only@127.0.0.1:55432' ]
+          psql "$PGURL/postgres" -X -v ON_ERROR_STOP=1 -Atc 'DO $$ BEGIN NULL; END $$; SELECT version(); SHOW plpgsql.variable_conflict;'
+          [ "$(psql "$PGURL/postgres" -X -Atc 'SHOW plpgsql.variable_conflict;')" = error ]
+          case "$(psql "$PGURL/postgres" -Atc 'show server_version;')" in 17.6*) ;; *) exit 2;; esac
+          E="$RUNNER_TEMP/evidence"
+          run_sql_gate() { local name="$1"; shift; if ! "$@" > "$E/$name.txt" 2>&1; then cat "$E/$name.txt"; return 1; fi; tail -n 8 "$E/$name.txt"; }
+          run_sql_gate inbound-sql bash scripts/run_inbound_sql_tests.sh
+          run_sql_gate inbound-rollback bash scripts/run_inbound_rollback_test.sh
+          run_sql_gate types bash scripts/verify_inbound_generated_types.sh
+          run_sql_gate types-negative bash scripts/verify_inbound_generated_types_negative.sh
+          python3 - <<'CODE'
+          import os,subprocess as sp,json
+          from pathlib import Path
+          url=os.environ['PGURL']; assert url=='postgresql://postgres:isolated-test-only@127.0.0.1:55432'
+          db=url+'/home_ops_test'
+          def query(sql,ok=True):
+              r=sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-Atc',sql],capture_output=True,text=True)
+              if ok and r.returncode: raise RuntimeError(r.stderr)
+              return r
+          sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE home_ops_test'],check=True)
+          try:
+              files=['supabase/tests/inbound_harness.sql']
+              for p in ['20260823222528_inbound_identity_foundation','20260823222805_inbound_claim_lifecycle','20260823222926_recording_source_sid']:
+                  files.append('supabase/migrations/'+p+'.sql')
+              files+=['supabase/tests/inbound_v2_harness.sql']
+              for p in ['20260914000530_inbound_agent_settings_and_registrations','20260915025931_inbound_routing_v2_settings','20260915035141_inbound_route_attempts_d13_and_recovery','20260915053646_inbound_voicemails','20260918000614_voicemail_cleanup_actionable_selection','20260918002859_voicemail_first_listen_guard','20260927052736_inbound_recent_outbound_routing']:
+                  files.append('supabase/migrations/'+p+'.sql')
+              for f in files:
+                  sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-q','--single-transaction','-f',f],check=True)
+              activate=Path('supabase/ops/recent_outbound_activate_home_org.sql').read_text()
+              disable=Path('supabase/ops/recent_outbound_disable_home_org.sql').read_text()
+              home='a0000000-0000-0000-0000-000000000001'; other='eeeeeeee-0000-0000-0000-000000000001'
+              assert query(activate,False).returncode!=0
+              query(f"INSERT INTO public.organizations(id,name) VALUES('{home}','SYNTHETIC HOME'); INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES('{home}','v2',true); INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible) VALUES('{other}',true,true)")
+              otherq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{other}'"
+              homeq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{home}'"
+              original_other=query(otherq).stdout
+              assert query(activate,False).returncode!=0
+              query(f"UPDATE public.inbound_routing_settings SET auto_create_lead=false WHERE organization_id='{home}'")
+              query(activate); first=query(homeq).stdout; row=json.loads(first)
+              assert row['enabled'] and row['unanswered_eligible'] and row['did_allowlist'] is None
+              query(activate); assert query(homeq).stdout==first,'Idempotent activation rewrote row'
+              query(disable); stopped=query(homeq).stdout; row=json.loads(stopped)
+              assert not row['enabled'] and not row['unanswered_eligible']
+              query(disable); assert query(homeq).stdout==stopped
+              assert query(otherq).stdout==original_other,'Other organization changed'
+              query(f"UPDATE private.recent_outbound_routing_orgs SET did_allowlist=ARRAY['15555550101'] WHERE organization_id='{home}'")
+              before=query(homeq).stdout; assert query(activate,False).returncode!=0; assert query(homeq).stdout==before
+              assert query('SET ROLE authenticated; '+activate,False).returncode!=0
+              assert query(otherq).stdout==original_other
+              print('HOME OPS: missing-org refusal, auto-create refusal, both flags, idempotency, home-only recovery, unrelated-org preservation, preimage refusal and browser-role denial PASS')
+          finally:
+              sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','DROP DATABASE home_ops_test'],check=True)
+          CODE
       - name: Focused and full tests plus meaningful typecheck versus main
         run: |
           set -euo pipefail
@@ -138,61 +198,6 @@ jobs:
           (E/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
           print(json.dumps(summary,indent=2))
           CODE
-      - name: Isolated PostgreSQL 17.6 rollback permissions and one-org operations
-        run: |
-          set -euo pipefail
-          [ "$PGURL" = 'postgresql://postgres:isolated-test-only@127.0.0.1:55432' ]
-          psql "$PGURL/postgres" -Atc 'select version(); show plpgsql.variable_conflict;'
-          case "$(psql "$PGURL/postgres" -Atc 'show server_version;')" in 17.6*) ;; *) exit 2;; esac
-          E="$RUNNER_TEMP/evidence"
-          bash scripts/run_inbound_sql_tests.sh > "$E/inbound-sql.txt" 2>&1
-          bash scripts/run_inbound_rollback_test.sh > "$E/inbound-rollback.txt" 2>&1
-          bash scripts/verify_inbound_generated_types.sh > "$E/types.txt" 2>&1
-          bash scripts/verify_inbound_generated_types_negative.sh > "$E/types-negative.txt" 2>&1
-          python3 - <<'CODE'
-          import os,subprocess as sp,json
-          from pathlib import Path
-          url=os.environ['PGURL']; assert url=='postgresql://postgres:isolated-test-only@127.0.0.1:55432'
-          db=url+'/home_ops_test'
-          def query(sql,ok=True):
-              r=sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-Atc',sql],capture_output=True,text=True)
-              if ok and r.returncode: raise RuntimeError(r.stderr)
-              return r
-          sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE home_ops_test'],check=True)
-          try:
-              files=['supabase/tests/inbound_harness.sql']
-              for p in ['20260823222528_inbound_identity_foundation','20260823222805_inbound_claim_lifecycle','20260823222926_recording_source_sid']:
-                  files.append('supabase/migrations/'+p+'.sql')
-              files+=['supabase/tests/inbound_v2_harness.sql']
-              for p in ['20260914000530_inbound_agent_settings_and_registrations','20260915025931_inbound_routing_v2_settings','20260915035141_inbound_route_attempts_d13_and_recovery','20260915053646_inbound_voicemails','20260918000614_voicemail_cleanup_actionable_selection','20260918002859_voicemail_first_listen_guard','20260927052736_inbound_recent_outbound_routing']:
-                  files.append('supabase/migrations/'+p+'.sql')
-              for f in files:
-                  sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-q','--single-transaction','-f',f],check=True)
-              activate=Path('supabase/ops/recent_outbound_activate_home_org.sql').read_text()
-              disable=Path('supabase/ops/recent_outbound_disable_home_org.sql').read_text()
-              home='a0000000-0000-0000-0000-000000000001'; other='eeeeeeee-0000-0000-0000-000000000001'
-              assert query(activate,False).returncode!=0
-              query(f"INSERT INTO public.organizations(id,name) VALUES('{home}','SYNTHETIC HOME'); INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES('{home}','v2',true); INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible) VALUES('{other}',true,true)")
-              otherq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{other}'"
-              homeq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{home}'"
-              original_other=query(otherq).stdout
-              assert query(activate,False).returncode!=0
-              query(f"UPDATE public.inbound_routing_settings SET auto_create_lead=false WHERE organization_id='{home}'")
-              query(activate); first=query(homeq).stdout; row=json.loads(first)
-              assert row['enabled'] and row['unanswered_eligible'] and row['did_allowlist'] is None
-              query(activate); assert query(homeq).stdout==first,'Idempotent activation rewrote row'
-              query(disable); stopped=query(homeq).stdout; row=json.loads(stopped)
-              assert not row['enabled'] and not row['unanswered_eligible']
-              query(disable); assert query(homeq).stdout==stopped
-              assert query(otherq).stdout==original_other,'Other organization changed'
-              query(f"UPDATE private.recent_outbound_routing_orgs SET did_allowlist=ARRAY['15555550101'] WHERE organization_id='{home}'")
-              before=query(homeq).stdout; assert query(activate,False).returncode!=0; assert query(homeq).stdout==before
-              assert query('SET ROLE authenticated; '+activate,False).returncode!=0
-              assert query(otherq).stdout==original_other
-              print('HOME OPS: missing-org refusal, auto-create refusal, both flags, idempotency, home-only recovery, unrelated-org preservation, preimage refusal and browser-role denial PASS')
-          finally:
-              sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','DROP DATABASE home_ops_test'],check=True)
-          CODE
       - name: Exact Deno imports compared with main
         run: |
           set -euo pipefail
@@ -233,6 +238,8 @@ jobs:
            node scripts/edge_payload.mjs build "supabase/functions/$fn" --out "$E/$fn.json" | tee "$E/$fn-manifest.txt"
            node scripts/edge_payload.mjs verify "supabase/functions/$fn" "$E/$fn.json"
           done
+          node scripts/edge_payload.mjs build "$RUNNER_TEMP/baseline/supabase/functions/twilio-voice-status" --out "$E/twilio-voice-status-v42-recovery.json" | tee "$E/twilio-voice-status-v42-recovery-manifest.txt"
+          node scripts/edge_payload.mjs verify "$RUNNER_TEMP/baseline/supabase/functions/twilio-voice-status" "$E/twilio-voice-status-v42-recovery.json"
           sha256sum supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql supabase/ops/recent_outbound_activate_home_org.sql supabase/ops/recent_outbound_disable_home_org.sql > "$E/sql-sha256.txt"
           [ "$(sha256sum "$E/twilio-voice-inbound.json" | cut -d' ' -f1)" = 31d1cf5ab0cc87281d01c8ac8339343f50a2bc076f0e0d7365c94a85e3da45e1 ]
           [ "$(sha256sum "$E/twilio-recording-status.json" | cut -d' ' -f1)" = 5b33d169f431db89b64993c75c32dce31715e8e05ac4bf26487aab3ed30efc92 ]
