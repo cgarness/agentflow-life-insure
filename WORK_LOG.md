@@ -1,3 +1,36 @@
+## 2026-10-02 — [DONE] Team campaign lead details frontend — IMPLEMENTED AND VERIFIED; PRODUCTION RELEASE PENDING
+
+- **Authority:** Chris requested full Team details with unchanged locks (September 29), then instructed
+  “I want you to start the build and complete the task” (October 2). Implemented the presented Team-only
+  frontend scope. Remaining master-data access is separately designed, not silently granted.
+- **Behavior:** Team displays populated authorized contact/import/custom fields as soon as its canonical
+  queue load confirms the current lead and lock, before dialing and while ringing. Current visit,
+  organization/viewer/campaign, queue/master identities and confirmed lock must match. Loading,
+  advancing, lock loss or a stale visit/load masks immediately. Personal/Open Pool retain their presentation.
+- **Preserved:** original outbound action state; Edit/Sold/Convert gates; field order, blanks, 0/false and
+  reserved-key filtering; get_next_queue_lead and all lock/claim/advance RPCs; five-minute TTL, 30-second
+  heartbeat, transient-error handling, Skip suppression, retry/recent-call protection, callback ownership,
+  Save/Save & Next/failed-save behavior; Twilio, canonical telemetry and dependencies. No new reads/timers.
+- **Files:** DialerPage, LeadCard, shared TeamOpenLeadDetails comments; new teamCampaignLeadVisibility
+  helper/useTeamCampaignLeadVisibility hook and hook/card tests; existing real-page save and wiring tests;
+  inert Twilio reveal test mock; scoped implementation plan, separate access design and root §21 pointer.
+  Test mounts now clear their campaign cache. The Twilio mock supplies its missing audio lookup; its
+  pre-existing unhandled rejection was reproduced on the base before correcting the test boundary.
+- **Verification:** latest-base dialer checks 24 files / 308 passed, no unhandled errors; Los Angeles
+  feature/appointment checks 5 files / 69 passed. Fail-first card check: 3 failed / 4 passed on the base.
+  Production bundle build passes. Root tsc exits 0 (zero app files); app tsc matches the exact latest base's
+  90 diagnostic multiset, no new errors. Feature-file ESLint exits 0; DialerPage retains 3 existing errors
+  and 18 warnings. React review and diff/scope checks complete. External boundaries were mocked; no
+  live call, hosted mutation or new authenticated database harness was run.
+- **Branch/source:** `codex/team-campaign-lead-visibility`, source commit
+  `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased without conflicts onto main
+  `e04eb16dc6fc70734f85868ab5235186d0ce4813` before handoff. Branch publication/review follows with this log.
+- **Remaining dependency:** an RLS-hidden master row still cannot supply its custom fields to an Agent.
+  `full-record-access-design.md` is a review draft for coordinated claim/lock/association provenance,
+  active-tab/legacy transition and isolated adversarial SQL verification. No SQL accompanies it.
+  Full-field parity for every Agent is not claimed. No merge, push to main, production deployment,
+  Supabase mutation, RLS/grant change or live dial occurred.
+
 ## 2026-10-02 — Reports Policies Sold final privacy and fixture corrections — IMPLEMENTED; CI PENDING
 
 - Chris requested direct ChatGPT implementation. Branch codex/reports-policy-final-fixes-20261002 continues candidate 037ec13e.

@@ -121,6 +121,7 @@ import {
   withTeamOpenMasterLead,
 } from "@/lib/teamOpenLeadAccess";
 import { useTeamOpenMasterLead } from "@/hooks/useTeamOpenMasterLead";
+import { useTeamCampaignLeadVisibility } from "@/hooks/useTeamCampaignLeadVisibility";
 import { useTeamOpenLeadEdit, type TeamOpenSaved } from "@/hooks/useTeamOpenLeadEdit";
 import QueuePanel from "@/components/dialer/QueuePanel";
 import QueueExhaustedNotice from "@/components/dialer/QueueExhaustedNotice";
@@ -895,9 +896,22 @@ export default function DialerPage() {
     return t === "TEAM" || t.includes("OPEN");
   }, [campaignType]);
 
+  const isTeamCampaign = campaignType.toUpperCase() === "TEAM";
+  const teamLeadDisplay = useTeamCampaignLeadVisibility({
+    enabled: isTeamCampaign && !isImpersonating && selectedCampaign?.id === selectedCampaignId,
+    organizationId: organizationId ?? null,
+    viewerId: user?.id ?? null,
+    campaignId: selectedCampaignId,
+    lead: currentLead ?? null,
+    confirmedLockLeadId,
+    loading: loadingLeads,
+    advancing: isAdvancing,
+  });
+  const beginTeamLeadDisplayLoad = teamLeadDisplay.beginLoad;
+
   // Team/Open outbound dial session (display state only — see src/lib/teamOpenReveal.ts). Tracks the
-  // campaign lead THIS agent dialled and whether that outbound call was answered, so full details
-  // never show for a lead swapped in by a lock-loss reload, for inbound activity, or at the `ended`
+  // campaign lead THIS agent dialled and whether that outbound call was answered, so action gates
+  // and Open Pool reveal stay closed for a lock-loss swap, inbound activity, or at the `ended`
   // of an unanswered call. Queue, lock and claim behaviour are untouched.
   // Attempt-scoped: answer evidence is the attempt's own Voice.js Call `accept` (rev 5 §8.2).
   const teamOpenDialSession = useTeamOpenDialSession({
@@ -911,8 +925,8 @@ export default function DialerPage() {
   });
 
   /**
-   * callStatus drives staged lead reveal in LeadCard.
-   * Personal always shows 'connected'. Team/Open stages through idle→ringing→connected.
+   * Outbound attempt state still gates Team/Open actions and Open Pool staged display.
+   * Team's read-only details presentation is separate; Personal always shows 'connected'.
    */
   const callStatus = useMemo<CallStatus>(() => {
     if (!lockMode) return "connected"; // Personal: full reveal always
@@ -1529,6 +1543,7 @@ export default function DialerPage() {
    */
   const loadLockModeLead = useCallback(async (overrideCampaignType?: string): Promise<boolean> => {
     if (!selectedCampaignId) return false;
+    const confirmTeamDisplay = beginTeamLeadDisplayLoad();
     setLoadingLeads(true);
     setIsAdvancing(true);
     try {
@@ -1598,6 +1613,7 @@ export default function DialerPage() {
       // — the contact card may reveal. Set together with the lead so reveal and
       // data land in the same render.
       setConfirmedLockLeadId(lock.id);
+      confirmTeamDisplay(lock);
       setHasMoreLeads(false); // lock mode = one lead at a time
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
@@ -1619,7 +1635,7 @@ export default function DialerPage() {
       setTimeout(() => setIsAdvancing(false), 100);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat]);
+  }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat, beginTeamLeadDisplayLoad]);
 
   const fetchLeadsBatch = useCallback(async (campaignId: string, offset: number, clear = false) => {
     setLoadingLeads(true);
@@ -4725,6 +4741,7 @@ export default function DialerPage() {
             <LeadCard
               lead={currentLead}
               callStatus={callStatus}
+              teamDetailsVisible={isTeamCampaign ? teamLeadDisplay.visible : undefined}
               callAttempts={currentLead?.call_attempts ?? 0}
               maxAttempts={selectedCampaign?.max_attempts ?? null}
               lastDisposition={history.find(h => h.type === "call")?.disposition ?? null}
@@ -4741,7 +4758,7 @@ export default function DialerPage() {
                     fields={teamOpenFields}
                     masterStatus={teamOpenMaster.status}
                     definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}
-                    isEditing={isEditingContact && teamOpenEdit.active}
+                    isEditing={isEditingContact && teamOpenEdit.active && (!isTeamCampaign || canEditTeamOpen)}
                     draft={teamOpenEdit.draft}
                     errors={teamOpenEdit.errors}
                     saving={teamOpenEdit.saving}

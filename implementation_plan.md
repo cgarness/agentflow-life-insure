@@ -1923,3 +1923,29 @@ tests; isolated GitHub verification workflow; AGENT_RULES, WORK_LOG and this sec
   fixture must stop the runner, never count as a killed mutant. Production preflight/postcondition guards are intact.
 - Tests run against disposable localhost PostgreSQL with synthetic data and read-only repository credentials where
   possible. Temporary workspace/bootstrap tooling is removed from the final PR. No production tests or data writes.
+
+
+---
+
+## §21. Team campaign lead visibility (2026-10-02) — frontend implemented and verified; release pending
+
+Chris requested Team lead details before dialing with the same locks, then approved starting and
+completing the presented build on October 2. The detailed scope, exact files and as-built results are
+in `docs/plans/2026-09-29-team-campaign-visibility/implementation_plan.md`.
+
+Team uses a separate display predicate after the canonical queue load confirms the current lock.
+The original outbound action state, edit/conversion permissions, Personal/Open Pool presentation,
+queue RPCs, TTL/heartbeat, retry/callback/claim rules, Twilio and telemetry are preserved. No new read
+or polling is introduced. Database-hidden master data retains the existing access notice.
+
+Source commit `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased onto main
+`e04eb16dc6fc70734f85868ab5235186d0ce4813`. Latest-base dialer regression: 24 files / 308 tests passed;
+Los Angeles feature/appointment checks: 5 files / 69 passed. Production build passes. Root tsc exits 0;
+app tsc has the exact same 90 diagnostics as the current base. Feature-file lint is clean; DialerPage
+retains the base's 3 errors / 18 warnings. Full evidence and test limits are in the scoped plan.
+
+Full-field parity for every Agent remains blocked by the separate authorization dependency. The
+review draft `docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md` specifies
+trusted lock/association provenance, claim-first coordination, legacy/active-tab transition and
+isolated adversarial verification. It contains no SQL and approves no backend or production action.
+No merge, push to main, production deployment, Supabase mutation or live call occurred in this build.
