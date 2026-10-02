@@ -16,7 +16,7 @@
 #   4. REPLAY refusal — a second apply aborts with nothing changed
 #   5. ROLLBACK proof — new objects dropped, legacy seal re-asserted (never re-granted), data unchanged
 #   6. DISABLE / ENABLE proof — the emergency switch and its inverse, legacy sealed throughout
-# plus, for the Policies Sold source fix (20260930120000, implementation_plan.md §20 rev 2):
+# plus, for the Policies Sold source fix (20261002160849, implementation_plan.md §20 rev 2):
 #   P1. the policy regression suite (supabase/tests/reports_policy_facts.sql: P0, A-K, J, R)
 #   P2. NEGATIVE CONTROLS — reverted COUNT(wins) (summary, volume), dropped additional policies, dropped
 #       evidence rule, issueDate fallback removed, conflicting-campaign guard removed, scope widened
@@ -54,8 +54,8 @@ VISIBILITY_SUITE="$ROOT/supabase/tests/reports_campaign_visibility.sql"
 MIG="$ROOT/supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20260929152553_reports_secure_scoped_rpcs.rollback.sql"
 # The Policies Sold source fix (plan §20). Applied after $MIG in every build, as in production.
-POLICY_MIG="$ROOT/supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql"
-POLICY_FIXTURE="$ROOT/supabase/migrations/rollback/20260930120000_reports_policies_sold_normalized_source.rollback.sql"
+POLICY_MIG="$ROOT/supabase/migrations/20261002160849_reports_policies_sold_normalized_source.sql"
+POLICY_FIXTURE="$ROOT/supabase/migrations/rollback/20261002160849_reports_policies_sold_normalized_source.rollback.sql"
 POLICY_SUITE="$ROOT/supabase/tests/reports_policy_facts.sql"
 DISABLE="$ROOT/supabase/ops/reports_disable.sql"
 ENABLE="$ROOT/supabase/ops/reports_enable.sql"

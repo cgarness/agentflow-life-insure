@@ -11,6 +11,9 @@ production release remain separate approvals, as specified in the reviewed plan.
 Original base: `main` at `5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326` (Dialer appointment writer fix).
 Rebased without conflicts onto `e04eb16dc6fc70734f85868ab5235186d0ce4813` (Reports privacy fix)
 before handoff; the new main changes do not touch the Team display/lock/telephony files.
+Merged `main` at `b630bf0ba5c5b3cb166252ca59ed3284f3e3db2d` after its concurrent Reports release
+record landed. Preserved both Work Log/plan entries and all release fixes/renames; no Team runtime
+file changed in that main update. This resolves the documentation conflicts that prevented a new CI run.
 Branch: `codex/team-campaign-lead-visibility`.
 Status: frontend implemented, verified and published in draft PR #401:
 https://github.com/cgarness/agentflow-life-insure/pull/401. No production writes or deployments.

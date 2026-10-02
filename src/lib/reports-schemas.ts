@@ -9,7 +9,7 @@
  * Rates are `number | null` — `null` means the denominator was zero and renders as "—", never "0%".
  * There is deliberately no conversion-rate field anywhere (plan rev 2 §R2.2).
  *
- * Policy fields follow supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql.
+ * Policy fields follow supabase/migrations/20261002160849_reports_policies_sold_normalized_source.sql.
  */
 import { z } from "zod";
 
@@ -34,7 +34,7 @@ export const reportScopeKindSchema = z.enum(["own", "team", "organization"]);
 
 /**
  * Policies Sold comes from NORMALIZED STORED POLICIES (clients + additional_policies, by the policy's
- * sale date), never from wins (migration 20260930120000). The marker is REQUIRED: a payload without it
+ * sale date), never from wins (migration 20261002160849). The marker is REQUIRED: a payload without it
  * is a win-based function (not yet migrated, or a recovery state) and is treated as UNAVAILABLE, never
  * shown under the policy labels.
  */
