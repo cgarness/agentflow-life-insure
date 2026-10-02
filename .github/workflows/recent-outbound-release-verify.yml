@@ -1,0 +1,284 @@
+name: Recent-outbound integration verification (no production actions)
+on:
+  push:
+    branches: [chatgpt/complete-callback-routing-20261002]
+permissions:
+  contents: write
+concurrency:
+  group: recent-outbound-release-verify
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/chatgpt/complete-callback-routing-20261002'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55432
+      TZ: UTC
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.1.4
+      - name: Prepare pinned integration without production access
+        run: |
+          set -euo pipefail
+          MAIN=5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326
+          TASK=efa815144f893fafa43960f177a67ec90f92e4e1
+          B1=02b8ba5c91def63ebfe7670c33a4981dc452037b
+          [ "$GITHUB_REF" = refs/heads/chatgpt/complete-callback-routing-20261002 ]
+          [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN" ]
+          for ref in "$MAIN" "$TASK" "$B1" 5d37e5f98dc16b08d11359b1506153aac014b25a d675a4b11d6f05f1cdf39414d274439358d1b877; do git fetch --no-tags origin "$ref"; done
+          mkdir -p "$RUNNER_TEMP/evidence"
+          git worktree add --detach "$RUNNER_TEMP/baseline" "$MAIN"
+          python3 - <<'CODE'
+          import subprocess as sp
+          from pathlib import Path
+          B1='02b8ba5c91def63ebfe7670c33a4981dc452037b'
+          A='efa815144f893fafa43960f177a67ec90f92e4e1'
+          def git(*args): return sp.check_output(['git',*args])
+          def apply(base, head, excluded):
+              names=git('diff','--name-only',base,head).decode().splitlines()
+              keep=[n for n in names if n not in excluded]
+              print('FILES:',*keep,sep='\n')
+              patch=git('diff','--binary',base,head,'--',*keep)
+              sp.run(['git','apply','--3way','--index'],input=patch,check=True)
+          apply('d675a4b11d6f05f1cdf39414d274439358d1b877',B1,{
+           'WORK_LOG.md','docs/plans/2026-09-30-agent-voicemail-callback-repair/implementation_plan.md'})
+          apply('5d37e5f98dc16b08d11359b1506153aac014b25a',A,{
+           'WORK_LOG.md','implementation_plan.md','scripts/edge_payload.mjs',
+           'src/lib/__tests__/edgePayloadVerification.test.ts','src/lib/__tests__/inboundStages.test.ts'})
+          p=Path('src/lib/__tests__/inboundStages.test.ts')
+          a=git('show',A+':'+str(p)).decode()
+          marker='describe("S6 '
+          assert a.count(marker)==1
+          extra=a[a.index(marker):]
+          assert 'S6 ' not in p.read_text()
+          assert extra.count('mailbox=agent%3A${A2}')==2
+          extra=extra.replace('mailbox=agent%3A${A2}','mailbox=agent&amp;mailbox_agent_id=${A2}')
+          extra=extra.replace("today's encoding unchanged",'B1 repaired callback encoding preserved')
+          p.write_text(p.read_text()+'\n\n'+extra,encoding='utf8')
+          for f in ['supabase/functions/twilio-voice-inbound/planner.ts','supabase/functions/twilio-voice-inbound/stages.ts',
+                    'supabase/functions/twilio-recording-status/index.ts','supabase/functions/twilio-recording-status/idempotency.ts']:
+              assert Path(f).read_bytes()==git('show',B1+':'+f),f
+          for f in ['supabase/functions/twilio-voice-status/index.ts','supabase/functions/twilio-voice-status/dial-evidence.ts',
+                    'supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql']:
+              assert Path(f).read_bytes()==git('show',A+':'+f),f
+          p=Path('docs/plans/2026-09-30-agent-voicemail-callback-repair/implementation_plan.md')
+          p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_bytes(b'> STATUS CORRECTION (2026-10-02): B1 source 02b8ba5 was deployed as recording-status v37 and inbound v46. Audit c7e1fb2 records source verification and one group voicemail. Individual-agent storage/playback is still unverified. Prior text below is preserved as history; it is not a current undeployed-state claim.\n\n'+git('show',B1+':'+str(p)))
+          sp.run(['git','diff','--check'],check=True)
+          assert Path('WORK_LOG.md').read_bytes()==git('show','5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326:WORK_LOG.md')
+          CODE
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Focused and full tests plus meaningful typecheck versus main
+        run: |
+          set -euo pipefail
+          E="$RUNNER_TEMP/evidence"
+          B="$RUNNER_TEMP/baseline"
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$B/node_modules"
+          set +e
+          npx tsc --noEmit > "$E/root-candidate.txt" 2>&1; echo $? > "$E/root-candidate.exit"
+          (cd "$B" && npx tsc --noEmit) > "$E/root-base.txt" 2>&1; echo $? > "$E/root-base.exit"
+          npx tsc -p tsconfig.app.json --noEmit --pretty false > "$E/app-candidate.txt" 2>&1; echo $? > "$E/app-candidate.exit"
+          (cd "$B" && npx tsc -p tsconfig.app.json --noEmit --pretty false) > "$E/app-base.txt" 2>&1; echo $? > "$E/app-base.exit"
+          set -e
+          npx vitest run src/lib/__tests__/inboundStages.test.ts src/lib/__tests__/inboundV2Twiml.test.ts src/lib/__tests__/voicemailRecordingPipeline.test.ts src/lib/__tests__/voicemailOwnershipRecovery.test.ts src/lib/__tests__/voicemailCallbackContract.test.ts src/lib/__tests__/outboundDialEvidence.test.ts src/lib/__tests__/twilioVoiceStatusHandler.test.ts src/lib/__tests__/voiceStatusConvergence.test.ts src/lib/__tests__/edgePayloadVerification.test.ts --maxWorkers=2 --reporter=json --outputFile="$E/focused.json" > "$E/focused.txt" 2>&1
+          set +e
+          (cd "$B" && npx vitest run --maxWorkers=2 --reporter=json --outputFile="$E/full-base.json") > "$E/full-base.txt" 2>&1; echo $? > "$E/full-base.exit"
+          npx vitest run --maxWorkers=2 --reporter=json --outputFile="$E/full-candidate.json" > "$E/full-candidate.txt" 2>&1; echo $? > "$E/full-candidate.exit"
+          set -e
+          python3 - <<'CODE'
+          import os,re,json
+          from pathlib import Path
+          E=Path(os.environ['RUNNER_TEMP'])/'evidence'
+          def norm(s):
+              s=re.sub(r'\x1b\[[0-9;]*m','',s)
+              s=s.replace(os.environ['GITHUB_WORKSPACE'],'ROOT').replace(str(Path(os.environ['RUNNER_TEMP'])/'baseline'),'ROOT')
+              return re.sub(r'\(\d+,\d+\)', '(LINE,COL)',s).strip()
+          a=norm((E/'app-base.txt').read_text()); b=norm((E/'app-candidate.txt').read_text())
+          assert (E/'app-base.exit').read_text()==(E/'app-candidate.exit').read_text()
+          assert a==b,'App type errors differ; inspect raw logs'
+          if int((E/'app-base.exit').read_text()): assert 'error TS' in a,'Not a valid TypeScript baseline'
+          def report(name):
+              x=json.loads((E/name).read_text()); assert x['numTotalTests']>3000; return x
+          base=report('full-base.json'); candidate=report('full-candidate.json')
+          def failures(x):
+              return sorted((Path(s['name']).as_posix().split('/src/',1)[-1],t['fullName'])
+                for s in x['testResults'] for t in s.get('assertionResults',[]) if t['status']=='failed')
+          def suite_failures(x):
+              return sorted(Path(s['name']).as_posix().split('/src/',1)[-1] for s in x['testResults'] if s['status']=='failed')
+          assert failures(base)==failures(candidate),'New failed assertions'
+          assert suite_failures(base)==suite_failures(candidate),'Failed suite set changed'
+          assert candidate['numTotalTests']>base['numTotalTests'],'No integration tests added'
+          focused=json.loads((E/'focused.json').read_text())
+          assert focused['numFailedTests']==0 and focused['numTotalTests']>200
+          summary={'app_errors':len(re.findall('error TS',a)),'app_baseline_match':True,
+           'root_check':'Empty root project; not meaningful application proof',
+           'full_base':{k:base[k] for k in ['numTotalTests','numPassedTests','numFailedTests','numPendingTests']},
+           'full_candidate':{k:candidate[k] for k in ['numTotalTests','numPassedTests','numFailedTests','numPendingTests']},
+           'focused':{k:focused[k] for k in ['numTotalTests','numPassedTests','numFailedTests','numPendingTests']},
+           'failed_suites':suite_failures(candidate),'production_actions':False}
+          (E/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary,indent=2))
+          CODE
+      - name: Isolated PostgreSQL 17.6 rollback permissions and one-org operations
+        run: |
+          set -euo pipefail
+          [ "$PGURL" = 'postgresql://postgres:isolated-test-only@127.0.0.1:55432' ]
+          psql "$PGURL/postgres" -Atc 'select version(); show plpgsql.variable_conflict;'
+          case "$(psql "$PGURL/postgres" -Atc 'show server_version;')" in 17.6*) ;; *) exit 2;; esac
+          E="$RUNNER_TEMP/evidence"
+          bash scripts/run_inbound_sql_tests.sh > "$E/inbound-sql.txt" 2>&1
+          bash scripts/run_inbound_rollback_test.sh > "$E/inbound-rollback.txt" 2>&1
+          bash scripts/verify_inbound_generated_types.sh > "$E/types.txt" 2>&1
+          bash scripts/verify_inbound_generated_types_negative.sh > "$E/types-negative.txt" 2>&1
+          python3 - <<'CODE'
+          import os,subprocess as sp,json
+          from pathlib import Path
+          url=os.environ['PGURL']; assert url=='postgresql://postgres:isolated-test-only@127.0.0.1:55432'
+          db=url+'/home_ops_test'
+          def query(sql,ok=True):
+              r=sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-Atc',sql],capture_output=True,text=True)
+              if ok and r.returncode: raise RuntimeError(r.stderr)
+              return r
+          sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE home_ops_test'],check=True)
+          try:
+              files=['supabase/tests/inbound_harness.sql']
+              for p in ['20260823222528_inbound_identity_foundation','20260823222805_inbound_claim_lifecycle','20260823222926_recording_source_sid']:
+                  files.append('supabase/migrations/'+p+'.sql')
+              files+=['supabase/tests/inbound_v2_harness.sql']
+              for p in ['20260914000530_inbound_agent_settings_and_registrations','20260915025931_inbound_routing_v2_settings','20260915035141_inbound_route_attempts_d13_and_recovery','20260915053646_inbound_voicemails','20260918000614_voicemail_cleanup_actionable_selection','20260918002859_voicemail_first_listen_guard','20260927052736_inbound_recent_outbound_routing']:
+                  files.append('supabase/migrations/'+p+'.sql')
+              for f in files:
+                  sp.run(['psql',db,'-X','-v','ON_ERROR_STOP=1','-q','--single-transaction','-f',f],check=True)
+              activate=Path('supabase/ops/recent_outbound_activate_home_org.sql').read_text()
+              disable=Path('supabase/ops/recent_outbound_disable_home_org.sql').read_text()
+              home='a0000000-0000-0000-0000-000000000001'; other='eeeeeeee-0000-0000-0000-000000000001'
+              assert query(activate,False).returncode!=0
+              query(f"INSERT INTO public.organizations(id,name) VALUES('{home}','SYNTHETIC HOME'); INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES('{home}','v2',true); INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible) VALUES('{other}',true,true)")
+              otherq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{other}'"
+              homeq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{home}'"
+              original_other=query(otherq).stdout
+              assert query(activate,False).returncode!=0
+              query(f"UPDATE public.inbound_routing_settings SET auto_create_lead=false WHERE organization_id='{home}'")
+              query(activate); first=query(homeq).stdout; row=json.loads(first)
+              assert row['enabled'] and row['unanswered_eligible'] and row['did_allowlist'] is None
+              query(activate); assert query(homeq).stdout==first,'Idempotent activation rewrote row'
+              query(disable); stopped=query(homeq).stdout; row=json.loads(stopped)
+              assert not row['enabled'] and not row['unanswered_eligible']
+              query(disable); assert query(homeq).stdout==stopped
+              assert query(otherq).stdout==original_other,'Other organization changed'
+              query(f"UPDATE private.recent_outbound_routing_orgs SET did_allowlist=ARRAY['15555550101'] WHERE organization_id='{home}'")
+              before=query(homeq).stdout; assert query(activate,False).returncode!=0; assert query(homeq).stdout==before
+              assert query('SET ROLE authenticated; '+activate,False).returncode!=0
+              assert query(otherq).stdout==original_other
+              print('HOME OPS: missing-org refusal, auto-create refusal, both flags, idempotency, home-only recovery, unrelated-org preservation, preimage refusal and browser-role denial PASS')
+          finally:
+              sp.run(['psql',url+'/postgres','-v','ON_ERROR_STOP=1','-c','DROP DATABASE home_ops_test'],check=True)
+          CODE
+      - name: Exact Deno imports compared with main
+        run: |
+          set -euo pipefail
+          E="$RUNNER_TEMP/evidence"
+          B="$RUNNER_TEMP/baseline"
+          export DENO_DIR="$RUNNER_TEMP/deno-cache"
+          deno --version | tee "$E/deno-version.txt"
+          for fn in twilio-voice-status twilio-voice-inbound twilio-recording-status; do
+           set +e
+           (cd "$B" && deno check --no-config --no-lock "supabase/functions/$fn/index.ts") > "$E/deno-$fn-base.txt" 2>&1
+           echo $? > "$E/deno-$fn-base.exit"
+           deno check --no-config --no-lock "supabase/functions/$fn/index.ts" > "$E/deno-$fn-candidate.txt" 2>&1
+           echo $? > "$E/deno-$fn-candidate.exit"
+           set -e
+          done
+          python3 - <<'CODE'
+          import os,re,json
+          from pathlib import Path
+          E=Path(os.environ['RUNNER_TEMP'])/'evidence'
+          summary={}
+          for fn in ['twilio-voice-status','twilio-voice-inbound','twilio-recording-status']:
+              def errors(which):
+                  raw=re.sub(r'\x1b\[[0-9;]*m','',(E/f'deno-{fn}-{which}.txt').read_text())
+                  items=re.findall(r'(?m)^TS\d+[^\n]*',raw)
+                  code=int((E/f'deno-{fn}-{which}.exit').read_text())
+                  if code: assert items,raw
+                  return code,sorted(items)
+              assert errors('base')==errors('candidate'),f'New exact-import errors in {fn}'
+              summary[fn]={'exit':errors('candidate')[0],'diagnostics':errors('candidate')[1],'baseline_match':True}
+          (E/'deno-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary,indent=2))
+          CODE
+      - name: Build and verify all release packages
+        run: |
+          set -euo pipefail
+          E="$RUNNER_TEMP/evidence"
+          for fn in twilio-voice-status twilio-voice-inbound twilio-recording-status; do
+           node scripts/edge_payload.mjs build "supabase/functions/$fn" --out "$E/$fn.json" | tee "$E/$fn-manifest.txt"
+           node scripts/edge_payload.mjs verify "supabase/functions/$fn" "$E/$fn.json"
+          done
+          sha256sum supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql supabase/ops/recent_outbound_activate_home_org.sql supabase/ops/recent_outbound_disable_home_org.sql > "$E/sql-sha256.txt"
+          [ "$(sha256sum "$E/twilio-voice-inbound.json" | cut -d' ' -f1)" = 31d1cf5ab0cc87281d01c8ac8339343f50a2bc076f0e0d7365c94a85e3da45e1 ]
+          [ "$(sha256sum "$E/twilio-recording-status.json" | cut -d' ' -f1)" = 5b33d169f431db89b64993c75c32dce31715e8e05ac4bf26487aab3ed30efc92 ]
+      - name: Publish tested source and append full work log on this branch only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH=chatgpt/complete-callback-routing-20261002
+          [ "$GITHUB_REF" = "refs/heads/$BRANCH" ]
+          [ "$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" = "$GITHUB_SHA" ]
+          [ "$(git ls-remote origin refs/heads/main | cut -f1)" = 5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326 ]
+          python3 - <<'CODE'
+          import os,subprocess as sp,json
+          from pathlib import Path
+          E=Path(os.environ['RUNNER_TEMP'])/'evidence'; main='5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326'
+          s=json.loads((E/'summary.json').read_text()); d=json.loads((E/'deno-summary.json').read_text())
+          base=sp.check_output(['git','show',main+':WORK_LOG.md'])
+          assert Path('WORK_LOG.md').read_bytes()==base
+          entry='## 2026-10-02 - Recent-outbound integration verified; PRODUCTION RELEASE NOT EXECUTED\n\n'
+          entry+='Current main + unchanged Task A source + deployed B1 source integrated. S6 assertions now expect the repaired agent callback. Two guarded home-org-only activation/recovery operations added; both outcomes enabled only by the new proposed activation. All existing main WORK_LOG bytes preserved below. No production credentials, SQL, deploy, main merge, test call, customer recording or automatic monitoring.\n\n'
+          entry+='Fresh GitHub verification run: '+os.environ['GITHUB_RUN_ID']+'; isolated PostgreSQL 17.6 inbound/concurrency/rollback/generated-types/negative controls and new home-only ops tests passed. Exact B1 package hashes preserved. App and Deno failures remain baseline-matched, not clean passes; root tsc is an empty project. Full test results: '+json.dumps(s,sort_keys=True)+'.\n\n'
+          entry+='B1 was already deployed earlier as recording-status v37 and inbound v46 (audit c7e1fb2); only group runtime evidence was available. Agent voicemail and recipient playback still require natural evidence. Task A runtime is NOT verified or activated. The original migration remains unapplied. Requested release waivers and exact migration/Edge/config actions still require Chris approval.\n\n'
+          Path('WORK_LOG.md').write_bytes(entry.encode()+base)
+          assert Path('WORK_LOG.md').read_bytes()[len(entry.encode()):]==base
+          p=Path('docs/plans/2026-10-02-recent-outbound-release/implementation_plan.md')
+          p.write_text(p.read_text()+'\n## Executed isolated verification\nRun '+os.environ['GITHUB_RUN_ID']+' passed the named combined-source checks. See attached evidence, preserved raw logs and package manifests. Production actions: NONE.\n\n```json\n'+json.dumps({'tests':s,'deno':d},indent=2)+'\n```\n')
+          changed=set(sp.check_output(['git','diff','--name-only','HEAD']).decode().splitlines())|set(sp.check_output(['git','diff','--cached','--name-only']).decode().splitlines())|set(sp.check_output(['git','ls-files','--others','--exclude-standard']).decode().splitlines())
+          allowed=set()
+          for a,b in [('d675a4b11d6f05f1cdf39414d274439358d1b877','02b8ba5c91def63ebfe7670c33a4981dc452037b'),('5d37e5f98dc16b08d11359b1506153aac014b25a','efa815144f893fafa43960f177a67ec90f92e4e1')]:
+              allowed.update(sp.check_output(['git','diff','--name-only',a,b]).decode().splitlines())
+          allowed.add(str(p)); allowed.discard('implementation_plan.md')
+          assert changed<=allowed,sorted(changed-allowed)
+          sp.run(['git','add','--',*sorted(changed)],check=True)
+          sp.run(['git','diff','--cached','--check'],check=True)
+          print('FINAL CHANGED FILES',*sorted(changed),sep='\n')
+          CODE
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Integrate and verify recent-outbound routing with deployed voicemail repair; not released'
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin "HEAD:refs/heads/$BRANCH"
+          unset AUTH GH_TOKEN
+          git rev-parse HEAD | tee "$RUNNER_TEMP/evidence/verified-commit.txt"
+          git archive HEAD | gzip > "$RUNNER_TEMP/evidence/verified-source.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recent-outbound-release-evidence
+          path: ${{ runner.temp }}/evidence
+          retention-days: 14
