@@ -125,8 +125,9 @@ jobs:
               activate=Path('supabase/ops/recent_outbound_activate_home_org.sql').read_text()
               disable=Path('supabase/ops/recent_outbound_disable_home_org.sql').read_text()
               home='a0000000-0000-0000-0000-000000000001'; other='eeeeeeee-0000-0000-0000-000000000001'
+              agent='aaaaaaaa-0000-0000-0000-000000000099'
               assert query(activate,False).returncode!=0
-              query(f"INSERT INTO public.organizations(id,name) VALUES('{home}','SYNTHETIC HOME'); INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES('{home}','v2',true); INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible) VALUES('{other}',true,true)")
+              query(f"INSERT INTO public.organizations(id,name) VALUES('{home}','SYNTHETIC HOME'); INSERT INTO auth.users(id) VALUES('{agent}'); INSERT INTO public.profiles(id,organization_id,status,twilio_client_identity) VALUES('{agent}','{home}','Active','SYNTHETIC_HOME_AGENT'); INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead,inbound_group_agent_ids) VALUES('{home}','v2',true,ARRAY['{agent}'::uuid]); INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible) VALUES('{other}',true,true)")
               otherq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{other}'"
               homeq=f"SELECT row_to_json(c) FROM private.recent_outbound_routing_orgs c WHERE organization_id='{home}'"
               original_other=query(otherq).stdout
