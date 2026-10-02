@@ -1,24 +1,29 @@
-name: Recent-outbound final preparation
+name: Recent-outbound integrated verification
 
 on:
   push:
     branches: [chatgpt/recent-outbound-final-20261002]
     paths:
       - .github/workflows/recent-outbound-release-verify.yml
+      - scripts/prepare_recent_outbound_release.py
+      - scripts/verify_recent_outbound_release.py
+      - scripts/run_recent_outbound_activation_tests.sh
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: recent-outbound-preparation-${{ github.ref }}
+  group: recent-outbound-final-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  prepare:
+  verify:
     if: github.ref == 'refs/heads/chatgpt/recent-outbound-final-20261002'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
+    permissions:
+      contents: write
     services:
       postgres:
         image: postgres:17.6
@@ -31,6 +36,12 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    env:
+      PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+      RO_MAIN_SHA: e04eb16dc6fc70734f85868ab5235186d0ce4813
+      RO_BASE_WORKTREE: ${{ runner.temp }}/ro-base
+      RO_EVIDENCE: ${{ runner.temp }}/ro-final-evidence
+      DENO_DIR: ${{ runner.temp }}/ro-deno-cache
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -41,74 +52,106 @@ jobs:
         with:
           node-version: '22.16.0'
           cache: npm
-      - name: Check pinned inputs and export credential-free Git bundle
+      - name: Prepare the exact combined source without touching main
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ro-artifacts"
-          MAIN=e04eb16dc6fc70734f85868ab5235186d0ce4813
-          TASK=efa815144f893fafa43960f177a67ec90f92e4e1
-          B1=02b8ba5c91def63ebfe7670c33a4981dc452037b
-          for SHA in "$MAIN" "$TASK" "$B1"; do git cat-file -e "$SHA^{commit}"; done
-          git update-ref refs/heads/input-main "$MAIN"
-          git update-ref refs/heads/input-task-a "$TASK"
-          git update-ref refs/heads/input-b1 "$B1"
-          git update-ref refs/heads/input-preparation "$GITHUB_SHA"
-          git bundle create "$RUNNER_TEMP/ro-artifacts/source.bundle" refs/heads/input-main refs/heads/input-task-a refs/heads/input-b1 refs/heads/input-preparation
-          git bundle verify "$RUNNER_TEMP/ro-artifacts/source.bundle"
-          printf '%s\n' "main=$MAIN" "task_a=$TASK" "b1=$B1" "preparation=$GITHUB_SHA" > "$RUNNER_TEMP/ro-artifacts/inputs.txt"
-          git worktree add --detach "$RUNNER_TEMP/ro-task-a" "$TASK"
-          git worktree add --detach "$RUNNER_TEMP/ro-b1" "$B1"
-      - name: Install pinned project dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Export installed dependencies for offline local verification
+          mkdir -p "$RO_EVIDENCE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git worktree add --detach "$RO_BASE_WORKTREE" "$RO_MAIN_SHA"
+          git update-ref refs/remotes/origin/main "$RO_MAIN_SHA"
+          if [ ! -f supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql ]; then
+            python3 scripts/prepare_recent_outbound_release.py
+          fi
+          git diff --cached --stat | tee "$RO_EVIDENCE/integration-stat.txt"
+          git diff --cached --name-only | tee "$RO_EVIDENCE/integration-files.txt"
+      - name: Install pinned verification dependencies
         shell: bash
         run: |
           set -euo pipefail
-          tar -czf "$RUNNER_TEMP/ro-artifacts/node_modules.tar.gz" node_modules
-          sha256sum "$RUNNER_TEMP/ro-artifacts/source.bundle" "$RUNNER_TEMP/ro-artifacts/node_modules.tar.gz" | tee "$RUNNER_TEMP/ro-artifacts/bootstrap.sha256"
-      - name: Run original Task A SQL against isolated PostgreSQL 17.6
-        env:
-          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          npm ci --ignore-scripts --no-audit --no-fund
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$RO_BASE_WORKTREE/node_modules"
+          npm install --prefix "$RUNNER_TEMP/ro-deno" deno@2.1.4 --no-audit --no-fund
+          echo "DENO_BIN=$RUNNER_TEMP/ro-deno/node_modules/.bin/deno" >> "$GITHUB_ENV"
+      - name: Verify exact one-org activation and recovery scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RO_EVIDENCE/activation-pg17.6.txt"
+      - name: Verify complete inbound SQL, permissions, concurrency and rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RO_EVIDENCE/inbound-pg17.6.txt"
+          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RO_EVIDENCE/inbound-rollback-pg17.6.txt"
+      - name: Verify generated types and negative controls on isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RO_EVIDENCE/generated-types.txt"
+          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RO_EVIDENCE/generated-types-negative.txt"
+      - name: Full baseline comparison, exact Deno imports, and all three package manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$DENO_BIN" --version | tee "$RO_EVIDENCE/deno-version.txt"
+          python3 scripts/verify_recent_outbound_release.py 2>&1 | tee "$RO_EVIDENCE/verification-console.txt"
+      - name: Record actual results without truncating repository history
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import os, urllib.parse
-          u = urllib.parse.urlparse(os.environ['PGURL'])
-          assert u.hostname == '127.0.0.1' and u.port == 55433
-          assert 'jncvvsvckxhqgqvkppmj' not in os.environ['PGURL']
-          print('Synthetic database on localhost:55433 only')
+          import datetime,hashlib,json,os,pathlib,subprocess
+          root=pathlib.Path.cwd(); out=pathlib.Path(os.environ['RO_EVIDENCE'])
+          result=json.loads((out/'verification-summary.json').read_text())
+          assert result['result']=='no_new_regressions' and not result['failures']
+          migration='supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql'
+          source='efa815144f893fafa43960f177a67ec90f92e4e1'
+          for name in [migration,'supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql','supabase/functions/twilio-voice-status/index.ts','supabase/functions/twilio-voice-status/dial-evidence.ts']:
+              assert (root/name).read_bytes()==subprocess.check_output(['git','show',source+':'+name])
+          hashes={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in [migration,'supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql','supabase/ops/recent_outbound_enable_complete.sql','supabase/ops/recent_outbound_disable_org.sql']}
+          evidence={'baseline':os.environ['RO_MAIN_SHA'],'workflow_run':os.environ['GITHUB_RUN_ID'],'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'verification':result,'sql_sha256':hashes,'production':'NOT APPLIED, DEPLOYED OR ACTIVATED'}
+          (out/'release-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          report='\n## Final verification — production approval still pending\n\n'+json.dumps(evidence,indent=2)+'\n\n'
+          plan=root/'docs/plans/2026-10-02-recent-outbound-final/implementation_plan.md'
+          with plan.open('a') as f: f.write(report)
+          entry='## 2026-10-02 — Recent-outbound final integration — VERIFIED; PRODUCTION RELEASE PENDING\n\n'
+          entry+='- GitHub run '+os.environ['GITHUB_RUN_ID']+' completed isolated PostgreSQL 17.6 inbound, activation, rollback, generated-type and negative-control checks.\n'
+          entry+='- Focused tests: '+str(result['focused'])+'. Full baseline comparison: '+str(result['base_full'])+'; candidate: '+str(result['candidate_full'])+'. No removed baseline assertions, new failed files, or passed-to-failed regressions.\n'
+          entry+='- App and exact-import Deno checks add no errors; baseline errors remain. Root tsc is an empty-project check, not an app pass.\n'
+          entry+='- Complete package hashes: '+str({k:v['payload_sha256'] for k,v in result['packages'].items()})+'. B1 packages remain byte-identical to deployed approved source.\n'
+          entry+='- Prepared one-org answered/unanswered activation and one-org disable. SQL hashes and full evidence are in the final plan.\n'
+          entry+='- No production migration, Edge deployment, activation, data update, test call, recording recovery, PR or main merge. B1 individual-agent playback remains unverified; Task A is not live.\n'
+          entry+='- This is an actual additive WORK_LOG update, not an audit-only commit. All prior main history is retained below.\n\n'
+          log=root/'WORK_LOG.md'; log.write_bytes(entry.encode()+log.read_bytes())
+          main_log=subprocess.check_output(['git','show',os.environ['RO_MAIN_SHA']+':WORK_LOG.md'])
+          assert log.read_bytes().endswith(main_log)
+          for name in hashes:
+              (out/pathlib.Path(name).name).write_bytes((root/name).read_bytes())
           PY
-          psql "$PGURL/postgres" -v ON_ERROR_STOP=1 -c 'SHOW server_version;'
-          cd "$RUNNER_TEMP/ro-task-a"
-          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RUNNER_TEMP/ro-artifacts/task-a-pg17.6.txt"
-      - name: Install isolated Deno tool and resolve exact remote imports
-        if: always()
+          git add -- WORK_LOG.md docs/plans/2026-10-02-recent-outbound-final/implementation_plan.md
+      - name: Publish only the verified task branch with an optimistic remote guard
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/ro-deno-tool" deno@2.1.4 --no-audit --no-fund
-          export DENO_DIR="$RUNNER_TEMP/ro-deno-cache"
-          DENO="$RUNNER_TEMP/ro-deno-tool/node_modules/.bin/deno"
-          "$DENO" --version | tee "$RUNNER_TEMP/ro-artifacts/deno-version.txt"
-          for ITEM in 'main:.' "task-a:$RUNNER_TEMP/ro-task-a" "b1:$RUNNER_TEMP/ro-b1"; do
-            LABEL="${ITEM%%:*}"; ROOT="${ITEM#*:}"
-            for FN in twilio-voice-status twilio-recording-status twilio-voice-inbound; do
-              set +e
-              "$DENO" check --no-config --no-lock "$ROOT/supabase/functions/$FN/index.ts" > "$RUNNER_TEMP/ro-artifacts/deno-$LABEL-$FN.txt" 2>&1
-              CODE=$?
-              set -e
-              printf '%s %s exit=%s\n' "$LABEL" "$FN" "$CODE" | tee -a "$RUNNER_TEMP/ro-artifacts/deno-exits.txt"
-            done
-          done
-          tar -czf "$RUNNER_TEMP/ro-artifacts/deno-tool-and-cache.tar.gz" -C "$RUNNER_TEMP" ro-deno-tool ro-deno-cache
-          sha256sum "$RUNNER_TEMP/ro-artifacts/deno-tool-and-cache.tar.gz" | tee -a "$RUNNER_TEMP/ro-artifacts/bootstrap.sha256"
+          BRANCH=chatgpt/recent-outbound-final-20261002
+          test "$GITHUB_REF" = "refs/heads/$BRANCH"
+          ACTUAL=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          test "$ACTUAL" = "$GITHUB_SHA"
+          git commit -m 'Integrate and verify recent-outbound routing with deployed voicemail repair; production pending'
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin "HEAD:refs/heads/$BRANCH"
+          unset AUTH GH_TOKEN
+          git rev-parse HEAD | tee "$RO_EVIDENCE/verified-source-commit.txt"
+          git bundle create "$RO_EVIDENCE/verified-source.bundle" HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: recent-outbound-offline-workspace-${{ github.run_id }}
-          path: ${{ runner.temp }}/ro-artifacts/
-          retention-days: 3
+          name: recent-outbound-final-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/ro-final-evidence/
+          retention-days: 7
           compression-level: 0
           if-no-files-found: error
