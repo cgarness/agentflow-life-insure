@@ -2179,7 +2179,7 @@ export default function DialerPage() {
         callbackDueAt,
         now,
       );
-      let nextIndex = newQueue.findIndex(
+      const nextIndex = newQueue.findIndex(
         lead => !TERMINAL_STATUSES.includes((lead as any).status || '')
              && getLeadTier(lead as CampaignLead, now) !== 4
       );
@@ -2283,7 +2283,7 @@ export default function DialerPage() {
     setCurrentLeadIndex((prev) => {
       const len = leadQueue.length;
       if (len <= 0) return 0;
-      let nextIdx = Math.min(prev + 1, len - 1);
+      const nextIdx = Math.min(prev + 1, len - 1);
       
       // Strict Queue: Do not advance into Tier 4 (pending retry) area.
       if (getLeadTier(leadQueue[nextIdx] as CampaignLead, new Date()) === 4) {
@@ -2414,7 +2414,7 @@ export default function DialerPage() {
     setCurrentLeadIndex((prev) => {
       const len = leadQueue.length;
       if (len <= 0) return 0;
-      let nextIdx = Math.min(prev + 1, len - 1);
+      const nextIdx = Math.min(prev + 1, len - 1);
       
       // Strict Queue: Do not advance into Tier 4 (pending retry) area.
       if (getLeadTier(leadQueue[nextIdx] as CampaignLead, new Date()) === 4) {

@@ -1941,8 +1941,10 @@ or polling is introduced. Database-hidden master data retains the existing acces
 Local verified source commit `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased onto main
 `e04eb16dc6fc70734f85868ab5235186d0ce4813`. Latest-base dialer regression: 24 files / 308 tests passed;
 Los Angeles feature/appointment checks: 5 files / 69 passed. Production build passes. Root tsc exits 0;
-app tsc has the exact same 90 diagnostics as the current base. Feature-file lint is clean; DialerPage
-retains the base's 3 errors / 18 warnings. Full evidence and test limits are in the scoped plan.
+app tsc has the exact same 90 diagnostics as the current base. Feature-file and DialerPage lint pass;
+three old prefer-const findings were corrected, with 18 existing warnings remaining. Full evidence and
+test limits are in the scoped plan. The inherited frontend CI comparison now captures explicit runtime
+error fingerprints and rejects new ones while allowing removed errors.
 
 Full-field parity for every Agent remains blocked by the separate authorization dependency. The
 review draft `docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md` specifies

@@ -19,8 +19,9 @@
 - **Verification:** latest-base dialer checks 24 files / 308 passed, no unhandled errors; Los Angeles
   feature/appointment checks 5 files / 69 passed. Fail-first card check: 3 failed / 4 passed on the base.
   Production bundle build passes. Root tsc exits 0 (zero app files); app tsc matches the exact latest base's
-  90 diagnostic multiset, no new errors. Feature-file ESLint exits 0; DialerPage retains 3 existing errors
-  and 18 warnings. React review and diff/scope checks complete. External boundaries were mocked; no
+  90 diagnostic multiset, no new errors. Feature-file and DialerPage ESLint exit 0 (18 existing warnings).
+  Three prefer-const declarations were corrected without changing any expression/control flow.
+  React review and diff/scope checks complete. External boundaries were mocked; no
   live call, hosted mutation or new authenticated database harness was run.
 - **Branch/source:** `codex/team-campaign-lead-visibility`, source commit
   `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased without conflicts onto main
@@ -29,6 +30,11 @@
   https://github.com/cgarness/agentflow-life-insure/pull/401. CLI push lacked write credentials, so
   GitHub tools published the branch. All 14 file blobs and full tree SHA matched the verified local
   checkout; this publication entry follows the branch write in the same session.
+- **CI follow-up:** the initial verifier passed baseline comparison, Reports tests and build, then failed
+  on those three old lint findings. The verification scripts now capture explicit Vitest completion errors
+  and reject new fingerprints while allowing removals; omitted JSON/log counts are never false zeroes.
+  Fail-closed self-tests pass. Actual reporter probes capture one main mock error and zero corrected errors.
+  Files: verify_reports_frontend.py, frontend_runtime_error_compare.py, vitest-runtime-error-reporter.mjs.
 - **Remaining dependency:** an RLS-hidden master row still cannot supply its custom fields to an Agent.
   `full-record-access-design.md` is a review draft for coordinated claim/lock/association provenance,
   active-tab/legacy transition and isolated adversarial SQL verification. No SQL accompanies it.

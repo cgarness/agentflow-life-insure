@@ -52,6 +52,12 @@ useLeadLock/useHardClaim, and current TwilioContext. No AGENTS.md is present in 
 - This scoped implementation plan, root `implementation_plan.md` (additive pointer), and newest-first WORK_LOG entry.
 - `docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md`: separate review
   draft for the access dependency; specifications only, no backend implementation or command.
+- CI follow-up listed before edits: `scripts/verify_reports_frontend.py`,
+  `scripts/frontend_runtime_error_compare.py`, `scripts/vitest-runtime-error-reporter.mjs`.
+  The newly inherited all-frontend gate requires matching runtime error counts where reported, and
+  lacks explicit zero-error evidence when JSON omits the field. Capture explicit finished-run error
+  evidence and reject new fingerprints while allowing removals. Include fail-closed self-tests. Fix only the three
+  existing prefer-const findings in DialerPage; no queue/lock expressions or behavior changes.
 
 No edits to locks/RPCs, useLeadLock/useHardClaim, teamOpenLeadAccess, dialer-api, TwilioContext,
 Edge Functions, migrations/RLS, dependencies, or existing field/master read semantics.
@@ -123,7 +129,7 @@ published tree (`f8466bdaa5b6e25e7cdafca703f0dc89d174c59d`) matched the locally 
 | `npx tsc --noEmit` | Exit 0; root project compiles zero app files |
 | App typecheck against exact latest base | 90 existing diagnostics in both; identical file/code/message multiset, no new errors |
 | ESLint on feature/helper/test/shared-card files | Exit 0 |
-| DialerPage ESLint | Same base diagnostics: 3 existing errors, 18 warnings; no new diagnostics |
+| DialerPage ESLint | Exit 0, 18 existing warnings; three existing prefer-const findings corrected for the CI gate |
 | `npm run build` on latest base + feature | Exit 0, production bundle generated; existing chunk/import warnings |
 | React review and `git diff --check` | Completed; no new requests/timers, stable primitive context dependencies, surgical scope |
 
@@ -145,3 +151,11 @@ coordinated claim/lock and association provenance work, legacy/active-tab compat
 authenticated adversarial SQL tests before introducing a privileged Team display reader. No SQL or
 backend implementation accompanies that draft. Merge, production release and backend mutations are
 still outside this build approval.
+
+CI follow-up: initial job 110926000929 passed the baseline type/test comparison, Reports checks and
+build, but failed changed-file lint on the three old DialerPage prefer-const findings. Those declarations
+are now const with identical expressions/control flow. Runtime comparison now uses an explicit Vitest
+completion reporter (zero is observed, not inferred from an omitted JSON field), compares name/message
+fingerprint multisets and permits removals while refusing any new error. Self-tests reject replacement
+errors, duplicate increases, malformed/missing and interrupted evidence. A real installed-Vitest probe
+captures the original mock error on main (one) and the corrected test on this branch (zero).
