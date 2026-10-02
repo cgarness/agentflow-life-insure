@@ -36,7 +36,12 @@ query() { psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -qAt -c "$1"; }
 fail() {
   local label="$1" needle="$2"; shift 2
   if "$@" >"$WORK/refusal.log" 2>&1; then echo "FAIL: expected refusal [$label]"; exit 1; fi
-  if ! rg -q -- "$needle" "$WORK/refusal.log"; then cat "$WORK/refusal.log"; echo "FAIL: wrong refusal [$label]"; exit 1; fi
+  if ! python3 - "$needle" "$WORK/refusal.log" <<'PYMATCH'
+import re,sys
+from pathlib import Path
+sys.exit(0 if re.search(sys.argv[1],Path(sys.argv[2]).read_text()) else 1)
+PYMATCH
+  then cat "$WORK/refusal.log"; echo "FAIL: wrong refusal [$label]"; exit 1; fi
   echo "PASS refusal: $label"
 }
 P1="$ROOT/supabase/migrations/20261002172423_team_dialer_queue_provenance.sql"
