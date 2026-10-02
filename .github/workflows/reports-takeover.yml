@@ -1,0 +1,24 @@
+name: Reports repair workspace
+on:
+  push:
+    branches: ['codex/reports-policy-final-fixes-20261002']
+    paths: ['.github/workflows/reports-takeover.yml']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Snapshot tracked source for isolated review
+        run: |
+          git rev-parse HEAD
+          git archive --format=tar HEAD > "$RUNNER_TEMP/reports-workspace.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reports-repair-workspace
+          path: ${{ runner.temp }}/reports-workspace.tar
+          retention-days: 1
