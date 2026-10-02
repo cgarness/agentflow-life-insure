@@ -1,3 +1,65 @@
+## 2026-10-02 — Reports Policies Sold final privacy and fixture corrections — IMPLEMENTED; CI PENDING
+
+- Chris requested direct ChatGPT implementation. Branch codex/reports-policy-final-fixes-20261002 continues candidate 037ec13e.
+- Added caller-specific campaign visibility to Campaign Performance and disposition by-campaign output. Authorized policy/call totals remain; absent, ambiguous or restricted campaign attribution is non-identifying.
+- Separated SQL fixtures from assertions. Mutation setup errors are fatal; the exact loader is tested with broken SQL and a downstream marker that must not execute.
+- Privacy regressions cover reassignment, policy/call paths, owner/manager/Team/Open access, Reports All without campaign access, malformed membership, foreign-tenant exclusion, and reconciliation.
+- Extended disabled-only recovery and re-enable fingerprints to disposition. Applied migration bytes are unchanged.
+- Added isolated frontend comparison against the exact PR base. No production credentials or production data in tests.
+- Verification: local bash syntax and whitespace checks pass. PostgreSQL, Vitest, typecheck, lint and build await GitHub CI.
+- Production migrations/deploys/data changes: NONE. Exact production approval remains separate.
+
+## 2026-09-30 — Reports Policies Sold from normalized stored policies (BUGFIX) — IMPLEMENTED AND VERIFIED LOCALLY; NOT MERGED, NOT APPLIED, NOT DEPLOYED
+
+- **Authority / scope:** Chris approved root `implementation_plan.md` §20 rev 2 for branch implementation and isolated testing
+  only (no merge, production SQL, migration apply, deploy, data or configuration change). Branch
+  `claude/reports-policies-sold-source-vqvh26` from `main` `5fc4649f` (re-checked; unchanged).
+- **Root cause (confirmed read-only in production):** Reports counted Policies Sold as `COUNT(wins)`. Chris's org,
+  2026-09-01…29: 4 stored policies sold, 2 wins; the 2 manual policies have no win.
+- **Fix:**
+  - NEW migration `supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql`, SHA-256
+    `b4cfc36c2b0eb370435a29456f08259ea0dfebc4ac18f6e80bb046477e1118a0`. The applied `20260929152553` is untouched
+    (blob pinned by test).
+  - Exact-preimage guard on the live bodies. Three private helpers: policy facts, scope-wide quality, campaign lineage.
+  - Summary, volume and campaign performance are re-created from their applied bodies with only the wins source replaced.
+  - Policy canon = `get_profile_book_stats` (server): evidence-based primary + object `additional_policies`; issueDate only
+    when soldDate is absent; JSON-null container is malformed. Undated policies are never dated. Sale DATE in the
+    agency-date window.
+  - Per-agent = current `assigned_agent_id` (labelled so; per-policy ratios organization-unfiltered only; "Most policies —
+    current assignments").
+  - Campaign rows: `attributed_policies` by unambiguous conversion lineage only, plus `policies_without_campaign`; no
+    COUNT(wins) field.
+  - `policy_source` is required by the frontend.
+  - Fail-closed recovery: preimage fixture (refuses unless disabled, stays disabled); `reports_enable.sql` refuses
+    win-based bodies.
+- **Verified before coding:** `mergeCustomFieldsOnConversion` is the only `additional_policies` array writer.
+- **Tests (local; nothing hosted touched):**
+  - `scripts/run_reports_rpc_tests.sh` on PG16.13 passed in 3 m:
+    - existing T0–T15 (policy expectations now on stored policies);
+    - new `reports_policy_facts.sql` (P0, A–K, J, R, Z);
+    - the 6 original negative controls;
+    - 7 NEW policy mutations, each killed: summary COUNT(wins), volume COUNT(wins), additional dropped, evidence dropped,
+      issueDate fallback removed, conflict guard removed, scope widened;
+    - policy drift and replay refusal;
+    - P4 fail-closed recovery;
+    - base rollback.
+  - PG17.6 is CI-only (`reports-backend.yml`, timeout 10 → 20 min).
+  - Profile SQL suite passed; `normalizedPolicy.test.ts` 19/19 (unchanged files).
+  - Reports Vitest 117/117. 5 frontend mutations each killed.
+  - Full Vitest:
+    - branch: 255 files, 3,887 passed / 1 failed / 31 skipped, 1 unhandled error;
+    - main: 254 files, 3,860 / 1 / 31, 1 error;
+    - IDENTICAL pre-existing failed set (11 env-import files + `recordingRetentionVoicemail` v29).
+  - Typecheck: root `tsc` 0 = 0; app `tsc` 90 = 90 (identical set).
+  - ESLint on touched files: 0 problems. `npm run build` passes.
+- **Expected after an approved apply (Chris's org, Sep 1–29, organization scope):** Policies Sold 4 (not 2); chart sums
+  to 4; Dials per policy sold = outbound calls ÷ 4; at most 1 policy campaign-attributed.
+- **Migrations applied: none. Deploys: none. Production writes: none.** Two read-only `BEGIN READ ONLY` production reads
+  (function md5s; aggregate counts), no PII.
+- **Next:** Chris's review. Then, each separately approved: PR/CI → merge (Vercel deploys main automatically; policy panels
+  show "unavailable" until the migration) → `apply_migration` → verify → users reload. Follow-ups: align
+  `normalized-policy.ts` with the server edge rules; seller-credit ledger if seller attribution is wanted.
+
 ## 2026-09-30 — Dialer appointment timezone + `created_by` writer fix — IMPLEMENTED AND VERIFIED LOCALLY; NOT PUSHED
 
 - **Status:**

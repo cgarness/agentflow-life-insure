@@ -34,6 +34,8 @@ export interface ReportExportContext {
   agentLabel: string;
   window: ReportWindow;
   generatedAt?: Date;
+  /** Basis notes (e.g. how policies are counted and credited), written as metadata rows. */
+  notes?: string[];
 }
 
 const SCOPE_LABELS: Record<ReportScopeKind, string> = {
@@ -50,6 +52,7 @@ export function buildReportCsv(context: ReportExportContext, headers: string[], 
     ["Period", `${context.window.start_date} to ${context.window.end_date}`],
     ["Time zone", context.window.time_zone],
     ["Generated", (context.generatedAt ?? new Date()).toISOString()],
+    ...(context.notes ?? []).map((n): CsvCell[] => ["Note", n]),
   ];
   const lines = [
     ...meta.map((r) => r.map(cell).join(",")),

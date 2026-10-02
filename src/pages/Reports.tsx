@@ -15,6 +15,7 @@ import {
   type CalendarRange, type Grouping, type ReportPreset,
 } from "@/lib/reports-format";
 import { buildReportCsv, csvFileName, downloadCsv, type ReportExportFn } from "@/lib/reports-export";
+import { policyExportNotes } from "@/lib/reports-policy-text";
 import { fetchUserLayout, getDefaultLayout, resetUserLayout, saveOrgDefaultLayout, saveUserLayout } from "@/lib/report-layout";
 import type { ReportLayoutConfig, SectionConfig } from "@/lib/report-layout-constants";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
@@ -99,7 +100,7 @@ const Reports: React.FC = () => {
         const agentLabel = filterId
           ? scopeData.agents.find((a) => a.id === filterId)?.name ?? "Selected agent"
           : rowsScope === "own" ? scopeData.agents[0]?.name ?? "You" : rowsScope === "team" ? "Whole team" : "All agents";
-        const csv = buildReportCsv({ report, scope: rowsScope, agentLabel, window: win }, headers, rows);
+        const csv = buildReportCsv({ report, scope: rowsScope, agentLabel, window: win, notes: policyExportNotes(panel, state.data) }, headers, rows);
         downloadCsv(csvFileName(report, win), csv);
       };
     },
@@ -113,7 +114,7 @@ const Reports: React.FC = () => {
     exportFor("summary")?.("Report Summary", ["Metric", "Value"], [
       ["Calls made (outbound)", t.calls_made], ["Inbound calls", t.inbound_calls], ["Contacted", t.contacted],
       ["Call contact rate %", t.contact_rate_pct], ["Talk time (seconds)", t.talk_time_seconds],
-      ["Converted leads/clients", t.converted], ["Policies sold", t.policies_sold],
+      ["Converted leads/clients", t.converted], ["Policies sold (stored, by sale date)", t.policies_sold],
       ["Appointments set", t.appointments_set], ["Dialer session time (seconds)", t.session_seconds],
     ]);
   }, [reports.panels.summary, exportFor]);

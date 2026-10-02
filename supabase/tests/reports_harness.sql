@@ -17,6 +17,8 @@
 --                                          production ACL {postgres, anon, authenticated, service_role}
 --   private.campaign_actor()             — 20260811200920_campaign_leads_membership_uniqueness_…sql
 --   private.resolve_downline_ids(uuid,uuid) — 20260919183544_profile_book_and_team_stats_rpcs.sql
+--   private.profile_parse_iso_date(text) — 20260919183544_profile_book_and_team_stats_rpcs.sql (the
+--                                          additional-policy date parser the policy migration reuses)
 -- auth.uid() is the one deliberate stub: it reads the request.jwt.claims GUC exactly as PostgREST sets it.
 
 CREATE SCHEMA IF NOT EXISTS private;
@@ -97,6 +99,7 @@ CREATE TABLE public.dispositions (
 CREATE UNIQUE INDEX dispositions_org_lower_name_unique ON public.dispositions (organization_id, lower(name));
 
 CREATE TABLE public.campaigns (
+  assigned_agent_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   id              uuid PRIMARY KEY,
   name            text NOT NULL,
   type            text NOT NULL,
@@ -155,8 +158,36 @@ CREATE TABLE public.wins (
   campaign_id     uuid,
   premium_amount  numeric,
   created_at      timestamptz DEFAULT now(),
-  organization_id uuid
+  organization_id uuid,
+  idempotency_key text,
+  sold_date       date
 );
+-- Production: conversion wins are DB-idempotent on the key 'conversion:<lead-id>'.
+CREATE UNIQUE INDEX uq_wins_idempotency_key ON public.wins (idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- Production-shaped clients (baseline 20260806000000 + sold_date from 20260812042319). The defaults are
+-- the point: a CSV-imported client lands on policy_type 'Term', premium 0, face 0, blank carrier and
+-- number and no sale date — a CLIENT with no policy evidence (AGENT_RULES #34).
+CREATE TABLE public.clients (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name        text NOT NULL DEFAULT '',
+  last_name         text NOT NULL DEFAULT '',
+  policy_type       text NOT NULL DEFAULT 'Term',
+  carrier           text DEFAULT '',
+  policy_number     text DEFAULT '',
+  premium           numeric DEFAULT 0,
+  face_amount       numeric DEFAULT 0,
+  issue_date        text,
+  effective_date    text,
+  custom_fields     jsonb,
+  lead_id           uuid,
+  premium_amount    numeric DEFAULT 0,
+  assigned_agent_id uuid,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  sold_date         date,
+  organization_id   uuid
+);
+CREATE UNIQUE INDEX uq_clients_lead_id ON public.clients (lead_id) WHERE lead_id IS NOT NULL;
 
 CREATE TABLE public.appointments (
   id              uuid PRIMARY KEY,

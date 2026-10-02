@@ -123,11 +123,18 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         </div>
       </div>
 
+      {tab === "campaign" && dispositions.campaign_attribution_unavailable_calls > 0 && (
+        <p className="text-xs text-muted-foreground mb-3">
+          {formatCount(dispositions.campaign_attribution_unavailable_calls)} calls have unavailable campaign attribution (missing or restricted).
+        </p>
+      )}
       {chartData.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">
           {dispositions.total_calls === 0
             ? "No outbound calls in this period."
-            : `None of the ${formatCount(dispositions.total_calls)} outbound calls in this period ${tab === "campaign" ? "has a campaign" : "has an assigned agent"}.`}
+            : tab === "campaign"
+              ? `No campaign breakdown is available for the ${formatCount(dispositions.total_calls)} outbound calls in this period.`
+              : `None of the ${formatCount(dispositions.total_calls)} outbound calls in this period has an assigned agent.`}
         </p>
       ) : (
         <>

@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Run isolated Reports verification and prove no new failures versus the exact PR base."""
+from pathlib import Path
+import json
+import os
+import re
+import subprocess
+import sys
+
+root = Path(__file__).resolve().parents[1]
+evidence = Path(os.environ.get('REPORTS_EVIDENCE', '/tmp/reports-frontend-evidence')).resolve()
+evidence.mkdir(parents=True, exist_ok=True)
+base = Path(os.environ['REPORTS_BASE_WORKTREE']).resolve()
+
+def run(label: str, cwd: Path, args: list[str]) -> int:
+    with (evidence / f'{label}.log').open('w') as out:
+        result = subprocess.run(args, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, timeout=1200, check=False)
+    print(f'{label}: exit {result.returncode}', flush=True)
+    return result.returncode
+
+if (root/'package-lock.json').read_bytes() != (base/'package-lock.json').read_bytes():
+    sys.exit('Dependency drift: independently install and verify base before comparing')
+os.symlink(root/'node_modules', base/'node_modules', target_is_directory=True)
+checks = {}
+for name, cwd in [('base', base), ('branch', root)]:
+    checks[f'{name}_root_tsc'] = run(f'{name}-root-tsc', cwd, ['npx','--no-install','tsc','--noEmit'])
+    checks[f'{name}_app_tsc'] = run(f'{name}-app-tsc', cwd, ['npx','--no-install','tsc','-p','tsconfig.app.json','--noEmit'])
+    checks[f'{name}_vitest'] = run(f'{name}-vitest', cwd, ['npx','--no-install','vitest','run','--maxWorkers=2','--minWorkers=1','--reporter=json',f'--outputFile={evidence/name}.json'])
+
+def type_errors(name: str) -> list[str]:
+    lines = (evidence/f'{name}-app-tsc.log').read_text().splitlines()
+    return sorted(x.replace(str(base),'<ROOT>').replace(str(root),'<ROOT>') for x in lines if 'error TS' in x)
+assert type_errors('base') == type_errors('branch'), 'TypeScript regression against base'
+assert checks['base_root_tsc'] == checks['branch_root_tsc'], 'Root typecheck regression'
+
+def failures(path: Path, cwd: Path):
+    j=json.loads(path.read_text())
+    suites=[]; tests=[]
+    for suite in j['testResults']:
+        name=suite['name'].removeprefix(str(cwd)+'/')
+        if suite['status']=='failed': suites.append(name)
+        for test in suite.get('assertionResults',[]):
+            if test['status']=='failed': tests.append((name,test['fullName']))
+    return j, (sorted(suites),sorted(tests))
+bj,bfail=failures(evidence/'base.json',base)
+hj,hfail=failures(evidence/'branch.json',root)
+assert bfail==hfail, 'Vitest failure set differs from base'
+assert bj.get('numFailedTests')==hj.get('numFailedTests'), 'New failed test'
+# JSON reporter versions do not all expose unhandled errors. Inspect both the field and
+# Vitest's explicit runtime-error summary; never turn an omitted field into a false zero.
+def runtime_errors(j, name):
+    log=(evidence/f'{name}-vitest.log').read_text()
+    log=re.sub(r'\x1b\[[0-9;]*m','',log)
+    matches=re.findall(r'(?:caught|encountered)\s+(\d+)\s+unhandled error',log,re.I)
+    if 'unhandledErrors' in j:
+        count=len(j['unhandledErrors'])
+        if matches: assert count==int(matches[-1]), 'Runtime error reporters disagree'
+        return count
+    return int(matches[-1]) if matches else None
+assert runtime_errors(bj,'base')==runtime_errors(hj,'branch'), 'Unhandled runtime error count differs'
+assert checks['base_vitest']==checks['branch_vitest'], 'Vitest process status differs from base'
+report_tests=sorted(str(p.relative_to(root)) for p in (root/'src').rglob('*.test.*')
+                    if any(t in p.name.lower() for t in ['reports','reportstat','normalizedpolicy']))
+checks['reports_vitest']=run('reports-vitest',root,['npx','--no-install','vitest','run','--maxWorkers=2','--minWorkers=1',*report_tests])
+assert checks['reports_vitest']==0, 'Reports/Profile normalization tests must pass'
+changed=subprocess.check_output(['git','diff','--name-only',os.environ['REPORTS_BASE_SHA'],'HEAD'],cwd=root,text=True).splitlines()
+typescript=[p for p in changed if p.endswith(('.ts','.tsx')) and (root/p).is_file()]
+checks['eslint']=run('eslint',root,['npx','--no-install','eslint',*typescript])
+checks['build']=run('build',root,['npm','run','build'])
+assert checks['eslint']==0 and checks['build']==0, 'Lint or build failed'
+summary={'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+         'base_sha':os.environ['REPORTS_BASE_SHA'],'checks':checks,
+         'base_passed':bj.get('numPassedTests'),'branch_passed':hj.get('numPassedTests'),
+         'preexisting_failed_tests':hj.get('numFailedTests'),'preexisting_failed_files':hfail[0],
+         'app_type_errors':len(type_errors('branch')),'reported_unhandled_errors':runtime_errors(hj,'branch')}
+(evidence/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+print(json.dumps(summary,indent=2))

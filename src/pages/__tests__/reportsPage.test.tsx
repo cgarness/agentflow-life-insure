@@ -8,7 +8,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import {
-  emptySummary, reportCampaigns, reportDispositions, reportLeadSources, reportScope, reportSummary, reportVolume,
+  emptySummary, policyQuality, reportCampaigns, reportDispositions, reportLeadSources, reportScope, reportSummary, reportVolume,
 } from "@/lib/__tests__/reportsFixtures";
 
 const h = vi.hoisted(() => ({
@@ -214,7 +214,7 @@ describe("empty states name what is actually missing", () => {
     h.panels = { ...allReady(), dispositions: ready(d) };
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
-    expect(screen.getByText("None of the 6 outbound calls in this period has a campaign.")).toBeInTheDocument();
+    expect(screen.getByText("No campaign breakdown is available for the 6 outbound calls in this period.")).toBeInTheDocument();
     expect(screen.queryByText(/No dispositioned calls/)).not.toBeInTheDocument();
   });
 });
@@ -281,6 +281,72 @@ describe("exports", () => {
     for (const d of h.downloads) {
       expect(d.csv).toContain(`"Period","2026-07-01 to 2026-07-31"`);
       expect(d.csv).not.toMatch(/(^|,)"=Sold"/m); // the "=Sold" disposition name is neutralized
+    }
+  });
+});
+
+describe("Policies Sold: stored policies, current assignment, lineage-only campaigns (plan §20)", () => {
+  it("the chart counts stored policies and ranks by CURRENT assignment, never as seller credit", () => {
+    renderPage();
+    expect(screen.getAllByText("Most policies — current assignments").length).toBe(2); // stat tile + chart tile
+    expect(screen.queryByText("Top performer")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/2 policies currently assigned/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Policies are stored client policies \(primary and additional\), counted on each policy's sale date/)).toBeInTheDocument();
+    expect(screen.queryByText(/counted from wins/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not the original seller/).length).toBeGreaterThan(0);
+  });
+
+  it("shows the scope-wide, all-dates data-quality note only when there is something to report", () => {
+    const { unmount } = renderPage();
+    expect(screen.queryByText(/Data quality across this scope/)).not.toBeInTheDocument();
+    unmount();
+    h.panels = { ...allReady(), volume: ready({ ...reportVolume(), policy_quality: policyQuality(2, 1) }) };
+    renderPage();
+    expect(screen.getByText(/Data quality across this scope, all dates \(not only this period\): 2 policies have no usable sale date/)).toBeInTheDocument();
+  });
+
+  it("Campaign Performance shows campaign-attributed policies and the policies with no provable campaign", () => {
+    renderPage();
+    const header = screen.getByRole("columnheader", { name: "Policies (campaign-attributed)" });
+    const table = header.closest("table")!;
+    expect(within(table).queryByRole("columnheader", { name: "Policies sold" })).not.toBeInTheDocument();
+    expect(screen.getByText(/3 of 5 policies sold in this\s+period have unavailable campaign attribution/)).toBeInTheDocument();
+    expect(screen.getByText(/not complete campaign sales attribution and not proof the campaign caused the sale/)).toBeInTheDocument();
+  });
+
+  it("agent views label policy counts as the current assignment", () => {
+    renderPage();
+    expect(screen.getAllByText("Policies (current)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Policies (current assignment)").length).toBeGreaterThan(0);
+  });
+
+  it("team scope withholds Dials per policy sold (no agent/team efficiency figure from current-owner credit)", () => {
+    renderPage();
+    const tile = screen.queryAllByText("Dials per policy sold");
+    for (const t of tile) expect(t.closest("[data-stat-state]")?.getAttribute("data-stat-state") ?? "unavailable").not.toBe("ready");
+    expect(screen.queryByText("calls in period ÷ dated stored policies in period")).not.toBeInTheDocument();
+  });
+
+  it("CSV exports carry the policy basis as metadata notes", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
+    await waitFor(() => expect(h.downloads).toHaveLength(1));
+    expect(h.downloads[0].csv).toContain(`"Policies sold (stored, by sale date)",5`);
+    expect(h.downloads[0].csv).toMatch(/"Note","Agent policy counts use the client's current assigned agent, not the original seller/);
+    expect(h.downloads[0].csv).toMatch(/"Note","Policies are stored client policies/);
+  });
+
+  it("a policy panel that failed validation (e.g. a win-based payload) is unavailable, never a number", () => {
+    h.panels = { ...allReady(), volume: failed("unavailable"), campaigns: failed("unavailable") };
+    renderPage();
+    expect(screen.queryByText("Total policies sold")).not.toBeInTheDocument(); // the chart is withheld
+    expect(screen.queryByText("Peak period")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Policies (campaign-attributed)" })).not.toBeInTheDocument();
+    const errors = Array.from(document.querySelectorAll('[data-report-state="error"]'));
+    expect(errors.length).toBeGreaterThanOrEqual(2);
+    for (const e of errors) {
+      expect(e.textContent).toMatch(/Couldn't load/);
+      expect(e.textContent).not.toMatch(/\d/);
     }
   });
 });

@@ -1,7 +1,5 @@
 name: Reports backend verification
-# Real PostgreSQL proof of the Reports RPC security + metric contract
-# (supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql). Synthetic tenants only; the
-# runner refuses any non-localhost database, and no production credential exists in this job.
+# Isolated synthetic databases only; no production credentials.
 on:
   pull_request:
     paths:
@@ -23,7 +21,7 @@ concurrency:
 jobs:
   postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17.6
@@ -40,16 +38,20 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Reports RPC suite, negative controls, drift/replay refusal, disable/enable, rollback
+      - name: Reports, policy, privacy, mutation, drift and recovery proofs
         env:
           PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
         run: |
           set -o pipefail
-          bash scripts/run_reports_rpc_tests.sh | tee reports-backend-results.txt
+          bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
+          bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: reports-backend-evidence-${{ github.run_id }}
-          path: reports-backend-results.txt
+          path: |
+            reports-backend-results.txt
+            reports-profile-regression-results.txt
           retention-days: 14

@@ -6,6 +6,7 @@ import type {
   ReportCampaigns,
   ReportDispositions,
   ReportLeadSources,
+  ReportPolicyQuality,
   ReportScope,
   ReportSummary,
   ReportVolume,
@@ -77,7 +78,15 @@ export function reportSummary(overrides: Partial<ReportSummary["totals"]> = {}, 
       { agent_id: AGENT_B, name: "Bob Agent", status: "Active", calls_made: 3, inbound_calls: 1, contacted: 3, contact_rate_pct: 100, talk_time_seconds: 185, converted: 2, policies_sold: 2, appointments_set: 1, session_seconds: 600 },
     ],
     unattributed: { calls_made: 0, inbound_calls: 1, talk_time_seconds: 0, policies_sold: 1, appointments_set: 1 },
+    policy_source: "normalized_policies",
+    policy_basis: { sale_date: "policy_sold_date", agent_attribution: "current_assignment" },
+    policy_quality: policyQuality(),
   };
+}
+
+/** Scope-wide, all-time policy data-quality counts (clean by default). */
+export function policyQuality(undated = 0, malformed = 0): ReportPolicyQuality {
+  return { basis: "scope_wide_all_time", undated_policies: undated, malformed_additional_policies: malformed };
 }
 
 export function emptySummary(): ReportSummary {
@@ -112,11 +121,15 @@ export function reportVolume(): ReportVolume {
       calls_made: Math.floor(i / 24) === 5 && i % 24 === 10 ? 5 : 0,
       contacted: Math.floor(i / 24) === 5 && i % 24 === 10 ? 1 : 0,
     })),
+    policy_source: "normalized_policies",
+    policy_quality: policyQuality(),
   };
 }
 
 export function reportDispositions(): ReportDispositions {
   return {
+    campaign_visibility: "caller_authorized",
+    campaign_attribution_unavailable_calls: 2,
     ...meta(),
     total_calls: 6,
     by_disposition: [
@@ -134,11 +147,17 @@ export function reportDispositions(): ReportDispositions {
 
 export function reportCampaigns(): ReportCampaigns {
   return {
+    campaign_visibility: "caller_authorized",
+    calls_attribution_unavailable: 13,
     ...meta(),
     campaigns: [
-      { campaign_id: CAMPAIGN_1, name: "Spring Team", type: "Team", calls_made: 4, contacted_calls: 3, contact_rate_pct: 75, leads_dialed: 2, contacted_leads: 2, converted_leads: 1, policies_sold: 2 },
+      { campaign_id: CAMPAIGN_1, name: "Spring Team", type: "Team", calls_made: 4, contacted_calls: 3, contact_rate_pct: 75, leads_dialed: 2, contacted_leads: 2, converted_leads: 1, attributed_policies: 2 },
     ],
     unattributed_calls: 13,
+    policy_source: "normalized_policies",
+    policy_attribution: "conversion_lineage_only",
+    policies_in_period: 5,
+    policies_attribution_unavailable: 3,
   };
 }
 
