@@ -4,9 +4,7 @@
 
 Chris requested full Team lead details with the same locking logic on September 29. On October 2,
 2026 (America/Los_Angeles), he instructed: “I want you to start the build and complete the task.”
-This approves the already-presented Team-only frontend display step and its verification. Do not
-ask again for approval of that step. Backend access expansion, production mutations, merge, and
-production release remain separate approvals, as specified in the reviewed plan.
+This and the subsequent “Start the next steps and complete the task” authorize the coordinated backend/frontend branch build and isolated verification. Production application remains separately gated under invariant #28.
 
 Original base: `main` at `5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326` (Dialer appointment writer fix).
 Rebased without conflicts onto `e04eb16dc6fc70734f85868ab5235186d0ce4813` (Reports privacy fix)

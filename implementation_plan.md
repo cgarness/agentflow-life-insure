@@ -1941,29 +1941,30 @@ Signed-in browser interaction is still unverified; old tabs should reload.
 
 ---
 
-## §21. Team campaign lead visibility (2026-10-02) — frontend implemented and verified; release pending
+## §21. Team campaign lead visibility (2026-10-02) — full-record build complete; production release gated
 
-Chris requested Team lead details before dialing with the same locks, then approved starting and
-completing the presented build on October 2. The detailed scope, exact files and as-built results are
-in `docs/plans/2026-09-29-team-campaign-visibility/implementation_plan.md`.
+Chris requested full Team details with the same locking logic and then instructed “Start the next
+steps and complete the task.” The coordinated backend/frontend branch build is implemented in
+PR #401. Exact files, design, release gates and safe recovery are recorded in
+`docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md` and the scoped plan.
 
-Team uses a separate display predicate after the canonical queue load confirms the current lock.
-The original outbound action state, edit/conversion permissions, Personal/Open Pool presentation,
-queue RPCs, TTL/heartbeat, retry/callback/claim rules, Twilio and telemetry are preserved. No new read
-or polling is introduced. Database-hidden master data retains the existing access notice.
+Team displays populated master/import/custom details under the current confirmed canonical queue
+lock. A Team-only whitelisted reader supplies hidden master display fields without broadening
+Contacts SELECT or granting Edit/Sold/Convert. Canonical lock provenance and trusted attachment or
+explicit manager association provenance prevent manufactured queue authority. Client identities
+are immutable; the existing claim signature is guarded against mismatched targets and takeover.
 
-Local verified source commit `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased onto main
-`e04eb16dc6fc70734f85868ab5235186d0ce4813`. Latest-base dialer regression: 24 files / 308 tests passed;
-Los Angeles feature/appointment checks: 5 files / 69 passed. Production build passes. Root tsc exits 0;
-app tsc has the exact same 90 diagnostics as the current base. Feature-file and DialerPage lint pass;
-three old prefer-const findings were corrected, with 18 existing warnings remaining. Full evidence and
-test limits are in the scoped plan. The inherited frontend CI comparison now captures explicit runtime
-error fingerprints and rejects new ones while allowing removed errors.
+TTL/heartbeat, callback/retry/recent-call/SKIP LOCKED ordering, Skip, Save Only/Save & Next, claim
+threshold, Personal/Open presentation and telephony are preserved. Old lock timestamps are not
+rewritten. The display DTO remains separate from the authorized writable master.
 
-Full-field parity for every Agent remains blocked by the separate authorization dependency. The
-review draft `docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md` specifies
-trusted lock/association provenance, claim-first coordination, legacy/active-tab transition and
-isolated adversarial verification. It contains no SQL and approves no backend or production action.
-No merge, push to main, production deployment, Supabase mutation or live call occurred in this build.
-Published in draft PR #401 (https://github.com/cgarness/agentflow-life-insure/pull/401) at
-`71fa5d9dfd82720b478c8780eff572ed24c3fe44`; its complete tree matches the verified local checkout.
+69 focused frontend tests pass in UTC and Los Angeles. Build and root tsc pass; app tsc retains
+90 baseline diagnostics; changed-file lint zero errors/18 existing warnings. Native PostgreSQL
+run 37046986203 at d63ba746fe29249dded207b665a8c35766c2a4ff passes authenticated RLS/ACL,
+staged refusal, queue/ownership concurrency and six negative mutation controls. A final conversion
+FK regression is also included; final exact-head frontend/backend CI remains the release check.
+
+No hosted mutation, merge or deployment. P1/P1B precede natural expiry/release of unproven old
+locks and individual manager review of historical associations; only then can P2/frontend release.
+P2 refuses unmet prerequisites. Safe recovery revokes the new reader without reopening unsafe
+claim/identity/ACL paths. Production access requires separate exact approval under invariant #28.

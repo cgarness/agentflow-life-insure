@@ -102,4 +102,12 @@ SELECT team_test.assert((SELECT leads_called=1 FROM public.campaigns WHERE id=te
 -- Failed save stays inside a subtransaction: no advance or release can commit.
 SELECT team_test.assert((team_test.run(12,1,'SELECT 1/0')->>'ok')::boolean=false,'failed write path modeled as failure');
 SELECT team_test.assert(EXISTS(SELECT FROM public.dialer_lead_locks WHERE campaign_lead_id=team_test.id(304)),'failed save retains current other lock');
+-- Conversion/contact deletion must retain the real FK SET NULL and cascade behavior.
+INSERT INTO public.leads(id,organization_id,user_id,assigned_agent_id,first_name)
+VALUES(team_test.id(107),team_test.id(1),team_test.id(12),team_test.id(12),'Synthetic conversion FK');
+SELECT team_test.assert((team_test.run(12,1,format('SELECT public.add_leads_to_campaign(%L,ARRAY[%L]::uuid[],NULL)',team_test.id(31),team_test.id(107)))->>'ok')::boolean,'own source attaches before conversion');
+CREATE TABLE team_test.conversion_queue AS SELECT id FROM public.campaign_leads WHERE campaign_id=team_test.id(31) AND lead_id=team_test.id(107);
+SELECT team_test.assert((team_test.run(12,1,format('DELETE FROM public.leads WHERE id=%L RETURNING id',team_test.id(107)))->'rows'->0->>'id')=team_test.id(107)::text,'authorized source deletion succeeds through identity guard');
+SELECT team_test.assert((SELECT lead_id IS NULL FROM public.campaign_leads WHERE id=(SELECT id FROM team_test.conversion_queue)),'conversion FK clears source reference');
+SELECT team_test.assert(NOT EXISTS(SELECT FROM private.team_queue_associations WHERE campaign_lead_id=(SELECT id FROM team_test.conversion_queue)),'conversion cascade removes proof');
 SELECT 'PASS Team display/claim authority, forged paths, RLS, ACL and old-client lifecycle' AS result;
