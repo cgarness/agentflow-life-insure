@@ -18,6 +18,7 @@ db='ro_activation_'+uuid.uuid4().hex[:16]
 assert re.fullmatch(r'ro_activation_[0-9a-f]+',db)
 home='a0000000-0000-0000-0000-000000000001'
 other='bbbbbbbb-0000-0000-0000-000000000002'
+agent='cccccccc-0000-0000-0000-000000000003'
 enable=pathlib.Path(os.environ.get('ENABLE_SQL',root/'supabase/ops/recent_outbound_enable_complete.sql')).resolve()
 disable=pathlib.Path(os.environ.get('DISABLE_SQL',root/'supabase/ops/recent_outbound_disable_org.sql')).resolve()
 passed=0
@@ -65,12 +66,13 @@ try:
     ]
     for name in sequence: file(root/name)
     sql(f"INSERT INTO public.organizations(id,name) VALUES ('{home}','Synthetic activation home'),('{other}','Synthetic unaffected tenant');")
+    sql(f"INSERT INTO auth.users(id) VALUES ('{agent}'); INSERT INTO public.profiles(id,organization_id,status,twilio_client_identity) VALUES ('{agent}','{home}','Active','synthetic_activation_agent');")
     file(enable,'migration missing'); checkpoint('missing migration refused')
     file(root/'supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql',transaction=True)
     file(enable,'v2 and Auto-Create Leads off required'); checkpoint('missing settings refused')
     sql(f"INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES ('{home}','legacy',false);")
     file(enable,'v2 and Auto-Create Leads off required'); checkpoint('legacy engine refused')
-    sql(f"UPDATE public.inbound_routing_settings SET routing_engine='v2',auto_create_lead=true WHERE organization_id='{home}';")
+    sql(f"UPDATE public.inbound_routing_settings SET routing_engine='v2',auto_create_lead=true,inbound_group_agent_ids=ARRAY['{agent}'::uuid] WHERE organization_id='{home}';")
     file(enable,'v2 and Auto-Create Leads off required'); checkpoint('auto-created contact mode refused')
     sql(f"UPDATE public.inbound_routing_settings SET auto_create_lead=false WHERE organization_id='{home}';")
     sql(f"INSERT INTO private.recent_outbound_routing_orgs(organization_id,enabled,unanswered_eligible,did_allowlist) VALUES ('{other}',true,true,ARRAY['15550000001']);")
