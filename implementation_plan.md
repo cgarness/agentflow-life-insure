@@ -1923,3 +1923,17 @@ tests; isolated GitHub verification workflow; AGENT_RULES, WORK_LOG and this sec
   fixture must stop the runner, never count as a killed mutant. Production preflight/postcondition guards are intact.
 - Tests run against disposable localhost PostgreSQL with synthetic data and read-only repository credentials where
   possible. Temporary workspace/bootstrap tooling is removed from the final PR. No production tests or data writes.
+
+
+### 20.14 Production release (2026-10-02) — supersedes earlier NOT APPLIED status
+
+PR #399 is merged as e04eb16dc6fc70734f85868ab5235186d0ce4813. The production frontend is READY.
+The exact reviewed policy migration is applied as version 20261002160849, with SQL SHA-256
+15355717f39fe2cb6b33386334d785f672e167ea5774866322b262dcd9d551d5 (51,115 bytes).
+Forward and rollback filenames are reconciled to that version without changing SQL contents.
+Authenticated database-context reconciliation now confirms September 1–29 Policies Sold = 4,
+daily chart = 4, and current-assignment agent counts 2 / 1 / 1. Private helpers and legacy seals
+are verified; advisors were run. No customer rows or unrelated runtime behavior were changed.
+Full release evidence, tested-head references and limitations are recorded in
+docs/plans/2026-09-28-reports-analytics/POLICIES_RELEASE_2026-10-02.md.
+Signed-in browser interaction is still unverified; old tabs should reload.

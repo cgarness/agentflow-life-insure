@@ -25,8 +25,8 @@ const gitBlobSha = (content: string) =>
   createHash("sha1").update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest("hex");
 const stripSqlComments = (s: string) => s.replace(/--[^\n]*/g, "");
 
-const POLICY_MIGRATION = "supabase/migrations/20260930120000_reports_policies_sold_normalized_source.sql";
-const POLICY_FIXTURE = "supabase/migrations/rollback/20260930120000_reports_policies_sold_normalized_source.rollback.sql";
+const POLICY_MIGRATION = "supabase/migrations/20261002160849_reports_policies_sold_normalized_source.sql";
+const POLICY_FIXTURE = "supabase/migrations/rollback/20261002160849_reports_policies_sold_normalized_source.rollback.sql";
 
 /** A win-based payload: exactly what the pre-fix functions (or a restored preimage) return. */
 function winBased(payload: object, drop: string[]): Record<string, unknown> {

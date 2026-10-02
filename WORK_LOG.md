@@ -1,3 +1,16 @@
+## 2026-10-02 — Reports Policies Sold production release — LIVE; database reconciliation verified
+
+- Chris explicitly approved PR #399 and its reviewed migration. PR #399 merged as `e04eb16dc6fc70734f85868ab5235186d0ce4813`.
+- Production frontend `dpl_5buBwabArVu9BBvqMoAeu7dSwEe5` reached READY on that commit with fflagent.com/www aliases.
+- Production migration `20261002160849_reports_policies_sold_normalized_source.sql` applied once. Recorded SQL is 51,115 bytes; SHA-256 `15355717f39fe2cb6b33386334d785f672e167ea5774866322b262dcd9d551d5`, exactly the reviewed candidate.
+- Live read-only authenticated database-context checks, September 1–29: Policies Sold 4 (not 2), chart 4; current assignments Alexa 2 / Teo 1 / Will 1. All three agent filters match with no out-of-filter rows. Daily counts Sep 2 = 1, Sep 17 = 1, Sep 28 = 2. Quality 0 undated / 0 malformed.
+- Same window: Calls Made 2,582 and talk time 62,192 seconds; disposition total 2,582. Campaign partition 0 attributed + 4 attribution unavailable = 4; links are not guessed.
+- Four public RPC body hashes and grants verified; private helpers postgres-only; legacy RPCs still sealed. Security and performance advisors run; unrelated existing findings left unchanged.
+- Pre-release activity checks showed zero active recent sessions and zero recent open calls. No customer data, RLS, Dialer/Twilio, queue, conversion, celebration, Dashboard, Leaderboard or Profile changes.
+- Verification: original exact-head PG17.6 and frontend CI passed; 132 focused tests passed. Root typecheck passed; application check retains the same 90 baseline errors; existing full-suite failures remain. Signed-in browser walkthrough and production-volume load testing are NOT claimed complete.
+- Release record reconciliation: forward/rollback filenames now match production version, SQL bytes unchanged; test/runner references and rule status updated. All prior WORK_LOG bytes preserved.
+- Full record: `docs/plans/2026-09-28-reports-analytics/POLICIES_RELEASE_2026-10-02.md`. Reload old browser tabs. Current-assignment rather than seller attribution, limited campaign lineage, and separate other-page definitions remain documented limitations.
+
 ## 2026-10-02 — Reports Policies Sold final privacy and fixture corrections — IMPLEMENTED; CI PENDING
 
 - Chris requested direct ChatGPT implementation. Branch codex/reports-policy-final-fixes-20261002 continues candidate 037ec13e.
