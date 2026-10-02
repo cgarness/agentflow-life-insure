@@ -24,7 +24,11 @@
   live call, hosted mutation or new authenticated database harness was run.
 - **Branch/source:** `codex/team-campaign-lead-visibility`, source commit
   `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased without conflicts onto main
-  `e04eb16dc6fc70734f85868ab5235186d0ce4813` before handoff. Branch publication/review follows with this log.
+  `e04eb16dc6fc70734f85868ab5235186d0ce4813` before handoff. Published source + record commit
+  `71fa5d9dfd82720b478c8780eff572ed24c3fe44` in draft PR #401:
+  https://github.com/cgarness/agentflow-life-insure/pull/401. CLI push lacked write credentials, so
+  GitHub tools published the branch. All 14 file blobs and full tree SHA matched the verified local
+  checkout; this publication entry follows the branch write in the same session.
 - **Remaining dependency:** an RLS-hidden master row still cannot supply its custom fields to an Agent.
   `full-record-access-design.md` is a review draft for coordinated claim/lock/association provenance,
   active-tab/legacy transition and isolated adversarial SQL verification. No SQL accompanies it.

@@ -1938,7 +1938,7 @@ The original outbound action state, edit/conversion permissions, Personal/Open P
 queue RPCs, TTL/heartbeat, retry/callback/claim rules, Twilio and telemetry are preserved. No new read
 or polling is introduced. Database-hidden master data retains the existing access notice.
 
-Source commit `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased onto main
+Local verified source commit `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased onto main
 `e04eb16dc6fc70734f85868ab5235186d0ce4813`. Latest-base dialer regression: 24 files / 308 tests passed;
 Los Angeles feature/appointment checks: 5 files / 69 passed. Production build passes. Root tsc exits 0;
 app tsc has the exact same 90 diagnostics as the current base. Feature-file lint is clean; DialerPage
@@ -1949,3 +1949,5 @@ review draft `docs/plans/2026-09-29-team-campaign-visibility/full-record-access-
 trusted lock/association provenance, claim-first coordination, legacy/active-tab transition and
 isolated adversarial verification. It contains no SQL and approves no backend or production action.
 No merge, push to main, production deployment, Supabase mutation or live call occurred in this build.
+Published in draft PR #401 (https://github.com/cgarness/agentflow-life-insure/pull/401) at
+`71fa5d9dfd82720b478c8780eff572ed24c3fe44`; its complete tree matches the verified local checkout.

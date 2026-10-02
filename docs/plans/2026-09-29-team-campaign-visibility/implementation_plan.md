@@ -12,8 +12,9 @@ Original base: `main` at `5fc4649f45a323c1ddc0863ffb4ec7fd0bb3f326` (Dialer appo
 Rebased without conflicts onto `e04eb16dc6fc70734f85868ab5235186d0ce4813` (Reports privacy fix)
 before handoff; the new main changes do not touch the Team display/lock/telephony files.
 Branch: `codex/team-campaign-lead-visibility`.
-Status: frontend implemented and verified locally; preparing the reviewable PR. No production writes
-or deployments. Complete full-record access for every Agent remains a separate dependency.
+Status: frontend implemented, verified and published in draft PR #401:
+https://github.com/cgarness/agentflow-life-insure/pull/401. No production writes or deployments.
+Complete full-record access for every Agent remains a separate dependency.
 
 Read: AGENT_RULES.md, VISION.md, the latest WORK_LOG.md, the existing root plan, the September 24
 authorization findings, DialerPage, LeadCard, the Team/Open field/master/edit/reveal paths,
@@ -97,7 +98,10 @@ included in this frontend scope. Complete full-record parity is not claimed by t
 
 ## As-built and verification record
 
-Source commit: `1e2a664af05e5e62f53d7e7906ec6fbd33577caa` on the latest base above.
+Local verified source commit: `1e2a664af05e5e62f53d7e7906ec6fbd33577caa` on the latest base above.
+Published source + record commit: `71fa5d9dfd82720b478c8780eff572ed24c3fe44`. GitHub tools were used
+because command-line push credentials were unavailable. Every uploaded file blob and the complete
+published tree (`f8466bdaa5b6e25e7cdafca703f0dc89d174c59d`) matched the locally verified checkout.
 
 - Added the display-only visit/generation hook and pure predicate. A canonical queue success confirms
   the organization/campaign/queue/master identity for the current viewer visit. The existing confirmed
