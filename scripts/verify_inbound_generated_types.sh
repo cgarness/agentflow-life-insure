@@ -68,7 +68,7 @@ for f in \
     echo "FAILED to apply $f"; exit 1
   fi
 done
-RO="$ROOT/supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql"
+RO="$ROOT/supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql"
 if ! psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$RO" > "$WORK/apply.log" 2>&1; then
   grep -v "^psql:.*NOTICE:" "$WORK/apply.log" || true
   echo "FAILED to apply $RO"; exit 1

@@ -85,3 +85,7 @@ If the status handler itself regresses, the guarded approved v42 source recovery
 The controlled call, canary, 24-hour capture-only observation and evidence-volume prerequisite were explicitly waived for this fast-track release, not passed. B1 natural individual-agent playback is still pending. No historical recording recovery/deletion, stale-attempt cleanup, secret change, automated monitoring, customer test fixture, contact creation/reassignment, migration rollback or unrelated production mutation occurred. Ordinary product behavior continues; no follow-up job is running while the conversation is inactive.
 
 The release is live from the task branch. A later PR/merge and reconciliation with intervening main changes require separate approval; do not replace main with this older branch tree.
+
+## Filename/reference closeout verification
+
+GitHub run 37065331283 passed the 22 activation/recovery tests, full inbound SQL and rollback proofs, generated types and negative controls on isolated PostgreSQL 17.6 with recorded filenames. The rebuilt status package retains the approved checksum. Root tsc checks no application files; earlier full-suite and application baseline results are not claimed rerun. No production access occurred. An earlier record-only run passed these checks but its push was refused because GITHUB_TOKEN cannot modify workflow files; publication now excludes that file, which is finalized separately through the authorized connector.

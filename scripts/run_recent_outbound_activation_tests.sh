@@ -68,7 +68,7 @@ try:
     sql(f"INSERT INTO public.organizations(id,name) VALUES ('{home}','Synthetic activation home'),('{other}','Synthetic unaffected tenant');")
     sql(f"INSERT INTO auth.users(id) VALUES ('{agent}'); INSERT INTO public.profiles(id,organization_id,status,twilio_client_identity) VALUES ('{agent}','{home}','Active','synthetic_activation_agent');")
     file(enable,'migration missing'); checkpoint('missing migration refused')
-    file(root/'supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql',transaction=True)
+    file(root/'supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql',transaction=True)
     file(enable,'v2 and Auto-Create Leads off required'); checkpoint('missing settings refused')
     sql(f"INSERT INTO public.inbound_routing_settings(organization_id,routing_engine,auto_create_lead) VALUES ('{home}','legacy',false);")
     file(enable,'v2 and Auto-Create Leads off required'); checkpoint('legacy engine refused')

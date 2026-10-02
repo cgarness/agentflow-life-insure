@@ -31,8 +31,8 @@ M7="$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql"
 # Corrective pass 13 — NOT YET APPLIED to any hosted project; local suites only.
 M8="$ROOT/supabase/migrations/20260918000614_voicemail_cleanup_actionable_selection.sql"
 M9="$ROOT/supabase/migrations/20260918002859_voicemail_first_listen_guard.sql"
-# Recent-outbound callback routing — NOT APPLIED to any hosted project; local suites only.
-M10="$ROOT/supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql"
+# Recent-outbound callback routing — APPLIED as 20261002203426; this runner is isolated-local only.
+M10="$ROOT/supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT

@@ -25,7 +25,7 @@ def paths(base,head): return git('diff','--name-only',base,head).decode().splitl
 def apply(base,head,names): git('apply','--3way','--index','-',data=git('diff','--binary',base,head,'--',*names))
 
 def prepare():
-    if (ROOT/MIGRATION).exists(): raise RuntimeError('Already integrated; refusing to reapply')
+    if (ROOT/MIGRATION).exists() or (ROOT/MIGRATION.replace('20260927052736', '20261002203426')).exists(): raise RuntimeError('Already integrated; refusing to reapply')
     for name in ('package.json','package-lock.json','src/contexts/TwilioContext.tsx'):
         if (ROOT/name).read_bytes()!=read(MAIN,name): raise RuntimeError('Baseline drift: '+name)
     for name,digest in {

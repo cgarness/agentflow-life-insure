@@ -1,3 +1,5 @@
+> **LIVE RELEASE RECORD — 2026-10-02 20:53:25.074188 UTC:** Task A is applied and enabled for the approved agency, including eligible unanswered attempts. Status handler v44 is source-verified; existing inbound v46/recording v37 are unchanged. Migration version is `20261002203426`, with original SQL bytes preserved. Earlier pending/blocked/not-deployed sections below are historical, not current state. Natural recent-outbound callback and individual-agent playback acceptance remain pending. See `PRODUCTION_RELEASE_2026-10-02.md` for execution, the v43 transcription correction before activation, operator-confirmed idle exception, recovery and limitations.
+
 # Recent-outbound callback routing — final integration and release preparation
 
 ## Status and authority — 2026-10-02

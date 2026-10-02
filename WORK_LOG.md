@@ -1,3 +1,18 @@
+> Release-record checks passed in isolated PG17.6 run 37065331283; approved SQL/runtime bytes preserved. An earlier record-only push was refused due to workflow-file permissions; no production action or defect resulted.
+
+## 2026-10-02 — Recent-outbound callback routing — LIVE AND ENABLED; natural callback acceptance pending
+
+- Chris approved exact source `1ec9cf8` and confirmed Teo/Will were not dialing; only those known idle sessions and the unchanged stale ringing row were excepted. No session/call/lead was cleared or reassigned.
+- Applied migration once as `20261002203426_inbound_recent_outbound_routing`, 56,731 bytes; SHA-256 `348205ca4d8c860a04a68a23af840be35f2c2f57ad08d8f6a89262e86b429038` verified from recorded production SQL. Both SQL streams retain exact approved bytes; filenames and active test references now use the recorded version.
+- Deployed status handler v44, seven files, payload `660ee45d31cc8433df0e8c23a8674ddf1c289e10439b7ce99800d05417598f4c`, manifest `3c628153db5147eab3d607c12b0a0bc10eceb0cd83c81decd387efc47545cff2`. Full actual read-back matched. verify_jwt=false and custom signature validation retained.
+- Intermediate v43 had an extra helper comment and incorrect dropStartedAt flag from transcription. Read-back caught both; a full exact-source corrective upload fixed them before activation. No requests were observed in the bounded maintenance log sample. No blanket zero-impact claim.
+- Activated only organization `a0000000-0000-0000-0000-000000000001` at 20:53:25.074188 UTC: enabled=true, unanswered_eligible=true, did_allowlist=NULL. Read-back confirmed both flags, 16 active agency numbers, private ACLs and no other org enabled. B1 inbound v46/recording v37 unchanged.
+- Existing direct-line/contact precedence, provider-verified same-DID 168-hour matching, single-leg browser dialing, duration/status/disposition, notifications, DND/Break/busy and forwarding policy preserved. No backfill; immediate callbacks without captured evidence retain group fallback.
+- Pre-release run 37037364197: 325 focused passed; 22 activation/recovery checks and PG17.6 SQL/concurrency/rollback/types passed; full suite +232 passed with same baseline failures. App 90 errors and exact-Deno baseline errors remain; root tsc is empty-project only.
+- Security advisors ran; existing app_config/webhook_debug_log RLS findings and other warnings left untouched. No unrelated remediation, migration rollback, controlled call, historical recording recovery, stale cleanup, PR, main merge or automatic monitor.
+- At 20:57:20 UTC evidence/recent-outbound-route counts remained zero; one post-activation call is not proof of this feature. Real provider capture, recent-outbound routing and recipient playback still need natural evidence. Agents may resume dialing. Main remains separate; later merge requires approval.
+- Actual WORK_LOG/plan/rule records preserve all prior branch history. Full report: `docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md`.
+
 ## 2026-10-02 — Recent-outbound final integration — VERIFIED; PRODUCTION RELEASE PENDING
 
 - GitHub run 37037364197 completed isolated PostgreSQL 17.6 inbound, activation, rollback, generated-type and negative-control checks.
