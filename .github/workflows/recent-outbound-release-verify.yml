@@ -1,20 +1,15 @@
-name: Publish verified callback release records
+name: Recent-outbound released-source verification
+
+# Production release is recorded in the plan. This workflow has NO production credentials,
+# never deploys or activates anything, and does not write repository files.
 on:
-  push:
-    branches: [chatgpt/recent-outbound-final-20261002]
-    paths: [.github/workflows/recent-outbound-release-verify.yml]
+  workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: recent-outbound-final-${{ github.ref }}
-  cancel-in-progress: false
 jobs:
-  record:
-    if: github.ref == 'refs/heads/chatgpt/recent-outbound-final-20261002'
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: write
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17.6
@@ -29,90 +24,47 @@ jobs:
           --health-retries 10
     env:
       PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+      RO_MAIN_SHA: e04eb16dc6fc70734f85868ab5235186d0ce4813
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
           cache: npm
-      - name: Reuse the exact already-verified record reconciliation, excluding workflow publication
+      - name: Prepare isolated verification environment
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python3 - <<'PY'
-          import hashlib,subprocess,textwrap
-          path='.github/workflows/recent-outbound-release-verify.yml'
-          ref='71520abb1fd821a8ba6d91870ec037ce6f7db827'
-          data=subprocess.check_output(['git','show',ref+':'+path])
-          blob=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
-          assert blob=='c764a80b9edb971febb9877697a23615e8608cae'
-          text=data.decode('utf-8')
-          start="          python3 - <<'PYRECORD'\n"; end='          PYRECORD\n'
-          assert text.count(start)==1 and text.count(end)==1
-          code=textwrap.dedent(text.split(start,1)[1].split(end,1)[0])
-          exec(compile(code,'approved-record-reconciliation','exec'))
-          # The existing GitHub App connection will retire this publisher separately.
-          # GITHUB_TOKEN cannot modify workflow files, so its commit must not contain one.
-          subprocess.run(['git','restore','--source=HEAD','--staged','--worktree',path],check=True)
-          changed=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
-          assert changed and not any(p.startswith('.github/workflows/') for p in changed)
-          print('Approved documentation/version-reference changes staged; no workflow change',flush=True)
-          PY
-      - name: Recheck recorded filenames and exact runtime package with no production access
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/ro-closeout"
+          test -f supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql
+          echo "RO_BASE_WORKTREE=$RUNNER_TEMP/ro-base" >> "$GITHUB_ENV"
+          echo "RO_EVIDENCE=$RUNNER_TEMP/ro-evidence" >> "$GITHUB_ENV"
+          echo "DENO_DIR=$RUNNER_TEMP/ro-deno-cache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ro-evidence"
+          git worktree add --detach "$RUNNER_TEMP/ro-base" "$RO_MAIN_SHA"
           npm ci --ignore-scripts --no-audit --no-fund
-          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/activation.txt"
-          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/inbound.txt"
-          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/rollback.txt"
-          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/types.txt"
-          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/types-negative.txt"
-          npx --no-install tsc --noEmit
-          node scripts/edge_payload.mjs build supabase/functions/twilio-voice-status --out "$RUNNER_TEMP/ro-closeout/status.json"
-          node scripts/edge_payload.mjs verify supabase/functions/twilio-voice-status "$RUNNER_TEMP/ro-closeout/status.json"
-          echo "660ee45d31cc8433df0e8c23a8674ddf1c289e10439b7ce99800d05417598f4c  $RUNNER_TEMP/ro-closeout/status.json" | sha256sum -c -
-          git diff --cached --check
-      - name: Record results and publish only approved task-branch documentation
-        env:
-          GH_TOKEN: ${{ github.token }}
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/ro-base/node_modules"
+          npm install --prefix "$RUNNER_TEMP/ro-deno" deno@2.1.4 --no-audit --no-fund
+          echo "DENO_BIN=$RUNNER_TEMP/ro-deno/node_modules/.bin/deno" >> "$GITHUB_ENV"
+      - name: SQL and generated types using recorded migration filenames
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import os,pathlib,subprocess
-          p=pathlib.Path('docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md')
-          note='\n## Filename/reference closeout verification\n\nGitHub run '+os.environ['GITHUB_RUN_ID']+' passed the 22 activation/recovery tests, full inbound SQL and rollback proofs, generated types and negative controls on isolated PostgreSQL 17.6 with recorded filenames. The rebuilt status package retains the approved checksum. Root tsc checks no application files; earlier full-suite and application baseline results are not claimed rerun. No production access occurred. An earlier record-only run passed these checks but its push was refused because GITHUB_TOKEN cannot modify workflow files; publication now excludes that file, which is finalized separately through the authorized connector.\n'
-          p.write_text(p.read_text()+note)
-          log=pathlib.Path('WORK_LOG.md')
-          note='> Release-record checks passed in isolated PG17.6 run '+os.environ['GITHUB_RUN_ID']+'; approved SQL/runtime bytes preserved. An earlier record-only push was refused due to workflow-file permissions; no production action or defect resulted.\n\n'
-          log.write_bytes(note.encode()+log.read_bytes())
-          prior=subprocess.check_output(['git','show','1ec9cf8b546837d75215649f3d2783e4426736b1:WORK_LOG.md'])
-          assert log.read_bytes().endswith(prior), 'Original WORK_LOG history changed'
-          PY
-          git add -- WORK_LOG.md docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md
-          test -z "$(git diff --cached --name-only -- .github/workflows)"
-          BRANCH=chatgpt/recent-outbound-final-20261002
-          test "$GITHUB_REF" = "refs/heads/$BRANCH"
-          ACTUAL=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-          test "$ACTUAL" = "$GITHUB_SHA"
-          git commit -m 'Record live callback routing and reconcile stamped migration paths; preserve exact source and history'
-          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin "HEAD:refs/heads/$BRANCH"
-          unset AUTH GH_TOKEN
-          git rev-parse HEAD | tee "$RUNNER_TEMP/ro-closeout/record-commit.txt"
-          git bundle create "$RUNNER_TEMP/ro-closeout/record-source.bundle" HEAD
+          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RO_EVIDENCE/activation.txt"
+          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RO_EVIDENCE/inbound.txt"
+          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RO_EVIDENCE/rollback.txt"
+          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RO_EVIDENCE/types.txt"
+          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RO_EVIDENCE/types-negative.txt"
+      - name: Existing baseline-aware application and package verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_recent_outbound_release.py 2>&1 | tee "$RO_EVIDENCE/verification.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: callback-routing-record-${{ github.run_id }}
-          path: ${{ runner.temp }}/ro-closeout/
+          name: recent-outbound-released-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/ro-evidence/
           retention-days: 7
-          if-no-files-found: warn
