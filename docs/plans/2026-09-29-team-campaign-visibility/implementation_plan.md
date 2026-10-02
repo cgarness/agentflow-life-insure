@@ -1,3 +1,13 @@
+# October 2 staged production release update
+
+Chris approved release at 11:47 LA. P1 and P1B are applied and verified as
+20261002184930 and 20261002184954, exact SQL bytes unchanged. P2 and frontend release are
+BLOCKED by explicit legacy review: 347 home-agency associations (four eligibility conflicts)
+and 472 other-agency associations need their authorized managers. No business backfill,
+forced unlock, ownership repair, actor impersonation, PR merge or frontend deploy performed.
+Detailed postconditions and private bounded review artifact are recorded in the release design.
+The original build record below is retained as history.
+
 # Team campaign lead visibility
 
 ## Authority and current status

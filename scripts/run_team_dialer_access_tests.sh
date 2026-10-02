@@ -44,9 +44,9 @@ PYMATCH
   then cat "$WORK/refusal.log"; echo "FAIL: wrong refusal [$label]"; exit 1; fi
   echo "PASS refusal: $label"
 }
-P1="$ROOT/supabase/migrations/20261002172423_team_dialer_queue_provenance.sql"
-ASSOC="$ROOT/supabase/migrations/20261002172455_team_dialer_association_provenance.sql"
-P2="$ROOT/supabase/migrations/20261002172541_team_dialer_scoped_display_access.sql"
+P1="$ROOT/supabase/migrations/20261002184930_team_dialer_queue_provenance.sql"
+ASSOC="$ROOT/supabase/migrations/20261002184954_team_dialer_association_provenance.sql"
+P2="$ROOT/supabase/migrations/20261002185105_team_dialer_scoped_display_access.sql"
 TEST="$ROOT/supabase/tests"
 sql "$WORK/deps.sql"
 sql "$TEST/team_dialer_fixtures.sql"

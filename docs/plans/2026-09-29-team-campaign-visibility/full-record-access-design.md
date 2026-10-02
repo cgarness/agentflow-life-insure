@@ -181,3 +181,28 @@ races, staged refusals and negative mutations run in the new PostgreSQL CI job; 
 result is mandatory before release. Build/root tsc pass; app tsc retains 90 existing diagnostics;
 changed-file lint has zero errors and 18 existing warnings. Final CI evidence is recorded in PR401.
 Earlier proposal-only wording below the implementation scope is historical design rationale.
+
+
+## October 2 production approval and staged application
+
+Chris approved the production handoff at 11:47 America/Los_Angeles. Approved source head:
+3927292fa12dfd47cdca5116779828c345be79ab. Preflight matched canonical function bodies/owners,
+Contacts/queue/lock policies and existing counter triggers; both exact-head CI jobs passed.
+Applied P1 as 20261002184930 and P1B as 20261002184954. Catalog postconditions match tested
+queue/core/admin fingerprints, pinned owners/search paths, nullable no-default lock provenance,
+private ledger RLS/ACL and authenticated-only manager validator. No legacy backfill or forced
+unlock. Fresh operational queue selections are issuing proven locks. Claim and Contacts policies
+remain unchanged; the Team display reader is not installed.
+
+P2/merge/frontend are BLOCKED: review preflight finds 347 home-agency historical associations,
+four with source/type eligibility conflicts, and 472 in other agencies needing their authorized
+manager review. No genuine authenticated manager session was supplied for validation; do not
+forge a JWT or use privileged SQL to impersonate an actor. One unproven lock was still active at
+18:51 UTC, expiry 18:56:01 UTC; it must leave naturally. Exact home-agency review manifest is
+prepared privately as a separate release artifact. Approval of the build/release is not blanket
+consent to mark every association or repair ownership. No P2 application or merge/deploy attempted.
+
+Repository filenames are aligned to the hosted P1/P1B history; SQL bytes are unchanged. The
+unapplied P2 candidate was re-created with the CLI after them as 20261002185105; its approved
+SQL bytes remain identical. The isolated runner references the new versions in explicit order.
+Recovery remains reader-disable/frontend rollback while retaining provenance/claim containment.

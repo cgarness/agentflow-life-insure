@@ -1,3 +1,11 @@
+## 2026-10-02 — Team visibility release — P1/P1B APPLIED; P2/FRONTEND BLOCKED
+
+- Chris approved the staged production handoff at 11:47 LA. Exact tested source: 3927292fa12dfd47cdca5116779828c345be79ab. Read-only preflight matched function fingerprints/owners, policies and counter triggers.
+- Applied and catalog-verified queue provenance **20261002184930** and association provenance **20261002184954**. SQL bytes match reviewed candidates. Existing lock TTL/renewal and claim remain; no forced unlock, backfill or ownership mutation. New canonical queue requests already issue proven locks.
+- P2/merge/frontend are BLOCKED: 347 historical home-agency associations need explicit manager review (four source/type eligibility conflicts); 472 other-agency associations require those agencies’ authorized managers. No genuine manager session supplied; never spoof JWT context or bypass the validator. One old active lock remained at 18:51 UTC, expiring 18:56:01; leave it naturally.
+- Reconciled immutable P1/P1B filenames with hosted migration history and CLI-created pending P2 20261002185105 after them; all SQL bytes unchanged. Updated runner paths/scoped plan/design. No display reader installed, no PR merge or frontend deployment.
+- Recovery remains disable-only reader/client rollback with security containment retained. Private exact home-agency review manifest prepared for bounded review; no blanket legacy validation or repair approved/performed.
+
 ## 2026-10-02 — Team full-record access — IMPLEMENTED; NATIVE CI AND PRODUCTION RELEASE GATED
 
 - **Authority:** Chris’s “Start the next steps and complete the task” authorizes the coordinated branch build and isolated verification. No production mutation, merge or deploy.
