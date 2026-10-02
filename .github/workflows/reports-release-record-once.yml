@@ -1,0 +1,129 @@
+name: Reports production record reconciliation
+on:
+  push:
+    branches: ['release/reports-policy-production-record-20261002']
+    paths: ['.github/workflows/reports-release-record-once.yml']
+permissions:
+  contents: write
+jobs:
+  record:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/release/reports-policy-production-record-20261002'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - name: Reconcile approved release records without changing SQL bytes
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+          RECORD_BRANCH: release/reports-policy-production-record-20261002
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          expected = os.environ['EXPECTED_HEAD']
+          branch = os.environ['RECORD_BRANCH']
+          assert branch == 'release/reports-policy-production-record-20261002'
+          assert git('rev-parse', 'HEAD') == expected
+          assert git('rev-parse', 'HEAD^') == 'd9d0cf33659b8e06ede91dc8224ec05cb8e96327'
+          assert git('ls-remote', 'origin', 'refs/heads/' + branch).split()[0] == expected
+          assert not git('status', '--porcelain')
+          old = '20260930120000'
+          new = '20261002160849'
+          mig = Path('supabase/migrations/' + old + '_reports_policies_sold_normalized_source.sql')
+          rollback = Path('supabase/migrations/rollback/' + old + '_reports_policies_sold_normalized_source.rollback.sql')
+          sql = mig.read_bytes()
+          rollback_bytes = rollback.read_bytes()
+          digest = hashlib.sha256(sql).hexdigest()
+          assert len(sql) == 51115
+          assert digest == '15355717f39fe2cb6b33386334d785f672e167ea5774866322b262dcd9d551d5'
+          new_mig = mig.with_name(mig.name.replace(old,new))
+          new_rollback = rollback.with_name(rollback.name.replace(old,new))
+          assert not new_mig.exists() and not new_rollback.exists()
+          paths = [str(mig), str(rollback), str(new_mig), str(new_rollback)]
+          mig.rename(new_mig)
+          rollback.rename(new_rollback)
+          assert new_mig.read_bytes() == sql
+          assert new_rollback.read_bytes() == rollback_bytes
+          for name in ['scripts/run_reports_rpc_tests.sh', 'src/lib/__tests__/reportsPolicySource.test.ts', 'src/lib/reports-schemas.ts']:
+              p = Path(name)
+              before = p.read_bytes()
+              assert old.encode() in before, name
+              p.write_bytes(before.replace(old.encode(),new.encode()))
+              paths.append(name)
+          rules = Path('AGENT_RULES.md')
+          before = rules.read_bytes()
+          anchor = ('migration `' + old + '_reports_policies_sold_normalized_source.sql` — CREATED, NOT APPLIED; check `list_migrations`').encode()
+          assert before.count(anchor) == 1
+          replacement = ('migration `' + new + '_reports_policies_sold_normalized_source.sql` — APPLIED to production on 2026-10-02; authored as ' + old + ', SQL bytes unchanged; check `list_migrations`').encode()
+          rules.write_bytes(before.replace(anchor,replacement).replace((old + '_…rollback.sql').encode(),(new + '_…rollback.sql').encode()))
+          paths.append(str(rules))
+          entry = '''## 2026-10-02 — Reports Policies Sold production release — LIVE; database reconciliation verified
+
+          - Chris explicitly approved PR #399 and its reviewed migration. PR #399 merged as `e04eb16dc6fc70734f85868ab5235186d0ce4813`.
+          - Production frontend `dpl_5buBwabArVu9BBvqMoAeu7dSwEe5` reached READY on that commit with fflagent.com/www aliases.
+          - Production migration `20261002160849_reports_policies_sold_normalized_source.sql` applied once. Recorded SQL is 51,115 bytes; SHA-256 `15355717f39fe2cb6b33386334d785f672e167ea5774866322b262dcd9d551d5`, exactly the reviewed candidate.
+          - Live read-only authenticated database-context checks, September 1–29: Policies Sold 4 (not 2), chart 4; current assignments Alexa 2 / Teo 1 / Will 1. All three agent filters match with no out-of-filter rows. Daily counts Sep 2 = 1, Sep 17 = 1, Sep 28 = 2. Quality 0 undated / 0 malformed.
+          - Same window: Calls Made 2,582 and talk time 62,192 seconds; disposition total 2,582. Campaign partition 0 attributed + 4 attribution unavailable = 4; links are not guessed.
+          - Four public RPC body hashes and grants verified; private helpers postgres-only; legacy RPCs still sealed. Security and performance advisors run; unrelated existing findings left unchanged.
+          - Pre-release activity checks showed zero active recent sessions and zero recent open calls. No customer data, RLS, Dialer/Twilio, queue, conversion, celebration, Dashboard, Leaderboard or Profile changes.
+          - Verification: original exact-head PG17.6 and frontend CI passed; 132 focused tests passed. Root typecheck passed; application check retains the same 90 baseline errors; existing full-suite failures remain. Signed-in browser walkthrough and production-volume load testing are NOT claimed complete.
+          - Release record reconciliation: forward/rollback filenames now match production version, SQL bytes unchanged; test/runner references and rule status updated. All prior WORK_LOG bytes preserved.
+          - Full record: `docs/plans/2026-09-28-reports-analytics/POLICIES_RELEASE_2026-10-02.md`. Reload old browser tabs. Current-assignment rather than seller attribution, limited campaign lineage, and separate other-page definitions remain documented limitations.
+
+          '''
+          log = Path('WORK_LOG.md')
+          original = log.read_bytes()
+          assert len(original) > 1000000
+          assert not original.startswith(entry.encode())
+          log.write_bytes(entry.encode() + original)
+          assert log.read_bytes()[len(entry.encode()):] == original
+          paths.append(str(log))
+          plan = Path('implementation_plan.md')
+          original_plan = plan.read_bytes()
+          appendix = '''
+
+          ### 20.14 Production release (2026-10-02) — supersedes earlier NOT APPLIED status
+
+          PR #399 is merged as e04eb16dc6fc70734f85868ab5235186d0ce4813. The production frontend is READY.
+          The exact reviewed policy migration is applied as version 20261002160849, with SQL SHA-256
+          15355717f39fe2cb6b33386334d785f672e167ea5774866322b262dcd9d551d5 (51,115 bytes).
+          Forward and rollback filenames are reconciled to that version without changing SQL contents.
+          Authenticated database-context reconciliation now confirms September 1–29 Policies Sold = 4,
+          daily chart = 4, and current-assignment agent counts 2 / 1 / 1. Private helpers and legacy seals
+          are verified; advisors were run. No customer rows or unrelated runtime behavior were changed.
+          Full release evidence, tested-head references and limitations are recorded in
+          docs/plans/2026-09-28-reports-analytics/POLICIES_RELEASE_2026-10-02.md.
+          Signed-in browser interaction is still unverified; old tabs should reload.
+          '''
+          assert b'### 20.14 Production release (2026-10-02)' not in original_plan
+          plan.write_bytes(original_plan + appendix.encode())
+          paths.append(str(plan))
+          subprocess.run(['git','add','-A','--',*paths],check=True)
+          changed = git('diff','--cached','--name-only','--no-renames').splitlines()
+          assert set(changed) == set(paths), changed
+          assert all(not p.startswith('.github/workflows/') for p in changed)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          manifest = {'source_head':expected,'version':new,'sql_sha256':digest,'sql_bytes':len(sql),'rollback_sha256':hashlib.sha256(rollback_bytes).hexdigest(),'prior_work_log_sha256':hashlib.sha256(original).hexdigest(),'prior_work_log_preserved':True,'paths':paths}
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'reports-record-evidence'
+          evidence.mkdir()
+          (evidence/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print(json.dumps(manifest,indent=2))
+          print(git('diff','--cached','--stat'))
+          subprocess.run(['git','-c','user.name=AgentFlow Release Automation','-c','user.email=noreply@users.noreply.github.com','commit','-m','Reconcile policy Reports migration version and verified release record'],check=True)
+          assert git('ls-remote','origin','refs/heads/'+branch).split()[0] == expected
+          subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],check=True)
+          (evidence/'record-head.txt').write_text(git('rev-parse','HEAD')+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-production-record-evidence
+          path: ${{ runner.temp }}/reports-record-evidence
+          retention-days: 14
