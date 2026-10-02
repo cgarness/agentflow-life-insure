@@ -21,6 +21,7 @@ import {
   nextForPersistedStage,
   parseDurationInt,
   phoneDigitsE164ish,
+  voicemailCallbackQuery,
 } from "./planner.ts";
 import {
   buildClientDialTwiml,
@@ -178,8 +179,15 @@ async function voicemailTwiml(deps: StageDeps, ctx: StageContext, mailbox: strin
       deps.log("[v2] agent greeting lookup failed — organization greeting used", { agentId, err: String(err) });
     }
   }
+  // Signed callback fields use only [A-Za-z0-9._-]: the agent id rides `mailbox_agent_id`, never `agent:<uuid>`.
+  const callback = voicemailCallbackQuery(mailbox);
+  if (!callback.valid) {
+    deps.log("[v2] voicemail mailbox unparseable — agent callback emitted without an id (recording-status rejects it)", {
+      callRowId: ctx.callRowId,
+    });
+  }
   const recordingUrl = deps.urls.recordingStatus(sanitizeQuery({
-    source: "voicemail", mailbox, call_row_id: ctx.callRowId, org_id: ctx.orgId, attempt_id: ctx.attemptId,
+    ...callback.query, call_row_id: ctx.callRowId, org_id: ctx.orgId, attempt_id: ctx.attemptId,
   }));
   const doneUrl = deps.urls.stage({ stage: "voicemail_done", ...ctxQuery(ctx) });
   return buildVoicemailTwiml(recordingUrl, doneUrl, greetingText, greetingUrl);

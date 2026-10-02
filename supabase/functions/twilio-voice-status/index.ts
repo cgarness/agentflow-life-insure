@@ -1,5 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
+import { captureDialEvidence, dialEvidenceTrigger, standardDialEvidenceDeps } from "./dial-evidence.ts";
 import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
 import {
   applyStatusLadder,
@@ -144,6 +146,22 @@ type CallRow = {
 
 // insertMissedCallNotifications is now imported from "../_shared/notifications.ts"
 
+/**
+ * Recent-outbound routing (rev 4 §A3): the Dial-evidence capture is a Supabase Edge background task —
+ * EdgeRuntime.waitUntil keeps the worker alive until it settles (the guarded hand-off used by
+ * twilio-voice-inbound's keepAliveInBackground). The handler never awaits it.
+ */
+function keepDialEvidenceAlive(work: Promise<unknown>): void {
+  const guarded = work.catch((e) =>
+    console.error("[twilio-voice-status] dial-evidence background task failed:", e instanceof Error ? e.name : "unknown"));
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  try {
+    runtime?.waitUntil?.(guarded);
+  } catch (e) {
+    console.warn("[twilio-voice-status] EdgeRuntime.waitUntil unavailable:", e);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -213,6 +231,22 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
+
+    // Recent-outbound routing (rev 4 §A3): best-effort, provider-verified evidence of an outbound browser
+    // Dial, started after signature validation and client creation and before every early return below.
+    // Never awaited — no response, calls patch, ladder/CAS, duration, missed flag or notification depends
+    // on it (AGENT_RULES #30 rev 7(c) unchanged); losing it only keeps pre-feature routing.
+    const dialEvidence = dialEvidenceTrigger(params);
+    if (dialEvidence) {
+      keepDialEvidenceAlive((async () => {
+        const outboundCreds = loadOutboundTwilioCreds();
+        return captureDialEvidence(standardDialEvidenceDeps({
+          credentials: outboundCreds.ok ? outboundCreds.creds : null,
+          fetch: (url, init) => fetch(url, init),
+          rpc: (fn, args) => supabase.rpc(fn, args),
+        }), dialEvidence);
+      })());
+    }
 
     const nowIso = new Date().toISOString();
 

@@ -23,7 +23,7 @@ import {
   decideRecordingResponseStatus,
   decideVoicemailResponseStatus,
   isValidRecordingSid,
-  parseVoicemailCallbackQuery,
+  readVoicemailCallbackQuery,
   classifyOwnerPersistence,
   ownerFromUpsertAgrees,
   recordingPathCas,
@@ -128,13 +128,7 @@ async function handleVoicemailRecording(
   params: Record<string, string>,
   creds: { accountSid: string; authToken: string },
 ): Promise<Response> {
-  const q = parseVoicemailCallbackQuery({
-    source: url.searchParams.get("source"),
-    mailbox: url.searchParams.get("mailbox"),
-    call_row_id: url.searchParams.get("call_row_id"),
-    org_id: url.searchParams.get("org_id"),
-    attempt_id: url.searchParams.get("attempt_id"),
-  });
+  const q = readVoicemailCallbackQuery(url.searchParams);
   const recordingSid = (params["RecordingSid"] ?? "").trim();
   const recordingUrl = params["RecordingUrl"] ?? "";
   const recordingDuration = parseInt(params["RecordingDuration"] ?? "", 10);
@@ -362,7 +356,9 @@ async function handleVoicemailRecording(
     recordCleanupFailure,
     notify,
   });
-  console.log("[twilio-recording-status] voicemail pipeline", { recordingSid, callSid, callRowId: q.callRowId, mailbox: q.mailbox, outcome: result.outcome });
+  // Mailbox TYPE only — never the mailbox identity or any other signed query value.
+  const mailboxKind = q.mailbox === "group" ? "group" : "agent";
+  console.log("[twilio-recording-status] voicemail pipeline", { recordingSid, callSid, mailbox_kind: mailboxKind, outcome: result.outcome });
   return new Response(EMPTY_TWIML, { status: decideVoicemailResponseStatus(result.outcome), headers: twimlHeaders });
 }
 
@@ -414,9 +410,11 @@ Deno.serve(async (req) => {
     );
 
     const reqUrl = new URL(req.url);
-    if (reqUrl.searchParams.get("source") === "voicemail") {
+    if (reqUrl.searchParams.has("source")) {
       // Inbound Calling v2 voicemail — a separate store (private bucket + public.voicemails); the
-      // signed query names the mailbox. Conversation recordings never carry `source`.
+      // signed query names the mailbox. Conversation recordings never carry `source`. ANY `source` key
+      // routes here, so a duplicated or unexpected value fails closed in readVoicemailCallbackQuery
+      // (acknowledged, nothing written) instead of falling into the conversation-recording pipeline.
       return await handleVoicemailRecording(supabase, reqUrl, params, { accountSid, authToken });
     }
 

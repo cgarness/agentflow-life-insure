@@ -30,28 +30,80 @@
 // that produced the v30 defect is gone. The production hand-off belongs to a separately approved
 // deployment step.
 //
+// IMPORT CLOSURE (2026-09-27). A package is every `.ts` file in the function directory PLUS every file
+// those files reach through static RELATIVE imports (`../_shared/notifications.ts` →
+// `./notification-recipients.ts`). Shared files are named by their path under `supabase/functions`,
+// e.g. `functions/_shared/notifications.ts` — the name the deployed package carries. Remote specifiers
+// (`https://…`) stay external. A relative import that does not exist, or escapes `supabase/functions`
+// (compared by real path), and any symlinked file fail the build instead of shipping an incomplete or
+// foreign package. Imports are listed by TypeScript's own pre-processor (static, `import type`, re-exports,
+// dynamic `import("…")`), not by a regular expression. Function-directory entries, naming and the
+// manifest format are unchanged, so a package without relative imports outside its directory produces
+// exactly the manifest it produced before.
+//
 // Usage:
-//   node scripts/edge_payload.mjs build  <function-dir> [--out FILE]
-//   node scripts/edge_payload.mjs verify <function-dir> <candidate.json>
+//   node scripts/edge_payload.mjs build   <function-dir> [--out FILE]
+//   node scripts/edge_payload.mjs verify  <function-dir> <candidate.json>
+//   node scripts/edge_payload.mjs closure <function-dir>
 //   node scripts/edge_payload.mjs selftest
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const die = (msg) => { console.error(msg); process.exit(1); };
 
-/** Deployment paths are `functions/<slug>/<file>`, sorted lexicographically — the approved manifest form. */
+let tsModule = null;
+function typescript() {
+  if (!tsModule) {
+    try {
+      tsModule = createRequire(import.meta.url)("typescript");
+    } catch {
+      die("FAIL: the import-closure scan needs the repository's typescript devDependency (run npm ci)");
+    }
+  }
+  return tsModule;
+}
+
+/** Relative specifiers of every import TypeScript's scanner finds (comments and strings are not imports). */
+function relativeImports(source) {
+  return typescript()
+    .preProcessFile(source, true, true)
+    .importedFiles.map((f) => f.fileName)
+    .filter((n) => n.startsWith("./") || n.startsWith("../"));
+}
+
+/**
+ * Deployment paths are `functions/<path under supabase/functions>`, sorted lexicographically — the
+ * approved manifest form (`functions/<slug>/<file>` for the function's own files).
+ */
 function collect(dir) {
-  const slug = path.basename(path.resolve(dir));
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".ts"))
-    .sort()
-    .map((f) => ({
-      name: `functions/${slug}/${f}`,
-      disk: path.join(dir, f),
-      bytes: readFileSync(path.join(dir, f)),
-    }));
+  const fnDir = path.resolve(dir);
+  const root = path.dirname(fnDir);
+  const realRoot = realpathSync(root);
+  const nameOf = (abs) => `functions/${path.relative(root, abs).split(path.sep).join("/")}`;
+  const escapes = (rel) => rel.startsWith("..") || path.isAbsolute(rel);
+  const seen = new Map();
+  const queue = readdirSync(fnDir).filter((f) => f.endsWith(".ts")).map((f) => path.join(fnDir, f));
+  while (queue.length) {
+    const abs = queue.shift();
+    if (seen.has(abs)) continue;
+    if (escapes(path.relative(root, abs))) die(`FAIL: ${abs} is outside ${root}`);
+    if (!existsSync(abs)) die(`FAIL: relative import target does not exist: ${abs}`);
+    if (lstatSync(abs).isSymbolicLink()) die(`FAIL: ${nameOf(abs)} is a symlink; a package holds regular files only`);
+    if (escapes(path.relative(realRoot, realpathSync(abs)))) die(`FAIL: ${abs} escapes ${root} by real path`);
+    const bytes = readFileSync(abs);
+    seen.set(abs, { name: nameOf(abs), disk: abs, bytes });
+    for (const spec of relativeImports(bytes.toString("utf8"))) {
+      const target = path.resolve(path.dirname(abs), spec);
+      if (escapes(path.relative(root, target))) {
+        die(`FAIL: ${nameOf(abs)} imports ${spec}, which escapes ${root}`);
+      }
+      queue.push(target);
+    }
+  }
+  return [...seen.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
 /** lowercase sha256 + two spaces + path + LF per line; hash the whole manifest INCLUDING the final LF. */
@@ -197,8 +249,10 @@ if (cmd === "build") {
   build(a ?? die("usage: build <function-dir>"), outIdx > -1 ? process.argv[outIdx + 1] : undefined);
 } else if (cmd === "verify") {
   verify(a ?? die("usage: verify <function-dir> <candidate.json>"), b ?? die("usage: verify <function-dir> <candidate.json>"));
+} else if (cmd === "closure") {
+  for (const e of collect(a ?? die("usage: closure <function-dir>"))) console.log(e.name);
 } else if (cmd === "selftest") {
   selftest();
 } else {
-  die("usage: edge_payload.mjs build|verify|selftest ...");
+  die("usage: edge_payload.mjs build|verify|closure|selftest ...");
 }

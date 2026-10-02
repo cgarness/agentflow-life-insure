@@ -1,3 +1,24 @@
+## 2026-10-02 — Recent-outbound final integration — VERIFIED; PRODUCTION RELEASE PENDING
+
+- GitHub run 37037364197 completed isolated PostgreSQL 17.6 inbound, activation, rollback, generated-type and negative-control checks.
+- Focused tests: {'numTotalTests': 325, 'numPassedTests': 325, 'numFailedTests': 0, 'numPendingTests': 0}. Full baseline comparison: {'exit': 1, 'numTotalTests': 3922, 'numPassedTests': 3890, 'numFailedTests': 1, 'numPendingTests': 31}; candidate: {'exit': 1, 'numTotalTests': 4154, 'numPassedTests': 4122, 'numFailedTests': 1, 'numPendingTests': 31}. No removed baseline assertions, new failed files, or passed-to-failed regressions.
+- App and exact-import Deno checks add no errors; baseline errors remain. Root tsc is an empty-project check, not an app pass.
+- Complete package hashes: {'twilio-voice-status': '660ee45d31cc8433df0e8c23a8674ddf1c289e10439b7ce99800d05417598f4c', 'twilio-recording-status': '5b33d169f431db89b64993c75c32dce31715e8e05ac4bf26487aab3ed30efc92', 'twilio-voice-inbound': '31d1cf5ab0cc87281d01c8ac8339343f50a2bc076f0e0d7365c94a85e3da45e1'}. B1 packages remain byte-identical to deployed approved source.
+- Prepared one-org answered/unanswered activation and one-org disable. SQL hashes and full evidence are in the final plan.
+- No production migration, Edge deployment, activation, data update, test call, recording recovery, PR or main merge. B1 individual-agent playback remains unverified; Task A is not live.
+- This is an actual additive WORK_LOG update, not an audit-only commit. All prior main history is retained below.
+
+## 2026-10-02 — Recent-outbound final integration — PREPARED; verification/release pending
+
+- Chris requested direct completion in ChatGPT. This isolated branch preserves main `e04eb16d`, including Reports and appointment work.
+- Reused Task A `efa8151` and deployed B1 source `02b8ba5`. No new dialer architecture, duration, signature, caller-ID or queue behavior.
+- S6 tests cover answered/unanswered evidence with the repaired mailbox query/parser and correct recipient.
+- Prepared one-org answered+unanswered activation and one-org disable with drift/prestate guards and idempotency. Existing global scripts remain historical, not selected for this release.
+- Original Task A SQL passed on isolated PostgreSQL 17.6 in run 37034447100. Final combined-tree/activation verification is pending here.
+- B1 production record `c7e1fb2`: receiver v37/inbound v46; natural group voicemail stored; agent playback unverified. Full historical B1 plan preserved with a new status note.
+- No Task A migration, Edge deployment, activation, lead change, controlled call, historical recovery, PR or main merge. Exact production approval remains required.
+- All previous main WORK_LOG bytes follow unchanged. See the final integration plan for file scope and verification.
+
 ## 2026-10-02 — Reports Policies Sold final privacy and fixture corrections — IMPLEMENTED; CI PENDING
 
 - Chris requested direct ChatGPT implementation. Branch codex/reports-policy-final-fixes-20261002 continues candidate 037ec13e.

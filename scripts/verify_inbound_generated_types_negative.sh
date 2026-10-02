@@ -9,6 +9,12 @@
 #   3. the new RPC's Returns shape is CHANGED                  -> must FAIL
 #   4. a field is DROPPED from the new RPC's Returns           -> must FAIL
 #   5. the unmodified repository file                          -> must PASS
+# and, for the recent-outbound surface (20260927052736):
+#   R1. record_outbound_dial_evidence OMITTED entirely         -> must FAIL
+#   R2. a new attempt column DROPPED from Row only             -> must FAIL
+#   R3. a new attempt column REMOVED from Row/Insert/Update    -> must FAIL
+#   R4. a required Args parameter made OPTIONAL                -> must FAIL
+#   R5. the PRIVATE evidence table ADDED to the types          -> must FAIL
 # The real types.ts is never written to.
 set -euo pipefail
 PGURL="${PGURL:?set PGURL to a LOCAL postgres}"
@@ -69,7 +75,61 @@ io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "", 1))
 PY
 expect "new RPC Returns field dropped" fail "$WORK/dropped.ts"
 
+# R1. recent-outbound RPC omitted entirely
+python3 - "$REAL" "$WORK/ro_omitted.ts" <<'PY'
+import io, sys, re
+s = io.open(sys.argv[1], encoding="utf-8").read()
+block = re.search(r"      record_outbound_dial_evidence: \{.*?\n      \}\n", s, re.S)
+assert block, "could not locate the entry to omit"
+io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(block.group(0), "", 1))
+PY
+expect "recent-outbound RPC omitted" fail "$WORK/ro_omitted.ts"
+
+# R2. a new attempt column dropped from Row only (Insert/Update keep it)
+python3 - "$REAL" "$WORK/ro_row_col.ts" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding="utf-8").read()
+old = "          owner_evidence_provider_started_at: string | null\n"
+assert s.count(old) == 1, "could not locate the Row column to drop"
+io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "", 1))
+PY
+expect "recent-outbound column dropped from Row" fail "$WORK/ro_row_col.ts"
+
+# R3. a new attempt column removed from Row, Insert and Update
+python3 - "$REAL" "$WORK/ro_col.ts" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding="utf-8").read()
+row = "          owner_evidence_outcome: string | null\n"
+opt = "          owner_evidence_outcome?: string | null\n"
+assert s.count(row) == 1 and s.count(opt) == 2, "could not locate the column in Row/Insert/Update"
+io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(row, "", 1).replace(opt, ""))
+PY
+expect "recent-outbound column removed" fail "$WORK/ro_col.ts"
+
+# R4. a required Args parameter made optional
+python3 - "$REAL" "$WORK/ro_args.ts" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding="utf-8").read()
+old = "          p_child_start_time: string\n"
+assert s.count(old) == 1, "could not locate the Args parameter to change"
+io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "          p_child_start_time?: string\n", 1))
+PY
+expect "recent-outbound RPC Args changed" fail "$WORK/ro_args.ts"
+
+# R5. the private evidence table leaks into the types (a bare `outbound_dial_evidence`, which the public
+# `record_outbound_dial_evidence` in the unmodified file must NOT be mistaken for)
+python3 - "$REAL" "$WORK/ro_private.ts" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding="utf-8").read()
+anchor = "      voicemails: {\n        Row: {\n"
+assert s.count(anchor) == 1, "could not locate the Tables anchor"
+leak = ("      outbound_dial_evidence: {\n        Row: { dial_call_sid: string }\n        Insert: { dial_call_sid: string }\n"
+        "        Update: { dial_call_sid?: string }\n        Relationships: []\n      }\n")
+io.open(sys.argv[2], "w", encoding="utf-8").write(s.replace(anchor, leak + anchor, 1))
+PY
+expect "recent-outbound private table added" fail "$WORK/ro_private.ts"
+
 # 5. the real file must still pass
 expect "unmodified repository types" pass "$REAL"
 
-echo "GENERATED-TYPES NEGATIVE CONTROLS GREEN (omission and three contract changes are all rejected)"
+echo "GENERATED-TYPES NEGATIVE CONTROLS GREEN (omission and three contract changes are all rejected; recent-outbound omission, column drops, Args change and private leak are all rejected)"

@@ -1,11 +1,14 @@
 // Emits a strict TypeScript equality check (stdout) between the generated types and the repository's
-// hand-maintained src/integrations/supabase/types.ts for every schema object M4–M9 create or alter.
+// hand-maintained src/integrations/supabase/types.ts for every schema object M4–M9 and the recent-outbound
+// migration (20260927052736) create or alter.
 // Scope: schema `public` only — the generator is run with included_schemas=public.
 // Run by scripts/verify_inbound_generated_types.sh; the two files sit next to the emitted check.ts.
 const newTables = ["agent_inbound_settings", "agent_phone_registrations", "inbound_route_attempts", "voicemails"];
 const alteredTables = {
   inbound_routing_settings: ["routing_engine", "inbound_group_agent_ids", "browser_ring_seconds", "mobile_ring_seconds", "voicemail_retention_days"],
   calls: ["answered_by_agent_id", "missed_reason", "missed_for_agent_id", "missed_recipient_ids", "missed_notified_at", "missed_notify_attempts", "missed_notify_next_at", "missed_notify_error", "voicemail_id", "routing_engine"],
+  // 20260927052736. The whole-table check above already covers them; this names them in a failure.
+  inbound_route_attempts: ["owner_evidence_dial_call_sid", "owner_evidence_provider_started_at", "owner_evidence_outcome"],
 };
 const functions = [
   "heartbeat_phone_registration", "is_phone_connected",
@@ -20,6 +23,8 @@ const functions = [
   // M8 (corrective pass 13). M9 adds only a TRIGGER function, which postgres-meta does not emit as a
   // client-callable Function; the shell script asserts that absence rather than listing it here.
   "voicemails_cleanup_actionable_batch", "voicemails_cleanup_blocked_summary",
+  // 20260927052736 (recent-outbound routing). Its private resolver/tables are not in schema `public`.
+  "record_outbound_dial_evidence",
 ];
 let out = `import type { Database as G } from "./generated-types";
 import type { Database as R } from "./repo-types";

@@ -2,6 +2,7 @@
 // §12 `inboundStages.test.ts`; safeguards 1 and 5). The database is faked through the injected RPC so
 // every branch is exercised with the EXACT result shapes the M6 functions return.
 import { describe, expect, it } from "vitest";
+import { readVoicemailCallbackQuery } from "../../../supabase/functions/twilio-recording-status/idempotency";
 import {
   decideMobileReturn,
   decideOwnerBrowserReturn,
@@ -10,6 +11,7 @@ import {
   nextForPersistedStage,
   parseMailbox,
   resolveOwnerCandidate,
+  voicemailCallbackQuery,
 } from "../../../supabase/functions/twilio-voice-inbound/planner";
 import {
   StageDeps,
@@ -74,6 +76,37 @@ const isMobileDial = (xml: string) => xml.includes("<Number ") && xml.includes(M
 const isVoicemail = (xml: string) => xml.includes("<Record ") && xml.includes("source=voicemail");
 const isClientDial = (xml: string) => xml.includes("<Client ");
 
+/** The signed recording-callback query of a voicemail TwiML: XML-unescaped, fragment (#rc=…) stripped. */
+function recordingCallbackQuery(xml: string): string {
+  const m = /<Record [^>]*recordingStatusCallback="([^"]*)"/.exec(xml);
+  if (!m) throw new Error("no <Record recordingStatusCallback> in TwiML");
+  const url = m[1].replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  const noFragment = url.split("#")[0];
+  const q = noFragment.indexOf("?");
+  return q === -1 ? "" : noFragment.slice(q + 1);
+}
+
+/**
+ * Agent-voicemail callback repair (2026-09-30): every signed callback key and value is [A-Za-z0-9._-], so no
+ * serializer percent-encodes it and no canonicalization can change the signed bytes. Returns the violations.
+ */
+function callbackQueryViolations(query: string): string[] {
+  const bad: string[] = [];
+  if (query.includes("%")) bad.push("percent-encoded byte");
+  for (const part of query.split("&")) {
+    const eq = part.indexOf("=");
+    const [k, v] = eq === -1 ? [part, ""] : [part.slice(0, eq), part.slice(eq + 1)];
+    if (!/^[A-Za-z0-9._-]+$/.test(k)) bad.push(`key ${k}`);
+    if (!/^[A-Za-z0-9._-]+$/.test(v)) bad.push(`value of ${k}`);
+  }
+  return bad;
+}
+
+const agentQuery = (attemptId: string | null = ATT) =>
+  `source=voicemail&mailbox=agent&mailbox_agent_id=${A1}&call_row_id=${CALL}&org_id=${ORG}${attemptId ? `&attempt_id=${attemptId}` : ""}`;
+const groupQuery = (attemptId: string | null = ATT) =>
+  `source=voicemail&mailbox=group&call_row_id=${CALL}&org_id=${ORG}${attemptId ? `&attempt_id=${attemptId}` : ""}`;
+
 describe("S0 — owner resolution (P1 direct line > D2 contact owner > D5 group)", () => {
   it("direct line wins, contact owner second, nobody ⇒ group", () => {
     expect(resolveOwnerCandidate({ isDirectLine: true, numberAssignedTo: A2, contactAssignedAgentId: A1 })).toEqual({ ownerAgentId: A2, ownerSource: "direct_line" });
@@ -124,7 +157,8 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     });
     const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isVoicemail(r.twiml)).toBe(true);
-    expect(r.twiml).toContain(`mailbox=agent%3A${A1}`);
+    expect(recordingCallbackQuery(r.twiml)).toBe(agentQuery());
+    expect(r.twiml).not.toContain("agent%3A");
     expect(r.twiml).toContain(`stage=voicemail_done`);
     expect(calls.map((c) => c.name)).toEqual(["plan_inbound_route", "converge_inbound_notifications"]);
   });
@@ -145,7 +179,8 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     });
     const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: null, ownerSource: null, groupIds: [A2, A3], fromNumber: "" });
     expect(isVoicemail(r.twiml)).toBe(true);
-    expect(r.twiml).toContain("mailbox=group");
+    // byte-identical to the group query issued before the 2026-09-30 repair
+    expect(recordingCallbackQuery(r.twiml)).toBe(groupQuery());
   });
 
   it("duplicate initial webhook (created=false) re-emits the PERSISTED stage and writes nothing new", async () => {
@@ -165,6 +200,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     expect(isVoicemail(r.twiml)).toBe(true);
     expect(isMobileDial(r.twiml)).toBe(false);
     expect(r.twiml).not.toContain("attempt_id=");
+    expect(recordingCallbackQuery(r.twiml)).toBe(agentQuery(null));
     expect(calls.find((c) => c.name === "mark_inbound_missed")?.args).toMatchObject({ p_reason: "no_answer", p_recipient_ids: [A1], p_for_agent_id: A1 });
   });
 
@@ -191,7 +227,7 @@ describe("S2 — owner_browser return: forwarding ONLY on the database's atomic 
       const { deps } = makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason, stage: "owner_voicemail", owner: A1 } }) });
       const r = await handleOwnerBrowserReturn(deps, ctx, { DialCallStatus: "no-answer" });
       expect(isVoicemail(r.twiml)).toBe(true);
-      expect(r.twiml).toContain(`mailbox=agent%3A${A1}`);
+      expect(recordingCallbackQuery(r.twiml)).toBe(agentQuery());
       expect(isMobileDial(r.twiml)).toBe(false);
     }
   });
@@ -322,7 +358,7 @@ describe("S5 — group wave return and voicemail completion", () => {
     const { deps, calls } = makeDeps({}, { attemptRow: groupAttempt });
     const r = await handleGroupBrowserReturn(deps, { ...ctx, agentId: "" }, { DialCallStatus: "no-answer" });
     expect(isVoicemail(r.twiml)).toBe(true);
-    expect(r.twiml).toContain("mailbox=group");
+    expect(recordingCallbackQuery(r.twiml)).toBe(groupQuery());
     expect(calls.find((c) => c.name === "mark_inbound_missed")?.args).toMatchObject({ p_reason: "no_answer", p_recipient_ids: [A2, A3], p_for_agent_id: null });
     expect(calls.map((c) => c.name)).toContain("converge_inbound_notifications");
   });
@@ -350,5 +386,144 @@ describe("S5 — group wave return and voicemail completion", () => {
     expect(nextForPersistedStage(attempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE }), 20)).toEqual({ kind: "mobile_dial", mobile: MOBILE });
     expect(nextForPersistedStage(attempt({ stage: "group_browser", reserved_agent_ids: [A2], browser_ring_timeout_sent: 25 }), 20)).toEqual({ kind: "client_dial", agentIds: [A2], timeoutSec: 25, stage: "group_browser" });
     expect(nextForPersistedStage(attempt({ stage: "done", terminal: true }), 20)).toEqual({ kind: "empty" });
+  });
+});
+
+describe("S7 — agent-voicemail callback repair (2026-09-30): the signed recording callback carries only [A-Za-z0-9._-]", () => {
+  const mobile = (accept: string | null) => attempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE, mobile_accept_result: accept });
+  const init = { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerSource: "contact" as const, fromNumber: "" };
+
+  // Every voicemail-TwiML call site in stages.ts (each voicemailTwiml() caller and the emitNext voicemail re-emit),
+  // with the EXACT signed query it must emit (key order, attempt_id present or omitted).
+  const paths: Array<[string, string, () => Promise<string>]> = [
+    ["initial owner_voicemail", agentQuery(), async () => (await handleInitialV2(makeDeps({
+      plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: attempt({ stage: "owner_voicemail", reserved_agent_ids: [], voicemail_kind: "agent", voicemail_agent_id: A1 }) } }),
+    }).deps, { ...init, ownerAgentId: A1, groupIds: [] })).twiml],
+    ["initial group_voicemail", groupQuery(), async () => (await handleInitialV2(makeDeps({
+      plan_inbound_route: () => ({ data: { created: true, stage: "group_voicemail", attempt: attempt({ stage: "group_voicemail", mode: "group", owner_agent_id: null, reserved_agent_ids: [], voicemail_kind: "group" }) } }),
+    }).deps, { ...init, ownerAgentId: null, ownerSource: null, groupIds: [A2] } as never)).twiml],
+    ["planner failure, owner", agentQuery(null), async () => (await handleInitialV2(makeDeps({ plan_inbound_route: () => ({ error: { message: "db down" } }) }).deps,
+      { ...init, ownerAgentId: A1, groupIds: [] })).twiml],
+    ["planner failure, no owner", groupQuery(null), async () => (await handleInitialV2(makeDeps({ plan_inbound_route: () => ({ error: { message: "db down" } }) }).deps,
+      { ...init, ownerAgentId: null, ownerSource: null, groupIds: [A2] } as never)).twiml],
+    ["planner returned no attempt, owner", agentQuery(null), async () => (await handleInitialV2(makeDeps({ plan_inbound_route: () => ({ data: { created: false, reason: "call_terminal" } }) }).deps,
+      { ...init, ownerAgentId: A1, groupIds: [] })).twiml],
+    ["R14 owner wave suppressed", agentQuery(), async () => (await handleInitialV2(makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: attempt() } }) }, { persist: false }).deps,
+      { ...init, ownerAgentId: A1, groupIds: [] })).twiml],
+    ["owner_browser refusal", agentQuery(), async () => (await handleOwnerBrowserReturn(makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason: "dnd", stage: "owner_voicemail", owner: A1 } }) }).deps,
+      ctx, { DialCallStatus: "no-answer" })).twiml],
+    ["owner_browser zero-row owner_voicemail (emitNext)", agentQuery(), async () => (await handleOwnerBrowserReturn(makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: false, reason: "stage_mismatch", stage: "owner_voicemail", terminal: false } }) }).deps,
+      ctx, { DialCallStatus: "no-answer" })).twiml],
+    ["D13 commit failure", agentQuery(), async () => (await handleOwnerBrowserReturn(makeDeps({ advance_to_owner_mobile: () => ({ error: { message: "deadlock" } }) }).deps,
+      ctx, { DialCallStatus: "no-answer" })).twiml],
+    ["mobile not bridged", agentQuery(), async () => (await handleOwnerMobileReturn(makeDeps({ record_inbound_mobile_bridge: () => ({ data: { bridged: false, evidence: "not_bridged", attributed: false } }) }, { attemptRow: mobile("no_digit") }).deps,
+      ctx, { DialCallStatus: "completed", DialBridged: "false" }, parseDialBridged)).twiml],
+    ["mobile unconfirmed", agentQuery(), async () => (await handleOwnerMobileReturn(makeDeps({ record_inbound_mobile_bridge: () => ({ data: { bridged: false, evidence: "unconfirmed", attributed: false } }) }, { attemptRow: mobile("no_digit") }).deps,
+      ctx, { DialCallStatus: "no-answer" }, parseDialBridged)).twiml],
+    ["group wave unanswered", groupQuery(), async () => (await handleGroupBrowserReturn(makeDeps({}, { attemptRow: attempt({ stage: "group_browser", mode: "group", owner_agent_id: null, reserved_agent_ids: [A2] }) }).deps,
+      { ...ctx, agentId: "" }, { DialCallStatus: "no-answer" })).twiml],
+    ["planner returned no attempt, no owner", groupQuery(null), async () => (await handleInitialV2(makeDeps({ plan_inbound_route: () => ({ data: { created: false, reason: "call_terminal" } }) }).deps,
+      { ...init, ownerAgentId: null, ownerSource: null, groupIds: [A2] } as never)).twiml],
+    ["R14 group wave suppressed", groupQuery(), async () => (await handleInitialV2(makeDeps({
+      plan_inbound_route: () => ({ data: { created: true, stage: "group_browser", attempt: attempt({ stage: "group_browser", mode: "group", owner_agent_id: null, reserved_agent_ids: [A2] }) } }),
+    }, { persist: false }).deps, { ...init, ownerAgentId: null, ownerSource: null, groupIds: [A2] } as never)).twiml],
+    ["mobile not bridged, no agent_id in the stage URL (mailboxForAttempt)", agentQuery(), async () => (await handleOwnerMobileReturn(makeDeps({ record_inbound_mobile_bridge: () => ({ data: { bridged: false, evidence: "not_bridged", attributed: false } }) }, { attemptRow: mobile("no_digit") }).deps,
+      { ...ctx, agentId: "" }, { DialCallStatus: "completed", DialBridged: "false" }, parseDialBridged)).twiml],
+    ["group wave stage_mismatch while still ringing", groupQuery(), async () => (await handleGroupBrowserReturn(makeDeps({ advance_inbound_route_stage: () => ({ data: { updated: false, reason: "stage_mismatch", stage: "group_browser", terminal: false } }) },
+      { attemptRow: attempt({ stage: "group_browser", mode: "group", owner_agent_id: null, reserved_agent_ids: [A2] }) }).deps, { ...ctx, agentId: "" }, { DialCallStatus: "no-answer" })).twiml],
+  ];
+
+  it.each(paths)("%s ⇒ exactly %s", async (_label, expected, run) => {
+    const xml = await run();
+    expect(isVoicemail(xml)).toBe(true);
+    const q = recordingCallbackQuery(xml);
+    expect(q).toBe(expected);
+    const kind = new URLSearchParams(expected).get("mailbox");
+    expect(callbackQueryViolations(q)).toEqual([]);
+    expect(q).not.toContain("agent%3A");
+    expect(q).not.toContain("agent:");
+    const p = new URLSearchParams(q);
+    expect(p.get("source")).toBe("voicemail");
+    expect(p.get("mailbox")).toBe(kind);
+    if (kind === "agent") expect(p.get("mailbox_agent_id")).toBe(A1);
+    else expect(p.has("mailbox_agent_id")).toBe(false);
+    // the retry fragment still rides the TwiML attribute
+    expect(xml).toContain("#rc=3&amp;rp=5xx,ct,rt");
+  });
+
+  it("NEGATIVE CONTROL: the pre-repair agent query violates the invariant (the check can tell them apart)", () => {
+    const legacy = `source=voicemail&mailbox=agent%3A${A1}&call_row_id=${CALL}&org_id=${ORG}&attempt_id=${ATT}`;
+    expect(callbackQueryViolations(legacy)).not.toEqual([]);
+    expect(callbackQueryViolations(agentQuery())).toEqual([]);
+    expect(callbackQueryViolations(groupQuery())).toEqual([]);
+  });
+
+  it("voicemailCallbackQuery: agent → mailbox=agent + mailbox_agent_id (lower-cased); group unchanged", () => {
+    expect(voicemailCallbackQuery(`agent:${A1}`)).toEqual({ query: { source: "voicemail", mailbox: "agent", mailbox_agent_id: A1 }, valid: true });
+    expect(voicemailCallbackQuery(`agent:${A1.toUpperCase()}`)).toEqual({ query: { source: "voicemail", mailbox: "agent", mailbox_agent_id: A1 }, valid: true });
+    expect(voicemailCallbackQuery("group")).toEqual({ query: { source: "voicemail", mailbox: "group" }, valid: true });
+  });
+
+  it("voicemailCallbackQuery: an unparseable mailbox fails closed as an agent mailbox WITHOUT an id — never the group mailbox", () => {
+    for (const bad of ["agent:+15559990001", "", "everyone", "agent:"]) {
+      const r = voicemailCallbackQuery(bad);
+      expect(r).toEqual({ query: { source: "voicemail", mailbox: "agent" }, valid: false });
+      expect(r.query.mailbox).not.toBe("group");
+      expect(callbackQueryViolations(new URLSearchParams(r.query).toString())).toEqual([]);
+    }
+  });
+});
+
+describe("S6 — recent-outbound owner (rev 4 §A4): the planner-chosen dialer drives the SAME individual-agent flow", () => {
+  it.each(["answered", "unanswered"] as const)("a %s attempt with owner_source 'recent_outbound' binds the dialer exactly like a contact owner (browser, mailbox, callbacks)", async (evidenceOutcome) => {
+    // TypeScript found no owner (unknown caller), so it passes none; plan_inbound_route chose the dialer from
+    // provider-verified evidence and returns an owner-mode attempt carrying owner_source + the evidence columns.
+    const roAttempt = (over: Record<string, unknown> = {}) => attempt({
+      owner_agent_id: A2, reserved_agent_ids: [A2], owner_source: "recent_outbound",
+      owner_evidence_dial_call_sid: "CA" + "d".repeat(32), owner_evidence_provider_started_at: "2026-09-27T11:00:00Z",
+      owner_evidence_outcome: evidenceOutcome, ...over,
+    });
+    const contactAttempt = (over: Record<string, unknown> = {}) => attempt({ owner_agent_id: A2, reserved_agent_ids: [A2], owner_source: "contact", ...over });
+    const initial = (ownerAgentId: string | null, ownerSource: "contact" | null) =>
+      ({ callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId, ownerSource, groupIds: [A2, A3], fromNumber: "+19995551234" });
+
+    // owner_browser: one <Client> ring for the dialer, stage action bound to the owner — identical to a contact owner
+    const ro = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: roAttempt() } }) });
+    const r1 = await handleInitialV2(ro.deps, initial(null, null));
+    expect(ro.calls[0]).toMatchObject({ name: "plan_inbound_route", args: { p_owner_agent_id: null, p_owner_source: null, p_candidate_group_ids: [A2, A3] } });
+    expect((r1.twiml.match(/<Client /g) || []).length).toBe(1);
+    expect(r1.twiml).toContain("stage=owner_browser");
+    expect(r1.twiml).toContain(`agent_id=${A2}`);
+    const co = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: contactAttempt() } }) });
+    expect((await handleInitialV2(co.deps, initial(A2, "contact"))).twiml).toBe(r1.twiml);
+
+    // owner_voicemail (DND/Break/busy/offline without mobile): the dialer's OWN mailbox, B1 repaired callback encoding
+    const vmAttempt = { stage: "owner_voicemail", reserved_agent_ids: [], voicemail_kind: "agent", voicemail_agent_id: A2 };
+    const vm = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: roAttempt(vmAttempt) } }) });
+    const r2 = await handleInitialV2(vm.deps, initial(null, null));
+    expect(r2.twiml).toContain(`mailbox=agent&amp;mailbox_agent_id=${A2}`);
+    expect(r2.twiml).not.toContain("mailbox=group");
+    expect(r2.twiml).not.toContain("agent%3A");
+    const callback = r2.twiml.match(/recordingStatusCallback="([^"]+)"/)?.[1].replace(/&amp;/g, "&");
+    expect(callback).toBeTruthy();
+    expect(readVoicemailCallbackQuery(new URL(callback!).searchParams)).toEqual({
+      ok: true, mailbox: `agent:${A2}`, callRowId: CALL, orgId: ORG, attemptId: ATT,
+    });
+    expect(vm.calls.map((c) => c.name)).toEqual(["plan_inbound_route", "converge_inbound_notifications"]);
+    const cvm = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_voicemail", attempt: contactAttempt(vmAttempt) } }) });
+    expect((await handleInitialV2(cvm.deps, initial(A2, "contact"))).twiml).toBe(r2.twiml);
+
+    // owner_mobile: D13 snapshot → mobile <Dial> whose callbacks carry the owner
+    const mob = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_mobile", mobile: MOBILE, attempt: roAttempt({ stage: "owner_mobile", mobile_number_dialed: MOBILE }) } }) });
+    const r3 = await handleInitialV2(mob.deps, initial(null, null));
+    expect(isMobileDial(r3.twiml)).toBe(true);
+    expect(r3.twiml).toContain(`stage=owner_mobile&amp;call_row_id=${CALL}&amp;org_id=${ORG}&amp;attempt_id=${ATT}&amp;agent_id=${A2}`);
+
+    // the owner_browser return is bound to the owner in the stage URL: a refusal lands in the dialer's mailbox
+    const ret = makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason: "dnd", stage: "owner_voicemail", owner: A2 } }) });
+    const r4 = await handleOwnerBrowserReturn(ret.deps, { ...ctx, agentId: A2 }, { DialCallStatus: "no-answer" });
+    expect(r4.twiml).toContain(`mailbox=agent&amp;mailbox_agent_id=${A2}`);
+    expect(ret.calls.find((c) => c.name === "advance_to_owner_mobile")?.args).toMatchObject({ p_attempt_id: ATT, p_org_id: ORG, p_call_row_id: CALL });
+    expect(mailboxForAttempt(roAttempt(vmAttempt))).toBe(`agent:${A2}`);
   });
 });

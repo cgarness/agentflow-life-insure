@@ -7,6 +7,10 @@
 # runs the R9 TRUE two-session advisory-lock concurrency proof, then applies inbound_v2_harness.sql +
 # M4–M7 (Inbound Calling v2), runs the four v2 suites and the TRUE two-session owner-reservation proof,
 # and drops the database. Refuses to run when PGURL does not point at localhost.
+# Recent-outbound routing (20260927052736): after the v2 suites ran once on M4–M9 the migration is applied in
+# ONE transaction, the same v2 suites are RE-RUN (unchanged behaviour with no configuration row), then
+# inbound_recent_outbound.sql, three multi-session proofs (two callers of one dialer; planning vs deadline abandon;
+# the SAME call planned by two sessions) and run_recent_outbound_rollback_test.sh.
 set -euo pipefail
 
 PGURL="${PGURL:?set PGURL to a LOCAL postgres, e.g. postgresql://postgres@127.0.0.1:54329}"
@@ -27,6 +31,8 @@ M7="$ROOT/supabase/migrations/20260915053646_inbound_voicemails.sql"
 # Corrective pass 13 — NOT YET APPLIED to any hosted project; local suites only.
 M8="$ROOT/supabase/migrations/20260918000614_voicemail_cleanup_actionable_selection.sql"
 M9="$ROOT/supabase/migrations/20260918002859_voicemail_first_listen_guard.sql"
+# Recent-outbound callback routing — NOT APPLIED to any hosted project; local suites only.
+M10="$ROOT/supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql"
 
 psql "$PGURL/postgres" -qc "CREATE DATABASE $DB;"
 trap 'psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $DB;"' EXIT
@@ -80,11 +86,178 @@ psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M7"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M8"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$M9"
 
-for f in inbound_registrations inbound_group_validation inbound_route_attempts inbound_voicemails voicemail_listen_guard_and_cleanup_selection; do
+V2_SUITES="inbound_registrations inbound_group_validation inbound_route_attempts inbound_voicemails voicemail_listen_guard_and_cleanup_selection"
+for f in $V2_SUITES; do
   echo "== $f =="
   psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/$f.sql"
   echo "   OK"
 done
+
+# ── Recent-outbound callback routing (20260927052736) ───────────────────────────────────────────────
+echo "== recent-outbound: apply 20260927052736 in ONE transaction =="
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$M10"
+for f in $V2_SUITES; do
+  echo "== $f (RE-RUN with 20260927052736 applied, no configuration row) =="
+  psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/$f.sql"
+  echo "   OK"
+done
+echo "== inbound_recent_outbound =="
+RO_LOG="$(mktemp)"
+if ! psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/inbound_recent_outbound.sql" > "$RO_LOG" 2>&1; then
+  cat "$RO_LOG"; rm -f "$RO_LOG"; echo "RECENT-OUTBOUND SUITE FAILED"; exit 1
+fi
+# D9: each CONTAINED fault must have logged its WARNING (the suite asserts the group routing and the reason).
+for w in "plan_inbound_route: recent_outbound config unavailable (42P01)" "plan_inbound_route: recent_outbound evidence unavailable (42P01)"; do
+  grep -qF "WARNING:  $w" "$RO_LOG" || { cat "$RO_LOG"; rm -f "$RO_LOG"; echo "RECENT-OUTBOUND: missing WARNING '$w'"; exit 1; }
+done
+rm -f "$RO_LOG"
+echo "   OK (incl. both contained-fault WARNINGs)"
+
+# Multi-session proofs on a dedicated organization (committed fixtures; the org 0a proofs below are unaffected).
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
+INSERT INTO public.organizations (id, name) VALUES ('e0000000-0000-0000-0000-0000000000e9', 'RO proof org');
+INSERT INTO auth.users (id) VALUES ('e0000000-0000-0000-0000-0000000000d9'), ('e0000000-0000-0000-0000-0000000000a9'), ('e0000000-0000-0000-0000-0000000000b9');
+INSERT INTO public.profiles (id, organization_id, role, status, twilio_client_identity, availability_status) VALUES
+ ('e0000000-0000-0000-0000-0000000000d9','e0000000-0000-0000-0000-0000000000e9','Agent','Active','ro_proof_d9','Available'),
+ ('e0000000-0000-0000-0000-0000000000a9','e0000000-0000-0000-0000-0000000000e9','Agent','Active','ro_proof_a9','Available'),
+ ('e0000000-0000-0000-0000-0000000000b9','e0000000-0000-0000-0000-0000000000e9','Agent','Active','ro_proof_b9','Available');
+INSERT INTO public.agent_phone_registrations (agent_id, registration_id, organization_id, seq, registered, registered_at, last_seen_at, last_state)
+SELECT p, gen_random_uuid(), 'e0000000-0000-0000-0000-0000000000e9', 1, true, now(), now(), 'registered'
+  FROM unnest(ARRAY['e0000000-0000-0000-0000-0000000000d9','e0000000-0000-0000-0000-0000000000a9','e0000000-0000-0000-0000-0000000000b9']::uuid[]) p;
+INSERT INTO public.phone_numbers (organization_id, phone_number, assignment_type) VALUES ('e0000000-0000-0000-0000-0000000000e9', '+15550009001', 'agency');
+INSERT INTO public.inbound_routing_settings (organization_id, routing_engine, inbound_group_agent_ids)
+VALUES ('e0000000-0000-0000-0000-0000000000e9', 'v2', ARRAY['e0000000-0000-0000-0000-0000000000a9','e0000000-0000-0000-0000-0000000000b9']::uuid[]);
+INSERT INTO private.recent_outbound_routing_orgs (organization_id, enabled) VALUES ('e0000000-0000-0000-0000-0000000000e9', true);
+-- d9 verifiably dialed three people from the DID two hours ago (outbound rows as the browser writes them; the
+-- record RPC as twilio-voice-status calls it, through service_role)
+INSERT INTO public.calls (id, organization_id, agent_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, created_at, ended_at)
+SELECT ('e0000000-0000-0000-0009-00000000000' || i)::uuid, 'e0000000-0000-0000-0000-0000000000e9', 'e0000000-0000-0000-0000-0000000000d9',
+       'outbound', 'completed', 'CA' || lpad(to_hex(9100 + i), 32, '0'), '+1999555900' || i, '+15550009001', now() - interval '2 hours', now() - interval '2 hours'
+  FROM generate_series(1, 3) i;
+SET ROLE service_role;
+DO $$
+DECLARE i integer; r jsonb;
+BEGIN
+  FOR i IN 1..3 LOOP
+    r := public.record_outbound_dial_evidence('AC000000000000000000000000000000aa', 'AC000000000000000000000000000000aa',
+           'CA' || lpad(to_hex(9100 + i), 32, '0'), 'CA' || lpad(to_hex(9200 + i), 32, '0'), 'completed', 'client:ro_proof_d9', '+1999555900' || i,
+           'AC000000000000000000000000000000aa', 'client:ro_proof_d9', 'AC000000000000000000000000000000aa', 'CA' || lpad(to_hex(9100 + i), 32, '0'),
+           '+1999555900' || i, '+15550009001', 'completed', now() - interval '2 hours');
+    IF r->>'reason' IS DISTINCT FROM 'recorded' THEN RAISE EXCEPTION 'proof fixture evidence %: %', i, r; END IF;
+  END LOOP;
+END $$;
+RESET ROLE;
+-- three unknown callers ring the DID now
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, routing_engine)
+SELECT ('e0000000-0000-0000-0009-00000000001' || i)::uuid, 'e0000000-0000-0000-0000-0000000000e9', 'inbound', 'ringing',
+       'CA' || lpad(to_hex(9300 + i), 32, '0'), '+1999555900' || i, '+15550009001', 'v2'
+  FROM generate_series(1, 3) i;
+EOF
+RO_PLAN() { echo "SELECT public.plan_inbound_route('$1','e0000000-0000-0000-0000-0000000000e9',NULL,NULL,ARRAY['e0000000-0000-0000-0000-0000000000a9','e0000000-0000-0000-0000-0000000000b9']::uuid[],20);"; }
+
+echo "== recent-outbound proof: two unknown callers of the SAME dialer, planned concurrently =="
+psql "$PGURL/$DB" -q <<EOF &
+BEGIN;
+SET LOCAL ROLE service_role;
+$(RO_PLAN e0000000-0000-0000-0009-000000000011)
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+sleep 1
+psql "$PGURL/$DB" -q <<EOF
+BEGIN;
+SET LOCAL ROLE service_role;
+$(RO_PLAN e0000000-0000-0000-0009-000000000012)
+COMMIT;
+EOF
+wait
+S1=$(psql "$PGURL/$DB" -Atc "SELECT stage || ':' || owner_source || ':' || owner_agent_id FROM public.inbound_route_attempts WHERE call_id='e0000000-0000-0000-0009-000000000011';")
+S2=$(psql "$PGURL/$DB" -Atc "SELECT a.stage || ':' || a.eligibility_reason || ':' || a.owner_source || ':' || c.missed_recipient_ids::text FROM public.inbound_route_attempts a JOIN public.calls c ON c.id = a.call_id WHERE a.call_id='e0000000-0000-0000-0009-000000000012';")
+if [ "$S1" != "owner_browser:recent_outbound:e0000000-0000-0000-0000-0000000000d9" ] \
+   || [ "$S2" != "owner_voicemail:owner_busy:recent_outbound:{e0000000-0000-0000-0000-0000000000d9}" ]; then
+  echo "RECENT-OUTBOUND CONCURRENCY FAILED: first=$S1 second=$S2"; exit 1
+fi
+echo "   OK (first rings the dialer; the concurrent second is refused as busy → the dialer's voicemail, snapshot [dialer])"
+
+echo "== recent-outbound proof: planning waits for the dialer's lock while the deadline abandon is in flight =="
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
+UPDATE public.inbound_route_attempts SET terminal = true, reserved_agent_ids = '{}'::uuid[]
+ WHERE call_id IN ('e0000000-0000-0000-0009-000000000011','e0000000-0000-0000-0009-000000000012');
+UPDATE public.calls SET status = 'completed', ended_at = now()
+ WHERE id IN ('e0000000-0000-0000-0009-000000000011','e0000000-0000-0000-0009-000000000012');
+EOF
+RO_B="$(mktemp)"; RO_C="$(mktemp)"
+psql "$PGURL/$DB" -q <<'EOF' &
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtext('inbound_agent:e0000000-0000-0000-0000-0000000000d9'));
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+sleep 0.7
+psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(RO_PLAN e0000000-0000-0000-0009-000000000013)" > "$RO_B" 2>&1 &
+sleep 0.7
+psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; SELECT public.abandon_inbound_routing('e0000000-0000-0000-0009-000000000013','e0000000-0000-0000-0000-0000000000e9','deadline');" > "$RO_C" 2>&1 &
+wait
+RO_STATE=$(psql "$PGURL/$DB" -Atc "SELECT c.status || '|' || (c.ended_at IS NOT NULL) || '|' || a.stage || ':' || a.terminal || ':' || coalesce(a.final_outcome,'-') || ':' || cardinality(a.reserved_agent_ids) || '|' || a.owner_source || '|' || c.missed_recipient_ids::text || '|' || public.is_agent_busy(c.organization_id, 'e0000000-0000-0000-0000-0000000000d9', NULL) FROM public.calls c JOIN public.inbound_route_attempts a ON a.call_id = c.id WHERE c.id = 'e0000000-0000-0000-0009-000000000013';")
+echo "   B: $(tr -d '\n' < "$RO_B" | cut -c1-140)"
+echo "   C: $(tr -d '\n' < "$RO_C" | cut -c1-140)"
+echo "   state: $RO_STATE"
+rm -f "$RO_B" "$RO_C"
+if [ "$RO_STATE" != "no-answer|true|owner_browser:true:parent_no-answer:0|recent_outbound|{e0000000-0000-0000-0000-0000000000d9}|false" ]; then
+  echo "RECENT-OUTBOUND BARRIER PROOF FAILED: $RO_STATE"; exit 1
+fi
+echo "   OK (the call is terminal, nobody reserved, and the recipients snapshot is [dialer])"
+
+echo "== recent-outbound proof: the SAME unknown-caller call planned by two sessions at once (dialer on DND) =="
+# A plans the call (eligible evidence ⇒ the dialer, who is on DND ⇒ agent voicemail + D13) and holds its transaction
+# open; B plans the SAME call, WAITS on A's parent-row lock, then finds A's committed attempt. Asserted: B really
+# waited while A was open, exactly one attempt, one created:true and one created:false returning that attempt,
+# owner_source recent_outbound with its evidence, and exactly ONE calls write — the single D13 mark naming [dialer].
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
+UPDATE public.profiles SET availability_status = 'Do Not Disturb' WHERE id = 'e0000000-0000-0000-0000-0000000000d9';
+INSERT INTO public.calls (id, organization_id, direction, status, twilio_call_sid, contact_phone, caller_id_used, routing_engine)
+VALUES ('e0000000-0000-0000-0009-000000000014', 'e0000000-0000-0000-0000-0000000000e9', 'inbound', 'ringing',
+        'CA' || lpad(to_hex(9314), 32, '0'), '+19995559001', '+15550009001', 'v2');
+EOF
+RO_UPD0=$(psql "$PGURL/$DB" -Atc "SELECT n FROM public.harness_trigger_counts WHERE k = 'calls_update';")
+RO_A="$(mktemp)"; RO_B="$(mktemp)"; RO_A_OPEN=no; RO_B_WAITED=no
+PGAPPNAME=ro_same_call_a psql "$PGURL/$DB" -q -At > "$RO_A" 2>&1 <<EOF &
+BEGIN;
+SET LOCAL ROLE service_role;
+$(RO_PLAN e0000000-0000-0000-0009-000000000014)
+SELECT pg_sleep(3);
+COMMIT;
+EOF
+for _ in $(seq 1 50); do
+  [ "$(psql "$PGURL/$DB" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'ro_same_call_a' AND state = 'active' AND query LIKE 'SELECT pg_sleep%';")" = "1" ] && { RO_A_OPEN=yes; break; }
+  sleep 0.1
+done
+PGAPPNAME=ro_same_call_b psql "$PGURL/$DB" -q -Atc "SET ROLE service_role; $(RO_PLAN e0000000-0000-0000-0009-000000000014)" > "$RO_B" 2>&1 &
+for _ in $(seq 1 25); do
+  [ "$(psql "$PGURL/$DB" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'ro_same_call_b' AND wait_event_type = 'Lock';")" = "1" ] && { RO_B_WAITED=yes; break; }
+  sleep 0.1
+done
+wait
+RO_WRITES=$(( $(psql "$PGURL/$DB" -Atc "SELECT n FROM public.harness_trigger_counts WHERE k = 'calls_update';") - RO_UPD0 ))
+RO_ID=$(psql "$PGURL/$DB" -Atc "SELECT id FROM public.inbound_route_attempts WHERE call_id = 'e0000000-0000-0000-0009-000000000014';")
+RO_STATE=$(psql "$PGURL/$DB" -Atc "SELECT (SELECT count(*) FROM public.inbound_route_attempts x WHERE x.call_id = c.id) || '|' || a.stage || ':' || a.eligibility_reason || ':' || a.owner_source || ':' || a.owner_agent_id || ':' || (a.owner_evidence_dial_call_sid = 'CA' || lpad(to_hex(9201), 32, '0')) || ':' || a.owner_evidence_outcome || '|' || c.is_missed || ':' || c.missed_reason || ':' || c.missed_for_agent_id || ':' || c.missed_recipient_ids::text || ':' || coalesce(c.agent_id::text, '-') FROM public.calls c JOIN public.inbound_route_attempts a ON a.call_id = c.id WHERE c.id = 'e0000000-0000-0000-0009-000000000014';")
+RO_A_OUT=$(tr -d '\n' < "$RO_A"); RO_B_OUT=$(tr -d '\n' < "$RO_B"); rm -f "$RO_A" "$RO_B"
+echo "   A: $(echo "$RO_A_OUT" | cut -c1-140)"
+echo "   B: $(echo "$RO_B_OUT" | cut -c1-140)"
+echo "   A held its transaction open: $RO_A_OPEN; B waited on A's lock: $RO_B_WAITED; calls writes: $RO_WRITES"
+echo "   state: $RO_STATE"
+case "$RO_A_OUT" in *'"created": true'*) RO_A_CREATED=true ;; *) RO_A_CREATED=no ;; esac
+case "$RO_B_OUT" in *'"created": false'*) RO_B_CREATED=false ;; *) RO_B_CREATED=no ;; esac
+if [ "$RO_A_OPEN" != yes ] || [ "$RO_B_WAITED" != yes ] || [ "$RO_A_CREATED" != true ] || [ "$RO_B_CREATED" != false ] \
+   || [ -z "$RO_ID" ] || [ "${RO_A_OUT#*"$RO_ID"}" = "$RO_A_OUT" ] || [ "${RO_B_OUT#*"$RO_ID"}" = "$RO_B_OUT" ] || [ "$RO_WRITES" != "1" ] \
+   || [ "$RO_STATE" != "1|owner_voicemail:owner_dnd:recent_outbound:e0000000-0000-0000-0000-0000000000d9:true:answered|true:dnd:e0000000-0000-0000-0000-0000000000d9:{e0000000-0000-0000-0000-0000000000d9}:-" ]; then
+  echo "RECENT-OUTBOUND SAME-CALL PROOF FAILED (A created=$RO_A_CREATED, B created=$RO_B_CREATED, attempt=$RO_ID, writes=$RO_WRITES): $RO_STATE"; exit 1
+fi
+psql "$PGURL/$DB" -qc "UPDATE public.profiles SET availability_status = 'Available' WHERE id = 'e0000000-0000-0000-0000-0000000000d9';"
+echo "   OK (one attempt; A created it, B waited and got it back created:false; one D13 mark 'dnd' naming [dialer])"
+
+echo "== recent-outbound rollback proof (forward → rollback → forward, forced failures, negative control) =="
+"$ROOT/scripts/run_recent_outbound_rollback_test.sh" | sed 's/^/   /'
 
 # Dedicated agents for the barrier proofs (the suites above roll their own fixtures back).
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q <<'EOF'
@@ -323,4 +496,4 @@ echo "== rollback proof (M7 → M6 → reapply) =="
 echo "== corrective-pass-13 rollback proof (M9 → M8 → reapply) =="
 "$ROOT/scripts/run_cp13_rollback_test.sh" | sed 's/^/   /'
 
-echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M9, incl. both rollback proofs)"
+echo "ALL INBOUND SQL SUITES GREEN (M1-M3 + v2 M4-M9 + recent-outbound 20260927052736, incl. all three rollback proofs)"
