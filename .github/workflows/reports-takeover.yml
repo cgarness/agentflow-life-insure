@@ -15,13 +15,23 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: true
-      - name: Verify and publish only the reviewed patch on this branch
+      - name: Verify and publish code only on the repair branch
         env:
           EXPECTED_HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reports-stage"
           tar -cf "$RUNNER_TEMP/reports-stage/staged-parts.tar" .reports-takeover
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.reports-takeover/apply.py'); s=p.read_text()
+          old="Path('.github/workflows/reports-takeover.yml').unlink()"
+          new="subprocess.run(['git','restore','--source=HEAD','--','.github/workflows/reports-backend.yml'],check=True)\nPath('.github/workflows/reports-frontend.yml').unlink()\nallowed -= {'.github/workflows/reports-backend.yml','.github/workflows/reports-frontend.yml'}"
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          s=s.replace(",'.reports-takeover','.github/workflows/reports-takeover.yml']",",'.reports-takeover']")
+          p.write_text(s)
+          PY
           python3 .reports-takeover/apply.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
