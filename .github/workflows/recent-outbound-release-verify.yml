@@ -1,27 +1,18 @@
-name: Recent-outbound integrated verification
-
+name: Record callback-routing production release
 on:
   push:
     branches: [chatgpt/recent-outbound-final-20261002]
-    paths:
-      - .github/workflows/recent-outbound-release-verify.yml
-      - scripts/prepare_recent_outbound_release.py
-      - scripts/verify_recent_outbound_release.py
-      - scripts/run_recent_outbound_activation_tests.sh
-  workflow_dispatch:
-
+    paths: [.github/workflows/recent-outbound-release-verify.yml]
 permissions:
   contents: read
-
 concurrency:
   group: recent-outbound-final-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  verify:
+  record:
     if: github.ref == 'refs/heads/chatgpt/recent-outbound-final-20261002'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: write
     services:
@@ -32,21 +23,13 @@ jobs:
         ports:
           - 55433:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
       PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
-      RO_MAIN_SHA: e04eb16dc6fc70734f85868ab5235186d0ce4813
     steps:
-      - name: Set runtime paths after runner allocation
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "RO_BASE_WORKTREE=$RUNNER_TEMP/ro-base" >> "$GITHUB_ENV"
-          echo "RO_EVIDENCE=$RUNNER_TEMP/ro-final-evidence" >> "$GITHUB_ENV"
-          echo "DENO_DIR=$RUNNER_TEMP/ro-deno-cache" >> "$GITHUB_ENV"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
@@ -56,106 +39,113 @@ jobs:
         with:
           node-version: '22.16.0'
           cache: npm
-      - name: Prepare the exact combined source without touching main
+      - name: Apply only approved records and version-reference reconciliation
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RO_EVIDENCE"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git worktree add --detach "$RO_BASE_WORKTREE" "$RO_MAIN_SHA"
-          git update-ref refs/remotes/origin/main "$RO_MAIN_SHA"
-          if [ ! -f supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql ]; then
-            python3 scripts/prepare_recent_outbound_release.py
-          fi
-          git diff --cached --stat | tee "$RO_EVIDENCE/integration-stat.txt"
-          git diff --cached --name-only | tee "$RO_EVIDENCE/integration-files.txt"
-      - name: Install pinned verification dependencies
+          python3 - <<'PYRECORD'
+          FINAL_WORKFLOW='name: Recent-outbound released-source verification\n\n# Production release is recorded in the plan. This workflow has NO production credentials,\n# never deploys or activates anything, and does not write repository files.\non:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  verify:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 30\n    services:\n      postgres:\n        image: postgres:17.6\n        env:\n          POSTGRES_PASSWORD: isolated-test-only\n        ports:\n          - 55433:5432\n        options: >-\n          --health-cmd "pg_isready -U postgres"\n          --health-interval 5s\n          --health-timeout 5s\n          --health-retries 10\n    env:\n      PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433\n      RO_MAIN_SHA: e04eb16dc6fc70734f85868ab5235186d0ce4813\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\n        with:\n          node-version: \'22.16.0\'\n          cache: npm\n      - name: Prepare isolated verification environment\n        shell: bash\n        run: |\n          set -euo pipefail\n          test -f supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql\n          echo "RO_BASE_WORKTREE=$RUNNER_TEMP/ro-base" >> "$GITHUB_ENV"\n          echo "RO_EVIDENCE=$RUNNER_TEMP/ro-evidence" >> "$GITHUB_ENV"\n          echo "DENO_DIR=$RUNNER_TEMP/ro-deno-cache" >> "$GITHUB_ENV"\n          mkdir -p "$RUNNER_TEMP/ro-evidence"\n          git worktree add --detach "$RUNNER_TEMP/ro-base" "$RO_MAIN_SHA"\n          npm ci --ignore-scripts --no-audit --no-fund\n          ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/ro-base/node_modules"\n          npm install --prefix "$RUNNER_TEMP/ro-deno" deno@2.1.4 --no-audit --no-fund\n          echo "DENO_BIN=$RUNNER_TEMP/ro-deno/node_modules/.bin/deno" >> "$GITHUB_ENV"\n      - name: SQL and generated types using recorded migration filenames\n        shell: bash\n        run: |\n          set -euo pipefail\n          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RO_EVIDENCE/activation.txt"\n          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RO_EVIDENCE/inbound.txt"\n          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RO_EVIDENCE/rollback.txt"\n          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RO_EVIDENCE/types.txt"\n          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RO_EVIDENCE/types-negative.txt"\n      - name: Existing baseline-aware application and package verification\n        shell: bash\n        run: |\n          set -euo pipefail\n          python3 scripts/verify_recent_outbound_release.py 2>&1 | tee "$RO_EVIDENCE/verification.txt"\n      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n        if: always()\n        with:\n          name: recent-outbound-released-source-${{ github.run_id }}\n          path: ${{ runner.temp }}/ro-evidence/\n          retention-days: 7\n'
+          import hashlib, os, pathlib, subprocess, json
+          root=pathlib.Path.cwd()
+          source='1ec9cf8b546837d75215649f3d2783e4426736b1'
+          old='20260927052736'; new='20261002203426'
+          report_path='docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md'
+          plan_path='docs/plans/2026-10-02-recent-outbound-final/implementation_plan.md'
+          workflow_path='.github/workflows/recent-outbound-release-verify.yml'
+          def original(name): return subprocess.check_output(['git','show',source+':'+name])
+          def sha(data): return hashlib.sha256(data).hexdigest()
+          assert (root/report_path).is_file(), 'Missing approved execution record'
+          assert '20:53:25.074188' in (root/report_path).read_text()
+          allowed={report_path,plan_path,'WORK_LOG.md','AGENT_RULES.md',workflow_path}
+          pairs=[('supabase/migrations/','_inbound_recent_outbound_routing.sql','348205ca4d8c860a04a68a23af840be35f2c2f57ad08d8f6a89262e86b429038'),('supabase/migrations/rollback/','_inbound_recent_outbound_routing.rollback.sql','7def919c2ed430caa0ee9d26c873a2099562d66a1f7f7244cbe649adaa2d62cd')]
+          for directory,suffix,digest in pairs:
+              a=root/(directory+old+suffix); b=root/(directory+new+suffix)
+              assert a.is_file() and not b.exists(), 'Unexpected migration filename state'
+              assert sha(a.read_bytes())==digest and a.read_bytes()==original(directory+old+suffix)
+              a.rename(b)
+              assert sha(b.read_bytes())==digest
+              allowed.update([str(a.relative_to(root)),str(b.relative_to(root))])
+          refs=['scripts/run_inbound_sql_tests.sh','scripts/run_recent_outbound_activation_tests.sh','scripts/run_recent_outbound_rollback_test.sh','scripts/verify_inbound_generated_types.sh']
+          for name in refs:
+              p=root/name; data=p.read_text()
+              assert old+'_inbound_recent_outbound' in data, name
+              data=data.replace(old+'_inbound_recent_outbound',new+'_inbound_recent_outbound')
+              if name=='scripts/run_inbound_sql_tests.sh':
+                  data=data.replace('# Recent-outbound callback routing — NOT APPLIED to any hosted project; local suites only.','# Recent-outbound callback routing — APPLIED as 20261002203426; this runner is isolated-local only.')
+              p.write_text(data); allowed.add(name)
+          # Preserve original immutable-source paths. The preparer must refuse this already-integrated tree too.
+          name='scripts/prepare_recent_outbound_release.py'; p=root/name; data=p.read_text()
+          a="if (ROOT/MIGRATION).exists(): raise RuntimeError('Already integrated; refusing to reapply')"
+          b="if (ROOT/MIGRATION).exists() or (ROOT/MIGRATION.replace('20260927052736', '20261002203426')).exists(): raise RuntimeError('Already integrated; refusing to reapply')"
+          assert data.count(a)==1; p.write_text(data.replace(a,b)); allowed.add(name)
+          rule="- **Recent-outbound routing production amendment (2026-10-02).** Deployed status handler v44 and migration `20261002203426` support recent-outbound routing; only the approved agency is enabled, including supported unanswered attempts. Recent-outbound routing may select an Active same-organization agent only after direct-line and saved-contact precedence, a fresh CRM not-found check, and provider-verified same-number evidence within 168 hours. The committed attempt owns the routing decision and its notification recovery; replay never re-selects the owner. Saved-but-unassigned, ambiguous and auto-created callers remain on their existing path. Supported unanswered eligibility is controlled only by the approved private per-organization configuration.\n- **Optional evidence capture exception.** The optional recent-outbound evidence capture in twilio-voice-status is a narrow best-effort exception to #30's retry requirement. It never changes or delays a webhook response, canonical duration/status write or required notification. Only Twilio-signed and parent/child-provider-verified evidence can be recorded. Losing this optional capture falls back to pre-feature routing; all other authentication, tenant-isolation and retry guarantees remain unchanged. Source verification is complete; real callback/recipient-playback acceptance is pending. Exact release, correction and recovery record: `docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md`.\n"
+          p=root/'AGENT_RULES.md'; lines=p.read_text().splitlines(keepends=True)
+          indices=[i for i,line in enumerate(lines) if line.startswith('30. **Inbound ownership')]
+          assert len(indices)==1 and 'Recent-outbound routing production amendment' not in ''.join(lines)
+          lines.insert(indices[0]+1,rule); p.write_text(''.join(lines))
+          plan_note='> **LIVE RELEASE RECORD — 2026-10-02 20:53:25.074188 UTC:** Task A is applied and enabled for the approved agency, including eligible unanswered attempts. Status handler v44 is source-verified; existing inbound v46/recording v37 are unchanged. Migration version is `20261002203426`, with original SQL bytes preserved. Earlier pending/blocked/not-deployed sections below are historical, not current state. Natural recent-outbound callback and individual-agent playback acceptance remain pending. See `PRODUCTION_RELEASE_2026-10-02.md` for execution, the v43 transcription correction before activation, operator-confirmed idle exception, recovery and limitations.\n\n'
+          p=root/plan_path; prior=p.read_bytes(); assert not prior.startswith(plan_note.encode()); p.write_bytes(plan_note.encode()+prior)
+          entry='## 2026-10-02 — Recent-outbound callback routing — LIVE AND ENABLED; natural callback acceptance pending\n\n- Chris approved exact source `1ec9cf8` and confirmed Teo/Will were not dialing; only those known idle sessions and the unchanged stale ringing row were excepted. No session/call/lead was cleared or reassigned.\n- Applied migration once as `20261002203426_inbound_recent_outbound_routing`, 56,731 bytes; SHA-256 `348205ca4d8c860a04a68a23af840be35f2c2f57ad08d8f6a89262e86b429038` verified from recorded production SQL. Both SQL streams retain exact approved bytes; filenames and active test references now use the recorded version.\n- Deployed status handler v44, seven files, payload `660ee45d31cc8433df0e8c23a8674ddf1c289e10439b7ce99800d05417598f4c`, manifest `3c628153db5147eab3d607c12b0a0bc10eceb0cd83c81decd387efc47545cff2`. Full actual read-back matched. verify_jwt=false and custom signature validation retained.\n- Intermediate v43 had an extra helper comment and incorrect dropStartedAt flag from transcription. Read-back caught both; a full exact-source corrective upload fixed them before activation. No requests were observed in the bounded maintenance log sample. No blanket zero-impact claim.\n- Activated only organization `a0000000-0000-0000-0000-000000000001` at 20:53:25.074188 UTC: enabled=true, unanswered_eligible=true, did_allowlist=NULL. Read-back confirmed both flags, 16 active agency numbers, private ACLs and no other org enabled. B1 inbound v46/recording v37 unchanged.\n- Existing direct-line/contact precedence, provider-verified same-DID 168-hour matching, single-leg browser dialing, duration/status/disposition, notifications, DND/Break/busy and forwarding policy preserved. No backfill; immediate callbacks without captured evidence retain group fallback.\n- Pre-release run 37037364197: 325 focused passed; 22 activation/recovery checks and PG17.6 SQL/concurrency/rollback/types passed; full suite +232 passed with same baseline failures. App 90 errors and exact-Deno baseline errors remain; root tsc is empty-project only.\n- Security advisors ran; existing app_config/webhook_debug_log RLS findings and other warnings left untouched. No unrelated remediation, migration rollback, controlled call, historical recording recovery, stale cleanup, PR, main merge or automatic monitor.\n- At 20:57:20 UTC evidence/recent-outbound-route counts remained zero; one post-activation call is not proof of this feature. Real provider capture, recent-outbound routing and recipient playback still need natural evidence. Agents may resume dialing. Main remains separate; later merge requires approval.\n- Actual WORK_LOG/plan/rule records preserve all prior branch history. Full report: `docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md`.\n\n'
+          p=root/'WORK_LOG.md'; prior=p.read_bytes(); assert not prior.startswith(entry.encode()); p.write_bytes(entry.encode()+prior); assert p.read_bytes().endswith(prior)
+          # Replace the temporary record publisher with a manual read-only release verifier; no future automatic writes.
+          (root/workflow_path).write_text(FINAL_WORKFLOW)
+          # Guard every runtime file, both SQL byte streams and both activation/recovery scripts.
+          for name in subprocess.check_output(['git','ls-tree','-r','--name-only',source,'supabase/functions','src'],text=True).splitlines():
+              assert (root/name).read_bytes()==original(name), 'Runtime drift: '+name
+          for name,digest in {'supabase/ops/recent_outbound_enable_complete.sql':'6aaf5291ac9cc4bde754d37bbe79ab8df01f8764013fd78d72e962da8341a330','supabase/ops/recent_outbound_disable_org.sql':'839311ac6f19ae52afc4f9e8903b74e1b121e0066b7b8ee69511990595364735'}.items():
+              assert sha((root/name).read_bytes())==digest
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          changed=set(subprocess.check_output(['git','diff','--cached','--name-only','--no-renames'],text=True).splitlines())
+          assert changed<=allowed, ('Unexpected files',changed-allowed)
+          print('Record-only/reference scope verified:',sorted(changed),flush=True)
+          print('Runtime and all approved SQL content unchanged; prior WORK_LOG retained',flush=True)
+          PYRECORD
+      - name: Verify recorded filenames against isolated PostgreSQL and package sources
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ro-closeout"
           npm ci --ignore-scripts --no-audit --no-fund
-          ln -s "$GITHUB_WORKSPACE/node_modules" "$RO_BASE_WORKTREE/node_modules"
-          npm install --prefix "$RUNNER_TEMP/ro-deno" deno@2.1.4 --no-audit --no-fund
-          echo "DENO_BIN=$RUNNER_TEMP/ro-deno/node_modules/.bin/deno" >> "$GITHUB_ENV"
-      - name: Verify exact one-org activation and recovery scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RO_EVIDENCE/activation-pg17.6.txt"
-      - name: Verify complete inbound SQL, permissions, concurrency and rollback
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RO_EVIDENCE/inbound-pg17.6.txt"
-          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RO_EVIDENCE/inbound-rollback-pg17.6.txt"
-      - name: Verify generated types and negative controls on isolated PostgreSQL
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RO_EVIDENCE/generated-types.txt"
-          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RO_EVIDENCE/generated-types-negative.txt"
-      - name: Full baseline comparison, exact Deno imports, and all three package manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$DENO_BIN" --version | tee "$RO_EVIDENCE/deno-version.txt"
-          python3 scripts/verify_recent_outbound_release.py 2>&1 | tee "$RO_EVIDENCE/verification-console.txt"
-      - name: Record actual results without truncating repository history
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import datetime,hashlib,json,os,pathlib,subprocess
-          root=pathlib.Path.cwd(); out=pathlib.Path(os.environ['RO_EVIDENCE'])
-          result=json.loads((out/'verification-summary.json').read_text())
-          assert result['result']=='no_new_regressions' and not result['failures']
-          migration='supabase/migrations/20260927052736_inbound_recent_outbound_routing.sql'
-          source='efa815144f893fafa43960f177a67ec90f92e4e1'
-          for name in [migration,'supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql','supabase/functions/twilio-voice-status/index.ts','supabase/functions/twilio-voice-status/dial-evidence.ts']:
-              assert (root/name).read_bytes()==subprocess.check_output(['git','show',source+':'+name])
-          hashes={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in [migration,'supabase/migrations/rollback/20260927052736_inbound_recent_outbound_routing.rollback.sql','supabase/ops/recent_outbound_enable_complete.sql','supabase/ops/recent_outbound_disable_org.sql']}
-          evidence={'baseline':os.environ['RO_MAIN_SHA'],'workflow_run':os.environ['GITHUB_RUN_ID'],'checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'verification':result,'sql_sha256':hashes,'production':'NOT APPLIED, DEPLOYED OR ACTIVATED'}
-          (out/'release-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
-          report='\n## Final verification — production approval still pending\n\n'+json.dumps(evidence,indent=2)+'\n\n'
-          plan=root/'docs/plans/2026-10-02-recent-outbound-final/implementation_plan.md'
-          with plan.open('a') as f: f.write(report)
-          entry='## 2026-10-02 — Recent-outbound final integration — VERIFIED; PRODUCTION RELEASE PENDING\n\n'
-          entry+='- GitHub run '+os.environ['GITHUB_RUN_ID']+' completed isolated PostgreSQL 17.6 inbound, activation, rollback, generated-type and negative-control checks.\n'
-          entry+='- Focused tests: '+str(result['focused'])+'. Full baseline comparison: '+str(result['base_full'])+'; candidate: '+str(result['candidate_full'])+'. No removed baseline assertions, new failed files, or passed-to-failed regressions.\n'
-          entry+='- App and exact-import Deno checks add no errors; baseline errors remain. Root tsc is an empty-project check, not an app pass.\n'
-          entry+='- Complete package hashes: '+str({k:v['payload_sha256'] for k,v in result['packages'].items()})+'. B1 packages remain byte-identical to deployed approved source.\n'
-          entry+='- Prepared one-org answered/unanswered activation and one-org disable. SQL hashes and full evidence are in the final plan.\n'
-          entry+='- No production migration, Edge deployment, activation, data update, test call, recording recovery, PR or main merge. B1 individual-agent playback remains unverified; Task A is not live.\n'
-          entry+='- This is an actual additive WORK_LOG update, not an audit-only commit. All prior main history is retained below.\n\n'
-          log=root/'WORK_LOG.md'; log.write_bytes(entry.encode()+log.read_bytes())
-          main_log=subprocess.check_output(['git','show',os.environ['RO_MAIN_SHA']+':WORK_LOG.md'])
-          assert log.read_bytes().endswith(main_log)
-          for name in hashes:
-              (out/pathlib.Path(name).name).write_bytes((root/name).read_bytes())
-          PY
-          git add -- WORK_LOG.md docs/plans/2026-10-02-recent-outbound-final/implementation_plan.md
-      - name: Publish only the verified task branch with an optimistic remote guard
+          bash scripts/run_recent_outbound_activation_tests.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/activation.txt"
+          bash scripts/run_inbound_sql_tests.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/inbound.txt"
+          bash scripts/run_inbound_rollback_test.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/rollback.txt"
+          bash scripts/verify_inbound_generated_types.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/types.txt"
+          bash scripts/verify_inbound_generated_types_negative.sh 2>&1 | tee "$RUNNER_TEMP/ro-closeout/types-negative.txt"
+          npx --no-install tsc --noEmit
+          node scripts/edge_payload.mjs build supabase/functions/twilio-voice-status --out "$RUNNER_TEMP/ro-closeout/status.json"
+          node scripts/edge_payload.mjs verify supabase/functions/twilio-voice-status "$RUNNER_TEMP/ro-closeout/status.json"
+          echo "660ee45d31cc8433df0e8c23a8674ddf1c289e10439b7ce99800d05417598f4c  $RUNNER_TEMP/ro-closeout/status.json" | sha256sum -c -
+          git diff --cached --check
+      - name: Record successful reference checks and publish task branch only
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PYDONE'
+          import os,pathlib
+          p=pathlib.Path('docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md')
+          note='\n## Filename/reference closeout verification\n\nGitHub run '+os.environ['GITHUB_RUN_ID']+' passed the 22 activation/recovery tests, complete inbound SQL and rollback proofs, generated types and negative controls on isolated PostgreSQL 17.6 using the recorded filenames. The rebuilt status package remains exactly the approved hash. Root tsc exits zero but is an empty-project check. No application source changed; the previous full-suite/type-baseline results are retained, not claimed rerun here. No production access or mutation occurs in this record-only workflow.\n'
+          p.write_text(p.read_text()+note)
+          log=pathlib.Path('WORK_LOG.md')
+          log.write_bytes(('> Release-record verification: isolated PG17.6 filename/reference, rollback, generated-type/negative checks and exact package check passed in GitHub run '+os.environ['GITHUB_RUN_ID']+'. Root tsc checks no application files. No production change in this workflow.\n\n').encode()+log.read_bytes())
+          PYDONE
+          git add -- WORK_LOG.md docs/plans/2026-10-02-recent-outbound-final/PRODUCTION_RELEASE_2026-10-02.md
           BRANCH=chatgpt/recent-outbound-final-20261002
           test "$GITHUB_REF" = "refs/heads/$BRANCH"
           ACTUAL=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
           test "$ACTUAL" = "$GITHUB_SHA"
-          git commit -m 'Integrate and verify recent-outbound routing with deployed voicemail repair; production pending'
+          git commit -m 'Record live callback routing and reconcile migration version without changing runtime or SQL bytes'
           AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin "HEAD:refs/heads/$BRANCH"
           unset AUTH GH_TOKEN
-          git rev-parse HEAD | tee "$RO_EVIDENCE/verified-source-commit.txt"
-          git bundle create "$RO_EVIDENCE/verified-source.bundle" HEAD
+          git rev-parse HEAD | tee "$RUNNER_TEMP/ro-closeout/record-commit.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: recent-outbound-final-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/ro-final-evidence/
+          name: callback-routing-record-${{ github.run_id }}
+          path: ${{ runner.temp }}/ro-closeout/
           retention-days: 7
-          compression-level: 0
-          if-no-files-found: error
+          if-no-files-found: warn
