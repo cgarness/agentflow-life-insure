@@ -62,7 +62,7 @@ fail 'P2 before explicit historical review' 'historical associations require exp
 sql "$TEST/team_dialer_reviewed_associations.sql"
 query "CREATE TABLE team_test.ready_preimage AS SELECT prosrc FROM pg_proc WHERE oid='public.claim_lead(uuid,uuid,uuid)'::regprocedure;" >/dev/null
 # Drift refusal must be atomic, with no client reader created.
-query "CREATE OR REPLACE FUNCTION public.claim_lead(uuid,uuid,uuid) RETURNS void LANGUAGE plpgsql AS \$\$ BEGIN NULL; END \$\$;" >/dev/null
+query "CREATE OR REPLACE FUNCTION public.claim_lead(p_campaign_lead_id uuid,p_lead_id uuid,p_campaign_id uuid) RETURNS void LANGUAGE plpgsql AS \$\$ BEGIN NULL; END \$\$;" >/dev/null
 fail 'P2 claim drift' 'preimage drift' sql "$P2"
 test "$(query "SELECT to_regprocedure('public.get_team_dialer_lead_details(uuid)') IS NULL;")" = t
 python3 - "$ROOT" "$WORK/claim_restore.sql" <<'PY'
