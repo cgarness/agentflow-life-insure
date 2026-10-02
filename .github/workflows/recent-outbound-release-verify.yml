@@ -39,10 +39,14 @@ jobs:
     env:
       PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
       RO_MAIN_SHA: e04eb16dc6fc70734f85868ab5235186d0ce4813
-      RO_BASE_WORKTREE: ${{ runner.temp }}/ro-base
-      RO_EVIDENCE: ${{ runner.temp }}/ro-final-evidence
-      DENO_DIR: ${{ runner.temp }}/ro-deno-cache
     steps:
+      - name: Set runtime paths after runner allocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RO_BASE_WORKTREE=$RUNNER_TEMP/ro-base" >> "$GITHUB_ENV"
+          echo "RO_EVIDENCE=$RUNNER_TEMP/ro-final-evidence" >> "$GITHUB_ENV"
+          echo "DENO_DIR=$RUNNER_TEMP/ro-deno-cache" >> "$GITHUB_ENV"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
