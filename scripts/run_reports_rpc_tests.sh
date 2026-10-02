@@ -49,6 +49,8 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/supabase/tests/reports_harness.sql"
 SUITE="$ROOT/supabase/tests/reports_rpc.sql"
+FIXTURES="$ROOT/supabase/tests/reports_fixtures.sql"
+VISIBILITY_SUITE="$ROOT/supabase/tests/reports_campaign_visibility.sql"
 MIG="$ROOT/supabase/migrations/20260929152553_reports_secure_scoped_rpcs.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20260929152553_reports_secure_scoped_rpcs.rollback.sql"
 # The Policies Sold source fix (plan §20). Applied after $MIG in every build, as in production.
@@ -127,6 +129,12 @@ build() {   # build <dbname> [migration-file [policy-migration-file | none]]
   fi
 }
 
+# Shared fatal setup step; also exercised by the injected fixture failure probe below.
+load_report_fixtures() {
+  local db_url="$1" fixture="$2"
+  psql "$db_url" -v ON_ERROR_STOP=1 -q --single-transaction -f "$fixture" || return $?
+}
+
 expect_fail() {   # expect_fail <label> <must-contain> <command...>
   local label="$1" needle="$2"; shift 2
   set +e
@@ -180,6 +188,7 @@ echo; echo "== behaviour + authorization suite =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$SUITE"
 echo; echo "== P1. Policies Sold regression suite (normalized stored policies) =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$POLICY_SUITE"
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$VISIBILITY_SUITE"
 
 # ── 2. Negative controls ─────────────────────────────────────────────────────────────────────────
 echo; echo "== 2a. negative control: No Answer exclusion removed (T8 must fire) =="
@@ -273,9 +282,8 @@ POST_FACTS_OFF="NOT LIKE '%'"
 run_policy_neg() {   # run_policy_neg <tag> <label> <needle> <mutated-file>
   local db="reports_rpc_p$1_$SUFFIX"
   build "$db" "$MIG" "$4"
-  # The base suite runs only to load its shared fixtures (loaded before its first assertion). Some
-  # mutations are ALSO caught by it; that is fine, the policy suite is what must name the failure here.
-  psql "$PGURL/$db" -v ON_ERROR_STOP=1 -q -f "$SUITE" >/dev/null 2>&1 || true
+  # Setup is independent of assertions and MUST succeed, even for intentionally broken implementations.
+  load_report_fixtures "$PGURL/$db" "$FIXTURES"
   expect_fail "$2" "$3" psql "$PGURL/$db" -v ON_ERROR_STOP=1 -q -f "$POLICY_SUITE"
 }
 
@@ -351,6 +359,36 @@ pmutate "$WORK/pneg_scope.sql" \
   primary_policies AS ("
 run_policy_neg g "policy scope widened" "I own scope = own policies only FAIL" "$WORK/pneg_scope.sql"
 
+# Fixture failure control: a bad SQL statement must fail setup BEFORE a downstream test marker.
+echo; echo "== P2h. fixture setup failures are fatal =="
+DB_FIXTURE="reports_fixture_refusal_$SUFFIX"
+build "$DB_FIXTURE" "$MIG"
+{ printf '%s\n' 'SELECT missing_reports_fixture_function();'; cat "$FIXTURES"; } > "$WORK/broken_fixtures.sql"
+declare -f load_report_fixtures > "$WORK/fixture_loader.sh"
+cat > "$WORK/seed_probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$4"
+load_report_fixtures "$1" "$2"
+printf 'UNEXPECTED_DOWNSTREAM_EXECUTION' > "$3"
+SH
+expect_fail "broken fixture must fail before assertions" "missing_reports_fixture_function" \
+  bash "$WORK/seed_probe.sh" "$PGURL/$DB_FIXTURE" "$WORK/broken_fixtures.sql" "$WORK/downstream" "$WORK/fixture_loader.sh"
+[ ! -e "$WORK/downstream" ] || { echo "FAIL: fixture error reached mutation assertions"; exit 1; }
+[ "$(psql "$PGURL/$DB_FIXTURE" -tAc "SELECT count(*) FROM public.organizations")" = "0" ] \
+  || { echo "FAIL: fixture transaction did not remain empty"; exit 1; }
+
+# Mutating the shared campaign visibility predicate must expose the private-campaign regression.
+echo; echo "== P2i. campaign visibility guard is behaviorally required =="
+pmutate "$WORK/pneg_visibility.sql" \
+  "OR (upper(btrim(c.type)) = 'PERSONAL' AND c.user_id = v_actor.uid)" \
+  "OR (upper(btrim(c.type)) = 'PERSONAL')"
+DB_VIS_NEG="reports_visibility_negative_$SUFFIX"
+build "$DB_VIS_NEG" "$MIG" "$WORK/pneg_visibility.sql"
+psql "$PGURL/$DB_VIS_NEG" -v ON_ERROR_STOP=1 -q --single-transaction -f "$FIXTURES"
+expect_fail "private campaign visibility regression" "V1 private campaign id withheld FAIL" \
+  psql "$PGURL/$DB_VIS_NEG" -v ON_ERROR_STOP=1 -q -f "$VISIBILITY_SUITE"
+
 # ── P3. Policy migration drift + replay refusal ──────────────────────────────────────────────────
 echo; echo "== P3a. policy drift refusal: a changed summary body aborts the policy migration atomically =="
 DB_PDRIFT="reports_rpc_pdrift_$SUFFIX"
@@ -368,7 +406,7 @@ echo "   OK (nothing applied)"
 
 echo; echo "== P3b. policy replay refusal =="
 state_md5() {
-  psql "$PGURL/$1" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY 1)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%');"
+  psql "$PGURL/$1" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY n.nspname, p.proname, p.oid::regprocedure::text)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%');"
 }
 PBEFORE=$(state_md5 "$DB")
 expect_fail "second policy apply" "refusing replay" psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$POLICY_MIG"
@@ -392,9 +430,9 @@ echo "   OK (nothing applied; legacy ACL untouched)"
 
 # ── 4. Replay refusal ────────────────────────────────────────────────────────────────────────────
 echo; echo "== 4. replay refusal =="
-BEFORE=$(psql "$PGURL/$DB" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY 1)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%' OR p.proname LIKE 'rpc\_report\_%');")
+BEFORE=$(psql "$PGURL/$DB" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY n.nspname, p.proname, p.oid::regprocedure::text)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%' OR p.proname LIKE 'rpc\_report\_%');")
 expect_fail "second apply" "refusing replay" psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
-AFTER=$(psql "$PGURL/$DB" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY 1)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%' OR p.proname LIKE 'rpc\_report\_%');")
+AFTER=$(psql "$PGURL/$DB" -tAc "SELECT md5(string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,''), ',' ORDER BY n.nspname, p.proname, p.oid::regprocedure::text)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND (p.proname LIKE 'get\_report\_%' OR p.proname LIKE 'report\_%' OR p.proname LIKE 'rpc\_report\_%');")
 [ "$BEFORE" = "$AFTER" ] || { echo "FAIL: replay attempt changed function state"; exit 1; }
 echo "   OK (function state unchanged)"
 
@@ -421,6 +459,7 @@ echo "   OK (disable revokes; enable restores only the new RPCs and re-seals leg
 echo "   re-running the suite after enable:"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$SUITE" | tail -1
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$POLICY_SUITE" | tail -1
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$VISIBILITY_SUITE" | tail -1
 
 # ── P4. Fail-closed recovery (implementation_plan.md §20.11.4) ──────────────────────────────────
 client_exec_reports() {   # number of (get_report_* fn, client role) pairs with EXECUTE
@@ -466,6 +505,7 @@ psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$ENABLE"
 [ "$(legacy_client_exec "$DB")" = "0" ] || { echo "FAIL: legacy unsealed after re-enable"; exit 1; }
 authed_summary | grep -qx 'policies_sold=17' || { echo "FAIL: re-enabled Reports did not return the stored-policy total"; exit 1; }
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$POLICY_SUITE" | tail -1
+psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q -f "$VISIBILITY_SUITE" | tail -1
 echo "   OK (disable -> fixture, still disabled -> enable refused -> forward re-apply, still disabled -> enable -> 17 policies)"
 
 # ── 6. Rollback proof ────────────────────────────────────────────────────────────────────────────
@@ -495,7 +535,7 @@ echo "   re-apply after rollback succeeds (rollback is a clean inverse of the ne
 # A plain command (not an && list) so a failed re-apply stops the run under `set -e`.
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$MIG"
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -q --single-transaction -f "$POLICY_MIG"
-[ "$(count_report_objects "$DB")" = "17" ] || { echo "FAIL: re-apply after rollback did not recreate all 17 report functions"; exit 1; }
+[ "$(count_report_objects "$DB")" = "18" ] || { echo "FAIL: re-apply after rollback did not recreate all 18 report functions"; exit 1; }
 [ "$(legacy_client_exec "$DB")" = "0" ] || { echo "FAIL: legacy client-executable after re-apply"; exit 1; }
 echo "   OK"
 

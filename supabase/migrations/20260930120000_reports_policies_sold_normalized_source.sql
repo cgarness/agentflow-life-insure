@@ -51,8 +51,8 @@
 -- WHAT THIS DOES
 --   1. Preflight: exact live bodies (md5 of prosrc read from production 2026-09-30), owner, security
 --      metadata and ACL of the three RPCs replaced; dependencies present; refuses replay.
---   2. Three private helpers (REVOKEd from PUBLIC/anon/authenticated): report_policy_facts,
---      report_policy_quality, report_policy_campaign_lineage.
+--   2. Four private helpers (client-inaccessible): policy facts, quality, campaign lineage,
+--      and caller-authorized campaign visibility shared by campaign/disposition breakdowns.
 --   3. CREATE OR REPLACE of get_report_call_summary / get_report_call_volume /
 --      get_report_campaign_performance with identical signatures, owner, SECURITY DEFINER, STABLE,
 --      search_path and ACL. Each is its applied body with only the wins source replaced, plus
@@ -61,7 +61,8 @@
 --      disabled — this migration never re-enables), helpers unreachable by clients, legacy
 --      rpc_report_* still sealed, no replaced body references public.wins.
 --   No table, column, index, RLS policy, trigger, data row or grant on any table is created or changed.
---   get_report_scope / disposition / lead-source RPCs are untouched. Dialer, Leaderboard and Dashboard
+--   get_report_scope / lead-source RPCs are untouched. Disposition totals stay unchanged; its
+--   campaign breakdown now enforces the same campaign visibility. Dialer, Leaderboard and Dashboard
 --   keep their event (wins) semantics.
 --
 -- RECOVERY (fail closed — see implementation_plan.md §20.11.4)
@@ -74,6 +75,9 @@
 
 SET LOCAL lock_timeout = '5s';
 
+-- Final review: campaign metadata is constrained to campaigns the actual caller may read, including
+-- Disposition Deep Dive. Hidden/unknown links retain only non-identifying unavailable counts.
+
 -- -----------------------------------------------------------------------------------------------
 -- 0. PREFLIGHT — refuse on drift or replay. Nothing below runs if this raises.
 -- -----------------------------------------------------------------------------------------------
@@ -85,6 +89,7 @@ DECLARE
     'public.get_report_campaign_performance(date,date,uuid)', '9d151bf9ce31bd602af8317f2dd8e124',
     'private.report_access(uuid)',                            '27116a40687390dd31b93848446a2702',
     'private.report_window(uuid,date,date)',                  '1107da185bfc1a3089b27e125c74646d',
+    'public.get_report_disposition_breakdown(date,date,uuid)', '38f1b5c0e0e4e3187423639d03db3019',
     'private.profile_parse_iso_date(text)',                   'be24ed08bb42a71b29e3c44abebfd0c9'
   );
   v_sig      text;
@@ -97,7 +102,7 @@ BEGIN
       FROM pg_catalog.pg_proc p
       JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'private'
-       AND p.proname IN ('report_policy_facts', 'report_policy_quality', 'report_policy_campaign_lineage')
+       AND p.proname IN ('report_policy_facts', 'report_policy_quality', 'report_policy_campaign_lineage', 'report_visible_campaigns')
   ) THEN
     RAISE EXCEPTION 'reports policy preflight: policy helpers already exist; refusing replay';
   END IF;
@@ -115,7 +120,8 @@ BEGIN
   FOREACH v_sig IN ARRAY ARRAY[
     'public.get_report_call_summary(date,date,uuid)',
     'public.get_report_call_volume(date,date,uuid)',
-    'public.get_report_campaign_performance(date,date,uuid)'
+    'public.get_report_campaign_performance(date,date,uuid)',
+    'public.get_report_disposition_breakdown(date,date,uuid)'
   ] LOOP
     v_oid := pg_catalog.to_regprocedure(v_sig);
     IF NOT (SELECT p.proowner = 'postgres'::regrole AND p.prosecdef AND p.provolatile = 's'
@@ -138,6 +144,11 @@ BEGIN
     PERFORM pg_catalog.set_config('reports_policy.acl_' || pg_catalog.md5(v_sig),
               (SELECT coalesce(p.proacl::text, '') FROM pg_catalog.pg_proc p WHERE p.oid = v_oid), true);
   END LOOP;
+
+  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'campaigns'
+        AND column_name IN ('id', 'organization_id', 'user_id', 'type', 'assigned_agent_ids')) <> 5 THEN
+    RAISE EXCEPTION 'reports policy preflight: campaign visibility columns are missing';
+  END IF;
 
   IF (SELECT pg_catalog.count(*) FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = 'clients'
@@ -298,6 +309,41 @@ REVOKE ALL ON FUNCTION private.report_policy_campaign_lineage(uuid, uuid[]) FROM
 -- get_report_call_summary — applied body with ONLY the wins CTE replaced by normalized policy facts,
 -- plus policy_source / policy_basis / policy_quality in the payload.
 -- -----------------------------------------------------------------------------------------------
+-- Reports metadata visibility mirrors public.campaigns_select (read-only catalog verified 2026-10-02).
+-- This is an intersection with report_access, not a new grant. Missing/malformed Team membership fails closed.
+CREATE FUNCTION private.report_visible_campaigns(p_org uuid)
+RETURNS TABLE (campaign_id uuid)
+LANGUAGE plpgsql
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_actor RECORD;
+BEGIN
+  SELECT * INTO v_actor FROM private.campaign_actor();
+  IF v_actor.org_id IS DISTINCT FROM p_org THEN
+    RAISE EXCEPTION 'reports: campaign organization is outside your scope' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+    SELECT c.id
+      FROM public.campaigns c
+     WHERE c.organization_id = p_org
+       AND (
+         v_actor.is_super
+         OR v_actor.actor_role IN ('Admin', 'Super Admin', 'Team Leader', 'Team Lead')
+         OR upper(btrim(c.type)) IN ('OPEN POOL', 'OPEN')
+         OR (upper(btrim(c.type)) = 'PERSONAL' AND c.user_id = v_actor.uid)
+         OR (upper(btrim(c.type)) = 'TEAM' AND EXISTS (
+           SELECT 1 FROM pg_catalog.jsonb_array_elements_text(
+             CASE WHEN pg_catalog.jsonb_typeof(c.assigned_agent_ids) = 'array'
+                  THEN c.assigned_agent_ids ELSE '[]'::jsonb END
+           ) AS member(agent_id) WHERE member.agent_id = v_actor.uid::text
+         ))
+       );
+END;
+$$;
+REVOKE ALL ON FUNCTION private.report_visible_campaigns(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.get_report_call_summary(p_start_date date, p_end_date date, p_agent_id uuid DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -627,7 +673,10 @@ BEGIN
   SELECT * INTO v_access FROM private.report_access(p_agent_id);
   SELECT * INTO v_win FROM private.report_window(v_access.org_id, p_start_date, p_end_date);
 
-  WITH f AS (
+  WITH visible_campaigns AS MATERIALIZED (
+    SELECT campaign_id FROM private.report_visible_campaigns(v_access.org_id)
+  ),
+  f AS (
     SELECT *
       FROM private.report_call_facts(v_access.org_id, v_win.start_at, v_win.end_at, v_access.agent_ids)
      WHERE direction_class = 'outbound'
@@ -641,16 +690,18 @@ BEGIN
            count(DISTINCT f.campaign_lead_id) FILTER (WHERE f.is_converting) AS converted_leads
       FROM f
      WHERE f.campaign_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM visible_campaigns vc WHERE vc.campaign_id = f.campaign_id)
      GROUP BY f.campaign_id
   ),
   -- In-scope normalized policies sold in the window, each carrying AT MOST ONE campaign: the client's
   -- conversion lineage (one row per client, so a join can never multiply a policy). NULL = no provable
-  -- campaign; such a policy is counted in policies_without_campaign and never inferred.
+  -- campaign; such a policy is counted in policies_attribution_unavailable and never inferred.
   pol AS (
-    SELECT pf.client_id, l.campaign_id
+    SELECT pf.client_id, vc.campaign_id
       FROM private.report_policy_facts(v_access.org_id, v_access.agent_ids) pf
       LEFT JOIN private.report_policy_campaign_lineage(v_access.org_id, v_access.agent_ids) l
         ON l.client_id = pf.client_id
+      LEFT JOIN visible_campaigns vc ON vc.campaign_id = l.campaign_id
      WHERE pf.sold_date >= v_win.start_date
        AND pf.sold_date <= v_win.end_date
   ),
@@ -701,10 +752,135 @@ BEGIN
           FROM rows_ r
       ), '[]'::jsonb),
       'unattributed_calls', (SELECT count(*) FROM f WHERE f.campaign_id IS NULL),
+      'calls_attribution_unavailable', (SELECT count(*) FROM f WHERE NOT EXISTS (
+        SELECT 1 FROM visible_campaigns vc WHERE vc.campaign_id = f.campaign_id)),
+      'campaign_visibility', 'caller_authorized',
       'policy_source',             'normalized_policies',
       'policy_attribution',        'conversion_lineage_only',
       'policies_in_period',        (SELECT count(*) FROM pol),
-      'policies_without_campaign', (SELECT count(*) FROM pol WHERE pol.campaign_id IS NULL)
+      'policies_attribution_unavailable', (SELECT count(*) FROM pol WHERE pol.campaign_id IS NULL)
+    )
+    INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_report_disposition_breakdown(p_start_date date, p_end_date date, p_agent_id uuid DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_access RECORD;
+  v_win    RECORD;
+  v_result jsonb;
+BEGIN
+  SELECT * INTO v_access FROM private.report_access(p_agent_id);
+  SELECT * INTO v_win FROM private.report_window(v_access.org_id, p_start_date, p_end_date);
+
+  WITH visible_campaigns AS MATERIALIZED (
+    SELECT campaign_id FROM private.report_visible_campaigns(v_access.org_id)
+  ),
+  f AS (
+    SELECT *
+      FROM private.report_call_facts(v_access.org_id, v_win.start_at, v_win.end_at, v_access.agent_ids)
+     WHERE direction_class = 'outbound'
+  ),
+  disp AS (
+    SELECT f.disposition_key,
+           max(f.disposition_name)          AS name,
+           max(f.disposition_color)         AS color,
+           count(*)                         AS calls,
+           round(avg(f.duration_seconds), 1) AS avg_duration_seconds,
+           bool_or(f.disp_counts_contacted) AS counts_as_contacted,
+           bool_or(f.disp_converts)         AS converts,
+           bool_or(f.disp_dnc)              AS dnc,
+           bool_or(f.disp_callback)         AS callback,
+           bool_or(f.disp_appointment)      AS appointment
+      FROM f
+     GROUP BY f.disposition_key
+  ),
+  by_agent AS (
+    SELECT x.agent_id,
+           private.report_agent_name(p.first_name, p.last_name) AS name,
+           jsonb_object_agg(x.disposition_key, x.calls) AS counts,
+           sum(x.calls) AS total
+      FROM (SELECT f.agent_id, f.disposition_key, count(*) AS calls
+              FROM f WHERE f.agent_id IS NOT NULL GROUP BY 1, 2) x
+      LEFT JOIN public.profiles p ON p.id = x.agent_id AND p.organization_id = v_access.org_id
+     GROUP BY x.agent_id, p.first_name, p.last_name
+  ),
+  by_campaign AS (
+    SELECT x.campaign_id,
+           max(cmp.name) AS name,
+           jsonb_object_agg(x.disposition_key, x.calls) AS counts,
+           sum(x.calls) AS total
+      FROM (SELECT f.campaign_id, f.disposition_key, count(*) AS calls
+              FROM f WHERE f.campaign_id IS NOT NULL GROUP BY 1, 2) x
+      JOIN public.campaigns cmp ON cmp.id = x.campaign_id AND cmp.organization_id = v_access.org_id
+      JOIN visible_campaigns vc ON vc.campaign_id = x.campaign_id
+     GROUP BY x.campaign_id
+  ),
+  buckets AS (
+    SELECT * FROM (VALUES
+      (1, '0-30s',  0::bigint,   30::bigint),
+      (2, '30s-1m', 30::bigint,  60::bigint),
+      (3, '1-2m',   60::bigint,  120::bigint),
+      (4, '2-5m',   120::bigint, 300::bigint),
+      (5, '5m+',    300::bigint, NULL::bigint)
+    ) v(ord, label, lo, hi)
+  )
+  SELECT
+    private.report_meta(v_access.scope, v_access.filter_agent_id, v_win.time_zone, v_win.time_zone_source,
+                        v_win.start_date, v_win.end_date, v_win.start_at, v_win.end_at)
+    || jsonb_build_object(
+      'total_calls', (SELECT count(*) FROM f),
+      'campaign_visibility', 'caller_authorized',
+      'campaign_attribution_unavailable_calls', (SELECT count(*) FROM f WHERE NOT EXISTS (
+        SELECT 1 FROM visible_campaigns vc WHERE vc.campaign_id = f.campaign_id)),
+      'by_disposition', coalesce((
+        SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'key',                 d.disposition_key,
+                   'name',                d.name,
+                   'color',               d.color,
+                   'calls',               d.calls,
+                   'avg_duration_seconds', d.avg_duration_seconds,
+                   'counts_as_contacted', d.counts_as_contacted,
+                   'converts',            d.converts,
+                   'dnc',                 d.dnc,
+                   'callback',            d.callback,
+                   'appointment',         d.appointment
+                 )
+                 ORDER BY d.calls DESC, lower(d.name), d.disposition_key
+               )
+          FROM disp d
+      ), '[]'::jsonb),
+      'by_agent', coalesce((
+        SELECT jsonb_agg(jsonb_build_object('agent_id', a.agent_id, 'name', a.name, 'total', a.total, 'counts', a.counts)
+                         ORDER BY a.total DESC, lower(a.name), a.agent_id)
+          FROM by_agent a
+      ), '[]'::jsonb),
+      'by_campaign', coalesce((
+        SELECT jsonb_agg(jsonb_build_object('campaign_id', c.campaign_id, 'name', c.name, 'total', c.total, 'counts', c.counts)
+                         ORDER BY c.total DESC, lower(c.name), c.campaign_id)
+          FROM by_campaign c
+      ), '[]'::jsonb),
+      'duration_histogram', (
+        SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'range', b.label,
+                   'calls', (SELECT count(*) FROM f
+                              WHERE f.duration_seconds >= b.lo
+                                AND (b.hi IS NULL OR f.duration_seconds < b.hi))
+                 )
+                 ORDER BY b.ord
+               )
+          FROM buckets b
+      )
     )
     INTO v_result;
 
@@ -755,6 +931,21 @@ BEGIN
       RAISE EXCEPTION 'reports policy postcondition: % is not the normalized-policy implementation', v_sig;
     END IF;
   END LOOP;
+
+
+  v_sig := 'public.get_report_disposition_breakdown(date,date,uuid)';
+  IF NOT (SELECT p.proowner = 'postgres'::regrole AND p.prosecdef AND p.provolatile = 's'
+                  AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+             FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure(v_sig))
+     OR (SELECT coalesce(p.proacl::text, '') FROM pg_catalog.pg_proc p WHERE p.oid = pg_catalog.to_regprocedure(v_sig))
+        IS DISTINCT FROM pg_catalog.current_setting('reports_policy.acl_' || pg_catalog.md5(v_sig), true) THEN
+    RAISE EXCEPTION 'reports policy postcondition: disposition metadata or ACL changed';
+  END IF;
+  IF pg_catalog.has_function_privilege('authenticated', 'private.report_visible_campaigns(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('anon', 'private.report_visible_campaigns(uuid)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('service_role', 'private.report_visible_campaigns(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'reports policy postcondition: campaign visibility helper is client-executable';
+  END IF;
 
   FOREACH v_sig IN ARRAY ARRAY[
     'private.report_policy_facts(uuid,uuid[])',

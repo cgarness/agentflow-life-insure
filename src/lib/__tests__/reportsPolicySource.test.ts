@@ -11,13 +11,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import {
-  reportCampaignsSchema, reportSummarySchema, reportVolumeSchema,
+  reportCampaignsSchema, reportDispositionsSchema, reportSummarySchema, reportVolumeSchema,
 } from "@/lib/reports-schemas";
 import { buildReportCsv } from "@/lib/reports-export";
 import {
   CAMPAIGN_ATTRIBUTION_NOTE, CURRENT_ASSIGNMENT_NOTE, POLICY_SOURCE_NOTE, policyExportNotes, policyQualityNote,
 } from "@/lib/reports-policy-text";
-import { policyQuality, reportCampaigns, reportSummary, reportVolume, reportWindow } from "./reportsFixtures";
+import { policyQuality, reportCampaigns, reportDispositions, reportSummary, reportVolume, reportWindow } from "./reportsFixtures";
 
 const ROOT = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -52,7 +52,7 @@ describe("new frontend: only policy-based payloads are accepted", () => {
   it("refuses the win-based campaign payload (COUNT(wins) policies_sold, no lineage fields)", () => {
     const c = reportCampaigns();
     const old = {
-      ...winBased(c, ["policy_source", "policy_attribution", "policies_in_period", "policies_without_campaign"]),
+      ...winBased(c, ["policy_source", "policy_attribution", "policies_in_period", "policies_attribution_unavailable"]),
       campaigns: c.campaigns.map(({ attributed_policies, ...rest }) => ({ ...rest, policies_sold: attributed_policies })),
     };
     expect(reportCampaignsSchema.safeParse(old).success).toBe(false);
@@ -70,7 +70,7 @@ describe("old tab (pre-fix schema) against the new functions — documented rele
   const oldSummary = reportSummarySchema.omit({ policy_source: true, policy_basis: true, policy_quality: true });
   const oldVolume = reportVolumeSchema.omit({ policy_source: true, policy_quality: true });
   const oldCampaigns = reportCampaignsSchema
-    .omit({ policy_source: true, policy_attribution: true, policies_in_period: true, policies_without_campaign: true })
+    .omit({ policy_source: true, policy_attribution: true, policies_in_period: true, policies_attribution_unavailable: true })
     .extend({
       campaigns: z.array(reportCampaignsSchema.shape.campaigns.element.omit({ attributed_policies: true }).extend({ policies_sold: z.number() })),
     });
@@ -159,5 +159,28 @@ describe("static contracts: migration, fail-closed recovery, untouched canon", (
     // The guard runs before any grant in the file.
     expect(enable.indexOf("policy_guard")).toBeLessThan(enable.indexOf("GRANT EXECUTE"));
     expect(enable).not.toMatch(/GRANT[^;]*rpc_report/i);
+  });
+});
+
+
+describe("campaign privacy response and fixture contracts", () => {
+  it("requires a server-authorized campaign visibility marker on both campaign-bearing panels", () => {
+    for (const [schema, payload] of [[reportCampaignsSchema, reportCampaigns()], [reportDispositionsSchema, reportDispositions()]] as const) {
+      expect(schema.safeParse(payload).success).toBe(true);
+      expect(schema.safeParse(winBased(payload, ["campaign_visibility"])).success).toBe(false);
+    }
+  });
+  it("labels restricted or missing lineage as unavailable, not nonexistent", () => {
+    expect(CAMPAIGN_ATTRIBUTION_NOTE).toContain("unavailable attribution is non-identifying");
+    expect(read("src/components/reports/CampaignPerformance.tsx")).toContain("unavailable campaign attribution");
+    expect(read("src/components/reports/DispositionDeepDive.tsx")).toContain("No campaign breakdown is available");
+  });
+  it("fixture setup is separate, fatal and uses the exact loader tested by the failure probe", () => {
+    const runner = read("scripts/run_reports_rpc_tests.sh");
+    const block = runner.slice(runner.indexOf("run_policy_neg()"), runner.indexOf('echo; echo "== P2a.'));
+    expect(block).toContain('load_report_fixtures "$PGURL/$db" "$FIXTURES"');
+    expect(block).not.toMatch(/\|\| true/);
+    expect(read("supabase/tests/reports_fixtures.sql")).toContain("REPORTS FIXTURE SETUP INCOMPLETE");
+    expect(runner).toContain('declare -f load_report_fixtures');
   });
 });

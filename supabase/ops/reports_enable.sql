@@ -22,7 +22,8 @@ DECLARE
   v_expected constant jsonb := pg_catalog.jsonb_build_object(
     'public.get_report_call_summary(date,date,uuid)',         '826736e666a12d0d85ec3797b2556792',
     'public.get_report_call_volume(date,date,uuid)',          'b4f7d891d7fb29962c86b668a1a2aee6',
-    'public.get_report_campaign_performance(date,date,uuid)', 'ad2e005906f5d38dc1ee0308ad368f04'
+    'public.get_report_campaign_performance(date,date,uuid)', '843c9dd0e11dfd560d78d7d9f30f3729',
+    'public.get_report_disposition_breakdown(date,date,uuid)', 'ec8af7622230b39a92247a66d9c4c961'
   );
   v_sig text;
   v_md5 text;

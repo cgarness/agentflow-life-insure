@@ -359,10 +359,10 @@ BEGIN
   PERFORM rt.eq('K other tenant campaign never listed', rt.campaign_row(j, 'CB'), NULL::jsonb);
   PERFORM rt.eq('K policies in period = the summary total', (j ->> 'policies_in_period')::int, 17);
   PERFORM rt.eq('K without campaign (manual, conflicting, foreign, no-campaign, unassigned, ...)',
-    (j ->> 'policies_without_campaign')::int, 11);
+    (j ->> 'policies_attribution_unavailable')::int, 11);
   PERFORM rt.eq('K each policy contributes at most once',
     (SELECT sum((e ->> 'attributed_policies')::int) FROM jsonb_array_elements(j -> 'campaigns') e)::int
-      + (j ->> 'policies_without_campaign')::int, 17);
+      + (j ->> 'policies_attribution_unavailable')::int, 17);
   PERFORM rt.eq('K attribution basis', j ->> 'policy_attribution', 'conversion_lineage_only');
   PERFORM rt.eq('K no COUNT(wins) field', rt.campaign_row(j, 'C1') ? 'policies_sold', false);
   PERFORM rt.eq('K no conversion rate / ROI', (rt.campaign_row(j, 'C1') ? 'conversion_rate_pct') OR (j ? 'roi'), false);

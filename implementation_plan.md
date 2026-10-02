@@ -1902,3 +1902,24 @@ Repo bodies built locally on PG16.13 hash to the live md5s in 20.1 (summary `f22
   the TS/SQL edge divergences (follow-up: align `normalized-policy.ts`); Dialer header / Leaderboard / Group still count
   wins or clients by design; old tabs need a reload after release; `report_policy_quality` re-reads the facts (fine at
   current volume; revisit with an index plan if client counts grow by orders of magnitude).
+
+
+### 20.13 ChatGPT takeover — final privacy and fixture corrections (2026-10-02)
+
+Chris explicitly asked ChatGPT to implement and complete the two review corrections because Claude is unavailable.
+Branch: `codex/reports-policy-final-fixes-20261002`, based on `037ec13e`. Production remains read-only; exact production
+migration and merge approval remain separate under #28.
+
+Intended files: the UNAPPLIED policy migration, its disabled-only rollback, reports_enable.sql, SQL runner,
+reports_harness.sql, reports_rpc.sql, new reports_fixtures.sql, new reports_campaign_visibility.sql, new fixture
+setup guard tests; Reports campaign/disposition schemas and labels, shared export notes, fixtures and page/contract
+tests; isolated GitHub verification workflow; AGENT_RULES, WORK_LOG and this section. No applied SQL bytes change.
+
+- One private visibility resolver mirrors the live campaigns_select policy and validates the actual actor. Both
+  campaign performance and the disposition by-campaign breakdown use it, since inspection found the same name
+  exposure in both. Policy counts and call counts remain scoped independently; hidden campaign metadata never
+  leaves the server. Unavailable attribution combines absent, ambiguous and restricted links without identifying them.
+- Fixture setup is separated from assertions and must succeed before any mutant is exercised. An injected broken
+  fixture must stop the runner, never count as a killed mutant. Production preflight/postcondition guards are intact.
+- Tests run against disposable localhost PostgreSQL with synthetic data and read-only repository credentials where
+  possible. Temporary workspace/bootstrap tooling is removed from the final PR. No production tests or data writes.

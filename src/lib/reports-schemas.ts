@@ -146,6 +146,8 @@ export const reportVolumeSchema = reportMetaSchema.extend({
 const dispositionCounts = z.record(z.string(), count);
 
 export const reportDispositionsSchema = reportMetaSchema.extend({
+  campaign_visibility: z.literal("caller_authorized"),
+  campaign_attribution_unavailable_calls: count,
   total_calls: count,
   by_disposition: z.array(
     z.object({
@@ -167,6 +169,8 @@ export const reportDispositionsSchema = reportMetaSchema.extend({
 });
 
 export const reportCampaignsSchema = reportMetaSchema.extend({
+  campaign_visibility: z.literal("caller_authorized"),
+  calls_attribution_unavailable: count,
   campaigns: z.array(
     z.object({
       campaign_id: z.string().uuid(),
@@ -186,7 +190,7 @@ export const reportCampaignsSchema = reportMetaSchema.extend({
   policy_source: policySource,
   policy_attribution: z.literal("conversion_lineage_only"),
   policies_in_period: count,
-  policies_without_campaign: count,
+  policies_attribution_unavailable: count,
 });
 
 export const reportLeadSourcesSchema = reportMetaSchema.extend({

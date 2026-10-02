@@ -214,7 +214,7 @@ describe("empty states name what is actually missing", () => {
     h.panels = { ...allReady(), dispositions: ready(d) };
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
-    expect(screen.getByText("None of the 6 outbound calls in this period has a campaign.")).toBeInTheDocument();
+    expect(screen.getByText("No campaign breakdown is available for the 6 outbound calls in this period.")).toBeInTheDocument();
     expect(screen.queryByText(/No dispositioned calls/)).not.toBeInTheDocument();
   });
 });
@@ -310,7 +310,7 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     const header = screen.getByRole("columnheader", { name: "Policies (campaign-attributed)" });
     const table = header.closest("table")!;
     expect(within(table).queryByRole("columnheader", { name: "Policies sold" })).not.toBeInTheDocument();
-    expect(screen.getByText(/3 of 5 policies sold in this\s+period have no provable campaign/)).toBeInTheDocument();
+    expect(screen.getByText(/3 of 5 policies sold in this\s+period have unavailable campaign attribution/)).toBeInTheDocument();
     expect(screen.getByText(/not complete campaign sales attribution and not proof the campaign caused the sale/)).toBeInTheDocument();
   });
 

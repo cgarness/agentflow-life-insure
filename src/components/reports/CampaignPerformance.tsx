@@ -73,7 +73,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
   return (
     <ReportSection title="Campaign Performance" onExport={handleExport}>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No campaign activity in this period.</p>
+        <p className="text-sm text-muted-foreground text-center py-12">No visible campaign breakdown in this period.</p>
       ) : (
         <>
           {chartData.length > 0 && (
@@ -164,15 +164,15 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
           Outbound calls. Converted leads are unique campaign leads given a converting disposition. {CAMPAIGN_ATTRIBUTION_NOTE}
         </p>
       )}
-      {campaigns.policies_without_campaign > 0 && (
+      {campaigns.policies_attribution_unavailable > 0 && (
         <p className="text-[11px] text-muted-foreground mt-1">
-          {formatCount(campaigns.policies_without_campaign)} of {formatCount(campaigns.policies_in_period)} policies sold in this
-          period have no provable campaign and are not attributed to any campaign.
+          {formatCount(campaigns.policies_attribution_unavailable)} of {formatCount(campaigns.policies_in_period)} policies sold in this
+          period have unavailable campaign attribution (missing, ambiguous, or restricted).
         </p>
       )}
-      {campaigns.unattributed_calls > 0 && (
+      {campaigns.calls_attribution_unavailable > 0 && (
         <p className="text-[11px] text-muted-foreground mt-1">
-          {formatCount(campaigns.unattributed_calls)} outbound calls in this period have no campaign.
+          {formatCount(campaigns.calls_attribution_unavailable)} outbound calls in this period have unavailable campaign attribution (missing or restricted).
         </p>
       )}
     </ReportSection>

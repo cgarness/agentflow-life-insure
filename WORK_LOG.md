@@ -1,3 +1,14 @@
+## 2026-10-02 — Reports Policies Sold final privacy and fixture corrections — IMPLEMENTED; CI PENDING
+
+- Chris requested direct ChatGPT implementation. Branch codex/reports-policy-final-fixes-20261002 continues candidate 037ec13e.
+- Added caller-specific campaign visibility to Campaign Performance and disposition by-campaign output. Authorized policy/call totals remain; absent, ambiguous or restricted campaign attribution is non-identifying.
+- Separated SQL fixtures from assertions. Mutation setup errors are fatal; the exact loader is tested with broken SQL and a downstream marker that must not execute.
+- Privacy regressions cover reassignment, policy/call paths, owner/manager/Team/Open access, Reports All without campaign access, malformed membership, foreign-tenant exclusion, and reconciliation.
+- Extended disabled-only recovery and re-enable fingerprints to disposition. Applied migration bytes are unchanged.
+- Added isolated frontend comparison against the exact PR base. No production credentials or production data in tests.
+- Verification: local bash syntax and whitespace checks pass. PostgreSQL, Vitest, typecheck, lint and build await GitHub CI.
+- Production migrations/deploys/data changes: NONE. Exact production approval remains separate.
+
 ## 2026-09-30 — Reports Policies Sold from normalized stored policies (BUGFIX) — IMPLEMENTED AND VERIFIED LOCALLY; NOT MERGED, NOT APPLIED, NOT DEPLOYED
 
 - **Authority / scope:** Chris approved root `implementation_plan.md` §20 rev 2 for branch implementation and isolated testing

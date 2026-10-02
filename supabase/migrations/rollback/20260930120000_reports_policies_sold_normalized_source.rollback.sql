@@ -23,7 +23,8 @@ DECLARE
   v_expected constant jsonb := pg_catalog.jsonb_build_object(
     'public.get_report_call_summary(date,date,uuid)',         '826736e666a12d0d85ec3797b2556792',
     'public.get_report_call_volume(date,date,uuid)',          'b4f7d891d7fb29962c86b668a1a2aee6',
-    'public.get_report_campaign_performance(date,date,uuid)', 'ad2e005906f5d38dc1ee0308ad368f04'
+    'public.get_report_campaign_performance(date,date,uuid)', '843c9dd0e11dfd560d78d7d9f30f3729',
+    'public.get_report_disposition_breakdown(date,date,uuid)', 'ec8af7622230b39a92247a66d9c4c961'
   );
   v_sig text;
   v_md5 text;
@@ -419,6 +420,122 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.get_report_disposition_breakdown(p_start_date date, p_end_date date, p_agent_id uuid DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_access RECORD;
+  v_win    RECORD;
+  v_result jsonb;
+BEGIN
+  SELECT * INTO v_access FROM private.report_access(p_agent_id);
+  SELECT * INTO v_win FROM private.report_window(v_access.org_id, p_start_date, p_end_date);
+
+  WITH f AS (
+    SELECT *
+      FROM private.report_call_facts(v_access.org_id, v_win.start_at, v_win.end_at, v_access.agent_ids)
+     WHERE direction_class = 'outbound'
+  ),
+  disp AS (
+    SELECT f.disposition_key,
+           max(f.disposition_name)          AS name,
+           max(f.disposition_color)         AS color,
+           count(*)                         AS calls,
+           round(avg(f.duration_seconds), 1) AS avg_duration_seconds,
+           bool_or(f.disp_counts_contacted) AS counts_as_contacted,
+           bool_or(f.disp_converts)         AS converts,
+           bool_or(f.disp_dnc)              AS dnc,
+           bool_or(f.disp_callback)         AS callback,
+           bool_or(f.disp_appointment)      AS appointment
+      FROM f
+     GROUP BY f.disposition_key
+  ),
+  by_agent AS (
+    SELECT x.agent_id,
+           private.report_agent_name(p.first_name, p.last_name) AS name,
+           jsonb_object_agg(x.disposition_key, x.calls) AS counts,
+           sum(x.calls) AS total
+      FROM (SELECT f.agent_id, f.disposition_key, count(*) AS calls
+              FROM f WHERE f.agent_id IS NOT NULL GROUP BY 1, 2) x
+      LEFT JOIN public.profiles p ON p.id = x.agent_id AND p.organization_id = v_access.org_id
+     GROUP BY x.agent_id, p.first_name, p.last_name
+  ),
+  by_campaign AS (
+    SELECT x.campaign_id,
+           max(cmp.name) AS name,
+           jsonb_object_agg(x.disposition_key, x.calls) AS counts,
+           sum(x.calls) AS total
+      FROM (SELECT f.campaign_id, f.disposition_key, count(*) AS calls
+              FROM f WHERE f.campaign_id IS NOT NULL GROUP BY 1, 2) x
+      JOIN public.campaigns cmp ON cmp.id = x.campaign_id AND cmp.organization_id = v_access.org_id
+     GROUP BY x.campaign_id
+  ),
+  buckets AS (
+    SELECT * FROM (VALUES
+      (1, '0-30s',  0::bigint,   30::bigint),
+      (2, '30s-1m', 30::bigint,  60::bigint),
+      (3, '1-2m',   60::bigint,  120::bigint),
+      (4, '2-5m',   120::bigint, 300::bigint),
+      (5, '5m+',    300::bigint, NULL::bigint)
+    ) v(ord, label, lo, hi)
+  )
+  SELECT
+    private.report_meta(v_access.scope, v_access.filter_agent_id, v_win.time_zone, v_win.time_zone_source,
+                        v_win.start_date, v_win.end_date, v_win.start_at, v_win.end_at)
+    || jsonb_build_object(
+      'total_calls', (SELECT count(*) FROM f),
+      'by_disposition', coalesce((
+        SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'key',                 d.disposition_key,
+                   'name',                d.name,
+                   'color',               d.color,
+                   'calls',               d.calls,
+                   'avg_duration_seconds', d.avg_duration_seconds,
+                   'counts_as_contacted', d.counts_as_contacted,
+                   'converts',            d.converts,
+                   'dnc',                 d.dnc,
+                   'callback',            d.callback,
+                   'appointment',         d.appointment
+                 )
+                 ORDER BY d.calls DESC, lower(d.name), d.disposition_key
+               )
+          FROM disp d
+      ), '[]'::jsonb),
+      'by_agent', coalesce((
+        SELECT jsonb_agg(jsonb_build_object('agent_id', a.agent_id, 'name', a.name, 'total', a.total, 'counts', a.counts)
+                         ORDER BY a.total DESC, lower(a.name), a.agent_id)
+          FROM by_agent a
+      ), '[]'::jsonb),
+      'by_campaign', coalesce((
+        SELECT jsonb_agg(jsonb_build_object('campaign_id', c.campaign_id, 'name', c.name, 'total', c.total, 'counts', c.counts)
+                         ORDER BY c.total DESC, lower(c.name), c.campaign_id)
+          FROM by_campaign c
+      ), '[]'::jsonb),
+      'duration_histogram', (
+        SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'range', b.label,
+                   'calls', (SELECT count(*) FROM f
+                              WHERE f.duration_seconds >= b.lo
+                                AND (b.hi IS NULL OR f.duration_seconds < b.hi))
+                 )
+                 ORDER BY b.ord
+               )
+          FROM buckets b
+      )
+    )
+    INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+DROP FUNCTION private.report_visible_campaigns(uuid);
 DROP FUNCTION private.report_policy_campaign_lineage(uuid, uuid[]);
 DROP FUNCTION private.report_policy_quality(uuid, uuid[]);
 DROP FUNCTION private.report_policy_facts(uuid, uuid[]);
@@ -429,7 +546,8 @@ DECLARE
 BEGIN
   IF (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_report_call_summary(date,date,uuid)'::pg_catalog.regprocedure) <> 'f221e1d470fc70ec92937be66be56e69'
      OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_report_call_volume(date,date,uuid)'::pg_catalog.regprocedure) <> '604abca3774fc10daa2c86faa9ff7524'
-     OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_report_campaign_performance(date,date,uuid)'::pg_catalog.regprocedure) <> '9d151bf9ce31bd602af8317f2dd8e124' THEN
+     OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_report_campaign_performance(date,date,uuid)'::pg_catalog.regprocedure) <> '9d151bf9ce31bd602af8317f2dd8e124'
+     OR (SELECT pg_catalog.md5(p.prosrc) FROM pg_catalog.pg_proc p WHERE p.oid = 'public.get_report_disposition_breakdown(date,date,uuid)'::pg_catalog.regprocedure) <> '38f1b5c0e0e4e3187423639d03db3019' THEN
     RAISE EXCEPTION 'reports policy fixture: restored bodies do not match the 20260929152553 preimage';
   END IF;
   FOREACH v_sig IN ARRAY ARRAY[

@@ -128,6 +128,8 @@ export function reportVolume(): ReportVolume {
 
 export function reportDispositions(): ReportDispositions {
   return {
+    campaign_visibility: "caller_authorized",
+    campaign_attribution_unavailable_calls: 2,
     ...meta(),
     total_calls: 6,
     by_disposition: [
@@ -145,6 +147,8 @@ export function reportDispositions(): ReportDispositions {
 
 export function reportCampaigns(): ReportCampaigns {
   return {
+    campaign_visibility: "caller_authorized",
+    calls_attribution_unavailable: 13,
     ...meta(),
     campaigns: [
       { campaign_id: CAMPAIGN_1, name: "Spring Team", type: "Team", calls_made: 4, contacted_calls: 3, contact_rate_pct: 75, leads_dialed: 2, contacted_leads: 2, converted_leads: 1, attributed_policies: 2 },
@@ -153,7 +157,7 @@ export function reportCampaigns(): ReportCampaigns {
     policy_source: "normalized_policies",
     policy_attribution: "conversion_lineage_only",
     policies_in_period: 5,
-    policies_without_campaign: 3,
+    policies_attribution_unavailable: 3,
   };
 }
 

@@ -99,6 +99,7 @@ CREATE TABLE public.dispositions (
 CREATE UNIQUE INDEX dispositions_org_lower_name_unique ON public.dispositions (organization_id, lower(name));
 
 CREATE TABLE public.campaigns (
+  assigned_agent_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   id              uuid PRIMARY KEY,
   name            text NOT NULL,
   type            text NOT NULL,

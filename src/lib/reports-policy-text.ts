@@ -15,7 +15,7 @@ export const CURRENT_ASSIGNMENT_NOTE =
   "Agent policy counts use the client's current assigned agent, not the original seller; a reassigned client moves its policies.";
 
 export const CAMPAIGN_ATTRIBUTION_NOTE =
-  "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale.";
+  "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale. Campaign breakdowns include only campaigns this viewer may read; unavailable attribution is non-identifying.";
 
 function plural(n: number, one: string, many: string): string {
   return `${formatCount(n)} ${n === 1 ? one : many}`;
