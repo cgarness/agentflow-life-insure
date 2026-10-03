@@ -374,8 +374,8 @@ Regression manifest refinement: `src/components/contacts/__tests__/fullScreenCon
 
 ### Migration checksums
 
-- `supabase/migrations/20261003154259_contact_history_operational_events.sql` — SHA-256 `4ab202ccd47675b2439f5fa8d34d028292da6441d497afc2ef14820d6766587f`
-- `supabase/migrations/20261003154258_contact_history_read_model.sql` — SHA-256 `2ebadc7e277ac600bdc77d1ff6a4693d9cbb67f84250f7352aea0c200161c81d`
+- `supabase/migrations/20261003192907_contact_history_operational_events.sql` — SHA-256 `4ab202ccd47675b2439f5fa8d34d028292da6441d497afc2ef14820d6766587f`
+- `supabase/migrations/20261003192857_contact_history_read_model.sql` — SHA-256 `2ebadc7e277ac600bdc77d1ff6a4693d9cbb67f84250f7352aea0c200161c81d`
 
 ### Final exact changed-file list
 
@@ -417,8 +417,8 @@ Regression manifest refinement: `src/components/contacts/__tests__/fullScreenCon
 - `src/lib/supabase-activities.ts`
 - `src/lib/supabase-notes.ts`
 - `src/lib/tasksApi.ts`
-- `supabase/migrations/20261003154258_contact_history_read_model.sql`
-- `supabase/migrations/20261003154259_contact_history_operational_events.sql`
+- `supabase/migrations/20261003192857_contact_history_read_model.sql`
+- `supabase/migrations/20261003192907_contact_history_operational_events.sql`
 - `supabase/ops/contact_history_disable.sql`
 - `supabase/tests/contact_history.sql`
 
@@ -441,3 +441,27 @@ Run `37146187444` compared current main and the branch successfully through both
 **Additional file:** `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx`. Test only; no production data or telephony effect. Update the Supabase RPC fixture to a valid history page, retain all duplicate detection/refusal/exactly-one-update checks, require zero frontend activity writes and a fresh contact-scoped Activity query on save. All 50 tests across this file, save-failure, status-save and history-hook suites pass, as do scoped ESLint and diff checks. The three documentation files above record this correction; no other file or runtime behavior changes. The earlier 42-file manifest plus this one file is the final **43-file** manifest.
 
 The first full run has 4,014 passing base tests and 4,036 passing candidate tests, the same 88 app diagnostic lines and zero unhandled runtime errors. Its only additional failed test names are the three corrected assertions. Both sides retain the pre-existing recording-retention test failure and the same configuration-dependent failed files. Keep the full comparison unchanged and rerun on the corrected head; final status/evidence links are recorded on PR #407. No production release or migration apply is authorized by this correction.
+
+
+## Authorized production backend checkpoint — October 3, 2026, 12:29 PDT
+
+Chris instructed “begin the next steps to complete the task” after the explicit migration/release handoff. This authorizes the reviewed two-migration release and PR #407 frontend rollout after verification. No separate historical backfill, synthetic production data, customer calls/messages, voice/Edge deployment or permission broadening is included.
+
+Main remains `84829dfe`; PR #407 runtime/test head `73c85571` has all three checks green: PostgreSQL 17.6 run `37147072283`, DNC run `37147072298`, and full frontend run `37147072333`. Full comparison: 4,039 candidate tests pass vs 4,014 on main, identical existing failure set, the same 88 app diagnostics, zero unhandled errors; scoped lint/root tsc/build pass. Both previews are READY.
+
+Preflight: no recent active calls or long-running transactions; calls about 5,251 estimated rows / 6.6 MB including indexes; other source tables smaller. Applied only the reviewed migrations with 3-second lock and 60-second statement timeouts. Supabase assigned:
+
+| Authored version | Applied version / file | SQL MD5 |
+|---|---|---|
+| 20261003154258 | `supabase/migrations/20261003192857_contact_history_read_model.sql` | `dfd13959e746a1a71f1fad90182daccd` |
+| 20261003154259 | `supabase/migrations/20261003192907_contact_history_operational_events.sql` | `31238cf33e95e4fa335cb19854caceb7` |
+
+Applied statements exactly match reviewed file bytes and the SHA-256 values above. Filename reconciliation and the isolated test runner references change only; no SQL body changes or migration replay.
+
+Catalog readback: both tables have RLS; authenticated SELECT only, no authenticated/service/anonymous writes, no anonymous SELECT. All seven public functions are invoker with empty search_path; anonymous execution denied. The private capture function is definer, empty search_path, and uncallable by anonymous/authenticated/service roles. Seven enabled source observers. A hosted call with no authenticated identity is denied by the reader guard (42501), with no claims or user impersonation. Capture began `2026-10-03T19:29:07.59474Z`; initial event/error counts zero, no historical writes. No security-advisor finding involves a new Contact history object. Unrelated existing advisor findings remain, including the existing [public-table RLS notices](https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public); this feature does not change them.
+
+Before/after protected fingerprints match exactly: non-history public/private functions/owners/ACLs `044ed64f385d33e83a9cf5fe9070559f`; source policies `a61aa971365abd31ce4e53e47373b947`; existing source triggers `394f215e89d473516c7f8d9f62cfad45`. Telephony/disposition/DNC/conversion/queue behavior remains unchanged by definition and privilege fingerprint.
+
+Release remains staged: preview is behind Vercel sign-in. Genuine authenticated hosted history/UI checks remain required before frontend rollout; do not impersonate a user in SQL or extract browser credentials to replace them. Reconcile filenames/docs and rerun the unchanged CI gate, obtain the secure login when needed, then merge the approved PR and verify normal Vercel production deployments. Production backend is installed; frontend has not been merged/released at this checkpoint. The exact same disable-only recovery remains available under separate recovery approval, retaining captured history.
+
+Release reconciliation touches only the two migration paths, `scripts/run_contact_history_tests.sh`, `AGENT_RULES.md`, `WORK_LOG.md`, root `implementation_plan.md`, and this plan. Runtime source is unchanged. Final verification/merge/deployment evidence will be recorded on PR #407.

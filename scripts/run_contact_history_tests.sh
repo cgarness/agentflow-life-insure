@@ -16,7 +16,7 @@ fi
 trap 'psql "${PGURL%/}/postgres" -q -c "DROP DATABASE IF EXISTS $TASK_DB" >/dev/null' EXIT
 psql "${PGURL%/}/postgres" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $TASK_DB"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -v setup=true -q -f "$TASK_ROOT/supabase/tests/contact_history.sql"
-for migration in 20261003154258_contact_history_read_model 20261003154259_contact_history_operational_events; do
+for migration in 20261003192857_contact_history_read_model 20261003192907_contact_history_operational_events; do
  psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/$migration.sql"
 done
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -v setup=false -q -f "$TASK_ROOT/supabase/tests/contact_history.sql"
