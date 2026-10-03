@@ -2096,3 +2096,7 @@ Chris approved implementation and isolated verification at 08:35 PDT. The seven-
 ### §22 release authorization — October 3, 2026, 09:00 PDT
 
 Chris approved publishing the reviewed candidate, merging through its PR after checking results, and verifying the normal frontend production deployment. This supersedes the remaining-authorization statement above. The exact seven-file scope and all backend exclusions remain. Only this plan and WORK_LOG.md receive authorization/release evidence updates; no additional application files are planned. Record actual PR/check/deployment identities after observation, without claiming authenticated browser or live-call verification.
+
+### §22 necessary verification correction — discovered in PR #404
+
+The DNC CI runner stops before its assertions because `supabase/tests/dialer_dnc_upgrade.sql` still includes the authored migration filename `20261003022218`, removed when PR #403 reconciled the applied timestamp to `20261003043122`. Add exactly this eighth file to the implementation list before editing it: **supabase/tests/dialer_dnc_upgrade.sql**. Change only the include path to the existing shipped migration. This is a test-harness repair needed to execute the preserved DNC gate; no migration bytes, assertions, database schema, production state or application behavior change. The seven original files remain as listed above. Verify the complete DNC workflow on the new PR head; do not weaken its checks.
