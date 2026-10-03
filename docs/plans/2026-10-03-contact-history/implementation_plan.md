@@ -465,3 +465,23 @@ Before/after protected fingerprints match exactly: non-history public/private fu
 Release remains staged: preview is behind Vercel sign-in. Genuine authenticated hosted history/UI checks remain required before frontend rollout; do not impersonate a user in SQL or extract browser credentials to replace them. Reconcile filenames/docs and rerun the unchanged CI gate, obtain the secure login when needed, then merge the approved PR and verify normal Vercel production deployments. Production backend is installed; frontend has not been merged/released at this checkpoint. The exact same disable-only recovery remains available under separate recovery approval, retaining captured history.
 
 Release reconciliation touches only the two migration paths, `scripts/run_contact_history_tests.sh`, `AGENT_RULES.md`, `WORK_LOG.md`, root `implementation_plan.md`, and this plan. Runtime source is unchanged. Final verification/merge/deployment evidence will be recorded on PR #407.
+
+
+## Production release complete — October 3, 2026
+
+PR #407 merged from tested head `dd6fd0ddc042271b566bce588a131c29ee74555e` as `6c1f3174a15258c2f77c375204f687f15d20db34`. Merge tree `df9507363b769334ef9a2effc183148359999eaf` is byte-identical to the candidate. Main `84829dfe` and concurrent PR heads were unchanged immediately before merge. The two production migrations above are applied; do not replay them. No historical backfill or business test rows were created.
+
+Final-head checks: [PostgreSQL 17.6](https://github.com/cgarness/agentflow-life-insure/actions/runs/37148353961), [DNC](https://github.com/cgarness/agentflow-life-insure/actions/runs/37148353955), [frontend comparison](https://github.com/cgarness/agentflow-life-insure/actions/runs/37148353964) all pass. Comparison again confirms 4,039 candidate tests pass versus 4,014 main, unchanged existing failures and 88 app diagnostics, zero unhandled errors, root tsc/lint/build passing.
+
+After secure/manual authentication, the exact-head hosted preview loaded real existing contacts. Confirmed historical outbound dialing agent differs from the current contact owner where appropriate; inbound routed/answered agents; campaign names; canonical stored duration; disposition/status; neutral missing values; recording-control expansion. Confirmed concise communication Activity, existing appointment/note/campaign baseline labels, actor/assignee display, capture-start disclosure and separate legacy evidence. A longer Activity stream loaded earlier rows to the explicit end; Refresh preserved the exact full rendered Activity sequence. This walkthrough made no business mutations. Latest capture-health readback: one event, zero errors.
+
+| Production project | Deployment | Result / alias |
+|---|---|---|
+| agentflow | `dpl_Fj7EReSVQ7Mi1cJoNnp1fKRMb81S` | READY, production, merge SHA; `www.fflagent.com` / `fflagent.com` |
+| agentflow-life-insure | `dpl_A4iH6dQpFrJGcFX6tjii7vFSY46r` | READY, production, merge SHA; `agentflow-life-insure.vercel.app` |
+
+No alias errors. Both production HTML and main assets return HTTP 200 and contain `get_contact_conversation_page` / `get_contact_activity_page` and neutral agent wording. Primary asset `index-D80bE7UE.js`; secondary `index-BDtwJ-C6.js`. Different environment builds have different asset hashes as expected; both deployment records point to the exact merge SHA.
+
+Verification limits: the browser service timed out during the final voicemail/visual inspection and then timed out reading troubleshooting documentation. No screenshot, completed audio playback, post-release signed-in production-domain walkthrough, live call/message or hosted conversion mutation is claimed. Core authenticated history/paging/refresh checks passed before the tooling interruption; remaining media/operational smoke checks are follow-up verification. Existing broad-suite failures and synthetic fixture limitations remain as documented. Recovery remains the documented disable-only backend approach plus a prior frontend release; execute recovery only with its required approval and preserve captured history.
+
+The closeout changes exactly four Markdown files (AGENT_RULES, WORK_LOG, root plan and this plan), with no runtime, SQL, production-data or telephony effect. The applied-migration checkpoint above is historical; this section supersedes its frontend-pending status.
