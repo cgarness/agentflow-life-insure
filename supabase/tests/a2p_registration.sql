@@ -61,3 +61,10 @@ do $$ begin
 end $$;
 select a2p_assert((select status='unregistered' from a2p_numbers),'foreign event cannot enable number');
 reset role;
+
+-- Existing administrator number removal must not be blocked by an A2P mapping.
+set role service_role;
+delete from phone_numbers where id='20000000-0000-0000-0000-000000000001';
+select a2p_assert((select count(*)=0 from a2p_numbers),'phone deletion removes only its readiness mapping');
+select a2p_assert((select count(*)>0 from a2p_history),'phone deletion preserves registration audit history');
+reset role;

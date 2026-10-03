@@ -103,3 +103,5 @@ If rollout fails, stop new registration actions with `enabled=false` while leavi
 ## Initial PR CI follow-up
 
 PR #406 at `11c80f46` passed A2P CI `37139197573` and Dialer DNC CI `37139197536`. The broader frontend runner stopped before testing because it intentionally refused a changed package lock with a shared baseline installation. Its follow-up now installs the exact base independently when dependencies differ and keeps every comparison/assertion. A scoped npm override pins Persona React 6.3.0 (published React peer `>=16`) instead of the SDK transitive 6.7.0 requirement for React 19; AgentFlow remains React 18. The dependency tree is verified without a peer conflict. Final checks rerun on the follow-up commit.
+
+Number lifecycle regression: the new readiness mapping cascades when the existing administrator number-removal flow deletes a phone record; provider events and registration history remain retained. The isolated SQL test covers this so A2P cannot block the existing Phone Numbers delete action. No applied migration was edited.

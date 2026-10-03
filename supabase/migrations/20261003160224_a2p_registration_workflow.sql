@@ -48,7 +48,7 @@ create table public.a2p_registrations (
 );
 create table public.a2p_numbers (
  organization_id uuid not null references public.a2p_registrations(organization_id),
- phone_number_id uuid not null references public.phone_numbers(id),
+ phone_number_id uuid not null references public.phone_numbers(id) on delete cascade,
  phone_sid text not null unique check(phone_sid ~ '^PN[0-9a-fA-F]{32}$'),
  messaging_service_sid text not null,
  status text not null default 'pending_registration',
