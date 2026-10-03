@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Trophy, X, Settings, TrendingUp, Clock, Activity, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Settings, Clock, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
+import TVPodium from "./TVPodium";
+import { useTVRankMotion } from "./useTVRankMotion";
+import TVRankingsTable from "./TVRankingsTable";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -9,25 +11,14 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import { motion, LayoutGroup } from "framer-motion";
 import {
   type RankMotionKind,
-  buildRankDeltaMap,
-  buildRankMotionMap,
-  computeRankMovements,
-  podiumEnterInitial,
-  tvGlideTransition,
-  tvPodiumEnterTransition,
-  tvPodiumExitTransition,
-  tvTableRowLayoutTransition,
 } from "@/components/leaderboard/leaderboardRankMotion";
-import OdometerValue from "@/components/leaderboard/OdometerValue";
 import TVAgencyTotalsStrip from "@/components/leaderboard/TVAgencyTotalsStrip";
 import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import TVDeepRankPanel from "@/components/leaderboard/TVDeepRankPanel";
 import TVStandingsNotice from "@/components/leaderboard/TVStandingsNotice";
-import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
-import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlight";
 import { useBranding } from "@/contexts/BrandingContext";
 import {
   type Metric,
@@ -36,13 +27,7 @@ import {
   type RankMovement,
   type Win,
   LEADERBOARD_METRICS,
-  formatMetricValue,
-  metricKey,
-  formatPremiumSold,
   rankAgents,
-  hasMeaningfulStandings,
-  metricValueMapsEqual,
-  snapshotMetricValues,
 } from "@/components/leaderboard/leaderboardTypes";
 import {
   type StandingsStatus,
@@ -56,14 +41,9 @@ import {
 
 const METRICS = LEADERBOARD_METRICS;
 
-/** Center column = podium (72rem); side columns outside; grid shrink-wraps so mx-auto centers */
+/** Lower panels never determine the independently centered totals/podium width. */
 const TV_GRID_CLASS =
-  "mx-auto grid w-max max-w-full min-h-0 flex-1 grid-cols-[18rem_72rem_22rem] grid-rows-[auto_minmax(0,1fr)] gap-x-4 gap-y-4";
-const TV_CENTER_COL = "col-start-2 min-w-0 w-full max-w-[72rem]";
-
-/** Fixed 7-row TV table (ranks 4–10) — equal-height rows, no scroll */
-const TV_TABLE_ROW =
-  "grid w-full grid-cols-[3rem_minmax(7rem,1.1fr)_repeat(6,minmax(2.75rem,1fr))] items-center gap-x-1.5 px-4 sm:gap-x-2 sm:px-5";
+  "mx-auto grid w-full min-h-[26rem] flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)_minmax(12rem,1fr)]";
 
 const LS_AUTO = "leaderboardTvAutoRotate";
 const LS_METRIC = "leaderboardTvMetricIndex";
@@ -79,30 +59,6 @@ function readTvPrefs(): { autoRotate: boolean; metricIdx: number } {
     return { autoRotate: true, metricIdx: 0 };
   }
 }
-
-const rankMovementDisplay = (movement: RankMovement | undefined) => {
-  if (!movement) return null;
-  if (movement.direction === "up") {
-    return (
-      <span
-        className="inline-flex items-center gap-0.5 text-emerald-400 text-xs font-semibold whitespace-nowrap"
-        title={`Moved up ${movement.spots} spot${movement.spots === 1 ? "" : "s"} since the last leaderboard update`}
-      >
-        <ArrowUp className="w-3 h-3" aria-hidden />
-        {movement.spots}
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center gap-0.5 text-red-400 text-xs font-semibold whitespace-nowrap"
-      title={`Moved down ${movement.spots} spot${movement.spots === 1 ? "" : "s"} since the last leaderboard update`}
-    >
-      <ArrowDown className="w-3 h-3" aria-hidden />
-      {movement.spots}
-    </span>
-  );
-};
 
 /** Format a Date using the agency's IANA timezone */
 function formatInTz(date: Date, timezone: string, opts: Intl.DateTimeFormatOptions): string {
@@ -201,89 +157,18 @@ const TVMode: React.FC<Props> = ({
   settingsOpenRef.current = settingsOpen;
 
   const metric = METRICS[currentMetricIdx];
-  const key = metricKey(metric);
 
   /** Ranks must follow the TV metric — parent `agents[].rank` uses the main page filter metric. */
   const rankedAgents = useMemo(
-    () => rankAgents([...agents], metric),
+    () => rankAgents(agents.map(agent => ({ ...agent })), metric),
     [agents, metric],
   );
-  const top3 = rankedAgents.slice(0, 3);
   const tableAgents = rankedAgents.filter((a) => a.rank >= 4 && a.rank <= 10);
   const deepRankAgents = rankedAgents.filter((a) => a.rank >= 11);
-  const newLeader = newLeaderId ? agents.find((a) => a.id === newLeaderId) : undefined;
+  const newLeader = newLeaderId && rankedAgents[0]?.id === newLeaderId ? rankedAgents[0] : undefined;
 
-  /** TV metric re-sorts locally — track motions against displayed ranks, not the page filter metric. */
-  const previousTvRanksRef = useRef<Map<string, number>>(new Map());
-  const previousTvMetricValuesRef = useRef<Map<string, number>>(new Map());
-  const [tvRankMotions, setTvRankMotions] = useState<Map<string, RankMotionKind>>(new Map());
-  const [tvRankDeltas, setTvRankDeltas] = useState<Map<string, number>>(new Map());
-  const [tvRankMovements, setTvRankMovements] = useState<Map<string, RankMovement>>(new Map());
-  const [tvRankAnimations, setTvRankAnimations] = useState<Map<string, "up" | "down">>(new Map());
-
-  useEffect(() => {
-    previousTvRanksRef.current = new Map();
-    previousTvMetricValuesRef.current = new Map();
-    setTvRankMotions(new Map());
-    setTvRankDeltas(new Map());
-    setTvRankMovements(new Map());
-    setTvRankAnimations(new Map());
-  }, [metric]);
-
-  useEffect(() => {
-    const prev = previousTvRanksRef.current;
-    if (prev.size === 0) {
-      rankedAgents.forEach((a) => prev.set(a.id, a.rank));
-      previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
-      return;
-    }
-
-    const frozen = !hasMeaningfulStandings(rankedAgents, metric);
-    const valuesUnchanged = metricValueMapsEqual(
-      rankedAgents,
-      previousTvMetricValuesRef.current,
-      metric,
-    );
-
-    if (frozen || valuesUnchanged) {
-      rankedAgents.forEach((a) => prev.set(a.id, a.rank));
-      previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
-      return;
-    }
-
-    const motions = buildRankMotionMap(rankedAgents, prev);
-    const deltas = buildRankDeltaMap(rankedAgents, prev);
-    const movements = computeRankMovements(rankedAgents, prev);
-    const anims = new Map<string, "up" | "down">();
-
-    motions.forEach((_kind, id) => {
-      const previousRank = prev.get(id);
-      const agent = rankedAgents.find((x) => x.id === id);
-      if (previousRank === undefined || !agent) return;
-      if (agent.rank < previousRank) anims.set(id, "up");
-      else if (agent.rank > previousRank) anims.set(id, "down");
-    });
-
-    if (motions.size > 0) {
-      setTvRankMotions(motions);
-      setTvRankDeltas(deltas);
-      window.setTimeout(() => {
-        setTvRankMotions(new Map());
-        setTvRankDeltas(new Map());
-      }, 2400);
-    }
-    if (movements.size > 0) {
-      setTvRankMovements(movements);
-      window.setTimeout(() => setTvRankMovements(new Map()), 2400);
-    }
-    if (anims.size > 0) {
-      setTvRankAnimations(anims);
-      window.setTimeout(() => setTvRankAnimations(new Map()), 2600);
-    }
-
-    rankedAgents.forEach((a) => prev.set(a.id, a.rank));
-    previousTvMetricValuesRef.current = snapshotMetricValues(rankedAgents, metric);
-  }, [rankedAgents, metric]);
+  const { tvRankMotions, tvRankDeltas, tvRankMovements, tvRankAnimations } =
+    useTVRankMotion(rankedAgents, metric, `${profile?.organization_id}:${period}:${metric}`);
 
   // Clock — tick every second
   useEffect(() => {
@@ -347,48 +232,6 @@ const TVMode: React.FC<Props> = ({
     toast.success(trimmed ? "Ticker message updated" : "Ticker reset to live wins");
   };
 
-  const metalConfig = (rank: number) => {
-    if (rank === 1) {
-      return {
-        trophyColor: "text-yellow-400",
-        border: "border-yellow-500/40",
-        trophyBorder: "border-yellow-500/45",
-        trophyShadow: "shadow-[0_0_28px_-2px_rgba(234,179,8,0.55)]",
-        cardShadow:
-          "shadow-[0_16px_48px_-16px_rgba(0,0,0,0.65),0_0_56px_-14px_rgba(234,179,8,0.38)]",
-        cardRing: "ring-1 ring-yellow-500/35",
-        ambientGradient:
-          "radial-gradient(ellipse 90% 70% at 50% 88%, rgba(234,179,8,0.28) 0%, rgba(234,179,8,0.08) 42%, transparent 72%)",
-        rankBadge: "bg-yellow-500 border-yellow-400 text-black",
-      };
-    }
-    if (rank === 2) {
-      return {
-        trophyColor: "text-slate-300",
-        border: "border-slate-400/35",
-        trophyBorder: "border-slate-300/40",
-        trophyShadow: "shadow-[0_0_22px_-2px_rgba(148,163,184,0.45)]",
-        cardShadow:
-          "shadow-[0_14px_40px_-16px_rgba(0,0,0,0.6),0_0_44px_-14px_rgba(148,163,184,0.28)]",
-        cardRing: "ring-1 ring-slate-400/25",
-        ambientGradient:
-          "radial-gradient(ellipse 90% 70% at 50% 88%, rgba(148,163,184,0.22) 0%, rgba(148,163,184,0.06) 42%, transparent 72%)",
-        rankBadge: "bg-slate-400 border-slate-300 text-black",
-      };
-    }
-    return {
-      trophyColor: "text-orange-400",
-      border: "border-orange-500/35",
-      trophyBorder: "border-orange-500/40",
-      trophyShadow: "shadow-[0_0_22px_-2px_rgba(251,146,60,0.45)]",
-      cardShadow:
-        "shadow-[0_14px_40px_-16px_rgba(0,0,0,0.6),0_0_44px_-14px_rgba(251,146,60,0.28)]",
-      cardRing: "ring-1 ring-orange-500/25",
-      ambientGradient:
-        "radial-gradient(ellipse 90% 70% at 50% 88%, rgba(251,146,60,0.24) 0%, rgba(251,146,60,0.07) 42%, transparent 72%)",
-      rankBadge: "bg-orange-600 border-orange-500 text-white",
-    };
-  };
 
   const winsTicker =
     wins.length > 0
@@ -454,6 +297,7 @@ const TVMode: React.FC<Props> = ({
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Viewing metric</Label>
                   <select
+                    aria-label="Viewing metric"
                     className="mt-1.5 w-full h-10 rounded-md border border-slate-700 bg-slate-800 px-3 text-sm text-white focus:ring-2 focus:ring-blue-500 transition-all outline-none"
                     value={currentMetricIdx}
                     disabled={autoRotate}
@@ -537,13 +381,14 @@ const TVMode: React.FC<Props> = ({
           size="icon"
           className="h-10 w-10 shrink-0 touch-manipulation rounded-lg border border-white/10 bg-white/5 text-slate-300 transition-all hover:bg-red-500/20 hover:text-red-400"
           onClick={onExit}
+          aria-label="Exit TV mode"
         >
           <X className="h-5 w-5" />
         </Button>
         </div>
       </div>
 
-      <main className="relative z-10 flex flex-1 min-h-0 flex-col gap-4 overflow-hidden px-6 py-4 md:gap-5 md:py-5">
+      <main className="relative z-10 flex flex-1 min-h-0 flex-col gap-4 overflow-y-auto px-6 py-4 md:gap-5 md:py-5">
         {newLeader ? (
           <motion.div
             key={newLeader.id}
@@ -585,7 +430,7 @@ const TVMode: React.FC<Props> = ({
             formatTime={formatTvTime}
           />
         )}
-        <div className="mx-auto w-full max-w-[72rem] shrink-0">
+        <div data-testid="tv-agency-totals" className="mx-auto w-full max-w-[72rem] shrink-0">
           <TVAgencyTotalsStrip
             agents={agents}
             period={period}
@@ -594,114 +439,14 @@ const TVMode: React.FC<Props> = ({
           />
         </div>
 
-        {/* Podium + bottom panels share a 3-col grid: sides outside, center = podium width */}
+        {/* Totals and podium share the page center; lower panels size independently. */}
         <LayoutGroup id="tv-leaderboard">
-        <div className={TV_GRID_CLASS}>
-          <div className={`${TV_CENTER_COL} mt-3 flex h-[300px] shrink-0 items-end justify-center gap-4 md:mt-5 md:h-[320px] md:gap-6`}>
-            {([2, 1, 3] as const).map((slotRank) => {
-              const a = rankedAgents.find((agent) => agent.rank === slotRank);
-              if (!a && top3.length < 3) return <div key={`slot-${slotRank}`} className="flex-1" />;
+          <TVPodium key={`${period}:${metric}`} agents={rankedAgents} metric={metric}
+            tvRankMotions={tvRankMotions} tvRankAnimations={tvRankAnimations}
+            spotlightAgentId={spotlightAgentId} newLeaderId={newLeaderId} />
+          <div className={TV_GRID_CLASS}>
 
-              const mc = metalConfig(slotRank);
-              const isFirst = slotRank === 1;
-              const metricNumeric = a ? (a[key] as number) : 0;
-              const motionKind = a ? tvRankMotions.get(a.id) ?? "none" : "none";
-              const useLayoutGlide = motionKind === "glide";
-              const rankGlow = a ? tvRankAnimations.get(a.id) : undefined;
-              const pillPop = motionKind !== "none";
-
-              return (
-                <div key={`slot-${slotRank}`} className="relative isolate h-full min-w-0 flex-1">
-                  <AnimatePresence mode="sync" initial={false}>
-                    {a ? (
-                      <motion.div
-                        key={a.id}
-                        layout={useLayoutGlide ? "position" : false}
-                        layoutId={useLayoutGlide ? `tv-podium-agent-${a.id}` : undefined}
-                        initial={motionKind === "podium-enter" ? podiumEnterInitial : false}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.92 }}
-                        transition={
-                          useLayoutGlide
-                            ? tvGlideTransition
-                            : motionKind === "podium-enter"
-                              ? tvPodiumEnterTransition
-                              : tvPodiumExitTransition
-                        }
-                        style={{ transformOrigin: "bottom center", willChange: "transform, opacity" }}
-                        className={`absolute bottom-0 left-0 right-0 w-full flex flex-col items-center ${
-                          slotRank === 1 ? "scale-[1.02]" : slotRank === 2 ? "scale-[1.01]" : "scale-100"
-                        }`}
-                      >
-                  {/* Card Body — trophy sits on the card lip so it cannot overlap the header */}
-                  <div className="relative z-10 w-full">
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-x-0 bottom-0 top-[-12%] z-0 [mask-image:linear-gradient(to_top,black_55%,transparent_100%)]"
-                      style={{ background: mc.ambientGradient }}
-                    />
-                    <div
-                      className={`relative z-10 w-full rounded-2xl border bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-6 pb-5 text-center backdrop-blur-lg ${mc.border} ${mc.cardShadow} ${mc.cardRing} ${
-                        rankGlow === "up" ? "animate-rank-up-glow" : ""
-                      } ${rankGlow === "down" ? "animate-rank-down-glow" : ""} ${agentHighlightClass(a.id, {
-                        spotlightAgentId,
-                        newLeaderId,
-                      })}`}
-                    >
-                      <div
-                        className={`absolute left-1/2 z-20 -translate-x-1/2 rounded-full border-2 bg-white/[0.06] backdrop-blur-sm ${mc.trophyBorder} ${mc.trophyShadow} ${
-                          isFirst ? "-top-8 p-3" : "-top-7 p-2.5"
-                        } ${newLeaderId === a.id || (rankGlow === "up" && isFirst) ? "animate-tv-trophy-shimmer" : ""}`}
-                      >
-                        <Trophy className={`${isFirst ? "h-9 w-9" : "h-7 w-7"} ${mc.trophyColor} drop-shadow-lg`} />
-                      </div>
-
-                      <div className={`mx-auto flex w-full max-w-full flex-col items-center ${isFirst ? "pt-7" : "pt-6"}`}>
-                      <LeaderboardAgentAvatar
-                        avatarUrl={a.avatar_url}
-                        initials={`${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`}
-                        alt={`${a.first_name} ${a.last_name}`}
-                        className={`mx-auto mb-4 border-2 shadow-xl ${mc.border} ${isFirst ? "h-24 w-24" : "h-20 w-20"}`}
-                        fallbackClassName={isFirst ? "text-3xl bg-blue-600/20" : "text-2xl"}
-                      />
-
-                      <h3 className={`w-full truncate px-2 text-center font-black leading-none tracking-tight text-white ${isFirst ? "text-2xl" : "text-xl"}`}>
-                        {a.first_name} {a.last_name?.[0]}.
-                      </h3>
-
-                      <div className="mt-5 flex w-full flex-col items-center justify-center text-center">
-                        <OdometerValue
-                          value={metricNumeric}
-                          format={(n) => formatMetricValue(metric, n)}
-                          tv
-                          className={`font-black tabular-nums text-white drop-shadow-lg leading-none ${isFirst ? "text-5xl" : "text-4xl"}`}
-                        />
-                        <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                          {metric}
-                        </span>
-                      </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Rank Badge */}
-                  <div
-                    key={a ? `${a.rank}-${motionKind}` : slotRank}
-                    className={`absolute -bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-full border px-4 py-1 text-xs font-black uppercase tracking-widest shadow-xl ${mc.rankBadge} ${
-                      pillPop ? "animate-rank-pill-pop" : ""
-                    }`}
-                  >
-                    #{slotRank}
-                  </div>
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="col-start-1 row-start-2 flex min-h-0 flex-col">
+          <div className="order-2 flex min-h-[18rem] flex-col xl:order-none xl:col-start-1">
             <TVDeepRankPanel
               agents={deepRankAgents}
               metric={metric}
@@ -711,97 +456,11 @@ const TVMode: React.FC<Props> = ({
             />
           </div>
 
-          <div className={`${TV_CENTER_COL} row-start-2 flex min-h-0 flex-col overflow-hidden`}>
-          <div className={TV_PANEL_CLASS}>
-            <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
-                <TrendingUp className="h-4 w-4" />
-                {live ? "Live Ranking" : "Ranking"}: {metric}
-              </div>
-            </div>
+          <TVRankingsTable key={`${period}:${metric}`} tableAgents={tableAgents} metric={metric} live={live}
+            tvRankMotions={tvRankMotions} tvRankAnimations={tvRankAnimations} tvRankDeltas={tvRankDeltas}
+            tvRankMovements={tvRankMovements} spotlightAgentId={spotlightAgentId} newLeaderId={newLeaderId} />
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div
-                className={`${TV_TABLE_ROW} shrink-0 border-b border-white/5 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500`}
-              >
-                <span className="text-left">Rank</span>
-                <span className="text-center">Agent</span>
-                <span className="text-center">Calls</span>
-                <span className="text-center">Policies</span>
-                <span className="text-center">Premium</span>
-                <span className="text-center">Appts</span>
-                <span className="text-center">Talk</span>
-                <span className="text-center">Conv</span>
-              </div>
-
-              <LayoutGroup id="tv-table">
-                <motion.div layout className="grid min-h-0 flex-1 grid-rows-7 divide-y divide-white/[0.05]">
-                  {tableAgents.length === 0 ? (
-                    <div className="col-span-full flex flex-1 items-center justify-center py-8 text-center text-sm font-medium tracking-wide text-slate-500">
-                      ALL AGENTS COMPETING ON THE PODIUM
-                    </div>
-                  ) : (
-                    tableAgents.map((a) => {
-                      const rank = a.rank;
-                      const motionKind = tvRankMotions.get(a.id) ?? "none";
-                      const rankGlow = tvRankAnimations.get(a.id);
-                      const rankDelta = tvRankDeltas.get(a.id) ?? 0;
-
-                      return (
-                        <motion.div
-                          key={a.id}
-                          layout="position"
-                          layoutId={`tv-leaderboard-row-${a.id}`}
-                          transition={{ layout: tvTableRowLayoutTransition(rankDelta) }}
-                          className={`${TV_TABLE_ROW} min-h-0 ${rankGlow === "up" ? "animate-rank-up-glow" : ""} ${rankGlow === "down" ? "animate-rank-down-glow" : ""} ${agentHighlightClass(a.id, { spotlightAgentId, newLeaderId })}`}
-                        >
-                          <div className="flex items-center gap-0.5 font-black text-sm text-slate-400">
-                            <span key={`${rank}-${motionKind}`} className={motionKind !== "none" ? "animate-rank-pill-pop" : ""}>
-                              {rank}
-                            </span>
-                            {rankMovementDisplay(tvRankMovements.get(a.id))}
-                          </div>
-                          <div className="flex min-w-0 items-center justify-center gap-2">
-                            <LeaderboardAgentAvatar
-                              avatarUrl={a.avatar_url}
-                              initials={`${a.first_name?.[0] || ""}${a.last_name?.[0] || ""}`}
-                              alt={`${a.first_name} ${a.last_name}`}
-                              className="h-8 w-8 shrink-0 border border-white/10"
-                              fallbackClassName="text-xs bg-blue-500/10 text-blue-400"
-                            />
-                            <span className="truncate text-sm font-bold text-white">
-                              {a.first_name} {a.last_name?.[0]}.
-                            </span>
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-medium text-slate-300">
-                            <OdometerValue value={a.callsMade} format={(n) => String(Math.round(n))} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-blue-400">
-                            <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
-                            <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums text-slate-400">
-                            <OdometerValue value={a.talkTime / 3600} format={(n) => `${n.toFixed(1)}h`} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-orange-400">
-                            <OdometerValue value={a.conversionRate} format={(n) => `${n.toFixed(1)}%`} tv />
-                          </div>
-                        </motion.div>
-                      );
-                    })
-                  )}
-                </motion.div>
-              </LayoutGroup>
-            </div>
-          </div>
-          </div>
-
-          <div className="col-start-3 row-start-2 flex min-h-0 flex-col">
+          <div className="order-3 flex min-h-[18rem] flex-col xl:order-none xl:col-start-3">
             <RecentWinsPanel
               wins={wins}
               agents={agents}

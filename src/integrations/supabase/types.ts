@@ -5415,6 +5415,7 @@ export type Database = {
           notes: string | null
           organization_id: string | null
           policy_type: string | null
+          premium_snapshot: boolean
           premium_amount: number | null
           sold_date: string | null
         }
@@ -5433,6 +5434,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
+          premium_snapshot?: boolean
           premium_amount?: number | null
           sold_date?: string | null
         }
@@ -5451,6 +5453,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           policy_type?: string | null
+          premium_snapshot?: boolean
           premium_amount?: number | null
           sold_date?: string | null
         }
@@ -6152,6 +6155,18 @@ export type Database = {
           id: string
           ord: number
         }[]
+      }
+      create_client_with_sale: {
+        Args: { p_request_id: string; p_expected_org: string; p_client: Json; p_record_sale: boolean }
+        Returns: Json
+      }
+      notify_win: {
+        Args: { p_win_id: string }
+        Returns: number
+      }
+      convert_lead_to_client_with_sales: {
+        Args: { p_lead_id: string; p_expected_org: string; p_client: Json; p_campaign_id?: string | null }
+        Returns: Json
       }
       convert_lead_to_client_atomic: {
         Args: { p_client: Json; p_lead_id: string }

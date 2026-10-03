@@ -3,6 +3,8 @@ import { Client, PolicyType } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
+import { notifyRecordedSales, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface ClientFilters {
     search?: string;
@@ -96,10 +98,23 @@ export const clientsSupabaseApi = {
         return rowToClient(data);
     },
 
-    async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null): Promise<Client> {
+    async create(data: Omit<Client, "id" | "createdAt" | "updatedAt">, organizationId: string | null = null, sale?: ClientSaleOptions): Promise<Client> {
         if (!organizationId) throw new Error("Cannot create client without an organization.");
         // U3 (src/lib/reservedCustomFields.ts): same boundary, same class of defect as update().
         assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.create");
+        if (sale) {
+            const { data: result, error } = await supabase.rpc("create_client_with_sale", {
+                p_request_id: sale.requestId,
+                p_expected_org: organizationId,
+                p_client: { ...clientToRow(data), ...(sale.recordSale ? { premium: saleMonthlyPremium(data.premiumAmount) } : {}) } as Json,
+                p_record_sale: sale.recordSale,
+            });
+            if (error) throw new Error(error.message);
+            const recorded = result as unknown as RecordedSaleResult & { client: Parameters<typeof rowToClient>[0] };
+            if (!recorded?.client?.id || !Array.isArray(recorded.win_ids)) throw new Error("Client save returned an invalid receipt; retry this save.");
+            await notifyRecordedSales(recorded.win_ids);
+            return rowToClient(recorded.client);
+        }
         const { data: row, error } = await (supabase as any)
             .from("clients")
             .insert({ ...clientToRow(data), organization_id: organizationId })

@@ -509,6 +509,12 @@ Do **not** reintroduce server REST outbound + SIP bridge (`dialer-start-call`) u
 
 ---
 
+### Pending leaderboard sale build — 2026-10-03 (not deployed)
+
+Branch `codex/leaderboard-data-tv-20261003` introduces `create_client_with_sale` and `convert_lead_to_client_with_sales` in migration `20261003205341_leaderboard_sale_recording.sql`. After its separately approved rollout, interactive sale persistence must use these atomic operations: policy/client + canonical wins commit together; only `notify_win` runs after commit. The original `convert_lead_to_client_atomic` body/lineage/telemetry behavior stays intact behind the wrapper. Do not restore browser-only conversion wins or backfill legacy conversion retries. `wins.premium_snapshot=true` means an immutable monthly amount, including unknown/zero: never fall back to the primary client premium for such an event. Legacy false preserves existing fallback. `wins.created_at` reporting semantics remain unchanged.
+
+Private receipt keys identify operations and survive client deletion. A changed payload under an already completed request must fail, not create another sale. Derive actor/org on the server; validate manual effective-owner attribution against the existing self/Admin/Super Admin/TL predicate and same-org profile; preserve authorized View As without trusting frontend roles. Use `coalesce(permission,false)` at the new conversion writer's boundary: the old converter's nullable `IF NOT` predicate alone is not sufficient for the new privileged event writer. No table RLS policy was changed. Historical repair, production migration/deployment, rendered browser verification and native contention proof remain gated as recorded in `docs/plans/2026-10-03-leaderboard-data-tv/verification.md`.
+
 ## 8. Workflow Protocol
 
 1. **Read** `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`.

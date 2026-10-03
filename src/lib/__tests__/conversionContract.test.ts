@@ -4,7 +4,7 @@ const { state } = vi.hoisted(() => ({
   state: {
     rpc: [] as Array<{ name: string; args: any }>,
     rpcResult: { data: null as any, error: null as any },
-    profileRow: { first_name: "Dana", last_name: "Agent" } as any,
+    notifyError: null as unknown,
   },
 }));
 
@@ -12,20 +12,11 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     rpc: (name: string, args: any) => {
       state.rpc.push({ name, args });
-      return Promise.resolve(state.rpcResult);
+      return Promise.resolve(name === "notify_win" ? { data: 1, error: state.notifyError } : state.rpcResult);
     },
-    from: (_t: string) => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: () => Promise.resolve({ data: state.profileRow, error: null }),
-        }),
-      }),
-    }),
+
   },
 }));
-
-const triggerWinMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/win-trigger", () => ({ triggerWin: triggerWinMock }));
 
 import { conversionSupabaseApi } from "@/lib/supabase-conversion";
 
@@ -47,18 +38,16 @@ const POLICY = {
 
 beforeEach(() => {
   state.rpc.length = 0;
-  state.rpcResult = { data: { client_id: "33333333-3333-3333-3333-333333333333", idempotent: false }, error: null };
-  state.profileRow = { first_name: "Dana", last_name: "Agent" };
-  triggerWinMock.mockReset();
-  triggerWinMock.mockResolvedValue(undefined);
+  state.rpcResult = { data: { client_id: "33333333-3333-3333-3333-333333333333", idempotent: false, win_ids: ["win-1", "win-2"] }, error: null };
+  state.notifyError = null;
 });
 
 describe("conversionSupabaseApi.convertLeadToClient", () => {
-  it("calls convert_lead_to_client_atomic with p_lead_id + canonical p_client (never premium_amount)", async () => {
+  it("calls convert_lead_to_client_with_sales with p_lead_id + canonical p_client (never premium_amount)", async () => {
     const id = await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", "camp-1");
     expect(id).toBe("33333333-3333-3333-3333-333333333333");
-    expect(state.rpc).toHaveLength(1);
-    expect(state.rpc[0].name).toBe("convert_lead_to_client_atomic");
+    expect(state.rpc.filter(r => r.name !== "notify_win")).toHaveLength(1);
+    expect(state.rpc[0].name).toBe("convert_lead_to_client_with_sales");
     expect(state.rpc[0].args.p_lead_id).toBe(LEAD.id);
     const pc = state.rpc[0].args.p_client;
     expect(pc.policy_type).toBe("IUL");
@@ -89,38 +78,41 @@ describe("conversionSupabaseApi.convertLeadToClient", () => {
     expect(state.rpc[0].args.p_client.payment_frequency).toBeNull();
   });
 
-  it("creates the win after commit with the conversion idempotency key + real agent name", async () => {
+  it("notifies every recorded policy after the successful transaction without inserting browser wins", async () => {
     await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", "camp-1");
-    expect(triggerWinMock).toHaveBeenCalledTimes(1);
-    const arg = triggerWinMock.mock.calls[0][0];
-    expect(arg.idempotencyKey).toBe(`conversion:${LEAD.id}`);
-    expect(arg.agentName).toBe("Dana Agent");   // resolved from profiles, no "Agent" fallback
-    expect(arg.agentId).toBe(LEAD.assignedAgentId);
-    expect(arg.contactId).toBe("33333333-3333-3333-3333-333333333333");
-    expect(arg.premiumAmount).toBe(125.5);
-    expect(arg.policyType).toBe("IUL");
-    expect(arg.soldDate).toBe("2026-01-02"); // business sale date on the win; created_at stays the reporting bucket
+    expect(state.rpc.map(r => r.name)).toEqual(["convert_lead_to_client_with_sales", "notify_win", "notify_win"]);
+    expect(state.rpc.slice(1).map(r => r.args.p_win_id)).toEqual(["win-1", "win-2"]);
+    expect(state.rpc[0].args.p_expected_org).toBe("org-1");
+    expect(state.rpc[0].args.p_campaign_id).toBe("camp-1");
   });
-
-  it("an idempotent conversion retry STILL re-enters triggerWin with the same deterministic key (broadcast recovery is reachable)", async () => {
-    // The win insert inside triggerWin hits 23505 and resolves the existing win by this key,
-    // then safely retries notify_win — the win:<id> event key makes repeat delivery harmless.
-    state.rpcResult = { data: { client_id: "33333333-3333-3333-3333-333333333333", idempotent: true }, error: null };
-    const id = await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", null);
-    expect(id).toBe("33333333-3333-3333-3333-333333333333");
-    expect(triggerWinMock).toHaveBeenCalledTimes(1);
-    expect(triggerWinMock.mock.calls[0][0].idempotencyKey).toBe(`conversion:${LEAD.id}`);
+  it("a retry re-notifies the same recorded wins", async () => {
+    state.rpcResult.data.idempotent = true;
+    await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1");
+    expect(state.rpc.slice(1).map(r => r.args.p_win_id)).toEqual(["win-1", "win-2"]);
   });
-
-  it("returns the client id even if win celebration throws (no rollback of the committed conversion)", async () => {
-    triggerWinMock.mockRejectedValueOnce(new Error("celebration boom"));
-    const id = await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", null);
-    expect(id).toBe("33333333-3333-3333-3333-333333333333");
+  it("legacy conversions with no win receipt are not backfilled", async () => {
+    state.rpcResult.data.win_ids = [];
+    state.rpcResult.data.idempotent = true;
+    await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1");
+    expect(state.rpc).toHaveLength(1);
   });
-
-  it("throws when the atomic RPC returns an error", async () => {
-    state.rpcResult = { data: null, error: { message: "lead_not_found" } };
-    await expect(conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1", null)).rejects.toThrow(/lead_not_found/);
-    expect(triggerWinMock).not.toHaveBeenCalled();
+  it("returns the saved client despite notification failure", async () => {
+    state.notifyError = new Error("delivery failed");
+    await expect(conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1"))
+      .resolves.toBe("33333333-3333-3333-3333-333333333333");
+  });
+  it("passes additional policies verbatim into the atomic save", async () => {
+    const extra = [{ policyType: "Term", carrier: "Extra", policyNumber: "P2", faceAmount: "", premiumAmount: "$42.00", soldDate: "2026-01-02", effectiveDate: null }];
+    await conversionSupabaseApi.convertLeadToClient(LEAD, { ...POLICY, additionalPolicies: extra }, "org-1");
+    expect(state.rpc[0].args.p_client.custom_fields).toEqual({ foo: "bar", additional_policies: extra });
+  });
+  it("throws on transaction failure and never reports a celebration", async () => {
+    state.rpcResult = { data: null, error: { message: "win_storage_failed" } };
+    await expect(conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1")).rejects.toThrow(/win_storage_failed/);
+    expect(state.rpc).toHaveLength(1);
+  });
+  it("rejects missing org before requesting a save", async () => {
+    await expect(conversionSupabaseApi.convertLeadToClient(LEAD, POLICY)).rejects.toThrow(/organization/);
+    expect(state.rpc).toHaveLength(0);
   });
 });

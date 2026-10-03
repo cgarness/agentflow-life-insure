@@ -1,3 +1,4 @@
+import type { ClientSaleOptions } from "@/lib/policySaleRecording";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -1960,10 +1961,9 @@ const Contacts: React.FC = () => {
   };
 
   // ===== Client CRUD =====
-  const handleAddClient = async (data: Partial<Client>) => {
+  const handleAddClient = async (data: Partial<Client>, sale?: ClientSaleOptions) => {
     if (!viewerId || !organizationId) {
-      toast.error("Could not determine your user or organization. Please sign in again.");
-      return;
+      throw new Error("Could not determine your user or organization. Please sign in again.");
     }
     // The EFFECTIVE viewer owns the record. Stamping `user.id` would attribute a contact created
     // "as" another agent to the real Super Admin.
@@ -1973,10 +1973,11 @@ const Contacts: React.FC = () => {
       entity: { ...data, assignedAgentId: ownerId },
       assignedAgentId: ownerId,
     });
-    if (!okToSave) return;
+    if (!okToSave) throw new Error("Client was not saved. Complete the required contact fields.");
     const saved = await clientsSupabaseApi.create(
       { ...data, assignedAgentId: ownerId } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">,
       organizationId,
+      sale,
     );
     setClients(prev => [saved, ...prev]);
     setClientsTotalCount(c => c + 1);

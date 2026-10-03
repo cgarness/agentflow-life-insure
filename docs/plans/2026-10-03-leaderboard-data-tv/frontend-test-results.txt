@@ -1,0 +1,18 @@
+ ✓ src/hooks/__tests__/useLeaderboardAvatars.test.tsx (7 tests) 150ms
+ ✓ src/components/contacts/__tests__/addClientSale.test.tsx (3 tests) 383ms
+ ✓ src/lib/__tests__/leaderboardAvatarCache.test.ts (11 tests) 59ms
+ ✓ src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx (14 tests) 861ms
+ ✓ src/components/leaderboard/__tests__/tvModeRegression.test.tsx (6 tests) 1132ms
+ ✓ src/lib/__tests__/policySaleRecording.test.ts (15 tests) 49ms
+ ✓ src/pages/__tests__/leaderboardPage.test.tsx (17 tests) 1246ms
+ ✓ src/lib/__tests__/clientCustomFieldsWriteGuard.test.ts (24 tests) 38ms
+ ✓ src/lib/__tests__/leaderboardRequestGate.test.ts (28 tests) 36ms
+ ✓ src/lib/__tests__/conversionContract.test.ts (9 tests) 20ms
+ ✓ src/lib/__tests__/winTriggerIdempotency.test.ts (7 tests) 8ms
+ ✓ src/components/dashboard/__tests__/leaderboardWidget.test.tsx (49 tests) 2368ms
+ ✓ src/lib/__tests__/contactsApi.test.ts (11 tests) 13ms
+ ✓ src/hooks/__tests__/useLeaderboardData.test.tsx (55 tests) 3842ms
+ Test Files  14 passed (14)
+      Tests  256 passed (256)
+   Start at  16:42:25
+   Duration  5.70s (transform 1.80s, setup 1.56s, collect 7.57s, tests 10.21s, environment 6.71s, prepare 1.50s)
