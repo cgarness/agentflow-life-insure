@@ -1,6 +1,6 @@
 // Compare actual app diagnostics to the exact PR base without changing existing CI gates.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const base = process.env.A2P_BASE_SHA;
@@ -13,7 +13,7 @@ function run(cmd, args, cwd = root) {
 }
 function diagnostics(cwd) {
   const r = run(process.execPath, [
-    resolve(root, "node_modules/typescript/bin/tsc"),
+    resolve(cwd, "node_modules/typescript/bin/tsc"),
     "--noEmit",
     "-p",
     "tsconfig.app.json",
@@ -30,7 +30,12 @@ function diagnostics(cwd) {
 try {
   const checkout = run("git", ["worktree", "add", "--detach", tree, base]);
   if (checkout.status !== 0) throw new Error(checkout.stderr);
-  symlinkSync(join(root, "node_modules"), join(tree, "node_modules"), "dir");
+  if (readFileSync(join(root, "package-lock.json")).equals(readFileSync(join(tree, "package-lock.json")))) {
+    symlinkSync(join(root, "node_modules"), join(tree, "node_modules"), "dir");
+  } else {
+    const install = run("npm", ["ci", "--no-audit", "--no-fund"], tree);
+    if (install.status !== 0) throw new Error(install.stderr || "Base dependency installation failed");
+  }
   const before = diagnostics(tree), after = diagnostics(root);
   let added = 0;
   for (const [line, count] of after.count) {

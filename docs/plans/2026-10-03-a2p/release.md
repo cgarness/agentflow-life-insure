@@ -99,3 +99,7 @@ If rollout fails, stop new registration actions with `enabled=false` while leavi
 - [US A2P resource](https://www.twilio.com/docs/messaging/api/usapptoperson-resource) — campaign state/error readback.
 - [A2P Event Streams](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/event-streams-setup) and [Webhook Quickstart](https://www.twilio.com/docs/events/webhook-quickstart).
 - [Messaging Service phone numbers](https://www.twilio.com/docs/messaging/api/phonenumber-resource), [error 21712](https://www.twilio.com/docs/api/errors/21712) and [Basic Lookup](https://www.twilio.com/docs/lookup/v2-api).
+
+## Initial PR CI follow-up
+
+PR #406 at `11c80f46` passed A2P CI `37139197573` and Dialer DNC CI `37139197536`. The broader frontend runner stopped before testing because it intentionally refused a changed package lock with a shared baseline installation. Its follow-up now installs the exact base independently when dependencies differ and keeps every comparison/assertion. A scoped npm override pins Persona React 6.3.0 (published React peer `>=16`) instead of the SDK transitive 6.7.0 requirement for React 19; AgentFlow remains React 18. The dependency tree is verified without a peer conflict. Final checks rerun on the follow-up commit.

@@ -34,3 +34,7 @@ Release requires separately approved migration and complete Edge bundles, verifi
 ## Verification closeout
 
 Implemented all planned source paths; added `scripts/verify-a2p-types.mjs` for exact-base app diagnostic comparison and refreshed `deno.lock` for pinned Edge/test imports. 22 backend tests, 12 UI tests, isolated SQL assertions, Edge checks, root tsc, app diagnostic comparison and browser fixture checks pass. The full activation checklist and remaining live-provider boundary are recorded in `release.md`. The implementation does not create production registrations or deploy itself.
+
+## CI follow-up scope
+
+PR #406 initial broad frontend gate stopped before testing because its runner rejects any package-lock change. Add exactly `scripts/verify_reports_frontend.py` to the intended files: independently install the exact base dependencies when locks differ, retaining all existing comparisons/assertions. Pin the hosted SDK’s transitive Persona dependency to its published React 18-compatible 6.3.0 release through a scoped npm override. Re-run all gates; do not skip or weaken them.

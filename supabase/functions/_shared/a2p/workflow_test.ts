@@ -77,7 +77,8 @@ function database(seed: Record<string, any[]> = {}) {
       return { data: true, error: null };
     },
     from(table: string) {
-      let action = "select", values: any, filters: ((r: any) => boolean)[] = [], single = false, ignore = false;
+      let action = "select", values: any, single = false, ignore = false;
+      const filters: ((r: any) => boolean)[] = [];
       const q: any = {
         select: () => q,
         eq: (k: string, v: unknown) => {
