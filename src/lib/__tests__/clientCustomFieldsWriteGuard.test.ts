@@ -315,29 +315,17 @@ describe("the reserved key has exactly one value across the three files that dec
     expect(writer).toContain("base[ADDITIONAL_POLICIES_KEY] = additionalPolicies;");
   });
 
-  it("FullScreenContactView excludes the reserved key on every generic custom-field path", () => {
+  it("FullScreenContactView uses the shared reserved-safe projection for every generic field", () => {
     const view = readSrc("components/contacts/FullScreenContactView.tsx");
-    expect(view).toContain('from "@/lib/reservedCustomFields"');
-
-    // FIVE guarded call sites, pinned so a new generic path cannot be added without failing here:
-    //   1. the layout-driven `custom:<name>` branch
-    //   2. the generic JSONB key loop (the corruption path itself)
-    //   3+4. the "definitions not in the layout" block — the section `.some()` guard AND its
-    //        `.filter()`, which must carry the identical predicate or it renders an empty grid
-    //   5. the activeCustomFields passed to computeMissingRequired, so a hidden reserved field
-    //      can never become an unsatisfiable required field
-    expect(view.match(/isReservedCustomFieldKey\(/g) ?? []).toHaveLength(5);
-
-    expect(view).toContain("if (isReservedCustomFieldKey(fieldName)) return null;");
-    expect(view).toContain("if (isReservedCustomFieldKey(key)) return null;");
-    expect(
-      view.match(/!fieldOrder\.includes\(`custom:\$\{f\.name\}`\) && !isReservedCustomFieldKey\(f\.name\)/g) ?? []
-    ).toHaveLength(2);
-    expect(view).toContain("activeCustomFields: customFields.filter((f) => !isReservedCustomFieldKey(f.name))");
-
-    // The generic loop must still enumerate the live bag — the fix excludes ONE key, it does not
-    // stop rendering agency custom fields.
-    expect(view).toContain("Object.keys(editForm?.customFields || {}).map(key =>");
+    const builder = readSrc("lib/contact-detail-fields.ts");
+    expect(view).toContain('from "@/lib/contact-detail-fields"');
+    expect(view).toContain("detailFields.map(field =>");
+    expect(view).not.toContain("fieldOrder.map(");
+    expect(view).not.toContain("Object.keys(editForm?.customFields");
+    expect(view).toContain("missingRequiredCustomDetails(detailFields");
+    expect(builder).toContain('from "./reservedCustomFields"');
+    // Behavioral reserved layout/definition/value and required constraints are exercised by
+    // contactDetailFields + mounted fullScreenContactViewFieldVisibility, not guard-call counts.
   });
 });
 

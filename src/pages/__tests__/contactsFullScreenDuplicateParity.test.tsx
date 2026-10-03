@@ -95,7 +95,7 @@ vi.mock("@/hooks/useOrganization", () => ({
   useOrganization: () => ({ organizationId: authState.organizationId, role: "Admin", isSuperAdmin: false }),
 }));
 vi.mock("@/contexts/BrandingContext", () => ({
-  useBranding: () => ({ formatDate: (v: unknown) => String(v ?? ""), formatDateTime: (v: unknown) => String(v ?? "") }),
+  useBranding: () => ({ branding: { companyName: "Fixture agency" }, formatDate: (v: unknown) => String(v ?? ""), formatDateTime: (v: unknown) => String(v ?? "") }),
 }));
 
 const scopeMock = vi.hoisted(() => ({
@@ -132,7 +132,10 @@ const LEAD_ROW = { id: ids.LEAD, firstName: "Charlotte", lastName: "Kearney", ph
 const CLIENT_ROW = { id: ids.CLIENT, firstName: "Marcus", lastName: "Webb", phone: "5125550124", email: "marcus@example.com", assignedAgentId: ids.USER };
 const RECRUIT_ROW = { id: ids.RECRUIT, firstName: "Dana", lastName: "Olsen", phone: "5125550125", email: "dana@example.com", assignedAgentId: ids.USER };
 
-const detail = vi.hoisted(() => ({ open: "lead" as "lead" | "client" | "recruit" }));
+const detail = vi.hoisted(() => ({ open: "lead" as "lead" | "client" | "recruit", real: false,
+  customFields: undefined as Record<string, unknown> | undefined,
+  definitions: [] as import("@/lib/types").CustomField[],
+}));
 
 vi.mock("@/lib/supabase-contacts", () => ({
   leadsSupabaseApi: {
@@ -140,7 +143,7 @@ vi.mock("@/lib/supabase-contacts", () => ({
     getById: (...args: unknown[]) => {
       api.calls.push({ name: "leads.getById", args });
       return detail.open === "lead"
-        ? Promise.resolve({ lead: LEAD_ROW, notes: [], activities: [], calls: [] })
+        ? Promise.resolve({ lead: { ...LEAD_ROW, customFields: detail.customFields }, notes: [], activities: [], calls: [] })
         : Promise.reject(new Error("not a lead"));
     },
     getByIds: record("leads.getByIds", []),
@@ -155,7 +158,7 @@ vi.mock("@/lib/supabase-clients", () => ({
     getAll: record("clients.getAll", { data: [], totalCount: 0 }),
     getById: (...args: unknown[]) => {
       api.calls.push({ name: "clients.getById", args });
-      return detail.open === "client" ? Promise.resolve(CLIENT_ROW) : Promise.reject(new Error("not a client"));
+      return detail.open === "client" ? Promise.resolve({ ...CLIENT_ROW, customFields: detail.customFields }) : Promise.reject(new Error("not a client"));
     },
     create: record("clients.create", { id: ids.CLIENT }),
     update: recordUpdate("clients.update"),
@@ -167,7 +170,7 @@ vi.mock("@/lib/supabase-recruits", () => ({
     getAll: record("recruits.getAll", { data: [], totalCount: 0 }),
     getById: (...args: unknown[]) => {
       api.calls.push({ name: "recruits.getById", args });
-      return detail.open === "recruit" ? Promise.resolve(RECRUIT_ROW) : Promise.reject(new Error("not a recruit"));
+      return detail.open === "recruit" ? Promise.resolve({ ...RECRUIT_ROW, customFields: detail.customFields }) : Promise.reject(new Error("not a recruit"));
     },
     getKanban: record("recruits.getKanban", { columns: [] }),
     create: record("recruits.create", { id: ids.RECRUIT }),
@@ -187,7 +190,7 @@ vi.mock("@/lib/supabase-users", () => ({
 const settingsState = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
 vi.mock("@/lib/supabase-settings", () => ({
   pipelineSupabaseApi: { getLeadStages: vi.fn(async () => []), getRecruitStages: vi.fn(async () => []) },
-  customFieldsSupabaseApi: { getAll: vi.fn(async () => []) },
+  customFieldsSupabaseApi: { getAll: vi.fn(async () => detail.definitions) },
   leadSourcesSupabaseApi: { getAll: vi.fn(async () => []) },
   contactManagementSettingsSupabaseApi: { getSettings: vi.fn(async () => settingsState.value) },
 }));
@@ -216,13 +219,26 @@ const view = vi.hoisted(() => ({
   onUpdate: null as null | ((id: string, data: Record<string, unknown>) => Promise<void>),
   type: "" as string,
 }));
-vi.mock("@/components/contacts/FullScreenContactView", () => ({
+vi.mock("@/components/contacts/FullScreenContactView", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/components/contacts/FullScreenContactView")>();
+ return ({
   default: (props: Record<string, unknown>) => {
     view.onUpdate = props.onUpdate as typeof view.onUpdate;
     view.type = String(props.type ?? "");
-    return React.createElement("div", { "data-testid": "full-screen-contact" }, String(props.type));
+    return React.createElement("div", { "data-testid": "full-screen-contact" }, detail.real ? React.createElement(actual.default, props as unknown as React.ComponentProps<typeof actual.default>) : String(props.type));
   },
-}));
+});
+});
+
+vi.mock("@/contexts/CalendarContext", () => ({ useCalendar: () => ({ addAppointment: vi.fn() }) }));
+vi.mock("@/contexts/SidebarContext", () => ({ useSidebarContext: () => ({ collapsed: false }) }));
+vi.mock("@/lib/supabase-email", () => ({ emailSupabaseApi: { getMyConnections: vi.fn(async () => []) } }));
+vi.mock("@/lib/supabase-dispositions", () => ({ dispositionsSupabaseApi: { getAll: vi.fn(async () => []) } }));
+vi.mock("@/components/calendar/AppointmentModal", () => ({ default: () => null }));
+vi.mock("@/components/contacts/followups/ContactFollowUpsCard", () => ({ ContactFollowUpsCard: () => null }));
+vi.mock("@/components/contacts/TasksPanel", () => ({ TasksPanel: () => null }));
+vi.mock("@/components/messaging/MessageComposePanel", () => ({ MessageComposePanel: () => null }));
+vi.mock("@/components/messaging/MessageTemplatesPickerModal", () => ({ MessageTemplatesPickerModal: () => null }));
 
 function marker(id: string) {
   return { default: () => React.createElement("div", { "data-testid": id }) };
@@ -256,6 +272,7 @@ const updateCalls = (kind: Kind) => api.calls.filter((c) => c.name === `${TABLE_
 
 beforeEach(() => {
   api.calls = []; api.updateRejectsWith = null;
+  detail.real = false; detail.customFields = undefined; detail.definitions = [];
   dbState.duplicates = []; dbState.lookups = []; dbState.lookupFails = false;
   settingsState.value = null;
   toasts.success = []; toasts.error = [];
@@ -413,4 +430,22 @@ describe("Contacts full-screen — the refusal is reported once, not twice", () 
     expect((caught as ContactSaveRefusedError).reported).toBe(true);
     expect(toasts.error.filter((t) => /blocked by agency settings/i.test(t))).toHaveLength(1);
   });
+});
+
+// These cases compose the real Contacts page and real renderer; prior refusal tests retain their recorder.
+it.each(["lead", "client", "recruit"] as Kind[])("Contacts → real %s details renders once and preserves custom data on save", async kind => {
+  detail.real = true;
+  const values = { Gender: "Synthetic value", "Amt Requested": "$30,000+", "Have Life Insurance": false,
+    additional_policies: [{ policyType: "Term", premiumAmount: "$20/mo" }] };
+  detail.customFields = values;
+  detail.definitions = ["a", "b", "c"].map(id => ({ id, name: "Gender", type: "Text", active: true,
+    required: false, appliesTo: ["Leads", "Clients", "Recruits"], usageCount: 0 }));
+  await openDetail(kind);
+  await waitFor(() => expect(screen.getAllByText("Synthetic value")).toHaveLength(1));
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+  fireEvent.change(screen.getByRole("textbox", { name: "First Name" }), { target: { value: "Updated fixture" } });
+  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+  await waitFor(() => expect(updateCalls(kind)).toHaveLength(1));
+  expect((updateCalls(kind)[0].args[1] as Record<string, unknown>).customFields).toEqual(values);
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull());
 });
