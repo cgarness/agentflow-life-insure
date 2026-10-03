@@ -1,6 +1,6 @@
 ## Contact history build — October 3, 2026 (branch only)
 
-Chris approved implementation with “Start the build.” The dedicated specification, exact file list, verification evidence, limitations, migration order and disable-only rollback are in [the Contact history plan](docs/plans/2026-10-03-contact-history/implementation_plan.md). Branch: `codex/contact-history-20261003`, based on `40e0dea`. No main merge, production migration, backfill, deployment or live dialing action is authorized/performed by this build.
+Chris approved implementation with “Start the build,” then review publication with “Continue” / “finish the task.” [Draft PR #407](https://github.com/cgarness/agentflow-life-insure/pull/407) preserves main `84829dfe` and has automatic preview deployments. The dedicated specification, exact file list, verification evidence, limitations, migration order and disable-only rollback are in [the Contact history plan](docs/plans/2026-10-03-contact-history/implementation_plan.md). Branch: `codex/contact-history-20261003`. Both Contact history migrations remain NOT APPLIED. Main merge, production migration, backfill, production deployment and live dialing remain outside this approval.
 
 ---
 

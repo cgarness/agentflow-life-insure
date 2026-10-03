@@ -421,3 +421,14 @@ Regression manifest refinement: `src/components/contacts/__tests__/fullScreenCon
 - `supabase/migrations/20261003154259_contact_history_operational_events.sql`
 - `supabase/ops/contact_history_disable.sql`
 - `supabase/tests/contact_history.sql`
+
+
+## Review publication checkpoint — October 3, 2026
+
+Chris authorized review publication after the implementation handoff (“Continue”; “finish the task”). Draft PR: https://github.com/cgarness/agentflow-life-insure/pull/407. Rechecked current main `84829dfe59e1da4d3ab5974bb1b763f5a886008c` and all six open PR heads; merged the concurrent floating-dialer/A2P releases with no Contact runtime overlap. Both work-log additions were preserved. Published runtime commit `2c0370be2e192ef94755749570b5c43c29e566ff` has tree `52e1aed1795043498a9d8a6bbab4da49dbc1318c`, exactly matching the local candidate. The 42-file feature manifest and SQL hashes above are unchanged.
+
+Post-merge verification: 256 tests passed, 5 skipped in 27 passing files. The additional addLeadAssignmentGate suite fails for missing Supabase configuration identically on main; a first unbounded-worker run timed out once, and the bounded-worker rerun passed every collected test without assertion changes. Root tsc and Vite build pass; actual application TypeScript has the exact same 88 diagnostic lines as current main. PostgreSQL 17.6 Contact history CI run `37146071813` passes; DNC `37146071756` and full frontend `37146071820` were running when this checkpoint was written. Final results/check links for the documentation follow-up head are maintained on PR #407.
+
+Primary preview `dpl_EahArSRuJkspLWygWTBn6dTYhk2Q` and secondary `dpl_AJGf1YnuXkeRNcdXjVXTkZNiFcgF` are READY at the runtime commit, with preview target and no alias errors. Primary URL: https://agentflow-1hbberjia-cgarness-projects.vercel.app. Its HTML and generated JavaScript return HTTP 200 and include the history reader. This is asset/build verification only: no authenticated browser Contact walkthrough or hosted migration test is claimed. Preview build success does not make the new readers available against an unmigrated database.
+
+Production remains held. No migration apply, data/backfill, main merge, production deployment, Edge replacement or customer action occurred. Apply only the two approved Contact history migrations in dependency order after exact release approval and a fresh catalog/main preflight; do not bulk-push the repository's pending migrations. Their authored timestamps predate the subsequently applied A2P migration, so any production migration-history reconciliation must be explicit, recorded, and retain these reviewed SQL bytes. Hosted source-RLS/conversion validation and production-volume evidence remain release gates.
