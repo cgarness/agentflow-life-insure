@@ -1,3 +1,22 @@
+## 2026-10-03 — Floating dialer disposition agency scoping — RELEASE AUTHORIZED
+
+- **Release check correction:** PR #404's DNC run `37135839132` exited before assertions. The unchanged upgrade fixture referenced the old `20261003022218` migration filename removed by PR #403. Added `supabase/tests/dialer_dnc_upgrade.sql` as the eighth planned file and changed only that include to the shipped `20261003043122` migration. Migration contents and all DNC assertions remain untouched; rerun the full gate on the corrected head.
+- **Authority:** after reviewing the implemented and locally verified candidate, Chris approved publication, PR merge and frontend release at 09:00 PDT. This supersedes the implementation-only authorization below. No database, RLS, Edge Function, telephony or historical-data changes are part of the release.
+- **Preflight:** main remains `40e0deaed008dafb3674235930bf7bb941546989`; the six previously reviewed open PR heads are unchanged. Publish `codex/floating-dialer-agency-scope` through a PR, preserve PR #402, verify checks, then verify the normal Vercel production deployment. No direct push to main.
+- **Verification:** the exact runtime candidate has 54 passing focused tests, passing root tsc and production build; app tsc has the same 88 existing diagnostics as base. Release status and deployment evidence will be recorded after they are observed. No live customer calls are authorized for verification.
+
+## 2026-10-03 — Floating dialer disposition agency scoping — IMPLEMENTED AND VERIFIED LOCALLY; NOT PUBLISHED
+
+- **Authority:** Chris approved the seven-file implementation plan at 08:35 PDT. Local branch `codex/floating-dialer-agency-scope` starts at main `40e0deaed008dafb3674235930bf7bb941546989`; main remained unchanged at final readback. Publication, merge, deployment and production mutation are not authorized by this approval.
+- **Fix:** floating wrap-up now uses the existing explicitly organization-filtered disposition and lead-stage services. A complete configuration is required; unresolved/loading/empty/error states cannot submit. The existing two-column grid, configured UUIDs/colors/order and callback/conversion behavior remain.
+- **Lifetime:** agency/user/request tokens synchronously withhold old options and invalidate selection. Delayed reads, retries, A→B→A, unmount, pending conversion and save completions cannot restore or act on an obsolete configuration. Call wrap-up retains its original user/agency binding; another identity sees no draft notes.
+- **Preserved:** PR #402's canonical disposition RPC, server-authoritative DNC, operation/call identity, failure retention and conversion retry; TwilioContext and backend artifacts are unchanged. No deduplication, disposition deletion, historical data repair or production call.
+- **Files (exactly seven):** FloatingDialer.tsx; new useFloatingDialerDispositions.ts and its hook test; floatingDialerDisposition.test.tsx; AGENT_RULES.md; implementation_plan.md §22; this log.
+- **Verification:** focused Vitest 5 files / 54 tests passed (23 floating/hook cases + 31 existing persistence/DNC cases), no React act warnings or unhandled errors in the final run. New same-label/mixed-agency regression fails against the unchanged base because two matching buttons appear, and passes on the candidate. Root `npx tsc --noEmit` and Vite build pass. App tsc has the same 88 diagnostics as the exact base (file/code/message multiset unchanged, coordinates normalized); no new errors. Targeted lint: zero errors, one pre-existing FloatingDialer missing-dependency warning. Diff/scope and React lifecycle review complete.
+- **Limits:** isolated synthetic fixtures and mocked external boundaries; no authenticated production-browser walkthrough or live call claimed. Existing bundle-size warning remains. Appointment Set scheduling parity and the main Dialer's separate unscoped conversion-stage reader remain separate follow-ups.
+- **Migrations/deploys:** none. **Next:** review the local candidate; obtain explicit publication/PR and release authorization before remote changes.
+
+
 ## 2026-10-02 PDT / 2026-10-03 UTC — SHIPPED: permanent Dialer disposition / DNC integrity (PR #402)
 
 - **Authorization/status:** Chris requested production deployment and live-agent testing, accepting remaining full-stack/historical-replay verification gaps. PR #402 merged as `e5c15f7f46a8d569a430f7ec237b854e2f319fe3`; no direct push to main.

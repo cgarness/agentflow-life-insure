@@ -1948,3 +1948,155 @@ Signed-in browser interaction is still unverified; old tabs should reload.
 Chris clarified and approved: current Team leads show the existing full details grid without waiting for a call to connect; keep locking and ownership logic unchanged. The new manager review workflow and full-record access expansion are withdrawn from this release.
 
 Implementation and release checks: `docs/plans/2026-09-29-team-campaign-visibility/implementation_plan.md`. Display-only changes retain canonical current-lock confirmation, stale-load masking, and existing Edit/Sold/Convert gates. No new RPC or Contacts read permission. Existing authorization may still limit master fields; retain the campaign-copy notice. The two earlier applied migrations remain recorded and are not rerun. Pending P2 and its frontend hook are removed. PR #401 is the narrowed review/release surface.
+
+
+## §22. Floating dialer disposition agency scoping — APPROVED October 3, 2026
+
+Chris explicitly approved the seven-file plan at 08:35 PDT for isolated implementation and verification. No publication, merge, deployment, or production mutation is authorized. Plan of record follows; approval supersedes its original awaiting-approval status.
+
+# BUGFIX — Floating dialer disposition agency scoping
+
+Date: October 3, 2026 (America/Los_Angeles)
+Status: Proposed implementation; awaiting Chris's explicit approval
+Repository: cgarness/agentflow-life-insure
+Reviewed main: `40e0deaed008dafb3674235930bf7bb941546989`
+
+## Outcome and authorization
+
+The floating dialer will show the current agency's configured dispositions and conversion metadata. It will retain the existing layout, configured labels/colors/order, canonical disposition UUIDs, callback handling, conversion flow, and server-authoritative DNC persistence.
+
+This document authorizes no implementation by itself. Chris requested the investigation and plan, and explicitly required approval before application edits or backend changes. This turn creates the review plan only. After approval, implement on an isolated branch and run local verification. Publication, merge, deployment, live customer calls, and production mutation remain outside this approval.
+
+## Evidence and source review
+
+- Reviewed repository rules, VISION.md, newest WORK_LOG.md entries, current FloatingDialer.tsx, disposition and pipeline services, disposition persistence, useOrganization, existing floating-dialer tests, and the current TwilioContext outbound path and guards.
+- GitHub main still equals the reviewed local checkout. The source checkout was clean.
+- `FloatingDialer.tsx` directly loads all RLS-visible dispositions and lead pipeline stages in two mount-only effects. Neither lookup has an organization filter; neither reports load failure.
+- `dispositionsSupabaseApi.getAll(organizationId)` already requires an organization, filters explicitly, preserves configured order, and throws on query error. Its domain fields use camelCase.
+- `pipelineSupabaseApi.getLeadStages(organizationId)` already scopes by organization and lead pipeline type and throws on query error. The new loader must require context itself because that service returns an empty array when organization is missing.
+- Live read-only evidence collected in this conversation: Chris's home agency has six dispositions, with no duplicates. Other agencies have same-label rows. The live dispositions SELECT policy permits Super Admin cross-agency reads, so RLS cannot substitute for the missing UI query filter.
+- The live `advance_campaign_lead` function resolves disposition UUID and actor organization together and raises "Disposition not found" on mismatch. Preserve this database protection.
+- 1,669 home-agency calls with resolvable disposition IDs had zero foreign-agency references. This is a bounded reference audit, not proof of completeness or correctness of all historical outcomes.
+- PR #402 shipped the DNC fix. WORK_LOG records migration 20261003043122, webhook v36, and frontend e5c15f7. The new plan does not revise those deployed database/telephony artifacts.
+
+Source: https://github.com/cgarness/agentflow-life-insure/tree/40e0deaed008dafb3674235930bf7bb941546989
+
+## Concurrent work
+
+Open PRs checked: #398 underwriting, #383 leaderboard resilience, #382 containment records, #381 leaderboard work log, #378 Google OAuth, and #294 AI testing. Their retrieved changed-file lists do not overlap FloatingDialer or its disposition test. Several overlap shared documentation; #378 and #294 also touch root implementation_plan.md.
+
+Preserve unrelated documentation byte content when adding this task. Recheck main, open changes, and the work log immediately before implementation and again before publication. This check does not establish the absence of unpublished work in other agents' workspaces.
+
+## Implementation design
+
+### 1. Load one complete, scoped configuration
+
+Add `useFloatingDialerDispositions.ts`, kept under 200 lines where practical.
+
+- Accept the resolved agency ID and authenticated user identity. No read occurs while either required context is absent.
+- Reuse `dispositionsSupabaseApi.getAll` and `pipelineSupabaseApi.getLeadStages`. Do not modify those shared services.
+- Adapt their returned objects to the existing floating-dialer field names and `isConvertedDisposition` shape. Preserve UUID, name, color, order, note requirements, callback flag, automation metadata, and pipeline-stage reference.
+- Commit a configuration snapshot only when both reads succeed for the same current request and identity. A pipeline lookup error must never make Sold appear non-converting.
+- Use an explicit request generation and scope identity. A superseded request, unmount, or A → B → A transition cannot publish an older result.
+- Derive visible options synchronously from the current scope and snapshot identity. Waiting for an effect to clear old state is insufficient: there must be no render in which agency B sees agency A's options.
+- Distinguish unresolved context, loading, valid empty configuration, error, and ready. Retry starts a new generation; repeated retry cannot let an older request overwrite it.
+- No polling, storage persistence, new dependency, or global cache is required.
+
+### 2. Integrate with the existing wrap-up
+
+Replace the two unscoped effects in FloatingDialer with the hook.
+
+- Keep the same two-column disposition grid.
+- Show concise loading, empty, or failure text in the existing wrap-up area. Include a Retry action for failure/empty configuration.
+- Derive selection validity from the active configuration identity, not just a matching label or UUID. Clear the previous selection when scope changes.
+- Save & Close is enabled only for a ready, current configuration and a valid selected UUID, in addition to existing form requirements.
+- Apply the same readiness/scope checks inside the save handler; a disabled button alone is insufficient.
+- Bind pending wrap-up and conversion callbacks to the call's original user/agency context and call ID. A configuration switch must not retarget the old call to the new agency. Recheck context after asynchronous work before subsequent actions.
+- Preserve wrap-up, notes, and the existing call ID after ordinary load/save failures in the same context. Do not expose an earlier user's draft after an account change. A changed identity blocks the pending save instead of reporting success.
+- Keep canonical server persistence and PR #402's duplicate-save guard, idempotent call operation ID, conversion retry behavior, and success-only reset.
+- Do not deduplicate by name or introduce hardcoded disposition lists.
+
+No form fields are added. Existing validation behavior remains; if a form schema must change, use Zod. Use Tailwind for new UI. Preserve existing configured dynamic colors without a styling refactor.
+
+## Exact proposed repository file list
+
+| File | Proposed change |
+| --- | --- |
+| `src/components/layout/FloatingDialer.tsx` | Replace unscoped configuration effects, wire status/retry UI, and guard selection/save/conversion against stale scope. |
+| `src/hooks/useFloatingDialerDispositions.ts` (new) | Scoped configuration loading, mapping, complete snapshot state, and request lifetime guards. |
+| `src/hooks/__tests__/useFloatingDialerDispositions.test.tsx` (new) | Mixed-agency lookup and asynchronous scope/load/error regression coverage. |
+| `src/components/layout/__tests__/floatingDialerDisposition.test.tsx` | Extend the existing real-component harness for scope, status, canonical-ID save, draft retention, callback, and conversion regressions. |
+| `AGENT_RULES.md` | Add a short clarification under agency scoping: floating-dialer configuration must be explicitly scoped, including Super Admin, and stale configurations cannot save. |
+| `implementation_plan.md` | Append this task and its approval/as-built record without replacing unrelated plans. |
+| `WORK_LOG.md` | Add a newest-first implementation/verification entry after work is complete. |
+
+Read/reuse only: `src/lib/supabase-dispositions.ts`, `src/lib/supabase-settings.ts`, `src/lib/dialer-api.ts`, `src/lib/dialer-disposition.ts`, `src/lib/report-utils.ts`, `src/hooks/useOrganization.ts`, and `src/contexts/TwilioContext.tsx`.
+
+No migration, database function, RLS, Edge Function, package/lockfile, DialerPage, or TwilioContext edit is planned. Disclose any newly necessary file before editing it.
+
+## Verification after approval
+
+Use isolated synthetic fixtures with external boundaries mocked; never call customers or mutate production to verify this fix.
+
+1. A Super Admin fixture exposes two agencies with identical names and different IDs/colors. Assert the actual service/query boundary applies organization filters to both configuration tables and that only the requested agency's rows reach the UI.
+2. Cover missing organization, delayed resolution, user changes, A → B, A → B → A, out-of-order results, unmount, rapid retry, and stale errors after a successful newer result.
+3. Test disposition failure, pipeline failure, valid empty results, retry recovery, and prevention of partial configuration use.
+4. Verify configured IDs, labels, colors, order, note constraints, callback flags, and conversion references survive mapping. Do not test by name-only deduplication.
+5. Verify both disabled-state and handler-level rejection of stale selection. No canonical RPC or conversion starts from unavailable or mismatched configuration.
+6. Verify a successful selection submits its canonical disposition UUID and original call ID; save failure retains wrap-up and notes and retry creates no additional call.
+7. Preserve and extend the existing Sold conversion-gate/retry test. Cover context changing while conversion is pending and stale conversion completion.
+8. Cover the existing callback path, including responsible user/creator stamping, and retain DNC failure/replay tests. The appointment-scheduler feature gap below remains excluded.
+
+Planned checks:
+- Focused Vitest runs for the new hook and existing floating disposition suite.
+- Existing `src/lib/dialer-disposition.test.ts`, `src/utils/dncCheck.test.ts`, and `src/lib/twilio-dnc-admission.test.ts`.
+- `npx tsc --noEmit`.
+- `npx tsc -p tsconfig.app.json --noEmit`; compare with the exact unchanged base because root tsc alone does not prove application typing.
+- Targeted lint and `npm run build`.
+- Review the diff to confirm no telephony, backend, dependency, or unrelated UI changes.
+
+The latest work log reports 88 existing app TypeScript diagnostics versus an earlier baseline of 90. That is historical evidence, not this task's result; establish the actual same-base comparison after approval. Broaden testing only if these checks identify a concrete remaining risk.
+
+## Preserved behavior and risks
+
+- Browser Voice.js remains the outbound call initiator. TwilioContext continues to own call creation, re-entrancy, DNC admission, status handling, and lifecycle; Twilio webhooks own canonical duration.
+- Database authorization remains authoritative. Frontend filtering is an additional correctness boundary, not replacement RLS.
+- A failure to load either configuration source temporarily blocks disposition submission until Retry succeeds. This prevents an incomplete configuration from changing the interpretation of Sold.
+- Existing pending-call protection must be preserved through asynchronous conversion and retries. Context changes may require returning to the original valid context; they must never silently move a draft or call between agencies.
+- No disposition deletion, historical repair, name-based coalescing, or production cleanup is needed.
+
+## Separate findings — not part of this approval
+
+1. FloatingDialer loads and renders callback scheduling but omits `appointment_scheduler`; its Appointment Set button therefore lacks the main Dialer's scheduling parity. Fixing that adds workflow behavior and needs a separate task.
+2. DialerPage's disposition list is scoped, but its separate `pipelineStagesConversion` query is unscoped and has an organization-independent query key. This is a related follow-up; this narrowly scoped plan does not edit the main Dialer.
+3. The existing floating-dialer tests use mocks whose `.eq()` calls do not filter fixture rows. New tests must verify the actual scope behavior instead of allowing that mock to hide the defect.
+
+## Context snapshot and approval
+
+Changes made this turn: this review plan only.
+Decisions: reuse scoped services; require complete current configuration; preserve layout and PR #402.
+Migrations/deployments/production changes: none.
+Verification: source and concurrency review completed; implementation checks not run because application edits await approval.
+Blocker: explicit implementation approval required by Chris's FIRST step 4 and AGENT_RULES workflow §8.
+Next: approve the seven-file implementation and isolated verification scope. Publication, merge, deployment, and any production mutation require their own explicit authorization.
+
+### §22 as built — October 3, 2026
+
+Chris approved implementation and isolated verification at 08:35 PDT. The seven-file implementation is complete on `codex/floating-dialer-agency-scope`, based on `40e0deaed008dafb3674235930bf7bb941546989`. No files beyond the approved list were changed in the candidate.
+
+- New 85-line hook reuses both existing organization-scoped services, adapts their fields, waits for both results, and publishes only a complete current request snapshot. No dependency, shared-service, database or telephony change.
+- Snapshot identity is checked during render and inside asynchronous continuations; account/agency/request changes immediately invalidate visible options and selection. Loading, valid empty, failure and Retry stay inside the existing wrap-up layout.
+- Wrap-up is bound to the original call's user/agency. Foreign-context notes stay hidden. Pending conversion callbacks and subsequent save effects require the same current configuration and call. Ordinary persistence failures retain the call, draft and converted client for retry.
+- Verification: all 54 focused tests pass across five files; no React act warnings/unhandled errors in the final run. The mixed-agency duplicate-button regression fails against the unchanged base and passes with the fix. Root tsc and build pass. App tsc retains exactly 88 base diagnostics after line/column normalization. Targeted lint has zero errors and the single pre-existing FloatingDialer dependency warning; build retains its existing large-chunk warning.
+- Source and concurrency recheck: main is unchanged. Open PR code files do not overlap the floating-dialer changes; shared-doc merge conflicts remain possible. Preserve all unrelated work when eventually publishing.
+- Scope review: PR #402's canonical persistence, DNC enforcement, Twilio re-entrancy/call creation/status/duration ownership and all backend files are unchanged. No production data/settings modifications, live calls, migration, Edge deploy, frontend deploy, or remote publication occurred.
+- Appointment Set scheduling parity and DialerPage's separate conversion-stage query remain explicit follow-ups. No authenticated production-browser verification is claimed.
+- Remaining authorization: publish branch/PR, then merge/release only after Chris's explicit approval. Implementation and local verification are complete; deployment is not complete.
+
+### §22 release authorization — October 3, 2026, 09:00 PDT
+
+Chris approved publishing the reviewed candidate, merging through its PR after checking results, and verifying the normal frontend production deployment. This supersedes the remaining-authorization statement above. The exact seven-file scope and all backend exclusions remain. Only this plan and WORK_LOG.md receive authorization/release evidence updates; no additional application files are planned. Record actual PR/check/deployment identities after observation, without claiming authenticated browser or live-call verification.
+
+### §22 necessary verification correction — discovered in PR #404
+
+The DNC CI runner stops before its assertions because `supabase/tests/dialer_dnc_upgrade.sql` still includes the authored migration filename `20261003022218`, removed when PR #403 reconciled the applied timestamp to `20261003043122`. Add exactly this eighth file to the implementation list before editing it: **supabase/tests/dialer_dnc_upgrade.sql**. Change only the include path to the existing shipped migration. This is a test-harness repair needed to execute the preserved DNC gate; no migration bytes, assertions, database schema, production state or application behavior change. The seven original files remain as listed above. Verify the complete DNC workflow on the new PR head; do not weaken its checks.
