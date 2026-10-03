@@ -89,7 +89,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         </div>
       </div>
 
-      <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-3 min-h-0">
+      <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-2 min-h-0">
         {loading && items.length === 0 && <HistorySkeleton />}
 
         {!loading && loadError && (

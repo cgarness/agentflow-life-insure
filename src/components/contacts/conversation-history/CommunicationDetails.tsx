@@ -24,9 +24,9 @@ export const DetailsToggleButton: React.FC<{
     aria-expanded={open}
     aria-controls={panelId}
     aria-label={label}
-    className="inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
-    Details
+    {open ? "Hide details" : "Show details"}
     <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", open && "rotate-180")} aria-hidden />
   </button>
 );
@@ -41,14 +41,14 @@ export const DetailsPanel: React.FC<{ id: string; rows: DetailRow[]; className?:
   <dl
     id={id}
     className={cn(
-      "grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-left animate-in fade-in slide-in-from-top-1 duration-200",
+      "grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-3 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-left animate-in fade-in slide-in-from-top-1 duration-200",
       className,
     )}
   >
     {rows.map((row) => (
       <React.Fragment key={row.label}>
         <dt className="text-[10px] uppercase tracking-wide text-muted-foreground leading-snug pt-0.5">{row.label}</dt>
-        <dd className="text-xs text-foreground break-words whitespace-pre-wrap min-w-0">
+        <dd className="text-xs text-foreground break-words [overflow-wrap:anywhere] whitespace-pre-wrap min-w-0">
           {row.value && row.value.trim() ? row.value : missingLabel}
         </dd>
       </React.Fragment>
