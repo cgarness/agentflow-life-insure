@@ -1,6 +1,6 @@
 # Permanent disposition and organization DNC integrity
 
-Status: Chris approved branch implementation and testing, including the narrow security changes, in the task conversation. No production migration, deployment, operational-data repair, merge, or push to main is authorized. Branch: `codex/dialer-dnc-integrity`; initial audited base: `b630bf0ba5c5b3cb166252ca59ed3284f3e3db2d`; integrated current main: `c14be81528047eccd3a4abb20b9d2553c6ca3bff`.
+Status: SHIPPED with Chris's explicit instruction to release to production and validate with real agents. PR #402 merged as `e5c15f7f46a8d569a430f7ec237b854e2f319fe3`; production migration `20261003043122`, voice webhook v36 and both Vercel production projects are deployed. Calls resumed at 2026-10-03 04:37:38 UTC. No historical operational-data repair was performed. See [production-release.md](production-release.md) for exact actions, evidence and outstanding live-agent validation. Earlier approval gates below describe the original plan; the release record supersedes their pending status.
 
 AGENT_RULES.md, VISION.md and WORK_LOG.md were read completely before implementation. This dedicated plan preserves the unrelated root implementation plan; the root contains a pointer here. The existing Single-leg Voice.js architecture, conversion gate, queue concurrency, duration ownership and workflow isolation remain requirements.
 

@@ -1,6 +1,6 @@
 # Permanent disposition / DNC fix — implementation handoff
 
-Status: implemented on `codex/dialer-dnc-integrity`; **not shipped**. Integrated current main `c14be81528047eccd3a4abb20b9d2553c6ca3bff` (PR #401) during final verification. Production project `jncvvsvckxhqgqvkppmj` was inspected read-only. No production migration, operational-data mutation, historical repair, Edge deployment, frontend deployment or main merge was performed.
+Status: SHIPPED 2026-10-02 PDT / 2026-10-03 UTC under Chris's approval to release and validate with real agents. See [production-release.md](production-release.md) for the authoritative release record. The implementation/test evidence below is retained; pre-release descriptions do not imply the release remains pending. Historical repair was not performed.
 
 ## Confirmed root cause
 
@@ -16,7 +16,7 @@ The final read-only refresh still found these live pre-migration fingerprints:
 | `get_next_queue_lead(uuid,jsonb)` | `8bc7ec6830c9b3374c6b7bea1fd1a38e` |
 | `get_queue_metrics(uuid)` | `7a9aedc3802d550709bdbf1004b1ee50` |
 
-Queue/association provenance migrations `20261002184930` and `20261002184954` are now on main. The applied inbound routing migration `20261002203426` is still absent from the repository; full-history reconciliation remains a release gate. PR #401's actual display-only Team change is preserved. The earlier P2 reader/claim proposal is withdrawn and is not activated here.
+Queue/association provenance migrations `20261002184930` and `20261002184954` are now on main. The applied inbound routing migration `20261002203426` is still absent from the repository; full-history reconciliation remains outstanding, accepted by Chris for this live-validation release. PR #401's actual display-only Team change is preserved. The earlier P2 reader/claim proposal is withdrawn and is not activated here.
 
 ## Architecture implemented
 
@@ -51,7 +51,7 @@ Invoker guards prevent stale browsers from directly advancing membership or assi
 | Local restore, reapply, definition/owner/search_path/ACL comparison | PASS; exact manifest equality |
 | Fail-closed recovery script on local fixture | PASS; admission/preflight sealed, DNC records preserved |
 | Existing Team/Open isolation harness self-tests | 30 PASS; these are mocked isolation checks, not a browser/backend run |
-| Supabase advisors | Read-only production baseline recorded in `advisors-baseline.json`; no post-migration delta claimed |
+| Supabase advisors | Post-migration advisors inspected; exact count delta recorded in production-release.md |
 
 The unconfigured full-suite run has 10 existing collection failures (missing Supabase test environment) and the same existing recording-retention byte-fixture failure on both revisions. Main has one additional existing Dialer API collection failure resolved by the new mock. The branch's two additional FullScreenContactView failures followed a 5-second timeout during concurrent full-suite execution; the unchanged file passes all 11 tests on a focused rerun (6.49s). This supports a timing/cleanup flake, not a demonstrated product regression; the full run is still **not reported as green**. Neither revision emitted an unhandled-error summary in this comparison. No unrelated tests or timeouts were modified to obtain a pass.
 
@@ -86,13 +86,13 @@ The runner refuses non-loopback URLs, database/query/fragment overrides and host
 | Callback / appointment / conversion | Timezone, one shadow write/refresh, required notes, cancellation and conversion retry; actual conversion RPC/FK SET NULL exercised in PostgreSQL |
 | Other non-regressions | Retry/max attempts, manual callback window, exhaustion, licensing, hard claim, caller ID, Team visibility, provider reentrancy/auto-dial and duration source checks |
 
-**Not run / release blockers:** the full existing Docker/Supabase/Playwright Team/Open harness (Docker is unavailable here); full historical Supabase migration replay; a deployed Edge/Deno integration; real Voice.js/Twilio calls; post-migration production advisors or production behavior. The PostgreSQL fixture is focused and production-derived, not a complete Supabase stack: it captures the relevant live tables/RLS/RPCs and actual conversion/workflow functions but does not recreate all association/provenance infrastructure or all contact RLS. Draft PR #402 is published. Its first DNC CI run passed behavior/security/matrix/concurrency and then found a missing runner `rg` dependency. The replay check now uses portable `grep`; CI starts PostgreSQL bound to host loopback so the unchanged local-restore guard also holds inside Docker. Remote CI is not claimed as passed until that corrected run finishes. Those gaps must be resolved before production approval is requested.
+**Remaining verification limits accepted for live validation:** full existing Docker/Supabase/Playwright Team/Open harness, complete historical Supabase migration replay, signed real Voice.js/Twilio calls and end-to-end agent UI behavior. Docker was unavailable locally. The focused PostgreSQL fixture does not recreate every association or contact policy. Corrected DNC CI run 37095891491 passed all 465 focused tests plus real PostgreSQL concurrency, replay and ACL checks. Reports CI run 37095891229 failed its exact base/branch TypeScript diagnostic equality assertion; local semantic comparison found 88 existing diagnostics versus 90 on main, with zero new diagnostics. The broad suite is not green and is not represented as such. Production package readback, public frontend HTTP smoke, unsigned-webhook rejection, normalization, grants and function metadata verification passed; these are not a substitute for a real call.
 
 ## Migration, release and rollback package
 
-New migration only: `supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql`. No applied migration was edited. `release-sha256.txt` pins the migration, both voice webhook files and both operational scripts. The full voice package is `index.ts` plus `dncGuard.ts`; deploy both together only after exact approval and re-reading the live function per AGENT_RULES.
+New migration only: `supabase/migrations/20261003043122_dialer_disposition_dnc_integrity.sql`. No applied migration was edited. `release-sha256.txt` pins the migration, both voice webhook files and both operational scripts. The full voice package is `index.ts` plus `dncGuard.ts`; deploy both together only after exact approval and re-reading the live function per AGENT_RULES.
 
-The coordinated release sequence is deliberately **not executed**:
+Original coordinated release procedure (executed under Chris’s later live-validation approval; actual timestamps and accepted gaps are recorded in production-release.md):
 
 1. Complete the missing isolated-stack/replay gates and review existing baseline failures. Recheck actual main, production migration history, the three precondition fingerprints, dependencies, function/table ACLs, and live webhook version/body. Stop on drift.
 2. Obtain Chris's explicit approval for `dialer_dnc_release_pause.sql`, the exact migration hash, the exact two-file voice package/verification settings, the frontend commit and final resume action. This includes the temporary outbound/disposition pause; historical operational-data repair is excluded.
@@ -108,7 +108,7 @@ No records repaired. `historical-candidates.sql` is an organization-bound read-o
 
 ## Context snapshot / next action
 
-Changes: one canonical disposition transaction, tenant/phone suppression at every queue and outbound boundary, stable-ID frontend lifecycle, narrow write guards and real PostgreSQL tests. Decisions: configuration wins over names; no broad Agent DNC insertion; preserve duplicate history; single-leg Voice.js and Twilio duration ownership; fail closed on unknown admission; retain current Team display scope. Migration/deployments: one unapplied new migration, no deployments. Blockers: isolated full-stack/replay and real call verification remain. Next: review this branch, complete those gates in a suitable isolated environment, then approve the exact coordinated production release package. Existing branch/security implementation approval remains sufficient for further local fixes; no new implementation approval is needed.
+Changes: one canonical disposition transaction, tenant/phone suppression at every queue and outbound boundary, stable-ID frontend lifecycle, narrow write guards and real PostgreSQL tests. Decisions: configuration wins over names; no broad Agent DNC insertion; preserve duplicate history; single-leg Voice.js and Twilio duration ownership; fail closed on unknown admission; retain current Team display scope. Migration/deployments: permanent migration 20261003043122 applied between tracked pause/resume migrations; webhook v36 and frontend e5c15f7 shipped. Remaining validation: real agents, full-stack harness and historical replay. Next: refresh CRM tabs and validate Personal/Team/Open disposition and cross-campaign suppression with real agents. Historical repair remains separately gated.
 
 ## Actual changed files
 
@@ -158,7 +158,7 @@ src/utils/dncCheck.ts
 src/utils/phoneUtils.ts
 supabase/functions/twilio-voice-webhook/dncGuard.ts
 supabase/functions/twilio-voice-webhook/index.ts
-supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql
+supabase/migrations/20261003043122_dialer_disposition_dnc_integrity.sql
 supabase/ops/dialer_dnc_fail_closed.sql
 supabase/ops/dialer_dnc_release_pause.sql
 supabase/rollback/dialer_dnc_integrity_local_restore.sql
