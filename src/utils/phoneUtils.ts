@@ -10,13 +10,8 @@
  */
 /** E.164 with leading + (US NANP when 10/11 digits). For Twilio API To/From fields. */
 export function toE164Plus(phone: string): string {
-  const raw = (phone || "").trim();
-  if (!raw) return "";
-  if (raw.startsWith("+")) return raw;
-  const cleaned = raw.replace(/\D/g, "");
-  if (cleaned.length === 10) return `+1${cleaned}`;
-  if (cleaned.length === 11 && cleaned.startsWith("1")) return `+${cleaned}`;
-  return cleaned ? `+${cleaned}` : "";
+  const normalized = normalizePhoneNumber(phone);
+  return normalized ? `+${normalized}` : "";
 }
 
 export function normalizePhoneNumber(phone: string): string {
@@ -24,7 +19,7 @@ export function normalizePhoneNumber(phone: string): string {
   const cleaned = phone.replace(/\D/g, "");
   
   // If it's a 10-digit US number, return with leading 1 for raw numeric carrier format
-  if (cleaned.length === 10) {
+  if (cleaned.length === 10 && !phone.trim().startsWith("+")) {
     return `1${cleaned}`;
   }
   

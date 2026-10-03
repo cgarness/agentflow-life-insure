@@ -1,43 +1,31 @@
 import { supabase } from "@/integrations/supabase/client";
-import { normalizePhoneNumber } from "@/utils/phoneUtils";
+import { z } from "zod";
 
-export interface DNCMatch {
-  id: string;
-  phone_number: string;
-  reason: string | null;
-}
+export const DNC_VERIFY_ERROR = "Unable to verify DNC status. Call was not started.";
+const resultSchema = z.object({
+  blocked: z.boolean(),
+  match: z.object({ id: z.string(), phone_number: z.string(), reason: z.string().nullable() }).nullable(),
+});
+export type DNCCheckResult = z.infer<typeof resultSchema>;
+export type DNCMatch = NonNullable<DNCCheckResult["match"]>;
 
-export interface DNCCheckResult {
-  blocked: boolean;
-  match: DNCMatch | null;
-}
-
-/**
- * Check whether a phone number is on the agency DNC list for the given org.
- * Returns blocked=true with the matching row when a match is found. On query
- * error, returns blocked=false (fail-open) but logs — caller must decide
- * whether DB-error fail-open is acceptable in their flow.
- */
+/** Server derives organization/actor; unavailable or malformed verification fails closed. */
 export async function checkDNC(
   phone: string,
-  organizationId: string | null | undefined
+  organizationId: string | null | undefined,
+  campaignLeadId?: string | null,
 ): Promise<DNCCheckResult> {
-  if (!phone || !organizationId) {
-    return { blocked: false, match: null };
+  if (!phone.trim() || !organizationId) throw new Error(DNC_VERIFY_ERROR);
+  try {
+    const { data, error } = await (supabase as any).rpc("check_dialer_dnc", {
+      p_phone: phone,
+      p_campaign_lead_id: campaignLeadId ?? null,
+    });
+    if (error) throw error;
+    const result = resultSchema.safeParse(data);
+    if (!result.success) throw new Error("Invalid DNC verification response");
+    return result.data;
+  } catch {
+    throw new Error(DNC_VERIFY_ERROR);
   }
-  const normalized = normalizePhoneNumber(phone);
-  if (!normalized) return { blocked: false, match: null };
-
-  const { data, error } = await supabase
-    .from("dnc_list")
-    .select("id, phone_number, reason")
-    .eq("organization_id", organizationId)
-    .eq("phone_number", normalized)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[checkDNC] query failed:", error.message);
-    return { blocked: false, match: null };
-  }
-  return { blocked: !!data, match: data ?? null };
 }

@@ -1,3 +1,5 @@
+> Current Dialer/DNC task: [approved permanent disposition and DNC integrity plan](docs/plans/2026-10-02-dialer-dnc-integrity/implementation_plan.md). Branch implementation and testing approved; production actions and historical repair held. The unrelated leaderboard plan below is preserved.
+
 # Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.3 — rev 1.1 APPROVED 2026-09-25; rev 1.2 = Chris's corrections, §13; rev 1.3 = two approved corrections, §14)
 
 > **REV 1.3 (2026-09-26, APPROVED by Chris):** two frontend corrections, recorded in **§14** with the exact files before any

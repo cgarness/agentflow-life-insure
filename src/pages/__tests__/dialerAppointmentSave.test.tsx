@@ -42,6 +42,8 @@ const h = vi.hoisted(() => ({
   failCallWrite: false,
   emptyQueue: false,
   renewal: "owned" as "owned" | "lost" | "error",
+  failAdvance: false,
+  failRelease: false,
   /** Fail only the appointments INSERTs whose payload matches (e.g. the appointment but not the shadow). */
   failAppointmentWhen: null as null | ((payload: Record<string, unknown>) => boolean),
   /** How the Calendar refresh behaves: resolves, rejects, throws synchronously, or is missing entirely. */
@@ -100,10 +102,15 @@ vi.mock("@/integrations/supabase/client", () => ({
       h.rpc.push({ name, args });
       h.events.push(`rpc:${name}`);
       if (name === "advance_campaign_lead") {
+        if (h.failCallWrite) return Promise.resolve({ data: null, error: { message: "boom:calls" } });
+        if (h.failAdvance) return Promise.resolve({ data: null, error: { message: "DNC persistence failed" } });
         return Promise.resolve({ data: {
           id: args.p_campaign_lead_id, call_attempts: 1, last_called_at: new Date().toISOString(),
           retry_eligible_at: null, status: "Called", callback_due_at: args.p_callback_due_at,
           scheduled_callback_at: args.p_callback_due_at, callback_agent_id: USER,
+          call_id: args.p_call_id ?? null, contact_id: args.p_converted_client_id ?? LEAD,
+          contact_type: args.p_converted_client_id ? "client" : "lead", disposition_version: 1,
+          dnc_suppressed: false, replayed: false, lock_released: !!args.p_release_lock && !h.failRelease,
         }, error: null });
       }
       if (name === "get_next_queue_lead") return Promise.resolve({ data: h.emptyQueue ? [] : [LEAD_ROW], error: null });
@@ -236,6 +243,7 @@ beforeEach(() => {
   (globalThis as Record<string, unknown>).IntersectionObserver ??= class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } };
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
   h.writes = []; h.rpc = []; h.events = []; h.failAppointmentInsert = false; h.campaignType = "Personal";
+  h.failAdvance = false; h.failRelease = false;
   h.failAppointmentWhen = null; h.refreshMode = "resolve"; calendar.v = null;
   h.failCallWrite = false; h.emptyQueue = false; h.renewal = "owned";
   h.tableData = {};
@@ -285,6 +293,52 @@ const appointmentInserts = () =>
   h.writes.filter((w) => w.table === "appointments" && w.op === "insert").map((w) => w.payload as Record<string, unknown>);
 const advanceCalls = () => h.rpc.filter((r) => r.name === "advance_campaign_lead");
 const canonicalDue = () => advanceCalls()[0]?.args.p_callback_due_at as string | undefined;
+
+describe("authoritative disposition failure handling", () => {
+  it.each(["Personal", "Team"] as const)("%s failed Save & Next retains the draft and never claims another lead", async type => {
+    await mountOnLead(type);
+    pickDisposition(/^call back$/i); fillCallback("2026-10-15", "2:30 PM");
+    const queueReads = h.rpc.filter(r => r.name === "get_next_queue_lead").length;
+    h.failAdvance = true;
+    fireEvent.click(screen.getByRole("button", { name: /^save & next$/i }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("DNC persistence failed"));
+    expect(h.toast.success).not.toHaveBeenCalled();
+    expect(h.rpc.filter(r => r.name === "get_next_queue_lead")).toHaveLength(queueReads);
+    expect(h.rpc.some(r => r.name === "release_lead_lock")).toBe(false);
+    expect(screen.getByLabelText("Callback time")).toHaveValue("2:30 PM");
+    expect(appointmentInserts()).toHaveLength(0);
+    h.failAdvance = false;
+    await save("Save & Next");
+    expect(advanceCalls()[0].args.p_operation_id).toBe(advanceCalls()[1].args.p_operation_id);
+  });
+  it("failed Team lock release is not reported as a successful save", async () => {
+    await mountOnLead("Team");
+    pickDisposition(/^call back$/i); fillCallback("2026-10-15", "2:30 PM");
+    h.failRelease = true;
+    const queueReads = h.rpc.filter(r => r.name === "get_next_queue_lead").length;
+    fireEvent.click(screen.getByRole("button", { name: /^save & next$/i }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("Lead lock release was not confirmed."));
+    expect(h.toast.success).not.toHaveBeenCalled();
+    expect(h.rpc.filter(r => r.name === "get_next_queue_lead")).toHaveLength(queueReads);
+    expect(screen.getByLabelText("Callback time")).toHaveValue("2:30 PM");
+  });
+  it("conversion remains gated, and a failed post-conversion save retries with the original client lineage", async () => {
+    await mountOnLead(); pickDisposition(/^sold later$/i); fillCallback("2026-10-15", "2:30 PM");
+    h.failAdvance = true;
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    const convert = await screen.findByRole("button", { name: /complete conversion/i });
+    expect(advanceCalls()).toHaveLength(0);
+    fireEvent.click(convert);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("DNC persistence failed"));
+    expect(h.toast.success).not.toHaveBeenCalled();
+    h.failAdvance = false;
+    await save("Save");
+    expect(screen.queryByRole("button", { name: /complete conversion/i })).toBeNull();
+    expect(advanceCalls().map(r => r.args.p_converted_client_id)).toEqual([CLIENT, CLIENT]);
+    expect(advanceCalls()[0].args.p_operation_id).toBe(advanceCalls()[1].args.p_operation_id);
+    expect(appointmentInserts()[0].contact_id).toBe(CLIENT);
+  });
+});
 
 function expectSilentRefreshAfterInserts(expectedInserts: number) {
   expect(h.fetchAppointments).toHaveBeenCalledTimes(1);
@@ -381,8 +435,8 @@ describe("Personal campaign — other cases", () => {
     fillCallback("2026-10-15", "2:30 PM");
     await save("Save");
 
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Callback may not have saved — continuing call save: boom:appointments/), expect.anything());
-    expect(h.writes.some((w) => w.table === "calls")).toBe(true);
+    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; callback calendar entry may not have saved: boom:appointments/));
+    expect(h.writes.some((w) => w.table === "calls")).toBe(false); // Core call write belongs to the RPC.
     expect(advanceCalls()).toHaveLength(1);
     expect(canonicalDue()).toBe(new Date(2026, 9, 15, 14, 30).toISOString());
     expect(h.toast.success).toHaveBeenCalledWith("Call saved successfully", expect.anything());
@@ -426,7 +480,8 @@ describe("Team/Open campaign (lock mode)", () => {
     expect(inserts[0].user_id).toBe(USER);
     expectSilentRefreshAfterInserts(1);
     // Team/Open lifecycle continues exactly as before: the lock is released and the next lead requested.
-    await waitFor(() => expect(h.rpc.some((r) => r.name === "release_lead_lock")).toBe(true));
+    expect(advanceCalls()[0].args.p_release_lock).toBe(true);
+    expect(h.rpc.some((r) => r.name === "release_lead_lock")).toBe(false);
   }, 30000);
 });
 
@@ -508,6 +563,21 @@ describe("Team lead details with the existing lock lifecycle", () => {
     expect(h.rpc.some((r) => r.name === "claim_lead" || r.name === "advance_campaign_lead")).toBe(false);
   }, 30000);
 
+  it("a lost lock masks details but retains an unsaved disposition without loading another lead", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    pickDisposition(/^call back$/i);
+    fillCallback("2026-10-15", "2:30 PM");
+    h.renewal = "lost";
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await waitFor(() => expect(screen.queryByTestId("team-open-lead-details")).toBeNull());
+    expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
+    expect(screen.getByLabelText("Callback time")).toHaveValue("2:30 PM");
+    expect(advanceCalls()).toHaveLength(0);
+    expect(h.toast.success).not.toHaveBeenCalled();
+  }, 30000);
+
   it("Skip keeps per-agent suppression and release-before-next without incrementing attempts", async () => {
     await mountOnLead("Team", AUTHORIZED_MASTER);
     await screen.findByTestId("team-open-lead-details");
@@ -548,8 +618,8 @@ describe("Team lead details with the existing lock lifecycle", () => {
     pickDisposition(/^call back$/i);
     fillCallback("2026-10-15", "2:30 PM");
     fireEvent.click(screen.getByRole("button", { name: /^save & next$/i }));
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("Failed to save: boom:calls", expect.anything()));
-    expect(advanceCalls()).toHaveLength(0);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("boom:calls"));
+    expect(advanceCalls()).toHaveLength(1);
     expect(h.rpc.some((r) => r.name === "release_lead_lock" || r.name === "claim_lead")).toBe(false);
     expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
     expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
@@ -577,7 +647,7 @@ describe("failure isolation", () => {
       expect(appointmentInserts()).toHaveLength(1);
       expect(appointmentInserts()[0].start_time).toBe(canonicalDue());
       expect(advanceCalls()).toHaveLength(1);
-      expect(h.writes.some((w) => w.table === "calls")).toBe(true);
+      expect(h.writes.some((w) => w.table === "calls")).toBe(false); // Core call write belongs to the RPC.
       expect(h.toast.success).toHaveBeenCalledWith("Saved successfully", expect.anything());
       noScheduleFailureToast();
       await new Promise((r) => setTimeout(r, 20));
@@ -593,10 +663,10 @@ describe("failure isolation", () => {
     fillAppointment("2026-10-15", "2:30 PM", "3:00 PM");
     await save("Save");
 
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Appointment may not have saved — continuing call save: boom:appointments/), expect.anything());
+    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; appointment may not have saved: boom:appointments/));
     expect(h.fetchAppointments).not.toHaveBeenCalled();
     expect(advanceCalls()).toHaveLength(1);
-    expect(h.writes.some((w) => w.table === "calls")).toBe(true);
+    expect(h.writes.some((w) => w.table === "calls")).toBe(false); // Core call write belongs to the RPC.
     expect(h.toast.success).toHaveBeenCalledWith("Call saved successfully", expect.anything());
     expect(calendar.addAppointment).not.toHaveBeenCalled();
   }, 30000);
@@ -612,7 +682,7 @@ describe("failure isolation", () => {
     expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(2);
     const shadow = appointmentInserts().find((p) => p.title === "Callback")!;
     expect(shadow.start_time).toBe(canonicalDue());
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Appointment may not have saved/), expect.anything());
+    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; appointment may not have saved/));
     expect(h.fetchAppointments).toHaveBeenCalledTimes(1);
     expect(h.fetchAppointments).toHaveBeenCalledWith({ silent: true });
     expect(h.events.indexOf("calendar:fetchAppointments")).toBeGreaterThan(h.events.lastIndexOf("insert:appointments"));

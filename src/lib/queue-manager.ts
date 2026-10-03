@@ -11,9 +11,7 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * Extends the raw campaign_leads row with two in-memory-only fields.
- * These are never written to the database — they exist only in the
- * local leadQueue array for the duration of the dialer session.
+ * Campaign membership and persisted eligibility fields returned by the server.
  */
 export interface CampaignLead {
   id: string;
@@ -27,32 +25,11 @@ export interface CampaignLead {
   last_called_at?: string | null;
   callback_at?: string | null;
   scheduled_callback_at?: string | null;
-  // ── In-memory lifecycle fields (never persisted) ──
+  // Persisted server lifecycle fields.
   retry_eligible_at?: string | null;
   callback_due_at?: string | null;
   [key: string]: unknown;
 }
-
-type QueueBehavior =
-  | { action: 'remove_until_retry' }
-  | { action: 'remove_until_callback' }
-  | { action: 'remove_permanent' }
-  | { action: 'keep_at_bottom' };
-
-// ─── Disposition Behavior Map ─────────────────────────────────────────────────
-
-const DISPOSITION_QUEUE_BEHAVIOR: Record<string, QueueBehavior> = {
-  'No Answer':       { action: 'remove_until_retry' },
-  'Not Available':   { action: 'remove_until_retry' },
-  'Left Voicemail':  { action: 'remove_until_retry' },
-  'Interested':      { action: 'remove_until_retry' },
-  'Not Interested':  { action: 'remove_permanent' },
-  'DNC':             { action: 'remove_permanent' },
-  'Appointment Set': { action: 'remove_permanent' },
-  'Appt Set':        { action: 'remove_permanent' },
-  'Call Back':       { action: 'remove_until_callback' },
-  'Call Back Later': { action: 'remove_until_callback' },
-};
 
 // ─── Tier Detection ───────────────────────────────────────────────────────────
 
@@ -127,55 +104,13 @@ export function applyDispositionToQueue(
   callbackDueAt: string | null,
   now: Date,
 ): CampaignLead[] {
-  // 1. Remove disposed lead from its current position
-  const without = leads.filter(l => l.id !== disposedLead.id);
-
-  // 2. Look up behavior (default: keep_at_bottom)
-  const behavior: QueueBehavior =
-    DISPOSITION_QUEUE_BEHAVIOR[dispositionName] ?? { action: 'keep_at_bottom' };
-
-  switch (behavior.action) {
-    case 'remove_permanent':
-      return sortQueue(without, now);
-
-    case 'remove_until_retry': {
-      const eligibleAt = new Date(now.getTime() + retryIntervalMinutes * 60_000).toISOString();
-      const updated: CampaignLead = {
-        ...disposedLead,
-        retry_eligible_at: eligibleAt,
-        callback_due_at: null,
-      };
-      return sortQueue([...without, updated], now);
-    }
-
-    case 'remove_until_callback': {
-      let dueAt: string;
-      if (callbackDueAt) {
-        dueAt = callbackDueAt;
-      } else {
-        console.warn(
-          '[queue-manager] remove_until_callback: no callbackDueAt provided — defaulting to 48h from now',
-        );
-        dueAt = new Date(now.getTime() + 48 * 3_600_000).toISOString();
-      }
-      const updated: CampaignLead = {
-        ...disposedLead,
-        callback_due_at: dueAt,
-        retry_eligible_at: null,
-      };
-      return sortQueue([...without, updated], now);
-    }
-
-    case 'keep_at_bottom':
-    default: {
-      const updated: CampaignLead = {
-        ...disposedLead,
-        retry_eligible_at: null,
-        callback_due_at: null,
-      };
-      return sortQueue([...without, updated], now);
-    }
+  const without = leads.filter((lead) => lead.id !== disposedLead.id);
+  // Only persisted lifecycle fields determine eligibility; display names/config
+  // copies in a browser must never synthesize retry/callback times or DNC rules.
+  if (disposedLead.dnc_suppressed || ['DNC', 'Completed', 'Removed', 'Failed'].includes(disposedLead.status ?? '')) {
+    return sortQueue(without, now);
   }
+  return sortQueue([...without, disposedLead], now);
 }
 
 // ─── queueOrderChanged ────────────────────────────────────────────────────────

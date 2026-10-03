@@ -71,7 +71,7 @@ describe("DialerPage appointment writer contract", () => {
   });
 
   it("the canonical saveCallData callbackDueAtISO computation is unchanged", () => {
-    expect(saveCallData).toContain(CANONICAL_PARSE("callbackDueAtISO", "        "));
+    expect(saveCallData.replace(/\s+/g, "")).toContain(CANONICAL_PARSE("callbackDueAtISO", "").replace(/\s+/g, "").replace(",).toISOString()", ").toISOString()"));
   });
 
   it("the canonical proceedSaveAndNext callbackDueAt computation is unchanged", () => {

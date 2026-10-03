@@ -43,9 +43,9 @@ describe("DialerPage — Team/Open lead details wiring", () => {
     expect(src).toContain("contact={mapDialerLeadToContactLead(currentLead)}");
   });
 
-  it("the Admin DNC-override dial records the dialled lead for the reveal gate (fail closed otherwise)", () => {
-    const dnc = body("// Team/Open reveal bookkeeping only (mirrors proceedWithCall)", "twilioMakeCall(dncLead.phone);");
-    expect(dnc).toContain("dncLead?.id && dncLead.id === currentLead?.id ? dncLead.id : null");
+  it("no campaign or Admin can bypass agency DNC", () => {
+    expect(src).not.toContain("twilioMakeCall(dncLead.phone)");
+    expect(src).not.toContain("handleDncOverride");
   });
 
   it("leaving full reveal ends the Team/Open draft after a grace period (survives the hang-up → wrap-up gap)", () => {

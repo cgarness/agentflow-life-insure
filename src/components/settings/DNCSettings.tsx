@@ -275,7 +275,7 @@ const DNCSettings: React.FC = () => {
                                             id="phone"
                                             placeholder="(555)000-0000"
                                             value={newNumber}
-                                            onChange={(val) => setNewNumber(normalizePhoneNumber(val))}
+                                            onChange={setNewNumber}
                                         />
                                         {fieldErrors.phone && (
                                             <p className="text-xs text-destructive">{fieldErrors.phone}</p>
@@ -395,7 +395,7 @@ const DNCSettings: React.FC = () => {
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-foreground/80">
-                    Numbers on this list are hard-blocked from automated/predictive dialing and trigger a confirmation warning for manual click-to-call. Only Admins and Super Admins can override a manual DNC call; every override is recorded in the activity log.
+                    Numbers on this list cannot be dialed manually or automatically from any campaign in this organization.
                 </CardContent>
             </Card>
         </div>

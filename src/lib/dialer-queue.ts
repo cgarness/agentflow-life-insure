@@ -45,22 +45,11 @@ export async function fetchNextQueuedLead(
   const type = campaignType.toUpperCase();
 
   if (type === "PERSONAL") {
-    const { data, error } = await supabase
-      .from("campaign_leads")
-      .select("*")
-      .eq("campaign_id", campaignId)
-      .eq("organization_id", organizationId)
-      .eq("status", "Queued")
-      .or(`claimed_by.eq.${userId},claimed_by.is.null`)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[dialer-queue] Personal queue fetch error:", error);
-      return null;
-    }
-    return data ?? null;
+    const { data, error } = await (supabase as any).rpc("get_personal_queue_leads", {
+      p_campaign_id: campaignId, p_limit: 1, p_offset: 0,
+    });
+    if (error) throw new Error(error.message);
+    return data?.[0] ?? null;
   }
 
   // ── Team / Open / Open Pool: atomic 90-second lock RPC ──
@@ -74,8 +63,7 @@ export async function fetchNextQueuedLead(
   });
 
   if (error) {
-    console.error("[dialer-queue] fetch_and_lock_next_lead RPC error:", error);
-    return null;
+    throw new Error(error.message);
   }
 
   // RPC returns SETOF — array. Empty = queue exhausted.
@@ -135,7 +123,7 @@ export async function releaseAllAgentLocks(campaignId: string): Promise<void> {
   });
 
   if (error) {
-    console.error("[dialer-queue] release_all_agent_locks RPC error:", error);
+    throw new Error(error.message);
   }
 }
 

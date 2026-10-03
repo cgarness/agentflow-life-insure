@@ -449,6 +449,10 @@ Non-negotiables from production:
 
 ---
 
+39. **Disposition-caused DNC is organization-wide and phone-level (permanent fix, branch implementation approved 2026-10-03; NOT shipped)** — The configured disposition UUID is authoritative. `advance_campaign_lead` atomically persists disposition, campaign progression and any required normalized-phone DNC suppression; browser flags, display names and direct lifecycle updates are not authority. Preserve all membership/call/contact history. Personal and canonical Team/Open queues exclude an organization's DNC phones regardless of duplicate master records. The final Voice.js path and signed Twilio webhook admission fail closed on suppression or unavailable verification; no override, fake attempt, REST dialing or duration ownership change. Only persisted results may update the local queue, by stable campaign-lead ID and matching visit generation. Failed persistence retains the draft/lead/appropriate lock and pauses auto-dial. Workflow failure never rolls back the core write. Production migration/deployment and historical repair require separate exact approval. See `docs/plans/2026-10-02-dialer-dnc-integrity/implementation_plan.md`; verify live migration history before assuming this invariant is deployed.
+
+---
+
 ## 5. Schema Gotchas
 
 | Topic | Rule |

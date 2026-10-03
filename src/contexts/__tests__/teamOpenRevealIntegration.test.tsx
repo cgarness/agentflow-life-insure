@@ -49,11 +49,11 @@ vi.mock("@/integrations/supabase/client", () => {
     return b;
   }
   const channel = { on() { return channel; }, subscribe() { return channel; } };
-  const session = { access_token: "t", expires_at: 4102444800, user: { app_metadata: { organization_id: "11111111-1111-4111-8111-111111111111" } } };
+  const session = { access_token: "t", expires_at: 4102444800, user: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", app_metadata: { organization_id: "11111111-1111-4111-8111-111111111111" } } };
   return {
     supabase: {
       from: (table: string) => makeBuilder(table),
-      rpc: () => Promise.resolve({ data: null, error: null }),
+      rpc: (name: string) => Promise.resolve({ data: name === "check_dialer_dnc" ? { blocked: false, match: null } : null, error: null }),
       channel: () => channel,
       removeChannel: () => {},
       auth: {
@@ -85,6 +85,7 @@ vi.mock("@/lib/twilio-voice", () => ({
   clearIncomingCallHandlers: vi.fn(),
   subscribeToIncomingCalls: vi.fn((h: (call: unknown) => void) => { voice.incoming = h; }),
 }));
+vi.mock("@/lib/browser-recording", () => ({ startRecording: vi.fn(async () => false), stopRecordingAsync: vi.fn(async () => null), uploadCallRecording: vi.fn(async () => null) }));
 vi.mock("@/lib/ringtoneOutputs", () => ({ applyRingtoneOutputs: vi.fn(async () => ({ supported: true, applied: ["default"] })) }));
 vi.mock("sonner", () => ({ toast: Object.assign(() => {}, { error: () => {}, success: () => {}, info: () => {}, message: () => {}, warning: () => {} }) }));
 

@@ -1,0 +1,32 @@
+Evidence: /tmp/tmp.7e613V8fqv
+Locality: host=127.0.0.1 database=dnc_test_55686; synthetic data only
+server=127.0.0.1/32 version=16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+PASS forward upgrade preserves legacy canonical duplicates
+PASS dialer_disposition_dnc
+PASS dialer_dnc_security
+PASS dialer_dnc_matrix
+{
+  severity_local: 'WARNING',
+  severity: 'WARNING',
+  code: '01000',
+  message: 'Disposition automation failed; core save retained',
+  where: 'PL/pgSQL function public.advance_campaign_lead(uuid,uuid,uuid,timestamp with time zone,text,boolean,uuid,text,uuid,bigint,text) line 173 at RAISE',
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+{
+  severity_local: 'WARNING',
+  severity: 'WARNING',
+  code: '01000',
+  message: 'Disposition automation failed; core save retained',
+  where: 'PL/pgSQL function public.advance_campaign_lead(uuid,uuid,uuid,timestamp with time zone,text,boolean,uuid,text,uuid,bigint,text) line 173 at RAISE',
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+PASS real PostgreSQL concurrency: simultaneous DNC, claim race, stale admission, duplicate saves, SKIP LOCKED
+PASS replay refused
+PASS reapplied function definitions, owners, search paths and ACLs match
+PASS local restore/reapply and fail-closed pause
+Evidence: /tmp/tmp.7e613V8fqv

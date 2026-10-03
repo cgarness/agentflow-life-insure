@@ -1,3 +1,4 @@
+import { verifyOutboundDncAdmission } from "./dncGuard.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -87,39 +88,6 @@ async function parseFormBody(req: Request): Promise<Record<string, string>> {
   return params;
 }
 
-function normalizePhoneCandidates(value: string): string[] {
-  const raw = value.trim();
-  const out = new Set<string>([raw]);
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) {
-    out.add(`+1${digits}`);
-    out.add(`1${digits}`);
-  } else if (digits.length === 11 && digits.startsWith("1")) {
-    out.add(`+${digits}`);
-  }
-  return [...out];
-}
-
-async function resolveOrgFromPhoneNumber(
-  supabase: ReturnType<typeof createClient>,
-  fromNumber: string | undefined,
-): Promise<string | null> {
-  if (!fromNumber) return null;
-  for (const cand of normalizePhoneCandidates(fromNumber)) {
-    const { data, error } = await supabase
-      .from("phone_numbers")
-      .select("organization_id")
-      .eq("phone_number", cand)
-      .maybeSingle();
-    if (error) {
-      console.warn("[twilio-voice-webhook] phone_numbers lookup failed:", cand, error.message);
-      continue;
-    }
-    if (data?.organization_id) return data.organization_id as string;
-  }
-  return null;
-}
-
 function buildDialTwiml(toNumber: string, callerId: string, statusCallbackUrl: string): string {
   const safeTo = xmlEscape(toNumber);
   const safeCaller = xmlEscape(callerId);
@@ -160,73 +128,20 @@ Deno.serve(async (req) => {
       return new Response(EMPTY_TWIML, { status: 403, headers: twimlHeaders });
     }
 
-    const callSid = params["CallSid"] ?? "";
     const toNumber = params["To"] ?? "";
-    const fromParam = params["From"] ?? "";
-    const callerIdParam = params["CallerId"] ?? "";
-    const callRowId = params["CallRowId"] ?? "";
-    const orgIdParam = params["OrgId"] ?? "";
-
-    const outboundCallerId = callerIdParam || fromParam;
-
-    console.log("[twilio-voice-webhook] incoming", {
-      callSid,
-      to: toNumber,
-      from: fromParam,
-      callerId: callerIdParam,
-      callRowId: callRowId || "(none)",
-      orgId: orgIdParam || "(none)",
-    });
-
-    if (!toNumber) {
-      console.error("[twilio-voice-webhook] Missing To param");
-      return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
-    }
+    const outboundCallerId = params["CallerId"] ?? "";
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
-    let organizationId: string | null = orgIdParam || null;
-    if (!organizationId) {
-      organizationId = await resolveOrgFromPhoneNumber(supabase, outboundCallerId);
-    }
-
-    if (callRowId) {
-      const { error: updateError } = await supabase
-        .from("calls")
-        .update({
-          twilio_call_sid: callSid,
-          status: "ringing",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", callRowId);
-      if (updateError) {
-        console.error(
-          `[twilio-voice-webhook] Failed to update calls row ${callRowId}:`,
-          updateError.message,
-        );
-      }
-    } else {
-      console.warn(
-        "[twilio-voice-webhook] No CallRowId on webhook — creating fallback calls row",
-      );
-      const { error: insertError } = await supabase.from("calls").insert({
-        twilio_call_sid: callSid,
-        direction: "outbound",
-        status: "ringing",
-        from_number: outboundCallerId,
-        to_number: toNumber,
-        organization_id: organizationId,
-        started_at: new Date().toISOString(),
-      });
-      if (insertError) {
-        console.error(
-          "[twilio-voice-webhook] Fallback calls insert failed:",
-          insertError.message,
-        );
-      }
+    const admitted = await verifyOutboundDncAdmission(params, (args) =>
+      supabase.rpc("admit_twilio_outbound", args),
+    );
+    if (!admitted) {
+      console.warn("[twilio-voice-webhook] Outbound admission refused");
+      return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 
     const statusCallbackUrl = `${supabasePublicOrigin()}/functions/v1/twilio-voice-status`;

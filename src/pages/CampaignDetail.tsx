@@ -982,7 +982,8 @@ const CampaignDetail: React.FC = () => {
                           onActionMenu={(id) => setActionMenuId(actionMenuId === id ? null : id)}
                           onRemoveLead={(id) => { setRemoveLeadId(id); setActionMenuId(null); }}
                           onForceRelease={async (id) => {
-                            await supabase.from("campaign_leads").update({ status: "Queued", locked_by: null, locked_at: null } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+                            const { error } = await (supabase as any).rpc("force_release_campaign_lead_lock", { p_campaign_lead_id: id });
+                            if (error) { toast.error(error.message); return; }
                             toast.success("Lead force-released to pool", { duration: 3000, position: "bottom-right" });
                             setActionMenuId(null);
                             fetchLeads(true);
