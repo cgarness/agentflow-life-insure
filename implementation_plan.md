@@ -8,7 +8,7 @@ The manifest was presented before editing. No file below changes production data
 
 | File | Reason and behavior change |
 |---|---|
-| `src/components/contacts/conversation-history/CallHistoryItem.tsx` | Two-line summary retaining direction, agent, date, duration and outcome/disposition. Icon follows direction. One disclosure reveals every existing metadata row, recording and voicemail; playback contracts unchanged. |
+| `src/components/contacts/conversation-history/CallHistoryItem.tsx` | Compact summary retaining direction, agent, date, duration and outcome/disposition; wraps to a third line in narrow columns to preserve readable attribution. Icon follows direction. One disclosure reveals every existing metadata row, recording and voicemail; playback contracts unchanged. |
 | `src/components/contacts/conversation-history/EmailHistoryItem.tsx` | Compact direction/date/subject summary and directional icon. One disclosure reveals full subject, complete body and all endpoint/delivery metadata. |
 | `src/components/contacts/conversation-history/CommunicationDetails.tsx` | Explicit Show/Hide details labels and narrow-column wrapping, preserving keyboard/ARIA controls. |
 | `src/components/contacts/conversation-history/ConversationTimeline.tsx` | Reduce inter-card spacing only. |
@@ -24,7 +24,7 @@ The manifest was presented before editing. No file below changes production data
 
 Run focused Contact conversation/Activity and history attribution/refresh/pagination regression tests, root `npx tsc --noEmit`, app-type baseline comparison, scoped lint and Vite build. Review responsive hosted UI where browser access allows. Full call outcome and agent strings remain in Details; long summaries use ellipsis/title to keep cards compact. Media mounts only when Details opens, and collapses stop/unmount playback. Email retains quoted-line dimming and an internally scrollable full-body region. No extra data request or event is introduced by the new disclosure state.
 
-Rollback is a frontend-only revert of this refinement; the already-applied Contact history migrations remain installed. Out of scope: source data changes, backfill, Contact field/layout cleanup, communications sending, dialing, DNC, routing, status processing, locks, ownership, reminders, automation, schema/RLS and production release. Build/review preparation is authorized; this revision needs Chris's exact merge/production-release approval. Validation results follow in the Work Log.
+Rollback is a frontend-only revert of this refinement; the already-applied Contact history migrations remain installed. Out of scope: source data changes, backfill, Contact field/layout cleanup, communications sending, dialing, DNC, routing, status processing, locks, ownership, reminders, automation, schema/RLS and production release. Build/review preparation is authorized; this revision needs Chris's exact merge/production-release approval. Validation results follow in the Work Log. Hosted inspection at a 1364-pixel viewport exposed cramped agent names; metadata now wraps as a group in narrow columns, keeping the agent readable without changing the page layout. PR #409 is review-only; final preview/CI evidence is recorded in its description.
 
 ---
 

@@ -75,12 +75,14 @@ export const CallHistoryItem: React.FC<{
               {formatCallDuration(item.durationSeconds)}
             </span>
           </div>
-          <div className="mt-1 flex items-center gap-2 min-w-0 text-[10px] text-muted-foreground">
-            <span className="flex-1 min-w-0 truncate" title={agent}>{agent}</span>
-            <span className="shrink-0">
-              {item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}
-            </span>
-            <DetailsToggleButton open={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} panelId={panelId} label="Call details" />
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-[10px] text-muted-foreground">
+            <span className="flex-1 min-w-[8rem] truncate" title={agent}>{agent}</span>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="shrink-0">
+                {item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}
+              </span>
+              <DetailsToggleButton open={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} panelId={panelId} label="Call details" />
+            </div>
           </div>
         </div>
       </div>
