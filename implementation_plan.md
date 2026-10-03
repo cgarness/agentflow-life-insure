@@ -1941,30 +1941,8 @@ Signed-in browser interaction is still unverified; old tabs should reload.
 
 ---
 
-## §21. Team campaign lead visibility (2026-10-02) — full-record build complete; production release gated
+## §21. Team campaign lead visibility — display-only scope (October 2, 19:22 LA)
 
-Chris requested full Team details with the same locking logic and then instructed “Start the next
-steps and complete the task.” The coordinated backend/frontend branch build is implemented in
-PR #401. Exact files, design, release gates and safe recovery are recorded in
-`docs/plans/2026-09-29-team-campaign-visibility/full-record-access-design.md` and the scoped plan.
+Chris clarified and approved: current Team leads show the existing full details grid without waiting for a call to connect; keep locking and ownership logic unchanged. The new manager review workflow and full-record access expansion are withdrawn from this release.
 
-Team displays populated master/import/custom details under the current confirmed canonical queue
-lock. A Team-only whitelisted reader supplies hidden master display fields without broadening
-Contacts SELECT or granting Edit/Sold/Convert. Canonical lock provenance and trusted attachment or
-explicit manager association provenance prevent manufactured queue authority. Client identities
-are immutable; the existing claim signature is guarded against mismatched targets and takeover.
-
-TTL/heartbeat, callback/retry/recent-call/SKIP LOCKED ordering, Skip, Save Only/Save & Next, claim
-threshold, Personal/Open presentation and telephony are preserved. Old lock timestamps are not
-rewritten. The display DTO remains separate from the authorized writable master.
-
-69 focused frontend tests pass in UTC and Los Angeles. Build and root tsc pass; app tsc retains
-90 baseline diagnostics; changed-file lint zero errors/18 existing warnings. Native PostgreSQL
-run 37046986203 at d63ba746fe29249dded207b665a8c35766c2a4ff passes authenticated RLS/ACL,
-staged refusal, queue/ownership concurrency and six negative mutation controls. A final conversion
-FK regression is also included; final exact-head frontend/backend CI remains the release check.
-
-No hosted mutation, merge or deployment. P1/P1B precede natural expiry/release of unproven old
-locks and individual manager review of historical associations; only then can P2/frontend release.
-P2 refuses unmet prerequisites. Safe recovery revokes the new reader without reopening unsafe
-claim/identity/ACL paths. Production access requires separate exact approval under invariant #28.
+Implementation and release checks: `docs/plans/2026-09-29-team-campaign-visibility/implementation_plan.md`. Display-only changes retain canonical current-lock confirmation, stale-load masking, and existing Edit/Sold/Convert gates. No new RPC or Contacts read permission. Existing authorization may still limit master fields; retain the campaign-copy notice. The two earlier applied migrations remain recorded and are not rerun. Pending P2 and its frontend hook are removed. PR #401 is the narrowed review/release surface.

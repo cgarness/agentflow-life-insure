@@ -1,3 +1,11 @@
+# WITHDRAWN from this release — historical access-expansion design
+
+Chris narrowed the task on October 2, 19:22 LA to removing the Team dialer blur while preserving existing locking. The design below is historical, not the current implementation plan or a release gate. Its P2 reader/claim/ACL changes and manager-review rollout are not shipping. P1/P1B were already applied earlier; their immutable migrations remain recorded. No rollback or further database change is authorized by this scope correction.
+
+Current plan: implementation_plan.md in this directory. Existing Contacts data permissions remain in effect.
+
+---
+
 # Team full-record access — separate coordinated authorization design
 
 Status: Chris authorized the next implementation and verification steps on October 2 with

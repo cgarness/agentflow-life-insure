@@ -1,3 +1,12 @@
+## 2026-10-02 — Team dialer scope correction — unblur existing details only
+
+- Chris explicitly corrected scope at 19:22 LA and approved proceeding: Team dialer details visible like Personal; preserve existing locking/ownership.
+- Restored the tested display-only implementation: Team full grid after canonical current-lock confirmation, independent of call answer. Existing data sources and Edit/Sold/Convert gates remain. Personal/Open display unchanged.
+- Removed unshipped P2 reader/claim/ACL migration, privileged display hook and backend-only release harness. Withdrew historical manager-review release gate and design. No review UI, business-row repair, or database mutation.
+- Kept the two already-applied P1/P1B migration files byte-for-byte as immutable history. They are not reapplied or reversed. Prior broader implementation is preserved in Git history at a2727d8.
+- Files and verification plan are in the scoped implementation_plan.md; PR #401 will carry the narrowed release. Existing Contacts authorization still limits unavailable master fields; this is removal of display blur, not a permission expansion.
+- Verification: 71 focused card/hook/real-page/wiring tests pass, root TypeScript passes. Exact-head CI and deployment remain pending; build result will be recorded in PR.
+
 ## 2026-10-02 — Team visibility release — P1/P1B APPLIED; P2/FRONTEND BLOCKED
 
 - Chris approved the staged production handoff at 11:47 LA. Exact tested source: 3927292fa12dfd47cdca5116779828c345be79ab. Read-only preflight matched function fingerprints/owners, policies and counter triggers.

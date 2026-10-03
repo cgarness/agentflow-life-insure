@@ -121,7 +121,6 @@ import {
   withTeamOpenMasterLead,
 } from "@/lib/teamOpenLeadAccess";
 import { useTeamOpenMasterLead } from "@/hooks/useTeamOpenMasterLead";
-import { useTeamDialerLeadDetails } from "@/hooks/useTeamDialerLeadDetails";
 import { useTeamCampaignLeadVisibility } from "@/hooks/useTeamCampaignLeadVisibility";
 import { useTeamOpenLeadEdit, type TeamOpenSaved } from "@/hooks/useTeamOpenLeadEdit";
 import QueuePanel from "@/components/dialer/QueuePanel";
@@ -968,23 +967,6 @@ export default function DialerPage() {
     embedded: currentLead?.master_lead as Record<string, unknown> | null | undefined,
     claimed: !!teamOpenLeadId && claimedLeadIds.has(teamOpenLeadId),
   });
-  // Team's privileged display DTO stays separate from the RLS master used by Edit/Sold/Convert.
-  const teamParticipantIds: unknown[] = Array.isArray(selectedCampaign?.assigned_agent_ids)
-    ? selectedCampaign.assigned_agent_ids : [];
-  const teamDisplayRead = useTeamDialerLeadDetails({
-    enabled: isTeamCampaign && teamLeadDisplay.visible && !isImpersonating &&
-      !!user?.id && teamParticipantIds.includes(user.id) &&
-      teamOpenMaster.status !== "loaded",
-    organizationId: organizationId ?? null,
-    viewerId: user?.id ?? null,
-    campaignId: selectedCampaignId,
-    campaignLeadId: teamOpenCampaignLeadId,
-    leadId: teamOpenLeadId,
-    membershipKey: JSON.stringify(teamParticipantIds),
-  });
-  const teamDisplayMaster = teamOpenMaster.master ?? teamDisplayRead.details;
-  const teamDisplayStatus = isTeamCampaign && teamLeadDisplay.visible && teamOpenMaster.status !== "loaded"
-    ? teamDisplayRead.status : teamOpenMaster.status;
   const teamOpenLayoutIds = useMemo(
     () => resolveFieldOrder("lead", dialerUserLeadOrder, dialerOrgLeadOrder),
     [dialerUserLeadOrder, dialerOrgLeadOrder],
@@ -994,12 +976,12 @@ export default function DialerPage() {
       lockMode
         ? resolveTeamOpenLeadFields({
             layoutIds: teamOpenLayoutIds,
-            sources: { snapshot: (currentLead as Record<string, unknown> | null) ?? null, master: teamDisplayMaster },
+            sources: { snapshot: (currentLead as Record<string, unknown> | null) ?? null, master: teamOpenMaster.master },
             definitions: teamOpenCustomFieldDefs ?? null, // last good data survives a failed refetch
             agents: agentRoster,
           })
         : [],
-    [lockMode, teamOpenLayoutIds, currentLead, teamDisplayMaster, teamOpenCustomFieldDefs, agentRoster],
+    [lockMode, teamOpenLayoutIds, currentLead, teamOpenMaster.master, teamOpenCustomFieldDefs, agentRoster],
   );
   const canEditTeamOpen = canEditTeamOpenLead({
     callStatus,
@@ -4774,15 +4756,14 @@ export default function DialerPage() {
                 lockMode ? (
                   <TeamOpenLeadDetails
                     fields={teamOpenFields}
-                    masterStatus={teamDisplayStatus}
-                    unavailableMessage={isTeamCampaign ? "Full lead details aren't available for this queue entry — showing this campaign's copy." : undefined}
+                    masterStatus={teamOpenMaster.status}
                     definitionsUnavailable={teamOpenCustomFieldDefsFailed && !teamOpenCustomFieldDefs}
                     isEditing={isEditingContact && teamOpenEdit.active && (!isTeamCampaign || canEditTeamOpen)}
                     draft={teamOpenEdit.draft}
                     errors={teamOpenEdit.errors}
                     saving={teamOpenEdit.saving}
                     onChange={teamOpenEdit.setField}
-                    onRetry={() => void (isTeamCampaign && teamOpenMaster.status !== "loaded" ? teamDisplayRead.retry() : teamOpenMaster.retry())}
+                    onRetry={() => void teamOpenMaster.retry()}
                   />
                 ) : undefined
               }
