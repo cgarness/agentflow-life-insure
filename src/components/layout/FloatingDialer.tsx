@@ -13,6 +13,7 @@ import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
 import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useFloatingDialerDispositions } from "@/hooks/useFloatingDialerDispositions";
 import { saveCall } from "@/lib/dialer-api";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import { rowToLead } from "@/lib/supabase-contacts";
@@ -47,18 +48,6 @@ interface ContactResult {
   last_name: string;
   phone: string;
   type?: "lead" | "client" | "recruit";
-}
-
-interface DispositionRow {
-  id: string;
-  name: string;
-  color: string;
-  require_notes: boolean;
-  min_note_chars: number;
-  callback_scheduler: boolean;
-  automation_trigger: boolean;
-  automation_id: string | null;
-  pipeline_stage_id: string | null;
 }
 
 type RecentCall = RecentCallDisplayRow;
@@ -126,6 +115,8 @@ const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
+  const dispositionConfig = useFloatingDialerDispositions(organizationId, user?.id ?? null);
+  const { dispositions, pipelineStages: pipelineStagesForConversion } = dispositionConfig;
 
   // --- Drag state ---
   const [position, setPosition] = useState({ x: window.innerWidth - 340 - 16, y: 64 });
@@ -229,24 +220,28 @@ const FloatingDialer: React.FC = () => {
   const onCallRef = useRef(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
+  const [callScope, setCallScope] = useState<string | null>(null);
+  const callScopeMatches = !!callScope && callScope === dispositionConfig.scopeKey;
   const dispositionSavingRef = useRef(false);
   const callVisitRef = useRef(currentCallId);
   callVisitRef.current = currentCallId;
   const convertedCallRef = useRef<{ callId: string; clientId: string } | null>(null);
-  const conversionCallRef = useRef<string | null>(null);
+  const conversionCallRef = useRef<{ callId: string; version: object; dispositionId: string } | null>(null);
   const [conversionLead, setConversionLead] = useState<Lead | null>(null);
 
 
   // --- Post-call disposition state ---
   const [showDisposition, setShowDisposition] = useState(false);
-  const [dispositions, setDispositions] = useState<DispositionRow[]>([]);
-  const [selectedDispId, setSelectedDispId] = useState<string | null>(null);
+  const [dispSelection, setDispSelection] = useState<{ id: string; version: object } | null>(null);
+  const selectedDispId = callScopeMatches && dispSelection?.version === dispositionConfig.version
+    ? dispSelection.id : null;
   const [callNotes, setCallNotes] = useState('');
   const [callbackDate, setCallbackDate] = useState('');
   const [callbackTime, setCallbackTime] = useState('');
 
   // Derived selected disposition object
   const selectedDisp = dispositions.find((d) => d.id === selectedDispId) ?? null;
+  useEffect(() => { setDispSelection(null); }, [dispositionConfig.version]);
 
   // Listen for toggle event from TopBar
   useEffect(() => {
@@ -323,29 +318,6 @@ const FloatingDialer: React.FC = () => {
       setMinimized(false);
     }
   }, [open, twilioInitialize]);
-
-  // Fetch dispositions for post-call
-  useEffect(() => {
-    supabase
-      .from("dispositions")
-      .select("id, name, color, require_notes, min_note_chars, callback_scheduler, automation_trigger, automation_id, pipeline_stage_id")
-      .order("sort_order")
-      .then(({ data }) => {
-        if (data) setDispositions(data);
-      });
-  }, []);
-
-  // Pipeline stages for conversion detection
-  const [pipelineStagesForConversion, setPipelineStagesForConversion] = useState<Array<{ id: string; convert_to_client: boolean }>>([]);
-  useEffect(() => {
-    supabase
-      .from("pipeline_stages")
-      .select("id, convert_to_client")
-      .eq("pipeline_type", "lead")
-      .then(({ data }) => {
-        if (data) setPipelineStagesForConversion(data as Array<{ id: string; convert_to_client: boolean }>);
-      });
-  }, []);
 
   // Resolve the "best" number to display when contact or override changes
   useEffect(() => {
@@ -595,6 +567,7 @@ const FloatingDialer: React.FC = () => {
     };
     const callId = await twilioMakeCall(destinationNumber, callerNumber || undefined, opts);
     if (!callId) return;
+    setCallScope(dispositionConfig.scopeKey);
     setCurrentCallId(callId);
     setOnCall(true);
     setCallSeconds(0);
@@ -669,7 +642,7 @@ const FloatingDialer: React.FC = () => {
     twilioHangUp();
     setOnCall(false);
     setShowDisposition(true);
-    setSelectedDispId(null);
+    setDispSelection(null);
   }, [twilioHangUp]);
 
   useEffect(() => {
@@ -697,7 +670,7 @@ const FloatingDialer: React.FC = () => {
 
   const resetAll = () => {
     setShowDisposition(false);
-    setSelectedDispId(null);
+    setDispSelection(null);
     setCallNotes('');
     setCallbackDate('');
     setCallbackTime('');
@@ -708,16 +681,24 @@ const FloatingDialer: React.FC = () => {
     setDialedNumber("");
     setCallSeconds(0);
     setCurrentCallId(null);
+    setCallScope(null);
+    conversionCallRef.current = null;
+    convertedCallRef.current = null;
+    setConversionLead(null);
     setOpen(false);
   };
 
   const handleSaveDisposition = async (convertedClientId?: string) => {
     if (dispositionSavingRef.current) return;
+    if (!callScopeMatches || !dispositionConfig.isCurrent()) {
+      toast.error("Load dispositions for this call's agency before saving."); return;
+    }
     const disp = dispositions.find((d) => d.id === selectedDispId);
     const callId = currentCallId;
     if (!disp || !user || !callId) {
       toast.error("A completed call and disposition are required."); return;
     }
+    const isCurrentVisit = () => dispositionConfig.isCurrent() && callVisitRef.current === callId;
     if ((disp.require_notes || disp.min_note_chars > 0) && callNotes.trim().length < Math.max(disp.min_note_chars, 1)) {
       toast.error(`Notes must be at least ${Math.max(disp.min_note_chars, 1)} characters`); return;
     }
@@ -735,8 +716,8 @@ const FloatingDialer: React.FC = () => {
         const { data, error } = await supabase.from("leads").select("*")
           .eq("id", selectedContact.id).eq("organization_id", organizationId).maybeSingle();
         if (error || !data) throw new Error("Unable to load the complete lead for conversion. Please retry.");
-        if (callVisitRef.current !== callId) return;
-        conversionCallRef.current = callId;
+        if (!isCurrentVisit()) return;
+        conversionCallRef.current = { callId, version: dispositionConfig.version, dispositionId: disp.id };
         setConversionLead(rowToLead(data));
         return;
       }
@@ -747,7 +728,7 @@ const FloatingDialer: React.FC = () => {
         contact_type: clientId ? "client" : selectedContact?.type, converted_client_id: clientId,
         callback_due_at: disp.callback_scheduler ? new Date(`${callbackDate}T${callbackTime}`).toISOString() : null,
       }, organizationId);
-      if (callVisitRef.current !== callId) return;
+      if (!isCurrentVisit()) return;
       if (!persisted.replayed && disp.callback_scheduler && persisted.contact_id) {
         const { error } = await supabase.from('appointments').insert([{
           title: `Callback: ${selectedContact?.first_name ?? ""} ${selectedContact?.last_name ?? ""}`.trim(),
@@ -755,6 +736,7 @@ const FloatingDialer: React.FC = () => {
           status: 'Scheduled', start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
           notes: `Callback scheduled from dialer. Disposition: ${disp.name}`, organization_id: organizationId,
         }]);
+        if (!isCurrentVisit()) return;
         if (error) toast.error("Disposition saved; callback calendar entry may not have saved.");
       }
       // ConvertLeadModal already records its idempotent win. Existing-client quick-call
@@ -769,9 +751,9 @@ const FloatingDialer: React.FC = () => {
           });
         } catch { /* Core disposition is already committed. */ }
       }
-      if (callVisitRef.current === callId) resetAll();
+      if (isCurrentVisit()) resetAll();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Disposition save failed. Please retry.");
+      if (isCurrentVisit()) toast.error(err instanceof Error ? err.message : "Disposition save failed. Please retry.");
     } finally {
       dispositionSavingRef.current = false;
     }
@@ -782,6 +764,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const inboundLines = useInboundCallerDisplayLines({ onCall });
+  const pendingConversion = conversionCallRef.current;
 
   const callDisplayName =
     selectedContact
@@ -804,11 +787,24 @@ const FloatingDialer: React.FC = () => {
 
   return (
     <>
-      <ConvertLeadModal open={!!conversionLead} lead={conversionLead}
-        onClose={() => setConversionLead(null)}
-        onSuccess={(clientId) => {
+      <ConvertLeadModal
+        open={!!conversionLead && callScopeMatches && dispositionConfig.status === "ready"
+          && pendingConversion?.version === dispositionConfig.version}
+        lead={callScopeMatches ? conversionLead : null}
+        onClose={() => {
+          if (conversionCallRef.current !== pendingConversion) return;
+          conversionCallRef.current = null;
           setConversionLead(null);
-          if (conversionCallRef.current === callVisitRef.current) void handleSaveDisposition(clientId);
+        }}
+        onSuccess={(clientId) => {
+          if (!pendingConversion || conversionCallRef.current !== pendingConversion
+            || !dispositionConfig.isCurrent() || !callScopeMatches
+            || pendingConversion.version !== dispositionConfig.version
+            || pendingConversion.dispositionId !== selectedDispId
+            || pendingConversion.callId !== callVisitRef.current) return;
+          setConversionLead(null);
+          conversionCallRef.current = null;
+          void handleSaveDisposition(clientId);
         }} />
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-[1001] flex items-center justify-center">
@@ -1162,11 +1158,29 @@ const FloatingDialer: React.FC = () => {
                 {!onCall && showDisposition && (
                   <div className="flex flex-col items-center space-y-3">
                     <p className="font-medium text-foreground text-center">How did it go?</p>
+                    {!callScopeMatches ? (
+                      <p role="alert" className="text-sm text-muted-foreground text-center">
+                        Your account or agency changed. Return to this call's account and agency to finish.
+                      </p>
+                    ) : <>
+                    {dispositionConfig.status !== "ready" && (
+                      <div className="w-full space-y-2 text-center" role={dispositionConfig.status === "error" ? "alert" : "status"}>
+                        <p className="text-sm text-muted-foreground">
+                          {dispositionConfig.status === "error" ? "Couldn't load dispositions. Please retry."
+                            : dispositionConfig.status === "empty" ? "No dispositions are configured for this agency."
+                            : dispositionConfig.status === "unresolved" ? "Waiting for your agency…"
+                            : "Loading dispositions…"}
+                        </p>
+                        {(dispositionConfig.status === "error" || dispositionConfig.status === "empty") && (
+                          <Button variant="outline" size="sm" onClick={dispositionConfig.retry}>Retry</Button>
+                        )}
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2 w-full">
                       {dispositions.map((d) => (
                         <button
                           key={d.id}
-                          onClick={() => setSelectedDispId(d.id)}
+                          onClick={() => setDispSelection({ id: d.id, version: dispositionConfig.version })}
                           className={`px-3 py-2 rounded-full text-sm font-bold text-white ${selectedDispId === d.id ? "ring-2 ring-offset-2 ring-foreground" : ""}`}
                           style={{ backgroundColor: d.color, boxShadow: selectedDispId === d.id ? `0 0 10px ${d.color}88` : "none" }}
                         >{d.name}</button>
@@ -1198,9 +1212,10 @@ const FloatingDialer: React.FC = () => {
 
                     <button
                       onClick={() => void handleSaveDisposition()}
-                      disabled={!selectedDispId || (selectedDisp?.require_notes && !callNotes.trim())}
+                      disabled={dispositionConfig.status !== "ready" || !selectedDispId || (selectedDisp?.require_notes && !callNotes.trim())}
                       className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50"
                     >Save & Close</button>
+                    </>}
                     <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground">Skip</button>
                   </div>
                 )}

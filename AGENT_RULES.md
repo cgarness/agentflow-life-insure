@@ -38,6 +38,7 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 - **Agent:** `user_id = auth.uid()` (and campaign-type rules on `campaign_leads`).
 - **Queries:** `.maybeSingle()` for singular lookups that may return zero rows.
 - **Never** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser.
+- **Floating dialer configuration:** explicitly scope dispositions and lead pipeline stages to the resolved organization, including for Super Admin. Load both successfully before enabling wrap-up submission; a previous organization/user/request's options, selection, or conversion callback must never authorize a save. Preserve the canonical server disposition UUID and DNC validation (invariant #39).
 
 ### Downline profile scoping is query-enforced, not RLS-enforced
 
