@@ -1,3 +1,4 @@
+import { registeredSender } from "../_shared/a2p/sending.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const FN = "[twilio-sms]";
@@ -165,19 +166,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: phoneSettings, error: settingsError } = await supabase
-      .from("phone_settings")
-      .select("account_sid, auth_token")
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-
-    if (settingsError) {
-      console.error(`${FN} phone_settings lookup:`, settingsError.message);
-      return jsonResponse({ success: false, error: "Could not load Twilio settings." }, 500);
+    const registered = await registeredSender(supabase, organizationId, from, user.id);
+    let accountSid = registered?.accountSid ?? "";
+    let authToken = registered?.authToken ?? "";
+    if (!registered) {
+      const { data: phoneSettings, error: settingsError } = await supabase
+        .from("phone_settings")
+        .select("account_sid, auth_token")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (settingsError) {
+        console.error(`${FN} phone_settings lookup:`, settingsError.message);
+        return jsonResponse({ success: false, error: "Could not load Twilio settings." }, 500);
+      }
+      accountSid = phoneSettings?.account_sid?.trim() ?? "";
+      authToken = phoneSettings?.auth_token?.trim() ?? "";
     }
-
-    const accountSid = phoneSettings?.account_sid?.trim() ?? "";
-    const authToken = phoneSettings?.auth_token?.trim() ?? "";
     if (!accountSid || !authToken) {
       return jsonResponse({ success: false, error: "Twilio credentials not configured." }, 400);
     }
@@ -186,6 +190,7 @@ Deno.serve(async (req) => {
     params.set("To", to);
     params.set("From", from);
     params.set("Body", bodyText);
+    if (registered) params.set("MessagingServiceSid", registered.messagingServiceSid);
 
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
     const twilioRes = await fetch(twilioUrl, {

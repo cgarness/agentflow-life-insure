@@ -200,3 +200,12 @@ verify_jwt = false
 
 [db.seed]
 enabled = false
+
+[functions.a2p-registration]
+verify_jwt = false
+
+[functions.a2p-events]
+verify_jwt = false
+
+[functions.a2p-reconcile]
+verify_jwt = false

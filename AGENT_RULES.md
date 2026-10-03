@@ -551,3 +551,8 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 
 - Split **`DialerPage.tsx`** into subcomponents.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
+
+
+## A2P registration invariant — branch implementation, October 3, 2026
+
+`codex/a2p-registration-20261003` adds a separately gated A2P registration flow; it is not evidence of production activation. Trust Hub approval, A2P brand identity, campaign approval and individual phone-number registration are distinct. Never infer a registered number from Messaging Service membership or campaign approval. Preserve pinned account/org ownership, signed number-event evidence, uncertain-operation locks, JWT/profile authorization and the shared manual/workflow SMS gate. Hosted session tokens and identity/tax documents must not be persisted in AgentFlow. Agency onboarding requires verified Embeddable access, resource reconciliation, current fee acceptance, signed callback subscriptions and scheduled worker operation; do not auto-create duplicate resources or migrate numbers. See `docs/plans/2026-10-03-a2p/release.md` for exact deployment order and recovery. No voice/DNC invariants are changed.
