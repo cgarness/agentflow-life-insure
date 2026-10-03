@@ -31,6 +31,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 const h = vi.hoisted(() => ({
+  historyRefresh: vi.fn(),
   errorToasts: [] as string[],
   activityAdds: [] as Array<Record<string, unknown>>,
 }));
@@ -42,6 +43,10 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/hooks/useContactHistory", () => ({ useContactHistory: () => ({
+  conversation:{items:[],loading:false,error:null,hasMore:false}, activity:{items:[],loading:false,error:null,hasMore:false},
+  refresh:h.historyRefresh, loadConversation:vi.fn(), loadActivity:vi.fn(),
+}) }));
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
 vi.mock("@/lib/supabase-activities", () => ({
   activitiesSupabaseApi: {
@@ -107,6 +112,7 @@ let received: QuickCallDetailShape[] = [];
 const capture = (e: Event) => received.push((e as CustomEvent).detail as QuickCallDetailShape);
 
 beforeEach(() => {
+  h.historyRefresh.mockClear();
   received = [];
   h.errorToasts = [];
   h.activityAdds = [];
@@ -175,22 +181,22 @@ describe("F. canonical Contacts quick-calls are unchanged", () => {
 });
 
 describe("the no-phone path keeps its ORIGINAL behaviour (this fix must not change it)", () => {
-  it("still writes the 'Call initiated' activity and shows no new error toast", async () => {
+  it("does not fabricate a call activity and shows no new error toast", async () => {
     await renderAndCall({ ...CANONICAL_LEAD, phone: "" });
 
     // Unconditional, exactly as before the fix: the activity is logged even though no
     // call can start. The dialer then silently does nothing — unchanged for the agent.
-    await waitFor(() => expect(h.activityAdds.length).toBeGreaterThan(0));
-    expect(h.activityAdds.some((a) => a.type === "call")).toBe(true);
+    expect(h.activityAdds).toHaveLength(0);
+    expect(h.activityAdds).toHaveLength(0);
     expect(received).toHaveLength(0);
     expect(h.errorToasts).toHaveLength(0);
   });
 
-  it("logs the activity on a normal dialable call too", async () => {
+  it("waits for a persisted call on the normal dialable path too", async () => {
     await renderAndCall(CANONICAL_LEAD);
 
     await waitFor(() => expect(received).toHaveLength(1));
-    expect(h.activityAdds.some((a) => a.type === "call")).toBe(true);
+    expect(h.activityAdds).toHaveLength(0);
     expect(h.errorToasts).toHaveLength(0);
   });
 });

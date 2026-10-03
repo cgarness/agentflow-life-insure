@@ -66,10 +66,10 @@ describe("builders", () => {
     expect(buildEmailItem({ id: "e" }).timestampMs).toBe(0);
   });
 
-  it("keeps the email timestamp preference received_at → sent_at → created_at", () => {
+  it("uses direction-appropriate email times, consistent with the cursor", () => {
     const t = (s: string) => new Date(s).getTime();
     expect(
-      buildEmailItem({ id: "e", received_at: "2026-08-10T12:05:00Z", sent_at: "2026-08-10T12:00:00Z" }).timestampMs,
+      buildEmailItem({ id: "e", direction: "inbound", received_at: "2026-08-10T12:05:00Z", sent_at: "2026-08-10T12:00:00Z" }).timestampMs,
     ).toBe(t("2026-08-10T12:05:00Z"));
     expect(
       buildEmailItem({ id: "e", received_at: null, sent_at: "2026-08-10T12:00:00Z" }).timestampMs,

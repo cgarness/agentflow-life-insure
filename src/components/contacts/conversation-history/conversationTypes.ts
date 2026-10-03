@@ -1,3 +1,4 @@
+import type { HistoryNames } from "@/lib/contact-history/types";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 
@@ -21,12 +22,22 @@ interface ConversationItemBase {
   key: string;
   id: string;
   timestampMs: number;
+  timestampKnown?: boolean;
   outbound: boolean;
 }
 
 export interface CallConversationItem extends ConversationItemBase {
   kind: "call";
-  durationSeconds: number;
+  durationSeconds: number | null;
+  directionLabel: "Inbound" | "Outbound" | "";
+  agentLabel: string;
+  agentName: string;
+  routedAgents: string[];
+  answeredAgent: string | null;
+  missedForAgent: string | null;
+  campaignName: string | null;
+  notes: string | null;
+  outcome: string | null;
   status: string | null;
   dispositionName: string | null;
   /** calls.contact_phone — the customer endpoint. */
@@ -98,7 +109,14 @@ function isOutboundMessageDirection(direction: unknown): boolean {
   return direction !== "inbound" && direction !== "incoming";
 }
 
-export function buildCallItem(row: RawRow): CallConversationItem {
+export function buildCallItem(row: RawRow, names?: HistoryNames): CallConversationItem {
+  const name = (id: unknown) => names?.profiles.get(textOrNull(id) ?? "") || "Agent unavailable";
+  const inbound = isCallsRowInboundDirection(row.direction);
+  const direction = textOrNull(row.direction)?.toLowerCase();
+  const routed = Array.isArray(row.routed_agent_ids) ? [...new Set(row.routed_agent_ids.filter(x => typeof x === "string"))].map(name) : [];
+  const mobileAnswer = row.outcome === "forwarded_answered" && row.answered_by_agent_id;
+  const browserAnswer = inbound && !!row.agent_id && !row.is_missed;
+  const primaryAgent = !inbound ? name(row.agent_id) : browserAnswer ? name(row.agent_id) : mobileAnswer ? name(row.answered_by_agent_id) : routed.length ? routed.join(", ") : "Agent unavailable";
   const id = String(row.id ?? "");
   return {
     kind: "call",
@@ -106,15 +124,24 @@ export function buildCallItem(row: RawRow): CallConversationItem {
     id,
     timestampMs: firstParseableTime(row.started_at, row.created_at),
     outbound: !isCallsRowInboundDirection(row.direction),
-    durationSeconds: typeof row.duration === "number" && Number.isFinite(row.duration) ? row.duration : 0,
+    timestampKnown: !!firstParseableTime(row.started_at, row.created_at),
+    directionLabel: inbound ? "Inbound" : direction === "outbound" || direction === "outgoing" ? "Outbound" : "",
+    agentLabel: inbound && !browserAnswer && !mobileAnswer && routed.length ? "Routed to" : mobileAnswer ? "Answered on mobile" : "Agent",
+    agentName: primaryAgent,
+    routedAgents: routed,
+    answeredAgent: mobileAnswer ? name(row.answered_by_agent_id) : browserAnswer ? name(row.agent_id) : null,
+    missedForAgent: row.missed_for_agent_id ? name(row.missed_for_agent_id) : null,
+    campaignName: row.campaign_id ? names?.campaigns.get(String(row.campaign_id)) || "Campaign unavailable" : null,
+    notes: textOrNull(row.notes), outcome: textOrNull(row.outcome),
+    durationSeconds: typeof row.duration === "number" && Number.isFinite(row.duration) && row.duration >= 0 ? row.duration : null,
     status: textOrNull(row.status),
-    dispositionName: textOrNull(row.disposition_name),
+    dispositionName: textOrNull(row.disposition_name) || names?.dispositions?.get(String(row.disposition_id)) || null,
     contactPhone: textOrNull(row.contact_phone),
     agentflowNumber: textOrNull(row.caller_id_used),
     startedAt: textOrNull(row.started_at),
     endedAt: textOrNull(row.ended_at),
     // Unchanged gating rule: a real URL that is not the pending sentinel.
-    recordingAvailable: Boolean(row.recording_url && row.recording_url !== "__recording_pending__"),
+    recordingAvailable: Boolean(row.recording_storage_path || (row.recording_url && row.recording_url !== "__recording_pending__")),
     ...(isCallsRowInboundDirection(row.direction)
       ? (() => {
           const o = describeInboundCallOutcome({
@@ -139,6 +166,7 @@ export function buildSmsItem(row: RawRow): SmsConversationItem {
     key: `sms:${id}`,
     id,
     timestampMs: firstParseableTime(row.sent_at, row.created_at),
+    timestampKnown: !!firstParseableTime(row.sent_at, row.created_at),
     outbound: isOutboundMessageDirection(row.direction),
     body: typeof row.body === "string" ? row.body : "",
     fromNumber: textOrNull(row.from_number),
@@ -153,7 +181,8 @@ export function buildEmailItem(row: RawRow): EmailConversationItem {
     kind: "email",
     key: `email:${id}`,
     id,
-    timestampMs: firstParseableTime(row.received_at, row.sent_at, row.created_at),
+    timestampMs: firstParseableTime(isOutboundMessageDirection(row.direction) ? row.sent_at : row.received_at, row.created_at),
+    timestampKnown: !!firstParseableTime(isOutboundMessageDirection(row.direction) ? row.sent_at : row.received_at, row.created_at),
     outbound: isOutboundMessageDirection(row.direction),
     subject: textOrNull(row.subject),
     body:
@@ -226,7 +255,8 @@ export function filterConversationItems(items: ConversationItem[], filter: Conve
 }
 
 /** m:ss with a 0:00 floor — identical output to the previous inline math. */
-export function formatCallDuration(seconds: number): string {
+export function formatCallDuration(seconds: number | null): string {
+  if (seconds === null) return "Not recorded";
   const s = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }

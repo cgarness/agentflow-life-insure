@@ -49,7 +49,7 @@ export const SmsHistoryItem: React.FC<{ item: SmsConversationItem }> = ({ item }
               item.outbound ? "justify-end" : "justify-start",
             )}
           >
-            <span>{formatDateTime(new Date(item.timestampMs))}</span>
+            <span>{item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}</span>
             <DetailsToggleButton
               open={detailsOpen}
               onClick={() => setDetailsOpen((o) => !o)}

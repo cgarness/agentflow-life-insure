@@ -45,6 +45,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 const h = vi.hoisted(() => ({
+  historyRefresh: vi.fn(),
   errorToasts: [] as string[],
   successToasts: [] as string[],
   activityAdds: [] as Array<Record<string, unknown>>,
@@ -57,6 +58,10 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/hooks/useContactHistory", () => ({ useContactHistory: () => ({
+  conversation:{items:[],loading:false,error:null,hasMore:false}, activity:{items:[],loading:false,error:null,hasMore:false},
+  refresh:h.historyRefresh, loadConversation:vi.fn(), loadActivity:vi.fn(),
+}) }));
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
 vi.mock("@/lib/supabase-activities", () => ({
   activitiesSupabaseApi: {
@@ -134,6 +139,7 @@ async function changeStatusTo(current: string, next: string) {
 }
 
 beforeEach(() => {
+  h.historyRefresh.mockClear();
   vi.clearAllMocks();
   cleanup();
   h.errorToasts.length = 0;
@@ -223,7 +229,7 @@ describe("handleStatusChange — a rejected status change shows nothing that did
 });
 
 describe("handleStatusChange — a successful status change is committed exactly once", () => {
-  it("shows the new status, writes ONE activity and toasts success ONCE", async () => {
+  it("shows the new status, refreshes persisted history and toasts success ONCE", async () => {
     await renderLead();
 
     await changeStatusTo("New", "Contacted");
@@ -233,13 +239,8 @@ describe("handleStatusChange — a successful status change is committed exactly
     expect(statusPill("Contacted")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^new$/i })).not.toBeInTheDocument();
 
-    expect(h.activityAdds).toHaveLength(1);
-    expect(h.activityAdds[0]).toMatchObject({
-      contactId: "lead-1",
-      contactType: "lead",
-      type: "status",
-      description: "Status changed to Contacted",
-    });
+    expect(h.activityAdds).toHaveLength(0);
+    expect(h.historyRefresh).toHaveBeenCalledTimes(1);
     expect(h.errorToasts).toEqual([]);
   });
 
@@ -257,6 +258,7 @@ describe("handleStatusChange — a successful status change is committed exactly
 
     await waitFor(() => expect(h.successToasts).toEqual(["Status updated to Contacted"]));
     expect(statusPill("Contacted")).toBeInTheDocument();
-    expect(h.activityAdds).toHaveLength(1);
+    expect(h.activityAdds).toHaveLength(0);
+    expect(h.historyRefresh).toHaveBeenCalledTimes(1);
   });
 });

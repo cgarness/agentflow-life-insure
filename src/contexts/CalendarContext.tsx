@@ -1,3 +1,4 @@
+import { invalidateContactHistory } from "@/lib/contact-history/refresh";
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -249,6 +250,8 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         throw error;
       }
 
+      if (!data) throw new Error("Appointment creation was not confirmed");
+      invalidateContactHistory({ organizationId, contactId: data.contact_id });
       if (data) {
         const mapped = mapAppointment(data);
         setAppointments(prev => [...prev.filter(x => x.id !== mapped.id), mapped].sort((a, b) =>
@@ -280,10 +283,11 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         .update(data)
         .eq('id', id)
         .eq('organization_id', organizationId)
-        .select('id');
+        .select('id, contact_id');
       failure = error ?? (!updated || updated.length === 0
         ? new Error("Appointment update was not applied (not found or not permitted)")
         : null);
+      if (!failure) invalidateContactHistory({ organizationId, contactId: updated[0].contact_id });
     } catch (e) {
       failure = e;
     } finally {
@@ -304,12 +308,13 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     let failure: unknown = null;
     try {
-      const { error } = await supabase
+      const { data: deleted, error } = await supabase
         .from('appointments')
         .delete()
         .eq('id', id)
-        .eq('organization_id', organizationId);
-      failure = error ?? null;
+        .eq('organization_id', organizationId).select('id, contact_id').maybeSingle();
+      failure = error ?? (!deleted ? new Error('Appointment deletion was not applied') : null);
+      if (!failure && deleted) invalidateContactHistory({ organizationId, contactId: deleted.contact_id });
     } catch (e) {
       failure = e;
     } finally {

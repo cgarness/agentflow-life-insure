@@ -14,6 +14,13 @@ export type Database = {
   }
   public: {
     Tables: {
+      contact_history_events: {
+        Row: { id: string; organization_id: string; contact_id: string; contact_type: string; source_table: string; source_id: string; action: string; actor_id: string | null; actor_kind: string; assignee_before: string | null; assignee_after: string | null; access_ids: string[]; before_values: Json; after_values: Json; changed_fields: string[]; recorded_at: string; capture_version: number }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
+
       agent_inbound_settings: {
         Row: {
           agent_id: string
@@ -5816,6 +5823,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_contact_conversation_page: {
+        Args: { p_contact_id: string; p_contact_type: string; p_filter?: string; p_cursor?: Json; p_page_size?: number }
+        Returns: Json
+      }
+      get_contact_activity_page: {
+        Args: { p_contact_id: string; p_contact_type: string; p_cursor?: Json; p_page_size?: number }
+        Returns: Json
+      }
+
       abandon_inbound_routing: {
         Args: {
           p_call_row_id: string

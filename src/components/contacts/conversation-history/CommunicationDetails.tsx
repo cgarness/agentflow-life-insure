@@ -32,10 +32,11 @@ export const DetailsToggleButton: React.FC<{
 );
 
 /** Missing values render "—" — never blank, undefined, or a fabricated value. */
-export const DetailsPanel: React.FC<{ id: string; rows: DetailRow[]; className?: string }> = ({
+export const DetailsPanel: React.FC<{ id: string; rows: DetailRow[]; className?: string; missingLabel?: string }> = ({
   id,
   rows,
   className,
+  missingLabel = "—",
 }) => (
   <dl
     id={id}
@@ -47,8 +48,8 @@ export const DetailsPanel: React.FC<{ id: string; rows: DetailRow[]; className?:
     {rows.map((row) => (
       <React.Fragment key={row.label}>
         <dt className="text-[10px] uppercase tracking-wide text-muted-foreground leading-snug pt-0.5">{row.label}</dt>
-        <dd className="text-xs text-foreground break-all min-w-0">
-          {row.value && row.value.trim() ? row.value : "—"}
+        <dd className="text-xs text-foreground break-words whitespace-pre-wrap min-w-0">
+          {row.value && row.value.trim() ? row.value : missingLabel}
         </dd>
       </React.Fragment>
     ))}

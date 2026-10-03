@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { X, Phone, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, ChevronDown, Save, Clipboard, AlertTriangle, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
-import { LeadStatus, ContactNote, ContactActivity, PipelineStage } from "@/lib/types";
+import { LeadStatus, ContactNote, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
-import { activitiesSupabaseApi } from "@/lib/supabase-activities";
+import { useContactHistory } from "@/hooks/useContactHistory";
+import { ContactActivityTimeline } from "./activity/ContactActivityTimeline";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
 import { isReservedCustomFieldKey } from "@/lib/reservedCustomFields";
@@ -49,13 +50,7 @@ import { TasksPanel } from "./TasksPanel";
 import { ContactFollowUpsCard } from "@/components/contacts/followups/ContactFollowUpsCard";
 import { ConversationTimeline } from "./conversation-history/ConversationTimeline";
 import {
-  buildCallItem,
-  buildEmailItem,
-  buildOptimisticEmailItem,
-  buildOptimisticSmsItem,
-  buildSmsItem,
   type ConversationFilter,
-  type ConversationItem,
 } from "./conversation-history/conversationTypes";
 
 function parseUserContactFieldOrder(contactLayoutBlob: unknown, t: ContactType): string[] | undefined {
@@ -182,7 +177,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { collapsed } = useSidebarContext();
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
-  const { profile, user } = useAuth();
+  const { profile, user, isImpersonating } = useAuth();
   const { formatDate, formatDateTime, branding } = useBranding();
   // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
   const { hasContactsPermission } = usePermissions();
@@ -210,7 +205,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   
-  const [activities, setActivities] = useState<ContactActivity[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [addToCampaignOpen, setAddToCampaignOpen] = useState(false);
   
@@ -235,10 +229,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
 
   // Conversations — typed timeline items + canonical filter ids (never display labels).
-  const [convoLoading, setConvoLoading] = useState(false);
-  const [convoItems, setConvoItems] = useState<ConversationItem[]>([]);
-  const [convoLoadError, setConvoLoadError] = useState(false);
+
   const [convoFilter, setConvoFilter] = useState<ConversationFilter>("all");
+  const history = useContactHistory(
+    contact?.id && organizationId && user?.id && !isImpersonating
+      ? { contactId: contact.id, contactType: type, organizationId, viewerId: user.id } : null,
+    convoFilter, rightTab === "Activity",
+  );
+  const convoItems = useMemo(() => [...history.conversation.items].reverse(), [history.conversation.items]);
+  const convoLoading = history.conversation.loading;
+  const convoLoadError = !!history.conversation.error;
   // Agency disposition colors (normalized name → hex) for call badges; org-scoped, refreshed per load.
   const [dispositionColors, setDispositionColors] = useState<Record<string, string>>({});
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
@@ -277,11 +277,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     setEditForm({ ...contact });
     setLocalStatus(contact.status || contact.policyType || "New");
     setLocalNotes([]);
-    setActivities([]);
+
     setCampaigns([]);
-    setConvoItems([]);
-    setConvoLoadError(false);
-    setConvoLoading(true);
+
+
     setPipelineStages([]);
     setFieldOrder(getDefaultFieldOrder(type));
     setRosterLoaded(false);
@@ -391,7 +390,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         .limit(1)
         .maybeSingle();
 
-      const notesActsP = Promise.all([notesSupabaseApi.getByContact(myId), activitiesSupabaseApi.getByContact(myId)]);
+      const notesActsP = notesSupabaseApi.getByContact(myId);
 
       // Badge colors are cosmetic: soft-fail to [] so this can never reject the load
       // (getAll throws on error). One org-scoped fetch — never per timeline item.
@@ -404,7 +403,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       const [
         assignedRowRes,
-        [fetchedNotes, fetchedActivities],
+        fetchedNotes,
         fetchedStages,
         settingsPack,
         campaignRes,
@@ -424,7 +423,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       setDispositionColors(colorMap);
 
       setLocalNotes(fetchedNotes);
-      setActivities(fetchedActivities);
 
       if (myType === "lead" || myType === "recruit") {
         setPipelineStages(fetchedStages);
@@ -520,46 +518,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
       if (!isCurrent()) return;
 
-      // Conversation timeline (calls + SMS) can be heavy — load after the rest so the left column
-      // and activity are not blocked. A failed source must surface the load-error notice, never an
-      // eternal skeleton (getContactEmails throws) or a silent empty timeline (supabase returns
-      // `{ error }` without throwing).
-      try {
-        const [callsRes, msgsRes, emailsRes] = await Promise.all([
-          supabase
-            .from("calls")
-            .select(
-              "id, direction, duration, disposition_name, recording_url, twilio_call_sid, started_at, created_at, ended_at, caller_id_used, agent_id, contact_name, contact_phone, status, outcome, is_missed, missed_reason, answered_by_agent_id, voicemail_id, amd_result, notes, hangup_details, quality_percentage, mos, shaken_stir, provider_session_id, provider_error_code, sip_response_code, pdd_seconds, recording_duration, campaign_id, flagged_for_coaching"
-            )
-            .eq("contact_id", myId)
-            .order("created_at", { ascending: false })
-            .limit(300),
-          supabase
-            .from("messages")
-            .select("id, direction, body, sent_at, created_at, from_number, to_number, status")
-            .or(`lead_id.eq.${myId},contact_id.eq.${myId}`)
-            .order("sent_at", { ascending: false })
-            .limit(300),
-          emailSupabaseApi.getContactEmails(myId),
-        ]);
-
-        if (!isCurrent()) return;
-        if (callsRes.error) throw new Error(callsRes.error.message);
-        if (msgsRes.error) throw new Error(msgsRes.error.message);
-
-        // .reverse() before the ascending sort preserves the previous stable-tie ordering.
-        const calls = (callsRes.data || []).map(buildCallItem).reverse();
-        const msgs = (msgsRes.data || []).map(buildSmsItem).reverse();
-        const emails = (emailsRes || []).map(buildEmailItem).reverse();
-        setConvoItems([...calls, ...msgs, ...emails].sort((a, b) => a.timestampMs - b.timestampMs));
-        setConvoLoading(false);
-      } catch (convoErr) {
-        if (!isCurrent()) return;
-        console.error("Failed to load conversation history:", convoErr);
-        setConvoItems([]);
-        setConvoLoadError(true);
-        setConvoLoading(false);
-      }
     }
 
     loadData();
@@ -630,24 +588,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
     setLocalStatus(newStatus);
     setEditForm((f: any) => ({ ...f, status: newStatus }));
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "status", description: `Status changed to ${newStatus}`, agentId: AGENT_ID ?? undefined }, organizationId);
+    history.refresh();
     toast.success(`Status updated to ${newStatus}`);
-  };
-
-  // Persist the activity and render the REAL returned row — never fabricate a local-only entry that
-  // disappears on refresh. Skips silently when account context is missing (no fake entry).
-  const logActivity = async (description: string, activityType: string) => {
-    if (!AGENT_ID || !organizationId) return;
-    try {
-      const added = await activitiesSupabaseApi.add(
-        { contactId: contact.id, contactType: type, type: activityType, description, agentId: AGENT_ID },
-        organizationId,
-      );
-      setActivities(prev => [added, ...prev]);
-      setLastUpdated(new Date().toISOString());
-    } catch (e) {
-      console.error("Failed to persist activity:", e);
-    }
   };
 
   const handleFieldChange = (key: string, value: any) => {
@@ -712,7 +654,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     }
 
     setEditMode(false); setHasChanges(false); setHasUnsavedChanges(false);
-    await activitiesSupabaseApi.add({ contactId: contact.id, contactType: type, type: "note", description: `${type.charAt(0).toUpperCase() + type.slice(1)} details updated by ${AGENT_NAME}`, agentId: AGENT_ID ?? undefined }, organizationId);
+    history.refresh();
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully`);
   };
 
@@ -731,7 +673,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       const addedNote = await notesSupabaseApi.add(contact.id, type, newNote.trim(), AGENT_ID, organizationId, pinNewNote);
       setLocalNotes(prev => [addedNote, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)));
       setNewNote(""); setPinNewNote(false);
-      void logActivity(`Note added by ${AGENT_NAME}`, "note");
+      history.refresh();
       toast.success("Note added");
     } catch (e: any) { toast.error(e.message); }
   };
@@ -749,7 +691,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       await notesSupabaseApi.deleteNote(noteId);
       setLocalNotes(prev => prev.filter(n => n.id !== noteId));
       setDeleteNoteId(null);
-      void logActivity(`Note deleted by ${AGENT_NAME}`, "delete");
+      history.refresh();
       toast.success("Note deleted");
     } catch (e: any) { toast.error(e.message); }
   };
@@ -793,16 +735,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         toast.success("Email queued");
         setComposeText("");
         setEmailSubject("");
-        setConvoItems(prev => [
-          ...prev,
-          buildOptimisticEmailItem({
-            subject: subjectToSend,
-            body: bodyToSend,
-            fromEmail: selectedConnection?.provider_account_email,
-            toEmail: contact.email,
-            sentAt: new Date().toISOString(),
-          }),
-        ]);
+        history.refresh();
       } else {
         if (!contact.phone) {
           toast.error("This contact has no phone number.");
@@ -836,17 +769,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         setComposeText("");
         // twilio-sms echoes the persisted row id and Twilio's own status — carry the real values,
         // never an invented delivery state (R2).
-        setConvoItems(prev => [
-          ...prev,
-          buildOptimisticSmsItem({
-            id: typeof result.message_id === "string" ? result.message_id : null,
-            body: smsBody,
-            fromNumber: smsFrom,
-            toNumber: smsTo,
-            status: typeof result.status === "string" ? result.status : null,
-            sentAt: new Date().toISOString(),
-          }),
-        ]);
+        history.refresh();
       }
     } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
   };
@@ -995,10 +918,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     // raw (unmapped) row produced the literal "undefined undefined" that was
                     // snapshotted into calls.contact_name.
                     //
-                    // The activity write stays UNCONDITIONAL and stays FIRST, exactly as
-                    // before: this change fixes the identity snapshot only, and must not
-                    // alter what the agent sees or what is logged for a missing phone.
-                    void logActivity(`Call initiated by ${AGENT_NAME}`, "call");
                     dispatchQuickCall({
                       contactId: contact.id,
                       name: contactDisplayName(contact),
@@ -1229,6 +1148,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               filter={convoFilter}
               onFilterChange={setConvoFilter}
               dispositionColors={dispositionColors}
+              hasMore={history.conversation.hasMore}
+              onLoadEarlier={history.loadConversation}
+              onRefresh={history.refresh}
+              enrichmentUnavailable={history.conversation.enrichmentUnavailable}
             />
 
             <MessageComposePanel
@@ -1287,26 +1210,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             </div>
           </div>
 
-          
           <div className="flex-1 overflow-y-auto w-full">
             {/* ACTIVITY TAB */}
             {rightTab === "Activity" && (
-              <div className="px-5 py-5 space-y-4">
-                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Recent Timeline</p>
-                 <div className="space-y-2 pb-4">
-                   {activities.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((a, i) => (
-                     <div key={a.id} className="border-l-2 border-primary/30 pl-3 py-1.5 hover:bg-muted/50 rounded-r-md transition-colors">
-                       <p className="text-xs text-foreground leading-snug">{a.description}</p>
-                       <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(a.createdAt)} • {a.agentName}</p>
-                     </div>
-                   ))}
-                   {activities.length === 0 && (
-                     <div className="pl-5 pt-2">
-                       <p className="text-xs text-muted-foreground">No activity recorded yet</p>
-                     </div>
-                   )}
-                 </div>
-              </div>
+              <ContactActivityTimeline {...history.activity} onLoadEarlier={history.loadActivity} onRefresh={history.refresh} />
             )}
             
             {/* NOTES TAB */}
@@ -1500,8 +1407,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             toast.error("Failed to schedule appointment");
             return false;
           }
-
-          void logActivity(`Appointment scheduled for ${new Date(data.date).toLocaleDateString()}`, "appointment");
+          history.refresh();
           setShowAppt(false);
           setFollowUpsRefreshKey((k) => k + 1);
           toast.success("Appointment scheduled");
@@ -1525,6 +1431,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           onClose={() => setAddToCampaignOpen(false)}
           selectedContacts={[contact]}
           onSuccess={async () => {
+            history.refresh();
             // Re-fetch campaigns local to this component
             const { data: campaignLinks } = await supabase
               .from("campaign_leads")

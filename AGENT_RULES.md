@@ -454,6 +454,12 @@ Non-negotiables from production:
 
 ---
 
+### Contact operational history (branch implementation; NOT APPLIED / NOT DEPLOYED)
+
+Conversation and concise communication Activity derive from authenticated source rows, never browser timers or call-button intent. Historical call attribution uses stored call agent/routing/answer fields, never the contact's current assignee. Operational changes use `contact_history_events`, captured once by private observers; do not add duplicate frontend event writes. Readers are security-invoker and intersect current contact visibility with source RLS. Actor and assignee remain separate; conversion reads exact same-organization `clients.lead_id` lineage. Capture failure must not abort a source save, and is disclosed as a possible history gap. Both `20261003154258_contact_history_read_model.sql` and `20261003154259_contact_history_operational_events.sql` must be applied and verified before releasing this frontend; file existence does not establish application. See `docs/plans/2026-10-03-contact-history/implementation_plan.md`. All existing telephony/DNC/reminder invariants remain unchanged.
+
+---
+
 ## 5. Schema Gotchas
 
 | Topic | Rule |

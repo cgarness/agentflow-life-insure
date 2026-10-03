@@ -31,13 +31,19 @@ export const CallHistoryItem: React.FC<{
   const rows: DetailRow[] = [
     { label: "Contact number", value: item.contactPhone ? formatPhoneNumber(item.contactPhone) : null },
     { label: "AgentFlow number", value: item.agentflowNumber ? formatPhoneNumber(item.agentflowNumber) : null },
-    { label: "Direction", value: item.outbound ? "Outbound" : "Inbound" },
-    { label: "Started", value: item.startedAt ? formatDateTime(new Date(item.startedAt)) : null },
-    ...(item.endedAt ? [{ label: "Ended", value: formatDateTime(new Date(item.endedAt)) }] : []),
-    { label: "Duration", value: formatCallDuration(item.durationSeconds) },
+    { label: "Direction", value: item.directionLabel || "Not recorded" },
+    { label: item.startedAt ? "Started" : "Recorded", value: item.startedAt && Number.isFinite(Date.parse(item.startedAt)) ? formatDateTime(new Date(item.startedAt)) : item.timestampKnown ? formatDateTime(new Date(item.timestampMs)) : null },
+    { label: "Ended", value: item.endedAt && Number.isFinite(Date.parse(item.endedAt)) ? formatDateTime(new Date(item.endedAt)) : null },
+    { label: ["queued", "initiated", "ringing", "in-progress"].includes(item.status || "") ? "Duration (in progress)" : "Duration", value: formatCallDuration(item.durationSeconds) },
+    { label: "Agent", value: item.agentLabel === "Routed to" ? "Agent unavailable" : item.agentName },
+    ...(item.routedAgents?.length ? [{ label: "Routed to", value: item.routedAgents.join(", ") }] : []),
+    ...(item.answeredAgent ? [{ label: "Answered by", value: item.answeredAgent }] : []),
+    ...(item.missedForAgent ? [{ label: "Missed for", value: item.missedForAgent }] : []),
     { label: "Status", value: item.status },
-    ...(item.inboundOutcomeLabel ? [{ label: "Outcome", value: item.inboundOutcomeLabel }] : []),
-    ...(item.dispositionName ? [{ label: "Disposition", value: item.dispositionName }] : []),
+    { label: "Outcome", value: item.inboundOutcomeLabel || item.outcome },
+    { label: "Disposition", value: item.dispositionName },
+    { label: "Campaign", value: item.campaignName },
+    { label: "Call notes", value: item.notes },
   ];
 
   return (
@@ -47,7 +53,7 @@ export const CallHistoryItem: React.FC<{
           <DirectionIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
         </span>
         <span className="text-sm font-semibold text-foreground shrink-0">
-          {item.outbound ? "Outbound Call" : "Inbound Call"}
+          {item.directionLabel ? `${item.directionLabel} Call` : "Call"}
         </span>
         {item.inboundMissed && item.inboundOutcomeLabel ? (
           <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-500/10 text-red-600 dark:text-red-400 break-words" data-testid="inbound-outcome-label">
@@ -64,8 +70,8 @@ export const CallHistoryItem: React.FC<{
           >
             {item.dispositionName}
           </span>
-        ) : item.status ? (
-          <span className="text-[11px] text-muted-foreground capitalize">{item.status}</span>
+        ) : item.outcome || item.status ? (
+          <span className="text-[11px] text-muted-foreground capitalize">{item.outcome || item.status}</span>
         ) : null}
         <span className="text-[11px] font-medium text-muted-foreground ml-auto shrink-0">
           {formatCallDuration(item.durationSeconds)}
@@ -73,7 +79,8 @@ export const CallHistoryItem: React.FC<{
       </div>
 
       <div className="mt-1.5 flex items-center gap-3 flex-wrap min-w-0">
-        <span className="text-[10px] text-muted-foreground">{formatDateTime(new Date(item.timestampMs))}</span>
+        <span className="text-[11px] text-muted-foreground">{item.agentLabel || "Agent"}: {item.agentName || "Agent unavailable"}</span>
+        <span className="text-[10px] text-muted-foreground">{item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}</span>
         {item.recordingAvailable ? (
           <button
             type="button"
@@ -113,7 +120,7 @@ export const CallHistoryItem: React.FC<{
         </div>
       ) : null}
 
-      {detailsOpen ? <DetailsPanel id={panelId} rows={rows} className="mt-2" /> : null}
+      {detailsOpen ? <DetailsPanel id={panelId} rows={rows} className="mt-2" missingLabel="Not recorded" /> : null}
     </div>
   );
 };

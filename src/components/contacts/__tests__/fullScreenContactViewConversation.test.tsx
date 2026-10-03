@@ -1,6 +1,6 @@
 /**
  * Conversation History (center column) — filters, channel visuals, inline endpoint
- * details, optimistic email subject (2026-08-17 build).
+ * details, persisted email subject (2026-08-17 build).
  *
  * Root cause pinned by the filter tests: the previous comparison was
  * `item._type === convoFilter.toLowerCase()` with display labels as state, so
@@ -35,6 +35,15 @@ function makeQuery(table: string) {
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => makeQuery(table),
+    rpc: (fn: string, args: {p_filter?:string}) => ({abortSignal: async () => {
+      if (h.emailsError) return { data: null, error: {message:"Unavailable"} };
+      if (fn === 'get_contact_activity_page') return {data:{items:[],hasMore:false,nextCursor:null},error:null};
+      const source = [...((tableData.calls ?? []) as Record<string,unknown>[]).map(payload=>({kind:'call',payload})),
+        ...((tableData.messages ?? []) as Record<string,unknown>[]).map(payload=>({kind:'sms',payload})),
+        ...(h.emails as Record<string,unknown>[]).map(payload=>({kind:'email',payload}))];
+      const items=source.filter(x=>!args.p_filter||args.p_filter==='all'||x.kind===args.p_filter).map(x=>({...x,event_key:`${x.kind}:${x.payload.id}`,event_time:x.payload.started_at||x.payload.sent_at||x.payload.received_at||x.payload.created_at})).sort((a,b)=>Date.parse(String(b.event_time))-Date.parse(String(a.event_time)));
+      return {data:{items,hasMore:false,nextCursor:null},error:null};
+    }}),
     auth: {
       getSession: async () => ({ data: { session: { access_token: "test-token" } } }),
       getUser: async () => ({ data: { user: { id: "user-1" } } }),
@@ -73,6 +82,7 @@ vi.mock("@/lib/supabase-email", () => ({
     }),
     sendContactEmail: vi.fn(async (payload: Record<string, unknown>) => {
       h.sentEmails.push(payload);
+      if(h.sendEmailResult.success) h.emails.push({...payload,id:'saved-email',direction:'outbound',from_email:payload.from_email,to_emails:[payload.to_email],sent_at:new Date().toISOString(),delivery_status:'sent'});
       return h.sendEmailResult;
     }),
   },
@@ -230,18 +240,18 @@ describe("A. filters use canonical identifiers", () => {
   it("All shows calls, SMS, and email together", async () => {
     seedMixedFixtures();
     await renderLoaded();
-    expect(screen.getByText("Outbound Call")).toBeInTheDocument();
+    expect(await screen.findByText("Outbound Call")).toBeInTheDocument();
     expect(screen.getByText("Inbound Call")).toBeInTheDocument();
-    expect(screen.getByText("Alpha outbound text")).toBeInTheDocument();
+    expect(await screen.findByText("Alpha outbound text")).toBeInTheDocument();
     expect(screen.getByText("Bravo inbound text")).toBeInTheDocument();
-    expect(screen.getByText("Policy options for Charlotte")).toBeInTheDocument();
+    expect(await screen.findByText("Policy options for Charlotte")).toBeInTheDocument();
   });
 
   it("Calls shows only calls (the reported broken filter)", async () => {
     seedMixedFixtures();
     await renderLoaded();
     fireEvent.click(filterButton("Calls"));
-    expect(screen.getByText("Outbound Call")).toBeInTheDocument();
+    expect(await screen.findByText("Outbound Call")).toBeInTheDocument();
     expect(screen.getByText("Inbound Call")).toBeInTheDocument();
     expect(screen.queryByText("Alpha outbound text")).toBeNull();
     expect(screen.queryByText("Policy options for Charlotte")).toBeNull();
@@ -252,7 +262,7 @@ describe("A. filters use canonical identifiers", () => {
     seedMixedFixtures();
     await renderLoaded();
     fireEvent.click(filterButton("SMS"));
-    expect(screen.getByText("Alpha outbound text")).toBeInTheDocument();
+    expect(await screen.findByText("Alpha outbound text")).toBeInTheDocument();
     expect(screen.getByText("Bravo inbound text")).toBeInTheDocument();
     expect(screen.queryByText("Outbound Call")).toBeNull();
     expect(screen.queryByText("Policy options for Charlotte")).toBeNull();
@@ -262,7 +272,7 @@ describe("A. filters use canonical identifiers", () => {
     seedMixedFixtures();
     await renderLoaded();
     fireEvent.click(filterButton("Email"));
-    expect(screen.getByText("Policy options for Charlotte")).toBeInTheDocument();
+    expect(await screen.findByText("Policy options for Charlotte")).toBeInTheDocument();
     expect(screen.queryByText("Outbound Call")).toBeNull();
     expect(screen.queryByText("Alpha outbound text")).toBeNull();
   });
@@ -293,13 +303,13 @@ describe("A. filters use canonical identifiers", () => {
     renderView();
     await screen.findByText("No activity yet");
     fireEvent.click(filterButton("Calls"));
-    expect(screen.getByText("No calls yet")).toBeInTheDocument();
+    expect(await screen.findByText("No calls yet")).toBeInTheDocument();
     fireEvent.click(filterButton("SMS"));
-    expect(screen.getByText("No text messages yet")).toBeInTheDocument();
+    expect(await screen.findByText("No text messages yet")).toBeInTheDocument();
     fireEvent.click(filterButton("Email"));
-    expect(screen.getByText("No emails yet")).toBeInTheDocument();
+    expect(await screen.findByText("No emails yet")).toBeInTheDocument();
     fireEvent.click(filterButton("All"));
-    expect(screen.getByText("No activity yet")).toBeInTheDocument();
+    expect(await screen.findByText("No activity yet")).toBeInTheDocument();
   });
 
   it("clears the previous contact's items when switching contacts (preservation pin)", async () => {
@@ -319,7 +329,7 @@ describe("A. filters use canonical identifiers", () => {
       />,
     );
     expect(screen.queryByText("Alpha outbound text")).toBeNull();
-    await waitFor(() => expect(screen.getByText("No activity yet")).toBeInTheDocument());
+    expect(await screen.findByText("No activity yet")).toBeInTheDocument();
     expect(screen.queryByText("Outbound Call")).toBeNull();
   });
 
@@ -420,7 +430,7 @@ describe("B. channel visuals / recording preservation", () => {
   });
 });
 
-describe("D. optimistic email subject", () => {
+describe("D. persisted email subject", () => {
   it("a newly sent email immediately shows its real subject with known From/To details", async () => {
     seedMixedFixtures();
     h.connections = [
@@ -448,7 +458,7 @@ describe("D. optimistic email subject", () => {
     await waitFor(() => expect(h.sentEmails.length).toBe(1));
     expect(h.sentEmails[0].subject).toBe("Rate quote follow-up");
 
-    // The optimistic timeline item must carry the subject that was actually sent.
+    // The persisted timeline item must carry the subject that was actually sent.
     expect(await screen.findByText("Rate quote follow-up")).toBeInTheDocument();
     // The body stays collapsed until expanded (existing behavior) — expand, then assert it.
     fireEvent.click(screen.getByRole("button", { name: "Show full email: Rate quote follow-up" }));

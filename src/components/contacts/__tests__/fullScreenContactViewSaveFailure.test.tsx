@@ -42,6 +42,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 const h = vi.hoisted(() => ({
+  historyRefresh: vi.fn(),
   errorToasts: [] as string[],
   successToasts: [] as string[],
   activityAdds: [] as Array<Record<string, unknown>>,
@@ -54,6 +55,10 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/hooks/useContactHistory", () => ({ useContactHistory: () => ({
+  conversation:{items:[],loading:false,error:null,hasMore:false}, activity:{items:[],loading:false,error:null,hasMore:false},
+  refresh:h.historyRefresh, loadConversation:vi.fn(), loadActivity:vi.fn(),
+}) }));
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
 vi.mock("@/lib/supabase-activities", () => ({
   activitiesSupabaseApi: {
@@ -154,6 +159,7 @@ async function renderAndEdit(contact: Record<string, unknown> = client) {
 }
 
 beforeEach(() => {
+  h.historyRefresh.mockClear();
   vi.clearAllMocks();
   cleanup();
   h.errorToasts.length = 0;
@@ -240,7 +246,8 @@ describe("FullScreenContactView.handleSave — a refused save is reported, not s
     save();
     await waitFor(() => expect(h.successToasts).toHaveLength(1));
     expect(inEditMode()).toBe(false);
-    expect(h.activityAdds).toHaveLength(1);
+    expect(h.activityAdds).toHaveLength(0);
+    expect(h.historyRefresh).toHaveBeenCalledTimes(1);
     // The edit the user made before the first failure is what finally got saved.
     expect((onUpdate.mock.calls[1][1] as Record<string, unknown>).carrier).toBe("Gerber Life");
   });
@@ -250,7 +257,7 @@ describe("FullScreenContactView.handleSave — a refused save is reported, not s
 // A successful save is unchanged
 // ---------------------------------------------------------------------------------------------
 describe("FullScreenContactView.handleSave — success behaves exactly as before", () => {
-  it("exits edit mode, clears dirty state, adds the activity and toasts success", async () => {
+  it("exits edit mode, clears dirty state, refreshes saved history and toasts success", async () => {
     await renderAndEdit();
     fireEvent.change(inputForLabel("Carrier"), { target: { value: "Gerber Life" } });
     save();
@@ -260,13 +267,8 @@ describe("FullScreenContactView.handleSave — success behaves exactly as before
     expect(h.errorToasts).toHaveLength(0);
     expect(onUpdate).toHaveBeenCalledTimes(1);
 
-    expect(h.activityAdds).toHaveLength(1);
-    expect(h.activityAdds[0]).toMatchObject({
-      contactId: "client-1",
-      contactType: "client",
-      type: "note",
-    });
-    expect(String(h.activityAdds[0].description)).toContain("Client details updated by");
+    expect(h.activityAdds).toHaveLength(0);
+    expect(h.historyRefresh).toHaveBeenCalledTimes(1);
 
     expect(inEditMode()).toBe(false);
     // Dirty state cleared: closing no longer warns.
