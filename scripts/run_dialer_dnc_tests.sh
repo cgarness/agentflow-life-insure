@@ -26,7 +26,7 @@ psql "${PGURL%/}/postgres" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $TASK_DB"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -f "$TASK_ROOT/supabase/tests/dialer_dnc_harness.sql" >"$TASK_EVIDENCE/harness.txt" 2>&1
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -f "$TASK_ROOT/supabase/tests/dialer_dnc_upgrade.sql" >"$TASK_EVIDENCE/upgrade.txt" 2>&1
 echo "PASS forward upgrade preserves legacy canonical duplicates"
-psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/migration.txt" 2>&1
+psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003043122_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/migration.txt" 2>&1
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -tA -f "$TASK_ROOT/supabase/tests/dialer_dnc_metadata.sql" >"$TASK_EVIDENCE/expected-functions.json"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -f "$TASK_ROOT/supabase/tests/dialer_dnc_fixtures.sql" >"$TASK_EVIDENCE/fixtures.txt" 2>&1
 for suite in dialer_disposition_dnc dialer_dnc_security dialer_dnc_matrix; do
@@ -118,13 +118,13 @@ try {
 JS
 
 # A repeated production migration must stop on the changed fingerprint.
-if psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/replay.txt" 2>&1; then
+if psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003043122_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/replay.txt" 2>&1; then
   echo 'FAIL: replay was not refused'; exit 1
 fi
 if ! grep -q 'precondition' "$TASK_EVIDENCE/replay.txt"; then cat "$TASK_EVIDENCE/replay.txt"; exit 1; fi
 echo "PASS replay refused"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/rollback/dialer_dnc_integrity_local_restore.sql" >"$TASK_EVIDENCE/restore.txt" 2>&1
-psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/reapply.txt" 2>&1
+psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003043122_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/reapply.txt" 2>&1
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -tA -f "$TASK_ROOT/supabase/tests/dialer_dnc_metadata.sql" >"$TASK_EVIDENCE/reapplied-functions.json"
 cmp "$TASK_EVIDENCE/expected-functions.json" "$TASK_EVIDENCE/reapplied-functions.json"
 echo "PASS reapplied function definitions, owners, search paths and ACLs match"
