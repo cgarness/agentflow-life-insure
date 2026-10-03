@@ -12,28 +12,30 @@ jobs:
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: local_test_only
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          node-version: 22
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
           cache: npm
+      - name: Start disposable PostgreSQL on loopback only
+        run: |
+          docker run --detach --name agentflow-dnc-postgres --network host \
+            -e POSTGRES_PASSWORD=local_test_only postgres:16 \
+            -c listen_addresses=127.0.0.1 -c port=55439
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 55439 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
       - run: npm ci --no-audit --no-fund
       - name: Real PostgreSQL transaction and concurrency tests
         env:
-          PGURL: postgresql://postgres:local_test_only@127.0.0.1:5432
+          PGURL: postgresql://postgres:local_test_only@127.0.0.1:55439
         run: bash scripts/run_dialer_dnc_tests.sh
       - name: Disposition, DNC, provider and Team/Open regressions
         env:
@@ -44,3 +46,6 @@ jobs:
           useTeamOpen caller-id-selection convertLeadModalPolicyFields
           leadDisposition outboundPathPinned
       - run: npx tsc --noEmit
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force agentflow-dnc-postgres

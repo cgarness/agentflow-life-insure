@@ -121,7 +121,7 @@ JS
 if psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/replay.txt" 2>&1; then
   echo 'FAIL: replay was not refused'; exit 1
 fi
-if ! rg -q 'precondition' "$TASK_EVIDENCE/replay.txt"; then cat "$TASK_EVIDENCE/replay.txt"; exit 1; fi
+if ! grep -q 'precondition' "$TASK_EVIDENCE/replay.txt"; then cat "$TASK_EVIDENCE/replay.txt"; exit 1; fi
 echo "PASS replay refused"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/rollback/dialer_dnc_integrity_local_restore.sql" >"$TASK_EVIDENCE/restore.txt" 2>&1
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003022218_dialer_disposition_dnc_integrity.sql" >"$TASK_EVIDENCE/reapply.txt" 2>&1
