@@ -14,7 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
-import { classifyRequestedFieldName } from "@/lib/import-field-matching";
+import { buildContactDetailFields } from "@/lib/contact-detail-fields";
+import { classifyRequestedFieldName, normalizeFieldName } from "@/lib/import-field-matching";
 import { toast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import {
@@ -49,7 +50,6 @@ const PRESET_COLORS = [
   { name: "Gray", hex: "#6B7280" },
   { name: "Teal", hex: "#14B8A6" },
 ];
-
 const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Field Layout"];
 
 function canManageContactFlow(profile: ReturnType<typeof useAuth>["profile"]): boolean {
@@ -1382,6 +1382,14 @@ const RequiredFieldsTab: React.FC<{
 
 const ContactManagement: React.FC = () => {
   const { organizationId } = useOrganization();
+  const { user, profile } = useAuth();
+  // Remount the settings/draft lifetime on identity changes: another agency's fields never paint,
+  // and a late read from the old instance cannot seed the new instance's layout.
+  return <ContactManagementContent key={JSON.stringify([organizationId, user?.id, profile?.id])} />;
+};
+
+const ContactManagementContent: React.FC = () => {
+  const { organizationId } = useOrganization();
   const { profile } = useAuth();
   const canManage = canManageContactFlow(profile);
   const [activeTab, setActiveTab] = useState(0);
@@ -1492,47 +1500,6 @@ const ContactManagement: React.FC = () => {
 
 // ==================== FIELD LAYOUT TAB ====================
 
-const STANDARD_FIELDS_LEAD = [
-  { id: "firstName", name: "First Name" },
-  { id: "lastName", name: "Last Name" },
-  { id: "phone", name: "Phone" },
-  { id: "email", name: "Email" },
-  { id: "state", name: "State" },
-  { id: "leadSource", name: "Source" },
-  { id: "dateOfBirth", name: "DOB" },
-  { id: "spouseInfo", name: "Spouse Info" },
-  { id: "assignedAgentId", name: "Assigned Agent" },
-  { id: "notes", name: "System Notes" }
-];
-
-const STANDARD_FIELDS_CLIENT = [
-  { id: "firstName", name: "First Name" },
-  { id: "lastName", name: "Last Name" },
-  { id: "phone", name: "Phone" },
-  { id: "email", name: "Email" },
-  { id: "policyType", name: "Policy Type" },
-  { id: "carrier", name: "Carrier" },
-  { id: "policyNumber", name: "Policy #" },
-  { id: "premiumAmount", name: "Premium" },
-  { id: "faceAmount", name: "Face Amount" },
-  { id: "soldDate", name: "Sold Date" },
-  { id: "effectiveDate", name: "Effective Date" },
-  { id: "draftDate", name: "Draft Date" },
-  { id: "paymentFrequency", name: "Payment Frequency" },
-  { id: "assignedAgentId", name: "Assigned Agent" },
-  { id: "notes", name: "System Notes" }
-];
-
-const STANDARD_FIELDS_RECRUIT = [
-  { id: "firstName", name: "First Name" },
-  { id: "lastName", name: "Last Name" },
-  { id: "phone", name: "Phone" },
-  { id: "email", name: "Email" },
-  { id: "status", name: "Status" },
-  { id: "assignedAgentId", name: "Assigned Agent" },
-  { id: "notes", name: "System Notes" }
-];
-
 function sanitizeContactFieldLayoutFromSettings(raw: unknown): ContactFieldLayout {
   const out: ContactFieldLayout = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
@@ -1562,6 +1529,10 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   const [fieldVisibility, setFieldVisibility] = useState<Record<string, Record<string, boolean>>>({});
   const [showHidden, setShowHidden] = useState(false);
   const visibilitySaveTimer = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => () => {
+    if (visibilitySaveTimer.current) clearTimeout(visibilitySaveTimer.current);
+  }, []);
+
 
   // Non-admins are forced to user mode.
   useEffect(() => {
@@ -1626,20 +1597,6 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   useEffect(() => {
     if (!settings) return;
 
-    let standard: { id: string, name: string }[] = [];
-    let appliesTo: string = "";
-
-    if (activeType === "lead") {
-      standard = STANDARD_FIELDS_LEAD;
-      appliesTo = "Leads";
-    } else if (activeType === "client") {
-      standard = STANDARD_FIELDS_CLIENT;
-      appliesTo = "Clients";
-    } else {
-      standard = STANDARD_FIELDS_RECRUIT;
-      appliesTo = "Recruits";
-    }
-
     const userOrder = userContactLayout?.[activeType];
     const orgOrder = activeType === "lead"
       ? settings.fieldOrderLead
@@ -1651,28 +1608,24 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
       ? resolveFieldOrder(activeType, orgOrder, undefined)
       : resolveFieldOrder(activeType, userOrder, orgOrder);
 
-    const availableCustom = customFields
-      .filter(f => f.active && f.appliesTo?.includes(appliesTo as any))
-      .map(f => ({ id: `custom:${f.name}`, name: f.name, isCustom: true }));
+    setItems(buildContactDetailFields({ type: activeType, order, definitions: customFields })
+      .map(field => ({ id: field.id, name: field.label, isCustom: field.kind === "custom" })));
 
-    // Merge standard and custom fields based on order
-    const allFields = [...standard.map(f => ({ ...f, isCustom: false })), ...availableCustom];
-    
-    // Create items based on saved order, then append any new fields
-    const orderedItems = order
-      .map(id => allFields.find(f => f.id === id))
-      .filter((f): f is { id: string, name: string, isCustom: boolean } => !!f);
-
-    const missingFields = allFields.filter(f => !order.includes(f.id));
-    
-    setItems([...orderedItems, ...missingFields]);
   }, [settings, activeType, customFields, userContactLayout, mode]);
 
   const currentVis = fieldVisibility[activeType] || {};
   
   const isFieldVisible = (id: string) => {
     if (id === "firstName" || id === "phone") return true;
-    return currentVis[id] !== false;
+    if (typeof currentVis[id] === "boolean") return currentVis[id];
+    // A hidden legacy alias remains hidden after representative selection. An explicit toggle on
+    // the current identity takes precedence; opening settings never rewrites the preference bag.
+    if (id.startsWith("custom:")) {
+      const name = normalizeFieldName(id.slice(7));
+      return !Object.keys(currentVis).some(alias => alias.startsWith("custom:")
+        && normalizeFieldName(alias.slice(7)) === name && currentVis[alias] === false);
+    }
+    return true;
   };
 
   const visibleFields = items.filter(i => isFieldVisible(i.id));

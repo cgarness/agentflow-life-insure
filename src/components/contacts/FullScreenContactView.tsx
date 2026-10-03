@@ -7,7 +7,7 @@ import { useContactHistory } from "@/hooks/useContactHistory";
 import { ContactActivityTimeline } from "./activity/ContactActivityTimeline";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
-import { isReservedCustomFieldKey } from "@/lib/reservedCustomFields";
+import { buildContactDetailFields, formatDetailValue, isPopulatedDetailValue, missingRequiredCustomDetails, type ContactDetailField } from "@/lib/contact-detail-fields";
 import { isContactSaveRefusedError } from "@/lib/contactSavePolicy";
 import { LeadSource, CustomField } from "@/lib/types";
 import { toast } from "sonner";
@@ -140,10 +140,9 @@ const formatName = (name: string) => {
   return name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 };
 
-const CopyField: React.FC<{ value?: string | number | null }> = ({ value }) => {
-  if (!value && value !== 0) return <span className="text-muted-foreground italic text-xs">—</span>;
-  const display = String(value);
-  if (display === 'null' || display === 'undefined' || display.trim() === '') return <span className="text-muted-foreground italic text-xs">—</span>;
+const CopyField: React.FC<{ value?: unknown }> = ({ value }) => {
+  if (!isPopulatedDetailValue(value)) return <span className="text-muted-foreground italic text-xs">—</span>;
+  const display = formatDetailValue(value);
   return (
     <div className="flex items-center justify-between group w-full min-w-0">
       <span className="text-foreground font-semibold text-xs leading-snug break-all mr-1" title={display}>{display}</span>
@@ -217,6 +216,16 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [requiredFieldsSetting, setRequiredFieldsSetting] = useState<Record<string, boolean> | null>(null);
   const [fieldOrder, setFieldOrder] = useState<string[]>(() => getDefaultFieldOrder(type));
+  const fieldScope = JSON.stringify([organizationId, user?.id, profile?.id, type, contact?.id]);
+  const [loadedFieldScope, setLoadedFieldScope] = useState<string | null>(null);
+  const fieldScopeRef = useRef(fieldScope);
+  fieldScopeRef.current = fieldScope;
+  const fieldsReady = !!organizationId && loadedFieldScope === fieldScope;
+  const detailFields = useMemo(() => buildContactDetailFields({
+    type, order: fieldsReady ? fieldOrder : getDefaultFieldOrder(type),
+    definitions: fieldsReady ? customFields : [], values: editForm.customFields, entity: editForm,
+  }), [type, fieldsReady, fieldOrder, customFields, editForm]);
+
 
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
@@ -310,7 +319,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     const myType = type;
     const assignedAgentIdForContact = (contact.assignedAgentId as string | undefined)?.trim() ?? "";
     let cancelled = false;
-    const isCurrent = () => !cancelled && latestContactIdRef.current === myId;
+    const isCurrent = () => !cancelled && latestContactIdRef.current === myId && fieldScopeRef.current === fieldScope;
 
     async function loadData() {
       const assignedRowP =
@@ -434,6 +443,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         (f) => f.active && f.appliesTo.includes(myType === "lead" ? "Leads" : myType === "client" ? "Clients" : "Recruits")
       );
       setCustomFields(relevantFields);
+      setLoadedFieldScope(fieldScope);
 
       let orgOrderRaw: unknown;
       if (settings) {
@@ -524,7 +534,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id]);
+  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id, user?.id, fieldScope]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };
@@ -607,6 +617,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   };
 
   const handleSave = async () => {
+    if (!canEditContact) return;
+    if (!organizationId) { toast.error("Could not determine organization."); return; }
+    if (!fieldsReady) { toast.error("Field settings are loading. Please try again."); return; }
     const errs: Record<string, string> = {};
     if (!editForm.firstName?.trim()) errs.firstName = "First name is required";
     if (!editForm.lastName?.trim()) errs.lastName = "Last name is required";
@@ -618,12 +631,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       entity: editForm as Record<string, unknown>,
       customFields: (editForm as any).customFields as Record<string, unknown> | undefined,
       requiredFieldsSetting: requiredFieldsSetting ?? {},
-      // A reserved key is hidden by U1, so it can never be filled in — enforcing it as a required
-      // custom field would block every save of this contact with no box to type into. Exempt it at
-      // this call site only; contactRequiredFields.ts and the Add/Edit-modal callers are unchanged.
-      activeCustomFields: customFields.filter((f) => !isReservedCustomFieldKey(f.name)),
-      enforceCustomFields: true,
+      // Standard required validation stays canonical; custom constraints follow the same logical
+      // identities as the editor, without manufacturing alias keys in the stored bag.
+      enforceCustomFields: false,
     });
+    missing.push(...missingRequiredCustomDetails(detailFields, editForm.customFields ?? {}));
     if (missing.length > 0) {
       toast.error(`Missing required fields: ${missing.join(", ")}`);
       return;
@@ -776,30 +788,32 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   const inputCls = "w-full h-8 px-2.5 rounded-md bg-background text-xs text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
 
-  const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[]) => {
-    let val: any;
-    if (key.includes('.')) { const [parent, child] = key.split('.'); val = editForm[parent]?.[child] ?? ""; }
-    else { val = editForm[key] ?? ""; }
-    const handleChange = (newVal: any) => {
-      if (key.includes('.')) { const [parent, child] = key.split('.'); handleFieldChange(parent, { ...(editForm[parent] || {}), [child]: newVal }); }
-      else { handleFieldChange(key, newVal); }
+  const renderField = (label: string, key: string, fieldType: "text" | "email" | "number" | "select" | "textarea" | "date" = "text", options?: string[], custom?: ContactDetailField) => {
+    const val = custom ? editForm.customFields?.[custom.key] ?? "" : editForm[key] ?? "";
+    const inputValue = formatDetailValue(val);
+    const handleChange = (newVal: unknown) => {
+      if (custom) {
+        const nextValue = typeof val === "boolean" && newVal !== "" ? newVal === "true" : newVal;
+        setEditForm((previous: typeof editForm) => ({ ...previous, customFields: { ...previous.customFields, [custom.key]: nextValue } }));
+        setHasChanges(true); setHasUnsavedChanges(true);
+      } else handleFieldChange(key, newVal);
     };
 
     return (
-      <div className="min-w-0 flex flex-col">
+      <div key={custom?.id ?? key} className="min-w-0 flex flex-col">
         <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">{label}</label>
-        {editMode ? (
+        {editMode && !custom?.readOnly ? (
           <>
             {fieldType === "select" ? (
-              <select value={val} onChange={e => handleChange(e.target.value)} className={inputCls}>
+              <select aria-label={label} value={inputValue} onChange={e => handleChange(e.target.value)} className={inputCls}>
                 <option value="">—</option>
                 {options?.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : fieldType === "textarea" ? (
-              <textarea value={val} onChange={e => handleChange(e.target.value)} rows={2} className={`${inputCls} min-h-[56px] py-1.5 h-auto`} />
+              <textarea aria-label={label} value={inputValue} onChange={e => handleChange(e.target.value)} rows={2} className={`${inputCls} min-h-[56px] py-1.5 h-auto`} />
             ) : fieldType === "date" ? (
-              <DateInput value={val} onChange={handleChange} />
-            ) : key === "phone" ? (
+              <DateInput value={inputValue} onChange={handleChange} />
+            ) : !custom && key === "phone" ? (
               <PhoneInput 
                 value={val} 
                 onChange={v => handleChange(normalizePhoneNumber(v))} 
@@ -807,11 +821,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                 placeholder="(555)123-4567"
               />
             ) : (
-              <input type={fieldType} value={val} onChange={e => handleChange(fieldType === "number" ? Number(e.target.value) : e.target.value)} className={inputCls} />
+              <input aria-label={label} type={fieldType} value={inputValue} onChange={e => handleChange(fieldType === "number" && e.target.value !== "" ? Number(e.target.value) : e.target.value)} className={inputCls} />
             )}
-            {errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
+            {!custom && errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : key === "dateOfBirth" ? formatDOB(val) : fieldType === "date" ? formatDate(val) : val} /> )}
+        ) : ( <CopyField value={custom ? val : key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : key === "dateOfBirth" ? formatDOB(val) : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };
@@ -1006,26 +1020,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-3">
-                    {fieldOrder.map(fieldId => {
-                      if (fieldId.startsWith('custom:')) {
-                        const fieldName = fieldId.replace('custom:', '');
-                        // U1: a reserved AgentFlow key is never bound to a generic editor, even when a
-                        // saved layout places it. The stored layout is left untouched (same posture as
-                        // the retired 'leadScore' entry above).
-                        if (isReservedCustomFieldKey(fieldName)) return null;
-                        const field = customFields.find(f => f.name === fieldName);
-                        if (!field) return null;
-                        return (
-                          <div key={fieldId}>
-                            {renderField(
-                              field.name,
-                              `customFields.${field.name}`,
-                              field.type === 'Dropdown' ? 'select' : field.type.toLowerCase() as any,
-                              field.dropdownOptions
-                            )}
-                          </div>
-                        );
-                      }
+                    {detailFields.map(field => {
+                      const fieldId = field.id;
+                      const value = field.kind === "custom" ? editForm.customFields?.[field.key] : editForm[field.key];
+                      if (!editMode && fieldId !== "assignedAgentId" && fieldId !== "status" && !isPopulatedDetailValue(value)) return null;
+                      if (field.kind === "custom") return renderField(field.label, field.key, field.editor, field.options, field);
 
                       // Standard Fields mapping
                       switch (fieldId) {
@@ -1040,6 +1039,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         // sanitized by resolveFieldOrder; the stored value is untouched.
                         case 'age': return type === "lead" ? renderField("Age", "age", "number") : null;
                         case 'dateOfBirth': return type === "lead" ? renderField("DOB", "dateOfBirth", "date") : null;
+                        case 'bestTimeToCall': return type === "lead" ? renderField("Best Time to Call", "bestTimeToCall", "select", bestTimes) : null;
+                        case 'beneficiaryName': return type === "client" ? renderField("Beneficiary Name", "beneficiaryName") : null;
                         case 'spouseInfo': return type === "lead" ? renderField("Spouse Info", "spouseInfo") : null;
                         case 'policyType': return type === "client" ? renderField("Policy Type", "policyType", "select", policyTypes) : null;
                         case 'carrier': return type === "client" ? renderField("Carrier", "carrier") : null;
@@ -1089,41 +1090,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                       }
                     })}
 
-                    {/* JSONB Custom Fields - Only show if not already in fieldOrder */}
-                    {Object.keys(editForm?.customFields || {}).map(key => {
-                      // U1: reserved AgentFlow metadata (additional_policies) is STRUCTURED and must
-                      // never reach renderField's default text <input> — one keystroke there replaced
-                      // the policy array with a string and handleSave persisted it over the whole
-                      // column. See src/lib/reservedCustomFields.ts and AGENT_RULES invariant #35.
-                      if (isReservedCustomFieldKey(key)) return null;
-                      if (fieldOrder.some(f => f === `custom:${key}`)) return null;
-                      return (
-                        <div key={`jsonb-${key}`}>
-                          {renderField(key, `customFields.${key}`)}
-                        </div>
-                      );
-                    })}
                 </div>
 
-                {customFields.some((f) => !fieldOrder.includes(`custom:${f.name}`) && !isReservedCustomFieldKey(f.name)) && (
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-3 pt-1">
-                    {customFields
-                      // U1 again: a definition an agency happened to name `additional_policies` would
-                      // otherwise re-open the same editor here. The section guard above carries the
-                      // identical predicate so this never renders an empty grid.
-                      .filter((f) => !fieldOrder.includes(`custom:${f.name}`) && !isReservedCustomFieldKey(f.name))
-                      .map((field) => (
-                        <div key={field.id}>
-                          {renderField(
-                            field.name,
-                            `customFields.${field.name}`,
-                            field.type === "Dropdown" ? "select" : (field.type.toLowerCase() as any),
-                            field.dropdownOptions
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                )}
               </div>
               )}
               

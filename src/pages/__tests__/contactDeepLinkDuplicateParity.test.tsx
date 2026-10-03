@@ -220,9 +220,9 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-async function mount(kind: Kind) {
+async function mount(kind: Kind, customFields?: Record<string, unknown>) {
   const f = FIXTURES[kind];
-  db.contacts[f.id] = { ...f.row };
+  db.contacts[f.id] = { ...f.row, ...(customFields ? { custom_fields: customFields } : {}) };
   h.routeId = f.id;
   const utils = render(<ContactDeepLinkPage contactType={kind} />);
   await screen.findByRole("button", { name: /^call$/i });
@@ -437,4 +437,21 @@ describe("deep link — the gate, the fail-open posture and the settings round t
     expect(settingsState.loads).toBe(0);
     expect(lookupsOn(f.table)).toHaveLength(0);
   });
+});
+
+it.each(KINDS)("direct %s link → real renderer and API preserve legacy custom values", async kind => {
+  const { customFieldsSupabaseApi } = await import("@/lib/supabase-settings");
+  vi.mocked(customFieldsSupabaseApi.getAll).mockResolvedValueOnce(["a", "b", "c"].map(id => ({
+    id, name: "Gender", type: "Text", active: true, required: false, appliesTo: ["Leads", "Clients", "Recruits"], usageCount: 0,
+  })));
+  const values = { Gender: "Synthetic value", "Amt Requested": "$30,000+", " gender ": "Separate value", Zero: 0, Answer: false,
+    additional_policies: [{ policyType: "Term", premiumAmount: "$20/mo", extra: { retained: true } }] };
+  const f = await mount(kind, values);
+  await waitFor(() => expect(screen.getAllByText("Synthetic value")).toHaveLength(1));
+  await clickEdit();
+  fireEvent.change(screen.getByRole("textbox", { name: "First Name" }), { target: { value: "Updated fixture" } });
+  await clickSave();
+  await waitFor(() => expect(updatesTo(f.table)).toHaveLength(1));
+  expect(db.contacts[f.id].custom_fields).toEqual(values);
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull());
 });

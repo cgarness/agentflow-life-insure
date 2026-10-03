@@ -173,10 +173,11 @@ describe("FullScreenContactView — lead score is not exposed", () => {
 
     // Some labels (Phone/Email) also appear in the header action bar, so assert
     // presence rather than uniqueness.
-    for (const label of ["First Name", "Last Name", "Phone", "Email", "State", "Age", "DOB"]) {
+    for (const label of ["First Name", "Last Name", "Phone", "Email", "State", "Age"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     expect(screen.getByText("Assigned Agent")).toBeInTheDocument();
+    expect(screen.queryByText("DOB")).toBeNull(); // Blank details are hidden only in read mode.
   });
 
   it("renders no Score field in EDIT mode", async () => {
@@ -188,6 +189,7 @@ describe("FullScreenContactView — lead score is not exposed", () => {
     // Edit mode is live (Save/Cancel replace the EDIT affordance).
     expect(screen.getByRole("button", { name: /save/i })).toBeInTheDocument();
     expect(scoreLabels()).toHaveLength(0);
+    expect(screen.getByText("DOB")).toBeInTheDocument(); // Empty optional fields stay editable.
     // No numeric score input carries the stored value.
     for (const input of screen.queryAllByRole("spinbutton")) {
       expect((input as HTMLInputElement).value).not.toBe("9");
