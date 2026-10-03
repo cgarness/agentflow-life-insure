@@ -74,7 +74,7 @@ export const activitiesSupabaseApi = {
 };
 
 function rowToActivity(row: any, profile?: any): ContactActivity {
-    const agentName = profile ? `${profile.first_name} ${profile.last_name}` : (row.agent_id ? row.agent_id : "System");
+    const agentName = profile ? `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim() || "Agent unavailable" : (row.agent_id ? "Agent unavailable" : "Actor not recorded");
 
     return {
         id: row.id,

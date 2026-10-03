@@ -1,3 +1,4 @@
+import { invalidateContactHistory } from "@/lib/contact-history/refresh";
 import { supabase } from "@/integrations/supabase/client";
 import { ContactNote, ContactType } from "@/lib/types";
 
@@ -47,16 +48,18 @@ export const notesSupabaseApi = {
                 pinned: pinned
             } as any)
             .select("*")
-            .single();
+            .maybeSingle();
 
         if (error) throw new Error(error.message);
+        if (!row) throw new Error("Note change was not applied");
+        if (row.organization_id) invalidateContactHistory({ organizationId: row.organization_id, contactId: row.contact_id, contactType: row.contact_type });
 
         // Fetch author profile separately
         const { data: profile } = await supabase
             .from("profiles")
             .select("id, first_name, last_name, avatar_url")
             .eq("id", agentId)
-            .single();
+            .maybeSingle();
 
         return rowToNote(row, profile);
     },
@@ -68,28 +71,32 @@ export const notesSupabaseApi = {
             .update({ pinned: !currentPinned })
             .eq("id", id)
             .select("*")
-            .single();
+            .maybeSingle();
 
         if (error) throw new Error(error.message);
+        if (!row) throw new Error("Note change was not applied");
+        if (row.organization_id) invalidateContactHistory({ organizationId: row.organization_id, contactId: row.contact_id, contactType: row.contact_type });
 
         // Fetch profile
         const { data: profile } = await supabase
             .from("profiles")
             .select("id, first_name, last_name, avatar_url")
             .eq("id", row.author_id)
-            .single();
+            .maybeSingle();
 
         return rowToNote(row, profile);
     },
 
     // Delete a note
     async deleteNote(id: string): Promise<void> {
-        const { error } = await (supabase as any)
+        const { data: row, error } = await (supabase as any)
             .from("contact_notes")
             .delete()
-            .eq("id", id);
+            .eq("id", id).select("id, organization_id, contact_id, contact_type").maybeSingle();
 
         if (error) throw new Error(error.message);
+        if (!row) throw new Error("Note change was not applied");
+        if (row.organization_id) invalidateContactHistory({ organizationId: row.organization_id, contactId: row.contact_id, contactType: row.contact_type });
     }
 };
 

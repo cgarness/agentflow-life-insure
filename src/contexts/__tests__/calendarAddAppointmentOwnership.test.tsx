@@ -73,7 +73,7 @@ vi.mock("@/integrations/supabase/client", () => {
       return { data: { id: "a0000000-0000-4000-8000-0000000000ff", ...(row as object) }, error: null };
     }
     if (rec.op === "update") return { data: [{ id: rec.eq.id }], error: null };
-    return { data: null, error: null };
+    return { data: {id:rec.eq.id,contact_id:"contact-1"}, error: null };
   }
 
   function makeBuilder(table: string) {
@@ -405,7 +405,7 @@ describe("updateAppointment — exact payload and truthful failure (D-16/D-22)",
     expect(call.payload).not.toHaveProperty("created_by");
     expect(call.payload).not.toHaveProperty("organization_id");
     expect(call.eq).toEqual({ id: APPT_1, organization_id: REAL_ORG });
-    expect(call.selectArg, "the update must read back affected rows to detect a zero-row result").toBe("id");
+    expect(call.selectArg, "the update must read back affected rows to detect a zero-row result").toBe("id, contact_id");
     // success: no rollback refetch
     expect(fetchCalls()).toHaveLength(1);
   });

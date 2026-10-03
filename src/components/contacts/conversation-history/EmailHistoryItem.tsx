@@ -42,7 +42,7 @@ export const EmailHistoryItem: React.FC<{ item: EmailConversationItem }> = ({ it
           Email · {item.outbound ? "Outbound" : "Inbound"}
         </span>
         <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-          {formatDateTime(new Date(item.timestampMs))}
+          {item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}
         </span>
       </div>
 

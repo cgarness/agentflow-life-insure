@@ -38,6 +38,7 @@ const CONTACT_ID = "c0a7ac71-2d3e-4f50-8a1b-2c3d4e5f6a7b";
 const OTHER_CONTACT_ID = "d1b8bd82-3e4f-4061-9b2c-3d4e5f6a7b8c";
 
 const h = vi.hoisted(() => ({
+  historyRefresh: vi.fn(),
   addAppointment: vi.fn(),
   successToasts: [] as string[],
   errorToasts: [] as string[],
@@ -95,6 +96,10 @@ vi.mock("sonner", () => ({
   },
 }));
 
+vi.mock("@/hooks/useContactHistory", () => ({ useContactHistory: () => ({
+  conversation:{items:[],loading:false,error:null,hasMore:false}, activity:{items:[],loading:false,error:null,hasMore:false},
+  refresh:h.historyRefresh, loadConversation:vi.fn(), loadActivity:vi.fn(),
+}) }));
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
 vi.mock("@/lib/supabase-activities", () => ({
   activitiesSupabaseApi: {
@@ -234,6 +239,7 @@ function appointmentActivities() {
 }
 
 beforeEach(() => {
+  h.historyRefresh.mockClear();
   h.addAppointment.mockReset();
   h.addAppointment.mockImplementation(async (row: Record<string, unknown>) => ({ id: "appt-new", ...row }));
   h.successToasts = [];
@@ -332,7 +338,7 @@ describe("Schedule → onSave writes ONE appointment through CalendarContext", (
 });
 
 describe("Schedule → success is reported only after the save succeeded", () => {
-  it("resolves true, toasts once, logs the activity, closes the modal and bumps the card's refreshKey", async () => {
+  it("resolves true, toasts once, refreshes saved history, closes the modal and bumps the card's refreshKey", async () => {
     await renderAndOpenSchedule();
     expect(latestCard().refreshKey).toBe(0);
 
@@ -341,8 +347,8 @@ describe("Schedule → success is reported only after the save succeeded", () =>
     expect(result).toBe(true);
     expect(h.successToasts).toEqual(["Appointment scheduled"]);
     expect(h.errorToasts).toEqual([]);
-    await waitFor(() => expect(appointmentActivities()).toHaveLength(1));
-    expect(appointmentActivities()[0]).toMatchObject({ contactId: CONTACT_ID, contactType: "lead" });
+    expect(appointmentActivities()).toHaveLength(0);
+    expect(h.historyRefresh).toHaveBeenCalledTimes(1);
     expect(latestModal().open).toBe(false);
     expect(latestCard().refreshKey).toBe(1);
   });

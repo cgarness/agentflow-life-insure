@@ -34,6 +34,15 @@ function makeQuery(table: string) {
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => makeQuery(table),
+    rpc: (fn: string, args: {p_filter?:string}) => ({abortSignal: async () => {
+
+      if (fn === 'get_contact_activity_page') return {data:{items:[],hasMore:false,nextCursor:null},error:null};
+      const source = [...((tableData.calls ?? []) as Record<string,unknown>[]).map(payload=>({kind:'call',payload})),
+        ...((tableData.messages ?? []) as Record<string,unknown>[]).map(payload=>({kind:'sms',payload})),
+        ...([{id:"email-1",direction:"outbound",subject:"Quote follow-up",body_text:"Body",sent_at:"2026-08-10T12:00:00Z",from_email:"agent@agency.com",to_emails:["charlotte@example.com"],delivery_status:"sent"}] as Record<string,unknown>[]).map(payload=>({kind:'email',payload}))];
+      const items=source.filter(x=>!args.p_filter||args.p_filter==='all'||x.kind===args.p_filter).map(x=>({...x,event_key:`${x.kind}:${x.payload.id}`,event_time:x.payload.started_at||x.payload.sent_at||x.payload.received_at||x.payload.created_at})).sort((a,b)=>Date.parse(String(b.event_time))-Date.parse(String(a.event_time)));
+      return {data:{items,hasMore:false,nextCursor:null},error:null};
+    }}),
     auth: {
       getSession: async () => ({ data: { session: { access_token: "test-token" } } }),
       getUser: async () => ({ data: { user: { id: "user-1" } } }),

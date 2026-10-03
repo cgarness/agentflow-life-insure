@@ -1,3 +1,11 @@
+## Contact history release — October 3, 2026 (backend applied; frontend pending)
+
+Chris approved implementation with “Start the build,” then review publication with “Continue” / “finish the task.” [Draft PR #407](https://github.com/cgarness/agentflow-life-insure/pull/407) preserves main `84829dfe` and has automatic preview deployments. The dedicated specification, exact file list, verification evidence, limitations, migration order and disable-only rollback are in [the Contact history plan](docs/plans/2026-10-03-contact-history/implementation_plan.md). Branch: `codex/contact-history-20261003`. Chris authorized the next production steps at 12:26 PDT. Migrations `20261003192857` and `20261003192907` are now applied and catalog-verified with unchanged reviewed SQL. PR merge/frontend deployment remain pending authenticated hosted verification and the final PR gate. No backfill, test business data or live customer communication is authorized.
+
+Full-suite correction: the deep-link regression fixture now asserts persisted-history refresh instead of the retired browser activity insert. Final scope: 43 files; no runtime or CI-gate change in that correction. See PR #407 for final check results.
+
+---
+
 > Current Dialer/DNC task: [approved permanent disposition and DNC integrity plan](docs/plans/2026-10-02-dialer-dnc-integrity/implementation_plan.md). Branch implementation and testing approved; production actions and historical repair held. The unrelated leaderboard plan below is preserved.
 
 # Implementation Plan — Leaderboard recovery: frontend request discipline + truthful maintenance/stale states (rev 1.3 — rev 1.1 APPROVED 2026-09-25; rev 1.2 = Chris's corrections, §13; rev 1.3 = two approved corrections, §14)

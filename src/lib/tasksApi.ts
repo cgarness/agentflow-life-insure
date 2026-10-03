@@ -1,3 +1,4 @@
+import { invalidateContactHistory } from "@/lib/contact-history/refresh";
 import { supabase } from "@/integrations/supabase/client";
 
 export interface TaskPayload {
@@ -38,6 +39,8 @@ export const tasksApi = {
       .maybeSingle();
 
     if (error) throw error;
+    if (!data) throw new Error('Task creation was not confirmed');
+    invalidateContactHistory({ organizationId: data.organization_id, contactId: data.contact_id, contactType: data.contact_type });
     return data;
   },
 
@@ -51,17 +54,22 @@ export const tasksApi = {
       .maybeSingle();
 
     if (error) throw error;
+    if (!data) throw new Error('Task completion was not applied');
+    invalidateContactHistory({ organizationId, contactId: data.contact_id, contactType: data.contact_type });
     return data;
   },
 
   deleteTask: async (taskId: string, organizationId: string) => {
-    const { error } = await (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('tasks')
       .delete()
       .eq('id', taskId)
-      .eq('organization_id', organizationId);
+      .eq('organization_id', organizationId)
+      .select('id, contact_id, contact_type').maybeSingle();
 
     if (error) throw error;
+    if (!data) throw new Error('Task deletion was not applied');
+    invalidateContactHistory({ organizationId, contactId: data.contact_id, contactType: data.contact_type });
     return true;
   }
 };
