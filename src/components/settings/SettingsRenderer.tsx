@@ -30,6 +30,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "company-branding": return <CompanyBranding />;
     case "user-management": return <UserManagement />;
     case "call-scripts": return <CallScripts />;
+    case "a2p-registration":
     case "phone-system":
     case "phone-numbers":
     case "inbound-routing":

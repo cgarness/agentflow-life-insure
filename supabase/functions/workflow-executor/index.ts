@@ -1,3 +1,4 @@
+import { registeredSender, registeredWorkflowNumber } from "../_shared/a2p/sending.ts";
 // workflow-executor
 // ---------------------------------------------------------------------------
 // Internal-only Edge Function. Drives a single workflow_executions row from
@@ -468,20 +469,24 @@ async function actionSendSms(args: {
     return { status: "failed", output: { reason: "Empty SMS body" }, error: "Empty SMS body" };
   }
 
-  // Choose a sender number — first active number on the org.
-  const { data: phoneRow } = await supabase
-    .from("phone_numbers")
-    .select("phone_number")
-    .eq("organization_id", execution.organization_id)
-    .in("status", ["active", "Active"])
-    .limit(1)
-    .maybeSingle();
-  const from = (phoneRow?.phone_number as string) ?? "";
+  // A2P-enabled agencies select a registered shared sender. Legacy orgs retain their existing selection.
+  let from = await registeredWorkflowNumber(supabase, execution.organization_id);
+  if (from === null) {
+    const { data: phoneRow } = await supabase
+      .from("phone_numbers")
+      .select("phone_number")
+      .eq("organization_id", execution.organization_id)
+      .in("status", ["active", "Active"])
+      .limit(1)
+      .maybeSingle();
+    from = (phoneRow?.phone_number as string) ?? "";
+  }
   if (!from) {
     return { status: "failed", output: { reason: "No active phone number for org" }, error: "No active sender" };
   }
 
-  const creds = await loadSubaccountCreds(supabase, execution.organization_id);
+  const registered = await registeredSender(supabase, execution.organization_id, toE164(from));
+  const creds = registered ? { ok: true as const, creds: registered } : await loadSubaccountCreds(supabase, execution.organization_id);
   if (!creds.ok) {
     return { status: "failed", output: { reason: creds.error, code: creds.code }, error: creds.error };
   }
@@ -491,6 +496,7 @@ async function actionSendSms(args: {
   params.set("To", to);
   params.set("From", toE164(from));
   params.set("Body", body);
+  if (registered) params.set("MessagingServiceSid", registered.messagingServiceSid);
 
   const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(creds.creds.accountSid)}/Messages.json`;
   const res = await fetch(twilioUrl, {

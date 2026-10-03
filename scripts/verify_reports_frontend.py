@@ -21,8 +21,12 @@ def run(label: str, cwd: Path, args: list[str], extra_env=None) -> int:
     return result.returncode
 
 if (root/'package-lock.json').read_bytes() != (base/'package-lock.json').read_bytes():
-    sys.exit('Dependency drift: independently install and verify base before comparing')
-os.symlink(root/'node_modules', base/'node_modules', target_is_directory=True)
+    # A dependency-changing PR needs its own exact baseline installation.
+    # Keep every type/test/runtime assertion below; never compare against head's packages.
+    if run('base-npm-ci', base, ['npm','ci','--no-audit','--no-fund']) != 0:
+        sys.exit('Could not install exact base dependencies; comparison refused')
+else:
+    os.symlink(root/'node_modules', base/'node_modules', target_is_directory=True)
 checks = {}
 selftest()
 for name, cwd in [('base', base), ('branch', root)]:

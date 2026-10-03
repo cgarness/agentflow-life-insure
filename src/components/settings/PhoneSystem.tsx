@@ -1,4 +1,5 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
+const A2pRegistration = lazy(() => import("./phone/a2p/A2pRegistration"));
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PhoneSettings from "./PhoneSettings";
@@ -14,6 +15,7 @@ import CallMonitoring from "./CallMonitoring";
 import { usePhoneSettingsController } from "./phone/usePhoneSettingsController";
 
 export type PhoneSystemTab =
+  | "a2p-registration"
   | "phone"
   | "phone-numbers"
   | "number-reputation"
@@ -26,6 +28,7 @@ export type PhoneSystemTab =
 export function settingsSlugToPhoneSystemTab(slug: string): PhoneSystemTab {
   if (slug === "phone-system") return "phone";
   if (
+    slug === "a2p-registration" ||
     slug === "phone-numbers" ||
     slug === "number-reputation" ||
     slug === "inbound-routing" ||
@@ -79,6 +82,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
           <TabsTrigger value="phone" className={tabTriggerClass}>
             Trust Hub
           </TabsTrigger>
+          <TabsTrigger value="a2p-registration" className={tabTriggerClass}>A2P Registration</TabsTrigger>
           <TabsTrigger value="phone-numbers" className={tabTriggerClass}>
             Phone Numbers
           </TabsTrigger>
@@ -105,6 +109,10 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
         {/* Trust Hub */}
         <TabsContent value="phone" className="mt-4">
           <PhoneSettings phone={phone} />
+        </TabsContent>
+
+        <TabsContent value="a2p-registration" className="mt-4">
+          <Suspense fallback={<Skeleton className="h-48 rounded-xl" />}><A2pRegistration /></Suspense>
         </TabsContent>
 
         {/* Phone Numbers */}
