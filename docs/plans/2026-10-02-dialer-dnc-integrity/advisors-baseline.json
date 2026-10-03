@@ -1,0 +1,78 @@
+{
+  "project": "jncvvsvckxhqgqvkppmj",
+  "inspection": "read-only; production unchanged; not a post-migration advisor result",
+  "security": [
+    {
+      "name": "rls_enabled_no_policy",
+      "level": "INFO",
+      "count": 3
+    },
+    {
+      "name": "function_search_path_mutable",
+      "level": "WARN",
+      "count": 22
+    },
+    {
+      "name": "rls_disabled_in_public",
+      "level": "ERROR",
+      "count": 2
+    },
+    {
+      "name": "extension_in_public",
+      "level": "WARN",
+      "count": 3
+    },
+    {
+      "name": "anon_security_definer_function_executable",
+      "level": "WARN",
+      "count": 65
+    },
+    {
+      "name": "authenticated_security_definer_function_executable",
+      "level": "WARN",
+      "count": 99
+    },
+    {
+      "name": "auth_leaked_password_protection",
+      "level": "WARN",
+      "count": 1
+    }
+  ],
+  "performance": [
+    {
+      "name": "unindexed_foreign_keys",
+      "level": "INFO",
+      "count": 75
+    },
+    {
+      "name": "auth_rls_initplan",
+      "level": "WARN",
+      "count": 109
+    },
+    {
+      "name": "unused_index",
+      "level": "INFO",
+      "count": 124
+    },
+    {
+      "name": "multiple_permissive_policies",
+      "level": "WARN",
+      "count": 86
+    },
+    {
+      "name": "duplicate_index",
+      "level": "WARN",
+      "count": 5
+    },
+    {
+      "name": "table_bloat",
+      "level": "INFO",
+      "count": 1
+    },
+    {
+      "name": "auth_db_connections_absolute",
+      "level": "INFO",
+      "count": 1
+    }
+  ]
+}

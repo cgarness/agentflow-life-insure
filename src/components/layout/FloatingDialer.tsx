@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Phone, X, Mic, Pause, Voicemail,
@@ -13,6 +14,9 @@ import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { saveCall } from "@/lib/dialer-api";
+import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
+import { rowToLead } from "@/lib/supabase-contacts";
+import type { Lead } from "@/lib/types";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import {
@@ -225,6 +229,13 @@ const FloatingDialer: React.FC = () => {
   const onCallRef = useRef(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const [currentCallId, setCurrentCallId] = useState<string | null>(null);
+  const dispositionSavingRef = useRef(false);
+  const callVisitRef = useRef(currentCallId);
+  callVisitRef.current = currentCallId;
+  const convertedCallRef = useRef<{ callId: string; clientId: string } | null>(null);
+  const conversionCallRef = useRef<string | null>(null);
+  const [conversionLead, setConversionLead] = useState<Lead | null>(null);
+
 
   // --- Post-call disposition state ---
   const [showDisposition, setShowDisposition] = useState(false);
@@ -573,7 +584,7 @@ const FloatingDialer: React.FC = () => {
   };
 
   const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null) => {
-    if (!twilioIsReady) return;
+    if (!twilioIsReady || showDisposition || dispositionSavingRef.current) return;
     lastUsedCallerId.current = callerNumber;
     const opts: MakeCallOptions = {
       contactId: contactId || selectedContact?.id || null,
@@ -681,11 +692,7 @@ const FloatingDialer: React.FC = () => {
     if (twilioCallState === "ended" && onCall) {
       handleHangUp();
     }
-    if (twilioCallState === "ended" && !onCall) {
-      setCallSeconds(0);
-      setCurrentCallId(null);
-      setShowDisposition(false);
-    }
+    // Keep the call identity and wrap-up until persistence succeeds or the user skips.
   }, [twilioCallState, onCall, handleHangUp]);
 
   const resetAll = () => {
@@ -700,62 +707,74 @@ const FloatingDialer: React.FC = () => {
     setShowDropdown(false);
     setDialedNumber("");
     setCallSeconds(0);
+    setCurrentCallId(null);
     setOpen(false);
   };
 
-  const handleSaveDisposition = async () => {
+  const handleSaveDisposition = async (convertedClientId?: string) => {
+    if (dispositionSavingRef.current) return;
     const disp = dispositions.find((d) => d.id === selectedDispId);
-    if (disp) {
-      if (user && selectedContact) {
-        try {
-          await saveCall({
-            id: currentCallId || undefined,
-            master_lead_id: selectedContact.id,
-            agent_id: user.id,
-            duration_seconds: twilioCallDuration || callSeconds,
-            disposition: disp.name,
-            disposition_id: disp.id,
-            notes: callNotes.trim(),
-            outcome: disp.name,
-            caller_id_used: lastUsedCallerId.current || undefined,
-            contact_type: selectedContact.type,
-          }, organizationId);
-        } catch (err) {
-          console.error("Failed to save call:", err);
-        }
-      }
-
-      if (disp.callback_scheduler && callbackDate && callbackTime && selectedContact?.id) {
-        try {
-          await supabase.from('appointments').insert([{
-            title: `Callback: ${selectedContact.first_name} ${selectedContact.last_name}`,
-            contact_id: selectedContact.id,
-            contact_name: `${selectedContact.first_name} ${selectedContact.last_name}`,
-            type: 'Follow Up',
-            status: 'Scheduled',
-            start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
-            notes: `Callback scheduled from dialer. Disposition: ${disp.name}`,
-            created_by: user?.id,
-            organization_id: organizationId,
-          }] as any);
-        } catch { /* ignored */ }
-      }
-
-      if (isConvertedDisposition(disp, pipelineStagesForConversion) && user && profile) {
-        triggerWin({
-          agentId: user.id,
-          agentName: `${profile.first_name} ${profile.last_name}`,
-          contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : dialedNumber,
-          contactId: selectedContact?.id,
-          policyType: disp.name,
-          organizationId,
-          // Quick-call wins carry the business sale date too (approved D5); a sold-now
-          // disposition means the sale date is the agent's local today.
-          soldDate: todayLocalIsoDate(),
-        });
-      }
+    const callId = currentCallId;
+    if (!disp || !user || !callId) {
+      toast.error("A completed call and disposition are required."); return;
     }
-    resetAll();
+    if ((disp.require_notes || disp.min_note_chars > 0) && callNotes.trim().length < Math.max(disp.min_note_chars, 1)) {
+      toast.error(`Notes must be at least ${Math.max(disp.min_note_chars, 1)} characters`); return;
+    }
+    if (disp.callback_scheduler && (!callbackDate || !callbackTime)) {
+      toast.error("Please select a callback date and time"); return;
+    }
+    const converting = isConvertedDisposition(disp, pipelineStagesForConversion);
+    if (convertedClientId) convertedCallRef.current = { callId, clientId: convertedClientId };
+    const converted = convertedCallRef.current?.callId === callId ? convertedCallRef.current.clientId : undefined;
+    const clientId = converted ?? (converting && selectedContact?.type === "client" ? selectedContact.id : undefined);
+    dispositionSavingRef.current = true;
+    try {
+      if (converting && !clientId) {
+        if (selectedContact?.type !== "lead") throw new Error("Select a lead to convert before saving this disposition.");
+        const { data, error } = await supabase.from("leads").select("*")
+          .eq("id", selectedContact.id).eq("organization_id", organizationId).maybeSingle();
+        if (error || !data) throw new Error("Unable to load the complete lead for conversion. Please retry.");
+        if (callVisitRef.current !== callId) return;
+        conversionCallRef.current = callId;
+        setConversionLead(rowToLead(data));
+        return;
+      }
+      const persisted = await saveCall({
+        id: callId, master_lead_id: clientId ?? selectedContact?.id ?? "", agent_id: user.id,
+        duration_seconds: twilioCallDuration || callSeconds, disposition: disp.name, disposition_id: disp.id,
+        notes: callNotes.trim(), outcome: disp.name, caller_id_used: lastUsedCallerId.current || undefined,
+        contact_type: clientId ? "client" : selectedContact?.type, converted_client_id: clientId,
+        callback_due_at: disp.callback_scheduler ? new Date(`${callbackDate}T${callbackTime}`).toISOString() : null,
+      }, organizationId);
+      if (callVisitRef.current !== callId) return;
+      if (!persisted.replayed && disp.callback_scheduler && persisted.contact_id) {
+        const { error } = await supabase.from('appointments').insert([{
+          title: `Callback: ${selectedContact?.first_name ?? ""} ${selectedContact?.last_name ?? ""}`.trim(),
+          contact_id: persisted.contact_id, user_id: user.id, created_by: user.id,
+          status: 'Scheduled', start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
+          notes: `Callback scheduled from dialer. Disposition: ${disp.name}`, organization_id: organizationId,
+        }]);
+        if (error) toast.error("Disposition saved; callback calendar entry may not have saved.");
+      }
+      // ConvertLeadModal already records its idempotent win. Existing-client quick-call
+      // dispositions retain their win behavior, also keyed to this persisted call.
+      if (!persisted.replayed && converting && !converted && user && profile) {
+        try {
+          await triggerWin({
+            agentId: user.id, agentName: `${profile.first_name} ${profile.last_name}`,
+            contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : dialedNumber,
+            contactId: persisted.contact_id ?? undefined, policyType: disp.name, organizationId,
+            soldDate: todayLocalIsoDate(), idempotencyKey: `disposition:${callId}`,
+          });
+        } catch { /* Core disposition is already committed. */ }
+      }
+      if (callVisitRef.current === callId) resetAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Disposition save failed. Please retry.");
+    } finally {
+      dispositionSavingRef.current = false;
+    }
   };
 
   const handleSkip = () => {
@@ -785,6 +804,12 @@ const FloatingDialer: React.FC = () => {
 
   return (
     <>
+      <ConvertLeadModal open={!!conversionLead} lead={conversionLead}
+        onClose={() => setConversionLead(null)}
+        onSuccess={(clientId) => {
+          setConversionLead(null);
+          if (conversionCallRef.current === callVisitRef.current) void handleSaveDisposition(clientId);
+        }} />
       {showCallerIdWarning && pendingCall && (
         <div className="fixed inset-0 bg-black/50 z-[1001] flex items-center justify-center">
           <div className="bg-card border border-warning/50 rounded-xl p-6 max-w-sm w-full mx-4 space-y-4">
@@ -1172,7 +1197,7 @@ const FloatingDialer: React.FC = () => {
                     )}
 
                     <button
-                      onClick={handleSaveDisposition}
+                      onClick={() => void handleSaveDisposition()}
                       disabled={!selectedDispId || (selectedDisp?.require_notes && !callNotes.trim())}
                       className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-50"
                     >Save & Close</button>

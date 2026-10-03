@@ -1,0 +1,200 @@
+[
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.capture_dialer_conversion_lineage()",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "e224547c813d43a21f312f3b7b3fb3ba",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.dnc_phone_lock_key(uuid,text)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "b2987c96128e70602f2acb9fc3de3c0a",
+        "security_definer": false
+    },
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.guard_dialer_core_write()",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "c2fbba6d647babc57c9b4c429d13a551",
+        "security_definer": false
+    },
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.guard_dnc_phone()",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "6ae3083af5471a9213b4d7a941108031",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.is_dnc_phone(uuid,text)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "2627fbe67e68a0d5d8cd16ba440a3b2f",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.phone_digits_e164ish(text)",
+        "search_path": null,
+        "definition_md5": "e8a4495dc125809ccaa34cd34815888e",
+        "security_definer": false
+    },
+    {
+        "acl": "{postgres=X/postgres}",
+        "owner": "postgres",
+        "signature": "private.try_queue_phone(uuid,text,text)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "a0b3165f16fbd8cddc17c9aed4c6b5ca",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "admit_twilio_outbound(uuid,text,text,text,text)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "e402240d8b4cfe1954e7a99fe50ee705",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "advance_campaign_lead(uuid,uuid,uuid,timestamp with time zone,text,boolean,uuid,text,uuid,bigint,text)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "088c6d615225ccdca43f3099a5fbb65d",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "check_dialer_dnc(text,uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "b23a399eedbf45f8f73c2e8589fc6509",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "claim_lead(uuid,uuid,uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "8c99f236a014244c89c98fca23650234",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "fetch_and_lock_next_lead(uuid,jsonb)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "ca10f7318f0f80af5eee9175cb527b3d",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "force_release_campaign_lead_lock(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "124d9162f67b4f651e9f7496e8dadf19",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "get_next_queue_lead(uuid,jsonb)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "e67fd2652bd155e3783a53756cd33298",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "get_outbound_admission(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "a917e721e9c72c62adbc42ef5267aec8",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "get_personal_queue_leads(uuid,integer,integer)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "a530763a7925265ebb12ebe5356637d5",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "get_queue_metrics(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "df6f7663fdbcb4ea280ba2b6d0b9a789",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "release_all_agent_locks(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "7f50ac0030fc36f2e5b5db7011df2113",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "release_lead_lock(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "5a32d35b153b9cc321431d9b2ed9464b",
+        "security_definer": true
+    },
+    {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "owner": "postgres",
+        "signature": "renew_lead_lock(uuid)",
+        "search_path": [
+            "search_path=pg_catalog, pg_temp"
+        ],
+        "definition_md5": "8646d1003cb743ebb33a3856ea65f862",
+        "security_definer": true
+    }
+]

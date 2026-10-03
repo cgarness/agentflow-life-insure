@@ -60,7 +60,7 @@ export function useLeadLock() {
    * Fetches the next eligible lead for a campaign.
    *
    * - Team / Open Pool → calls get_next_queue_lead RPC (atomic fetch + lock)
-   * - Personal          → direct campaign_leads query scoped to auth.uid()
+   * - Personal          → owner-scoped server queue RPC
    *
    * Filters are sourced from the campaign record so agents cannot influence them.
    * Returns null when the queue is empty (not an error).
@@ -73,23 +73,13 @@ export function useLeadLock() {
     ): Promise<QueuedLead | null> => {
       const type = campaignType.toUpperCase();
 
-      // ── Personal campaign: direct query, no lock needed ───────────────────
+      // ── Personal campaign: server eligibility, no lock needed ───────────────────
       if (type === "PERSONAL") {
-        const { data, error } = await supabase
-          .from("campaign_leads")
-          .select("*")
-          .eq("campaign_id", campaignId)
-          .eq("assigned_agent_id", (await supabase.auth.getUser()).data.user?.id ?? "")
-          .not("status", "in", '("DNC","Completed","Removed")')
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle();
-
-        if (error) {
-          console.error("[useLeadLock] Personal queue fetch error:", error);
-          return null;
-        }
-        return (data as QueuedLead) ?? null;
+        const { data, error } = await (supabase as any).rpc("get_personal_queue_leads", {
+          p_campaign_id: campaignId, p_limit: 1, p_offset: 0,
+        });
+        if (error) throw new Error(error.message);
+        return data?.[0] ?? null;
       }
 
       // ── Team / Open Pool: atomic RPC fetch + lock ─────────────────────────
@@ -104,8 +94,7 @@ export function useLeadLock() {
       });
 
       if (error) {
-        console.error("[useLeadLock] get_next_queue_lead RPC error:", error);
-        return null;
+        throw new Error(error.message);
       }
 
       // RPC returns an array (SETOF). Empty array = queue exhausted.
@@ -133,7 +122,7 @@ export function useLeadLock() {
     });
 
     if (error) {
-      console.error("[useLeadLock] release_lead_lock RPC error:", error);
+      throw new Error(error.message);
     }
   }, []);
 

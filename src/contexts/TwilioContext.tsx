@@ -1,3 +1,5 @@
+import { checkDNC } from "@/utils/dncCheck";
+import { toE164Plus } from "@/utils/phoneUtils";
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Device } from "@twilio/voice-sdk";
 import {
@@ -80,19 +82,7 @@ const VOICE_MIC_CAPTURE: MediaStreamConstraints = {
   },
 };
 
-const toE164 = (phone: string): string => {
-  if (!phone) return phone;
-  // Already E.164
-  if (phone.startsWith('+')) return phone.replace(/[^\d+]/g, '');
-  // Strip all non-digits
-  const digits = phone.replace(/\D/g, '');
-  // 11 digits starting with 1 — US number with country code
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  // 10 digits — assume US
-  if (digits.length === 10) return `+1${digits}`;
-  // Anything else — prepend + and hope for the best
-  return `+${digits}`;
-};
+const toE164 = toE164Plus;
 
 function extractIncomingCallerDisplay(
   call: any,
@@ -2221,6 +2211,9 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
 
+    // Reserve before auth/microphone/DNC awaits, not after them.
+    isDialingRef.current = true;
+    try {
     endStateProcessedRef.current = false;
 
     const { data: { session: existing }, error: getErr } = await supabase.auth.getSession();
@@ -2269,7 +2262,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
 
-    isDialingRef.current = true;
     lastCallLogDirectionRef.current = "outbound";
     setLastCallDirection("outbound");
 
@@ -2277,8 +2269,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setInboundClaimedCallRowId(null);
       activeLeadIdRef.current = isValidUUID(opts?.contactId) ? opts!.contactId! : null;
       outboundRemoteAnsweredRef.current = false;
-      callStateRef.current = "dialing";
-      setCallState("dialing");
       setIsMuted(false);
       setIsOnHold(false);
       setConnectionDropped(false);
@@ -2323,6 +2313,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
 
+      const destination = toE164(destinationNumber);
+      const dnc = await checkDNC(destination, organizationId, opts?.campaignLeadId);
+      if (dnc.blocked) throw new Error("This number is on the agency DNC list. Call was not started.");
+      // An identity change during verification invalidates this outbound attempt.
+      if (authUserIdRef.current !== session.user.id || organizationIdRef.current !== organizationId) {
+        throw new Error("Your session changed. Call was not started.");
+      }
+      callStateRef.current = "dialing";
+      setCallState("dialing");
       // ── SINGLE CALL RECORD CREATION ──
       const { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
@@ -2339,7 +2338,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // a real name — including the surname "Null" — passes through untouched. The identity
           // itself is fixed upstream at the contact-model boundary; this is the last guard.
           contact_name: sanitizeContactName(opts?.contactName) || null,
-          contact_phone: opts?.contactPhone || destinationNumber,
+          contact_phone: destination,
           contact_type: opts?.contactType || null,
           status: 'ringing',
           direction: 'outbound',
@@ -2414,6 +2413,16 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
     // isDialingRef stays true until the call ends (released in useEffect on idle/ended).
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Call was not started.");
+      return undefined;
+    } finally {
+      if (!["dialing", "active"].includes(callStateRef.current)) {
+        isDialingRef.current = false;
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+    }
   }, [status, defaultCallerNumber, callerIdCampaignGroupId, availableNumbers, callerIdPool, authUserId, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
 
 

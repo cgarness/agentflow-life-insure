@@ -1,3 +1,4 @@
+import { persistDisposition, type DispositionInput } from "@/lib/dialer-disposition";
 import { supabase } from "@/integrations/supabase/client";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
@@ -87,9 +88,6 @@ export async function getCampaigns(organizationId: string | null = null) {
   return data ?? [];
 }
 
-/** Lowercase `removed` was written historically by the dialer — exclude both. */
-const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
-
 /**
  * Campaign `max_attempts === null` means unlimited. When set, a row is over cap when
  * `call_attempts >= max_attempts` (same as UI: dial while `attempts < cap`).
@@ -103,69 +101,21 @@ export function isOverCampaignAttemptCap(
 }
 
 export async function getCampaignLeads(campaignId: string, organizationId: string | null = null, limit = 100, offset = 0) {
-  // Fetch campaign settings for maxAttempts and retryInterval logic
-  const { data: campaign } = await supabase
-    .from("campaigns")
-    .select("max_attempts, retry_interval_hours")
-    .eq("id", campaignId)
-    .maybeSingle();
-
-  const campaignMaxAttempts = campaign?.max_attempts ?? null;
-  const retryIntervalHours = campaign?.retry_interval_hours ?? 0;
-
-  // Fix 3: Query campaign_leads directly, filtering by both campaign_id and organization_id
-  let query = supabase
-    .from("campaign_leads")
-    .select("*, lead:leads(*)")
-    .eq("campaign_id", campaignId)
-    .range(offset, offset + limit - 1);
-
-  if (organizationId) {
-    query = query.eq("organization_id", organizationId);
-  }
-
-  const { data, error } = await query;
-
-  // Fix 4: Log full error object before surfacing message
-  if (error) {
-    console.error("[getCampaignLeads] Supabase error:", error);
-    throw new Error(error.message);
-  }
-
-  const now = new Date();
-
-  // Fix 1: Exclude terminal statuses. For finite max_attempts, block any non-terminal
-  // lead at or over the cap (not only status "Called" — dispositions can differ).
-  // For "Called" leads, still enforce retry_interval wait when configured.
-  const dialable = ((data as any[]) ?? []).filter(row => {
-    const status: string | null = row.status;
-
-    if (status && TERMINAL_STATUSES.includes(status)) return false;
-
-    if (isOverCampaignAttemptCap(row.call_attempts, campaignMaxAttempts)) return false;
-
-    if (status === 'Called') {
-      if (retryIntervalHours > 0 && row.last_called_at) {
-        const hoursSince = (now.getTime() - new Date(row.last_called_at).getTime()) / 3_600_000;
-        if (hoursSince < retryIntervalHours) return false;
-      }
-    }
-
-    return true;
+  const { data, error } = await (supabase as any).rpc("get_personal_queue_leads", {
+    p_campaign_id: campaignId, p_limit: limit, p_offset: offset,
   });
-
-  // Flatten and map to the interface expected by the UI
-  return dialable.map(row => {
-    const { lead, ...campaignLead } = row;
-    return {
-      ...(lead || {}),
-      ...campaignLead,
-      state: campaignLead.state || lead?.state || "",
-      id: campaignLead.id,
-      lead_id: lead?.id || campaignLead.lead_id,
-      // Pre-populate callback_due_at so the UI can show due callbacks
-      callback_due_at: campaignLead.scheduled_callback_at
-    };
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data)) throw new Error("Personal queue was not confirmed");
+  // Queue eligibility comes exclusively from the RPC. Master details still use
+  // the caller's existing RLS, preserving Personal contact visibility boundaries.
+  const ids = [...new Set(data.map(row => row.lead_id).filter((id): id is string => typeof id === "string"))];
+  if (!ids.length) return data;
+  const { data: masters, error: masterError } = await supabase.from("leads").select("*").in("id", ids);
+  if (masterError) throw new Error(masterError.message);
+  const byId = new Map((masters ?? []).map(row => [row.id, row]));
+  return data.map(row => {
+    const master = byId.get(row.lead_id);
+    return { ...master, ...row, state: row.state || master?.state || "" };
   });
 }
 
@@ -376,174 +326,30 @@ export async function saveCall(data: {
   outcome: string;
   caller_id_used?: string;
   contact_type?: string;
+  converted_client_id?: string;
+  callback_due_at?: string | null;
 }, organizationId: string | null = null) {
-  const sharedCallFields = {
-    contact_id: data.master_lead_id,
-    campaign_lead_id: data.campaign_lead_id || null,
-    agent_id: data.agent_id,
-    campaign_id: data.campaign_id || null,
-    // calls.duration is written canonically by the twilio-voice-status callback.
-    // Browser timers are UI-only and must not write it (P0B). duration_seconds is
-    // still consumed below for the contact_activities description, not for calls.duration.
-    disposition_name: data.disposition,
-    // Persist the UUID FK going forward so trusted Contacted can match by id
-    // (legacy rows fall back to disposition_name). Null when caller omits it.
-    disposition_id: data.disposition_id ?? null,
+  if (!data.id || !data.disposition_id) throw new Error("A persisted call and disposition are required.");
+  return persistDisposition({
+    campaignLeadId: data.campaign_lead_id ?? null,
+    callId: data.id,
+    dispositionId: data.disposition_id,
+    operationId: data.id,
     notes: data.notes,
-    outcome: data.outcome,
-    caller_id_used: data.caller_id_used || null,
-    status: "completed",
-    ended_at: new Date().toISOString(),
-    contact_type: data.contact_type || null,
-    organization_id: organizationId,
-  } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-  let error;
-  if (data.id) {
-    // Do not overwrite `direction` on update — inbound rows use the same wrap-up path in some
-    // clients, and power-dialer rows are already outbound from `makeCall`.
-    const { error: updateError } = await supabase
-      .from("calls")
-      .update(sharedCallFields)
-      .eq("id", data.id);
-    error = updateError;
-  } else {
-    const { error: insertError } = await supabase
-      .from("calls")
-      .insert({ ...sharedCallFields, direction: "outbound" });
-    error = insertError;
-  }
-
-  if (error) throw new Error(error.message);
-
-  // 2. campaign_leads advancement (call_attempts / last_called_at / retry_eligible_at /
-  //    status / callback fields) is NOT written here anymore. The prior client-side
-  //    UPDATE silently affected 0 rows whenever the agent's JWT had a stale/missing
-  //    app_metadata.role claim: an UPDATE that references a column requires the row to
-  //    pass the SELECT policy too, and the Open Pool / Team agent SELECT branch needs
-  //    get_user_role()='Agent' (which reads ONLY the JWT, no profiles fallback). The
-  //    canonical, RLS-safe advancement now lives in the SECURITY DEFINER RPC
-  //    advance_campaign_lead() (see advanceCampaignLead below), invoked once per call
-  //    by both the auto No-Answer and the manual Save & Next / Save Only paths.
-
-  // 3. Pipeline stage transition: if the disposition is linked to a pipeline stage,
-  // update the lead's status to the stage name.
-  // Prefer the UUID FK (disposition_id) over the fragile name-string match.
-  if (data.disposition) {
-    try {
-      let dispRow: { pipeline_stage_id: string | null } | null = null;
-
-      if (data.disposition_id) {
-        // Fast path: look up directly by UUID PK — no name matching
-        const dispQuery = supabase
-          .from("dispositions")
-          .select("pipeline_stage_id")
-          .eq("id", data.disposition_id);
-
-        if (organizationId) {
-          dispQuery.eq("organization_id", organizationId);
-        }
-
-        const { data: row } = await dispQuery.maybeSingle();
-        dispRow = row;
-      } else {
-        // Fallback: name-string match (for callers that don't yet pass disposition_id)
-        const dispQuery = supabase
-          .from("dispositions")
-          .select("pipeline_stage_id")
-          .ilike("name", data.disposition);
-
-        if (organizationId) {
-          dispQuery.eq("organization_id", organizationId);
-        }
-
-        const { data: row } = await dispQuery.maybeSingle();
-        dispRow = row;
-      }
-
-      if (dispRow?.pipeline_stage_id) {
-        // Fetch the linked pipeline stage name
-        const { data: stage } = await supabase
-          .from("pipeline_stages")
-          .select("name")
-          .eq("id", dispRow.pipeline_stage_id)
-          .maybeSingle();
-
-        if (stage?.name) {
-          // Update the master lead's status to the pipeline stage name
-          await (supabase as any)
-            .from("leads")
-            .update({ status: stage.name, updated_at: new Date().toISOString() })
-            .eq("id", data.master_lead_id);
-
-          // Log pipeline stage transition activity
-          await supabase.from("contact_activities").insert({
-            contact_id: data.master_lead_id,
-            agent_id: data.agent_id,
-            activity_type: "pipeline",
-            description: `Pipeline stage → ${stage.name}`,
-            organization_id: organizationId,
-          } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-        }
-      }
-    } catch (pipelineErr) {
-      // Non-fatal: pipeline transition failure should not break call save
-      console.warn("[saveCall] Pipeline stage transition failed:", pipelineErr);
-    }
-  }
-
-  const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: data.master_lead_id,
-    agent_id: data.agent_id,
-    activity_type: "call",
-    description: `Call — ${data.disposition} — ${formatDuration(data.duration_seconds)}`,
-    organization_id: organizationId,
-  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (actError) throw new Error(actError.message);
-}
-
-/**
- * Canonical campaign_leads advancement — the SINGLE path both the auto No-Answer
- * and the manual Save & Next / Save Only flows use to persist queue lifecycle.
- *
- * Calls the SECURITY DEFINER RPC `advance_campaign_lead`, which is org-scoped via
- * get_org_id() (with the profiles fallback) so it works even when the agent's JWT
- * app_metadata.role claim is stale/missing — the exact condition under which the
- * old client-side campaign_leads UPDATEs silently no-op'd (0 rows, no error).
- *
- * The RPC persists, exactly once per call (idempotent on calls.id):
- *   - call_attempts +1, last_called_at = now()
- *   - retry_eligible_at = now() + campaign retry interval (retryable outcomes only)
- *   - canonical status (Called / Completed at cap / DNC / Removed / Completed-on-convert)
- *   - callback_due_at / scheduled_callback_at / callback_agent_id / callback_note
- *   - releases the agent's dialer_lead_locks row when releaseLock is true
- * It NEVER touches calls.duration or any Twilio-owned telemetry.
- *
- * Throws on RPC error so failures surface (no silent swallow). Returns the advanced
- * campaign_leads row (or null when not found / cross-org) so callers can derive
- * local React state from the persisted result instead of an optimistic guess.
- */
-export async function advanceCampaignLead(params: {
-  campaignLeadId: string;
-  callId?: string | null;
-  dispositionId?: string | null;
-  callbackDueAt?: string | null;
-  callbackNote?: string | null;
-  releaseLock?: boolean;
-}): Promise<any | null> {
-  const { data, error } = await (supabase as any).rpc("advance_campaign_lead", {
-    p_campaign_lead_id: params.campaignLeadId,
-    p_call_id: params.callId ?? null,
-    p_disposition_id: params.dispositionId ?? null,
-    p_callback_due_at: params.callbackDueAt ?? null,
-    p_callback_note: params.callbackNote ?? null,
-    p_release_lock: params.releaseLock ?? true,
+    convertedClientId: data.converted_client_id ?? null,
+    callbackDueAt: data.callback_due_at ?? null,
+    callbackNote: data.notes,
+    releaseLock: false,
   });
-  if (error) throw new Error(error.message);
-  // SETOF/row-returning RPC: supabase-js returns the single row object (or array).
-  if (Array.isArray(data)) return data[0] ?? null;
-  return data ?? null;
 }
+
+/** Typed adapter for the single server-authoritative disposition operation.
+ * Returns persisted state or throws; never writes Twilio-owned telemetry.
+ */
+export async function advanceCampaignLead(params: DispositionInput) {
+  return persistDisposition(params);
+}
+
 
 export async function saveNote(data: {
   master_lead_id: string;
@@ -560,33 +366,6 @@ export async function saveNote(data: {
   if (error) throw new Error(error.message);
 }
 
-export async function updateLeadStatus(campaignLeadId: string, masterLeadId: string, status: string, organizationId: string | null = null) {
-  const validCampaignStatuses = ["Queued", "Locked", "Claimed", "Called", "Skipped", "Completed", "Failed", "DNC"];
-  const campaignStatus = validCampaignStatuses.includes(status) ? status : "Called";
-
-  const { error: updateError } = await supabase
-    .from("campaign_leads")
-    .update({ 
-      status: campaignStatus,
-      disposition: status
-    } as any)
-    .eq("id", campaignLeadId);
-  if (updateError) throw new Error(updateError.message);
-
-  // 3. Log activity on master record
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: masterLeadId,
-    agent_id: user?.id ?? null,
-    activity_type: "status",
-    description: `Status changed to ${status}`,
-    organization_id: organizationId,
-  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (actError) throw new Error(actError.message);
-}
 
 export async function saveAppointment(data: {
   master_lead_id: string;

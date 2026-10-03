@@ -164,10 +164,15 @@ export function useHardClaim() {
     [cancelClaimTimer, callClaimRpc]
   );
 
+  const adoptPersistedClaim = useCallback((leadId: string | null | undefined) => {
+    if (leadId) setClaimedLeadIds(prev => prev.has(leadId) ? prev : new Set([...prev, leadId]));
+  }, []);
+
   return {
     startClaimTimer,
     cancelClaimTimer,
     claimOnDisposition,
+    adoptPersistedClaim,
     /** Set of master lead IDs (leads.id) claimed this session. */
     claimedLeadIds,
   };

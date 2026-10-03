@@ -1137,6 +1137,7 @@ export type Database = {
       }
       calls: {
         Row: {
+          dialer_admission_required: boolean
           agent_id: string | null
           amd_result: string | null
           caller_id_used: string | null
@@ -1189,6 +1190,7 @@ export type Database = {
           voicemail_id: string | null
         }
         Insert: {
+          dialer_admission_required?: boolean
           agent_id?: string | null
           amd_result?: string | null
           caller_id_used?: string | null
@@ -1241,6 +1243,7 @@ export type Database = {
           voicemail_id?: string | null
         }
         Update: {
+          dialer_admission_required?: boolean
           agent_id?: string | null
           amd_result?: string | null
           caller_id_used?: string | null
@@ -1390,6 +1393,7 @@ export type Database = {
       }
       campaign_leads: {
         Row: {
+          disposition_version: number
           age: number | null
           call_attempts: number | null
           callback_agent_id: string | null
@@ -1422,6 +1426,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          disposition_version?: number
           age?: number | null
           call_attempts?: number | null
           callback_agent_id?: string | null
@@ -1454,6 +1459,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          disposition_version?: number
           age?: number | null
           call_attempts?: number | null
           callback_agent_id?: string | null
@@ -6043,51 +6049,39 @@ export type Database = {
       }
       advance_campaign_lead: {
         Args: {
-          p_call_id?: string
-          p_callback_due_at?: string
-          p_callback_note?: string
-          p_campaign_lead_id: string
-          p_disposition_id?: string
+          p_campaign_lead_id: string | null
+          p_call_id?: string | null
+          p_disposition_id?: string | null
+          p_callback_due_at?: string | null
+          p_callback_note?: string | null
           p_release_lock?: boolean
+          p_operation_id?: string
+          p_notes?: string
+          p_converted_client_id?: string | null
+          p_expected_version?: number | null
+          p_action?: string
         }
-        Returns: {
-          age: number | null
-          call_attempts: number | null
-          callback_agent_id: string | null
-          callback_due_at: string | null
-          callback_note: string | null
-          campaign_id: string
-          claimed_at: string | null
-          claimed_by: string | null
-          created_at: string | null
-          disposition: string | null
-          email: string | null
-          first_name: string | null
-          id: string
-          import_history_id: string | null
-          last_advance_call_id: string | null
-          last_called_at: string | null
-          last_name: string | null
-          lead_id: string | null
-          locked_at: string | null
-          locked_by: string | null
-          organization_id: string | null
-          phone: string | null
-          retry_eligible_at: string | null
-          scheduled_callback_at: string | null
-          sort_order: number | null
-          source: string | null
-          state: string | null
-          status: string | null
-          updated_at: string | null
-          user_id: string | null
-        }
-        SetofOptions: {
-          from: "*"
-          to: "campaign_leads"
-          isOneToOne: true
-          isSetofReturn: false
-        }
+        Returns: Json
+      }
+      check_dialer_dnc: {
+        Args: { p_phone: string; p_campaign_lead_id?: string | null }
+        Returns: Json
+      }
+      get_personal_queue_leads: {
+        Args: { p_campaign_id: string; p_limit?: number; p_offset?: number }
+        Returns: Json[]
+      }
+      get_outbound_admission: {
+        Args: { p_call_id: string }
+        Returns: Json
+      }
+      admit_twilio_outbound: {
+        Args: { p_call_id: string; p_identity: string; p_to: string; p_caller_id: string; p_parent_sid: string }
+        Returns: Json
+      }
+      force_release_campaign_lead_lock: {
+        Args: { p_campaign_lead_id: string }
+        Returns: undefined
       }
       analyze_system_db: { Args: never; Returns: Json }
       calls_expired_recording_batch: {

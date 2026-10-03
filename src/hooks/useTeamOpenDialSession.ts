@@ -52,36 +52,38 @@ const safeStatus = (c: TwilioCall) => {
 export function useTeamOpenDialSession(a: Args): (TeamOpenDialSession & { attemptId: number; callRowId: string | null }) | null {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const seqRef = useRef(0);
-  const prevStateRef = useRef(a.callState);
-  const latest = useRef(a);
-  latest.current = a;
+  const previous = useRef({ state: a.callState, call: a.currentCall, rowId: a.currentCallId });
 
-  // New attempt on each outbound transition into `dialing`.
+  // React may batch dialing + the new Call into one render, or even receive
+  // accept before that render. Compare with the PRIOR observed Call, not the
+  // latest render's Call. The latter would exclude the attempt's own instance.
   useEffect(() => {
-    const prev = prevStateRef.current;
-    prevStateRef.current = a.callState;
-    if (!a.enabled || a.callState !== "dialing" || prev === "dialing" || a.lastCallDirection !== "outbound") return;
-    const id = latest.current.dialledCampaignLeadIdRef.current;
-    setAttempt(id ? {
-      id: ++seqRef.current, campaignLeadId: id, answered: false, call: null,
-      prevCall: latest.current.currentCall ?? null, callRowId: null, prevCallRowId: latest.current.currentCallId,
-    } : null);
-  }, [a.enabled, a.callState, a.lastCallDirection]);
-
-  // Bind the attempt's own Call instance (never the previous attempt's).
-  useEffect(() => {
-    const c = a.currentCall;
-    setAttempt((s) => {
-      if (!s || s.call || !c || c === s.prevCall || !isOutboundCall(c)) return s;
-      return { ...s, call: c, answered: safeStatus(c) === "open" }; // already accepted when observed
+    const prev = previous.current;
+    previous.current = { state: a.callState, call: a.currentCall, rowId: a.currentCallId };
+    if (!a.enabled) return;
+    const freshOutbound = isOutboundCall(a.currentCall) && a.currentCall !== prev.call;
+    const starts = a.lastCallDirection === "outbound" && (
+      (a.callState === "dialing" && prev.state !== "dialing") ||
+      (a.callState === "active" && freshOutbound)
+    );
+    const leadId = a.dialledCampaignLeadIdRef.current;
+    const attemptId = starts ? ++seqRef.current : 0;
+    setAttempt((prior) => {
+      let next = starts ? (leadId ? {
+        id: attemptId, campaignLeadId: leadId, answered: false, call: null,
+        prevCall: prev.call ?? null, callRowId: null, prevCallRowId: prev.rowId,
+      } : null) : prior;
+      if (!next) return next;
+      const call = a.currentCall;
+      if (!next.call && call && call !== next.prevCall && isOutboundCall(call)) {
+        next = { ...next, call, answered: safeStatus(call) === "open" };
+      }
+      if (!next.callRowId && a.currentCallId && a.currentCallId !== next.prevCallRowId) {
+        next = { ...next, callRowId: a.currentCallId };
+      }
+      return next;
     });
-  }, [a.currentCall]);
-
-  // Bind the calls-row id for this attempt (never the previous attempt's id).
-  useEffect(() => {
-    const rowId = a.currentCallId;
-    setAttempt((s) => (!s || s.callRowId || !rowId || rowId === s.prevCallRowId ? s : { ...s, callRowId: rowId }));
-  }, [a.currentCallId]);
+  }, [a.enabled, a.callState, a.lastCallDirection, a.currentCall, a.currentCallId, a.dialledCampaignLeadIdRef]);
 
   // Answer evidence: this attempt's Call instance emitting `accept`.
   const boundCall = attempt?.call ?? null;

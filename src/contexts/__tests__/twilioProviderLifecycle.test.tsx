@@ -22,6 +22,10 @@ type Handlers = {
 };
 
 const ring = vi.hoisted(() => ({ calls: [] as unknown[] }));
+const outbound = vi.hoisted(() => ({
+  events: [] as string[], inserts: [] as unknown[], result: { data: { blocked: false, match: null }, error: null } as { data: unknown; error: unknown },
+  pending: null as null | Promise<{ data: unknown; error: unknown }>,
+}));
 type FakeStream = { getTracks: () => Array<{ stop: () => void }>; track: { stop: ReturnType<typeof vi.fn>; kind: string } };
 const mic = vi.hoisted(() => ({ pending: [] as Array<() => void>, gate: false, streams: [] as FakeStream[] }));
 const voice = vi.hoisted(() => ({
@@ -51,11 +55,11 @@ vi.mock("@/integrations/supabase/client", () => {
   function makeBuilder(table: string) {
     let inserted = false;
     const b: Record<string, unknown> = {
-      select() { return b; }, update() { return b; }, insert() { inserted = true; return b; }, upsert() { return b; },
+      select() { return b; }, update() { return b; }, insert(payload: unknown) { inserted = true; if (table === "calls") { outbound.events.push("insert"); outbound.inserts.push(payload); } return b; }, upsert() { return b; },
       eq() { return b; }, in() { return b; }, or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
-      maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+      maybeSingle() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
       single() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
-      then(resolve: (v: unknown) => unknown) { return Promise.resolve({ data: [], error: null }).then(resolve); },
+      then(resolve: (v: unknown) => unknown) { return Promise.resolve({ data: table === "phone_numbers" ? [{ phone_number: "+15550001111", status: "active", assignment_type: "agency", is_default: true }] : [], error: null }).then(resolve); },
     };
     return b;
   }
@@ -63,11 +67,14 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (table: string) => makeBuilder(table),
-      rpc: () => Promise.resolve({ data: null, error: null }),
+      rpc: (name: string) => {
+        if (name === "check_dialer_dnc") { outbound.events.push("verify"); return outbound.pending ?? Promise.resolve(outbound.result); }
+        return Promise.resolve({ data: null, error: null });
+      },
       channel: () => channel,
       removeChannel: () => {},
       auth: {
-        getSession: () => Promise.resolve({ data: { session: { access_token: "t" } }, error: null }),
+        getSession: () => Promise.resolve({ data: { session: { access_token: "t", user: { id: authState.userId, app_metadata: { organization_id: authState.real?.organization_id } } } }, error: null }),
         refreshSession: () => Promise.resolve({ data: { session: { access_token: "t" } }, error: null }),
       },
       functions: { invoke: () => Promise.resolve({ data: null, error: null }) },
@@ -83,7 +90,7 @@ vi.mock("@/lib/twilio-voice", () => ({
     voice.inits.push({ opts, device, resolve, reject });
   })),
   destroyTwilioDevice: vi.fn(async () => { voice.destroys += 1; }),
-  twilioMakeCall: vi.fn(async () => voice.dialFactory()),
+  twilioMakeCall: vi.fn(async () => { outbound.events.push("connect"); return voice.dialFactory(); }),
   twilioHangUp: vi.fn(),
   twilioHangUpAll: vi.fn(),
   twilioAnswerCall: vi.fn(async () => {}),
@@ -177,6 +184,8 @@ const callState = () => screen.getByTestId("callState").textContent;
 const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  outbound.events = []; outbound.inserts = []; outbound.pending = null;
+  outbound.result = { data: { blocked: false, match: null }, error: null };
   ring.calls = [];
   mic.pending = [];
   mic.gate = false;
@@ -204,6 +213,33 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
+  it.each([
+    { data: { blocked: true, match: { id: "dnc", phone_number: "+15550002222", reason: null } }, error: null },
+    { data: null, error: { message: "database offline" } },
+  ])("final DNC refusal/outage creates no call row and never reaches Voice.js", async response => {
+    outbound.result = response;
+    mount(); await waitFor(() => expect(voice.inits).toHaveLength(1)); await registerLatest();
+    await act(async () => screen.getByText("dial").click());
+    expect(outbound.events).toEqual(["verify"]);
+    expect(outbound.inserts).toEqual([]);
+    expect(callState()).toBe("idle");
+    // The reentrancy guard is released after the failed verification, allowing a safe retry.
+    outbound.result = { data: { blocked: false, match: null }, error: null };
+    voice.dialFactory = fakeOutboundCall;
+    await act(async () => screen.getByText("dial").click());
+    expect(outbound.events).toEqual(["verify", "verify", "insert", "connect"]);
+    expect(outbound.inserts[0]).not.toHaveProperty("duration");
+  });
+  it("reserves the dial before async verification, preventing two clicks from starting two calls", async () => {
+    let finish!: (r: { data: unknown; error: unknown }) => void;
+    outbound.pending = new Promise(resolve => { finish = resolve; });
+    voice.dialFactory = fakeOutboundCall;
+    mount(); await waitFor(() => expect(voice.inits).toHaveLength(1)); await registerLatest();
+    await act(async () => { screen.getByText("dial").click(); screen.getByText("dial").click(); });
+    expect(outbound.events).toEqual(["verify"]);
+    await act(async () => finish(outbound.result));
+    expect(outbound.events).toEqual(["verify", "insert", "connect"]);
+  });
   it("cold start: ONE registration, the status becomes ready on the SDK's `registered` event, and ring outputs are applied to THAT Device (again on deviceChange)", async () => {
     mount();
     await waitFor(() => expect(voice.inits).toHaveLength(1));
