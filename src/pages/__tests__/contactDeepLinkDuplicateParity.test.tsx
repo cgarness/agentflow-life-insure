@@ -9,8 +9,8 @@
  * full-screen surfaces even though their Add / Edit modals had always enforced it.
  *
  * A REFUSAL IS NOT A SUCCESS. `FullScreenContactView` treats a resolved `onUpdate` as proof the
- * write happened — it exits edit mode, clears the dirty flags, writes a "<Type> details updated"
- * activity row and toasts success. So a blocked duplicate, or a cancelled warning, must REJECT.
+ * write happened — it exits edit mode, clears the dirty flags, refreshes persisted history
+ * and toasts success. So a blocked duplicate, or a cancelled warning, must REJECT.
  * These tests assert that on every path, by counting the UPDATEs that actually reached the stub.
  *
  * The REAL page, the REAL `FullScreenContactView`, the REAL `findDuplicates` and the REAL canonical
@@ -40,6 +40,7 @@ const db = vi.hoisted(() => ({
     payload?: Record<string, unknown>; eq: [string, unknown][]; neq: [string, unknown][];
   }[],
   duplicateLookupError: false,
+  historyReads: [] as { name: string; contactId: unknown }[],
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -92,7 +93,13 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (t: string) => builder(t),
-      rpc: () => Promise.resolve({ data: [], error: null }),
+      rpc: (name: string, args?: Record<string, unknown>) => {
+        if (name === "get_contact_conversation_page" || name === "get_contact_activity_page") {
+          db.historyReads.push({ name, contactId: args?.p_contact_id });
+          return { abortSignal: () => Promise.resolve({ data: { items: [], hasMore: false, nextCursor: null }, error: null }) };
+        }
+        return Promise.resolve({ data: [], error: null });
+      },
       auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) },
     },
   };
@@ -205,6 +212,7 @@ const duplicateRow = (phone: string) => ({
 beforeEach(() => {
   db.contacts = {}; db.singles = {}; db.lists = {}; db.duplicates = {}; db.ops = [];
   db.duplicateLookupError = false;
+  db.historyReads = [];
   settingsState.value = null; settingsState.loads = 0; settingsState.fail = false;
   orgState.value = ORG;
   activityAdd.calls = []; toasts.success = []; toasts.error = [];
@@ -278,6 +286,9 @@ describe.each(KINDS)("deep link — %s: the agency's duplicate settings are enfo
   it("manual_action = warn + Save Anyway → exactly ONE canonical UPDATE", async () => {
     settingsState.value = { manualAction: "warn" };
     const f = await mount(kind);
+    const activityReads = () => db.historyReads.filter((r) => r.name === "get_contact_activity_page" && r.contactId === f.id).length;
+    await waitFor(() => expect(activityReads()).toBeGreaterThan(0));
+    const readsBeforeSave = activityReads();
     db.duplicates[f.table] = [duplicateRow("15125559999")];
 
     await editPhoneAndSave(f);
@@ -288,7 +299,8 @@ describe.each(KINDS)("deep link — %s: the agency's duplicate settings are enfo
     await waitFor(() => expect(updatesTo(f.table)).toHaveLength(1));
     expect(db.contacts[f.id].phone).toBe("15125559999");
     await waitFor(() => expect(toasts.success).toHaveLength(1));
-    expect(activityAdd.calls).toHaveLength(1);
+    expect(activityAdd.calls).toHaveLength(0);
+    await waitFor(() => expect(activityReads()).toBeGreaterThan(readsBeforeSave));
   });
 
   it("manual_action = allow → one UPDATE, no prompt", async () => {

@@ -1,3 +1,10 @@
+## 2026-10-03 — Contact history full-suite compatibility correction (PR #407)
+
+- Full frontend run `37146187444` correctly blocked on three obsolete deep-link assertions expecting browser-generated activity rows. Each canonical contact UPDATE and success behavior passed; only the removed duplicate activity writer was expected. Both base and candidate retain the same 88 TypeScript diagnostics, 10 configuration-dependent failed files plus the existing recording-retention test failure, and zero unhandled runtime errors.
+- Added `src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx` to the manifest (43 files total): provide the persisted-history RPC response in the Supabase stub, retain every duplicate detection/refusal/one-update assertion, assert no frontend activity insert and verify a contact-scoped Activity reread after successful save. No runtime, database, telephony or CI-gate change.
+- Verification: all 50 tests in the deep-link, save failure, status save and history hook suites pass; focused ESLint and diff checks pass. Rerun the unchanged full CI gate on the corrected head. DNC/backend checks and both previews already pass at the preceding head; final results are maintained on PR #407.
+- Production hold unchanged: two migrations remain unapplied; no main merge or production release. This entry, the two plan files and one regression file are the complete correction scope.
+
 ## 2026-10-03 — Contact history review published — PR #407; production held
 
 - **Authority:** Chris said “Continue” after the local build handoff and then “finish the task.” Published the feature branch/draft PR and automatic previews only; no production migration, main merge, customer action or production release approval inferred.
