@@ -50,7 +50,6 @@ const PRESET_COLORS = [
   { name: "Gray", hex: "#6B7280" },
   { name: "Teal", hex: "#14B8A6" },
 ];
-
 const TABS = ["Pipeline Stages", "Custom Fields", "Lead Sources", "Duplicate Detection", "Required Fields", "Field Layout"];
 
 function canManageContactFlow(profile: ReturnType<typeof useAuth>["profile"]): boolean {

@@ -1,3 +1,9 @@
+## 2026-10-03 — Contact field fix preview accepted; production release authorized
+
+Chris reviewed the hosted preview and said “looks good approved” at 14:35 PDT. PR #410 publishes the field-identity fix only; main remains c8b3a682. Published a41f4630 and tested local 78bd9205 have identical tree 534a0237c14c30617addea062def894cb44a6f6b. Vercel preview dpl_FDi9S7bUWDwbrBM2zADup1d46jyS is READY at https://agentflow-2f5ebke9u-cgarness-projects.vercel.app/ and loads in the hosted browser. This approval supersedes the earlier branch-only hold. Automated desktop/narrow verification remains unclaimed; owner preview acceptance is recorded separately.
+
+Before merge, keep the normal frontend/DNC/A2P checks. A single blank-line removal in ContactManagement preserves the location of its existing MappableCustomField.active TypeScript diagnostic for the CI comparator; no code behavior or check is weakened. Exact scope remains 13 files. No production data/definitions, migrations, RLS, Edge, import or telephony change is part of this release.
+
 ## 2026-10-03 — IMPLEMENTED, NOT DEPLOYED: Contact Details / Field Layout logical identity
 
 - **Authority/scope:** Chris requested complete isolated implementation and verification, with merge/deploy/production mutation separately gated. Branch `codex/contact-detail-field-identity`, refreshed onto main `c8b3a682f701a6421ba7439288f87b1e7d33b80f` after PR #407/#408 shipped during this task. Their Conversation/Activity implementation and prior Dialer/DNC/A2P protections remain intact. Production ref checked against AGENT_RULES: `jncvvsvckxhqgqvkppmj`; no production connection made.
