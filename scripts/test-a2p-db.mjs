@@ -20,7 +20,7 @@ try {
  grant select on profiles to authenticated;
  grant all on all tables in schema public to service_role;
  `);
-  await db.exec(await readFile("supabase/migrations/20261003160224_a2p_registration_workflow.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/20261003174429_a2p_registration_workflow.sql", "utf8"));
   await db.exec(await readFile("supabase/tests/a2p_registration.sql", "utf8"));
   console.log("A2P migration, RLS, stale sync, ordered events, notification idempotency: PASS");
 } finally {

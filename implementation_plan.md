@@ -2110,3 +2110,7 @@ No migration, RLS/data change, Edge/telephony deployment or live call occurred. 
 ## §23. A2P registration — October 3, 2026
 
 Chris approved implementation after the complete feature proposal. The isolated build, exact file list, provider prerequisites, verification, and production boundaries are recorded in `docs/plans/2026-10-03-a2p/implementation_plan.md`. No production registration, fee, migration, or deployment is authorized by this branch build.
+
+### §23 production release authorization and backend verification
+
+Chris approved applying the A2P migration, deploying the five backend functions, and merging PR #406 at 10:37 PDT on October 3. This supersedes the branch-only restriction above for those exact actions. Migration `20261003174429` and all five complete Edge bundles are deployed and verified; account configuration is empty and submissions remain disabled. Reconcile the migration filename/test reference without changing SQL bytes, append deployment evidence to the existing A2P docs/WORK_LOG/AGENT_RULES, rerun CI, and verify the frontend after merge. Twilio entitlement/mappings/fees, Event Streams and worker setup remain activation prerequisites; no paid registration or customer message is authorized.

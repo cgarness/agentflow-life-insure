@@ -1,6 +1,6 @@
 # A2P registration — implementation plan
 
-Chris authorized implementation and completion on October 3, 2026 after reviewing the complete feature proposal. Branch: `codex/a2p-registration-20261003`; original base: `40e0deaed008dafb3674235930bf7bb941546989`. Updated to main `c6681d66cf1e25ef2b36b8d6abce54ecaf661f3d` before publishing, preserving PRs #404–405. This authorizes branch implementation and isolated verification, not production mutations, merging, registration fees, or customer messages.
+Chris authorized implementation and completion on October 3, 2026 after reviewing the complete feature proposal. Branch: `codex/a2p-registration-20261003`; original base: `40e0deaed008dafb3674235930bf7bb941546989`. Updated to main `c6681d66cf1e25ef2b36b8d6abce54ecaf661f3d` before publishing, preserving PRs #404–405. The initial approval covered branch implementation and isolated verification. Chris separately approved applying the migration, deploying all five backend functions and merging PR #406 at 10:37 PDT. Registration submissions remain disabled pending Twilio account verification; fees and customer messages remain excluded.
 
 ## Decisions
 
@@ -38,3 +38,7 @@ Implemented all planned source paths; added `scripts/verify-a2p-types.mjs` for e
 ## CI follow-up scope
 
 PR #406 initial broad frontend gate stopped before testing because its runner rejects any package-lock change. Add exactly `scripts/verify_reports_frontend.py` to the intended files: independently install the exact base dependencies when locks differ, retaining all existing comparisons/assertions. Pin the hosted SDK’s transitive Persona dependency to its published React 18-compatible 6.3.0 release through a scoped npm override. Re-run all gates; do not skip or weaken them.
+
+## Approved release bookkeeping
+
+Production backend is deployed as documented in `release.md`. Reconcile the generated migration filename to applied version `20261003174429` without changing SQL bytes, update `scripts/test-a2p-db.mjs`, and record the authorization, permissions, full-bundle readback and endpoint checks in existing documentation. No additional runtime files change. Merge PR #406 after the updated CI passes, then verify both normal Vercel production deployments.
