@@ -79,6 +79,7 @@ vi.mock("@/lib/twilio-voice", () => ({
   getTwilioDevice: vi.fn(() => voice.registered),
   getCallSid: vi.fn(() => "CA" + "1".repeat(32)),
   getCallDirection: vi.fn((call: { direction?: string }) => call?.direction ?? "incoming"),
+  findTwilioRemoteAudioElement: vi.fn(() => null), // Fake SDK has no remote audio element.
   // Real wrapper returns call.status(); the fake Call models the SDK: "open" only after `accept`.
   getCallStatus: vi.fn((call: { status?: () => string }) => call?.status?.() ?? "pending"),
   clearIncomingCallHandlers: vi.fn(),

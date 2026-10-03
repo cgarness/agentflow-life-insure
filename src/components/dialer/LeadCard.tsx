@@ -20,6 +20,8 @@ interface LeadCardProps {
    * Personal campaigns always receive 'connected' regardless of actual call state.
    */
   callStatus: CallStatus;
+  /** Team-only presentation override; undefined preserves existing Personal/Open Pool display. */
+  teamDetailsVisible?: boolean;
   /** Number of call attempts already made on this campaign_lead. */
   callAttempts: number;
   /** Campaign max_attempts. null = unlimited. */
@@ -39,7 +41,7 @@ interface LeadCardProps {
   agents?: { id: string; firstName: string; lastName: string }[];
   /**
    * Team / Open Pool only: replaces the legacy connected grid (Personal never passes it). Rendered
-   * solely inside the `connected` branch, so the idle and ringing stages are unchanged.
+   * inside the full grid. Team may display it before a call; Open Pool retains its staged display.
    */
   teamOpenDetails?: React.ReactNode;
 }
@@ -111,6 +113,7 @@ function Field({
 export default function LeadCard({
   lead,
   callStatus,
+  teamDetailsVisible,
   callAttempts,
   maxAttempts,
   lastDisposition,
@@ -139,8 +142,11 @@ export default function LeadCard({
     prevLeadId.current = leadId;
   }, [leadId]);
 
+  // Team presentation is independent of the outbound state used by edit/conversion gates.
+  const displayStatus = teamDetailsVisible === undefined ? callStatus : teamDetailsVisible ? "connected" : "idle";
+
   // ── idle ──────────────────────────────────────────────────────────────────
-  if (callStatus === "idle" || !lead || isAdvancing) {
+  if (displayStatus === "idle" || !lead || isAdvancing) {
     return (
       <div className="p-4 flex-1">
         <LeadInfoSkeleton />
@@ -149,7 +155,7 @@ export default function LeadCard({
   }
 
   // ── ringing ───────────────────────────────────────────────────────────────
-  if (callStatus === "ringing") {
+  if (displayStatus === "ringing") {
     return (
       <LeadCardBlurred
         firstName={String(lead.first_name || "")}

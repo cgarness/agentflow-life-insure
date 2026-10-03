@@ -6,15 +6,17 @@ import os
 import re
 import subprocess
 import sys
+from frontend_runtime_error_compare import runtime_error_signatures, selftest
 
 root = Path(__file__).resolve().parents[1]
 evidence = Path(os.environ.get('REPORTS_EVIDENCE', '/tmp/reports-frontend-evidence')).resolve()
 evidence.mkdir(parents=True, exist_ok=True)
 base = Path(os.environ['REPORTS_BASE_WORKTREE']).resolve()
 
-def run(label: str, cwd: Path, args: list[str]) -> int:
+def run(label: str, cwd: Path, args: list[str], extra_env=None) -> int:
     with (evidence / f'{label}.log').open('w') as out:
-        result = subprocess.run(args, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, timeout=1200, check=False)
+        result = subprocess.run(args, cwd=cwd, stdout=out, stderr=subprocess.STDOUT, timeout=1200,
+                                check=False, env={**os.environ, **(extra_env or {})})
     print(f'{label}: exit {result.returncode}', flush=True)
     return result.returncode
 
@@ -22,10 +24,14 @@ if (root/'package-lock.json').read_bytes() != (base/'package-lock.json').read_by
     sys.exit('Dependency drift: independently install and verify base before comparing')
 os.symlink(root/'node_modules', base/'node_modules', target_is_directory=True)
 checks = {}
+selftest()
 for name, cwd in [('base', base), ('branch', root)]:
     checks[f'{name}_root_tsc'] = run(f'{name}-root-tsc', cwd, ['npx','--no-install','tsc','--noEmit'])
     checks[f'{name}_app_tsc'] = run(f'{name}-app-tsc', cwd, ['npx','--no-install','tsc','-p','tsconfig.app.json','--noEmit'])
-    checks[f'{name}_vitest'] = run(f'{name}-vitest', cwd, ['npx','--no-install','vitest','run','--maxWorkers=2','--minWorkers=1','--reporter=json',f'--outputFile={evidence/name}.json'])
+    checks[f'{name}_vitest'] = run(f'{name}-vitest', cwd,
+        ['npx','--no-install','vitest','run','--maxWorkers=2','--minWorkers=1','--reporter=json',
+         f'--reporter={root}/scripts/vitest-runtime-error-reporter.mjs',f'--outputFile={evidence/name}.json'],
+        {'VITEST_RUNTIME_ERROR_FILE': str(evidence/f'{name}-runtime-errors.json')})
 
 def type_errors(name: str) -> list[str]:
     lines = (evidence/f'{name}-app-tsc.log').read_text().splitlines()
@@ -57,7 +63,15 @@ def runtime_errors(j, name):
         if matches: assert count==int(matches[-1]), 'Runtime error reporters disagree'
         return count
     return int(matches[-1]) if matches else None
-assert runtime_errors(bj,'base')==runtime_errors(hj,'branch'), 'Unhandled runtime error count differs'
+runtime_evidence = {name: json.loads((evidence/f'{name}-runtime-errors.json').read_text())
+                    for name in ('base', 'branch')}
+runtime_signatures = {name: runtime_error_signatures(value, (base, root))
+                      for name, value in runtime_evidence.items()}
+for name, result in (('base', bj), ('branch', hj)):
+    reported = runtime_errors(result, name)
+    if reported is not None:
+        assert reported == sum(runtime_signatures[name].values()), 'Runtime error reporters disagree'
+assert not (runtime_signatures['branch'] - runtime_signatures['base']), 'New unhandled runtime error'
 assert checks['base_vitest']==checks['branch_vitest'], 'Vitest process status differs from base'
 report_tests=sorted(str(p.relative_to(root)) for p in (root/'src').rglob('*.test.*')
                     if any(t in p.name.lower() for t in ['reports','reportstat','normalizedpolicy']))
@@ -72,6 +86,7 @@ summary={'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text
          'base_sha':os.environ['REPORTS_BASE_SHA'],'checks':checks,
          'base_passed':bj.get('numPassedTests'),'branch_passed':hj.get('numPassedTests'),
          'preexisting_failed_tests':hj.get('numFailedTests'),'preexisting_failed_files':hfail[0],
-         'app_type_errors':len(type_errors('branch')),'reported_unhandled_errors':runtime_errors(hj,'branch')}
+         'app_type_errors':len(type_errors('branch')),
+         'reported_unhandled_errors':sum(runtime_signatures['branch'].values())}
 (evidence/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 print(json.dumps(summary,indent=2))

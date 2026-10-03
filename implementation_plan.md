@@ -1937,3 +1937,12 @@ are verified; advisors were run. No customer rows or unrelated runtime behavior 
 Full release evidence, tested-head references and limitations are recorded in
 docs/plans/2026-09-28-reports-analytics/POLICIES_RELEASE_2026-10-02.md.
 Signed-in browser interaction is still unverified; old tabs should reload.
+
+
+---
+
+## §21. Team campaign lead visibility — display-only scope (October 2, 19:22 LA)
+
+Chris clarified and approved: current Team leads show the existing full details grid without waiting for a call to connect; keep locking and ownership logic unchanged. The new manager review workflow and full-record access expansion are withdrawn from this release.
+
+Implementation and release checks: `docs/plans/2026-09-29-team-campaign-visibility/implementation_plan.md`. Display-only changes retain canonical current-lock confirmation, stale-load masking, and existing Edit/Sold/Convert gates. No new RPC or Contacts read permission. Existing authorization may still limit master fields; retain the campaign-copy notice. The two earlier applied migrations remain recorded and are not rerun. Pending P2 and its frontend hook are removed. PR #401 is the narrowed review/release surface.

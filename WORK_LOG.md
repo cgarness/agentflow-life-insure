@@ -1,3 +1,76 @@
+## 2026-10-02 — Team dialer scope correction — unblur existing details only
+
+- Chris explicitly corrected scope at 19:22 LA and approved proceeding: Team dialer details visible like Personal; preserve existing locking/ownership.
+- Restored the tested display-only implementation: Team full grid after canonical current-lock confirmation, independent of call answer. Existing data sources and Edit/Sold/Convert gates remain. Personal/Open display unchanged.
+- Removed unshipped P2 reader/claim/ACL migration, privileged display hook and backend-only release harness. Withdrew historical manager-review release gate and design. No review UI, business-row repair, or database mutation.
+- Kept the two already-applied P1/P1B migration files byte-for-byte as immutable history. They are not reapplied or reversed. Prior broader implementation is preserved in Git history at a2727d8.
+- Files and verification plan are in the scoped implementation_plan.md; PR #401 will carry the narrowed release. Existing Contacts authorization still limits unavailable master fields; this is removal of display blur, not a permission expansion.
+- Verification: 71 focused card/hook/real-page/wiring tests pass, root TypeScript passes. Exact-head CI and deployment remain pending; build result will be recorded in PR.
+
+## 2026-10-02 — Team visibility release — P1/P1B APPLIED; P2/FRONTEND BLOCKED
+
+- Chris approved the staged production handoff at 11:47 LA. Exact tested source: 3927292fa12dfd47cdca5116779828c345be79ab. Read-only preflight matched function fingerprints/owners, policies and counter triggers.
+- Applied and catalog-verified queue provenance **20261002184930** and association provenance **20261002184954**. SQL bytes match reviewed candidates. Existing lock TTL/renewal and claim remain; no forced unlock, backfill or ownership mutation. New canonical queue requests already issue proven locks.
+- P2/merge/frontend are BLOCKED: 347 historical home-agency associations need explicit manager review (four source/type eligibility conflicts); 472 other-agency associations require those agencies’ authorized managers. No genuine manager session supplied; never spoof JWT context or bypass the validator. One old active lock remained at 18:51 UTC, expiring 18:56:01; leave it naturally.
+- Reconciled immutable P1/P1B filenames with hosted migration history and CLI-created pending P2 20261002185105 after them; all SQL bytes unchanged. Updated runner paths/scoped plan/design. No display reader installed, no PR merge or frontend deployment.
+- Recovery remains disable-only reader/client rollback with security containment retained. Private exact home-agency review manifest prepared for bounded review; no blanket legacy validation or repair approved/performed.
+
+## 2026-10-02 — Team full-record access — IMPLEMENTED; NATIVE CI AND PRODUCTION RELEASE GATED
+
+- **Authority:** Chris’s “Start the next steps and complete the task” authorizes the coordinated branch build and isolated verification. No production mutation, merge or deploy.
+- **Implementation:** canonical queue lock provenance; exact private source-association provenance from authorized attachments or explicit manager review; immutable client identities/contained ACLs; same-signature guarded claim; authenticated Team-only whitelisted display DTO, separate from the RLS master used for Edit/Sold/Convert.
+- **Preserved:** TTL/heartbeat, queue ordering/SKIP LOCKED, retry/recent-call guard, callback priority, Skip, Save Only/Save & Next, hard-claim threshold and telephony. Old lock timestamps unchanged; general Contacts SELECT policies unchanged.
+- **Evidence:** staged authenticated SQL/RLS suites pass in isolated PostgreSQL WASM; build/root tsc pass; app tsc retains 90 baseline diagnostics; lint zero errors/18 existing warnings. Native PostgreSQL run 37046986203 at d63ba746 passes queue and ownership races, staged refusal gates and all six negative mutation controls. Added conversion FK regression also passes isolated SQL; final exact-head CI remains mandatory.
+- **Release:** P1 → P1B → natural departure of old locks → explicit bounded historical review → P2 → frontend. No blanket backfill or forced unlock. Recovery revokes only the new reader and retains containment.
+- **Files:** three CLI-created `20261002*team_dialer*.sql` migrations; synthetic SQL suites/disable ops; dependency extractor/isolated runner/backend workflow; display hook/tests; DialerPage/details/page tests; scoped plan/design and this log. PR #401 is the review surface.
+
+## 2026-10-02 — [DONE] Team campaign lead details frontend — IMPLEMENTED AND VERIFIED; PRODUCTION RELEASE PENDING
+
+- **Authority:** Chris requested full Team details with unchanged locks (September 29), then instructed
+  “I want you to start the build and complete the task” (October 2). Implemented the presented Team-only
+  frontend scope. Remaining master-data access is separately designed, not silently granted.
+- **Behavior:** Team displays populated authorized contact/import/custom fields as soon as its canonical
+  queue load confirms the current lead and lock, before dialing and while ringing. Current visit,
+  organization/viewer/campaign, queue/master identities and confirmed lock must match. Loading,
+  advancing, lock loss or a stale visit/load masks immediately. Personal/Open Pool retain their presentation.
+- **Preserved:** original outbound action state; Edit/Sold/Convert gates; field order, blanks, 0/false and
+  reserved-key filtering; get_next_queue_lead and all lock/claim/advance RPCs; five-minute TTL, 30-second
+  heartbeat, transient-error handling, Skip suppression, retry/recent-call protection, callback ownership,
+  Save/Save & Next/failed-save behavior; Twilio, canonical telemetry and dependencies. No new reads/timers.
+- **Files:** DialerPage, LeadCard, shared TeamOpenLeadDetails comments; new teamCampaignLeadVisibility
+  helper/useTeamCampaignLeadVisibility hook and hook/card tests; existing real-page save and wiring tests;
+  inert Twilio reveal test mock; scoped implementation plan, separate access design and root §21 pointer.
+  Test mounts now clear their campaign cache. The Twilio mock supplies its missing audio lookup; its
+  pre-existing unhandled rejection was reproduced on the base before correcting the test boundary.
+- **Verification:** latest-base dialer checks 24 files / 308 passed, no unhandled errors; Los Angeles
+  feature/appointment checks 5 files / 69 passed. Fail-first card check: 3 failed / 4 passed on the base.
+  Production bundle build passes. Root tsc exits 0 (zero app files); app tsc matches the exact latest base's
+  90 diagnostic multiset, no new errors. Feature-file and DialerPage ESLint exit 0 (18 existing warnings).
+  Three prefer-const declarations were corrected without changing any expression/control flow.
+  React review and diff/scope checks complete. External boundaries were mocked; no
+  live call, hosted mutation or new authenticated database harness was run.
+- **Branch/source:** `codex/team-campaign-lead-visibility`, source commit
+  `1e2a664af05e5e62f53d7e7906ec6fbd33577caa`, rebased without conflicts onto main
+  `e04eb16dc6fc70734f85868ab5235186d0ce4813` before handoff. Published source + record commit
+  `71fa5d9dfd82720b478c8780eff572ed24c3fe44` in draft PR #401:
+  https://github.com/cgarness/agentflow-life-insure/pull/401. CLI push lacked write credentials, so
+  GitHub tools published the branch. All 14 file blobs and full tree SHA matched the verified local
+  checkout; this publication entry follows the branch write in the same session.
+- **CI follow-up:** the initial verifier passed baseline comparison, Reports tests and build, then failed
+  on those three old lint findings. The verification scripts now capture explicit Vitest completion errors
+  and reject new fingerprints while allowing removals; omitted JSON/log counts are never false zeroes.
+  Fail-closed self-tests pass. Actual reporter probes capture one main mock error and zero corrected errors.
+  Files: verify_reports_frontend.py, frontend_runtime_error_compare.py, vitest-runtime-error-reporter.mjs.
+- **Concurrent main update:** merged `b630bf0ba5c5b3cb166252ca59ed3284f3e3db2d` (Reports production
+  release record and final release fixes) after publication. Preserved both documentation entries and
+  every main release change; the main update changes no Team display, calling or lock implementation.
+  Documentation conflicts had prevented CI for the latest candidate; the resolved branch reruns it.
+- **Remaining dependency:** an RLS-hidden master row still cannot supply its custom fields to an Agent.
+  `full-record-access-design.md` is a review draft for coordinated claim/lock/association provenance,
+  active-tab/legacy transition and isolated adversarial SQL verification. No SQL accompanies it.
+  Full-field parity for every Agent is not claimed. No merge, push to main, production deployment,
+  Supabase mutation, RLS/grant change or live dial occurred.
+
 ## 2026-10-02 — Reports Policies Sold production release — LIVE; database reconciliation verified
 
 - Chris explicitly approved PR #399 and its reviewed migration. PR #399 merged as `e04eb16dc6fc70734f85868ab5235186d0ce4813`.

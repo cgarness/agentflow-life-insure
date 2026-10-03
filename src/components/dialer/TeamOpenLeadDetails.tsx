@@ -46,9 +46,9 @@ function Notice({ status, onRetry }: { status: TeamOpenMasterStatus; onRetry: ()
 }
 
 /**
- * TeamOpenLeadDetails — the connected-state field grid for Team / Open Pool campaigns only.
- * Rendered by LeadCard exclusively inside its existing `connected` branch, so the idle skeleton
- * and the ringing `LeadCardBlurred` stages are untouched.
+ * TeamOpenLeadDetails — the authorized field grid for Team / Open Pool campaigns only.
+ * Team displays it after queue-lock confirmation, independent of call state. Open Pool keeps
+ * the connected-state presentation. Database reads and edit permissions are separate gates.
  */
 export default function TeamOpenLeadDetails({
   fields,

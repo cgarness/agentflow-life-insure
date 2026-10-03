@@ -80,7 +80,7 @@ describe("DialerPage — Team/Open lead details wiring", () => {
     expect(src).toContain("context: teamOpenMaster.context");
     expect(src).toContain("teamOpenMaster.adopt(context, master);");
     expect(src).not.toMatch(/identityKey\.split\(/);
-    expect(src).toContain("isEditing={isEditingContact && teamOpenEdit.active}");
+    expect(src).toContain("isEditing={isEditingContact && teamOpenEdit.active && (!isTeamCampaign || canEditTeamOpen)}");
   });
 
   it("the loader only ADDS the RLS-governed master row; the lock / claim calls are unchanged", () => {

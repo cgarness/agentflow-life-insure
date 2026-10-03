@@ -16,10 +16,11 @@
  * Process boundaries are mocked (Supabase client, auth/org/Twilio/branding/permission contexts, toast); the
  * dialer-api WRITERS run for real. TimeSelect (a Radix Select) is swapped for a native input that emits the
  * same "h:mm AM/PM" values. Run under `TZ=UTC` and `TZ=America/Los_Angeles`.
+ * Also verifies Team pre-call display against those real lock/save handlers (no Voice SDK calls).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -38,6 +39,9 @@ const h = vi.hoisted(() => ({
   rpc: [] as Array<{ name: string; args: Record<string, unknown> }>,
   events: [] as string[],
   failAppointmentInsert: false,
+  failCallWrite: false,
+  emptyQueue: false,
+  renewal: "owned" as "owned" | "lost" | "error",
   /** Fail only the appointments INSERTs whose payload matches (e.g. the appointment but not the shadow). */
   failAppointmentWhen: null as null | ((payload: Record<string, unknown>) => boolean),
   /** How the Calendar refresh behaves: resolves, rejects, throws synchronously, or is missing entirely. */
@@ -52,7 +56,7 @@ const h = vi.hoisted(() => ({
 }));
 
 const LEAD_ROW = {
-  id: CL, lead_id: LEAD, campaign_id: CAMP, first_name: "Jane", last_name: "Probe", phone: "+15125550123",
+  id: CL, lead_id: LEAD, campaign_id: CAMP, organization_id: ORG, first_name: "Jane", last_name: "Probe", phone: "+15125550123",
   email: "jane@probe.local", state: "TX", status: "Queued", call_attempts: 0, last_called_at: null,
 };
 
@@ -79,6 +83,9 @@ function makeBuilder(table: string) {
     if (table === "appointments" && op === "insert" && failThisInsert) {
       return Promise.resolve({ data: null, error: { message: "boom:appointments" } }).then(res, rej);
     }
+    if (table === "calls" && op !== "select" && h.failCallWrite) {
+      return Promise.resolve({ data: null, error: { message: "boom:calls" } }).then(res, rej);
+    }
     const rows = h.tableData[table] ?? [];
     const data = op === "select" ? (single ? rows[0] ?? null : rows) : null;
     return Promise.resolve({ data, error: null }).then(res, rej);
@@ -99,8 +106,11 @@ vi.mock("@/integrations/supabase/client", () => ({
           scheduled_callback_at: args.p_callback_due_at, callback_agent_id: USER,
         }, error: null });
       }
-      if (name === "get_next_queue_lead") return Promise.resolve({ data: [LEAD_ROW], error: null });
-      if (name === "renew_lead_lock" || name === "release_lead_lock") return Promise.resolve({ data: true, error: null });
+      if (name === "get_next_queue_lead") return Promise.resolve({ data: h.emptyQueue ? [] : [LEAD_ROW], error: null });
+      if (name === "renew_lead_lock") return Promise.resolve(h.renewal === "error"
+        ? { data: null, error: { message: "temporary renewal error" } }
+        : { data: h.renewal === "owned", error: null });
+      if (name === "release_lead_lock") return Promise.resolve({ data: true, error: null });
       if (name === "start_dialer_session") {
         return Promise.resolve({ data: { id: "sess-1", campaign_id: CAMP, started_at: new Date().toISOString() }, error: null });
       }
@@ -127,7 +137,7 @@ const stable = vi.hoisted(() => {
   const twilio = {
     status: "ready", errorMessage: null, callState: "idle", callDuration: 0,
     currentCall: null, availableNumbers: [], selectedCallerNumber: null,
-    setSelectedCallerNumber: () => {}, makeCall: async () => null, hangUp: () => {},
+    setSelectedCallerNumber: () => {}, makeCall: vi.fn(async () => null), hangUp: () => {},
     lastCallDirection: null, hangUpOrphan: () => {}, dismissOrphanCall: () => {},
     orphanCall: null, initializeClient: async () => {}, destroyClient: () => {},
     getSmartCallerId: async () => null, setCallerIdCampaignGroupId: () => {},
@@ -220,23 +230,28 @@ import DialerPage from "@/pages/DialerPage";
 const ABSOLUTE_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})$/;
 
 beforeEach(() => {
+  // Campaign hydration and queue preferences must not carry over from the previous mount.
+  localStorage.clear();
   (globalThis as Record<string, unknown>).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
   (globalThis as Record<string, unknown>).IntersectionObserver ??= class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } };
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
   h.writes = []; h.rpc = []; h.events = []; h.failAppointmentInsert = false; h.campaignType = "Personal";
   h.failAppointmentWhen = null; h.refreshMode = "resolve"; calendar.v = null;
+  h.failCallWrite = false; h.emptyQueue = false; h.renewal = "owned";
   h.tableData = {};
+  stable.twilio.makeCall.mockClear();
   calendar.addAppointment.mockClear(); h.fetchAppointments.mockClear(); api.saveAppointmentSpy.mockClear();
   for (const k of ["error", "success", "loading", "dismiss", "info"] as const) h.toast[k].mockClear();
 });
-afterEach(() => { cleanup(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-async function mountOnLead(campaignType: "Personal" | "Team" = "Personal") {
+async function mountOnLead(campaignType: "Personal" | "Team" | "Open Pool" = "Personal", master?: Record<string, unknown> | null) {
   h.campaignType = campaignType;
   h.tableData = {
     campaigns: [{ id: CAMP, name: "Mine", type: campaignType, status: "Active", user_id: USER, assigned_agent_ids: [USER], created_by: USER }],
     // One converting lead stage (read by the conversion gate and the lead-status colour lookup).
     pipeline_stages: [{ id: STAGE, name: "Sold", color: "#22c55e", convert_to_client: true, pipeline_type: "lead", order: 1 }],
+    ...(master === undefined ? {} : { campaign_leads: [{ ...LEAD_ROW, lead: master }] }),
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
   render(
@@ -412,6 +427,132 @@ describe("Team/Open campaign (lock mode)", () => {
     expectSilentRefreshAfterInserts(1);
     // Team/Open lifecycle continues exactly as before: the lock is released and the next lead requested.
     await waitFor(() => expect(h.rpc.some((r) => r.name === "release_lead_lock")).toBe(true));
+  }, 30000);
+});
+
+const AUTHORIZED_MASTER = {
+  id: LEAD, organization_id: ORG, user_id: USER,
+  notes: "Ask about the imported coverage goal",
+  custom_fields: { CoverageGoal: "Final expense", Smoker: false, Empty: "", __agentflow: "private" },
+};
+
+describe("Team lead details with the existing lock lifecycle", () => {
+  it("shows the authorized master fields before calling while Edit and Sold/Convert stay gated", async () => {
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    const grid = await screen.findByTestId("team-open-lead-details");
+    expect(within(grid).getByText("Final expense")).toBeInTheDocument();
+    expect(within(grid).getByText("No")).toBeInTheDocument();
+    expect(within(grid).getByText(AUTHORIZED_MASTER.notes)).toBeInTheDocument();
+    expect(within(grid).queryByText("Empty")).toBeNull();
+    expect(grid.textContent).not.toContain("__agentflow");
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+    expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
+    expect(screen.getByTitle(/Editing is available once this lead is connected/)).toBeDisabled();
+    pickDisposition(/^sold later$/i);
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(
+      expect.stringMatching(/isn't the one you dialled under your current lock/), expect.anything(),
+    ));
+    expect(screen.queryByRole("button", { name: /complete conversion/i })).toBeNull();
+    expect(h.writes.filter((w) => ["calls", "appointments", "leads", "campaign_leads"].includes(w.table))).toEqual([]);
+    expect(h.rpc.filter((r) => ["claim_lead", "advance_campaign_lead", "release_lead_lock"].includes(r.name))).toEqual([]);
+    expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
+  }, 30000);
+
+  it("shows the campaign copy and an access notice when the master row is RLS-hidden", async () => {
+    await mountOnLead("Team", null);
+    const grid = await screen.findByTestId("team-open-lead-details");
+    expect(within(grid).getByText("Jane")).toBeInTheDocument();
+    expect(within(grid).getByText(/full contact record isn't available to you yet/)).toBeInTheDocument();
+    expect(within(grid).queryByText("Final expense")).toBeNull();
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+    expect(h.rpc.some((r) => r.name === "claim_lead")).toBe(false);
+  }, 30000);
+
+  it("keeps Open Pool staged before an outbound call", async () => {
+    await mountOnLead("Open Pool", AUTHORIZED_MASTER);
+    await waitFor(() => expect(h.rpc.some((r) => r.name === "get_next_queue_lead")).toBe(true));
+    expect(screen.queryByTestId("team-open-lead-details")).toBeNull();
+    expect(screen.queryByText("Final expense")).toBeNull();
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+  }, 30000);
+
+  it("keeps Personal on its existing full card without acquiring a Team lock", async () => {
+    await mountOnLead("Personal");
+    expect(await screen.findByText("Jane")).toBeInTheDocument();
+    expect(screen.queryByTestId("team-open-lead-details")).toBeNull();
+    expect(h.rpc.some((r) => r.name === "get_next_queue_lead")).toBe(false);
+  }, 30000);
+
+  it.each(["owned", "error"] as const)("renews the same queue-row lock every 30 seconds and keeps details on %s", async (renewal) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    h.renewal = renewal;
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(h.rpc.filter((r) => r.name === "renew_lead_lock")).toEqual([
+      { name: "renew_lead_lock", args: { p_campaign_lead_id: CL } },
+    ]);
+    expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
+    expect(h.rpc.some((r) => r.name === "release_lead_lock" || r.name === "claim_lead")).toBe(false);
+  }, 30000);
+
+  it("masks on definitive lock loss and requests the next lead through the existing queue RPC", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    h.renewal = "lost"; h.emptyQueue = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await waitFor(() => expect(screen.queryByTestId("team-open-lead-details")).toBeNull());
+    expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(2);
+    expect(h.rpc.some((r) => r.name === "claim_lead" || r.name === "advance_campaign_lead")).toBe(false);
+  }, 30000);
+
+  it("Skip keeps per-agent suppression and release-before-next without incrementing attempts", async () => {
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    h.emptyQueue = true;
+    fireEvent.click(screen.getByRole("button", { name: /^skip$/i }));
+    await waitFor(() => expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(2));
+    expect(h.writes.filter((w) => w.table === "campaign_lead_agent_suppressions")).toEqual([
+      { table: "campaign_lead_agent_suppressions", op: "upsert", payload: expect.objectContaining({
+        organization_id: ORG, campaign_id: CAMP, campaign_lead_id: CL, agent_id: USER, reason: "skip",
+      }) },
+    ]);
+    expect(h.rpc.filter((r) => r.name === "release_lead_lock")).toEqual([
+      { name: "release_lead_lock", args: { p_campaign_lead_id: CL } },
+    ]);
+    expect(h.events.lastIndexOf("rpc:get_next_queue_lead")).toBeGreaterThan(h.events.indexOf("rpc:release_lead_lock"));
+    expect(advanceCalls()).toHaveLength(0);
+    expect(h.writes.some((w) => w.table === "campaign_leads")).toBe(false);
+    expect(screen.queryByTestId("team-open-lead-details")).toBeNull();
+  }, 30000);
+
+  it("Save keeps the existing lock and the visible Team details", async () => {
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    pickDisposition(/^call back$/i);
+    fillCallback("2026-10-15", "2:30 PM");
+    await save("Save");
+    expect(advanceCalls()).toHaveLength(1);
+    expect(advanceCalls()[0].args.p_release_lock).toBe(false);
+    expect(h.rpc.some((r) => r.name === "release_lead_lock")).toBe(false);
+    expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
+    expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
+  }, 30000);
+
+  it("a failed call save retains the lock, lead, and current details without advancing", async () => {
+    await mountOnLead("Team", AUTHORIZED_MASTER);
+    await screen.findByTestId("team-open-lead-details");
+    h.failCallWrite = true;
+    pickDisposition(/^call back$/i);
+    fillCallback("2026-10-15", "2:30 PM");
+    fireEvent.click(screen.getByRole("button", { name: /^save & next$/i }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("Failed to save: boom:calls", expect.anything()));
+    expect(advanceCalls()).toHaveLength(0);
+    expect(h.rpc.some((r) => r.name === "release_lead_lock" || r.name === "claim_lead")).toBe(false);
+    expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
+    expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
   }, 30000);
 });
 
