@@ -205,17 +205,18 @@ async function renderLoaded() {
   await screen.findByText("Alpha outbound text");
 }
 
-describe("agency-configured disposition badge colors", () => {
-  it("renders 'Appointment Set' with the configured #8B5CF6 tinted treatment", async () => {
+describe("agency-configured disposition text colors", () => {
+  it("renders 'Appointment Set' with the configured #8B5CF6 text color and no nested pill", async () => {
     h.dispositions = [{ name: "Appointment Set", color: "#8B5CF6" }];
     seedFixtures();
     await renderLoaded();
     const badge = screen.getByText("Appointment Set");
     expect(badge).toHaveStyle({
       color: "#8B5CF6",
-      backgroundColor: "rgba(139, 92, 246, 0.15)",
     });
     expect(badge.className).not.toContain("bg-muted");
+    expect(badge).toHaveClass("!bg-transparent");
+    expect(badge).not.toHaveClass("rounded-full");
     // Org-scoped, fetched once at the parent level — never per timeline item.
     expect(h.getAllCalls).toEqual(["org-1"]);
   });
@@ -233,8 +234,7 @@ describe("agency-configured disposition badge colors", () => {
     seedFixtures();
     await renderLoaded();
     const legacyBadge = screen.getByText("Old Legacy Outcome");
-    expect(legacyBadge.className).toContain("bg-muted");
-    expect(legacyBadge.className).toContain("text-foreground/70");
+    expect(legacyBadge).toHaveClass("text-muted-foreground", "!bg-transparent");
     expect(legacyBadge.getAttribute("style")).toBeNull();
   });
 
@@ -242,12 +242,12 @@ describe("agency-configured disposition badge colors", () => {
     h.dispositionsError = true;
     seedFixtures();
     await renderLoaded();
-    // Timeline fully renders; badges fall back to neutral; no load-error notice.
+    // Timeline fully renders; outcome text falls back to neutral; no load-error notice.
     expect(screen.getByText("Outbound Call")).toBeInTheDocument();
     expect(screen.getByText("Inbound Call")).toBeInTheDocument();
-    expect(screen.getByText("Quote follow-up")).toBeInTheDocument();
+    expect(screen.getByText("Outbound Email")).toBeInTheDocument();
     const badge = screen.getByText("Appointment Set");
-    expect(badge.className).toContain("bg-muted");
+    expect(badge).toHaveClass("text-muted-foreground");
     expect(screen.queryByText(/Couldn't load conversation history/i)).toBeNull();
   });
 
@@ -255,9 +255,12 @@ describe("agency-configured disposition badge colors", () => {
     h.dispositions = [{ name: "Appointment Set", color: "#8B5CF6" }];
     seedFixtures();
     await renderLoaded();
-    // SMS bubble still iMessage blue; email still a card with subject.
+    // SMS bubble stays iMessage blue; email keeps its full subject in the popover.
     expect(screen.getByText("Alpha outbound text").closest("div")?.className).toContain("bg-[#007AFF]");
+    expect(screen.getByText("Outbound Email")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Email details" }));
     expect(screen.getByText("Quote follow-up")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close email details" }));
     // Details still expand with endpoint data (scoped to the panel — the
     // profile column also displays the contact's phone).
     const callDetails = screen.getAllByRole("button", { name: "Call details" });

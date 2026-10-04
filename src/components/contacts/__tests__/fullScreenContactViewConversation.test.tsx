@@ -247,7 +247,7 @@ describe("A. filters use canonical identifiers", () => {
     expect(screen.getByText("Inbound Call")).toBeInTheDocument();
     expect(await screen.findByText("Alpha outbound text")).toBeInTheDocument();
     expect(screen.getByText("Bravo inbound text")).toBeInTheDocument();
-    expect(await screen.findByText("Policy options for Charlotte")).toBeInTheDocument();
+    expect(await screen.findByText("Outbound Email")).toBeInTheDocument();
   });
 
   it("Calls shows only calls (the reported broken filter)", async () => {
@@ -257,7 +257,7 @@ describe("A. filters use canonical identifiers", () => {
     expect(await screen.findByText("Outbound Call")).toBeInTheDocument();
     expect(screen.getByText("Inbound Call")).toBeInTheDocument();
     expect(screen.queryByText("Alpha outbound text")).toBeNull();
-    expect(screen.queryByText("Policy options for Charlotte")).toBeNull();
+    expect(screen.queryByText("Outbound Email")).toBeNull();
     expect(screen.queryByText("No activity yet")).toBeNull();
   });
 
@@ -268,14 +268,14 @@ describe("A. filters use canonical identifiers", () => {
     expect(await screen.findByText("Alpha outbound text")).toBeInTheDocument();
     expect(screen.getByText("Bravo inbound text")).toBeInTheDocument();
     expect(screen.queryByText("Outbound Call")).toBeNull();
-    expect(screen.queryByText("Policy options for Charlotte")).toBeNull();
+    expect(screen.queryByText("Outbound Email")).toBeNull();
   });
 
   it("Email shows only email", async () => {
     seedMixedFixtures();
     await renderLoaded();
     fireEvent.click(filterButton("Email"));
-    expect(await screen.findByText("Policy options for Charlotte")).toBeInTheDocument();
+    expect(await screen.findByText("Outbound Email")).toBeInTheDocument();
     expect(screen.queryByText("Outbound Call")).toBeNull();
     expect(screen.queryByText("Alpha outbound text")).toBeNull();
   });
@@ -286,7 +286,7 @@ describe("A. filters use canonical identifiers", () => {
     // DOM order is newest-first (flex-col-reverse over an ascending sort).
     const sequence = [
       screen.getByText("Inbound Call"), // 13:00
-      screen.getByText("Policy options for Charlotte"), // 12:00
+      screen.getByText("Outbound Email"), // 12:00
       screen.getByText("Bravo inbound text"), // 11:30 via created_at fallback
       screen.getByText("Alpha outbound text"), // 11:00
       screen.getByText("Outbound Call"), // 10:00
@@ -345,7 +345,7 @@ describe("A. filters use canonical identifiers", () => {
   });
 });
 
-describe("B/C. inline endpoint details", () => {
+describe("B/C. endpoint details", () => {
   it("SMS details show actual From/To/direction/status and toggle aria-expanded", async () => {
     seedMixedFixtures();
     await renderLoaded();
@@ -401,8 +401,10 @@ describe("B/C. inline endpoint details", () => {
     seedMixedFixtures();
     await renderLoaded();
     const button = screen.getByRole("button", { name: "Email details" });
+    expect(screen.queryByText("Policy options for Charlotte")).toBeNull();
     fireEvent.click(button);
     const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+    expect(within(panel).getByText("Policy options for Charlotte")).toBeInTheDocument();
     expect(within(panel).getByText("agent@agency.com")).toBeInTheDocument();
     expect(within(panel).getByText("charlotte@example.com")).toBeInTheDocument();
     expect(within(panel).getByText("cc@agency.com")).toBeInTheDocument();
@@ -431,20 +433,22 @@ describe("B. channel visuals / recording preservation", () => {
     expect(screen.queryByTestId("voicemail-player")).toBeNull();
   });
 
-  it("only SMS renders chat bubbles; calls and emails render neutral cards", async () => {
+  it("preserves SMS bubbles alongside soft call and email pills", async () => {
     seedMixedFixtures();
     await renderLoaded();
     const outboundSms = screen.getByText("Alpha outbound text").closest("div");
     expect(outboundSms?.className).toContain("bg-[#007AFF]");
     const callTitle = screen.getByText("Outbound Call");
     expect(callTitle.closest(".bg-\\[\\#007AFF\\]")).toBeNull();
-    const emailSubject = screen.getByText("Policy options for Charlotte");
-    expect(emailSubject.closest(".bg-\\[\\#007AFF\\]")).toBeNull();
+    const emailLabel = screen.getByText("Outbound Email");
+    expect(emailLabel.closest(".bg-\\[\\#007AFF\\]")).toBeNull();
+    expect(emailLabel.closest(".rounded-full")).toHaveClass("w-fit");
+    expect(callTitle.closest(".rounded-full")).toHaveClass("w-fit");
   });
 });
 
 describe("D. persisted email subject", () => {
-  it("a newly sent email immediately shows its real subject with known From/To details", async () => {
+  it("a newly persisted email immediately appears with its real subject and From/To available in details", async () => {
     seedMixedFixtures();
     h.connections = [
       {
@@ -471,14 +475,15 @@ describe("D. persisted email subject", () => {
     await waitFor(() => expect(h.sentEmails.length).toBe(1));
     expect(h.sentEmails[0].subject).toBe("Rate quote follow-up");
 
-    // The persisted timeline item must carry the subject that was actually sent.
-    expect(await screen.findByText("Rate quote follow-up")).toBeInTheDocument();
-    // One expansion reveals both the persisted body and endpoint metadata.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Email details" })).toHaveLength(2));
+    // One info control reveals the persisted subject, body and endpoint metadata.
+    expect(screen.queryByText("Rate quote follow-up")).toBeNull();
     expect(screen.queryByText("Following up on our call")).toBeNull();
     const detailButtons = screen.getAllByRole("button", { name: "Email details" });
     const newestEmailDetails = detailButtons[0]; // newest-first DOM
     fireEvent.click(newestEmailDetails);
     const panel = document.getElementById(newestEmailDetails.getAttribute("aria-controls")!)!;
+    expect(within(panel).getByText("Rate quote follow-up")).toBeInTheDocument();
     expect(within(panel).getByText("Following up on our call")).toBeInTheDocument();
     expect(within(panel).getByText("agent@agency.com")).toBeInTheDocument();
     expect(within(panel).getByText("charlotte@example.com")).toBeInTheDocument();
