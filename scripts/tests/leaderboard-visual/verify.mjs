@@ -71,4 +71,9 @@ try {
  assert.notEqual(await page.getByTestId('tv-podium').innerText(),prior,'automatic metric rotation');
  assert.deepEqual(errors,[],'browser console errors');
  console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit and timer checks');
+} catch(error) {
+ console.error('Browser errors:',JSON.stringify(errors));
+ console.error('Visible state:',(await page.locator('body').innerText()).slice(0,4000));
+ await page.screenshot({path:`${output}/failure.png`});
+ throw error;
 } finally {await browser.close();}

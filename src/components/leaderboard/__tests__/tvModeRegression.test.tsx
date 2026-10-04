@@ -15,6 +15,18 @@ const view=(a:AgentStats[],period:"Today"|"This Week"="Today")=><TVMode agents={
 beforeEach(()=>{localStorage.clear();h.reads.mockClear();vi.useFakeTimers();});
 afterEach(()=>{cleanup();vi.useRealTimers();});
 describe("TV metric isolation",()=>{
+ it("closes settings with Escape without also exiting TV mode",async()=>{
+  const onExit=vi.fn();
+  render(<TVMode agents={agents()} wins={[]} period="Today" onPeriodChange={vi.fn()} onExit={onExit}/>);
+  await act(async()=>{});
+  fireEvent.click(screen.getByRole("button",{name:"TV display options"}));
+  fireEvent.keyDown(screen.getByLabelText("Viewing metric"),{key:"Escape"});
+  expect(onExit).not.toHaveBeenCalled();
+  expect(screen.getByRole("button",{name:"TV display options"}).getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByTestId("tv-podium")).toBeTruthy();
+  fireEvent.keyDown(document,{key:"Escape"});
+  expect(onExit).toHaveBeenCalledOnce();
+ });
  it("switches podium cards as one metric selection without mutating the parent ranks or fetching standings",async()=>{
   localStorage.setItem("leaderboardTvAutoRotate","0");
   const rows=agents();const original=structuredClone(rows);render(view(rows));await act(async()=>{});

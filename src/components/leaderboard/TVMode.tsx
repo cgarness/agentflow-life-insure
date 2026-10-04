@@ -207,7 +207,7 @@ const TVMode: React.FC<Props> = ({
   // Escape key handler
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.defaultPrevented || e.key !== "Escape") return;
       if (settingsOpenRef.current) { setSettingsOpen(false); return; }
       onExit();
     };
@@ -288,6 +288,10 @@ const TVMode: React.FC<Props> = ({
               </Button>
             </PopoverTrigger>
             <PopoverContent
+              onEscapeKeyDown={event => {
+                event.preventDefault();
+                setSettingsOpen(false);
+              }}
               className="z-[10020] w-80 max-h-[min(85vh,32rem)] overflow-y-auto p-4 sm:w-96 bg-slate-900 border-slate-800 text-slate-200 shadow-2xl"
               align="start"
               side="bottom"
