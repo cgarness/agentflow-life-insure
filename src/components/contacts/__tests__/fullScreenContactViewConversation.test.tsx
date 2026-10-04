@@ -110,6 +110,9 @@ vi.mock("./TasksPanel", () => ({ TasksPanel: () => null }));
 vi.mock("@/components/ui/RecordingPlayer", () => ({
   RecordingPlayer: ({ callId }: { callId: string }) => <div data-testid="recording-player">{`player:${callId}`}</div>,
 }));
+vi.mock("@/components/voicemail/VoicemailPlayer", () => ({
+  VoicemailPlayer: ({ voicemailId }: { voicemailId: string }) => <div data-testid="voicemail-player">{`voicemail:${voicemailId}`}</div>,
+}));
 
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 
@@ -409,13 +412,23 @@ describe("B/C. inline endpoint details", () => {
 });
 
 describe("B. channel visuals / recording preservation", () => {
-  it("keeps the recording control on calls with a recording and renders RecordingPlayer on demand (preservation pin)", async () => {
+  it("reveals recording, voicemail and metadata through call details, then unmounts playback when collapsed", async () => {
     seedMixedFixtures();
+    (tableData.calls as Record<string, unknown>[])[0].voicemail_id = "voicemail-2";
     await renderLoaded();
-    const toggles = screen.getAllByTitle("Play Recording");
-    expect(toggles.length).toBe(1); // only call-2 has a recording
-    fireEvent.click(toggles[0]);
+    expect(screen.queryByTestId("recording-player")).toBeNull();
+    expect(screen.queryByTestId("voicemail-player")).toBeNull();
+    const details = screen.getAllByRole("button", { name: "Call details" })[0]; // newest call-2
+    fireEvent.click(details);
     expect(await screen.findByTestId("recording-player")).toHaveTextContent("player:call-2");
+    expect(screen.getByTestId("voicemail-player")).toHaveTextContent("voicemail:voicemail-2");
+    expect(details).toHaveAttribute("aria-expanded", "true");
+    const panel = document.getElementById(details.getAttribute("aria-controls")!)!;
+    expect(within(panel).getByText("Contact number")).toBeInTheDocument();
+    fireEvent.click(details);
+    expect(details).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("recording-player")).toBeNull();
+    expect(screen.queryByTestId("voicemail-player")).toBeNull();
   });
 
   it("only SMS renders chat bubbles; calls and emails render neutral cards", async () => {
@@ -460,14 +473,13 @@ describe("D. persisted email subject", () => {
 
     // The persisted timeline item must carry the subject that was actually sent.
     expect(await screen.findByText("Rate quote follow-up")).toBeInTheDocument();
-    // The body stays collapsed until expanded (existing behavior) — expand, then assert it.
-    fireEvent.click(screen.getByRole("button", { name: "Show full email: Rate quote follow-up" }));
-    expect(screen.getByText("Following up on our call")).toBeInTheDocument();
-
+    // One expansion reveals both the persisted body and endpoint metadata.
+    expect(screen.queryByText("Following up on our call")).toBeNull();
     const detailButtons = screen.getAllByRole("button", { name: "Email details" });
     const newestEmailDetails = detailButtons[0]; // newest-first DOM
     fireEvent.click(newestEmailDetails);
     const panel = document.getElementById(newestEmailDetails.getAttribute("aria-controls")!)!;
+    expect(within(panel).getByText("Following up on our call")).toBeInTheDocument();
     expect(within(panel).getByText("agent@agency.com")).toBeInTheDocument();
     expect(within(panel).getByText("charlotte@example.com")).toBeInTheDocument();
     expect(h.errorToasts).toHaveLength(0);

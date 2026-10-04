@@ -251,7 +251,7 @@ describe("agency-configured disposition badge colors", () => {
     expect(screen.queryByText(/Couldn't load conversation history/i)).toBeNull();
   });
 
-  it("leaves SMS/email presentation, Details, and recording playback unchanged", async () => {
+  it("preserves SMS/email presentation and reveals call metadata and recording together", async () => {
     h.dispositions = [{ name: "Appointment Set", color: "#8B5CF6" }];
     seedFixtures();
     await renderLoaded();
@@ -264,8 +264,7 @@ describe("agency-configured disposition badge colors", () => {
     fireEvent.click(callDetails[0]);
     const panel = document.getElementById(callDetails[0].getAttribute("aria-controls")!)!;
     expect(within(panel).getByText("(512) 555-0123")).toBeInTheDocument();
-    // Recording toggle still mounts RecordingPlayer.
-    fireEvent.click(screen.getByTitle("Play Recording"));
+    // The same disclosure mounts the unchanged RecordingPlayer contract.
     expect(await screen.findByTestId("recording-player")).toHaveTextContent("player:call-legacy");
   });
 });
