@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { clientSaleFormSchema } from "@/lib/clientSaleForm";
 import type { ClientSaleOptions } from "@/lib/policySaleRecording";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { X, Loader2 } from "lucide-react";
 import { Client, PolicyType } from "@/lib/types";
 import { toast } from "sonner";
@@ -24,7 +25,7 @@ interface AddClientModalProps {
 const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, initial }) => {
   const [form, setForm] = useState<Partial<Client>>({});
   const [saving, setSaving] = useState(false);
-  const [recordSale, setRecordSale] = useState(true);
+  const [historical, setHistorical] = useState(false);
   const requestId = useRef("");
   const inFlight = useRef(false);
   const close = () => { if (!inFlight.current) onClose(); };
@@ -49,7 +50,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
       paymentFrequency: initial ? initial.paymentFrequency || "" : DEFAULT_PAYMENT_FREQUENCY,
     };
     setForm(base);
-    setRecordSale(!initial);
+    setHistorical(false);
     if (open) requestId.current = crypto.randomUUID();
   }, [initial, open]);
 
@@ -59,7 +60,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
     e.preventDefault();
     if (inFlight.current) return;
 
-    const isNewSale = !initial && recordSale && Boolean(form.soldDate);
+    const isNewSale = hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial));
     const parsed = clientSaleFormSchema.safeParse({ ...form, recordSale: isNewSale });
     if (!parsed.success) {
       toast.error(parsed.error.errors[0].message);
@@ -69,7 +70,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
     inFlight.current = true;
     setSaving(true);
     try {
-      await onSave(form, initial ? undefined : { requestId: requestId.current, recordSale: isNewSale });
+      await onSave(form, initial ? undefined : { requestId: requestId.current, recordSale: isNewSale, ...(historical && isNewSale ? { historical: true } : {}) });
       onClose();
     } catch (err: unknown) {
       // Persistence failed — keep the modal open, do not show success.
@@ -172,8 +173,8 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
 
           {!initial && (
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={recordSale} onChange={e => setRecordSale(e.target.checked)} className="mt-0.5" />
-              Record as a new sale when Sold Date is set. Uncheck for an existing policy.
+              <input type="checkbox" checked={historical} onChange={e => setHistorical(e.target.checked)} className="mt-0.5" />
+              Historical policy: credit the Sold Date in the agency timezone, without a new-sale celebration. Every new policy records one sale.
             </label>
           )}
           <div className="flex gap-3 pt-2">

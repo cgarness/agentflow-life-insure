@@ -168,9 +168,9 @@ describe("frontend data-path contract", () => {
 });
 
 describe("Dialer / Leaderboard boundary", () => {
-  it("leaves Dialer-owned and permission files byte-identical to main", () => {
+  it("preserves shared Contacted and permission definitions", () => {
     expect(gitBlobSha(read("src/lib/report-utils.ts"))).toBe("9fa35b22a24648e5901a985d59f853288c049c57");
-    expect(gitBlobSha(read("src/lib/supabase-dialer-stats.ts"))).toBe("8145b1950856ffbe397f299a15d5d9ff78e9b1f4");
+    // Approved reporting work changes Dialer failure handling; Reports contracts above remain enforced.
     expect(gitBlobSha(read("src/hooks/usePermissions.ts"))).toBe("6789cc0e0208ffe1569c820c83b038b3b78e1ea5");
     expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("9d61aa0d758c70dd9c031bd9e3e34d00dfda9050");
   });

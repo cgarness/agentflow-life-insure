@@ -1,3 +1,4 @@
+import { performanceEnvelope, performanceFeed } from "@/test/fixtures/performance";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, waitFor, act, cleanup } from "@testing-library/react";
@@ -11,7 +12,7 @@ import { startOfDay, startOfMonth, startOfWeek } from "date-fns";
  * Under Agent RLS those queries silently return only the caller's own rows, so
  * every other agent rendered with fabricated zero/partial standings — and any
  * query error was also swallowed into zeros. Standings must come from the
- * `get_org_leaderboard_stats` aggregate RPC, and an RPC failure must surface an
+ * `get_leaderboard_snapshot` aggregate RPC, and an RPC failure must surface an
  * explicit error state, never a plausible-looking zero board.
  */
 
@@ -19,6 +20,7 @@ const h = vi.hoisted(() => {
   const state = {
     rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
     rpcSelections: [] as string[],
+    feedRequests: 0,
     fromTables: [] as string[],
     signals: [] as AbortSignal[],
     channelBindings: [] as Array<{ table: string; event: string }>,
@@ -103,6 +105,13 @@ vi.mock("@/integrations/supabase/client", () => {
       auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
       // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
+        if (fn === "get_leaderboard_recent_wins") {
+          h.feedRequests++;
+          const query = makeQuery("wins");
+          const builder = { abortSignal: () => builder, then: (yes: any, no: any) => Promise.resolve(query).then((r: any) => yes(r.error ? r : { ...r, data: performanceFeed(r.data ?? []) }), no) };
+          return builder;
+        }
+        const asOf = new Date(), org = h.orgId;
         h.rpcCalls.push({ fn, args });
         const result =
           h.mode === "manual"
@@ -117,7 +126,7 @@ vi.mock("@/integrations/supabase/client", () => {
             return builder;
           },
           then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-            result.then(onFulfilled, onRejected),
+            result.then((r: any) => onFulfilled(r.error ? r : { ...r, data: performanceEnvelope(r.data, args, org, asOf) }), onRejected),
         };
         return builder;
       },
@@ -193,6 +202,7 @@ beforeEach(() => {
   resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
   h.rpcSelections.length = 0;
+  h.feedRequests = 0;
   h.fromTables.length = 0;
   h.signals.length = 0;
   h.channelBindings.length = 0;
@@ -228,7 +238,7 @@ describe("organization photos stay outside metric snapshots", () => {
     expect(hookResult.initialLoading).toBe(false);
     expect(hookResult.agents[0]).toMatchObject({ callsMade: 27, policiesSold: 3, avatar_url: undefined });
     expect(hookResult.standingsStatus.kind).toBe("ok");
-    expect(h.rpcSelections).toEqual(["agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d"]);
+    expect(h.rpcSelections).toEqual([]); // minimal JSON envelope already omits photos
     const rankMotions = hookResult.rankMotions;
     const movements = hookResult.rankMovements;
     const updatedAt = hookResult.standingsStatus.lastUpdatedAt;
@@ -258,18 +268,17 @@ describe("organization photos stay outside metric snapshots", () => {
 });
 
 describe("org view standings source", () => {
-  it("loads standings from the get_org_leaderboard_stats aggregate RPC with half-open ISO bounds", async () => {
+  it("loads standings from the get_leaderboard_snapshot aggregate RPC with half-open ISO bounds", async () => {
     h.autoResult = rpcOk([rpcRow(), rpcRow({ agent_id: AGENT_B, last_name: "Brooks" })]);
     render(<Probe />);
 
     await waitFor(() => expect(hookResult.agents).toHaveLength(2));
 
-    const boardCalls = h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats");
+    const boardCalls = h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot");
     expect(boardCalls.length).toBeGreaterThan(0);
-    const args = boardCalls[0].args as { p_start: string; p_end: string };
-    // Default period is Today: browser-local midnight → now, serialized as ISO.
-    expect(args.p_start).toBe(startOfDay(new Date()).toISOString());
-    expect(new Date(args.p_end).getTime()).toBeGreaterThan(new Date(args.p_start).getTime());
+    expect(boardCalls[0].args).toEqual({ p_period: "today", p_group_id: null });
+    expect(hookResult.performanceSnapshot?.start_at).toBe(startOfDay(new Date()).toISOString());
+
   });
 
   it("issues NO raw calls/appointments/clients reads for org standings", async () => {
@@ -308,7 +317,7 @@ describe("org view standings source", () => {
     expect(a.appointmentsSet).toBe(2);
 
     const b = hookResult.agents.find((x) => x.id === AGENT_B)!;
-    expect(b.conversionRate).toBe(0); // zero calls ⇒ 0, never NaN/Infinity
+    expect(b.conversionRate).toBeNull(); // zero calls ⇒ 0, never NaN/Infinity
   });
 
   it("ranks tied standings deterministically by last name, first name, then id", async () => {
@@ -353,7 +362,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     // Default metric is Policies Sold → Agent A leads.
     expect(hookResult.agents[0].id).toBe(AGENT_A);
 
-    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length;
 
     act(() => {
       hookResult.setMetric("Calls Made");
@@ -364,7 +373,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     expect(hookResult.agents[0].id).toBe(AGENT_B);
     expect(hookResult.agents[0].rank).toBe(1);
     expect(
-      h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length,
+      h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length,
     ).toBe(rpcCountBefore);
     expect(hookResult.filterRefreshing).toBe(false);
     expect(hookResult.initialLoading).toBe(false);
@@ -397,7 +406,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     h.autoResult = rpcOk(METRIC_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length;
 
     act(() => {
       hookResult.setMetric("Calls Made");
@@ -409,7 +418,7 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     expect(hookResult.metric).toBe("Calls Made");
     expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
     expect(
-      h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length,
+      h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length,
     ).toBe(rpcCountBefore);
     expect(hookResult.filterRefreshing).toBe(false);
   });
@@ -604,9 +613,7 @@ describe("stale-response protection", () => {
     expect(hookResult.agents).toHaveLength(0);
     // The week request never reached the network.
     expect(h.rpcCalls).toHaveLength(2);
-    expect((h.rpcCalls[1].args as { p_start: string }).p_start).toBe(
-      startOfMonth(new Date()).toISOString(),
-    );
+    expect(h.rpcCalls[1].args.p_period).toBe("month");
 
     act(() => {
       h.pending[1]({ data: [rpcRow({ calls_made: 99, first_name: "New" })], error: null });
@@ -689,10 +696,7 @@ describe("stale-response protection", () => {
     await waitFor(() => expect(h.pending).toHaveLength(2));
     expect(hookResult.agents).toHaveLength(0);
 
-    const weekArgs = h.rpcCalls[h.rpcCalls.length - 1].args as { p_start: string };
-    expect(weekArgs.p_start).toBe(
-      startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString(),
-    );
+    expect(h.rpcCalls[h.rpcCalls.length - 1].args.p_period).toBe("week");
 
     act(() => {
       h.pending[1]({ data: [rpcRow({ calls_made: 42, first_name: "Week" })], error: null });
@@ -750,7 +754,7 @@ describe("maintenance hold (PT503)", () => {
     });
     await flush();
     expect(h.rpcCalls.length).toBe(calls);
-    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+    expect(h.feedRequests).toBe(0);
   });
 
   it("a remount during the hold shows maintenance with zero requests — never the skeleton or the empty roster", async () => {
@@ -798,11 +802,11 @@ describe("request discipline", () => {
     const { rerender } = render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(1));
 
-    h.agencyGroup = { groupId: "bbbb0000-0000-0000-0000-00000000000g", groupName: "Summit", role: "member" };
+    h.agencyGroup = { groupId: "bbbb0000-0000-0000-0000-000000000001", groupName: "Summit", role: "member" };
     rerender(<Probe />);
     await flush();
     expect(hookResult.agencyGroup?.groupName).toBe("Summit");
-    expect(h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats")).toHaveLength(1);
+    expect(h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot")).toHaveLength(1);
   });
 
   it("binds realtime to wins INSERTs only, once; tab switches, failures and metric switches never re-subscribe", async () => {
@@ -845,7 +849,7 @@ describe("request discipline", () => {
     render(<Probe />);
     await advance(10);
     expect(hookResult.agents).toHaveLength(1);
-    const standings = () => h.rpcCalls.filter((c) => c.fn === "get_org_leaderboard_stats").length;
+    const standings = () => h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length;
     expect(standings()).toBe(1);
 
     await advance(4_000);
@@ -903,12 +907,12 @@ describe("request discipline", () => {
       h.pending[0]({ data: [rpcRow()], error: null });
     });
     await flush();
-    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+    expect(h.feedRequests).toBe(0);
   });
 });
 
 describe("Recent Wins truthfulness", () => {
-  const WIN = { id: "win-1", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+  const WIN = { id: "dddd0000-0000-0000-0000-000000000001", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
 
   it("a failed Recent Wins read is an error state, never an empty feed", async () => {
     h.autoResult = rpcOk([rpcRow()]);
@@ -939,11 +943,11 @@ describe("Recent Wins truthfulness", () => {
     h.mode = "manual";
     render(<Probe />);
     await waitFor(() => expect(h.pending).toHaveLength(1));
-    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(0);
+    expect(h.feedRequests).toBe(0);
     act(() => {
       h.pending[0]({ data: [rpcRow()], error: null });
     });
-    await waitFor(() => expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(1));
+    await waitFor(() => expect(h.feedRequests).toBe(1));
   });
 });
 
@@ -996,23 +1000,32 @@ describe("review follow-ups", () => {
 
   it("a burst of realtime wins becomes ONE spaced Recent Wins read, and the win on screen is celebrated", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
-    const WIN = { id: "win-9", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+    const WIN = { id: "dddd0000-0000-0000-0000-000000000009", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
     h.autoResult = rpcOk([rpcRow()]);
     render(<Probe />);
     await advance(10);
-    const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+    const winsReads = () => h.feedRequests;
     expect(winsReads()).toBe(1);
 
     h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
     for (let i = 0; i < 5; i += 1) {
-      act(() => h.winInsert?.({ new: { id: "win-9", agent_id: AGENT_A } }));
+      act(() => h.winInsert?.({ new: { id: "dddd0000-0000-0000-0000-000000000009", agent_id: AGENT_A } }));
       await advance(1_000);
     }
     expect(winsReads()).toBe(1);
     await advance(10_000); // 15 s after the last wins read
     expect(winsReads()).toBe(2);
-    expect(hookResult.wins[0]?.id).toBe("win-9");
-    expect(hookResult.flashingWinId).toBe("win-9");
+    expect(hookResult.wins[0]?.id).toBe("dddd0000-0000-0000-0000-000000000009");
+    expect(hookResult.flashingWinId).toBe("dddd0000-0000-0000-0000-000000000009");
+  });
+
+  it("refreshes a historical repair without realtime celebration", async () => {
+    vi.useFakeTimers({toFake:["setInterval","clearInterval","setTimeout","clearTimeout","Date"]});
+    h.autoResult=rpcOk([rpcRow()]);render(<Probe/>);await advance(10);
+    const repaired={id:"dddd0000-0000-0000-0000-000000000019",agent_id:AGENT_A,agent_name:"Avery A.",contact_name:"Historical",campaign_name:"",policy_type:"Term",created_at:new Date().toISOString(),celebrated:true};
+    h.fromResult=t=>t==="wins"?{data:[repaired],error:null}:{data:[],error:null};
+    act(()=>h.winInsert?.({new:repaired}));await advance(15_000);
+    expect(hookResult.wins[0]?.id).toBe(repaired.id);expect(hookResult.flashingWinId).toBeNull();
   });
 
   it("with standings on screen, Recent Wins keep refreshing (spaced) during a standings hold", async () => {
@@ -1024,11 +1037,11 @@ describe("review follow-ups", () => {
     await advance(30_000); // poll → PT503 → hold
     expect(hookResult.standingsStatus.kind).toBe("maintenance");
     expect(hookResult.agents).toHaveLength(1);
-    const winsBefore = h.fromTables.filter((t) => t === "wins").length;
+    const winsBefore = h.feedRequests;
     const standingsBefore = h.rpcCalls.length;
     await advance(60_000); // two more poll ticks inside the hold
     expect(h.rpcCalls.length).toBe(standingsBefore);
-    const winsAfter = h.fromTables.filter((t) => t === "wins").length;
+    const winsAfter = h.feedRequests;
     expect(winsAfter).toBeGreaterThan(winsBefore);
     expect(winsAfter - winsBefore).toBeLessThanOrEqual(2);
   });
@@ -1055,14 +1068,14 @@ describe("review follow-ups (2)", () => {
     h.autoResult = rpcOk([]);
     render(<Probe />);
     await waitFor(() => expect(hookResult.winsStatus.kind).toBe("ok"));
-    expect(h.fromTables.filter((t) => t === "wins")).toHaveLength(1);
+    expect(h.feedRequests).toBe(1);
   });
 });
 
 describe("review follow-ups (3)", () => {
   it("celebrates a realtime win even when its Recent Wins read is joined by the post-standings read", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
-    const WIN = { id: "win-7", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+    const WIN = { id: "dddd0000-0000-0000-0000-000000000007", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
     h.autoResult = rpcOk([rpcRow()]);
     render(<Probe />);
     await advance(10);
@@ -1072,19 +1085,19 @@ describe("review follow-ups (3)", () => {
     expect(h.pending).toHaveLength(1);
 
     h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
-    act(() => h.winInsert?.({ new: { id: "win-7", agent_id: AGENT_A } }));
+    act(() => h.winInsert?.({ new: { id: "dddd0000-0000-0000-0000-000000000007", agent_id: AGENT_A } }));
     await advance(10);
     act(() => {
       h.pending[0]({ data: [rpcRow()], error: null });
     });
     await advance(10);
-    expect(hookResult.wins[0]?.id).toBe("win-7");
-    expect(hookResult.flashingWinId).toBe("win-7");
+    expect(hookResult.wins[0]?.id).toBe("dddd0000-0000-0000-0000-000000000007");
+    expect(hookResult.flashingWinId).toBe("dddd0000-0000-0000-0000-000000000007");
   });
 });
 
 describe("review round 2", () => {
-  const WIN = { id: "win-5", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
+  const WIN = { id: "dddd0000-0000-0000-0000-000000000005", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "C", campaign_name: "", policy_type: "Term", created_at: new Date().toISOString() };
 
   it("Today → Week → Today while Today is in flight never sends the abandoned Week request", async () => {
     h.mode = "manual";
@@ -1124,7 +1137,7 @@ describe("review round 2", () => {
     await advance(10);
     expect(h.winsPending).toHaveLength(1); // the post-standings wins read is still in flight
     await advance(16_000);
-    act(() => h.winInsert?.({ new: { id: "win-5", agent_id: AGENT_A } }));
+    act(() => h.winInsert?.({ new: { id: "dddd0000-0000-0000-0000-000000000005", agent_id: AGENT_A } }));
     await advance(10);
     h.holdWins = false;
     h.fromResult = (t) => (t === "wins" ? { data: [WIN], error: null } : { data: [], error: null });
@@ -1134,8 +1147,8 @@ describe("review round 2", () => {
     // After a 16 s response the gate spaces the next read 2 × 16 s after it; the
     // deferred read then runs by itself.
     await advance(33_000);
-    expect(hookResult.wins[0]?.id).toBe("win-5");
-    expect(hookResult.flashingWinId).toBe("win-5");
+    expect(hookResult.wins[0]?.id).toBe("dddd0000-0000-0000-0000-000000000005");
+    expect(hookResult.flashingWinId).toBe("dddd0000-0000-0000-0000-000000000005");
   });
 
   it("a Recent Wins timer never sends a read after the tab is hidden", async () => {
@@ -1143,9 +1156,9 @@ describe("review round 2", () => {
     h.autoResult = rpcOk([rpcRow()]);
     render(<Probe />);
     await advance(10);
-    const reads = () => h.fromTables.filter((t) => t === "wins").length;
+    const reads = () => h.feedRequests;
     const before = reads();
-    act(() => h.winInsert?.({ new: { id: "win-5", agent_id: AGENT_A } })); // < 15 s after the last read → timer
+    act(() => h.winInsert?.({ new: { id: "dddd0000-0000-0000-0000-000000000005", agent_id: AGENT_A } })); // < 15 s after the last read → timer
     act(() => setVisibility("hidden"));
     await advance(60_000);
     expect(reads()).toBe(before);
@@ -1159,13 +1172,13 @@ describe("review round 2", () => {
     h.autoResult = rpcMaintenance();
     act(() => hookResult.setPeriod("This Week"));
     await waitFor(() => expect(hookResult.agents).toHaveLength(0));
-    const reads = h.fromTables.filter((t) => t === "wins").length;
+    const reads = h.feedRequests;
     // Past the gate's spacing, so only the on-screen rule can refuse the read.
     vi.setSystemTime(new Date(Date.now() + 60_000));
     await act(async () => {
       await hookResult.fetchWins({ mode: "auto" });
     });
-    expect(h.fromTables.filter((t) => t === "wins").length).toBe(reads);
+    expect(h.feedRequests).toBe(reads);
   });
 
   it("after midnight, a failed refresh never keeps yesterday's 'Today' rows", async () => {
@@ -1214,7 +1227,7 @@ describe("rev 1.2: visibility and connectivity are re-checked before every dispa
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
     if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
   };
-  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+  const winsReads = () => h.feedRequests;
 
   afterEach(() => {
     Reflect.deleteProperty(navigator, "onLine");
@@ -1303,7 +1316,7 @@ describe("rev 1.2 review: deferred selections, catch-ups and offline wins", () =
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => online });
     if (dispatch) window.dispatchEvent(new Event(online ? "online" : "offline"));
   };
-  const winsReads = () => h.fromTables.filter((t) => t === "wins").length;
+  const winsReads = () => h.feedRequests;
 
   afterEach(() => {
     Reflect.deleteProperty(navigator, "onLine");
@@ -1396,7 +1409,7 @@ describe("rev 1.2 review: deferred selections, catch-ups and offline wins", () =
 });
 
 describe("rev 1.2 review: follow-on reads", () => {
-  it("Recent Wins that resolve after the tab went hidden send no premium lookup; the automatic refresh on return reads them", async () => {
+  it("Recent Wins resolves canonical premium in one read and never sends a client lookup, including after tab hide", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
     h.autoResult = rpcOk([rpcRow()]);
     h.holdWins = true;
@@ -1404,18 +1417,18 @@ describe("rev 1.2 review: follow-on reads", () => {
     await advance(10);
     expect(h.winsPending).toHaveLength(1);
     act(() => setVisibility("hidden"));
-    const WIN_ROW = { id: "w1", agent_id: AGENT_A, contact_id: "c1", agent_name: "Avery A.", created_at: new Date().toISOString() };
+    const WIN_ROW = { id: "dddd0000-0000-0000-0000-000000000011", agent_id: AGENT_A, contact_id: "eeee0000-0000-0000-0000-000000000001", agent_name: "Avery A.", created_at: new Date().toISOString() };
     act(() => h.winsPending[0]({ data: [WIN_ROW], error: null }));
     await advance(10);
     expect(h.fromTables.filter((t) => t === "clients")).toHaveLength(0);
-    expect(hookResult.winsStatus.kind).toBe("loading");
+    expect(hookResult.winsStatus.kind).toBe("ok");
 
     h.holdWins = false;
     h.fromResult = (t) => (t === "wins" ? { data: [WIN_ROW], error: null } : { data: [], error: null });
     act(() => setVisibility("visible"));
     // The catch-up's wins read is spaced like any automatic read (by the next poll at the latest).
     await advance(45_000);
-    expect(h.fromTables.filter((t) => t === "clients").length).toBeGreaterThan(0);
-    expect(hookResult.wins[0]?.id).toBe("w1");
+    expect(h.fromTables.filter((t) => t === "clients")).toHaveLength(0);
+    expect(hookResult.wins[0]?.id).toBe("dddd0000-0000-0000-0000-000000000011");
   });
 });

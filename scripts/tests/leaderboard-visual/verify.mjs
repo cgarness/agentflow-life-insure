@@ -16,6 +16,7 @@ try {
  await page.goto(url);
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('vite-error-overlay').count(),0);
+ assert.match(await page.locator('body').innerText(),/Active agents · America\/Los_Angeles · As of/);
  async function measure(label) {
   await page.waitForFunction(()=>{const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img')];return photos.length===document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length&&photos.every(i=>i.complete&&i.naturalWidth>0);});
   const metrics=await page.evaluate(()=>{
@@ -69,6 +70,17 @@ try {
  const prior=await page.getByTestId('tv-podium').innerText();
  await page.waitForTimeout(30_100);
  assert.notEqual(await page.getByTestId('tv-podium').innerText(),prior,'automatic metric rotation');
+ await page.goto(`${url}/?view=normal`);
+ await page.setViewportSize({width:1440,height:1000});
+ await page.getByText('$701.40',{exact:true}).waitFor();
+ await page.getByText('1m 21s',{exact:true}).waitFor();
+ assert.match(await page.locator('body').innerText(),/1 policies with unknown premium/);
+ assert.match(await page.locator('body').innerText(),/—/);
+ for(const [width,height] of [[1440,1000],[390,844]]){
+  await page.setViewportSize({width,height});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
+  await page.screenshot({path:`${output}/normal-${width}.png`});
+ }
  assert.deepEqual(errors,[],'browser console errors');
  console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit and timer checks');
 } catch(error) {

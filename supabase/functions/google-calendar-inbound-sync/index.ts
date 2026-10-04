@@ -278,6 +278,7 @@ Deno.serve(async (req) => {
             const { data: existingAppointment, error: existingError } = await supabase
               .from("appointments")
               .select("id")
+              .eq("organization_id", integrationOrgId)
               .eq("user_id", integration.user_id)
               .eq("external_provider", "google")
               .eq("external_event_id", event.id)
@@ -343,11 +344,22 @@ Deno.serve(async (req) => {
             } else {
               const { error: insertError } = await supabase.from("appointments").insert([appointmentPayload]);
 
-              if (insertError) {
+              if (insertError?.code === "23505") {
+                // Another sync committed this provider identity after our lookup. Never create a
+                // second booking or pick arbitrarily among unresolved legacy duplicates.
+                const { data: raced, error: raceError } = await supabase.from("appointments")
+                  .select("id").eq("organization_id", integrationOrgId).eq("user_id", integration.user_id)
+                  .eq("external_provider", "google").eq("external_event_id", event.id).single();
+                if (raceError || !raced) throw new Error(`Provider identity conflict for event ${event.id}`);
+                const { error: updateError } = await supabase.from("appointments")
+                  .update(appointmentPayload).eq("id", raced.id).eq("organization_id", integrationOrgId);
+                if (updateError) throw new Error(`Failed retry for event ${event.id}: ${updateError.message}`);
+                summary.updated += 1;
+              } else if (insertError) {
                 throw new Error(`Failed to insert appointment for event ${event.id}: ${insertError.message}`);
+              } else {
+                summary.imported += 1;
               }
-
-              summary.imported += 1;
             }
           }
 

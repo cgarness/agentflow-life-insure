@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { loadPerformanceSnapshot, type PerformanceSnapshot } from "@/lib/performanceQueries";
+import { performancePeriodKey, performancePeriodStart } from "@/lib/performancePeriod";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 import { useLeaderboardAvatars } from "@/hooks/useLeaderboardAvatars";
 import {
   type LeaderboardEndpoint,
-  type LeaderboardLoadResult,
   type LeaderboardRequestGate,
   type LeaderboardRunMode,
   getLeaderboardRequestGate,
@@ -30,91 +30,14 @@ export interface WidgetRankedAgent {
 /** Request-gate keys are per consumer, so the widget and the page never share a result. */
 const CONSUMER = "widget";
 
-/** Browser-local start of the month the widget shows ("Top agents this month"). */
-function monthStartOf(now: Date): Date {
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+function snapshotTag(scope: string, zone: string | null, now: Date): string {
+  return `${scope}|${performancePeriodKey("This Month", zone, now)}`;
 }
 
-/**
- * Snapshot identity: viewer | view | month start. Taken when a load runs and again
- * when it settles (no timer), so a load in a new month never keeps, or commits
- * over, last month's podium.
- */
-function snapshotTag(scope: string, now: Date): string {
-  return `${scope}|${monthStartOf(now).toISOString()}`;
-}
-
-// Org standings come from the canonical aggregate RPC — the same metric
-// definitions as the Leaderboard page. Never rebuilt from raw tables:
-// Agent RLS hides other agents' rows, and clients-created is not "wins".
-async function loadOrgMonth(
-  start: Date,
-  end: Date,
-  signal: AbortSignal,
-): Promise<LeaderboardLoadResult<WidgetRankedAgent[]>> {
-  const { data, error } = await supabase
-    .rpc("get_org_leaderboard_stats", {
-      p_start: start.toISOString(),
-      p_end: end.toISOString(),
-    })
-    .select("agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d")
-    .abortSignal(signal);
-  if (error || !data) {
-    console.error("[LeaderboardWidget] get_org_leaderboard_stats failed:", error);
-    return { data: null, error };
-  }
-  return {
-    data: data
-      .map((r) => ({
-        id: r.agent_id,
-        firstName: r.first_name,
-        lastName: r.last_name,
-        avatarUrl: null,
-        wins: Number(r.policies_sold) || 0,
-      }))
-      .sort((a, b) => {
-        const diff = b.wins - a.wins;
-        if (diff !== 0) return diff;
-        const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
-        const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
-        if (nameA !== nameB) return nameA.localeCompare(nameB);
-        return a.id.localeCompare(b.id);
-      }),
-    error: null,
-  };
-}
-
-async function loadGroupMonth(
-  groupId: string,
-  signal: AbortSignal,
-): Promise<LeaderboardLoadResult<WidgetRankedAgent[]>> {
-  const { data, error } = await supabase
-    .rpc("get_agency_group_leaderboard", {
-      p_group_id: groupId,
-      p_period: "month",
-    })
-    .abortSignal(signal);
-  if (error || !data) return { data: null, error };
-  return {
-    data: (data as any[])
-      .map((r) => ({
-        id: r.agent_id,
-        firstName: r.agent_first_name,
-        lastName: r.agent_last_name,
-        avatarUrl: r.agent_avatar_url,
-        wins: Number(r.policies_sold) || 0,
-        organizationName: r.organization_name,
-      }))
-      .sort((a, b) => {
-        const diff = b.wins - a.wins;
-        if (diff !== 0) return diff;
-        const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
-        const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
-        if (nameA !== nameB) return nameA.localeCompare(nameB);
-        return a.id.localeCompare(b.id);
-      }),
-    error: null,
-  };
+function widgetRows(snapshot: PerformanceSnapshot): WidgetRankedAgent[] {
+  return snapshot.rows.map(r => ({ id: r.id, firstName: r.first_name, lastName: r.last_name,
+    avatarUrl: null, wins: r.policiesSold, organizationName: r.organizationName }))
+    .sort((a,b) => b.wins-a.wins || `${a.lastName} ${a.firstName}`.toLowerCase().localeCompare(`${b.lastName} ${b.firstName}`.toLowerCase()) || a.id.localeCompare(b.id));
 }
 
 /**
@@ -148,6 +71,8 @@ export function useLeaderboardWidgetStandings(
   const endpoint: LeaderboardEndpoint = groupId ? "group_standings" : "org_standings";
   const scopeKey = `${identityKey ?? ""}|${groupId ?? "org"}`;
 
+  const timeZoneRef = useRef<string | null>(null);
+  const [performanceSnapshot, setPerformanceSnapshot] = useState<PerformanceSnapshot | null>(null);
   const scopeRef = useRef(scopeKey);
   scopeRef.current = scopeKey;
   const identityRef = useRef(identityKey);
@@ -167,6 +92,8 @@ export function useLeaderboardWidgetStandings(
   useLayoutEffect(() => {
     if (identityRef.current === identityKey) return;
     identityRef.current = identityKey;
+    timeZoneRef.current = null;
+    setPerformanceSnapshot(null);
     gateRef.current?.release(ownerRef.current);
     gateRef.current = null;
     generationRef.current += 1;
@@ -189,9 +116,8 @@ export function useLeaderboardWidgetStandings(
       const gate = getLeaderboardRequestGate(identityKey);
       gateRef.current = gate;
       const now = new Date();
-      const startOfMonth = monthStartOf(now);
-      const monthKey = startOfMonth.toISOString();
-      const tag = snapshotTag(scope, now);
+      const monthKey = performancePeriodKey("This Month", timeZoneRef.current, now);
+      const tag = snapshotTag(scope, timeZoneRef.current, now);
       // A view switch or a new month never shows the other view's or last month's
       // rows while it loads; a manual refresh of the same view and month keeps its
       // snapshot on screen (no skeleton flash).
@@ -204,7 +130,7 @@ export function useLeaderboardWidgetStandings(
         if (mode !== "manual" || hadRows) setLoading(true);
       }
 
-      const result = await gate.run<WidgetRankedAgent[]>(
+      const result = await gate.run<PerformanceSnapshot>(
         groupId
           ? {
               endpoint,
@@ -212,7 +138,7 @@ export function useLeaderboardWidgetStandings(
               key: `${CONSUMER}|group_standings|${groupId}|month|${monthKey}`,
               mode,
               owner: ownerRef.current,
-              load: (signal) => loadGroupMonth(groupId, signal),
+              load: (signal) => loadPerformanceSnapshot("This Month", groupId, organizationId!, signal),
             }
           : {
               endpoint,
@@ -220,7 +146,7 @@ export function useLeaderboardWidgetStandings(
               key: `${CONSUMER}|org_standings|month|${monthKey}`,
               mode,
               owner: ownerRef.current,
-              load: (signal) => loadOrgMonth(startOfMonth, now, signal),
+              load: (signal) => loadPerformanceSnapshot("This Month", null, organizationId!, signal),
             },
       );
       if (!mountedRef.current || gen !== generationRef.current || scopeRef.current !== scope) {
@@ -228,7 +154,7 @@ export function useLeaderboardWidgetStandings(
       }
       // The month can roll while the request is queued or on the wire: last
       // month's rows, kept or just loaded, never show under this month.
-      const settledTag = snapshotTag(scope, new Date());
+      const settledTag = snapshotTag(scope, timeZoneRef.current, new Date());
       if (snapshotScopeRef.current !== settledTag) {
         rankedRef.current = [];
         snapshotScopeRef.current = null;
@@ -261,7 +187,7 @@ export function useLeaderboardWidgetStandings(
       setLoading(false);
 
       if (result.status === "superseded") return { status: "superseded" };
-      if (result.status === "ok" && tag !== settledTag) {
+      if (result.status === "ok" && (tag !== settledTag || performancePeriodStart("This Month", result.data.time_zone).getTime() !== Date.parse(result.data.start_at))) {
         // Loaded for last month: not this month's standings, so nothing is shown
         // and the next Refresh loads this month as a first load.
         setLoadError(standingsHeadline("error", false, "widget"));
@@ -270,10 +196,13 @@ export function useLeaderboardWidgetStandings(
       }
       if (result.status === "ok") {
         const updatedAt = Date.now();
-        rankedRef.current = result.data;
-        snapshotScopeRef.current = tag;
+        timeZoneRef.current = result.data.time_zone;
+        setPerformanceSnapshot(result.data);
+        const rows = widgetRows(result.data);
+        rankedRef.current = rows;
+        snapshotScopeRef.current = snapshotTag(scope, timeZoneRef.current, new Date());
         lastUpdatedAtRef.current = updatedAt;
-        setRanked(result.data);
+        setRanked(rows);
         setLoadError(null);
         setRefreshHeldUntil(null);
         setStatus({ ...STANDINGS_STATUS_OK, lastUpdatedAt: updatedAt, manualAvailableAt: gate.manualAvailableAt(endpoint) });
@@ -302,7 +231,7 @@ export function useLeaderboardWidgetStandings(
         ? { status: "deferred", until: result.retryAt }
         : { status: "failed" };
     },
-    [identityKey, scopeKey, groupId, endpoint],
+    [identityKey, organizationId, scopeKey, groupId, endpoint],
   );
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -320,7 +249,7 @@ export function useLeaderboardWidgetStandings(
     // With nothing loaded for this view it is a first load ("initial"): a spacing
     // refusal would otherwise leave no read behind the empty state.
     const work = loadRef.current(
-      snapshotScopeRef.current === snapshotTag(scopeRef.current, new Date()) ? "manual" : "initial",
+      snapshotScopeRef.current === snapshotTag(scopeRef.current, timeZoneRef.current, new Date()) ? "manual" : "initial",
     );
     trackerRef.current?.report(refreshSignal, "leaderboard", work);
   }, [refreshSignal]);
@@ -340,7 +269,7 @@ export function useLeaderboardWidgetStandings(
         if (!waitingRef.current || !isPageActive()) return;
         waitingRef.current = false;
         void loadRef.current(
-          snapshotScopeRef.current === snapshotTag(scopeRef.current, new Date()) ? "manual" : "initial",
+          snapshotScopeRef.current === snapshotTag(scopeRef.current, timeZoneRef.current, new Date()) ? "manual" : "initial",
         );
       }),
     [],
@@ -368,6 +297,7 @@ export function useLeaderboardWidgetStandings(
   })), [ranked, avatars, groupId]);
 
   return {
+    performanceSnapshot: snapshotScopeRef.current === snapshotTag(scopeKey, timeZoneRef.current, new Date()) ? performanceSnapshot : null,
     agencyGroup,
     widgetView,
     setWidgetView,

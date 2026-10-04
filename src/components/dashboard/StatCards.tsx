@@ -1,3 +1,4 @@
+import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
 import { StatData } from "@/hooks/useDashboardStats";
 import type { DashboardSectionState } from "@/hooks/useDashboardSection";
@@ -61,7 +62,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     },
     {
       id: "appointments",
-      label: timeRange === "day" ? "Appointments Today" : `Appointments (${timeRange})`,
+      label: timeRange === "day" ? "Scheduled Today" : `Scheduled Appointments (${timeRange})`,
       value: data?.appointmentsToday,
       trend:
         data?.appointmentsToday != null && data.appointmentsYesterday != null
@@ -76,7 +77,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "premium_sold",
       label: "Annual Premium Sold",
-      value: data?.premiumThisMonth != null ? `$${data.premiumThisMonth.toLocaleString()}` : null,
+      value: data?.premiumThisMonth != null ? formatPremiumSold(data.premiumThisMonth) : null,
       trend: trendOf(data?.premiumThisMonth, data?.premiumLastMonth),
       icon: TrendingUp,
       gradient: "premium-gradient-amber",
@@ -87,6 +88,7 @@ const StatCards: React.FC<StatCardsProps> = ({
   return (
     <div className="space-y-2">
     {status && <DashboardSectionNotice state={status} label="stats" className="px-2" />}
+    {data?.performance && <p className="px-2 text-xs text-muted-foreground">{data.performance.scope} · {data.performance.time_zone} · Through {new Date(data.performance.end_at).toLocaleString()} · Compared with previous full {timeRange}{data.performance.current.unknown_premiums ? ` · ${data.performance.current.unknown_premiums} policies with unknown premium` : ""}</p>}
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, index) => (
         <div

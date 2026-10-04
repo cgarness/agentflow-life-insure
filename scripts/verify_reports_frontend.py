@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run isolated Reports verification and prove no new failures versus the exact PR base."""
 from pathlib import Path
+from collections import Counter
 import json
 import os
 import re
@@ -39,8 +40,12 @@ for name, cwd in [('base', base), ('branch', root)]:
 
 def type_errors(name: str) -> list[str]:
     lines = (evidence/f'{name}-app-tsc.log').read_text().splitlines()
-    return sorted(x.replace(str(base),'<ROOT>').replace(str(root),'<ROOT>') for x in lines if 'error TS' in x)
-assert type_errors('base') == type_errors('branch'), 'TypeScript regression against base'
+    # Source edits move diagnostic locations. Compare file/code/message and multiplicity;
+    # resolved baseline errors are allowed, new or additional errors are not.
+    return sorted(re.sub(r'\(\d+,\d+\): (error TS)', r'(line,col): \1',
+                         x.replace(str(base),'<ROOT>').replace(str(root),'<ROOT>'))
+                  for x in lines if 'error TS' in x)
+assert not (Counter(type_errors('branch')) - Counter(type_errors('base'))), 'New TypeScript diagnostic against base'
 assert checks['base_root_tsc'] == checks['branch_root_tsc'], 'Root typecheck regression'
 
 def failures(path: Path, cwd: Path):

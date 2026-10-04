@@ -1,3 +1,23 @@
+## 2026-10-04 05:46 PDT — Reporting release and exact permission amendment approved
+
+Chris approved the reporting release packet at 05:35 PDT, then explicitly approved the trusted Dialer permission correction at 05:46 PDT after the live ACL mismatch was disclosed. Migration 8 now verifies the exact actual ACL and revokes only anonymous/public execution; authenticated/service/owner grants remain. The fixture starts with the real baseline, and all 29 embedded policy/performance/repair steps pass, including anonymous denial and authenticated/Admin self-scope. No production mutation yet. Continue through native/browser/full-CI gates and recheck active calls immediately before any approved backend work. Reports-owned source remains outside this build.
+
+Release verification additionally updates `scripts/verify_reports_frontend.py` to compare TypeScript file/code/message multiplicities without line-number churn and to allow resolved diagnostics; new diagnostics and new test/runtime failures remain prohibited. The existing AppointmentModal prefer-const lint error is corrected with no behavior change. Publication/release approval supersedes earlier isolated-only holds below; historical call/booking candidates remain unresolved.
+
+## Reporting and leaderboard integrity — implemented in isolation, October 4, 2026
+
+Chris approved the full correction plan at 22:41 PDT October 3 and asked to continue. Branch `codex/leaderboard-accuracy-audit-20261004`, base `436d9d840732bca1262559597c17e5ef09893fbf`. The task plan and exact release boundaries are in [the reporting release packet](docs/plans/2026-10-04-leaderboard-accuracy/release_packet.md); [verification](docs/plans/2026-10-04-leaderboard-accuracy/verification.md) records executed checks and limits.
+
+Implemented one original sale per new primary/additional policy, stable identities/receipts, first/additional/historical entry, secured shared performance readers, agency timezone/as-of metadata, correct cents/seconds/ratio/CSV, atomic booking+disposition replay, stable call attempts and provider duration provenance. Preserved canonical DNC/conversion bodies and existing public-table RLS. Google provider event races are guarded. Reports application/RPC source is reserved for the other build.
+
+Eight CLI-generated forward migrations are **unapplied**. Six historical identity links and the exact two-sale repair/reversal are quarantined outside automatic migrations. Disposable repair result: **8 events and $9,373.92 annual premium**, with no October increase. The immutable call/booking anomaly manifest remains unresolved pending provider/intent evidence; no historical mapping or duration correction is invented.
+
+**Verified:** 521 passing frontend tests in 27 changed/new files (2 existing skips), both embedded database suites, read-only reconciliation query, production and isolated visual-fixture builds. App TypeScript has 87 baseline diagnostics versus 88 on main, no additions; scoped lint has no new errors. **Remaining gates:** independent-session PostgreSQL (local account-switch denied), real browser (Chromium certificate download error), full exact-head remote CI and production release checks. Neither browser nor production accuracy is claimed from component tests.
+
+No public push/PR/merge, production mutation, Edge/frontend deployment, provider request or customer communication. Separate concrete release authorization is still required; the packet documents mixed-client rollout constraints and compatible recovery. Existing task histories below are preserved.
+
+---
+
 ## Contact history soft pill with info — selected October 3, 2026
 
 Chris selected option 2 of the final soft-pill previews at 20:32 PDT. Implement the whole communication row as one content-width soft pill, with inbound left/outbound right, plain inline outcome, compact time and an info button. All call metadata, historical agent attribution, duration, campaign, notes and existing recording/voicemail controls remain in a floating popover; email keeps full subject/body/endpoints/delivery details there. SMS and Activity retain their current presentation. The existing three-column Contact layout, readers, pagination, persisted refresh, conversion lineage and multi-tenant/View-As gates remain unchanged.

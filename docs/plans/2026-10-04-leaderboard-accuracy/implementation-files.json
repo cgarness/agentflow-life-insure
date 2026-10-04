@@ -1,0 +1,588 @@
+{
+  "branch": "codex/leaderboard-accuracy-audit-20261004",
+  "base": "436d9d840732bca1262559597c17e5ef09893fbf",
+  "state": "release and exact ACL amendment approved; verification in progress; no production application",
+  "manifest_excludes": "this inventory file itself",
+  "files": [
+    {
+      "path": ".github/workflows/reporting-integrity.yml",
+      "sha256": "47003d1f1c619142bc37e298b6ce04a55ee2d004dd6331cdc9aa52dec09bd5f2",
+      "bytes": 1776
+    },
+    {
+      "path": "AGENT_RULES.md",
+      "sha256": "66ea89c308ae550c9a31f7863162e64e2c18340059a62008d150d9058b795dde",
+      "bytes": 218200
+    },
+    {
+      "path": "WORK_LOG.md",
+      "sha256": "57f4c895c4ddbee008664340cb234c09ac1d13b23bca7083f878d69b7bc48b4f",
+      "bytes": 2232313
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/full_audit.md",
+      "sha256": "b1a3629ad38ecfc1ac5edc8e23d713091006b7b2a120110575fdfe61d54728ed",
+      "bytes": 24544
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/google-calendar-inbound-sync-baseline.json",
+      "sha256": "198fcab962cb907ea723f9eee047b6a247bd685d70ba8b11ae24d53e66c8f615",
+      "bytes": 727
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md",
+      "sha256": "e0ff54b6b2a833c789378482633321006cfc64f8d27615dea8ca2609c2363b96",
+      "bytes": 39758
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/implementation_progress.md",
+      "sha256": "673e2e22d285626f999f0f0c62e5ad717bf8e7f100f3c5da0949ef6d1c9713bd",
+      "bytes": 8822
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/initial_plan.md",
+      "sha256": "caa2f15a11588ec3d9c9549abcfbcff7a7ac62981a364c750b8458938338cdc8",
+      "bytes": 14278
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/reconciliation-manifest.json",
+      "sha256": "5fd35fdabcb7ed8d3701c9b80b0bd06074ab40653736f7b0232771617ed9930b",
+      "bytes": 129554
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_packet.md",
+      "sha256": "82b9f6eeed79b8e1c9385038b1941057bc4432e11b8289939546156a5441390f",
+      "bytes": 10563
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_preflight_20261004.md",
+      "sha256": "0c3f550db10afae6e7508433e127933b2d45468d19dfdbd0007efc4363e3c1c5",
+      "bytes": 3009
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/reports_handoff.md",
+      "sha256": "a259fc647a6f993e6f40ffd59699a022cf47d1c3717469fc81511a066220b61e",
+      "bytes": 9112
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/twilio-voice-status-baseline.json",
+      "sha256": "63b541661e14f94af850a6844b7bc49e4c3d378529e0cd8305e038492cf4cd9b",
+      "bytes": 2208
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/verification.md",
+      "sha256": "67c5db56e75bca876798810e0b716b74a765396159c39186c2e9ebde972bc9da",
+      "bytes": 7111
+    },
+    {
+      "path": "implementation_plan.md",
+      "sha256": "2940d77abbc9b8052c52ad32d4a6ee0d1e5ad1bbb0b7f21d49dd65664bcc4a9c",
+      "bytes": 213609
+    },
+    {
+      "path": "scripts/reconcile_reporting.mjs",
+      "sha256": "1d4f0583cdc12cf04d2784e958991fd0d7ac758f18a3311535cce6a521c663a3",
+      "bytes": 1162
+    },
+    {
+      "path": "scripts/reporting_fixture.py",
+      "sha256": "fd03684f3751a98e858913df8fd832316f5d740bb3da033a35ec0236f2d13ae2",
+      "bytes": 8723
+    },
+    {
+      "path": "scripts/run_reporting_integrity_tests.sh",
+      "sha256": "878d39561bc83765cdde82f492d59d2e5ab8069583a6a258f6a3b405ed1961b7",
+      "bytes": 2271
+    },
+    {
+      "path": "scripts/tests/booking-integrity-embedded.mjs",
+      "sha256": "fa7ae905469f6ac319d436aff066158ab1487d7c3e6874760eb57cb9bd0d2ca3",
+      "bytes": 147
+    },
+    {
+      "path": "scripts/tests/leaderboard-visual/README.md",
+      "sha256": "5f62d35500cb2fdba6d2b0da44751cf43fb64102a017bfb9028a0291bbb7193f",
+      "bytes": 1991
+    },
+    {
+      "path": "scripts/tests/leaderboard-visual/entry.tsx",
+      "sha256": "555362b7b429224685d37d10cbdc93e5e9b9b69239590ee702205a25db40d51c",
+      "bytes": 2875
+    },
+    {
+      "path": "scripts/tests/leaderboard-visual/verify.mjs",
+      "sha256": "694802a0e12bf9fc2532593f06de29912ae527a5706496e21e9801e5d01d3f02",
+      "bytes": 6081
+    },
+    {
+      "path": "scripts/tests/policy-integrity-embedded.mjs",
+      "sha256": "8a72e35e085314dba4ad752a6d974e7df836dc6f9b5b6b3ab8c6615a044d4e21",
+      "bytes": 867
+    },
+    {
+      "path": "scripts/tests/reporting-concurrency.mjs",
+      "sha256": "875327e706adbccd5040ade2aaa8431efe8013cfa3134dc87d5db31db237471e",
+      "bytes": 5468
+    },
+    {
+      "path": "scripts/verify_reports_frontend.py",
+      "sha256": "6c913b609fbfec42de9dba2f3b364a339a2a7d37e2881baf13dcf02fc2ef12ac",
+      "bytes": 6214
+    },
+    {
+      "path": "src/components/calendar/AppointmentModal.tsx",
+      "sha256": "b12889479f7290512da31294ea87b02ae0feaa41b8b58efa95d703c38faf2112",
+      "bytes": 32882
+    },
+    {
+      "path": "src/components/contacts/AddClientModal.tsx",
+      "sha256": "d2ae376284123e9fb83db882eafc666b636e0aee0828d6ec93abe7e43a5c641d",
+      "bytes": 11322
+    },
+    {
+      "path": "src/components/contacts/FullScreenContactView.tsx",
+      "sha256": "043f351c6002ceeddbba59c2d01f97e47e45bd8593445996fa2a4d45e2a492d4",
+      "bytes": 72345
+    },
+    {
+      "path": "src/components/contacts/RecordPolicyModal.tsx",
+      "sha256": "3a8aa23cd96d07acd9226a5f7eb4e8732a8da9fe77556f68456489ecdff3ed5a",
+      "bytes": 5065
+    },
+    {
+      "path": "src/components/contacts/__tests__/addClientSale.test.tsx",
+      "sha256": "f9acce119fb3774bde9b046461a0487503c571895d9aec4569cf3589ab16e89c",
+      "bytes": 2950
+    },
+    {
+      "path": "src/components/contacts/__tests__/recordPolicyModal.test.tsx",
+      "sha256": "447ada0dbdbca25effe5ac9c508fefee66806e2a658946bdd76cdd7315b499dd",
+      "bytes": 3069
+    },
+    {
+      "path": "src/components/dashboard/DashboardDetailModal.tsx",
+      "sha256": "3af25335d1ddf39441ea2ada5978267bf1bef6013a3c3a07b7240c3e02527019",
+      "bytes": 38070
+    },
+    {
+      "path": "src/components/dashboard/StatCards.tsx",
+      "sha256": "d0303ac3835f113e2ea0ffa01d57e0c0a08390445497c5d833f876eba6ee495a",
+      "bytes": 6852
+    },
+    {
+      "path": "src/components/dashboard/__tests__/dashboardCallbacks.test.ts",
+      "sha256": "620bf3d9a26c22f0daa737c4f6097bc33be57d2aa4188c1591de2e881d8fe6d1",
+      "bytes": 51099
+    },
+    {
+      "path": "src/components/dashboard/__tests__/dashboardRefresh.test.tsx",
+      "sha256": "61ea6ec355e776a5d7ea581df59859749463e478638ceb3709b06b0b224289be",
+      "bytes": 11601
+    },
+    {
+      "path": "src/components/dashboard/__tests__/dashboardSections.test.tsx",
+      "sha256": "fb27822e10932ad7a2159b46ab9281f6c3e2a02a6c210c964a1f4440808bbce8",
+      "bytes": 26466
+    },
+    {
+      "path": "src/components/dashboard/__tests__/goalProgressAppointmentsSet.test.tsx",
+      "sha256": "a51bda34688080eacd373e7388fe667fb542c59d38c35d5a848a8cfa63a57727",
+      "bytes": 5777
+    },
+    {
+      "path": "src/components/dashboard/__tests__/leaderboardWidget.test.tsx",
+      "sha256": "c64f9c1fbbb83e0e847924551dc93f26a6efa4af1af80dfb6acda41d5d991a91",
+      "bytes": 53987
+    },
+    {
+      "path": "src/components/dashboard/widgets/GoalProgressWidget.tsx",
+      "sha256": "f87771cf4f545c87c7c0feeac235560494ca20de3ac091abcc971f84d8480539",
+      "bytes": 7724
+    },
+    {
+      "path": "src/components/dashboard/widgets/LeaderboardWidget.tsx",
+      "sha256": "f4ce981f4aad73b1c191b53880495389960e0f5b9db57f2e1bd0a2c711f9dff9",
+      "bytes": 7165
+    },
+    {
+      "path": "src/components/dialer/DialerHeaderStats.tsx",
+      "sha256": "e82b20c25e2e2fc990d8b473c433cd435c7ed0ff576ab942e5a450773ce0d638",
+      "bytes": 2976
+    },
+    {
+      "path": "src/components/layout/FloatingDialer.tsx",
+      "sha256": "f0a9b2b211aafb07d75031018529e9dcdb8c1bbcac2d287b85c18e6a188c1e17",
+      "bytes": 62285
+    },
+    {
+      "path": "src/components/layout/__tests__/floatingDialerDisposition.test.tsx",
+      "sha256": "e9e62cb6e71e5b2be9f75f4c2434da495ac4ab5f086442d9dfd2ce142a1160fa",
+      "bytes": 16019
+    },
+    {
+      "path": "src/components/leaderboard/LeaderboardRankingsTable.tsx",
+      "sha256": "bef451f303d8d801a0cc49467fe0c6866a08a0b912be35b45bbcaa88bc00e12c",
+      "bytes": 9820
+    },
+    {
+      "path": "src/components/leaderboard/OdometerValue.tsx",
+      "sha256": "11d103da884421822701ed36d067b285270c282aa2d5c2bfe83a9d0ca2c1bd0a",
+      "bytes": 1068
+    },
+    {
+      "path": "src/components/leaderboard/RecentWinsPanel.tsx",
+      "sha256": "ca6872b5b8c99b07edc9d25bfab11a47f38988f086a4201923414c1a196c205c",
+      "bytes": 10208
+    },
+    {
+      "path": "src/components/leaderboard/TVAgencyTotalsStrip.tsx",
+      "sha256": "365bcdc65956a0696c2248a0eaa8029d301f04191342f9fc6b81fd63bb1d8bf5",
+      "bytes": 4867
+    },
+    {
+      "path": "src/components/leaderboard/TVMode.tsx",
+      "sha256": "83757c751bdd1a4d3f753edee368ebd3ad3860ffc11c0d8b088a1a3c9b45f368",
+      "bytes": 21416
+    },
+    {
+      "path": "src/components/leaderboard/TVRankingsTable.tsx",
+      "sha256": "55c100905bb8fec1e02523866ee1904c8efc026b09358376eec772d5cab4737c",
+      "bytes": 7752
+    },
+    {
+      "path": "src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx",
+      "sha256": "4653ab3588471882393f18265a01607ae62fc6e39cb50e987f68a873a7d811a8",
+      "bytes": 11878
+    },
+    {
+      "path": "src/components/leaderboard/leaderboardTypes.ts",
+      "sha256": "08222c21458cbc57c80140103a878baf0f3e791ce618b70974d8789337871de3",
+      "bytes": 6384
+    },
+    {
+      "path": "src/components/settings/user-management/UserGoalsTab.tsx",
+      "sha256": "d40b0cce9b9bf6938fb937c4c9ebb7a1242bddd8bd3570b38394dde0284331b7",
+      "bytes": 5583
+    },
+    {
+      "path": "src/components/settings/user-management/UserPerformanceTab.tsx",
+      "sha256": "280aa2d9858c2b4bf3a0259adf221ea3bdc87b5f4554b98cfe16f0e882603087",
+      "bytes": 5547
+    },
+    {
+      "path": "src/components/settings/user-management/UserProfileModal.tsx",
+      "sha256": "3661dff34c44e15ae98ae8196ab7189ef5210ad80634d1b78b42ad96db574f1d",
+      "bytes": 15401
+    },
+    {
+      "path": "src/contexts/CalendarContext.tsx",
+      "sha256": "070769bd5bf1c05bfe74af17c954273f533dc77037542c349aebad038de0c819",
+      "bytes": 15934
+    },
+    {
+      "path": "src/contexts/TwilioContext.tsx",
+      "sha256": "235d7030d795d0ec83a10a818a85ff396d95b626b8d1dd2977b81b14dfc6f856",
+      "bytes": 102226
+    },
+    {
+      "path": "src/contexts/__tests__/calendarAddAppointmentOwnership.test.tsx",
+      "sha256": "effc03743b8fd280efba2ef63bb5f7029d9909663e7b04a5ca9ea070e18a820c",
+      "bytes": 35725
+    },
+    {
+      "path": "src/hooks/__tests__/useLeaderboardData.test.tsx",
+      "sha256": "cadf0d618dffe3c253f078bfa6e119a6c3b1a031ce9bae0e62b6791813036316",
+      "bytes": 57948
+    },
+    {
+      "path": "src/hooks/useDashboardStats.ts",
+      "sha256": "829329d3d430d0b684f0573e1842c16521925120916f0321f779cb5c23cbdcac",
+      "bytes": 3108
+    },
+    {
+      "path": "src/hooks/useLeaderboardData.ts",
+      "sha256": "4e3834024c05f02c5b2e765fd294efbcf96ca7cfbab92a5494697edfdc1f8fe6",
+      "bytes": 38590
+    },
+    {
+      "path": "src/hooks/useLeaderboardWidgetStandings.ts",
+      "sha256": "6fdfbdbc6fe68777d8a436275f1c01c57ce93ff824dad315b3fcc593ac37a021",
+      "bytes": 13816
+    },
+    {
+      "path": "src/lib/__tests__/clientCustomFieldsWriteGuard.test.ts",
+      "sha256": "7cb1f4eb149e019feda496e8c0f59f4b8012f85eefc29f5ec200552c7161bbb0",
+      "bytes": 16116
+    },
+    {
+      "path": "src/lib/__tests__/clientMapping.test.ts",
+      "sha256": "17de6a94a8d90cdf379f8969aeeaefc938b6e85017743a7715869695c7840de1",
+      "bytes": 7360
+    },
+    {
+      "path": "src/lib/__tests__/dialerAppointmentForcedLA.test.ts",
+      "sha256": "9ce963c4a6f75a29e6be7973e20cc1fc7bed53fa1067907d246d35a95cbca060",
+      "bytes": 3432
+    },
+    {
+      "path": "src/lib/__tests__/durationEvidence.test.ts",
+      "sha256": "c31a4bcbdf682925958c79d7eca496d6e7b7b1c07b53b113e6f58eb6d51e456c",
+      "bytes": 1326
+    },
+    {
+      "path": "src/lib/__tests__/performanceContract.test.ts",
+      "sha256": "01841296030ca792129d291f9ce8438c7075251f166c5480eb7095ab81fa7414",
+      "bytes": 5077
+    },
+    {
+      "path": "src/lib/__tests__/policyIdentity.test.ts",
+      "sha256": "401233fd60599ffd8b412599890d292faeb015ae73609ce576eef60a5e03f5ce",
+      "bytes": 525
+    },
+    {
+      "path": "src/lib/__tests__/policySaleRecording.test.ts",
+      "sha256": "622685ad622a5ab501b6afea3b1d57e330bcb558f291e5d5dd7cb8a941eaad58",
+      "bytes": 4772
+    },
+    {
+      "path": "src/lib/__tests__/reportsContracts.test.ts",
+      "sha256": "3e3751d15c4ce0af5533905303cb75990816495ba51b4011695ea8c7009d1d7f",
+      "bytes": 9666
+    },
+    {
+      "path": "src/lib/__tests__/saveAppointmentPayload.test.ts",
+      "sha256": "fd6056ca8540ff5b7e2460cd59cc361a0d0a96485add856b5415a1c19286b17e",
+      "bytes": 6304
+    },
+    {
+      "path": "src/lib/__tests__/usersGetPerformance.test.tsx",
+      "sha256": "53e7b1e72c4f23636319cb5f1cccae5dbbabffb25cdf50d20a4ce849ff0b034e",
+      "bytes": 5240
+    },
+    {
+      "path": "src/lib/appointmentPersistence.ts",
+      "sha256": "bcf498cec876b7f95215d8ae8d66b9a9ca80f2b85d90ad2ea91d6920e54e5f18",
+      "bytes": 1442
+    },
+    {
+      "path": "src/lib/dialer-api.ts",
+      "sha256": "39bec2f9322d47faaef62ee10ddcf70700c338a84d9591574fc6f14b1cbb98b8",
+      "bytes": 14469
+    },
+    {
+      "path": "src/lib/dialer-disposition.test.ts",
+      "sha256": "468c75d22c1213ec94522ca85b29ce9076260d9b26a4fde4a51d06acc8fb8874",
+      "bytes": 3833
+    },
+    {
+      "path": "src/lib/dialer-disposition.ts",
+      "sha256": "e6fc5e3d7c8ae87f97f50dbb87b77ec79e0a9561e0feaafac572214fde963312",
+      "bytes": 3722
+    },
+    {
+      "path": "src/lib/leaderboardExport.ts",
+      "sha256": "78c837c8faff57687b8a9fcb7c28d353b66c264c28ffc4747b2ab57bee25dff7",
+      "bytes": 2684
+    },
+    {
+      "path": "src/lib/performancePeriod.ts",
+      "sha256": "058e196d066955beb6c40e42669b0d26e8a8084c3fd05e70bd4bfeaa80722c48",
+      "bytes": 841
+    },
+    {
+      "path": "src/lib/performanceQueries.ts",
+      "sha256": "3e27b8363694ec373c1135643cfee0626070f04de72a151502e8ddeecebc3953",
+      "bytes": 5061
+    },
+    {
+      "path": "src/lib/performanceSummary.ts",
+      "sha256": "82dca7788727acf88cce0bec46cde228b0256a16295109f6af6391dfad5b36c9",
+      "bytes": 3160
+    },
+    {
+      "path": "src/lib/policyIdentity.ts",
+      "sha256": "1caaacd033d8afc53efa0dd72869b03618e1e304de0ba69dd3f5b71c70518481",
+      "bytes": 580
+    },
+    {
+      "path": "src/lib/policySaleRecording.ts",
+      "sha256": "b7860a4921319ba05fe6c7c73622ff59749e888a008e64bf21b933d9abfde038",
+      "bytes": 2212
+    },
+    {
+      "path": "src/lib/supabase-clients.ts",
+      "sha256": "e59a331a16275a311934569054f272d972bb648e5689578db6c2834051876141",
+      "bytes": 16665
+    },
+    {
+      "path": "src/lib/supabase-conversion.ts",
+      "sha256": "f5e5d81358e7d0645aec49d5a3a11cc3c182eac270dd232d4cd606a4718ea264",
+      "bytes": 4758
+    },
+    {
+      "path": "src/lib/supabase-dialer-stats.ts",
+      "sha256": "edcd4aac95040cbd09ecb6a81a68547311232b0f2506803f8814dcc443c0d511",
+      "bytes": 11564
+    },
+    {
+      "path": "src/lib/supabase-users.ts",
+      "sha256": "38e28e4b764ac00907d6069bc1d0cd683c0eaa2e5ee9c6a5271c91c9e5ad8bde",
+      "bytes": 30507
+    },
+    {
+      "path": "src/lib/types.ts",
+      "sha256": "b349c188fbfc762e1ac9cf4f726b07445b5e4632c165895d1635ddb0cab40f7a",
+      "bytes": 9121
+    },
+    {
+      "path": "src/pages/CalendarPage.tsx",
+      "sha256": "074bd2cb51deba7ff59c757e60080488992696432f96b32aaad7c6c887f311fb",
+      "bytes": 37230
+    },
+    {
+      "path": "src/pages/Dashboard.tsx",
+      "sha256": "b4e8e83ffd7c943d017ae1c6257e5798ec6b68c8d11f79c554893340ca6f3553",
+      "bytes": 26365
+    },
+    {
+      "path": "src/pages/DialerPage.tsx",
+      "sha256": "bf5d4e47e18b03ec340f38e7d0ec1a7e953f5b6e4f9a389cd68c72ee67c0a26a",
+      "bytes": 208259
+    },
+    {
+      "path": "src/pages/Leaderboard.tsx",
+      "sha256": "91f702ecdf02502fc27f91e5f83a06380289877235c84dcedefba506274aceb5",
+      "bytes": 9045
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx",
+      "sha256": "da0fc11bb0347dc458e170f5e69514ab4da6f68212f58d51c437a997fcdc0c1f",
+      "bytes": 21547
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx",
+      "sha256": "640c0f590396eac097ff88a56a1ff2bd491d2d84009cbb4f15e1002db193d2be",
+      "bytes": 27493
+    },
+    {
+      "path": "src/pages/__tests__/dialerAppointmentSave.test.tsx",
+      "sha256": "992d6d1191c40ec0ac39266d066bbc0a594084c46c79b5a31d2caab3496825bc",
+      "bytes": 37943
+    },
+    {
+      "path": "src/pages/__tests__/dialerAppointmentSaveContract.test.ts",
+      "sha256": "1c0aeeb1b4411119e048396f96d9244b231995799a881a5e910b733fa7eec3ea",
+      "bytes": 4746
+    },
+    {
+      "path": "src/pages/__tests__/leaderboardPage.test.tsx",
+      "sha256": "737fe83bccae28c548d64cf0c42d7b2d8098a62c1e868bc4f3f88bcd2e5fc6c7",
+      "bytes": 16783
+    },
+    {
+      "path": "src/test/fixtures/performance.ts",
+      "sha256": "29fccada4c9956f31022049864eb51bad7bd857df273754b3f2bea46f75f3bb4",
+      "bytes": 2404
+    },
+    {
+      "path": "supabase/functions/google-calendar-inbound-sync/index.ts",
+      "sha256": "272d794e067bdf1f4780eec154b09debd581fee4a7f2ae87586f3fe57a766712",
+      "bytes": 14702
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/dial-evidence.ts",
+      "sha256": "6e9f30fdddcef5d7831526b71a1fe8471e7a28efefc0c8e625e458fce8d413a1",
+      "bytes": 20562
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/duration.ts",
+      "sha256": "a00500b3542d316f639f52b231e7e62707fc4ef050198aadad3986d3bf3fc874",
+      "bytes": 2310
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/index.ts",
+      "sha256": "49e1fa73c272076c7bbf7fd8066a53ce7b766b214d24f98adfed3cd3b619f925",
+      "bytes": 24112
+    },
+    {
+      "path": "supabase/migrations/20261004054235_policy_identity_sale_integrity.sql",
+      "sha256": "7827393cb06c070403b7952f2a3de43eaefab432c95ea67dd628a14cba182586",
+      "bytes": 22106
+    },
+    {
+      "path": "supabase/migrations/20261004055216_performance_reporting_contract.sql",
+      "sha256": "fd96d063bf7136ef968690abb352fab726ad5ea7ec14574bf340537f380189cb",
+      "bytes": 13881
+    },
+    {
+      "path": "supabase/migrations/20261004060013_performance_scoped_summaries.sql",
+      "sha256": "93f99c84dedad65ed179b706273a1fcedd3504123e26e41ed51d7f8793822dd9",
+      "bytes": 9317
+    },
+    {
+      "path": "supabase/migrations/20261004060713_booking_disposition_receipts.sql",
+      "sha256": "885f064b31f2ce50466108a1c78b4b9c0adebc449a346eedaa452b359f106188",
+      "bytes": 10647
+    },
+    {
+      "path": "supabase/migrations/20261004061001_call_attempt_duration_provenance.sql",
+      "sha256": "8b8850a464d0013da0f6fe754e8527e8f5aa8b0d99a8ba7d61134a0764b073df",
+      "bytes": 7175
+    },
+    {
+      "path": "supabase/migrations/20261004061538_performance_reader_indexes.sql",
+      "sha256": "269d5c913b8143c2b8a5c213011a4ecb18302d2050447f7bfd245499c0c7efc6",
+      "bytes": 1441
+    },
+    {
+      "path": "supabase/migrations/20261004062049_external_booking_identity_guard.sql",
+      "sha256": "7119a05f88ba59d0b055964eb94b1f58e7ed8e9370cf25524f47bf6295840ae6",
+      "bytes": 2113
+    },
+    {
+      "path": "supabase/migrations/20261004062224_trusted_dialer_canonical_counts.sql",
+      "sha256": "33488818bd7aaefb65e937818df89e511f028411d00b711602a25275874dc3fc",
+      "bytes": 4826
+    },
+    {
+      "path": "supabase/ops/reporting-accuracy/pending/20261004062328_reviewed_missing_policy_sales.sql",
+      "sha256": "14c26551fdb386274fcf6d33001efa61ca658f82c951a94d35f7f9fec206ab82",
+      "bytes": 3976
+    },
+    {
+      "path": "supabase/ops/reporting-accuracy/pending/20261004062851_reviewed_legacy_policy_links.sql",
+      "sha256": "7729bc72d9ce8add2a2e2a84e469d8c10968818d4189d3fce4a8cb5b40e33a77",
+      "bytes": 3772
+    },
+    {
+      "path": "supabase/ops/reporting-accuracy/pending/reverse_reviewed_missing_policy_sales.sql",
+      "sha256": "9587083e4751876866b4612b7ed597cc12d2db0457ece479f6254da4da33843a",
+      "bytes": 1375
+    },
+    {
+      "path": "supabase/ops/reporting-accuracy/reconcile.sql",
+      "sha256": "2399662cf6ebb90a1f410fa8666a17e2e06c5bf67ae3c2793bda7074ce146ccb",
+      "bytes": 4638
+    },
+    {
+      "path": "supabase/tests/booking_duration_integrity.sql",
+      "sha256": "08e562ff06596c17ee556b9d22d690b83b6c8420a1bf17d5c6fce853030b3e26",
+      "bytes": 9732
+    },
+    {
+      "path": "supabase/tests/booking_upgrade_fixture.sql",
+      "sha256": "74bf63ad889d71b699d1c9d6e605e3bb5ef0d4562d0c99a0a844f6486a5227b5",
+      "bytes": 536
+    },
+    {
+      "path": "supabase/tests/performance_reporting_contract.sql",
+      "sha256": "0a57863d00c74e3d9388f738e77b7db0842d008c1d856dc6682feb50197bc9e5",
+      "bytes": 9474
+    },
+    {
+      "path": "supabase/tests/policy_identity_integrity.sql",
+      "sha256": "83429a481aa4d3a40b61f9da84b41ec50daca51205fa3dbad435ac777516a3a4",
+      "bytes": 9156
+    }
+  ]
+}

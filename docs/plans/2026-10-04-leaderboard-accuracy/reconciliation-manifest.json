@@ -1,0 +1,4134 @@
+{
+  "calls": [
+    {
+      "id": "c17f8c7b-c297-4a33-8caa-2720595b5d50",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "1e1c38293064feac91dde740db09c802",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:12:47.680888+00:00",
+      "twilio_call_sid": "CA124404ac48c2b5b97b9dd105aaef1dd3"
+    },
+    {
+      "id": "18fe73d0-5d10-4da4-b77c-7e03c36047de",
+      "status": "ringing",
+      "reasons": [
+        "old_ringing",
+        "duplicate_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "7dad80f324826f8c68e9b98e8076c32c",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:12:47.301003+00:00",
+      "twilio_call_sid": "CA124404ac48c2b5b97b9dd105aaef1dd3"
+    },
+    {
+      "id": "738aaed7-b41f-42a9-8ce8-1ec37fdf5f09",
+      "status": "no-answer",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "0c87f2b8479863a682a80e542206f8b5",
+      "direction": "outbound",
+      "created_at": "2026-09-29T18:03:06.403088+00:00",
+      "twilio_call_sid": "CA14abdf67aaf9759fd2ec0193eeb044a1"
+    },
+    {
+      "id": "142ad30d-41ff-48f0-a57a-2e44f0327425",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "8dbfab3aff3861a1cb6b26aa714a8810",
+      "direction": "outbound",
+      "created_at": "2026-09-24T16:55:16.786218+00:00",
+      "twilio_call_sid": "CA15776221e9e87ab1e87308e0cf9991f7"
+    },
+    {
+      "id": "94299fd0-ed52-442b-af8c-1abae85370a8",
+      "status": "completed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "20b4cf2ed1d2849d8595c04afaec3fa1",
+      "direction": "outbound",
+      "created_at": "2026-09-24T16:55:18.715508+00:00",
+      "twilio_call_sid": "CA15776221e9e87ab1e87308e0cf9991f7"
+    },
+    {
+      "id": "4b8efbbb-22c0-462d-ad2a-9c70cebba791",
+      "status": "no-answer",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "93342ca3541995b64feb4f4682da9489",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:51:09.358217+00:00",
+      "twilio_call_sid": "CA2f1d4979a398fe1418e5408bb4f1565e"
+    },
+    {
+      "id": "dbfdbbf2-7d97-48bc-b23b-0419c1a94e8b",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "deb5adc870f155aa2b60194f5e3f658b",
+      "direction": "outbound",
+      "created_at": "2026-09-24T18:17:15.26832+00:00",
+      "twilio_call_sid": "CA3a5b0c8c150e5b9ebbe528f200548d04"
+    },
+    {
+      "id": "b633f440-9b7f-4067-aef1-4d01c5899cbd",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "1d3184174545e45689c1b5c8fe427d4a",
+      "direction": "outbound",
+      "created_at": "2026-09-24T18:17:15.283105+00:00",
+      "twilio_call_sid": "CA3a5b0c8c150e5b9ebbe528f200548d04"
+    },
+    {
+      "id": "6e19eff3-ebca-4577-8a55-a8313a53aa87",
+      "status": "no-answer",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "3449908df9fbfd9e398b36e4b998dacf",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:50:22.370471+00:00",
+      "twilio_call_sid": "CA9353aab6f09c1452f0edde086c6228da"
+    },
+    {
+      "id": "edcd5f5d-3b36-4a75-98bf-60164d4c61fb",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "c0fb141c60033a04653aeedd3e81bf1c",
+      "direction": "outbound",
+      "created_at": "2026-10-02T23:09:02.302471+00:00",
+      "twilio_call_sid": "CA9f3e89e45f62bc9741027f8c2c6e2272"
+    },
+    {
+      "id": "6bdd0422-e124-4e37-bfe2-9725da958b38",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "8aab1044813d6aa04b3d6e986a6ea7c5",
+      "direction": "outbound",
+      "created_at": "2026-10-02T23:09:02.362256+00:00",
+      "twilio_call_sid": "CA9f3e89e45f62bc9741027f8c2c6e2272"
+    },
+    {
+      "id": "93497bb4-f762-4ee8-9627-63621d693eee",
+      "status": "completed",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "72eba1ce123f65c2483cad189b709883",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:20:56.154402+00:00",
+      "twilio_call_sid": "CAa0fe34ceb6eb59ae6db54ad1318657d1"
+    },
+    {
+      "id": "13f24ba6-fb6f-4736-81c7-75807b6316be",
+      "status": "no-answer",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "01c1b0f199602444eba4ec44671738ec",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:38:59.369686+00:00",
+      "twilio_call_sid": "CAcaa2761513d0bf41b0b58bd971d63c7b"
+    },
+    {
+      "id": "a88ff0ed-9e58-41c6-8ede-493031d9f83b",
+      "status": "completed",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 4,
+      "row_hash": "b03aa3ad419d6eed92dc1a4b25f6ef59",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:38:51.166006+00:00",
+      "twilio_call_sid": "CAd38b65958952687f38134b2787c2c377"
+    },
+    {
+      "id": "5912f3ae-26e8-4046-84a7-31069b87111a",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "33dfbf8029ef5e166932ae15b53ae3ac",
+      "direction": "outbound",
+      "created_at": "2026-10-02T17:37:41.643353+00:00",
+      "twilio_call_sid": "CAda1b695f525d08dcdcf66fc8ea89fbc5"
+    },
+    {
+      "id": "2d0cc876-4f23-4d39-ad2e-c039852402d3",
+      "status": "failed",
+      "reasons": [
+        "duplicate_provider_id"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "f0994c57b361aa117761152db7957d4a",
+      "direction": "outbound",
+      "created_at": "2026-10-02T17:37:41.704071+00:00",
+      "twilio_call_sid": "CAda1b695f525d08dcdcf66fc8ea89fbc5"
+    },
+    {
+      "id": "45c3a928-7ca1-402b-bb5b-5b01eab47f11",
+      "status": "no-answer",
+      "reasons": [
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "1efd112d7741b5ed9020360eaec55a4c",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:45:20.647775+00:00",
+      "twilio_call_sid": "CAff7dc8fcb41593842204c38250149aaf"
+    },
+    {
+      "id": "9bdb5c8c-fefc-44d9-bdef-25f2032beb13",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "6a376efa774f6a9efe86d3de994fd15e",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:34:07.743758+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "dd1a6ab4-c03d-42f5-bd39-ebd36c2feb37",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "84b9f8c574f9c25df290b499788b32e1",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:09:01.477717+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "cdc44fee-c119-4219-bba9-93d0f938441e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8894305143790f362760933036ba4988",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:39:28.179991+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9cb68024-db3c-480c-aaa0-840fa00f5617",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "5515958b3cf0796928d0c0844e7c4b97",
+      "direction": "outbound",
+      "created_at": "2026-08-18T22:23:23.836661+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6d62bc56-19fe-42c8-ac68-95cc5b33f156",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "77833eb6f32009ba6c8d688ef226ddfa",
+      "direction": "outbound",
+      "created_at": "2026-09-04T21:42:43.24432+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ea86e06f-803e-4768-bf75-9537cb4e85fe",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "07c996721a51f5036edf7fb40589cb5e",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:50:42.79406+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "698ed254-d0d5-4d6f-9130-d54043fedda0",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "e75de4d180f5d7d131da004a9d6ea497",
+      "direction": "outbound",
+      "created_at": "2026-10-01T00:38:11.294166+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "68f3f515-a3a6-4412-812e-f21aa50e44e2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "2ffc373ef391dde3e8595069125efcea",
+      "direction": "outbound",
+      "created_at": "2026-08-19T02:02:14.464344+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "066898b6-f36c-4458-a306-0f36a780d786",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "04b766c90bfc92006af72e23f82b7a3f",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:42:30.619542+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "effa7210-896c-49c1-bdd8-2629e6d25f86",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3b206ff8fc96084848f83303c42d513a",
+      "direction": "outbound",
+      "created_at": "2026-09-04T21:42:21.662408+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "986a2d14-c16d-467d-8a98-1c3c3021548e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "a91b6d1046da410b159e8ee3bdefc6ba",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:23:57.035598+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "60af13b3-a41b-476f-8e19-aa7dc4f79a8b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "98fb380686ce780b1528add22e1881fa",
+      "direction": "outbound",
+      "created_at": "2026-09-04T21:40:28.323942+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ad42a090-e99e-4666-927d-bfed19da41a2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "f2666dfa2505e76551b995fad567583e",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:44:37.428417+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b95fd844-414a-43d4-8ab4-c4f248973bee",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3648f646120b5cad54122d1063de5258",
+      "direction": "outbound",
+      "created_at": "2026-09-18T00:34:07.5865+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c84bd205-ebbe-4968-a912-c6ddbc18ed35",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "0662f8a0e1ede02435a3680362cdb773",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:09:49.034476+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "cd6283ba-a8ef-40b2-850d-4e6b746e2829",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "968ec03c7ac8db44c582dcb9fded2dba",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:19:10.519124+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0ac73bef-4064-4d80-a9f9-1349f740fe80",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "690249a366e72294d8f4ad6fcdb1385d",
+      "direction": "outbound",
+      "created_at": "2026-08-10T22:20:45.150162+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "58bcb434-4ac0-4900-b231-f6701fcb5cb2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "7b1563a7cd3c9947c0b8820b007e6a31",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:50:12.37842+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b23c8c9a-057e-4b2e-b813-61654bd61cbb",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "e0efc71c10346a21db06e4446c2cb9fe",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:12:50.608484+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ffbf3c23-7bf9-4afc-ae25-ad913f7981ea",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c8eb1f3179a97e9ae762db215546ff3e",
+      "direction": "outbound",
+      "created_at": "2026-08-11T18:23:32.737098+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "684dc320-33c1-4d9d-80d5-6f81852c8b8f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0dcbb0763aff0d93281fb8273f11683e",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:51:08.197181+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f665c3bd-4a54-4273-b03f-9e8a780f5447",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "814725b874eb7686bb28a562174fadeb",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:55:50.401433+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a4ad9a11-117e-431e-9124-6892c22d6b9e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "01225c291728c24ea5643951102fbbd5",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:06:44.97312+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d0695f89-3256-4acb-84b2-7b90a95d3e6c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e7a838deb2aec28e8a13e48ed425ea58",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:34:29.8653+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "964ca4e3-e112-4d4c-af43-628286a32340",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "7eb6f655b45c7186a95ce35882c4f01e",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:33:58.831454+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "657034b2-b950-448d-a6ba-6b49c7678a21",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "fb5e192695273bc9750f11d45f097867",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:17:38.475719+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d79a1fc6-ce29-4e7f-a239-08e8702bd57f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ada0615987e837e7b02ec3461f860adb",
+      "direction": "outbound",
+      "created_at": "2026-09-11T23:17:24.92666+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f12c3e5e-6830-4057-afb8-5374ed713fa4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "d3e3f09b34e5e77ce0dc59944f113cdf",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:18:24.409887+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "eff3a409-a233-4555-b34a-b45320755432",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f97771d93aa974690ffa7387e4424fdd",
+      "direction": "outbound",
+      "created_at": "2026-08-18T21:09:38.116636+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "cf8865bd-4742-4e48-97b4-77f3088c4332",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "d09ff6525eed4a1d6847fddbf9b55468",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:27:22.939576+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "78e3bff4-9792-46ee-948b-134cb4f9756a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1d14e86dac883205dcee1b81ee09c7af",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:34:00.409793+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e0183174-6751-4dd5-941b-a2d20cf61ef2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "60ff1056157d909729ff7d71e836d112",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:52:39.920668+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6ac4dd3a-1823-4be6-bd74-5195f7886e55",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "6dd24b9b2a37ed9e2527b6df79ac862c",
+      "direction": "outbound",
+      "created_at": "2026-09-24T17:09:02.592618+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4f146dce-9f76-4acd-93fe-4aa78b39b65e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "bc881311f73e053c2cc8e4bf0f83d0a1",
+      "direction": "outbound",
+      "created_at": "2026-10-01T00:35:00.426687+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d6a38214-0ad8-4d0d-92ce-72d1ef553ea3",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "af8dd7d23a58a13b18b0af7b6ba91c19",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:09:49.02561+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8d3d761f-ba4e-4d0f-98d7-079bc3f31fb9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c8bcdeb07aeba2ac68b904c4e07d5d48",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:50:48.041205+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4e99a24a-88ea-48fb-93d5-e665622d8057",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "cb5981a06acf0a3b68ea2a0f5dc08a59",
+      "direction": "outbound",
+      "created_at": "2026-09-28T20:48:05.744002+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "aeb8550b-5fbe-4f85-89b4-30b71575de53",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8d4f7c97de86b35a3ab6551c36d1bf46",
+      "direction": "outbound",
+      "created_at": "2026-08-11T19:10:02.411148+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "873ccb6d-646d-4b4f-b859-5dea6c596771",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "017a6e86291f90ba36536f2a842adfe2",
+      "direction": "outbound",
+      "created_at": "2026-09-28T20:40:51.649696+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c8aa68d8-88e4-46dc-9c34-f086f8cef5ed",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "87dd73efc77e6bde8db25dece466baaf",
+      "direction": "outbound",
+      "created_at": "2026-08-19T23:46:07.329993+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8ac215fe-475a-4625-a75a-42a575615388",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "73389c52ada58b9c5b8bc142a2c6f60a",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:18:30.873943+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4af33d9d-7763-4850-8e57-02536144b695",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a7953b3ba4fb42f399ad08034ee77880",
+      "direction": "outbound",
+      "created_at": "2026-08-26T16:55:18.542357+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a2fe10d2-e390-4428-95e1-f125f75e0dff",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "faf6b41ef548a3079e28f2c8b6fe32cc",
+      "direction": "outbound",
+      "created_at": "2026-09-29T21:13:37.168566+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9c57e873-589f-4fb6-9ddc-aba2f3e16ad9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "63a6fd4d568191075190e0fe41d99885",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:33:56.273061+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d1ec4cc7-96f4-4da1-be8d-af64d73321b2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "35eecf2f55011f3270c334e07f414a71",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:08:11.603693+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4b4aa29d-a74c-475e-a162-b90a5ffc5b63",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "84772c6691f2d67f886fc7e396acdfa8",
+      "direction": "outbound",
+      "created_at": "2026-08-14T18:52:23.799042+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5bd79e2d-ba9c-4083-ac7f-247751d86a0c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "a2d4780f1bd4af3c2d22cbd9b60d5d93",
+      "direction": "outbound",
+      "created_at": "2026-09-28T20:48:58.862882+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7953cff8-d312-40b8-b404-5e87f8c4a756",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d9dbae6832a6be2baed6625af8eb2018",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:48:42.580825+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8e78cc7b-fb84-4583-a6c8-3608256c0009",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "e7ecbf9d7eae540e912a2dd690cc2ba3",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:55:16.938402+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "75b9ae5d-ccf8-407e-ab8a-5d1ee09e5644",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "9cfe86aec8faefa5bc023c13ffc5e0de",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:14:02.961803+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "90de11f2-9550-4e1b-948c-01e7c1162c94",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "52569da4e4912b3357ce849294a24c2e",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:14:08.049242+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "819fa365-2066-43ab-b649-cc44b3fcf96a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "69ca925556743550006d58cff701869f",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:17:36.743806+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "432e34f2-2fce-4b39-a4fb-47ca33472a22",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1ba3a773c286460168dbfece04d72a3e",
+      "direction": "outbound",
+      "created_at": "2026-08-14T00:21:43.761723+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "331f2fce-ad1d-42c2-8a88-99ed2d7f8137",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "181495d9e7023a45500c08136b6ffe7a",
+      "direction": "outbound",
+      "created_at": "2026-08-11T19:09:00.444297+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "81efe3bd-54d6-427e-ac2b-e982f944f778",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "2e086f9734850337fe784ff73b6b4637",
+      "direction": "outbound",
+      "created_at": "2026-08-24T22:35:51.073939+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "292852da-6771-4840-95b5-2d4b0ccb9c08",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "6aeb2bcbff5a6e9e5adac97c2b0a178f",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:41:33.024058+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "138e0c3f-1bd1-43b7-b85b-e2408f037faa",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8cd5f8eed31bfeaae9e70f9af5d234d3",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:50:57.56735+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a0ee944b-fabb-48c4-9f86-0ec87aabfc75",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1ef2d7be1996b5176ed158637cf67e19",
+      "direction": "outbound",
+      "created_at": "2026-09-17T21:34:10.320977+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9bce1f51-0417-4036-937b-b601f390200f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3a06583712869de19e663a1f9fdc5cab",
+      "direction": "outbound",
+      "created_at": "2026-08-14T00:28:44.026011+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a8781c91-0ef1-4aac-bc42-30e66de60f20",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0aae4ff52ef12732dda0b3796fc2abac",
+      "direction": "outbound",
+      "created_at": "2026-08-08T17:53:18.933382+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3b8fcc0b-b386-4a38-9203-cd78b007c049",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "53820c0463405487549d1bdeab4f1a9c",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:35:38.60906+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "cf126862-2d87-4763-a95e-f023e4189f77",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "535b7212cf08d7d6cda8ef39257013fe",
+      "direction": "outbound",
+      "created_at": "2026-09-18T00:31:43.742734+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7fe8af12-866b-42c6-bc37-69fc568bbaa3",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f1cea825b2bf6b328593218d48124108",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:04:58.977547+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "92b58b7d-f489-4985-bd3f-46591f6ebc42",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "aef0f33b8f365aa4cfc37f8957b0ed6c",
+      "direction": "outbound",
+      "created_at": "2026-08-11T22:13:21.183877+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f486087d-972b-43df-88d9-d7817628ad64",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "90d2df0da2c147cb4d0bbe07d1c7c9dd",
+      "direction": "outbound",
+      "created_at": "2026-08-14T17:54:08.066223+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "249a9a59-f3d8-4d51-9397-3f87f2ab3e17",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "7cef679239f39a746ed04bdf55177831",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:43:33.699977+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9a4978e9-2f4a-4cb4-9ff1-a67c021ec44c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1312f39bbe52fd4695bc8bdf7d6d84bb",
+      "direction": "outbound",
+      "created_at": "2026-09-16T23:11:09.969246+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ad05b0a6-30bd-408e-96d4-87a5d799dfce",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "18c57b3c6934f63ac664cc4c39b985a6",
+      "direction": "outbound",
+      "created_at": "2026-08-20T20:16:13.392697+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "80f78130-ba8f-412d-9abd-70b755e0562d",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "a04a4b92158bac47a1cd0274e413da93",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:37:47.207563+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "11548aac-ee2e-48ad-9749-101faf74fe5a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "ce639f259aa872b31d518ca44a3c22a2",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:48:23.194473+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "92e35983-d310-4ad3-9798-12a60126878d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "910acd9915143aa5fe1c2b96e1ce8c99",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:45:25.13483+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "356c0b4e-9fcc-4b98-a20d-5912a9a9f734",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "9c9aff6f68f46904e6ba04245b248c64",
+      "direction": "outbound",
+      "created_at": "2026-09-18T00:33:56.935207+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7c85dc1a-ad35-4ddf-8093-fcd9c5c93ba1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "9a7e2a36dbdc7e728ef34c1b695bf988",
+      "direction": "outbound",
+      "created_at": "2026-08-14T17:59:24.738052+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6a737e98-26d8-4d11-baba-d5a4cdf8f813",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d78ccc1ad8de51903cdcc78de83b74a5",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:18:57.745957+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f50e293b-dc91-4c72-8a77-15a48931467d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e18f964395f6537c56a51cd480a6876a",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:18:38.72859+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "256d7d88-f889-4e46-b77f-84d86ba087da",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "fa179a3a06c5b3ed7fd7795fc7ef33ff",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:13:38.812286+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3f8a4cbe-3339-431c-a860-733658c6705b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f163b07264b1dd8d5785549b1b2c0681",
+      "direction": "outbound",
+      "created_at": "2026-09-02T18:16:24.675307+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e7b52f30-6413-422b-8a52-4bae7325b10b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0ed618a1a3cc829d5c1ad4f31d0a859f",
+      "direction": "outbound",
+      "created_at": "2026-09-11T23:16:39.601405+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "84a50a61-cc52-4fc9-be6d-d818bb92e31d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e6d8805910b30020bfc9cba3a6adb0dc",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:51:02.130275+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "da08ea85-e151-417c-867a-d2e6aaa61b85",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ff165431e2380fc45b8ed43101d5d57a",
+      "direction": "outbound",
+      "created_at": "2026-09-18T00:30:07.905476+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a6b2e2cf-a69a-4a66-b57d-5e2fb351762e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "073f057c2e932aafcd76af853042809d",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:56:00.946686+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e3fe22a7-78ab-488b-b56a-01fb9beb1ea9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1f930b698c0ebe8ea2288da5de842c3c",
+      "direction": "outbound",
+      "created_at": "2026-09-18T00:30:14.318806+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "649cce0e-feed-4017-85db-a18e448ce66c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "da4e663ef8db97f75a3cbafa1514e64a",
+      "direction": "outbound",
+      "created_at": "2026-09-02T19:38:18.142668+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0fa127dd-dab9-4afc-a471-8ecd577f7bd4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "5fa4327bfcef45527b2a654b37704084",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:13:16.167657+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f9c71141-cc7f-4617-b30f-6ca28002e673",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "7b64df725e4a591dbfc2984aa3928f8e",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:13:17.974231+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "867d325f-e920-4514-898e-f5207f8ae168",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "9e599ca63b900db4d883da50a9684d8e",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:34:09.553549+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a21e6ab2-e7d3-42ef-be97-43fcd17536e5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "ec451ee575fd9ec240460e9a02456d0d",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:44:26.519147+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b255f920-fdb2-4b78-8c01-25392b803ff0",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "84e3dcf2426592f9ec4bbfdf4f0bf206",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:57:43.256626+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "428ae0cb-6483-4561-90a0-1e90e360168f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "7d459653ac3a70ec342f5400bd013d11",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:04:22.898691+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "20d24022-5531-4167-9192-07db7a786cbe",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "fff144c733dba7d91b8fcad8aca0cb38",
+      "direction": "outbound",
+      "created_at": "2026-09-28T20:48:58.766194+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "abe30981-af33-4eba-b069-4d32bd77d2e4",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c8dba73f7a2c183dc1a0fa28111b4540",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:13:15.889256+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4e4f086e-58a8-457e-8190-048bc7625a7a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ca85aa3b357d0a4a17bc4e98ded0a6b6",
+      "direction": "outbound",
+      "created_at": "2026-08-25T23:34:21.853225+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "86e261c6-d5e3-4f51-ac56-ec4f8d9c2ba8",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f022f58be18afc2e367c607776f5cfc9",
+      "direction": "outbound",
+      "created_at": "2026-08-25T23:51:18.703345+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b9ea6e07-c9fc-4363-afb7-5bb9436fbb07",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "46a89caf7c1da55c20e408a79320990c",
+      "direction": "outbound",
+      "created_at": "2026-08-14T17:52:51.914717+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ac891e67-52b1-4695-bdd3-1440c1d4903d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e156f6f89b12aa5443f9a08704ff9e5c",
+      "direction": "outbound",
+      "created_at": "2026-08-26T00:27:32.271006+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8f1f3258-edf1-4de7-898e-c741cd24480e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "060014d519622628dd8270a57cf618dd",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:10:24.287702+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0eefc007-e30d-4a76-82eb-441bb306ddb5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "4c4e6d994572ceffdd8c798524b15db8",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:50:52.818527+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b15665d5-85ab-4ee8-8250-e8b3d3921665",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "74fb175fbaf387d4ccfbfac6dd11df16",
+      "direction": "outbound",
+      "created_at": "2026-09-16T21:04:20.430537+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5ada73e7-8faf-4851-bdbf-31f8e1c05c9e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f6808dc3f567199b1f655cacb2adab73",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:56:02.094719+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6b9cf06b-11a3-49db-ac4a-c70f289e4183",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "3fabdc269f26c28374b696bfbc234347",
+      "direction": "outbound",
+      "created_at": "2026-09-24T01:08:29.223122+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ddb2388f-65c0-4bbf-8206-b7e2099b0463",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1cf363955a4cc4727b420444de4aff2d",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:41:33.957735+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d6a6815d-6343-4d8d-868f-fe7ae56bc111",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "51c1194e9a69f55b49c71fc32ef7958c",
+      "direction": "outbound",
+      "created_at": "2026-09-17T21:36:32.173296+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "da5bda02-03ba-4d6d-9773-7c7cff3791a7",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ec77f882600ade1aa4004db10b35dcae",
+      "direction": "outbound",
+      "created_at": "2026-08-08T18:18:58.361274+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ab62fd93-7639-4273-8acd-bddfcc3f31d8",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a69f6a04d55d36f9d909f8bef4c4cd4e",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:35:18.470965+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e6091700-3707-4b17-b130-3d2b9c5eb772",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "0555d4b11727786d6becd2f33b8aa058",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:46:30.548218+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2271568c-7773-41a9-aa43-250eec0b3b5c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "70140a031ee7468d5f084b53d7793a62",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:51:03.850487+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "297b0a2c-6f7c-4032-ae19-bdbed1739e4c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0b86249c7c69eb69d18fb9b67cd76fe4",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:51:01.674386+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "874dcf2d-99e2-496b-89b0-35193d0de91e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "022b332c2ed925efef248a6a990e9beb",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:15:05.224686+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "efc42df3-026f-48b8-8244-6932350c914e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "66c35309a143e745720d7dd2f2d47007",
+      "direction": "outbound",
+      "created_at": "2026-08-19T01:55:58.879695+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "fac144a4-c045-4b5d-a5ac-b3a891145764",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "4cf74c856aca32d918a0e1c43c2aebb2",
+      "direction": "outbound",
+      "created_at": "2026-08-17T20:03:51.695529+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0289f843-5b5e-47c8-8ef5-4697c6c8add4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1211c840f446e89f15cd5c5bbcb61fc8",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:48:44.503117+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8e281515-d413-40d0-867f-9b698154fe19",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "65f3f7fcf0b98224cfdf3fda75987ca3",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:37:17.169795+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f946079b-ec2e-496d-99d0-978c51382d90",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "fe59ce831dc1c245ac2709eea9ff2be1",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:07:14.248545+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "748b14d6-7c3e-441e-9f47-6b5d3e5df366",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "aac07dcaeaa244fb1d54bc808e7bdfad",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:42:38.173726+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4cc7cd52-5d3f-4f23-9cc7-9ec5b8fe97a3",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c8ebe67597b4df8c3dcfb99a08a37f92",
+      "direction": "outbound",
+      "created_at": "2026-09-11T22:34:11.698301+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6e82412f-d0b4-402c-b02a-4d2d7ba26c82",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "39bf92d59d0ae3d24588d3bae5c852ab",
+      "direction": "outbound",
+      "created_at": "2026-09-09T22:23:15.217152+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3c325581-a421-4589-b908-d192398fe767",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "a84553c3a60a74d162c6d644d647a44f",
+      "direction": "outbound",
+      "created_at": "2026-09-24T16:44:46.932073+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "29aee6eb-4dc9-4a71-abfa-2603744018c9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "f782674be29564d57883d6415bb858cc",
+      "direction": "outbound",
+      "created_at": "2026-08-19T02:03:34.619065+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2e474ba5-beec-42bc-a776-523666547c73",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "58a3039a2a59335dad0d933e095507ea",
+      "direction": "outbound",
+      "created_at": "2026-09-11T20:10:54.195527+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "78f382b1-11fa-45e3-a5d0-d82ae0e404df",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "796d4839a389dd145e4832e98e164596",
+      "direction": "outbound",
+      "created_at": "2026-09-03T21:43:51.076388+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a5afaef4-049c-4b71-855c-c81474726d19",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c67a964bf658a3c8baadbdceb4f18227",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:42:45.676605+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5ff2cc55-5d6c-431c-a08c-eb797d5d3668",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8c6b1f1d12cd001156af5aeb0988b59a",
+      "direction": "outbound",
+      "created_at": "2026-09-03T19:20:23.857016+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2e9e55eb-7af9-489a-b464-c4c27abd6e20",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "b4a73fe09a69bf3edb80a0a307a7bd13",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:05:22.488018+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6b622ac8-c0cc-49f1-bdd5-4059e9304c01",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "26cc8c50683499dfa606eedd7b05e95d",
+      "direction": "outbound",
+      "created_at": "2026-08-14T17:52:59.055436+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "830bc439-fe82-4ae4-9b15-54e69f32731b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "b4dd83dd585c387b093e861729d9a8cb",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:23:38.146638+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "bb20dd30-a2b1-467c-b3ee-c98f5976d655",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "aaa4d243c1307936fc7cce4e09f56781",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:37:56.598645+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "35d9ed4a-29f2-424f-9f58-8b15cd2d2376",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "86ca95f2-d1a5-475e-bd10-b8515c4a8e54",
+      "duration": 0,
+      "row_hash": "5c91ee8a2b628c4873f239bcbb1d1eff",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:28:27.727008+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "20643adf-8b39-4c7e-9cd9-1b9d06054296",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "5ef31242b8b6d3d21f8f25aef9d880dd",
+      "direction": "outbound",
+      "created_at": "2026-09-02T18:16:29.082694+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3e633667-c291-49ba-9357-963e88f595d8",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "bbed90e8870088468ac1a16f58575dfa",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:13:19.630876+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6f1a208c-e330-4045-b30f-9b3b699501ee",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "17e59e7e749eb512377f0b261d764a25",
+      "direction": "outbound",
+      "created_at": "2026-09-02T22:42:54.647451+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "26a9ca0e-38b4-4164-b7a3-a5299edd9ded",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "440aaba383b40534b3b59326cb617a58",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:28:30.25049+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6db777c4-803c-4574-bf5a-fb8274eb797d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d974e5b6397ac20a9c864fdbdcdd001b",
+      "direction": "outbound",
+      "created_at": "2026-08-25T23:37:13.647471+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0e335044-9604-4b9f-a85b-ae71978fb491",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "6c07e27dc74b4ffdc1420788b4dbd9e8",
+      "direction": "outbound",
+      "created_at": "2026-09-28T20:37:24.731602+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ce4d4f47-efdf-4321-9a09-7b68d6c0e161",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "b91f8a517407df5ecfcabb82d96dc276",
+      "direction": "outbound",
+      "created_at": "2026-09-04T16:55:59.600355+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b25a6468-beef-4a94-9a84-ddf170203f14",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "aa2e438debc4e3ef90124d0a24cb463b",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:14:13.516671+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "14ad2556-f467-4fb4-ad7f-2e449a66d80c",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "a7b9fbbfcb96427caa0c6702ec7b49e1",
+      "direction": "outbound",
+      "created_at": "2026-09-30T17:55:26.286034+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3270a962-03be-4139-ab73-e629939e856e",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3dd23909788c0e26b4da6d0ec8d1c1ab",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:50:43.480285+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "173f31cd-5059-44af-9a54-73256d9ffb18",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c281dd2517d584dc7b6877b9757d44da",
+      "direction": "outbound",
+      "created_at": "2026-08-20T20:16:12.928591+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6b153352-d319-4a96-a3a9-662f3ff56d06",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "5b5dc6dcd371100d0a2d34999072e0a6",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:42:31.069788+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "88487747-ce6a-4087-a314-666c17b178d6",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "duration": 0,
+      "row_hash": "f5696faa23528ee3f1f52f16209abd09",
+      "direction": "outbound",
+      "created_at": "2026-09-29T19:38:01.645649+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a845537b-1c0b-431a-b3d4-5fcd715b04a2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "b7ee186f120734b4994030ec0bbc1a43",
+      "direction": "outbound",
+      "created_at": "2026-09-24T01:02:41.136461+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "beded348-89f3-4f51-b907-6991f0217698",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "663f5837bdb0903c658bd0f004550b87",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:47:11.203277+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "764bcc3a-0341-4ff5-8faf-3a61ed10ff31",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "a74126e6f4dffa7355767ff26f1ac4e9",
+      "direction": "outbound",
+      "created_at": "2026-09-24T00:31:28.724888+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6f245a9e-65f0-4983-b5d6-b622261d03b5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "9c5670e2a23e6d764c29db4f41b0ff10",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:05:34.545033+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b26459e0-d4be-4887-b67b-de7435adeaa9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "500611b5053a89511e6afb06f8b62c2e",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:30:57.088852+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "21453990-453d-4199-b22d-464a8d9d23c4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "fd9b2bf029ce5d7b6365e3de041ef857",
+      "direction": "outbound",
+      "created_at": "2026-09-10T19:49:16.90844+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "85b98360-cd3b-45bf-8027-55c16c686e86",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "67b2097cbbea51a1dbf70f50d59b2acc",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:14:10.010367+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5ee116f8-de5d-43f2-b70b-298a49113fbf",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "023b1fd11501609c36a3c90e0e4399c1",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:32.821784+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ed1c860b-c651-4842-a601-f653203224bd",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "6f184fc7c75d0474fbc460b057613a39",
+      "direction": "outbound",
+      "created_at": "2026-08-20T01:12:44.50978+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "44965bd9-5671-43a2-9739-32218b54a805",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "375959770b791a7d15031f463b0ba6db",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:21:01.943342+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7a4fb532-95b5-45f5-96ad-4bfc0d8807d9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "5f952f0d-37cf-49f4-ac03-6f2b60125a57",
+      "duration": 0,
+      "row_hash": "0bd969f369cfefe3d5d63d444ac30aca",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:29:37.895722+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "af601d25-1a1f-46ba-b290-6559f0d5af4a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "be67eb35a1b10530c51ac23076776498",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:54:08.158329+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c2c779b4-1189-4127-9575-040dbd1f5a70",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "5f952f0d-37cf-49f4-ac03-6f2b60125a57",
+      "duration": 0,
+      "row_hash": "cbede8fb0d273758255b2e78ebca8963",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:29:22.625085+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c9889714-80cf-423c-aba7-f56120ce0dad",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "86ca95f2-d1a5-475e-bd10-b8515c4a8e54",
+      "duration": 0,
+      "row_hash": "d8366564f3d6545d47e1e5aa7754a562",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:28:59.894357+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "37a0b5da-f962-4d0f-87c0-9e18c4637d68",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "86ca95f2-d1a5-475e-bd10-b8515c4a8e54",
+      "duration": 0,
+      "row_hash": "e13fa4d9988eecd2e96ceb40c359959c",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:28:39.1421+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8b0c56a2-7141-43ce-81da-2e43e9bd62e8",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "32ca5c0cf09f53db98ce6837955705ee",
+      "direction": "outbound",
+      "created_at": "2026-09-24T01:14:21.170945+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "67b167b3-2a96-486a-a9b1-f1747a152d21",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d1bc575787b3db2c6a128f529b6800dd",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:34.443898+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b0b1c7ca-7695-49f2-b866-e763e95a1fe9",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "02b92aa7779327cfd8adffbfb1dafeee",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:45:17.524492+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e6dc0c99-fb97-4500-b21e-51cce13ab4ba",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "7dc4792d55be56ec729ed6b9df9a8ebd",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:05:11.077438+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "00c48464-c5ad-47f2-9dfb-318a4c49cecc",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ef9b6a0731b458022b1504251f307ade",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:30.327669+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d3bcbd73-7645-41e4-b506-1785de055a13",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a4f8f0003f2de11dc2fb64bec57b8c5f",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:48:14.635732+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "19049cf8-e18b-4ddc-b31d-079b95197355",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e0836cc2ab3c889eca276dde2f1e1904",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:35.683441+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "17769047-92ba-438b-bdf6-847611b5a16b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3ac74c5e0ca5fc031b6a9a055a75e79a",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:57:18.809155+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7eccb186-cd5f-403d-a249-72fb6ca93602",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3e6fce7db79f613b3058afa39e375f56",
+      "direction": "outbound",
+      "created_at": "2026-09-01T21:04:13.829288+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4f72d88e-4df7-40aa-be46-4fff62c62f91",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ae18a320c1583f744199b978d09645c8",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:45:54.098489+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7e4d7458-13a3-4fbd-9e04-5bc744be2cd2",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "2f4dcd86b08fb4e41cb7b52fc09d4a11",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:50:41.045614+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "374fc3a0-2feb-4a4d-8d8e-49656cc429ff",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c06f095ff6c870d986a2ff63c03818f8",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:48:10.879699+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "21d23cbc-22a0-4ebc-870b-82e631567190",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d67c79e716c6243a02547bbf92594ecc",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:13:14.565046+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "82b279ba-2cc7-4c1d-aa05-43cf9849b969",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "dba44ab9e0e1da31f5533c806f9eb31a",
+      "direction": "outbound",
+      "created_at": "2026-09-02T01:39:00.646101+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9c703ac5-1674-463a-96a1-7f6af946d725",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "5981af5f473c106b018f455f9fb697a7",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:30:43.613408+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0c2ae701-39f7-4d1b-b4af-50941d2a59df",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "b3de180a573548a4d5e7285c986d5cad",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:14:29.13582+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2282d596-7f04-4055-befc-e5329e1566f5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "6a5f22221ee620d2f6f119d8d9ac9856",
+      "direction": "outbound",
+      "created_at": "2026-08-13T23:54:21.970883+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e33d8f03-87e1-4d77-8075-516fa3d4a597",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "684802662c2c8ad1fe5fe5f946fdc750",
+      "direction": "outbound",
+      "created_at": "2026-09-03T23:00:48.775425+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2893d863-3510-41c7-ba98-d861c9176a4d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "d459e7ff34255c7f072f734552f1946f",
+      "direction": "outbound",
+      "created_at": "2026-05-29T16:56:19.645573+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "28e94f45-a2da-4572-8c1d-de2349913a26",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0b6bb0a96235a84cde23d29aad116212",
+      "direction": "outbound",
+      "created_at": "2026-09-11T23:17:27.94772+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "dad3d160-209c-4c06-b262-dfdafa5b02b5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "62ecf29c81dbcc08407d8c24b27e7051",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:36.969472+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "052dde25-a540-4ee0-a13f-500e84c47546",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ade0d617ed7d7194f8c73a3d527017ab",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:38.083576+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "41bff255-dc0a-4a64-8b79-ec3d5ffcbaa4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e8a4aaf4499abd9e176eda3ad355d9a0",
+      "direction": "outbound",
+      "created_at": "2026-09-16T20:47:52.083041+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0f9872dd-f346-4322-a6e2-484a55419624",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "ad33265cf3e043c00afc64a5da2b1ea1",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:48:06.838107+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8e7acf88-0e96-49fc-8f99-99fba13870ad",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "580034409429f6f69b82fc9e3e3d992f",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:20:17.2557+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a76cee0b-1bcb-4068-a933-f847eac67eff",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "3935008e695e9a5bfaf0a0e2d9afde5d",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:19:20.487044+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ae89a820-5bac-4c6e-9f1e-9c6662cdb881",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "a2d48d6017bc6654d8f2cd3ee5205ed9",
+      "direction": "outbound",
+      "created_at": "2026-05-29T16:56:37.079558+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d6dd50a9-0678-4932-8b9e-0ae3ea81102d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "93b440585331ecd03741efda650e7f5f",
+      "direction": "outbound",
+      "created_at": "2026-05-29T18:07:32.792155+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7f6244a5-419c-49db-8c35-8b68d753a1b1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "3bec291f41cb0c086c782132202b0b8b",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:30:47.183401+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2efc03be-a1fe-479d-9efb-87d7c485e71b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "02826458a06eed6da1e7da59324679a5",
+      "direction": "outbound",
+      "created_at": "2026-05-29T18:02:46.0792+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9acaad77-4501-4a89-8787-c9a996b7db1b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "15e45b5216023097e7f5bff67266a69f",
+      "direction": "outbound",
+      "created_at": "2026-05-28T21:32:05.565932+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0529016a-3f93-464c-8798-0b90601b3975",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "e6dd9268e4b9298d3f0062bc89c318ed",
+      "direction": "outbound",
+      "created_at": "2026-05-29T17:07:57.276414+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c501818e-6e94-4123-bf2e-5f324ae23c53",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "86ca95f2-d1a5-475e-bd10-b8515c4a8e54",
+      "duration": 0,
+      "row_hash": "3a2f1c8c8420e5fcb615691bb61d08b1",
+      "direction": "outbound",
+      "created_at": "2026-05-30T00:55:27.975928+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c3c5c9f6-f0f9-41aa-b41c-07bdac20820b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "039ffd1c226bb0a9099da2e9c57620b1",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:26:13.401552+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b316643c-d822-4654-a835-085e8778f5c5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "39048d29d92201d89e1a10821e308a01",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:44:39.174263+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ae3a9811-af15-4ac1-a84a-484b5d5821c0",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "50347926f664664968fa0c9d994f5e91",
+      "direction": "outbound",
+      "created_at": "2026-09-09T22:32:43.710836+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "0b95d906-1f9c-4722-9981-8595b6a2ed45",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "219514be639599264dcb3221875dd0b1",
+      "direction": "outbound",
+      "created_at": "2026-09-03T18:54:16.948994+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "74a0aa43-a29d-4718-a183-404bdc12421b",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "94748a23731608a742afd05608b0da1e",
+      "direction": "outbound",
+      "created_at": "2026-09-03T19:20:08.91432+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c51a2bb0-7cf2-4107-b152-4dd20e3a5979",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "13517c855c1b089f3a8713f4d4bc5ff2",
+      "direction": "outbound",
+      "created_at": "2026-09-03T19:35:00.442531+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ab9cd721-4195-4e8d-96d0-b9e964ec1695",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "d62ae58f92a91504e5ebe010a7175888",
+      "direction": "outbound",
+      "created_at": "2026-09-01T21:53:58.907525+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "7eba0fec-0b6a-44bf-a73a-fa06dcedc358",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f6ee0597da921597deddc3e64eb9af85",
+      "direction": "outbound",
+      "created_at": "2026-09-11T23:16:44.97779+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "51fb3fe8-3bc7-44ca-8a58-6d3619cccea7",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "9dcaf5d7d43754b2d30fed84e05f4ca5",
+      "direction": "outbound",
+      "created_at": "2026-09-03T21:51:21.229023+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ec22d9c1-bddd-4803-8084-1db2f343d5f5",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "2f758d749a127082e024347fa091b149",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:47:19.958833+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "845ff371-89ed-4a06-95a8-93a7895fb788",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "7266a1897548f529b87457c52f73c7cf",
+      "direction": "outbound",
+      "created_at": "2026-10-01T18:27:36.723741+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3cea56b6-cc7d-41ab-a1f4-e69d673cc959",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "9d596227834403617930450ec08d9d67",
+      "direction": "outbound",
+      "created_at": "2026-10-01T17:46:40.824483+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "feea4b8a-10cd-4fdc-8f9c-31274a1a18bc",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c247149be894fade22d838a1fc409431",
+      "direction": "outbound",
+      "created_at": "2026-09-09T21:28:22.5219+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b5b84708-6b0b-40ff-ab7a-f89c3115a6db",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "f014f6da22eab3b0356f096753090deb",
+      "direction": "outbound",
+      "created_at": "2026-05-28T21:20:41.160591+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e45200dc-bd7e-4b37-b1e3-5ff89ad42c44",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "835ae3a1fb49abeec7e397f842e60141",
+      "direction": "outbound",
+      "created_at": "2026-09-04T22:46:33.806684+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f5716085-7a68-4ce9-b540-081e883489d1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "13040f1868153841b1f2cf761d4f1ac5",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:14:32.410343+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "05b9261c-964f-4b31-847f-c27acc5c9010",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "dc1d2031a2636ac260a570b98e34798d",
+      "direction": "outbound",
+      "created_at": "2026-09-16T20:36:45.630453+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "953ed4ba-e8f2-4715-a7ec-aff0c744b783",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "614fb9c0803d6adfd111537d9294a9e8",
+      "direction": "outbound",
+      "created_at": "2026-05-29T16:58:48.969657+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "177374fe-15ed-4d8f-b75e-1b5ea16d3e7d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "9d1db8eafe197cac832f3a01209bb937",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:20:05.512822+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "15c9ab5e-e724-4927-829e-add504d9f5ae",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e4a68aacaa2d02df415cddd05ae9b6c0",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:30:41.064524+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a8845b38-831b-4e49-9cfb-3f9a7f6daa89",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c6d9c533d5254c8871325405838f3ebc",
+      "direction": "outbound",
+      "created_at": "2026-09-02T01:34:51.188165+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "427fe5d2-6dc7-49f3-a7ff-6d621a2b3594",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "2230c58a6df944e231a6e950ada6050f",
+      "direction": "outbound",
+      "created_at": "2026-08-14T17:51:31.503875+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5e23f070-cae4-4079-a2fc-de3d79c64bfd",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "7164cff2df8b9ccd4d024652f10b3184",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:24:37.113332+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "aa8aaf24-3bf4-4117-8487-f598435282b4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "e5ba972260b3adb8b8475842d31d325d",
+      "direction": "outbound",
+      "created_at": "2026-05-29T17:07:25.413433+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "59d2c748-d23f-469e-abb5-85ac4c0320ca",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "2438a264bf255e3b6ced73eb79a8e323",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:38:15.164377+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "efc61f9b-5eab-4398-97b8-abdc97fb6417",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "f4752c3890e21554eda7e9c76fb060fc",
+      "direction": "outbound",
+      "created_at": "2026-05-29T17:11:05.224474+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "675fa66c-27b8-4fa9-86fc-12edad5c53df",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "707ccfac77b93e813e6119fe5aa8932e",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:41:56.546965+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d8d0f9a1-a306-456e-b521-c4e0a5aadc1c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a0b754033e5e921a883ca76cd13c0e3e",
+      "direction": "outbound",
+      "created_at": "2026-09-01T18:10:19.266776+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "fd611bcc-b2bf-4970-b8b7-0c4b2513fe06",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "2cb10d56137c976c020fe07804eace10",
+      "direction": "outbound",
+      "created_at": "2026-10-01T22:20:56.493286+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "1ed89ac4-e676-48e1-aa60-1037e4cf7592",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c2f400815920d5db6479be9d9b5cc718",
+      "direction": "outbound",
+      "created_at": "2026-09-01T22:57:07.279326+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "2d66f8fc-4a8e-452e-b2bd-1952117bcc31",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "c5c91776984d606ebb5e12cf87f0859d",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:17:57.715458+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9403fdf3-dbbb-434c-a452-b2be5269b6ba",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "51744d7807a4444e95d4b36c0aee2299",
+      "direction": "outbound",
+      "created_at": "2026-09-01T18:26:46.254501+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a9576d52-6b7b-4462-ba69-e0cbaf269ccc",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "3d861c4d82cc0ed62fb919b856c1bc90",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:37:10.577262+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a99b06c5-5590-413b-b330-39509b3847b0",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "4ce465a353739f19829666b7bec4cb24",
+      "direction": "outbound",
+      "created_at": "2026-09-24T00:32:23.897157+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8882d10a-1a04-4d68-8973-bbb15f37c746",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "5f3f215721e5abb0dd47e0aa3ed8391b",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:31:06.695834+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "97d420e0-0d65-43e7-b968-5b897b4fdfdf",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "44b086446d8a3fbc3a9bd575e87b2017",
+      "direction": "outbound",
+      "created_at": "2026-09-04T23:17:01.965525+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6ab97916-bd87-40e6-9de7-7ef3947842fa",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "86ca95f2-d1a5-475e-bd10-b8515c4a8e54",
+      "duration": 0,
+      "row_hash": "20f9aaac306b6039a60eff1dcbe754bb",
+      "direction": "outbound",
+      "created_at": "2026-05-30T00:57:15.172422+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "11b16c7e-ff80-4084-a776-5d8b5931296f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8335ecab9782f841d720a4ad9af38cc3",
+      "direction": "outbound",
+      "created_at": "2026-09-12T18:54:38.203406+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d4d10e6c-1bc4-41c4-b3ab-6bf95ee7c9f7",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "d6793fa85da8a8583cb1ddec7ca9e72d",
+      "direction": "outbound",
+      "created_at": "2026-09-24T00:58:42.904792+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "31115f30-9182-4728-957e-1aea38b17028",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "e468b5b5ad42bc5e932bcc7a8f6ed533",
+      "direction": "outbound",
+      "created_at": "2026-09-09T21:30:27.979028+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "72c21bc6-2df3-4df5-a44f-56bcacd98595",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "f6e9c4389702b7e0a1957c958ef85bd0",
+      "direction": "outbound",
+      "created_at": "2026-09-24T01:18:00.29754+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "498dc021-89ad-4df2-8e66-2380c985c4cb",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a6bb8252e9cb229f5e76de2081466315",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:31:30.049127+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9cd3528e-2ddd-4775-a111-13cb3f18d4cf",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "a7b85ab4c8cb647224393715d646e445",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:56:54.280315+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5c3dcf49-b143-4338-ae9a-a8d63f4348df",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "fa75b37071d5d58ce30957f034a38e47",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:34:26.237189+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4d601e64-bfbb-4140-a472-5af5f9c41d3f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "8332c087e3a2f2cf3c9a2a432151ac01",
+      "direction": "outbound",
+      "created_at": "2026-09-12T18:54:36.588654+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9460b219-466f-4b31-93d3-b47e99ac46c1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "duration": 0,
+      "row_hash": "45e8581b04029eaa9cc9b5bf8eccbe8f",
+      "direction": "outbound",
+      "created_at": "2026-09-24T01:08:29.244011+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "bdf1603e-598b-4c32-815f-d953b86b94e1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "26afa168b386b7e9244ee58c30df2b71",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:42:43.095141+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "ca7c6b4c-a1b8-495e-8cdd-51aa7d1123fe",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "598d80bd849e6d3a7b5788b2ed0feaaf",
+      "direction": "outbound",
+      "created_at": "2026-09-03T19:28:40.560476+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "3ab3ba95-cbd9-4445-9d5a-92c8dfa89d2f",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "93510b0f51cd644242f20f3d58388782",
+      "direction": "outbound",
+      "created_at": "2026-09-10T19:31:19.922989+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "8ac65df1-f314-4179-ab27-1d7c7cec94a4",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "f89ce9e07c0a866f983a638f77e3b666",
+      "direction": "outbound",
+      "created_at": "2026-09-11T21:31:20.447317+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9283fc0b-9a04-49d2-b6ef-613f0c24247f",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "a7a800104553c19006a97d66544edd2f",
+      "direction": "outbound",
+      "created_at": "2026-09-01T19:56:26.521536+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "36ae788c-1201-4efe-a3ad-70e2ae477327",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "c46c09f1bd280f79ff9ed27d04c19df2",
+      "direction": "outbound",
+      "created_at": "2026-08-27T21:35:59.625215+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4b6623b8-732e-4973-a7bd-b13dd95cf27c",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "1f71abf8a9b8679c3afc22539c018929",
+      "direction": "outbound",
+      "created_at": "2026-09-10T00:07:18.351702+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6fd2c071-ff0e-432d-81df-4b306a66d7b3",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "30e04dbc1c8e6f343a1537e22f389226",
+      "direction": "outbound",
+      "created_at": "2026-08-11T22:12:56.848896+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5f04b0f8-5816-4c28-a0bc-568e15cd62d7",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "0583c6b23aa934d6eda6a8eea88a9ccc",
+      "direction": "outbound",
+      "created_at": "2026-08-26T19:42:51.093124+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "bf0e1015-5072-4505-94f0-ea6c4fa0c33d",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "14b3db8dc5c84be1b5968047fef06ccc",
+      "direction": "outbound",
+      "created_at": "2026-09-02T01:09:10.241772+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "321850a2-dbce-4edf-9ef5-6c280f918855",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "73b14e5ff81ee329f8136bd86f9ebf08",
+      "direction": "outbound",
+      "created_at": "2026-09-01T21:41:12.837852+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "107a704f-4333-4384-ab31-1032e529b50a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "b8280beb232af7c5ceb80248f1fdfb46",
+      "direction": "outbound",
+      "created_at": "2026-09-04T17:16:30.029251+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "b3427fe3-726a-49c1-a3d4-05cf92994c24",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "fcc3b7461cac8914989f76c10903cd6f",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:50:58.697274+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "9b1737ca-ddf1-481c-9719-f4a9df64a702",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "951d82706ac099ceaa473d67ca2ce821",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:56:37.629383+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "a7d52f47-f8f1-4578-b2f4-72153d03a19f",
+      "status": "failed",
+      "reasons": [
+        "missing_provider_id"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "bdedd39247738d68fe6438ff729362b8",
+      "direction": "outbound",
+      "created_at": "2026-09-23T22:13:15.585+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "c38235ff-e799-427a-8861-35f38b4497ad",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "bcbfdcfa6b6efaab9e6ffdd0511cd2e8",
+      "direction": "outbound",
+      "created_at": "2026-09-10T00:21:26.278629+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "6e6547d9-e347-4b49-818e-3ebfb85bc62a",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "d31c5fe3f9bbdb233aca12291143a6d6",
+      "direction": "outbound",
+      "created_at": "2026-09-12T18:54:40.183207+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "85e0a926-91e3-4f4d-bdcb-ed15c67dc175",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "938cd66ea90bddefd2bea01dc0d94fc8",
+      "direction": "outbound",
+      "created_at": "2026-09-01T20:36:59.980254+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "d9c5f853-772b-44ec-82c2-ad1782f8b3ff",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "5f952f0d-37cf-49f4-ac03-6f2b60125a57",
+      "duration": 0,
+      "row_hash": "39b909d07bd519d7044582217364fff2",
+      "direction": "outbound",
+      "created_at": "2026-06-04T21:25:40.691297+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "4be29eba-74d7-4b22-a685-15427f656ff1",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "ea6fa1e69bf724975159822c86c7e645",
+      "direction": "outbound",
+      "created_at": "2026-09-04T00:52:20.849012+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "59307f4f-df3d-4947-8f1e-a4bfd79381fa",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "d396d777-12a1-4434-bca9-df2f97cf77af",
+      "duration": 0,
+      "row_hash": "fe6804cb853d16ecefa9ff8887733e55",
+      "direction": "outbound",
+      "created_at": "2026-09-01T21:39:42.809457+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "5b2b74eb-1999-4875-8882-0facd998eb83",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "ba65b0e369c7dbdc1751791158410cb0",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:18:37.024587+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "e0cd59aa-ba7a-4182-aa4c-70b3efa3d101",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "6e2e0afde0414260e29e5b4801021159",
+      "direction": "outbound",
+      "created_at": "2026-05-28T21:28:38.06984+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "cbe39aef-165f-4a16-ad69-cb3bb33a5d72",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "239540b518f412bd52c249a1f21d9011",
+      "direction": "outbound",
+      "created_at": "2026-09-11T19:55:59.773272+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "1277e0ed-f8a2-40f7-ad53-b894be2f5297",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+      "duration": 0,
+      "row_hash": "82d141d07418e22277ca5f9138e5849d",
+      "direction": "outbound",
+      "created_at": "2026-05-28T23:19:01.952277+00:00",
+      "twilio_call_sid": null
+    },
+    {
+      "id": "f0b3c2a0-0ea1-4dd2-86f2-50ff736a6df0",
+      "status": "completed",
+      "reasons": [
+        "missing_provider_id",
+        "negative_elapsed"
+      ],
+      "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "duration": 0,
+      "row_hash": "bcccffad5451953082fa5e5462f9ff3b",
+      "direction": "outbound",
+      "created_at": "2026-09-17T21:33:54.807657+00:00",
+      "twilio_call_sid": null
+    }
+  ],
+  "policies": [
+    {
+      "id": "3c934626-e2ed-4618-99b0-5cd4736cfe15",
+      "wins": [
+        {
+          "id": "acb839f9-f5ab-47b9-923c-c543c7d9be3b",
+          "key": "conversion:e1dbfd8e-ae07-4f13-87d8-e4890d669578",
+          "hash": "85930fa7107a64645f62eeb1b3fe5563",
+          "premium": null,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-08-14T00:21:43.233682+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Ethos",
+      "premium": 75,
+      "sold_date": "2026-08-13",
+      "created_at": "2026-08-14T00:21:42.550766+00:00",
+      "policy_hash": "1d3cf2dcff375190096d47ef5014dd52",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "30b31e9d-d675-4a26-abff-fbdea0c9e8ba",
+      "wins": [
+        {
+          "id": "c765c097-f6ac-450b-942b-fafc04e2f3fb",
+          "key": "conversion:216b11c4-94c1-4a28-8d5a-e3ae0dec3d49",
+          "hash": "42d04bd35108341ee5d76f7dc4bee066",
+          "premium": 193.14,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-08-27T16:21:09.953204+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Americo",
+      "premium": 193.14,
+      "sold_date": "2026-08-26",
+      "created_at": "2026-08-27T16:21:09.207311+00:00",
+      "policy_hash": "c3314409e320fabf8c53788421dc0b69",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "4e53c094-7979-40a6-8df2-7fe5dbc41db7",
+      "wins": [
+        {
+          "id": "e5513781-559d-4df3-bf12-6d2a79967f7f",
+          "key": "conversion:b0142dc1-a2d3-49db-93dc-617214b93b45",
+          "hash": "ac0fd71a8708147c5baaa2700877274b",
+          "premium": 137,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-08-26T21:51:30.073449+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Ethos",
+      "premium": 137,
+      "sold_date": "2026-08-21",
+      "created_at": "2026-08-26T21:51:29.333399+00:00",
+      "policy_hash": "782ade0be0cc1bf245a2a02862942c08",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "e6bdbaf8-8544-4687-8523-a01f18b25739",
+      "wins": [
+        {
+          "id": "3446233c-8b0c-4206-8291-124bef6f3fec",
+          "key": "conversion:da7bb40a-b22a-498d-85e8-f8698ceb0655",
+          "hash": "8a0bbb5ca35b7fb0146f0c1fc237c333",
+          "premium": 108.91,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-08-26T21:48:36.871885+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Americo",
+      "premium": 108.91,
+      "sold_date": "2026-08-14",
+      "created_at": "2026-08-26T21:48:36.267021+00:00",
+      "policy_hash": "8659adb7d9a4929ac35c0dbbe1484acf",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "a3b4031e-59d1-4fa0-9372-5cb064dd1833",
+      "wins": [
+        {
+          "id": "ea1c5823-8709-43f6-8502-e37b005694ff",
+          "key": "conversion:39cdd2cf-6d09-40a7-a62a-51d301b32433",
+          "hash": "34558e5053334d2e4f1a64e31326503d",
+          "premium": 112.42,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-09-17T20:27:01.527712+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Mutual Of Omaha",
+      "premium": 112.42,
+      "sold_date": "2026-09-17",
+      "created_at": "2026-09-17T20:27:00.453253+00:00",
+      "policy_hash": "fd14e515efc23566baab452f51e3c242",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "02d0d979-7f61-45a7-ba3a-7d0bbd5318a4",
+      "wins": [
+        {
+          "id": "c7db161a-3e5d-44cb-a1ce-b846af550246",
+          "key": "conversion:ea32efcd-fb7d-4897-a481-e4bad5cb51d6",
+          "hash": "8746e1ead61c3c95f3327739e8a6b4c5",
+          "premium": 54.6,
+          "agent_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+          "snapshot": false,
+          "created_at": "2026-09-02T21:14:28.449704+00:00"
+        }
+      ],
+      "seller": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "carrier": "Ethos",
+      "premium": 54.6,
+      "sold_date": "2026-09-02",
+      "created_at": "2026-09-02T21:14:27.245034+00:00",
+      "policy_hash": "d3215444265a05a59d75e796c0305827",
+      "policy_type": "Whole Life"
+    },
+    {
+      "id": "54d44dc5-98c8-4778-a71d-f0b1d595d992",
+      "wins": null,
+      "seller": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+      "carrier": "Americo",
+      "premium": 58.45,
+      "sold_date": "2026-09-28",
+      "created_at": "2026-09-28T23:44:55.36547+00:00",
+      "policy_hash": "0471dcab2957ea2dc0dd89c8491fb653",
+      "policy_type": "Final Expense"
+    },
+    {
+      "id": "71137434-036b-4b3f-8e0a-c6e290b096ba",
+      "wins": null,
+      "seller": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "carrier": "Americo ",
+      "premium": 41.64,
+      "sold_date": "2026-09-28",
+      "created_at": "2026-09-29T17:39:18.606999+00:00",
+      "policy_hash": "05481dc8103dcf099597e5d62f8904a3",
+      "policy_type": "Whole Life"
+    }
+  ],
+  "captured_at": "2026-10-04T06:23:07.20119+00:00",
+  "appointments": [
+    {
+      "id": "fc0c652e-13f7-433b-a491-562661b9f1fd",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "e57a9fb417bc01f06d2e0badb5e3ada9",
+      "candidates": 2,
+      "created_at": "2026-08-25T00:32:13.245134+00:00",
+      "created_by": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "start_time": "2026-08-25T23:00:00+00:00",
+      "payload_hash": "dc3f6fa5b378cba935923bd4a705011c",
+      "candidate_key": "5405a7bfcfbc5c4e74290efd351c3b15"
+    },
+    {
+      "id": "2dbd853f-ba29-4a13-98ed-2347920bb967",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "78b02c57cfb05535b39d8516a388dd71",
+      "candidates": 2,
+      "created_at": "2026-08-25T17:03:38.362985+00:00",
+      "created_by": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "start_time": "2026-08-25T23:00:00+00:00",
+      "payload_hash": "dc3f6fa5b378cba935923bd4a705011c",
+      "candidate_key": "5405a7bfcfbc5c4e74290efd351c3b15"
+    },
+    {
+      "id": "79b8e078-3e58-4813-a3fe-a9003675b5d1",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "93e504fb04995749621bd747dcf72268",
+      "candidates": 2,
+      "created_at": "2026-08-10T22:15:24.391575+00:00",
+      "created_by": null,
+      "start_time": "2026-08-10T17:15:00+00:00",
+      "payload_hash": "13de78cc37404f4a0cf3bde7b4cf394f",
+      "candidate_key": "1a55d486b578968993b1114d821f8616"
+    },
+    {
+      "id": "0ceaf501-b3e9-4ae9-bf2d-470e5500cfb4",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "59d1854ca55e3169c64a77b839a49edd",
+      "candidates": 2,
+      "created_at": "2026-08-10T22:17:04.594264+00:00",
+      "created_by": null,
+      "start_time": "2026-08-10T17:15:00+00:00",
+      "payload_hash": "13de78cc37404f4a0cf3bde7b4cf394f",
+      "candidate_key": "1a55d486b578968993b1114d821f8616"
+    },
+    {
+      "id": "dd9f5448-4dd4-416e-9f03-6d8ff087e26b",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "d9545b04e5a49017f66aeafdece7dc8e",
+      "candidates": 2,
+      "created_at": "2026-09-16T22:23:19.990701+00:00",
+      "created_by": null,
+      "start_time": "2026-09-19T10:30:00+00:00",
+      "payload_hash": "414733fa92dd2c13ba4dfb277067fd44",
+      "candidate_key": "e491b935ae99c1afb18076ed1b2aee8e"
+    },
+    {
+      "id": "6bc923ad-9848-412a-a97b-b6b97c1725a1",
+      "copies": 2,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "289ff3df27e485650363fa06de0f2c0c",
+      "candidates": 2,
+      "created_at": "2026-09-16T22:21:00.126223+00:00",
+      "created_by": null,
+      "start_time": "2026-09-19T10:30:00+00:00",
+      "payload_hash": "414733fa92dd2c13ba4dfb277067fd44",
+      "candidate_key": "e491b935ae99c1afb18076ed1b2aee8e"
+    },
+    {
+      "id": "b7edbaf8-2064-4802-86be-790619beb29b",
+      "copies": 1,
+      "user_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "row_hash": "7e6b42d097383513fdf22f22b8bec936",
+      "candidates": 4,
+      "created_at": "2026-10-02T01:25:11.455414+00:00",
+      "created_by": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "start_time": "2026-10-02T19:00:00+00:00",
+      "payload_hash": "74c986e74265a709fc4cea50dcc07b03",
+      "candidate_key": "cb6016e310dd4f738ff8116028b6453c"
+    },
+    {
+      "id": "bd61fb28-6b9b-4cbc-9449-fa44308b637c",
+      "copies": 3,
+      "user_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "row_hash": "5c43512d9b862ffa402e71d57f01ca2b",
+      "candidates": 4,
+      "created_at": "2026-10-02T01:25:12.533191+00:00",
+      "created_by": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "start_time": "2026-10-02T19:00:00+00:00",
+      "payload_hash": "b94dd17877290b117f6bd3a6ab3bdcb0",
+      "candidate_key": "cb6016e310dd4f738ff8116028b6453c"
+    },
+    {
+      "id": "86da9966-4f26-4779-a99f-3ceb4539b8bb",
+      "copies": 3,
+      "user_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "row_hash": "a99e4bd133e7288e3ece619e900a94d2",
+      "candidates": 4,
+      "created_at": "2026-10-02T01:25:12.878559+00:00",
+      "created_by": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "start_time": "2026-10-02T19:00:00+00:00",
+      "payload_hash": "b94dd17877290b117f6bd3a6ab3bdcb0",
+      "candidate_key": "cb6016e310dd4f738ff8116028b6453c"
+    },
+    {
+      "id": "7247e760-3ae5-4998-986b-a0c4a6a9f83d",
+      "copies": 3,
+      "user_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "row_hash": "21dece5c1ee194b83da4d420362b6bd3",
+      "candidates": 4,
+      "created_at": "2026-10-02T01:25:13.214224+00:00",
+      "created_by": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+      "start_time": "2026-10-02T19:00:00+00:00",
+      "payload_hash": "b94dd17877290b117f6bd3a6ab3bdcb0",
+      "candidate_key": "cb6016e310dd4f738ff8116028b6453c"
+    },
+    {
+      "id": "db912298-0bf2-441c-8a02-0d34b2c08dbc",
+      "copies": 1,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "d46205dc48f8aaa02cfe512a8678b04d",
+      "candidates": 2,
+      "created_at": "2026-09-02T01:08:16.525875+00:00",
+      "created_by": null,
+      "start_time": "2026-09-04T12:00:00+00:00",
+      "payload_hash": "843c11d7f5b1e3d3f6ae07fa7d488c82",
+      "candidate_key": "d9e887b080dc212fbe74b795b8f63e1c"
+    },
+    {
+      "id": "cd0ed186-85d3-4e80-9a4f-af7b86036c86",
+      "copies": 1,
+      "user_id": "7c692e64-fbbc-4c7a-bcbf-149a6476c520",
+      "row_hash": "2f44fd767d08bc63deb2c9c9186be637",
+      "candidates": 2,
+      "created_at": "2026-09-02T01:09:09.92496+00:00",
+      "created_by": null,
+      "start_time": "2026-09-04T12:00:00+00:00",
+      "payload_hash": "efd4863c48b7abf90be6666ec45d2e9c",
+      "candidate_key": "d9e887b080dc212fbe74b795b8f63e1c"
+    }
+  ],
+  "organization_id": "a0000000-0000-0000-0000-000000000001",
+  "status": "unreviewed; no exclusions authorized or applied",
+  "provider_evidence": "unavailable",
+  "canonical_selection": null
+}

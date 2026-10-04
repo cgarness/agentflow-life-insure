@@ -1,12 +1,11 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
-import { subDays } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 import { useLeaderboardAvatars } from "@/hooks/useLeaderboardAvatars";
 import { buildRankMotionMap, buildRankDeltaMap, computeRankMovements, type RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
-import { attachPremiumSoldToAgents, annualPremiumForWin, loadClientMonthlyPremiums } from "@/components/leaderboard/leaderboardPremium";
+import { loadPerformanceSnapshot, loadPerformanceWins, type PerformanceSnapshot } from "@/lib/performanceQueries";
+import { performancePeriodKey, performancePeriodStart } from "@/lib/performancePeriod";
 import {
   type AgentStats,
   type Win,
@@ -15,8 +14,6 @@ import {
   type LeaderboardView,
   type RankMovement,
   metricKey,
-  getPeriodRange,
-  mapPeriodToRpcParam,
   rankAgents,
   hasMeaningfulStandings,
   metricValueMapsEqual,
@@ -24,7 +21,6 @@ import {
 } from "@/components/leaderboard/leaderboardTypes";
 import {
   type LeaderboardEndpoint,
-  type LeaderboardLoadResult,
   type LeaderboardRequestGate,
   type LeaderboardRunMode,
   type LeaderboardRunResult,
@@ -32,7 +28,6 @@ import {
   getLeaderboardRequestGate,
   resolveLeaderboardPollMs,
 } from "@/lib/leaderboardRequestGate";
-import { assertPageActive } from "@/lib/pageActivity";
 import {
   type StandingsStatus,
   type WinsStatus,
@@ -67,141 +62,6 @@ const boardDevLog = (...args: unknown[]) => {
   }
 };
 
-type OrgLeaderboardStatsRow = Omit<
-  Database["public"]["Functions"]["get_org_leaderboard_stats"]["Returns"][number], "avatar_url">;
-
-/**
- * Organization standings come ONLY from the get_org_leaderboard_stats aggregate
- * RPC. Agent RLS hides other agents' raw calls/appointments/clients rows, so a
- * browser-side reconstruction fabricates zero standings for everyone else.
- */
-const mapOrgStandingsRow = (r: OrgLeaderboardStatsRow): AgentStats => {
-  const callsMade = Number(r.calls_made) || 0;
-  const policiesSold = Number(r.policies_sold) || 0;
-  return {
-    id: r.agent_id,
-    first_name: r.first_name,
-    last_name: r.last_name,
-    callsMade,
-    policiesSold,
-    appointmentsSet: Number(r.appointments_set) || 0,
-    talkTime: Number(r.talk_time_seconds) || 0,
-    conversionRate: callsMade > 0 ? (policiesSold / callsMade) * 100 : 0,
-    // The server already annualized (monthly × 12) exactly once.
-    premiumSold: Number(r.annualized_premium) || 0,
-    recentWins7d: Number(r.recent_wins_7d) || 0,
-    rank: 0,
-  };
-};
-
-const mapGroupStandingsRow = (r: Record<string, unknown>): AgentStats => {
-  const callsMade = Number(r.calls_made) || 0;
-  const policiesSold = Number(r.policies_sold) || 0;
-  return {
-    id: r.agent_id as string,
-    first_name: r.agent_first_name as string,
-    last_name: r.agent_last_name as string,
-    avatar_url: (r.agent_avatar_url as string | null) ?? undefined,
-    callsMade,
-    policiesSold,
-    appointmentsSet: Number(r.appointments_set) || 0,
-    talkTime: Number(r.talk_time_seconds) || 0,
-    conversionRate: callsMade > 0 ? (policiesSold / callsMade) * 100 : 0,
-    premiumSold: 0,
-    recentWins7d: 0,
-    rank: 0,
-    organizationId: (r.organization_id as string | null) ?? null,
-    organizationName: (r.organization_name as string | null) ?? null,
-  };
-};
-
-async function loadOrgStandings(
-  range: { start: Date; end: Date },
-  signal: AbortSignal,
-): Promise<LeaderboardLoadResult<AgentStats[]>> {
-  // One half-open [start, end) window shared by every metric; the period
-  // bounds stay browser-local (Today / This Week / This Month, unchanged).
-  const { data, error } = await supabase
-    .rpc("get_org_leaderboard_stats", {
-      p_start: range.start.toISOString(),
-      p_end: range.end.toISOString(),
-    })
-    .select("agent_id,first_name,last_name,calls_made,appointments_set,policies_sold,annualized_premium,talk_time_seconds,recent_wins_7d")
-    .abortSignal(signal);
-  if (error || !data) {
-    console.error("[leaderboard] get_org_leaderboard_stats failed:", error);
-    return { data: null, error };
-  }
-  return { data: data.map(mapOrgStandingsRow), error: null };
-}
-
-/** One gated unit: a failing premium or 7-day sub-read fails the load — never "$0" / "0". */
-async function loadGroupStandings(
-  groupId: string,
-  period: Period,
-  signal: AbortSignal,
-): Promise<LeaderboardLoadResult<AgentStats[]>> {
-  const { data, error } = await supabase
-    .rpc("get_agency_group_leaderboard", {
-      p_group_id: groupId,
-      p_period: mapPeriodToRpcParam(period),
-    })
-    .abortSignal(signal);
-  if (error || !data) return { data: null, error };
-
-  const rows = (data as Record<string, unknown>[]).map(mapGroupStandingsRow);
-  await attachPremiumSoldToAgents(rows, getPeriodRange(period), undefined, signal);
-
-  const agentIds = rows.map((a) => a.id);
-  if (agentIds.length > 0) {
-    // A follow-on read: never sent from a tab that went hidden or offline meanwhile.
-    assertPageActive();
-    const sevenStart = subDays(new Date(), 7).toISOString();
-    const { data: wins7dRows, error: wins7dError } = await supabase
-      .from("wins")
-      .select("agent_id")
-      .in("agent_id", agentIds)
-      .gte("created_at", sevenStart)
-      .abortSignal(signal);
-    if (wins7dError) return { data: null, error: wins7dError };
-    const wins7dByAgent = new Map<string, number>();
-    for (const row of wins7dRows || []) {
-      const aid = row.agent_id;
-      if (!aid) continue;
-      wins7dByAgent.set(aid, (wins7dByAgent.get(aid) ?? 0) + 1);
-    }
-    rows.forEach((a) => {
-      a.recentWins7d = wins7dByAgent.get(a.id) ?? 0;
-    });
-  }
-  return { data: rows, error: null };
-}
-
-async function loadRecentWins(
-  target: { orgId: string } | { agentIds: string[] },
-  signal: AbortSignal,
-): Promise<LeaderboardLoadResult<Win[]>> {
-  let query = supabase.from("wins").select("*").order("created_at", { ascending: false }).limit(20);
-  query = "agentIds" in target
-    ? query.in("agent_id", target.agentIds)
-    : query.eq("organization_id", target.orgId);
-  const { data, error } = await query.abortSignal(signal);
-  if (error || !data) return { data: null, error };
-  const rawWins = data as Win[];
-  const contactIds = [...new Set(rawWins.map((w) => w.contact_id).filter(Boolean))] as string[];
-  const clientMonthlyById = await loadClientMonthlyPremiums(contactIds, signal);
-  return {
-    data: rawWins.map((w) => ({
-      ...w,
-      premiumSold: annualPremiumForWin(
-        { ...w, agent_id: w.agent_id ?? null, contact_id: w.contact_id ?? null },
-        clientMonthlyById,
-      ),
-    })),
-    error: null,
-  };
-}
-
 export function useLeaderboardData() {
   const { profile, user } = useAuth();
   const { agencyGroup } = useAgencyGroup();
@@ -210,6 +70,8 @@ export function useLeaderboardData() {
   /** The real auth user (what the RPC checks as auth.uid()) plus the effective organization. */
   const identityKey = userId && orgId ? `${userId}:${orgId}` : null;
 
+  const timeZoneRef = useRef<string | null>(null);
+  const [performanceSnapshot, setPerformanceSnapshot] = useState<PerformanceSnapshot | null>(null);
   const [view, setView] = useState<LeaderboardView>("org");
   const [period, setPeriod] = useState<Period>("Today");
   const [metric, setMetric] = useState<Metric>("Policies Sold");
@@ -303,7 +165,7 @@ export function useLeaderboardData() {
 
   /** Snapshot tag of the CURRENT selection: scope + the period's start right now. */
   const currentSnapshotTag = useCallback(
-    () => `${scopeRef.current}|${getPeriodRange(periodRef.current).start.toISOString()}`,
+    () => `${scopeRef.current}|${performancePeriodKey(periodRef.current, timeZoneRef.current)}`,
     [],
   );
 
@@ -370,6 +232,8 @@ export function useLeaderboardData() {
   useLayoutEffect(() => {
     if (identityRef.current === identityKey) return;
     identityRef.current = identityKey;
+    timeZoneRef.current = null;
+    setPerformanceSnapshot(null);
     gateRef.current?.release(ownerRef.current);
     gateRef.current = null;
     fetchGenerationRef.current += 1;
@@ -632,10 +496,12 @@ export function useLeaderboardData() {
       const gate = gateFor(identityKey);
       beginFetch(options?.silent);
 
-      const range = getPeriodRange(period);
-      const startIso = range.start.toISOString();
+      const startIso = performancePeriodKey(period, timeZoneRef.current);
       const tag = `${scope}|${startIso}`;
-      const result = await gate.run<AgentStats[]>(
+      if (snapshotScopeRef.current !== tag) {
+        agentsRef.current = []; setAgents([]); setPerformanceSnapshot(null); snapshotScopeRef.current = null;
+      }
+      const result = await gate.run<PerformanceSnapshot>(
         groupId
           ? {
               endpoint,
@@ -643,7 +509,7 @@ export function useLeaderboardData() {
               key: `${CONSUMER}|group_standings|${groupId}|${period}|${startIso}`,
               mode,
               owner: ownerRef.current,
-              load: (signal) => loadGroupStandings(groupId, period, signal),
+              load: (signal) => loadPerformanceSnapshot(period, groupId, orgId, signal),
             }
           : {
               endpoint,
@@ -651,21 +517,28 @@ export function useLeaderboardData() {
               key: `${CONSUMER}|org_standings|${period}|${startIso}`,
               mode,
               owner: ownerRef.current,
-              load: (signal) => loadOrgStandings(range, signal),
+              load: (signal) => loadPerformanceSnapshot(period, null, orgId, signal),
             },
       );
 
       if (!mountedRef.current || gen !== fetchGenerationRef.current || scopeRef.current !== scope) return;
 
       if (result.status === "ok") {
+        const snapshot = result.data;
+        if (performancePeriodStart(period, snapshot.time_zone).toISOString() !== new Date(snapshot.start_at).toISOString()) {
+          agentsRef.current = []; setAgents([]); snapshotScopeRef.current = null;
+          setPerformanceSnapshot(null); scheduleRetry(Date.now() + 15000); endFetch(); return;
+        }
+        timeZoneRef.current = snapshot.time_zone;
+        setPerformanceSnapshot(snapshot);
         const currentStats = rankAgents(
-          result.data.map((a) => ({ ...a })),
+          result.data.rows.map((a) => ({ ...a })),
           metricRef.current,
         );
         applyRankAnimations(currentStats, metricRef.current);
         const updatedAt = Date.now();
         agentsRef.current = currentStats;
-        snapshotScopeRef.current = tag;
+        snapshotScopeRef.current = `${scope}|${performancePeriodKey(period, snapshot.time_zone)}`;
         lastUpdatedAtRef.current = updatedAt;
         setLoadError(null);
         setAgents(currentStats);
@@ -801,7 +674,7 @@ export function useLeaderboardData() {
         mode: options?.mode ?? "initial",
         owner: ownerRef.current,
         notBefore: options?.notBefore,
-        load: (signal) => loadRecentWins(groupId ? { agentIds } : { orgId }, signal),
+        load: (signal) => loadPerformanceWins(groupId, signal),
       });
       if (!mountedRef.current) return null;
       if (result.status === "blocked" && result.reason === "inactive") {
@@ -823,7 +696,7 @@ export function useLeaderboardData() {
         setWinsStatus({ kind: "ok", lastUpdatedAt: Date.now() });
         // Celebrate a realtime win as soon as it is on screen, whichever read committed it.
         const celebrate = celebrateRef.current;
-        if (celebrate && newWins.some((w) => w.id === celebrate.id)) {
+        if (celebrate && newWins.some((w) => w.id === celebrate.id && !w.celebrated)) {
           celebrateRef.current = null;
           beginWinSequence(celebrate.id, celebrate.agentId);
         }
@@ -1003,12 +876,12 @@ export function useLeaderboardData() {
 
     const handleWinInsert = (payload: { new: Record<string, unknown> }) => {
       if (disposed) return;
-      const row = payload.new as { id?: string; agent_id?: string | null };
+      const row = payload.new as { id?: string; agent_id?: string | null; celebrated?: boolean };
       if (!canAutoRefreshLeaderboard() || agentsRef.current.length === 0) {
         dirtyRef.current = true;
         return;
       }
-      pendingWinRef.current = { id: row?.id ?? null, agentId: row?.agent_id ?? null, eventAt: Date.now() };
+      pendingWinRef.current = { id: row?.celebrated ? null : row?.id ?? null, agentId: row?.agent_id ?? null, eventAt: Date.now() };
       runPendingWin();
     };
 
@@ -1058,6 +931,7 @@ export function useLeaderboardData() {
   })), [agents, avatars, groupId]);
 
   return {
+    performanceSnapshot: snapshotScopeRef.current === currentSnapshotTag() ? performanceSnapshot : null,
     view,
     setView,
     period,

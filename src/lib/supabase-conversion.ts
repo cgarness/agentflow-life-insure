@@ -64,7 +64,7 @@ export const conversionSupabaseApi = {
   async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null, campaignId: string | null = null): Promise<string> {
     if (!organizationId) throw new Error("Cannot convert a lead without an organization.");
     const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
-    const premium = saleMonthlyPremium(policyInfo.premiumAmount) ?? 0;
+    const premium = saleMonthlyPremium(policyInfo.premiumAmount);
     const policyType = policyInfo.policyType || "Term";
 
     const p_client = {

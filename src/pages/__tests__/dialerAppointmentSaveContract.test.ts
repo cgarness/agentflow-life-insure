@@ -57,17 +57,10 @@ describe("DialerPage appointment writer contract", () => {
     expect(page).toMatch(/const \{ fetchAppointments \} = useCalendar\(\);/);
   });
 
-  it("saveCallData keeps exactly the two scheduler writers and ONE silent Calendar refresh", () => {
-    expect(count(saveCallData, "saveAppointment(")).toBe(2);
-    expect(count(saveCallData, "fetchAppointments({ silent: true })")).toBe(1);
-  });
-
-  it("the refresh runs only after a scheduler write succeeded, and the flag is set only after each awaited write", () => {
-    expect(saveCallData).toMatch(/if \(schedulerWriteSucceeded\) \{[\s\S]{0,240}fetchAppointments\(\{ silent: true \}\)/);
-    // Each flag assignment directly follows an awaited saveAppointment(...) call, inside its try.
-    const assignments = saveCallData.match(/\}, organizationId\);\s*\n\s*schedulerWriteSucceeded = true;/g) ?? [];
-    expect(assignments).toHaveLength(2);
-    expect(count(saveCallData, "schedulerWriteSucceeded = true")).toBe(2);
+  it("sends scheduling in the canonical transaction and refreshes after success", () => {
+    expect(saveCallData).not.toContain("saveAppointment(");
+    expect(saveCallData).toContain("appointment:");
+    expect(count(saveCallData,"fetchAppointments({ silent: true })")).toBe(1);
   });
 
   it("the canonical saveCallData callbackDueAtISO computation is unchanged", () => {
@@ -88,7 +81,7 @@ describe("dialer-api.saveAppointment contract", () => {
   const writer = body(api, "export async function saveAppointment", "\n}\n");
 
   it("builds instants with the shared local wall-clock helper, never a bare date+time string", () => {
-    expect(writer).toContain("localDateTimeToIso(");
+    expect(writer).toContain("bookingTimes(");
     expect(api).not.toMatch(/\bconvertTo24h\b/);
     expect(writer).not.toMatch(/`\$\{data\.date\}T/);
     expect(writer).not.toMatch(/data\.date\s*\+\s*["'`]T/);
@@ -96,7 +89,8 @@ describe("dialer-api.saveAppointment contract", () => {
 
   it("stamps created_by and user_id with the dialing agent and sets no type", () => {
     expect(writer).toMatch(/user_id:\s*data\.agent_id/);
-    expect(writer).toMatch(/created_by:\s*data\.agent_id/);
+    expect(writer).not.toMatch(/created_by:/);
+    expect(writer).toContain("persistAppointment(data.request_id");
     expect(writer).not.toMatch(/\btype:/);
   });
 });

@@ -109,9 +109,9 @@ it("a failed core save keeps wrap-up and retries the same call without another c
   expect(screen.getByRole("button", { name: "Save & Close" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Save & Close" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Save & Close" })).toBeNull());
-  expect(h.rpc.mock.calls.map(c => c[1].p_operation_id)).toEqual(["call-a", "call-a"]);
-  expect(h.rpc.mock.calls.map(c => c[1].p_disposition_id)).toEqual(["disp-a", "disp-a"]);
-  expect(h.rpc.mock.calls.map(c => c[1].p_notes)).toEqual(["Keep these notes", "Keep these notes"]);
+  expect(h.rpc.mock.calls.map(c => c[1].p_input.p_operation_id)).toEqual(["call-a", "call-a"]);
+  expect(h.rpc.mock.calls.map(c => c[1].p_input.p_disposition_id)).toEqual(["disp-a", "disp-a"]);
+  expect(h.rpc.mock.calls.map(c => c[1].p_input.p_notes)).toEqual(["Keep these notes", "Keep these notes"]);
   expect(h.makeCall).toHaveBeenCalledTimes(1);
 });
 it("a converting disposition waits for ConvertLeadModal and retains that client through persistence failure", async () => {
@@ -124,7 +124,7 @@ it("a converting disposition waits for ConvertLeadModal and retains that client 
   await waitFor(() => expect(h.error).toHaveBeenCalledWith("retry"));
   fireEvent.click(screen.getByRole("button", { name: "Save & Close" }));
   await waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(2));
-  expect(h.rpc.mock.calls.map(c => c[1].p_converted_client_id)).toEqual(["client-a", "client-a"]);
+  expect(h.rpc.mock.calls.map(c => c[1].p_input.p_converted_client_id)).toEqual(["client-a", "client-a"]);
   expect(h.win).not.toHaveBeenCalled(); // Modal owns the conversion win.
 });
 
@@ -147,7 +147,7 @@ it("shows only the current agency's same-label option and saves its UUID", async
   }
   save();
   await waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(1));
-  expect(h.rpc.mock.calls[0][1]).toMatchObject({ p_call_id: "call-a", p_disposition_id: "disp-a" });
+  expect(h.rpc.mock.calls[0][1].p_input).toMatchObject({ p_call_id: "call-a", p_disposition_id: "disp-a" });
   expect(h.inserts).toEqual([]);
 });
 it.each(["dispositions", "pipeline_stages"])("blocks save on %s failure and recovers on Retry", async table => {
@@ -199,7 +199,7 @@ it("hides agency A's draft in B, then requires a fresh selection before finishin
   expect(screen.getByPlaceholderText("Add notes...")).toHaveValue("Agency A private notes");
   save();
   await waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(1));
-  expect(h.rpc.mock.calls[0][1].p_disposition_id).toBe("disp-a");
+  expect(h.rpc.mock.calls[0][1].p_input.p_disposition_id).toBe("disp-a");
 });
 it("hides the old user's draft when only the authenticated account changes", async () => {
   h.notes = true;
@@ -245,11 +245,10 @@ it("preserves callback validation, time, assignment and creator", async () => {
   expect(h.rpc).not.toHaveBeenCalled();
   setCallback();
   save();
-  await waitFor(() => expect(h.inserts).toHaveLength(1));
-  expect(h.rpc.mock.calls[0][1].p_callback_due_at).toBe(new Date("2030-10-03T12:30").toISOString());
-  expect(h.inserts[0]).toMatchObject({ table: "appointments", rows: [{
-    contact_id: "lead-a", user_id: user.id, created_by: user.id, organization_id: "org-a",
-  }] });
+  await waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(1));
+  expect(h.rpc.mock.calls[0][1].p_input.p_callback_due_at).toBe(new Date("2030-10-03T12:30").toISOString());
+  expect(h.rpc.mock.calls[0][0]).toBe("save_disposition_with_booking");
+  expect(h.inserts).toEqual([]); // Server transaction owns the booking and setter credit.
 });
 it("does not run callback effects or dismiss wrap-up when a save resolves in a different scope", async () => {
   h.callback = true;

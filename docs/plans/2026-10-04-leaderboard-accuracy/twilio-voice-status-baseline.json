@@ -1,0 +1,49 @@
+{
+  "function": "twilio-voice-status",
+  "deployed_version": 44,
+  "capture": "read-only 2026-10-04 UTC",
+  "files": [
+    {
+      "path": "supabase/functions/twilio-voice-status/index.ts",
+      "deployed_sha256": "4b1b16e63093888b6c20fed6a17666d73016dc2de40f2ac580a4cee470b2a668",
+      "implementation_sha256": "49e1fa73c272076c7bbf7fd8066a53ce7b766b214d24f98adfed3cd3b619f925",
+      "unchanged": false
+    },
+    {
+      "path": "supabase/functions/_shared/notifications.ts",
+      "deployed_sha256": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c",
+      "implementation_sha256": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c",
+      "unchanged": true
+    },
+    {
+      "path": "supabase/functions/_shared/notification-recipients.ts",
+      "deployed_sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726",
+      "implementation_sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726",
+      "unchanged": true
+    },
+    {
+      "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+      "deployed_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+      "implementation_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+      "unchanged": true
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/dial-evidence.ts",
+      "deployed_sha256": "6e9f30fdddcef5d7831526b71a1fe8471e7a28efefc0c8e625e458fce8d413a1",
+      "implementation_sha256": "6e9f30fdddcef5d7831526b71a1fe8471e7a28efefc0c8e625e458fce8d413a1",
+      "unchanged": true
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/duration.ts",
+      "deployed_sha256": "aa13b7474934d9700a48a37fffc08adf700b6c8100604d9c570611c945e470ad",
+      "implementation_sha256": "a00500b3542d316f639f52b231e7e62707fc4ef050198aadad3986d3bf3fc874",
+      "unchanged": false
+    },
+    {
+      "path": "supabase/functions/twilio-voice-status/terminal-guard.ts",
+      "deployed_sha256": "d7ca4a9d7e47161e1fbc8188d7703184a0d97e05a7ea50017496949d1821038b",
+      "implementation_sha256": "d7ca4a9d7e47161e1fbc8188d7703184a0d97e05a7ea50017496949d1821038b",
+      "unchanged": true
+    }
+  ]
+}

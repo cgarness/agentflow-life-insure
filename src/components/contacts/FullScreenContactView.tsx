@@ -16,6 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
+import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useSidebarContext } from "@/contexts/SidebarContext";
@@ -187,6 +189,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // Bumped after this page's own appointment write so the Follow-ups card refetches.
   const [followUpsRefreshKey, setFollowUpsRefreshKey] = useState(0);
   const [showConvert, setShowConvert] = useState(false);
+  const [showRecordPolicy, setShowRecordPolicy] = useState(false);
   const [rightTab, setRightTab] = useState<"Activity" | "Notes" | "Campaigns" | "Tasks">("Activity");
   
   const [editMode, setEditMode] = useState(false);
@@ -995,7 +998,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               <h3 className="font-bold text-sm text-foreground truncate max-w-[180px]">{formatName(`${contact.firstName || ''} ${contact.lastName || ''}`.trim())}</h3>
             </div>
             {!editMode ? (
-              canEditContact && <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline transition-colors"><Pencil className="w-3 h-3" /> EDIT</button>
+              canEditContact && <div className="flex items-center gap-2">
+                {type === "client" && <button onClick={() => setShowRecordPolicy(true)} className="text-xs font-bold text-primary hover:underline">Record Policy</button>}
+                <button onClick={() => setEditMode(true)} className="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline transition-colors"><Pencil className="w-3 h-3" /> EDIT</button>
+              </div>
             ) : (
                <div className="flex items-center gap-3">
                 <button onClick={handleCancel} className="text-xs font-bold text-muted-foreground hover:text-foreground uppercase italic tracking-tight underline-offset-4 hover:underline">Cancel</button>
@@ -1360,6 +1366,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           // contact_id comes from this contact — the modal emits an empty contactId here.
           try {
             await addAppointment({
+              booking_request_id: data.booking_request_id,
               title: data.title,
               contact_name: data.contactName,
               contact_id: contact?.id ?? null,
@@ -1384,6 +1391,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         prefillContactName={contactDisplayName(contact) || undefined}
       />
 
+      {type === "client" && canEditContact && <RecordPolicyModal key={`${organizationId}|${contact.id}`}
+        open={showRecordPolicy} clientId={contact.id} primary={!contact.primaryPolicyId && !hasClientPolicyEvidence(contact)}
+        onClose={() => setShowRecordPolicy(false)} onSaved={() => {
+          history.refresh();
+          toast.success("Policy and sale recorded");
+          void onUpdate(contact.id, {}).catch(() => toast.error("Policy saved. Reopen this contact to refresh its details."));
+        }} />}
       <ConvertLeadModal 
         open={showConvert}
         onClose={() => setShowConvert(false)}

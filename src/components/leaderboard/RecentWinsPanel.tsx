@@ -68,7 +68,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
     const prevTop = prevTopWinIdRef.current;
     prevTopWinIdRef.current = topId;
 
-    if (prevTop === null || prevTop === topId) return;
+    if (prevTop === null || prevTop === topId || wins[0]?.celebrated) return;
 
     setLocalFlashWinId(topId);
     if (flashTimerRef.current != null) {
@@ -116,6 +116,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
           `🏆 ${title}`
         )}
       </h3>
+      <p className="px-1 pt-2 text-xs text-muted-foreground">Latest 20 · all periods · annualized premium</p>
       {status?.kind === "error" && wins.length > 0 && (
         <p role="status" className={cn("px-1 pt-3 text-xs", isTv ? "text-amber-300/90" : "text-muted-foreground")}>
           {status.lastUpdatedAt !== null
@@ -159,11 +160,11 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
                   .slice(0, 2)
             ).toUpperCase();
             const isFlashing =
-              index === 0 &&
+              !w.celebrated && index === 0 &&
               (flashingWinId === w.id || localFlashWinId === w.id);
             const when = new Date(w.created_at);
-            const premiumSold = w.premiumSold ?? 0;
-            const showPremiumBadge = premiumSold > 0;
+            const premiumSold = w.premiumSold;
+            const showPremiumBadge = premiumSold != null;
 
             const rowClassName = cn(
               "relative flex items-center gap-x-3 rounded-lg border-b px-2 py-2.5 last:border-0",
@@ -221,6 +222,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
                       <span className={isTv ? "text-slate-500" : "text-muted-foreground/40"}>·</span>
                       <span>{formatTime(when)}</span>
                     </div>
+                    {!showPremiumBadge && <span className="text-xs text-muted-foreground">Premium unknown</span>}
                     {showPremiumBadge ? (
                       <span
                         className={cn(
@@ -231,9 +233,9 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
                               ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
                               : "bg-success/15 text-success ring-1 ring-success/30",
                         )}
-                        title="Premium sold"
+                        title="Annualized premium"
                       >
-                        {formatPremiumSold(premiumSold)}
+                        {formatPremiumSold(premiumSold!)}
                       </span>
                     ) : null}
                   </div>

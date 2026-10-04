@@ -1,3 +1,6 @@
+import { loadPerformanceDetails, type PerformanceSummary } from "@/lib/performanceSummary";
+import { usePermissions } from "@/hooks/usePermissions";
+import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
@@ -51,6 +54,7 @@ interface DashboardDetailModalProps {
   role: string;
   adminToggle: "team" | "my";
   timeRange?: "day" | "week" | "month" | "year";
+  performanceSnapshot?: PerformanceSummary | null;
 }
 
 const BATCH_SIZE = 20;
@@ -97,6 +101,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   role,
   adminToggle,
   timeRange,
+  performanceSnapshot,
 }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -127,7 +132,10 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const paginationLockRef = useRef<{ generation: number; page: number } | null>(null);
   const { profile, user } = useAuth();
 
-  const isFiltered = role !== "Admin" || adminToggle === "my";
+  const { getDataScope } = usePermissions();
+  const isFiltered = getDataScope("reports") === "own" || adminToggle === "my";
+  const performanceAsOf = useRef<string | null>(null);
+  const [performanceSubtitle, setPerformanceSubtitle] = useState<string | null>(null);
 
   const getTitle = () => {
     const rangeSuffix = timeRange ? ` (${timeRange})` : "";
@@ -167,7 +175,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "callbacks":
         return "Scheduled callbacks";
       default:
-        return timeRange ? `Selected period: ${timeRange}` : "Selected period";
+        return performanceSubtitle ?? (timeRange ? `Selected period: ${timeRange}` : "Selected period");
     }
   };
 
@@ -212,6 +220,8 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setPageError(false);
       setLoading(true);
       setData([]);
+      performanceAsOf.current = performanceSnapshot?.end_at ?? new Date().toISOString();
+      setPerformanceSubtitle(null);
     } else {
       // Ref-based serialization: at most one pagination request per generation.
       if (paginationLockRef.current !== null) return;
@@ -255,6 +265,18 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       let listIsComplete = false;
       /** True once a non-callback query actually ran — preserves the old `if (query)` scoping. */
       let queryRan = false;
+
+      if (["calls_today", "policies_sold", "premium_sold", "appointments"].includes(type)) {
+        const detail = await loadPerformanceDetails(type, timeRange || "month", isFiltered ? "own" : "team",
+          isFiltered ? userId : null, performanceAsOf.current!, from);
+        if (isStale()) return;
+        if (profile?.organization_id && detail.organization_id !== profile.organization_id) throw new Error("Organization changed");
+        setPerformanceSubtitle(`${detail.scope} · ${detail.time_zone} · As of ${new Date(detail.end_at).toLocaleString()}`);
+        const rows = detail.rows.map(row => ({ ...row, __idIsContact: false }));
+        setHasMore(rows.length === BATCH_SIZE);
+        if (isInitial) setData(rows); else setData(previous => [...previous, ...rows]);
+        return;
+      }
 
       // Callbacks: one shared contract with CallbacksWidget (dual-source, bounded,
       // globally ordered, per-source ownership). Paged globally after the merge.
@@ -388,32 +410,6 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       } else {
         let query: any;
         switch (type) {
-          case "callbacks":
-            // Callbacks come from the SHARED dual-source contract, so the widget rows,
-            // the widget total and these detail rows describe the same bounded set:
-            // same calendar window, same compatibility-timestamp rule, same
-            // per-source ownership field, same ordering and identity rules.
-            // Handled outside this switch — see the `callbacks` branch above.
-            break;
-          case "appointments":
-            query = supabase.from("appointments").select("id, contact_name, contact_id, start_time, status, type, title").gte("start_time", startStr).lt("start_time", endStr).order("start_time", { ascending: true }).order("id", { ascending: true });
-            if (isFiltered) query = query.eq("user_id", userId);
-            break;
-          case "calls_today":
-            query = supabase
-              .from("calls")
-              .select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, duration, status, direction")
-              .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
-              .gte("created_at", startStr)
-              .lt("created_at", endStr)
-              .order("created_at", { ascending: false })
-              .order("id", { ascending: false });
-            if (isFiltered) query = query.eq("agent_id", userId);
-            break;
-          case "policies_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
-            if (isFiltered) query = query.eq("assigned_agent_id", userId);
-            break;
           case "missed_calls": {
             const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
             query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
@@ -425,50 +421,15 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             }
             break;
           }
-          case "premium_sold":
-            query = supabase.from("clients").select("id, first_name, last_name, created_at, policy_type, premium").gte("created_at", startStr).lt("created_at", endStr).order("created_at", { ascending: false }).order("id", { ascending: false });
-            if (isFiltered) query = query.eq("assigned_agent_id", userId);
-            break;
+
         }
 
         if (query) {
           const { data: result, error } = await query.range(from, to);
           if (error) throw error;
           
-          if (type === "premium_sold" || type === "policies_sold") {
-            // Both KPI drill-downs read `clients`, so the row's own id IS the contact
-            // and the type is known — they must navigate to Clients, never Leads.
-            resultData = (result || []).map((row: any) => ({
-              ...row,
-              __idIsContact: true,
-              __contactType: "client" as const,
-              contact_name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
-              ...(type === "premium_sold" ? { premium_amount: row.premium } : {}),
-            }));
-          } else {
-            resultData = result || [];
-          }
-          
-          // `calls.contact_type` is NULL on most real rows, so resolve the unknowns
-          // against the actual VISIBLE leads/clients/recruits rows. Ambiguous or absent
-          // ids stay unresolved (null) — they are never assumed to be leads.
-          if (type === "calls_today" || type === "missed_calls") {
-            const unknownIds = resultData
-              .filter((row: any) => !isValidContactType(row.contact_type))
-              .map((row: any) => row.contact_id)
-              .filter((id: any): id is string => typeof id === "string" && id.length > 0);
-            if (unknownIds.length > 0) {
-              const resolvedTypes = await resolveContactTypesByIds(unknownIds);
-              resultData = resultData.map((row: any) =>
-                isValidContactType(row.contact_type)
-                  ? row
-                  : { ...row, __contactType: resolvedTypes.get(row.contact_id) ?? null },
-              );
-            }
-          }
+          resultData = result || [];
 
-          // Was `if (resultData.length < BATCH_SIZE) setHasMore(false);` here, ahead of
-          // the staleness guard. The length test itself is unchanged — only its position.
           queryRan = true;
         }
       }
@@ -507,7 +468,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         setIsFetchingNextPage(false);
       }
     }
-  }, [type, userId, isFiltered, timeRange]);
+  }, [type, userId, isFiltered, timeRange, performanceSnapshot, profile?.organization_id]);
 
   useEffect(() => {
     if (isOpen) {
@@ -646,7 +607,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <ShieldCheck className="w-3 h-3" />
               {item.policy_type || "Life Insurance"}
-              {item.premium && ` • $${item.premium.toLocaleString()} (Mo)`}
+              {item.premium_amount != null ? ` • ${formatPremiumSold(item.premium_amount)} monthly` : " • Premium unknown"}
             </span>
           </div>
         );
@@ -671,7 +632,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type} • $${((item.premium_amount || 0) * 12).toLocaleString()} (Annual)` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : formatPremiumSold(item.annual_premium)} annualized` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );

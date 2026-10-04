@@ -16,10 +16,10 @@ function setup(save:ReturnType<typeof vi.fn>){
  return {close,page,submit:()=>fireEvent.submit(page.container.querySelector("form")!)};
 }
 describe("Add Client sale intent and retries",()=>{
- it("records ordinary contact intent when Sold Date is empty",async()=>{
+ it("retains a policy draft when Sold Date is empty instead of silently dropping its sale",async()=>{
   const save=vi.fn().mockResolvedValue(undefined);const {submit,close}=setup(save);submit();
-  await waitFor(()=>expect(close).toHaveBeenCalledTimes(1));
-  expect(save.mock.calls[0][1]).toEqual({requestId:"stable-request",recordSale:false});
+  expect(save).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
  });
  it("retains the operation ID and open form after failure, then retries exactly that sale",async()=>{
   const save=vi.fn().mockRejectedValueOnce(new Error("network error")).mockResolvedValue(undefined);
@@ -30,7 +30,7 @@ describe("Add Client sale intent and retries",()=>{
  });
  it("blocks double submissions and closing while save is pending",async()=>{
   let finish!:()=>void;const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));
-  const {submit,close}=setup(save);submit();submit();fireEvent.click(screen.getByRole("button",{name:"Close client form"}));
+  const {submit,close}=setup(save);fireEvent.change(screen.getAllByTestId("date")[0],{target:{value:"2026-10-03"}});submit();submit();fireEvent.click(screen.getByRole("button",{name:"Close client form"}));
   expect(save).toHaveBeenCalledTimes(1);expect(close).not.toHaveBeenCalled();
   await act(async()=>{finish();});expect(close).toHaveBeenCalledTimes(1);
  });

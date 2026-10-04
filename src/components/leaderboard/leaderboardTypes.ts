@@ -6,7 +6,7 @@ export type Metric =
   | "Calls Made"
   | "Appointments Set"
   | "Talk Time"
-  | "Conversion Rate"
+  | "Policies per 100 Calls"
   | "Premium Sold";
 
 export const LEADERBOARD_METRICS: Metric[] = [
@@ -14,7 +14,7 @@ export const LEADERBOARD_METRICS: Metric[] = [
   "Calls Made",
   "Appointments Set",
   "Talk Time",
-  "Conversion Rate",
+  "Policies per 100 Calls",
   "Premium Sold",
 ];
 
@@ -36,7 +36,11 @@ export interface AgentStats {
   policiesSold: number;
   appointmentsSet: number;
   talkTime: number;
-  conversionRate: number;
+  conversionRate: number | null;
+  unknownPremiums?: number;
+  estimatedDurationCalls?: number;
+  unknownDurationCalls?: number;
+  conflictingDurationCalls?: number;
   premiumSold: number;
   recentWins7d: number;
   rank: number;
@@ -55,7 +59,9 @@ export interface Win {
   premium_amount?: number | null;
   premium_snapshot?: boolean;
   /** Annual premium sold for this win (monthly × 12, with client fallback). */
-  premiumSold?: number;
+  premiumSold?: number | null;
+  premium_known?: boolean;
+  celebrated?: boolean | null;
   created_at: string;
 }
 
@@ -69,7 +75,7 @@ export const metricKey = (m: Metric): keyof AgentStats => {
       return "appointmentsSet";
     case "Talk Time":
       return "talkTime";
-    case "Conversion Rate":
+    case "Policies per 100 Calls":
       return "conversionRate";
     case "Premium Sold":
       return "premiumSold";
@@ -80,7 +86,13 @@ export const monthlyPremiumToAnnual = (monthly: number): number =>
   monthly * ANNUAL_PREMIUM_MULTIPLIER;
 
 export const formatPremiumSold = (annualPremium: number): string =>
-  `$${Math.round(annualPremium).toLocaleString()}`;
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(annualPremium);
+
+export const formatTalkTime = (seconds: number): string => {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60;
+  return h ? `${h}h ${m}m ${s}s` : m ? `${m}m ${s}s` : `${s}s`;
+};
 
 export const metricLabel = (m: Metric): string => {
   switch (m) {
@@ -92,16 +104,17 @@ export const metricLabel = (m: Metric): string => {
       return "appointments set";
     case "Talk Time":
       return "talk time";
-    case "Conversion Rate":
-      return "conversion rate";
+    case "Policies per 100 Calls":
+      return "policies per 100 calls";
     case "Premium Sold":
-      return "premium sold";
+      return "annualized premium";
   }
 };
 
-export const formatMetricValue = (m: Metric, val: number): string => {
-  if (m === "Talk Time") return `${(val / 3600).toFixed(1)} hrs`;
-  if (m === "Conversion Rate") return `${val.toFixed(1)}%`;
+export const formatMetricValue = (m: Metric, val: number | null): string => {
+  if (val === null) return "—";
+  if (m === "Talk Time") return formatTalkTime(val);
+  if (m === "Policies per 100 Calls") return val.toFixed(1);
   if (m === "Premium Sold") return formatPremiumSold(val);
   return String(Math.round(val));
 };
@@ -152,6 +165,8 @@ export const mapPeriodToRpcParam = (p: Period): string => {
 /** Deterministic sort: metric desc, then name, then id. */
 export function compareAgentsByMetric(a: AgentStats, b: AgentStats, metric: Metric): number {
   const key = metricKey(metric);
+  if (a[key] === null && b[key] !== null) return 1;
+  if (b[key] === null && a[key] !== null) return -1;
   const diff = (b[key] as number) - (a[key] as number);
   if (diff !== 0) return diff;
   const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();

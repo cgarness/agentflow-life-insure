@@ -94,6 +94,10 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from: (t: string) => builder(t),
       rpc: (name: string, args?: Record<string, unknown>) => {
+        if (name === "update_client_with_policy_sale") {
+          return (builder("clients") as any).update(args?.p_patch).eq("id", args?.p_client_id).select().maybeSingle().then((result: any) => ({ data: result.error ? null : { client: result.data, client_id: args?.p_client_id, win_ids: [] }, error: result.error }));
+        }
+
         if (name === "get_contact_conversation_page" || name === "get_contact_activity_page") {
           db.historyReads.push({ name, contactId: args?.p_contact_id });
           return { abortSignal: () => Promise.resolve({ data: { items: [], hasMore: false, nextCursor: null }, error: null }) };

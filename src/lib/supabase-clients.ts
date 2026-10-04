@@ -5,6 +5,7 @@ import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
 import { notifyRecordedSales, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
 import type { Json } from "@/integrations/supabase/types";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 
 export interface ClientFilters {
     search?: string;
@@ -102,17 +103,21 @@ export const clientsSupabaseApi = {
         if (!organizationId) throw new Error("Cannot create client without an organization.");
         // U3 (src/lib/reservedCustomFields.ts): same boundary, same class of defect as update().
         assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.create");
-        if (sale) {
+        if (!sale && hasClientPolicyEvidence(data)) throw new Error("Policy creation requires a stable sale request. Use Add Client or Record Policy.");
+        if (sale || hasClientPolicyEvidence(data)) {
+            const options = sale!;
+            const recordsPolicy = hasClientPolicyEvidence(data);
+            if (recordsPolicy && !options.recordSale) throw new Error("Every new policy must record a sale. Use historical policy entry for an existing policy.");
             const { data: result, error } = await supabase.rpc("create_client_with_sale", {
-                p_request_id: sale.requestId,
+                p_request_id: options.requestId,
                 p_expected_org: organizationId,
-                p_client: { ...clientToRow(data), ...(sale.recordSale ? { premium: saleMonthlyPremium(data.premiumAmount) } : {}) } as Json,
-                p_record_sale: sale.recordSale,
+                p_client: { ...clientToRow(data), ...(recordsPolicy ? { premium: saleMonthlyPremium(data.premiumAmount) } : {}), sale_mode: options.historical ? "historical" : "new" } as Json,
+                p_record_sale: recordsPolicy,
             });
             if (error) throw new Error(error.message);
             const recorded = result as unknown as RecordedSaleResult & { client: Parameters<typeof rowToClient>[0] };
             if (!recorded?.client?.id || !Array.isArray(recorded.win_ids)) throw new Error("Client save returned an invalid receipt; retry this save.");
-            await notifyRecordedSales(recorded.win_ids);
+            if (!options.historical) await notifyRecordedSales(recorded.win_ids);
             return rowToClient(recorded.client);
         }
         const { data: row, error } = await (supabase as any)
@@ -125,6 +130,7 @@ export const clientsSupabaseApi = {
     },
 
     async update(id: string, data: Partial<Client>): Promise<Client> {
+        if (Object.keys(data).length === 0) return clientsSupabaseApi.getById(id);
         // U3 — defense in depth at the write boundary (src/lib/reservedCustomFields.ts).
         // custom_fields is written as a WHOLE-COLUMN REPLACEMENT below, so a caller that hands us a
         // corrupted bag would persist it irreversibly. `additional_policies` is reserved, structured
@@ -161,14 +167,14 @@ export const clientsSupabaseApi = {
         if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
         updateData.updated_at = new Date().toISOString();
 
-        const { data: row, error } = await (supabase as any)
-            .from("clients")
-            .update(updateData)
-            .eq("id", id)
-            .select()
-            .single();
+        const { data: result, error } = await (supabase as any).rpc("update_client_with_policy_sale", {
+            p_client_id: id, p_patch: updateData,
+        });
         if (error) throw new Error(error.message);
-        return rowToClient(row);
+        const saved = result as RecordedSaleResult & { client: Parameters<typeof rowToClient>[0] };
+        if (!saved?.client?.id || !Array.isArray(saved.win_ids)) throw new Error("Client edit returned an invalid receipt; refresh before retrying.");
+        await notifyRecordedSales(saved.win_ids);
+        return rowToClient(saved.client);
     },
 
     /** Reassign the given clients to an agent. Batched UPDATE (no per-row round trip). Throws on DB error. */
@@ -203,10 +209,10 @@ export const clientsSupabaseApi = {
  * Format a numeric DB value (clients.premium / clients.face_amount) for display.
  * Missing OR zero values render blank ("") — never a fabricated "$0" policy value (Build 1 decision D1).
  */
-export function formatCurrencyValue(n: unknown): string {
+export function formatCurrencyValue(n: unknown, preserveZero = false): string {
     if (n === null || n === undefined || n === "") return "";
     const num = typeof n === "number" ? n : Number(n);
-    if (!Number.isFinite(num) || num === 0) return "";
+    if (!Number.isFinite(num) || (num === 0 && !preserveZero)) return "";
     return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -232,17 +238,18 @@ export function normalizeDateOrNull(s: unknown): string | null {
 export function rowToClient(row: any): Client { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
         id: row.id,
+        primaryPolicyId: row.primary_policy_id ?? null,
         firstName: row.first_name,
         lastName: row.last_name,
         phone: row.phone || "",
         email: row.email,
         state: row.state || "",
         policyType: (row.policy_type as PolicyType) || "Term",
-        carrier: row.carrier || "Unknown",
+        carrier: row.carrier || "",
         policyNumber: row.policy_number || "",
-        // Canonical numeric columns; missing/zero → blank (never fabricated "$0").
+        // Unknown remains blank; an explicitly stored zero premium stays $0.00 on edit.
         faceAmount: formatCurrencyValue(row.face_amount),
-        premiumAmount: formatCurrencyValue(row.premium),
+        premiumAmount: formatCurrencyValue(row.premium, true),
         // Canonical text date columns; missing → blank (never substitute created_at).
         issueDate: row.issue_date || "",
         effectiveDate: row.effective_date || "",

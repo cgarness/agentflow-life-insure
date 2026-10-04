@@ -1,3 +1,5 @@
+import type { PerformanceSnapshot } from "@/lib/performanceQueries";
+import { performanceCaption } from "@/lib/leaderboardExport";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { X, Settings, Clock, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -74,6 +76,7 @@ interface AgentStatsRow extends AgentStats {
 }
 
 interface Props {
+  performanceSnapshot?: PerformanceSnapshot | null;
   agents: AgentStatsRow[];
   wins: Win[];
   period: Period;
@@ -99,6 +102,7 @@ interface Props {
 }
 
 const TVMode: React.FC<Props> = ({
+  performanceSnapshot,
   agents,
   wins,
   period,
@@ -130,7 +134,7 @@ const TVMode: React.FC<Props> = ({
 
   const { profile } = useAuth();
   const { branding } = useBranding();
-  const timezone = branding.timezone || "America/Chicago";
+  const timezone = performanceSnapshot?.time_zone || branding.timezone || "UTC";
   const [organizationName, setOrganizationName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -435,7 +439,8 @@ const TVMode: React.FC<Props> = ({
           />
         )}
         <div data-testid="tv-agency-totals" className="mx-auto w-full max-w-[72rem] shrink-0">
-          <TVAgencyTotalsStrip
+          {performanceSnapshot && <p className="text-xs text-slate-400 text-center">{performanceCaption(performanceSnapshot)}</p>}
+      <TVAgencyTotalsStrip
             agents={agents}
             period={period}
             onPeriodChange={onPeriodChange}

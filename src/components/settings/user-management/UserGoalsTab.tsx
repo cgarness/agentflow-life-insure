@@ -6,10 +6,10 @@ import { Label } from "@/components/ui/label";
 import { goalColor } from "./userManagementUtils";
 
 interface GoalActuals {
-  callsMonth: number;
-  policiesMonth: number;
-  appointmentsMonth: number;
-  premiumMonth: number;
+  callsMonth: number | null;
+  policiesMonth: number | null;
+  appointmentsMonth: number | null;
+  premiumMonth: number | null;
 }
 
 interface Props {
@@ -34,7 +34,7 @@ const UserGoalsTab: React.FC<Props> = ({ form, setForm, goalActuals, perfLoading
     { label: "Monthly Calls Goal", key: "monthlyCallGoal", actual: goalActuals.callsMonth, icon: PhoneCall, color: "text-blue-500", bg: "bg-blue-500/10", fmt: (v: number) => String(v) },
     { label: "Monthly Policies Goal", key: "monthlyPoliciesGoal", actual: goalActuals.policiesMonth, icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10", fmt: (v: number) => String(v) },
     { label: "Monthly Appointments Goal", key: "monthlyAppointmentGoal", actual: goalActuals.appointmentsMonth, icon: Users, color: "text-amber-500", bg: "bg-amber-500/10", fmt: (v: number) => String(v) },
-    { label: "Monthly Premium Goal ($)", key: "monthlyPremiumGoal", actual: goalActuals.premiumMonth, icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", fmt: (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) },
+    { label: "Monthly Premium Goal ($)", key: "monthlyPremiumGoal", actual: goalActuals.premiumMonth, icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", fmt: (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
   ];
 
   return (
@@ -42,8 +42,8 @@ const UserGoalsTab: React.FC<Props> = ({ form, setForm, goalActuals, perfLoading
       <div className="grid grid-cols-2 gap-4">
         {goals.map(g => {
           const Icon = g.icon;
-          const target = (form[g.key] as number) || 1;
-          const pct = Math.min(100, Math.round((g.actual / target) * 100));
+          const target = (form[g.key] as number) || 0;
+          const pct = g.actual != null && target > 0 ? Math.min(100, Math.round((g.actual / target) * 100)) : 0;
           return (
             <div key={g.key} className="bg-card/50 border rounded-xl p-3.5 space-y-3 shadow-sm hover:border-primary/30 transition-colors relative overflow-hidden group">
               <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full ${g.bg} opacity-20 blur-2xl group-hover:opacity-40 transition-opacity`} />
@@ -69,10 +69,10 @@ const UserGoalsTab: React.FC<Props> = ({ form, setForm, goalActuals, perfLoading
                   <div className="flex flex-col">
                     <span className="text-[10px] font-black tracking-widest text-muted-foreground uppercase leading-none mb-1">Status</span>
                     <span className={`text-sm font-black tabular-nums tracking-tight ${pct >= 80 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-rose-500"}`}>
-                      {g.fmt(g.actual)} / {g.fmt(target)}
+                      {g.actual == null ? "—" : g.fmt(g.actual)} / {target ? g.fmt(target) : "No target"}
                     </span>
                   </div>
-                  <span className="text-[10px] font-black tabular-nums bg-accent/80 px-2 py-0.5 rounded-full border border-white/5">{pct}%</span>
+                  <span className="text-[10px] font-black tabular-nums bg-accent/80 px-2 py-0.5 rounded-full border border-white/5">{g.actual == null || !target ? "—" : `${pct}%`}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden border border-white/5 shadow-inner">
                   <div className={`h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(0,0,0,0.2)] ${goalColor(pct)}`} style={{ width: `${pct}%` }} />

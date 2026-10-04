@@ -124,7 +124,11 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (t: string) => builder(t),
-      rpc: () => Promise.resolve({ data: [], error: null }),
+      rpc: async (name: string, args?: Record<string, unknown>) => { if (name === "update_client_with_policy_sale") {
+          const result = await (builder("clients") as any).update(args?.p_patch).eq("id", args?.p_client_id).select().maybeSingle();
+          return { data: result.error ? null : { client: result.data, client_id: args?.p_client_id, win_ids: [] }, error: result.error };
+        }
+return { data: [], error: null }; },
       auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) },
     },
   };

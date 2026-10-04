@@ -689,6 +689,7 @@ const Dashboard: React.FC = () => {
 
       {/* Dashboard Detail Modal */}
       <DashboardDetailModal
+        performanceSnapshot={stats?.performance}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         type={detailModalType}

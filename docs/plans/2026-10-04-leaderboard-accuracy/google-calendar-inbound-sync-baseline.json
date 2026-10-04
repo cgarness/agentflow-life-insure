@@ -1,0 +1,19 @@
+{
+  "function": "google-calendar-inbound-sync",
+  "deployed_version": 491,
+  "capture": "read-only 2026-10-04 UTC",
+  "files": [
+    {
+      "path": "supabase/functions/google-calendar-inbound-sync/index.ts",
+      "deployed_sha256": "6184ff86d37d407cafa3ea0cff010bb608b6218f60473d8dc3a63e923b6e60e4",
+      "implementation_sha256": "272d794e067bdf1f4780eec154b09debd581fee4a7f2ae87586f3fe57a766712",
+      "unchanged": false
+    },
+    {
+      "path": "supabase/functions/_shared/google-token.ts",
+      "deployed_sha256": "d95a9f8a74d5945cdc483e1976b6b37594ea100872d8dd1714c44c283a007583",
+      "implementation_sha256": "d95a9f8a74d5945cdc483e1976b6b37594ea100872d8dd1714c44c283a007583",
+      "unchanged": true
+    }
+  ]
+}

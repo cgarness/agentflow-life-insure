@@ -1,3 +1,4 @@
+import { performanceEnvelope } from "@/test/fixtures/performance";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, screen, waitFor, fireEvent, cleanup, act, within } from "@testing-library/react";
@@ -24,6 +25,7 @@ type GroupInfo = { groupId: string; groupName: string; role: "leader" | "member"
 const h = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   rpcSelections: [] as string[],
+  responseOrg: "0f000000-0000-0000-0000-0000000000aa",
   fromTables: [] as string[],
   photoRows: [] as Array<{ id: string; avatar_url: string | null }>,
   photoReads: [] as Array<{ columns: string; org: string; ids: string[] }>,
@@ -62,18 +64,20 @@ vi.mock("@/integrations/supabase/client", () => {
       auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
       // PostgREST builders are thenables with .abortSignal(); mirror that shape.
       rpc: (fn: string, args: Record<string, unknown>) => {
-        h.rpcCalls.push({ fn, args });
+        const logicalFn = args.p_group_id ? "get_agency_group_leaderboard" : "get_org_leaderboard_stats";
+        const asOf = new Date();
+        h.rpcCalls.push({ fn: logicalFn, args });
         const result =
           h.mode === "manual"
             ? new Promise((resolve) => {
                 h.pending.push(resolve as (v: { data: unknown; error: unknown }) => void);
               })
-            : Promise.resolve(h.autoResult(fn));
+            : Promise.resolve(h.autoResult(logicalFn));
         const builder = {
           select: (columns: string) => { h.rpcSelections.push(columns); return builder; },
           abortSignal: () => builder,
           then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-            result.then(onFulfilled, onRejected),
+            result.then((r: any) => onFulfilled(r.error ? r : { ...r, data: performanceEnvelope(r.data, args, h.responseOrg, asOf) }), onRejected),
         };
         return builder;
       },
@@ -106,7 +110,7 @@ const AG2 = "aaaa0000-0000-0000-0000-000000000002";
 const AG3 = "aaaa0000-0000-0000-0000-000000000003";
 const AG4 = "aaaa0000-0000-0000-0000-000000000004";
 const AVERY_PHOTO = "https://cdn.example.test/avatars/avery.png";
-const GROUP: GroupInfo = { groupId: "bbbb0000-0000-0000-0000-00000000000g", groupName: "Summit Partners", role: "member" };
+const GROUP: GroupInfo = { groupId: "bbbb0000-0000-0000-0000-000000000001", groupName: "Summit Partners", role: "member" };
 const NO_SALES_COPY = "No sales recorded yet this month.";
 
 const rpcRow = (over: Record<string, unknown> = {}) => ({
@@ -184,6 +188,7 @@ beforeEach(() => {
   resetLeaderboardRequestGates();
   h.rpcCalls.length = 0;
   h.rpcSelections.length = 0;
+  h.responseOrg = ORG;
   h.photoRows.length = 0;
   h.photoReads.length = 0;
   h.holdPhotos = false;
@@ -217,14 +222,11 @@ describe("org standings source", () => {
 
     const boardCalls = callsTo("get_org_leaderboard_stats");
     expect(boardCalls.length).toBeGreaterThan(0);
-    const now = new Date();
-    const args = boardCalls[0].args as { p_start: string; p_end: string };
-    expect(args.p_start).toBe(new Date(now.getFullYear(), now.getMonth(), 1).toISOString());
-    expect(new Date(args.p_end).getTime()).toBeGreaterThan(new Date(args.p_start).getTime());
+    expect(boardCalls[0].args).toEqual({ p_period: "month", p_group_id: null });
 
     // The old fan-out derived wins from clients and rebuilt the roster from profiles.
     expect(h.fromTables).not.toContain("clients");
-    expect(h.rpcSelections[0].split(",")).not.toContain("avatar_url");
+    expect(h.rpcSelections).toEqual([]); // photos never part of envelope
     await waitFor(() => expect(h.photoReads).toHaveLength(1));
     expect(h.photoReads[0]).toEqual({ columns: "id,avatar_url", org: ORG, ids: [AG1, AG2, AG3] });
   });
@@ -783,10 +785,10 @@ describe("maintenance and refresh discipline", () => {
   });
 
   it("a different viewer never sees the previous viewer's rows", async () => {
-    const { rerender, container } = render(<LeaderboardWidget userId={AG1} organizationId="org-1" />);
+    const { rerender, container } = render(<LeaderboardWidget userId={AG1} organizationId={ORG} />);
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     h.mode = "manual";
-    rerender(<LeaderboardWidget userId={AG2} organizationId="org-2" />);
+    rerender(<LeaderboardWidget userId={AG2} organizationId="0f000000-0000-0000-0000-0000000000bb" />);
     expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".animate-pulse")).toHaveLength(3);
   });
@@ -972,8 +974,7 @@ describe("rev 1.3: the month is part of the snapshot identity", () => {
     await waitFor(() => expect(screen.getByText("Couldn't load standings")).toBeInTheDocument());
     expect(screen.queryByText("Avery Adams")).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: /top agents this month/i })).not.toBeInTheDocument();
-    const last = callsTo("get_org_leaderboard_stats").at(-1)!.args as { p_start: string };
-    expect(last.p_start).toBe(new Date(2026, 9, 1).toISOString());
+    expect(callsTo("get_org_leaderboard_stats").at(-1)!.args.p_period).toBe("month");
   });
 
   it("a new-month Refresh deferred offline never shows September's podium", async () => {
@@ -1012,9 +1013,7 @@ describe("rev 1.3: the month is part of the snapshot identity", () => {
     h.mode = "manual";
     rerender(view(1));
     await waitFor(() => expect(callsTo("get_org_leaderboard_stats")).toHaveLength(2));
-    expect((callsTo("get_org_leaderboard_stats")[1].args as { p_start: string }).p_start).toBe(
-      new Date(2026, 8, 1).toISOString(),
-    );
+    expect(callsTo("get_org_leaderboard_stats")[1].args.p_period).toBe("month");
     vi.setSystemTime(new Date(2026, 9, 1, 0, 0, 5));
     await act(async () => {
       h.pending[0](answer);
@@ -1041,7 +1040,7 @@ describe("rev 1.3: the month is part of the snapshot identity", () => {
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     const calls = callsTo("get_org_leaderboard_stats");
     expect(calls).toHaveLength(3);
-    expect((calls[2].args as { p_start: string }).p_start).toBe(new Date(2026, 9, 1).toISOString());
+    expect(calls[2].args.p_period).toBe("month");
   });
 
   it("a same-month failed Refresh still keeps the snapshot (unchanged)", async () => {

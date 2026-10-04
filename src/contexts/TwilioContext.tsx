@@ -2322,10 +2322,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       callStateRef.current = "dialing";
       setCallState("dialing");
+      // A deliberate attempt owns one client UUID; an ambiguous insert response resolves this same row.
+      const attemptId = crypto.randomUUID();
       // ── SINGLE CALL RECORD CREATION ──
-      const { data: callRecord, error: callError } = await (supabase as any)
+      let { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
         .insert({
+          id: attemptId, attempt_id: attemptId,
           contact_id: isValidUUID(opts?.contactId) ? opts!.contactId : null,
           organization_id: organizationId,
           agent_id: profile.id,
@@ -2348,6 +2351,12 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .select('id')
         .maybeSingle();
 
+      if (callError || !callRecord) {
+        const recovered = await supabase.from("calls").select("id").eq("id", attemptId)
+          .eq("organization_id", organizationId).eq("agent_id", profile.id).maybeSingle();
+        if (!recovered.error && recovered.data) { callRecord = recovered.data; callError = null; }
+      }
+      if (authUserIdRef.current !== session.user.id || organizationIdRef.current !== organizationId) throw new Error("Your session changed. Call was not started.");
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
       if (!callRecord) throw new Error("Failed to create call record: no data returned");
 

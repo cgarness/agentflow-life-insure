@@ -1,10 +1,11 @@
+import { useBranding } from "@/contexts/BrandingContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { loadPerformanceSummary, summaryScopeKey } from "@/lib/performanceSummary";
 import React from "react";
 import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
-import { appointmentSetterOrExpression } from "@/lib/appointmentAttribution";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
@@ -26,6 +27,8 @@ interface GoalData {
   appointmentsMonth: number;
   appointmentsMonthTarget: number;
   hasGoals: boolean;
+  unknownPremiums: number;
+  timeZone: string;
 }
 
 const ProgressBar: React.FC<{
@@ -67,48 +70,16 @@ const ProgressBar: React.FC<{
 };
 
 const fmtCurrency = (v: number) =>
-  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** A month's goals and actuals; throws on a query error (never "No goals configured"). */
-async function loadGoalProgress(userId: string, monthStart: Date, signal: AbortSignal): Promise<GoalData> {
-  const startOfMonth = monthStart.toISOString();
-
-  const [
-    profileRes,
-    callsRes,
-    winsRes,
-    apptsRes,
-  ] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
-      .eq("id", userId)
-      .abortSignal(signal)
-      .maybeSingle(),
-    supabase
-      .from("calls")
-      .select("id", { count: "exact", head: true })
-      .in("direction", [...OUTBOUND_CALL_DIRECTIONS])
-      .eq("agent_id", userId)
-      .gte("created_at", startOfMonth)
-      .abortSignal(signal),
-    supabase
-      .from("wins")
-      .select("premium_amount")
-      .eq("agent_id", userId)
-      .gte("created_at", startOfMonth)
-      .abortSignal(signal),
-    // Appointments Set: booked this month by this user (setter credit), whatever happened to it since.
-    supabase
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .or(appointmentSetterOrExpression(userId))
-      .gte("created_at", startOfMonth)
-      .abortSignal(signal),
+async function loadGoalProgress(userId: string, signal: AbortSignal): Promise<GoalData> {
+  const [profileRes, summary] = await Promise.all([
+    supabase.from("profiles").select("monthly_call_goal, monthly_policies_goal, monthly_appointment_goal, monthly_premium_goal")
+      .eq("id", userId).abortSignal(signal).maybeSingle(),
+    loadPerformanceSummary("month", "own", userId, signal),
   ]);
-  const failure = [profileRes, callsRes, winsRes, apptsRes].find((r) => r.error);
-  if (failure) throw failure.error;
-
+  if (profileRes.error) throw profileRes.error;
   const p = profileRes.data;
   const callsTarget = Number(p?.monthly_call_goal) || 0;
   const policiesTarget = Number(p?.monthly_policies_goal) || 0;
@@ -118,35 +89,33 @@ async function loadGoalProgress(userId: string, monthStart: Date, signal: AbortS
   const hasGoals =
     callsTarget > 0 || policiesTarget > 0 || appointmentsMonthTarget > 0 || premiumTarget > 0;
 
-  const premiumSold = (winsRes.data ?? []).reduce(
-    (sum, w) => sum + (Number(w.premium_amount) || 0),
-    0
-  );
 
   return {
-    callsMonth: callsRes.count ?? 0,
+    callsMonth: summary.current.calls,
     callsTarget,
-    policiesMonth: winsRes.data?.length ?? 0,
+    policiesMonth: summary.current.policies,
     policiesTarget,
-    premiumSold,
+    premiumSold: summary.current.monthly_premium,
     premiumTarget,
-    appointmentsMonth: apptsRes.count ?? 0,
+    appointmentsMonth: summary.current.bookings,
     appointmentsMonthTarget,
     hasGoals,
+    unknownPremiums: summary.current.unknown_premiums, timeZone: summary.time_zone,
   };
 }
 
 const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refreshSignal, refreshTracker }) => {
   const navigate = useNavigate();
   // The month is part of the scope: last month's progress is never kept as this month's.
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const { branding } = useBranding();
+  const { profile } = useAuth();
+  const periodKey = summaryScopeKey("month", branding.timezone);
   // One load at a time; a failed refresh keeps the progress on screen and says so.
   const section = useDashboardSection<GoalData>({
     section: "goal_progress",
     userId,
-    scope: monthStart.toISOString(),
-    load: (signal) => loadGoalProgress(userId, monthStart, signal),
+    scope: `${profile?.organization_id}|${periodKey}`,
+    load: (signal) => loadGoalProgress(userId, signal),
     refreshSignal,
     refreshTracker,
   });
@@ -190,6 +159,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
   return (
     <div className="space-y-6">
       {notice}
+      <p className="text-xs text-muted-foreground">{data.timeZone} · {data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
       {data.callsTarget > 0 && (
         <ProgressBar
           current={data.callsMonth}

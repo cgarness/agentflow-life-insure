@@ -1,3 +1,4 @@
+import { summaryFixture } from "@/test/fixtures/performance";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, screen, cleanup, waitFor, act, renderHook } from "@testing-library/react";
@@ -31,6 +32,8 @@ const h = vi.hoisted(() => ({
   callbackTotal: vi.fn(),
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ profile: { organization_id: "11111111-1111-4111-8111-111111111111" } }) }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } }) }));
 vi.mock("@/integrations/supabase/client", () => {
   const makeQuery = (table: string) => {
     let signal: AbortSignal | null = null;
@@ -70,7 +73,14 @@ vi.mock("@/integrations/supabase/client", () => {
       settle().then(onFulfilled, onRejected);
     return q;
   };
-  return { supabase: { from: (table: string) => makeQuery(table) } };
+  return { supabase: { from: (table: string) => makeQuery(table), rpc: (_fn: string, args: any) => {
+    const q = { abortSignal: () => q, then: (yes:any,no:any) => {
+      h.queries.push("get_performance_summary");
+      const parts=[h.result("calls"),h.result("appointments"),h.result("wins")];
+      const failed=parts.find(p=>p.error);
+      return Promise.resolve(failed ?? {data:summaryFixture(args,{calls:parts[0].count??0,workload:parts[1].count??0}),error:null}).then(yes,no);
+    }}; return q;
+  } } };
 });
 
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ getDataScope: () => "all" }) }));
@@ -504,17 +514,15 @@ describe("stat cards", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
   });
 
-  it("a partly failed first load shows what loaded, '—' for the rest, and says it may be incomplete", async () => {
+  it("a failed atomic summary never presents partial numbers as a successful snapshot", async () => {
     h.result = (t) => (t === "appointments" ? FAIL : t === "calls" ? { data: [], error: null, count: 7 } : { data: [], error: null, count: 0 });
     render(<Harness signal={0} />);
-    await waitFor(() => expect(screen.getByText(/Some stats couldn't be loaded/)).toBeInTheDocument());
-    expect(screen.getByText("7")).toBeInTheDocument();
-    // The Appointments card: its value is "—", never 0.
-    expect(screen.getByText("Appointments Today").parentElement?.textContent).toContain("—");
-    expect(screen.getByText("Appointments Today").parentElement?.textContent).not.toMatch(/\b0\b/);
+    await waitFor(() => expect(screen.getByText("Couldn't load stats. Use Refresh to try again.")).toBeInTheDocument());
+    expect(screen.queryByText("7")).not.toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
   });
 
-  it("an offline mount sends none of the nine queries and loads once on reconnect", async () => {
+  it("an offline mount sends no summary query and loads once on reconnect", async () => {
     setOnline(false, false);
     const { result } = renderHook(() => useDashboardStats(USER, "Agent", "my", "day"));
     await flush();
@@ -523,6 +531,6 @@ describe("stat cards", () => {
     expect(result.current.data).toBeNull();
     act(() => setOnline(true));
     await waitFor(() => expect(result.current.data).not.toBeNull());
-    expect(h.queries).toHaveLength(9);
+    expect(h.queries).toEqual(["get_performance_summary"]);
   });
 });

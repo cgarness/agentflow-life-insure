@@ -1,3 +1,4 @@
+import { leaderboardCsv, performanceCaption } from "@/lib/leaderboardExport";
 import React, { useState, useEffect, useCallback } from "react";
 import { Trophy } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +22,7 @@ const Leaderboard: React.FC = () => {
   const { user } = useAuth();
 
   const {
+    performanceSnapshot,
     view,
     setView,
     period,
@@ -51,30 +53,8 @@ const Leaderboard: React.FC = () => {
   const [tvMode, setTvMode] = useState(false);
 
   const exportCSV = () => {
-    const groupMode = view === "group";
-    const headers = [
-      "Rank",
-      "Agent Name",
-      ...(groupMode ? ["Organization"] : []),
-      "Calls Made",
-      "Policies Sold",
-      "Premium Sold (Annual)",
-      "Appointments Set",
-      "Talk Time (minutes)",
-      "Conversion Rate",
-    ];
-    const rows = agents.map((a) => [
-      a.rank,
-      `${a.first_name} ${a.last_name}`,
-      ...(groupMode ? [a.organizationName ?? ""] : []),
-      a.callsMade,
-      a.policiesSold,
-      Math.round(a.premiumSold),
-      a.appointmentsSet,
-      Math.round(a.talkTime / 60),
-      `${a.conversionRate.toFixed(1)}%`,
-    ]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+    if (!performanceSnapshot || initialLoading || filterRefreshing) return;
+    const csv = leaderboardCsv(agents, performanceSnapshot, standingsStatus.kind !== "ok" || standingsStatus.offline);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -121,6 +101,7 @@ const Leaderboard: React.FC = () => {
   if (tvMode) {
     return (
       <TVMode
+        performanceSnapshot={performanceSnapshot}
         agents={agents}
         wins={wins}
         period={period}
@@ -178,6 +159,7 @@ const Leaderboard: React.FC = () => {
         onEnterTvMode={enterTvMode}
       />
 
+      {performanceSnapshot && <p className="px-1 text-xs text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}
       {!live && !hasAgents ? (
         <LeaderboardErrorBanner
           message={loadError ?? (status.offline ? OFFLINE_HEADLINE : "Couldn't load the leaderboard.")}

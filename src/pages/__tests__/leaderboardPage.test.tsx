@@ -87,6 +87,7 @@ const ROSTER: AgentStats[] = [
 ];
 
 const baseHookState = () => ({
+  performanceSnapshot: { period: "today", time_zone: "UTC", start_at: "2026-10-04T00:00:00Z", end_at: "2026-10-04T06:00:00Z", organization_id: "org", group_id: null, roster: "active", rows: ROSTER, excluded: { calls_made: 0, appointments_set: 0, policies_sold: 0 } },
   view: "org",
   setView: vi.fn(),
   period: "Today",
@@ -170,10 +171,12 @@ describe("board preservation on RPC-fed standings", () => {
       reader.readAsText(exportedBlob!);
     });
     expect(csvText).toContain(
-      "Rank,Agent Name,Calls Made,Policies Sold,Premium Sold (Annual),Appointments Set,Talk Time (minutes),Conversion Rate",
+      '"Rank","Agent","Agent ID","Organization","Organization ID","Calls Made","Policies Sold","Annualized Premium USD","Unknown Premium Policies","Appointments Set","Talk Time Seconds","Policies per 100 Calls","Ratio Denominator Calls","Period","Agency Timezone","Start Inclusive","As Of Exclusive","Roster","Group ID"',
     );
-    expect(csvText).toContain("1,Avery Adams,40,4,4800,0,0,10.0%");
-    expect(csvText).toContain("4,Drew Dunn,10,1,1200,0,0,10.0%");
+    expect(csvText).toContain('"1","Avery Adams"');
+    expect(csvText).toContain('"40","4","4800.00","0","0","0","10","40"');
+    expect(csvText).toContain('"4","Drew Dunn"');
+    expect(csvText).toContain('"10","1","1200.00","0","0","0","10","10"');
   });
 
   it("enters TV mode from the filters button", () => {

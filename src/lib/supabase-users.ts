@@ -1,3 +1,5 @@
+import { loadPerformanceSummary, loadPerformanceDetails } from "@/lib/performanceSummary";
+import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 
 import { supabase } from "@/integrations/supabase/client";
 import { User, UserProfile, UserRole, UserStatus } from "@/lib/types";
@@ -734,47 +736,17 @@ export const usersSupabaseApi = {
   },
 
   async getPerformance(userId: string) {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-    const [{ data: calls }, { data: apps }, { data: winsData }] = await Promise.all([
-      supabase
-        .from("calls")
-        .select("duration, created_at")
-        .eq("agent_id", userId)
-        .gte("created_at", startOfMonth),
-      // Appointments Set: booked this month by this user (setter credit), whatever happened to it since.
-      supabase
-        .from("appointments")
-        .select("id, created_at")
-        .or(appointmentSetterOrExpression(userId))
-        .gte("created_at", startOfMonth),
-      supabase
-        .from("wins")
-        .select("premium_amount")
-        .eq("agent_id", userId)
-        .gte("created_at", startOfMonth),
-    ]);
-
-    const callsMonthly = calls?.length || 0;
-    const policiesMonthly = winsData?.length || 0;
-    const appsMonth = apps?.length || 0;
-    const talkTimeMonthlyHours = (calls?.reduce((sum, c) => sum + (c.duration || 0), 0) || 0) / 3600;
-    const premiumMonthly = (winsData ?? []).reduce((sum, w) => sum + (Number(w.premium_amount) || 0), 0);
-
+    const summary = await loadPerformanceSummary("month", "own", userId);
+    const details = await loadPerformanceDetails("calls_today", "month", "own", userId, summary.end_at, 0);
+    const c = summary.current;
     return {
-      callsMonthly,
-      policiesMonthly,
-      appsMonth,
-      talkTimeMonthlyHours,
-      premiumMonthly,
-      // backward compat aliases
-      callsMade: callsMonthly,
-      policiesSold: policiesMonthly,
-      appointmentsSet: appsMonth,
-      totalTalkTime: `${talkTimeMonthlyHours.toFixed(1)} hrs`,
-      conversionRate: callsMonthly ? `${((policiesMonthly / callsMonthly) * 100).toFixed(1)}%` : "0%",
-      recentCalls: [],
+      callsMonthly: c.calls, policiesMonthly: c.policies, appsMonth: c.bookings,
+      talkTimeMonthlyHours: c.talk_seconds / 3600, talkTimeSeconds: c.talk_seconds,
+      premiumMonthly: c.monthly_premium, unknownPremiums: c.unknown_premiums,
+      callsMade: c.calls, policiesSold: c.policies, appointmentsSet: c.bookings,
+      totalTalkTime: formatTalkTime(c.talk_seconds), timeZone: summary.time_zone, asOf: summary.end_at,
+      conversionRate: c.calls ? (c.policies / c.calls * 100).toFixed(1) : "—",
+      recentCalls: details.rows.map(r => ({ id: r.id, contactName: r.contact_name, disposition: r.disposition_name, duration: r.duration ?? 0 })),
     };
   }
 };

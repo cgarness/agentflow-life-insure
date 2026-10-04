@@ -1,3 +1,4 @@
+import { persistAppointment } from "@/lib/appointmentPersistence";
 import { invalidateContactHistory } from "@/lib/contact-history/refresh";
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +12,7 @@ export type CalAppointmentType = "Sales Call" | "Follow Up" | "Recruit Interview
 export type CalAppointmentStatus = "Scheduled" | "Confirmed" | "Completed" | "Cancelled" | "No Show";
 
 export interface CalendarAppointment {
+  booking_request_id?: string;
   id: string;
   title: string;
   type: string;
@@ -232,23 +234,10 @@ export const CalendarProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // explicit `user_id` (the assignee) is preserved.
     beginWrite();
     try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .insert([{
-          ...a,
-          ...buildAppointmentInsertOwnership({
-            explicitAssigneeId: a?.user_id,
-            creatorUserId: user.id,
-            organizationId,
-          }),
-        }] as any)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error adding appointment:', error);
-        throw error;
-      }
+      const { booking_request_id, organization_id: _untrustedOrg, created_by: _untrustedCreator, ...fields } = a;
+      const data = await persistAppointment(booking_request_id, { ...fields,
+        user_id: buildAppointmentInsertOwnership({ explicitAssigneeId: a?.user_id, creatorUserId: user.id, organizationId }).user_id,
+      });
 
       if (!data) throw new Error("Appointment creation was not confirmed");
       invalidateContactHistory({ organizationId, contactId: data.contact_id });

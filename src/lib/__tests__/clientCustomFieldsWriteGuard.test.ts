@@ -50,7 +50,13 @@ vi.mock("@/integrations/supabase/client", () => {
           return terminal();
         },
       }),
-      rpc: () => Promise.resolve({ data: null, error: null }),
+      rpc: (name: string, args: { p_patch?: Record<string, unknown>; p_client_id?: string }) => {
+        if (name === "update_client_with_policy_sale") {
+          state.updates.push({ table: "clients", payload: args.p_patch!, id: args.p_client_id! });
+          return Promise.resolve({ data: { client: state.row, client_id: state.row.id, win_ids: [] }, error: null });
+        }
+        return Promise.resolve({ data: null, error: null });
+      },
     },
   };
 });

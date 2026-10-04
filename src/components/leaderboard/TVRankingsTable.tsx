@@ -1,3 +1,4 @@
+import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 import React from "react";
 import { motion, LayoutGroup } from "framer-motion";
 import { ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
@@ -57,10 +58,10 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                 <span className="text-center">Agent</span>
                 <span className="text-center">Calls</span>
                 <span className="text-center">Policies</span>
-                <span className="text-center">Premium</span>
+                <span className="text-center">Annual Premium</span>
                 <span className="text-center">Appts</span>
                 <span className="text-center">Talk</span>
-                <span className="text-center">Conv</span>
+                <span className="text-center">Policies / 100 Calls</span>
               </div>
 
               <LayoutGroup id="tv-table">
@@ -108,16 +109,16 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                             <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />
+                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
                             <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums text-slate-400">
-                            <OdometerValue value={a.talkTime / 3600} format={(n) => `${n.toFixed(1)}h`} tv />
+                            <OdometerValue value={a.talkTime} format={formatTalkTime} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-orange-400">
-                            <OdometerValue value={a.conversionRate} format={(n) => `${n.toFixed(1)}%`} tv />
+                            <OdometerValue value={a.conversionRate} format={(n) => n.toFixed(1)} tv />
                           </div>
                         </motion.div>
                       );

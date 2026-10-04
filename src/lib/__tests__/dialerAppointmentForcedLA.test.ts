@@ -21,12 +21,10 @@ const { state } = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (table: string) => ({
-      insert: (payload: Record<string, unknown>) => {
-        state.inserts.push({ table, payload });
-        return Promise.resolve({ data: null, error: null });
-      },
-    }),
+    rpc: (_name: string, args: any) => {
+      state.inserts.push({ table: "appointments", payload: args.p_appointment });
+      return Promise.resolve(false ? { data: null, error: {message: "boom:appointments"} } : { data: {id: "booking", booking_request_id: args.p_request_id, ...args.p_appointment}, error: null });
+    },
   },
 }));
 
@@ -54,6 +52,7 @@ describe("forced America/Los_Angeles", () => {
   it("saveAppointment stores 2:30 PM PDT as 21:30Z (never the naive 14:30) with created_by", async () => {
     await saveAppointment(
       {
+        request_id: "f0000000-0000-4000-8000-00000000000f",
         master_lead_id: "c0000000-0000-4000-8000-00000000000c",
         campaign_lead_id: "d0000000-0000-4000-8000-00000000000d",
         agent_id: "b0000000-0000-4000-8000-00000000000b",
@@ -68,6 +67,7 @@ describe("forced America/Los_Angeles", () => {
     );
     const appt = state.inserts.find((i) => i.table === "appointments")!.payload;
     expect(appt.start_time).toBe("2026-10-15T21:30:00.000Z");
-    expect(appt.created_by).toBe("b0000000-0000-4000-8000-00000000000b");
+    expect(appt.user_id).toBe("b0000000-0000-4000-8000-00000000000b");
+    expect(appt).not.toHaveProperty("created_by");
   });
 });
