@@ -21,7 +21,7 @@ trap 'psql "${PGURL%/}/postgres" -q -c "DROP DATABASE IF EXISTS $TASK_DB" >/dev/
 psql "${PGURL%/}/postgres" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $TASK_DB"
 python3 "$TASK_ROOT/scripts/policy_sale_fixture.py" > "$TASK_TEMP/fixture.sql"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_TEMP/fixture.sql"
-psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261003205341_leaderboard_sale_recording.sql"
+psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/migrations/20261004000819_leaderboard_sale_recording.sql"
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -1 -f "$TASK_ROOT/supabase/tests/policy_sale_recording.sql"
 # Two real backends submit the same manual operation while the first transaction is held in INSERT.
 psql "$TASK_URL" -v ON_ERROR_STOP=1 -q <<'SQL'

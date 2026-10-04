@@ -1,3 +1,7 @@
+## 2026-10-03 — Leaderboard database update applied for authorized release
+
+Production migration 20261004000819 applied with exact SQL bytes and function permissions verified; canonical converter and actor helper unchanged, no historical DML, receipt count zero. Native PostgreSQL contention, leaderboard backend and DNC CI passed. Four viewport centerline/avatar checks passed; the browser test now awaits the exact expected metric roster after React remount. Production frontend release remains pending final checks. No sample-data build is being released. See task verification.md.
+
 ## 2026-10-03 — Leaderboard production release authorized
 
 Chris requested “No test data just push to live production” at 15:58 PDT. Release the real CRM changes from 9852f4b0 after reconciling latest main 3ccbfb0b. The sample preview was never published; its build override is excluded. Existing missing historical sales remain a separate bounded repair proposal, not an automatic backfill. Add native PostgreSQL and localhost browser CI evidence before migration, then apply the additive migration before merging/deploying the frontend. No fake production rows or customer messages.

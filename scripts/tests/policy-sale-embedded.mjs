@@ -13,7 +13,7 @@ try {
  console.log('Engine:',(await db.query('SELECT version() AS v')).rows[0].v);
  for(const [label,source] of [
   ['exact production-function fixture',execFileSync('python3',['scripts/policy_sale_fixture.py'],{encoding:'utf8'})],
-  ['new migration',readFileSync('supabase/migrations/20261003205341_leaderboard_sale_recording.sql','utf8')],
+  ['new migration',readFileSync('supabase/migrations/20261004000819_leaderboard_sale_recording.sql','utf8')],
   ['sale/auth/rollback regression suite',readFileSync('supabase/tests/policy_sale_recording.sql','utf8')],
  ]){
   await db.exec(`BEGIN;\n${source}\nCOMMIT;`);

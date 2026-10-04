@@ -49,6 +49,7 @@ try {
  await page.getByRole('switch',{name:'Auto-rotate stats'}).click();
  await page.getByLabel('Viewing metric').selectOption('1');
  await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>JSON.stringify([...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId))===JSON.stringify(['fixture-12','fixture-13','fixture-11']));
  assert.deepEqual(await page.getByTestId('tv-podium').locator('[data-agent-id]').evaluateAll(es=>es.map(e=>e.dataset.agentId)),['fixture-12','fixture-13','fixture-11']);
  await measure('calls-manual-switch');
  await page.getByRole('button',{name:'Month',exact:true}).click();
