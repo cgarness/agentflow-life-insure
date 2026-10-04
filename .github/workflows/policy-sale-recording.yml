@@ -1,0 +1,72 @@
+name: Policy sale transaction verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/*leaderboard_sale_recording.sql'
+      - 'supabase/tests/policy_sale_recording.sql'
+      - 'scripts/policy_sale_fixture.py'
+      - 'scripts/run_policy_sale_recording_tests.sh'
+      - '.github/workflows/policy-sale-recording.yml'
+      - 'scripts/tests/leaderboard-visual/**'
+      - 'src/components/leaderboard/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55442:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Atomic sales, authorization, telemetry and concurrent retries
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55442
+        run: bash scripts/run_policy_sale_recording_tests.sh
+  tv-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Install isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/leaderboard-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/leaderboard-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Verify TV geometry and transitions on localhost
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/leaderboard-browser/node_modules/playwright
+          LEADERBOARD_VISUAL_OUTPUT: ${{ runner.temp }}/leaderboard-visual-evidence
+        run: |
+          npx vite --config scripts/tests/leaderboard-visual/vite.config.ts > "$RUNNER_TEMP/leaderboard-vite.log" 2>&1 &
+          TASK_VITE_PID=$!
+          trap 'kill "$TASK_VITE_PID"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4179/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/tests/leaderboard-visual/verify.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: leaderboard-visual-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/leaderboard-visual-evidence
+            ${{ runner.temp }}/leaderboard-vite.log
+          retention-days: 7

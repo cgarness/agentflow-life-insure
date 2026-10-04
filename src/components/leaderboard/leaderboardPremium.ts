@@ -6,6 +6,7 @@ type WinPremiumRow = {
   agent_id: string | null;
   contact_id: string | null;
   premium_amount?: number | null;
+  premium_snapshot?: boolean;
 };
 
 /**
@@ -23,14 +24,14 @@ export async function loadClientMonthlyPremiums(
 
   let query = supabase
     .from("clients")
-    .select("id, premium, premium_amount")
+    .select("id, premium")
     .in("id", contactIds);
   if (signal) query = query.abortSignal(signal);
   const { data, error } = await query;
   if (error) throw error;
 
   for (const row of data || []) {
-    const monthly = Number(row.premium ?? row.premium_amount) || 0;
+    const monthly = Number(row.premium) || 0;
     map.set(row.id, monthly);
   }
   return map;
@@ -42,7 +43,7 @@ export function annualPremiumForWin(
 ): number {
   const fromWin = Number(win.premium_amount) || 0;
   const fromClient = win.contact_id ? clientMonthlyById.get(win.contact_id) ?? 0 : 0;
-  return monthlyPremiumToAnnual(fromWin || fromClient);
+  return monthlyPremiumToAnnual(win.premium_snapshot ? fromWin : fromWin || fromClient);
 }
 
 export function sumAnnualPremiumForAgent(
@@ -67,7 +68,7 @@ export async function fetchWinsForPremium(
 
   let query = supabase
     .from("wins")
-    .select("agent_id, contact_id, premium_amount, created_at")
+    .select("agent_id, contact_id, premium_amount, premium_snapshot, created_at")
     .in("agent_id", agentIds)
     .gte("created_at", range.start.toISOString())
     .lte("created_at", range.end.toISOString());
@@ -92,7 +93,7 @@ export async function attachPremiumSoldToAgents<
 ): Promise<void> {
   const agentIds = agents.map((a) => a.id);
   const wins = await fetchWinsForPremium(agentIds, range, organizationId, signal);
-  const contactIds = [...new Set(wins.map((w) => w.contact_id).filter(Boolean))] as string[];
+  const contactIds = [...new Set(wins.filter(w => !w.premium_snapshot).map((w) => w.contact_id).filter(Boolean))] as string[];
   const clientMonthlyById = await loadClientMonthlyPremiums(contactIds, signal);
 
   for (const agent of agents) {

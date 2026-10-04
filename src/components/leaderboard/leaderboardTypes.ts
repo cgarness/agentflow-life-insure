@@ -53,6 +53,7 @@ export interface Win {
   campaign_name: string;
   policy_type: string;
   premium_amount?: number | null;
+  premium_snapshot?: boolean;
   /** Annual premium sold for this win (monthly × 12, with client fallback). */
   premiumSold?: number;
   created_at: string;

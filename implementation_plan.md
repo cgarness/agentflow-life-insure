@@ -1,3 +1,4 @@
+> Current approved leaderboard data/TV work: [task plan](docs/plans/2026-10-03-leaderboard-data-tv/implementation_plan.md). Isolated implementation approved; production actions held. Existing plans below are preserved.
 ## Compact Contact history refinement — October 3, 2026 (implementation authorized; release held)
 
 **17:06 PDT continuation:** refresh PR #409 with main `3ccbfb0b` after the separately approved Contact field release (#410/#411). Preserve that field projection unchanged. Only this plan and WORK_LOG.md receive new authored notes; the original 11-file feature delta remains unchanged. Previous head `2ce88024` passed final frontend/DNC gates. Re-run current-base verification and complete hosted visual review; record final evidence on PR #409. “Continue” does not authorize merging this refinement or releasing it to production.

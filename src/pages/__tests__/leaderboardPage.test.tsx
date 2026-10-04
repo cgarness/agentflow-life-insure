@@ -7,7 +7,7 @@ import { STANDINGS_STATUS_OK, type StandingsStatus } from "@/lib/leaderboardStat
 /**
  * Page-preservation + error-state suite for the leaderboard RLS accuracy fix.
  *
- * Podium, full rankings, CSV export, TV mode entry, the zero-activity banner,
+ * Podium, full rankings, CSV export, TV mode entry, the removal of the zero-activity banner,
  * and the Agency Group toggle must all keep working when standings are fed by
  * the aggregate RPC — and the new failure states must render truthfully:
  * a failed refresh keeps the last snapshot behind a stale banner, and an
@@ -187,10 +187,10 @@ describe("board preservation on RPC-fed standings", () => {
     expect(screen.queryByRole("button", { name: /Export CSV/i })).not.toBeInTheDocument();
   });
 
-  it("shows the calm zero-activity banner (not an empty state) when the roster is all zeros", () => {
+  it("keeps a zero roster visible without the removed activity or dialer prompt", () => {
     h.hookState = { ...baseHookState(), agents: ROSTER.map((a, i) => agent({ ...a, callsMade: 0, policiesSold: 0, premiumSold: 0, conversionRate: 0, rank: i + 1 })), standingsFrozen: true };
     render(<Leaderboard />);
-    expect(screen.getByText(/first sale takes the lead/i)).toBeInTheDocument();
+    expect(screen.queryByText(/first sale takes the lead|No activity|Go to Dialer/i)).not.toBeInTheDocument();
     expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
     expect(screen.getByText(/Avery/)).toBeInTheDocument();
   });
@@ -274,7 +274,7 @@ describe("maintenance and stale states (leaderboard recovery)", () => {
     expect(screen.queryByRole("button", { name: /Retry/i })).not.toBeInTheDocument();
   });
 
-  it("over a snapshot, the strip names the snapshot time and qualifies the zero-activity banner", () => {
+  it("over a snapshot, preserves the real status strip without the removed activity banner", () => {
     const zeros = ROSTER.map((a, i) => agent({ ...a, callsMade: 0, policiesSold: 0, premiumSold: 0, conversionRate: 0, rank: i + 1 }));
     h.hookState = {
       ...baseHookState(),
@@ -286,7 +286,7 @@ describe("maintenance and stale states (leaderboard recovery)", () => {
     render(<Leaderboard />);
     // The branding mock formats times as String(date).
     expect(screen.getByText(/Standings are paused for maintenance\. Showing results from .*09:05:00/)).toBeInTheDocument();
-    expect(screen.getByText(/^No activity as of .*09:05:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/^No activity as of/)).not.toBeInTheDocument();
     expect(screen.queryByText(/first sale takes the lead/i)).not.toBeInTheDocument();
   });
 

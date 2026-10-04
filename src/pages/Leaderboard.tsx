@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Trophy } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
 import TVMode from "@/components/leaderboard/TVMode";
 import LeaderboardFilters from "@/components/leaderboard/LeaderboardFilters";
 import LeaderboardPodium from "@/components/leaderboard/LeaderboardPodium";
@@ -11,7 +9,6 @@ import LeaderboardRankingsTable from "@/components/leaderboard/LeaderboardRankin
 import LeaderboardErrorBanner from "@/components/leaderboard/LeaderboardErrorBanner";
 import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
-import { metricKey } from "@/components/leaderboard/leaderboardTypes";
 import { useBranding } from "@/contexts/BrandingContext";
 import { OFFLINE_HEADLINE, standingsLive } from "@/lib/leaderboardStatusCopy";
 import {
@@ -22,7 +19,6 @@ import {
 
 const Leaderboard: React.FC = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
 
   const {
     view,
@@ -116,19 +112,11 @@ const Leaderboard: React.FC = () => {
 
   const restAgents = agents.filter((a) => a.rank > 3);
   const hasAgents = agents.length > 0;
-  const hasActivity = agents.some((a) => (a[metricKey(metric)] as number) > 0);
   const showBoard = hasAgents;
   // An error string without a status (older callers) still reads as an error.
   const status =
     loadError && standingsStatus.kind === "ok" ? { ...standingsStatus, kind: "error" as const } : standingsStatus;
   const live = standingsLive(status);
-
-  // Over a stale snapshot, "no activity" is only known as of the last update.
-  const activityBannerCopy = !live && status.lastUpdatedAt !== null
-    ? `No activity as of ${formatStatusTime(status.lastUpdatedAt)}`
-    : period === "Today"
-      ? "No activity yet today — first sale takes the lead"
-      : `No activity for ${period.toLowerCase()} yet — first activity takes the lead`;
 
   if (tvMode) {
     return (
@@ -224,21 +212,6 @@ const Leaderboard: React.FC = () => {
               status={status}
               formatTime={formatStatusTime}
             />
-          )}
-
-          {!hasActivity && (
-            <div className="flex flex-col items-center text-center py-4 px-4 rounded-xl border border-dashed border-muted-foreground/25 bg-muted/20">
-              <Trophy className="w-8 h-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">{activityBannerCopy}</p>
-              <Button
-                variant="link"
-                size="sm"
-                className="mt-1 text-primary"
-                onClick={() => navigate("/dialer")}
-              >
-                Go to Dialer
-              </Button>
-            </div>
           )}
 
           <section className={PODIUM_SECTION_CLASS}>

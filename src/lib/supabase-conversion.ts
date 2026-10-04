@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
-import { triggerWin } from "./win-trigger";
+import { notifyRecordedSales, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 
 /**
@@ -47,33 +47,24 @@ function parseCurrencyToNumber(raw: string | null | undefined): number {
   return parseFloat((raw ?? "").replace(/[^0-9.-]+/g, "") || "0") || 0;
 }
 
-/** Resolve the assigned agent's display name (for the win) without a hardcoded "Agent" fallback. */
-async function resolveAgentName(agentId: string | null | undefined): Promise<string> {
-  if (!agentId) return "";
-  const { data } = await supabase
-    .from("profiles")
-    .select("first_name, last_name")
-    .eq("id", agentId)
-    .maybeSingle();
-  return data ? `${data.first_name ?? ""} ${data.last_name ?? ""}`.trim() : "";
-}
-
 export const conversionSupabaseApi = {
   /**
-   * Converts a lead to a client in ONE atomic database transaction via `convert_lead_to_client_atomic`:
+   * Converts a lead and records its policy sales in ONE transaction. The wrapper delegates to the
+   * unchanged `convert_lead_to_client_atomic`:
    * locks + authorizes the lead, creates the client with canonical Build 1 columns (never premium_amount),
    * moves the approved contact graph (notes/activities/appointments/tasks/calls/messages/contact_emails/
    * workflow_executions), preserves call + campaign-queue telemetry, and deletes the lead only after every
    * transfer succeeds. Any failure rolls everything back (lead + records intact).
    *
    * Idempotent: a retry returns the existing client (`clients.lead_id` lineage) without creating a second
-   * client. The win is created AFTER the commit, DB-idempotent on `wins.idempotency_key='conversion:<lead>'`,
-   * and a celebration failure never rolls back the committed conversion. Signature unchanged so the Dialer
+   * client or policy events. Primary retains `wins.idempotency_key='conversion:<lead>'`.
+   * Only celebrations run after commit. Signature unchanged so the Dialer
    * (`ConvertLeadModal` → `handleConversionSuccess`) sequence is unaffected.
    */
   async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null, campaignId: string | null = null): Promise<string> {
+    if (!organizationId) throw new Error("Cannot convert a lead without an organization.");
     const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
-    const premium = parseCurrencyToNumber(policyInfo.premiumAmount);
+    const premium = saleMonthlyPremium(policyInfo.premiumAmount) ?? 0;
     const policyType = policyInfo.policyType || "Term";
 
     const p_client = {
@@ -95,8 +86,10 @@ export const conversionSupabaseApi = {
       custom_fields,
     };
 
-    const { data, error } = await supabase.rpc("convert_lead_to_client_atomic", {
+    const { data, error } = await supabase.rpc("convert_lead_to_client_with_sales", {
       p_lead_id: lead.id,
+      p_expected_org: organizationId,
+      p_campaign_id: campaignId,
       p_client: p_client as unknown as Json,
     });
     if (error) {
@@ -104,34 +97,10 @@ export const conversionSupabaseApi = {
       throw new Error(`Failed to convert lead to client: ${error.message}`);
     }
 
-    const result = data as unknown as { client_id: string; idempotent: boolean };
+    const result = data as unknown as RecordedSaleResult;
+    if (!result?.client_id || !Array.isArray(result.win_ids)) throw new Error("Conversion returned an invalid receipt; retry this save.");
     const clientId = result.client_id;
-
-    // After-commit win celebration — runs on EVERY successful conversion result, INCLUDING an
-    // idempotent retry: the win insert inside triggerWin hits 23505 on a retry, resolves the
-    // existing win through the deterministic conversion:<lead-id> key, and safely re-invokes
-    // notify_win (the DB win:<id> event key makes an already-delivered broadcast harmless).
-    // This is what makes broadcast recovery reachable from the real conversion flow when the
-    // first attempt died between the win insert and its notify_win call. Celebration failure
-    // never fails or rolls back the committed conversion.
-    try {
-      const agentName = await resolveAgentName(lead.assignedAgentId);
-      await triggerWin({
-        agentId: lead.assignedAgentId,
-        agentName,
-        contactName: `${lead.firstName} ${lead.lastName}`,
-        contactId: clientId,
-        campaignId: campaignId ?? undefined,
-        policyType,
-        premiumAmount: premium,
-        organizationId,
-        // Business sale date on the win row; wins.created_at stays the reporting bucket.
-        soldDate: policyInfo.soldDate || undefined,
-        idempotencyKey: `conversion:${lead.id}`,
-      });
-    } catch (e) {
-      console.warn("Win celebration failed (conversion already committed):", e);
-    }
+    await notifyRecordedSales(result.win_ids);
 
     return clientId;
   }
