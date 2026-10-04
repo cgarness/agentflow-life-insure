@@ -1,4 +1,4 @@
-import React, { useId, useState } from "react";
+import React, { useId } from "react";
 import { PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useBranding } from "@/contexts/BrandingContext";
@@ -6,20 +6,20 @@ import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { normalizeDispositionValue } from "@/lib/supabase-contacts";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
-import { DetailsPanel, DetailsToggleButton, type DetailRow } from "./CommunicationDetails";
+import { DetailsPanel, type DetailRow } from "./CommunicationDetails";
+import { CommunicationHistoryPill } from "./CommunicationHistoryPill";
 import { formatCallDuration, type CallConversationItem } from "./conversationTypes";
 
 /**
- * Compact neutral call card. Direction determines the icon side; one disclosure
+ * Compact directional call pill. The info popover
  * reveals all recorded details and media using the existing playback contracts.
  */
 export const CallHistoryItem: React.FC<{
   item: CallConversationItem;
-  /** Agency disposition colors keyed by normalizeDispositionValue(name); absent/unmatched → neutral badge. */
+  /** Agency disposition colors keyed by normalizeDispositionValue(name); absent/unmatched → neutral text. */
   dispositionColors?: Record<string, string>;
 }> = ({ item, dispositionColors }) => {
   const { formatDateTime } = useBranding();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const panelId = useId();
   const DirectionIcon = item.outbound ? PhoneOutgoing : PhoneIncoming;
   const dispositionColor = item.dispositionName
@@ -46,63 +46,39 @@ export const CallHistoryItem: React.FC<{
 
   const summary = item.inboundMissed && item.inboundOutcomeLabel
     ? item.inboundOutcomeLabel
-    : item.dispositionName || item.outcome || item.status || "Not recorded";
-  const agent = `${item.agentLabel || "Agent"}: ${item.agentName || "Agent unavailable"}`;
-
+    : item.dispositionName || (item.inboundOutcomeLabel !== "Inbound call" ? item.inboundOutcomeLabel : null) || item.outcome || item.status || "Not recorded";
   return (
-    <div className="w-full min-w-0 rounded-lg border border-border bg-card px-3 py-2">
-      <div className={cn("flex items-start gap-2 min-w-0", item.outbound && "flex-row-reverse")}>
-        <span className="mt-0.5 w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
-          <DirectionIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-semibold text-foreground shrink-0">
-              {item.directionLabel ? `${item.directionLabel} Call` : "Call"}
-            </span>
-            <span
-              className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded font-medium truncate min-w-0",
-                item.inboundMissed ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                  : item.dispositionName && dispositionColor ? "border" : "bg-muted text-foreground/70",
-              )}
-              style={!item.inboundMissed && dispositionColor ? getStatusColorStyle(dispositionColor) : undefined}
-              title={summary}
-            >
-              {summary}
-            </span>
-            <span className="ml-auto text-[10px] text-muted-foreground tabular-nums shrink-0">
-              {formatCallDuration(item.durationSeconds)}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-[10px] text-muted-foreground">
-            <span className="flex-1 min-w-[8rem] truncate" title={agent}>{agent}</span>
-            <div className="ml-auto flex items-center gap-2">
-              <span className="shrink-0">
-                {item.timestampKnown === false ? "Date not recorded" : formatDateTime(new Date(item.timestampMs))}
-              </span>
-              <DetailsToggleButton open={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} panelId={panelId} label="Call details" />
-            </div>
-          </div>
-        </div>
+    <CommunicationHistoryPill
+      outbound={item.outbound}
+      label={item.directionLabel ? `${item.directionLabel} Call` : "Call"}
+      detailsLabel="Call details"
+      icon={DirectionIcon}
+      iconClassName="text-emerald-600 dark:text-emerald-400"
+      timestampMs={item.timestampMs}
+      timestampKnown={item.timestampKnown}
+      summary={
+        <span
+          className={cn("min-w-0 truncate !bg-transparent text-[11px]", item.inboundMissed ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}
+          style={!item.inboundMissed && dispositionColor ? getStatusColorStyle(dispositionColor) : undefined}
+          title={summary}
+        >{summary}</span>
+      }
+    >
+      <div className="space-y-2">
+        <DetailsPanel id={`${panelId}-metadata`} rows={rows} missingLabel="Not recorded" />
+        {item.recordingAvailable ? (
+          <section aria-label="Call recording" className="rounded-lg border border-border bg-muted/40 p-2">
+            <p className="mb-1 text-[10px] font-medium text-muted-foreground">Recording</p>
+            <RecordingPlayer callId={item.id} compact />
+          </section>
+        ) : null}
+        {item.voicemailId ? (
+          <section aria-label="Call voicemail" className="rounded-lg border border-border bg-muted/40 p-2">
+            <p className="mb-1 text-[10px] font-medium text-muted-foreground">Voicemail</p>
+            <VoicemailPlayer voicemailId={item.voicemailId} compact />
+          </section>
+        ) : null}
       </div>
-      {detailsOpen ? (
-        <div id={panelId} className="mt-2 space-y-2">
-          <DetailsPanel id={`${panelId}-metadata`} rows={rows} missingLabel="Not recorded" />
-          {item.recordingAvailable ? (
-            <section aria-label="Call recording" className="rounded-lg border border-border bg-muted/40 p-2">
-              <p className="text-[10px] font-medium text-muted-foreground mb-1">Recording</p>
-              <RecordingPlayer callId={item.id} compact />
-            </section>
-          ) : null}
-          {item.voicemailId ? (
-            <section aria-label="Call voicemail" className="rounded-lg border border-border bg-muted/40 p-2">
-              <p className="text-[10px] font-medium text-muted-foreground mb-1">Voicemail</p>
-              <VoicemailPlayer voicemailId={item.voicemailId} compact />
-            </section>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    </CommunicationHistoryPill>
   );
 };
