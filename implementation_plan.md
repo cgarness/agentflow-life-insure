@@ -1,3 +1,35 @@
+## Compact Contact history refinement — October 3, 2026 (implementation authorized; release held)
+
+**17:06 PDT continuation:** refresh PR #409 with main `3ccbfb0b` after the separately approved Contact field release (#410/#411). Preserve that field projection unchanged. Only this plan and WORK_LOG.md receive new authored notes; the original 11-file feature delta remains unchanged. Previous head `2ce88024` passed final frontend/DNC gates. Re-run current-base verification and complete hosted visual review; record final evidence on PR #409. “Continue” does not authorize merging this refinement or releasing it to production.
+
+Chris requested a simpler, space-saving history: one “Show details” expansion for everything, outbound icons on the right and inbound icons on the left, including email. This is a presentation-only refinement of shipped PR #407, based on main `c8b3a682`. Preserve the three-column Contact page, tabs, all stored data, existing reader/pagination/refresh behavior and SMS bubble direction.
+
+### Design and exact file manifest
+
+The manifest was presented before editing. No file below changes production data, telephony, ownership, RLS, schema, source writers or conversion behavior. No new files or migrations; no backfill.
+
+| File | Reason and behavior change |
+|---|---|
+| `src/components/contacts/conversation-history/CallHistoryItem.tsx` | Compact summary retaining direction, agent, date, duration and outcome/disposition; wraps to a third line in narrow columns to preserve readable attribution. Icon follows direction. One disclosure reveals every existing metadata row, recording and voicemail; playback contracts unchanged. |
+| `src/components/contacts/conversation-history/EmailHistoryItem.tsx` | Compact direction/date/subject summary and directional icon. One disclosure reveals full subject, complete body and all endpoint/delivery metadata. |
+| `src/components/contacts/conversation-history/CommunicationDetails.tsx` | Explicit Show/Hide details labels and narrow-column wrapping, preserving keyboard/ARIA controls. |
+| `src/components/contacts/conversation-history/ConversationTimeline.tsx` | Reduce inter-card spacing only. |
+| `src/components/contacts/activity/ContactActivityItem.tsx` | Keep event, actor and time visible; expand complete change/assignee details with one disclosure. |
+| `src/components/contacts/activity/ContactActivityTimeline.tsx` | Reduce padding and event spacing; preserve completeness/error/legacy disclosures and controls. |
+| `src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx` | Update existing integration coverage for unified email/call expansion and playback lifecycle. |
+| `src/components/contacts/__tests__/conversationDispositionColors.test.tsx` | Preserve agency colors, neutral cards and recording assertions under unified expansion. |
+| `src/components/contacts/__tests__/contactActivityTimeline.test.tsx` | Verify collapsed actor and expanded assignee/change content, keeping legacy/retry/pagination coverage. |
+| `implementation_plan.md` | Record authorized refinement, validation and release boundary. |
+| `WORK_LOG.md` | Newest-first implementation evidence and remaining release status. |
+
+### Verification and tradeoffs
+
+Run focused Contact conversation/Activity and history attribution/refresh/pagination regression tests, root `npx tsc --noEmit`, app-type baseline comparison, scoped lint and Vite build. Review responsive hosted UI where browser access allows. Full call outcome and agent strings remain in Details; long summaries use ellipsis/title to keep cards compact. Media mounts only when Details opens, and collapses stop/unmount playback. Email retains quoted-line dimming and an internally scrollable full-body region. No extra data request or event is introduced by the new disclosure state.
+
+Rollback is a frontend-only revert of this refinement; the already-applied Contact history migrations remain installed. Out of scope: source data changes, backfill, Contact field/layout cleanup, communications sending, dialing, DNC, routing, status processing, locks, ownership, reminders, automation, schema/RLS and production release. Build/review preparation is authorized; this revision needs Chris's exact merge/production-release approval. Validation results follow in the Work Log. Hosted inspection at a 1364-pixel viewport exposed cramped agent names; metadata now wraps as a group in narrow columns, keeping the agent readable without changing the page layout. PR #409 is review-only; final preview/CI evidence is recorded in its description.
+
+---
+
 ## Contact history release — SHIPPED October 3, 2026 (PR #407)
 
 Chris approved implementation with “Start the build,” then review publication with “Continue” / “finish the task,” and the staged production release at 12:26 PDT. [PR #407](https://github.com/cgarness/agentflow-life-insure/pull/407) is merged as `6c1f3174a15258c2f77c375204f687f15d20db34`, preserving prior main `84829dfe`. Migrations `20261003192857` and `20261003192907` are applied and catalog-verified with unchanged reviewed SQL. Both Vercel production targets are READY; production HTML/assets return 200 and contain the history readers. Final-head PostgreSQL, DNC and frontend comparison gates pass. Authenticated preview checks passed for stored attribution/details, Activity baselines, loading earlier records and refresh. Browser-service timeouts prevented the final voicemail visual check; no live media, customer communication or conversion mutation was tested. The dedicated specification, file list, deployment evidence, remaining verification limits and rollback are in [the Contact history plan](docs/plans/2026-10-03-contact-history/implementation_plan.md). No backfill or synthetic production business data was created.
