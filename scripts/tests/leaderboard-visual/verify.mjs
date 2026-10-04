@@ -52,7 +52,7 @@ try {
  await page.waitForFunction(()=>JSON.stringify([...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId))===JSON.stringify(['fixture-12','fixture-13','fixture-11']));
  assert.deepEqual(await page.getByTestId('tv-podium').locator('[data-agent-id]').evaluateAll(es=>es.map(e=>e.dataset.agentId)),['fixture-12','fixture-13','fixture-11']);
  await measure('calls-manual-switch');
- await page.getByRole('button',{name:'Month',exact:true}).click();
+ await page.getByRole('tab',{name:'Month',exact:true}).click();
  await measure('period-switch');
  for(const count of [1,2,3,14]) {
   await page.evaluate(n=>window.fixtureSetCount(n),count);
