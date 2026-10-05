@@ -1,6 +1,6 @@
 # Reports build handoff — reporting integrity corrections
 
-Prepared October 3, 2026 Pacific / October 4 UTC. **Implemented on the isolated reporting branch; no production deployment or historical application.**
+Prepared October 3, 2026 Pacific / October 4 UTC; updated October 5. **Released in PR #416 at `51308ce16fb570ab668b87ab36df2a2b9abda995`.** The eight schema changes, two Edge bundles and exact historical policy repair are applied. Production has eight policy identities/eight sale events and $9,373.92 annualized premium, with zero identity gaps/unlinked events. The two added events retain explicit client-creation timestamp proxies. See `production-release.md` for applied versions, hashes and verification limits. No call/booking duplicate mappings are applied; 277 call candidates and 12 booking candidates remain unresolved. Reports source and `get_report_*` contracts remain unchanged by this release.
 
 Companion documents: implementation_plan.md and full_audit.md in this directory. Source base: 436d9d840732bca1262559597c17e5ef09893fbf. Coordinate against fresh main when either build begins.
 
@@ -45,16 +45,16 @@ Exact schema contracts:
 - `get_performance_summary(p_period, p_mode, p_agent_id)` and `get_performance_details(p_kind, p_period, p_mode, p_agent_id, p_asof, p_offset)` authorize own/selected/downline/agency scopes on the server. Details are fixed pages of 20; comparison is the previous complete calendar period. Scheduled workload remains assigned-time activity, separately named from setter bookings.
 - `private.performance_rows` and `private.performance_sale_monthly` hold canonical definitions; their grants are private. No raw CRM grants were expanded. Existing org/Group readers project the same definitions; trusted Dialer retains campaign and agent-local bounds.
 
-See `release_packet.md` for eight generated migration filenames and `implementation-files.json` for exact bytes. These files are **not applied**. Do not copy a private helper into Reports without rechecking Reports-specific scope, agency bounds, export permissions and campaign privacy.
+See `release_packet.md` for eight applied migration filenames and `implementation-files.json` for exact bytes. The recorded production versions are also in `production-release-evidence.json`; never replay old authored timestamps. Do not copy a private helper into Reports without rechecking Reports-specific scope, agency bounds, export permissions and campaign privacy.
 
 ## Historical facts and prepared changes
 
 | Audited evidence | Expected effect |
 | --- | --- |
-| 8 stored policies, 6 events | Prepared, unapplied two-event repair would give 8 lifetime events |
+| 8 stored policies, originally 6 events | Applied two-event repair gives 8 lifetime events; stored policy count remains 8 |
 | $8,172.84 canonical event annual premium | Repair adds $1,201.08, totaling $9,373.92 |
 | Teo/Will policy sold dates September 28 | Reports already sees those two policies; adding wins must not add two more stored policies |
-| Proposed event proxies September 28/29 | Event repair affects that September week/month; no October sales |
+| Applied event proxies September 28/29 | Event repair affects that September week/month; no October sales |
 | 5 duplicated provider-ID pairs, 3 excess this week/October | Exclusion only after provider reconciliation; Reports needs explicit mapping integration |
 | Will's 4 booking rows | 2 exact excess copies and 1 strong candidate; no indiscriminate deletion |
 | 260 calls without provider ID | Missing evidence, not automatic exclusion |
@@ -72,12 +72,12 @@ Because duplicate source rows remain for history, Reports may still count them u
 6. Run existing Reports backend/frontend compatibility gates during the performance build; run all Reports gates after integration.
 7. Release packet must identify migrations actually applied, schema/API versions, approved repairs, frozen expected deltas, remaining evidence gaps and rollback compatibility.
 
-No Reports code, permissions, queries, exports, production records or schedules were changed for this handoff.
+No Reports code, permissions, queries, exports or schedules changed. The separately approved policy-event repair changes production `wins` and identity links, as documented above; it does not add stored policies.
 
 
 
 ## Verification handoff
 
-The reporting implementation's 27 changed/new frontend suites pass (521 tests, 2 existing skips); both disposable SQL suites pass. Native PostgreSQL contention and real browser verification remain release gates. Tests include three-policy conversion, explicit zero/unknown premium, policy removal/deletion retaining events, Agent/Admin equal secured legacy premium, downline/foreign-group denial, agency DST and calendar boundaries, historical celebration suppression and exact repair/reversal. The repaired fixture has 8 events / $9,373.92 annual premium; this is not a production readback.
+The final native PostgreSQL contention/security, DNC, A2P, policy/browser and full frontend comparison gates passed on `a773a701`. Tests include three-policy conversion, explicit zero/unknown premium, policy removal/deletion retaining events, Agent/Admin equal secured legacy premium, downline/foreign-group denial, agency DST/calendar boundaries, historical celebration suppression and exact repair/reversal. Both the isolated fixture and actual post-repair production readback show 8 events / $9,373.92 annualized premium. See `verification.md` for baseline failures and hosted browser/HTTP limits.
 
-Reports UI/query/RPC source and profile book aggregators were not changed. `reportsContracts.test.ts` now excludes the obsolete byte hash of `supabase-dialer-stats.ts`, which this approved build changes; Reports-owned helper/permission/default hashes remain. Coordinate future Reports source adoption against a fresh main and the actual applied schema. Do not treat either pending repair as two new stored policies.
+Reports UI/query/RPC source and profile book aggregators were not changed. `reportsContracts.test.ts` now excludes the obsolete byte hash of `supabase-dialer-stats.ts`, which this approved build changes; Reports-owned helper/permission/default hashes remain. Coordinate future Reports source adoption against a fresh main and the actual applied schema. Do not treat the applied two-event repair as two new stored policies.

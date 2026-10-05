@@ -1,0 +1,531 @@
+{
+  "status": "Released 2026-10-05; approved historical policy repair verified",
+  "authorization": {
+    "release_approved": "2026-10-04 05:35 PDT",
+    "trusted_dialer_acl_amendment_approved": "2026-10-04 05:46 PDT",
+    "coordinated_write_window_confirmed": "2026-10-05 09:10 PDT"
+  },
+  "repository": "cgarness/agentflow-life-insure",
+  "implementation_pr": 416,
+  "reviewed_head": "a773a70185d2e79fa60a26a170ac100a01bd8b4a",
+  "production_commit": "51308ce16fb570ab668b87ab36df2a2b9abda995",
+  "source_tree": "291b40e669497ebb7ea7f70f4ddefff49108cd13",
+  "project_id": "jncvvsvckxhqgqvkppmj",
+  "organization_id": "a0000000-0000-0000-0000-000000000001",
+  "schema_migrations": [
+    {
+      "authored_path": "supabase/migrations/20261004054235_policy_identity_sale_integrity.sql",
+      "applied_path": "supabase/migrations/20261005161611_policy_identity_sale_integrity.sql",
+      "applied_version": "20261005161611",
+      "name": "policy_identity_sale_integrity",
+      "sql_sha256": "7827393cb06c070403b7952f2a3de43eaefab432c95ea67dd628a14cba182586",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004055216_performance_reporting_contract.sql",
+      "applied_path": "supabase/migrations/20261005161623_performance_reporting_contract.sql",
+      "applied_version": "20261005161623",
+      "name": "performance_reporting_contract",
+      "sql_sha256": "fd96d063bf7136ef968690abb352fab726ad5ea7ec14574bf340537f380189cb",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004060013_performance_scoped_summaries.sql",
+      "applied_path": "supabase/migrations/20261005161626_performance_scoped_summaries.sql",
+      "applied_version": "20261005161626",
+      "name": "performance_scoped_summaries",
+      "sql_sha256": "93f99c84dedad65ed179b706273a1fcedd3504123e26e41ed51d7f8793822dd9",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004060713_booking_disposition_receipts.sql",
+      "applied_path": "supabase/migrations/20261005161629_booking_disposition_receipts.sql",
+      "applied_version": "20261005161629",
+      "name": "booking_disposition_receipts",
+      "sql_sha256": "885f064b31f2ce50466108a1c78b4b9c0adebc449a346eedaa452b359f106188",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004061001_call_attempt_duration_provenance.sql",
+      "applied_path": "supabase/migrations/20261005161632_call_attempt_duration_provenance.sql",
+      "applied_version": "20261005161632",
+      "name": "call_attempt_duration_provenance",
+      "sql_sha256": "8b8850a464d0013da0f6fe754e8527e8f5aa8b0d99a8ba7d61134a0764b073df",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004061538_performance_reader_indexes.sql",
+      "applied_path": "supabase/migrations/20261005161634_performance_reader_indexes.sql",
+      "applied_version": "20261005161634",
+      "name": "performance_reader_indexes",
+      "sql_sha256": "269d5c913b8143c2b8a5c213011a4ecb18302d2050447f7bfd245499c0c7efc6",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004062049_external_booking_identity_guard.sql",
+      "applied_path": "supabase/migrations/20261005161637_external_booking_identity_guard.sql",
+      "applied_version": "20261005161637",
+      "name": "external_booking_identity_guard",
+      "sql_sha256": "7119a05f88ba59d0b055964eb94b1f58e7ed8e9370cf25524f47bf6295840ae6",
+      "recorded_sql_matches": true
+    },
+    {
+      "authored_path": "supabase/migrations/20261004062224_trusted_dialer_canonical_counts.sql",
+      "applied_path": "supabase/migrations/20261005161639_trusted_dialer_canonical_counts.sql",
+      "applied_version": "20261005161639",
+      "name": "trusted_dialer_canonical_counts",
+      "sql_sha256": "33488818bd7aaefb65e937818df89e511f028411d00b711602a25275874dc3fc",
+      "recorded_sql_matches": true
+    }
+  ],
+  "historical_operations": [
+    {
+      "name": "reviewed_legacy_policy_links",
+      "version": "20261005163257",
+      "sql_sha256": "7729bc72d9ce8add2a2e2a84e469d8c10968818d4189d3fce4a8cb5b40e33a77",
+      "path": "supabase/ops/reporting-accuracy/pending/20261004062851_reviewed_legacy_policy_links.sql"
+    },
+    {
+      "name": "reviewed_missing_policy_sales",
+      "version": "20261005163300",
+      "sql_sha256": "14c26551fdb386274fcf6d33001efa61ca658f82c951a94d35f7f9fec206ab82",
+      "path": "supabase/ops/reporting-accuracy/pending/20261004062328_reviewed_missing_policy_sales.sql"
+    }
+  ],
+  "edge_deployments": [
+    {
+      "name": "twilio-voice-status",
+      "previous_version": 44,
+      "version": 45,
+      "files": 7,
+      "verify_jwt": false,
+      "status": "ACTIVE",
+      "exact_bundle_readback": true,
+      "index_sha256": "49e1fa73c272076c7bbf7fd8066a53ce7b766b214d24f98adfed3cd3b619f925"
+    },
+    {
+      "name": "google-calendar-inbound-sync",
+      "previous_version": 491,
+      "version": 492,
+      "files": 2,
+      "verify_jwt": false,
+      "status": "ACTIVE",
+      "exact_bundle_readback": true,
+      "index_sha256": "272d794e067bdf1f4780eec154b09debd581fee4a7f2ae87586f3fe57a766712"
+    }
+  ],
+  "frontend_deployments": [
+    {
+      "project": "agentflow",
+      "id": "dpl_9SXpXgPJe2bNFmMK152b1N9ThJUd",
+      "state": "READY",
+      "origin": "https://www.fflagent.com"
+    },
+    {
+      "project": "agentflow-life-insure",
+      "id": "dpl_8HDQaV7h6qsjRepioaYKjpqVzLNh",
+      "state": "READY",
+      "origin": "https://agentflow-life-insure.vercel.app"
+    }
+  ],
+  "served_assets": [
+    {
+      "origin": "https://www.fflagent.com",
+      "status": 200,
+      "url": "https://www.fflagent.com",
+      "scripts": [
+        "/assets/index-CMMdte9t.js"
+      ],
+      "assets": [
+        {
+          "path": "/assets/index-CMMdte9t.js",
+          "bytes": 4284539,
+          "sha256": "9edafd2137b102a9c81bd2d82d69c9df7f6acf167c1982412925c54c5d871b90",
+          "markers": {
+            "get_leaderboard_snapshot": true,
+            "get_performance_summary": true,
+            "save_disposition_with_booking": true,
+            "create_appointment_once": true,
+            "record_client_policy": true,
+            "attempt_id": true
+          }
+        }
+      ]
+    },
+    {
+      "origin": "https://agentflow-life-insure.vercel.app",
+      "status": 200,
+      "url": "https://agentflow-life-insure.vercel.app",
+      "scripts": [
+        "/assets/index-Do4eWXt5.js"
+      ],
+      "assets": [
+        {
+          "path": "/assets/index-Do4eWXt5.js",
+          "bytes": 4281519,
+          "sha256": "2dc6e6badd645ea1a24e42aea86e9ada56101deaa7cb8148607b11d1530bd2ab",
+          "markers": {
+            "get_leaderboard_snapshot": true,
+            "get_performance_summary": true,
+            "save_disposition_with_booking": true,
+            "create_appointment_once": true,
+            "record_client_policy": true,
+            "attempt_id": true
+          }
+        }
+      ]
+    }
+  ],
+  "source_hash_comparison": {
+    "algorithm": "MD5 of ordered MD5 JSONB row images, scoped to audited organization",
+    "client_excluded_field": "primary_policy_id",
+    "original_sale_excluded_field": "policy_id",
+    "original_sale_filter": "excluding approved repair:manual-client:* events",
+    "before": {
+      "as_of": "2026-10-05T16:26:06.866872+00:00",
+      "call_rows": 5220,
+      "calls_hash": "38b9de37d9241fba7d0a936e885ed35d",
+      "identities": 0,
+      "client_rows": 8,
+      "sale_events": 6,
+      "clients_hash": "e3f75e9af25714d3356a5e80970d1892",
+      "annual_premium": 8172.84,
+      "appointment_rows": 89,
+      "appointments_hash": "664cded2aafc0153cb581c72e7aee074",
+      "original_win_rows": 6,
+      "original_wins_hash": "1513e0bfa1077092bd836a86f818efe5"
+    },
+    "after": {
+      "as_of": "2026-10-05T16:36:11.100926+00:00",
+      "call_rows": 5220,
+      "calls_hash": "38b9de37d9241fba7d0a936e885ed35d",
+      "identities": 8,
+      "client_rows": 8,
+      "sale_events": 8,
+      "clients_hash": "e3f75e9af25714d3356a5e80970d1892",
+      "annual_premium": 9373.92,
+      "appointment_rows": 89,
+      "appointments_hash": "664cded2aafc0153cb581c72e7aee074",
+      "original_win_rows": 6,
+      "original_wins_hash": "1513e0bfa1077092bd836a86f818efe5"
+    },
+    "unchanged_keys": [
+      "clients_hash",
+      "client_rows",
+      "original_wins_hash",
+      "original_win_rows",
+      "calls_hash",
+      "call_rows",
+      "appointments_hash",
+      "appointment_rows"
+    ],
+    "all_unchanged": true
+  },
+  "repair": {
+    "receipts": [
+      {
+        "win_id": "f140513d-1d74-4df5-b4f1-7aec3c134e50",
+        "call_id": null,
+        "client_id": "54d44dc5-98c8-4778-a71d-f0b1d595d992",
+        "policy_id": "54440299-ea5e-4192-adcb-c883c0eb3107",
+        "seller_id": "4ef505e0-7520-4a7a-a622-095914ba40c1",
+        "celebrated": true,
+        "created_at": "2026-09-28T23:44:55.36547+00:00",
+        "campaign_id": null,
+        "recorded_at": "2026-10-05T16:33:00.27542+00:00",
+        "source_hash": "0471dcab2957ea2dc0dd89c8491fb653",
+        "operation_key": "repair:manual-client:54d44dc5-98c8-4778-a71d-f0b1d595d992:primary",
+        "postimage_md5": "87fe23105ef80de75823965533245c2c",
+        "annual_premium": 701.4,
+        "monthly_premium": 58.45,
+        "event_time_source": "client_creation_proxy"
+      },
+      {
+        "win_id": "ba14c0a1-6e48-4f8c-8b09-f0fb758126f0",
+        "call_id": null,
+        "client_id": "71137434-036b-4b3f-8e0a-c6e290b096ba",
+        "policy_id": "c3f97a9f-a8f9-44ff-a009-09c947b0e875",
+        "seller_id": "e5c4ee04-a792-47ce-ad18-953777f6d1d9",
+        "celebrated": true,
+        "created_at": "2026-09-29T17:39:18.606999+00:00",
+        "campaign_id": null,
+        "recorded_at": "2026-10-05T16:33:00.277727+00:00",
+        "source_hash": "05481dc8103dcf099597e5d62f8904a3",
+        "operation_key": "repair:manual-client:71137434-036b-4b3f-8e0a-c6e290b096ba:primary",
+        "postimage_md5": "74dff11e2a83c31c1bce14d8ece8e871",
+        "annual_premium": 499.68,
+        "monthly_premium": 41.64,
+        "event_time_source": "client_creation_proxy"
+      }
+    ],
+    "receipt_count": 2,
+    "sources_match": true,
+    "postimages_match": true
+  },
+  "repair_receipt_table": {
+    "acl": [
+      "postgres=arwdDxtm/postgres"
+    ],
+    "rls": true,
+    "owner": "postgres"
+  },
+  "period_results": [
+    {
+      "period": "lifetime/year 2026",
+      "sale_events": 8,
+      "annualized_premium": 9373.92
+    },
+    {
+      "period": "September 2026",
+      "sale_events": 4,
+      "annualized_premium": 3205.32
+    },
+    {
+      "period": "week beginning 2026-09-28",
+      "sale_events": 2,
+      "annualized_premium": 1201.08
+    },
+    {
+      "period": "October 2026",
+      "sale_events": 0,
+      "annualized_premium": 0
+    },
+    {
+      "period": "week beginning 2026-10-05",
+      "sale_events": 0,
+      "annualized_premium": 0
+    }
+  ],
+  "readback": {
+    "database_role": "authenticated",
+    "actors": {
+      "Admin": {
+        "scope": "agency activity (all statuses)",
+        "yearly": {
+          "calls": 5069,
+          "leads": 1942,
+          "bookings": 89,
+          "policies": 8,
+          "workload": 87,
+          "talk_seconds": 100015,
+          "annual_premium": 9373.92,
+          "monthly_premium": 781.16,
+          "unknown_premiums": 0,
+          "unknown_duration_calls": 5069,
+          "estimated_duration_calls": 0,
+          "conflicting_duration_calls": 0
+        },
+        "feed_events": 8
+      },
+      "Teo": {
+        "scope": "personal",
+        "yearly": {
+          "calls": 1354,
+          "leads": 54,
+          "bookings": 7,
+          "policies": 1,
+          "workload": 7,
+          "talk_seconds": 20069,
+          "annual_premium": 701.4,
+          "monthly_premium": 58.45,
+          "unknown_premiums": 0,
+          "unknown_duration_calls": 1354,
+          "estimated_duration_calls": 0,
+          "conflicting_duration_calls": 0
+        },
+        "feed_events": 8
+      },
+      "Will": {
+        "scope": "personal",
+        "yearly": {
+          "calls": 1275,
+          "leads": 44,
+          "bookings": 6,
+          "policies": 1,
+          "workload": 6,
+          "talk_seconds": 20699,
+          "annual_premium": 499.68,
+          "monthly_premium": 41.64,
+          "unknown_premiums": 0,
+          "unknown_duration_calls": 1275,
+          "estimated_duration_calls": 0,
+          "conflicting_duration_calls": 0
+        },
+        "feed_events": 8
+      }
+    },
+    "board_rows": 8,
+    "board_equal_across_actors": true,
+    "feed_equal_across_actors": true,
+    "october_totals": {
+      "calls_made": 1263,
+      "appointments_set": 15,
+      "policies_sold": 0,
+      "annualized_premium": 0,
+      "talk_time_seconds": 19662,
+      "unknown_premiums": 0,
+      "unknown_duration_calls": 1263,
+      "estimated_duration_calls": 0,
+      "conflicting_duration_calls": 0
+    },
+    "anonymous_board_read": "42501 permission denied"
+  },
+  "reconciliation": {
+    "bounds": {
+      "org": "a0000000-0000-0000-0000-000000000001",
+      "asof": "2026-10-05T16:26:06.866872+00:00",
+      "day_start": "2026-10-05T07:00:00+00:00",
+      "time_zone": "America/Los_Angeles",
+      "week_start": "2026-10-05T07:00:00+00:00",
+      "month_start": "2026-10-01T07:00:00+00:00"
+    },
+    "raw_period_totals": [
+      {
+        "calls": 0,
+        "period": "day",
+        "bookings": 0
+      },
+      {
+        "calls": 0,
+        "period": "week",
+        "bookings": 0
+      },
+      {
+        "calls": 1263,
+        "period": "month",
+        "bookings": 15
+      }
+    ],
+    "policy_identity_gaps": 0,
+    "unlinked_legacy_events": 0,
+    "applied_duplicate_mappings": 0,
+    "booking_receipts_missing_rows": 0,
+    "suspect_call_rows": 277,
+    "exact_booking_candidate_rows": 9,
+    "broader_booking_candidate_rows": 12,
+    "duration_quality": {
+      "conflicts": 0,
+      "estimated": 0,
+      "legacy_unknown": 5069
+    }
+  },
+  "observation": {
+    "started_at": "2026-10-05T16:21:35.084Z",
+    "ended_at": "2026-10-05T16:32:11.607Z",
+    "elapsed_seconds": 636.523,
+    "samples": [
+      {
+        "at": "2026-10-05T16:23:00.811Z",
+        "actor": "Admin",
+        "db_ms": "74.957000",
+        "tool_roundtrip_ms": 1996,
+        "period": "month",
+        "rows": 8
+      },
+      {
+        "at": "2026-10-05T16:23:02.214Z",
+        "actor": "Agent",
+        "db_ms": "75.399000",
+        "tool_roundtrip_ms": 1403,
+        "period": "month",
+        "rows": 8
+      },
+      {
+        "at": "2026-10-05T16:23:03.929Z",
+        "actor": "Team Leader",
+        "db_ms": "74.800000",
+        "tool_roundtrip_ms": 1714,
+        "period": "month",
+        "rows": 8
+      },
+      {
+        "at": "2026-10-05T16:25:07.921Z",
+        "actor": "Admin",
+        "period": "today/week/month",
+        "db_ms": "192.549000",
+        "tool_roundtrip_ms": 2615
+      },
+      {
+        "at": "2026-10-05T16:28:02.000Z",
+        "actor": "Admin",
+        "period": "month",
+        "db_ms": "84.955000",
+        "tool_roundtrip_ms": 2778,
+        "roster": 8
+      },
+      {
+        "at": "2026-10-05T16:29:24.506Z",
+        "actor": "Admin",
+        "period": "month",
+        "db_ms": "74.218000",
+        "tool_roundtrip_ms": 1301,
+        "roster": 8
+      },
+      {
+        "at": "2026-10-05T16:30:39.325Z",
+        "actor": "Admin",
+        "period": "month",
+        "db_ms": "73.739000",
+        "tool_roundtrip_ms": 1013,
+        "roster": 8
+      },
+      {
+        "at": "2026-10-05T16:32:11.607Z",
+        "actor": "Admin",
+        "period": "month",
+        "db_ms": "73.768000",
+        "tool_roundtrip_ms": 1219,
+        "roster": 8
+      }
+    ],
+    "http_origin_latency_measured": false,
+    "matching_reporting_http_log_rows": 0,
+    "reviewed_vercel_edge_error_matches": 0,
+    "unchanged_heartbeat_function_rejections": 2
+  },
+  "exact_head_ci": {
+    "reporting": "37334465465",
+    "dialer_dnc": "37334465463",
+    "a2p": "37334465474",
+    "policy_browser": "37334465430",
+    "frontend": "37334465405",
+    "all_passed": true,
+    "frontend_passed_tests": {
+      "base": 4126,
+      "candidate": 4188
+    },
+    "baseline_failed_assertions": 1,
+    "failed_files": {
+      "base": 11,
+      "candidate": 10
+    },
+    "app_typescript_diagnostics": {
+      "base": 88,
+      "candidate": 87
+    },
+    "unhandled_runtime_errors": 0,
+    "browser_artifact": {
+      "id": "11355283507",
+      "sha256": "0b237767bcc644f26859812524959836ebde93fda8e44101a6ba665a7013cca0"
+    },
+    "frontend_artifact": {
+      "id": "11355759808",
+      "sha256": "457bc826de20db577f84efc6e6d1e48eeffce73357bda8d1825992bf6dc3997d"
+    }
+  },
+  "preserved_function_md5": {
+    "advance_campaign_lead": "088c6d615225ccdca43f3099a5fbb65d",
+    "convert_lead_to_client_atomic": "641ba66c96ca4a76f80c9c85eb9caa42"
+  },
+  "limits": [
+    "277 historical call candidates and 12 booking candidates need evidence; no guessed mappings/status/duration edits.",
+    "Historical outbound duration source remains legacy_unknown for 5069 rows.",
+    "Two historical event timestamps are explicit client_creation_proxy values, not recovered sale timestamps.",
+    "Secure hosted sign-in returned Failed to fetch; stopped without retry or bypass. No authenticated production browser walkthrough.",
+    "No reporting HTTP requests in observed logs; DB timings do not establish HTTP-origin latency.",
+    "No production test sales/bookings/customer communications/provider calls were initiated.",
+    "Group scope covered in isolated tests; no active production Group membership available.",
+    "Reports UI/get_report_* source remains separate; metrics with different sources, credit or date need reconciliation.",
+    "Repository has disclosed existing test/type diagnostics; no globally clean test claim."
+  ]
+}

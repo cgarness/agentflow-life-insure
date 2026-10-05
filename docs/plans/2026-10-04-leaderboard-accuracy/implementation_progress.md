@@ -1,5 +1,9 @@
 # Implementation progress
 
+## Released October 5, 2026
+
+All approved forward implementation and exact historical policy repairs are deployed. PR #416 shipped as `51308ce16fb570ab668b87ab36df2a2b9abda995`; all five final CI gates passed on `a773a701`. Eight applied migration filenames are aligned to their recorded versions without SQL changes. Both reviewed Edge bundles and both production frontend targets are verified. Final source/receipt reconciliation confirms eight identities/eight sales/$9,373.92 annualized premium, zero policy gaps and unchanged unrelated history. See `production-release.md` and its evidence JSON. The 277 call candidates and 12 booking candidates remain unresolved; Reports remains separate. The implementation checkpoints below preserve the chronology and are not current deployment holds.
+
 Chris approved isolated implementation on October 3, 2026 at 22:41 PDT. This covers the full staged plan and local verification. Production deployment and evidence-dependent historical repairs remain release-packet actions.
 
 Base 436d9d840732bca1262559597c17e5ef09893fbf remains current. Read-only production recheck: 8 clients/policies, 6 wins; PostgreSQL 17.6. Supabase changelog and database-function security documentation reviewed; no engine upgrade included. Existing ltree hierarchy implementation remains intact.

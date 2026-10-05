@@ -1,35 +1,38 @@
 # Reporting and leaderboard correction release packet
 
-**Release approved October 4 at 05:35 PDT; permission amendment approved 05:46 PDT. Not deployed; remaining verification gates must pass.** Branch `codex/leaderboard-accuracy-audit-20261004`, base `436d9d840732bca1262559597c17e5ef09893fbf`. Chris approved isolated implementation and verification of the full plan. Chris subsequently approved the reviewed release and explicitly approved removal of anonymous trusted-Dialer RPC execution. Proceed through the packet’s sequential publication, verification, production and exact historical-sale checkpoints; no evidence-dependent call/booking corrections are authorized by this approval.
+**RELEASED October 5, 2026.** Chris approved release October 4 at 05:35 PDT, the exact trusted-Dialer ACL amendment at 05:46 PDT, and confirmed the coordinated write window October 5 at 09:10 PDT. PR #416 shipped as `51308ce16fb570ab668b87ab36df2a2b9abda995` from verified head `a773a70185d2e79fa60a26a170ac100a01bd8b4a`; source tree `291b40e669497ebb7ea7f70f4ddefff49108cd13` matches. The eight schema migrations, both reviewed Edge bundles and both frontend targets are deployed. The exact six-link/two-sale repair is applied and verified. See `production-release.md` and its evidence JSON for authoritative status, hashes and verification limits. No evidence-dependent call/booking correction was applied.
 
-The implementation enforces one original sale per distinct new primary/additional policy, unifies active performance displays, makes bookings atomic/replayable, and records call-attempt/duration provenance. The two historical missing sales have an exact guarded repair. Historical call and booking anomalies still require evidence review. Reports remains another build.
+The implementation enforces one original sale per distinct new primary/additional policy, unifies active performance displays, makes bookings atomic/replayable, and records call-attempt/duration provenance. The two historical missing sales are repaired: eight policies/eight events/$9,373.92 annualized premium. Historical call and booking anomalies still require evidence review. Reports remains another build.
 
 ## Review contents
 
 - `implementation-files.json`: SHA-256 inventory of authored source, tests, migration/ops SQL and supporting documents. The inventory excludes itself.
+- `production-release.md` and `production-release-evidence.json`: final deployment, source/receipt hashes, production readbacks and remaining limits.
 - `verification.md`: executed checks and unexecuted gates.
 - `reconciliation-manifest.json`: frozen source IDs/hashes and unresolved candidates, with no selected canonical mappings.
 - `reports_handoff.md`: final schema/API boundaries and intentional remaining differences.
 - `implementation_plan.md`, `implementation_progress.md`, `full_audit.md`: approved scope, decisions and baseline findings.
 
-## Migration order — all eight UNAPPLIED
+## Migration order — all eight APPLIED October 5
 
 | Order | Generated migration | Purpose |
 | --- | --- | --- |
-| 1 | `20261004054235_policy_identity_sale_integrity.sql` | Durable policy identities, unique original sales, immutable snapshots, first/additional policy writers and enforcement. |
-| 2 | `20261004055216_performance_reporting_contract.sql` | Secured board/feed and canonical fact definitions; empty reviewed-duplicate map; compatible old reader projections. |
-| 3 | `20261004060013_performance_scoped_summaries.sql` | Authorized Dashboard, goal, selected-user summaries and bounded detail queries. |
-| 4 | `20261004060713_booking_disposition_receipts.sql` | One booking per request, atomic disposition+booking and browser identity protection. |
-| 5 | `20261004061001_call_attempt_duration_provenance.sql` | New-attempt uniqueness and signed-provider evidence reconciliation. |
-| 6 | `20261004061538_performance_reader_indexes.sql` | Bounded metric indexes; typed duration-quality aggregation. |
-| 7 | `20261004062049_external_booking_identity_guard.sql` | Prevent new duplicate external-provider event identities; retain historical collisions. |
-| 8 | `20261004062224_trusted_dialer_canonical_counts.sql` | Canonical exclusions and no legacy disposition-name fan-out, preserving campaign/agent-local scope; explicitly revoke anonymous execution after exact live-ACL verification. |
+| 1 | `20261005161611_policy_identity_sale_integrity.sql` | Durable policy identities, unique original sales, immutable snapshots, first/additional policy writers and enforcement. |
+| 2 | `20261005161623_performance_reporting_contract.sql` | Secured board/feed and canonical fact definitions; empty reviewed-duplicate map; compatible old reader projections. |
+| 3 | `20261005161626_performance_scoped_summaries.sql` | Authorized Dashboard, goal, selected-user summaries and bounded detail queries. |
+| 4 | `20261005161629_booking_disposition_receipts.sql` | One booking per request, atomic disposition+booking and browser identity protection. |
+| 5 | `20261005161632_call_attempt_duration_provenance.sql` | New-attempt uniqueness and signed-provider evidence reconciliation. |
+| 6 | `20261005161634_performance_reader_indexes.sql` | Bounded metric indexes; typed duration-quality aggregation. |
+| 7 | `20261005161637_external_booking_identity_guard.sql` | Prevent new duplicate external-provider event identities; retain historical collisions. |
+| 8 | `20261005161639_trusted_dialer_canonical_counts.sql` | Canonical exclusions and no legacy disposition-name fan-out, preserving campaign/agent-local scope; explicitly revoke anonymous execution after exact live-ACL verification. |
 
-All filenames came from the Supabase CLI. Existing applied migration files were not edited. Exact function preimages and relevant authorization metadata are guarded. Locks are bounded; an error aborts the containing migration. Do not bypass a preimage/permission/timeout failure, or automatically apply unrelated pending migrations from this repository.
+Original filenames came from the Supabase CLI; they are now aligned to the versions generated by production `apply_migration`. Every SQL byte remains unchanged and matches recorded history. The authored-to-applied mapping and SHA-256 values are in the release evidence. Exact function preimages and relevant authorization metadata are guarded. Locks are bounded; an error aborts the containing migration. Do not bypass a preimage/permission/timeout failure, replay these migrations, or automatically apply unrelated pending migrations from this repository.
 
 The new UI requires these RPCs. Schema enforcement also rejects legacy direct browser booking/policy bypasses. **This is not a zero-downtime mixed-client rollout.** Coordinate an approved write-maintenance window and stop new sales/booking/dialer actions, wait for active calls to finish naturally, then update backend and frontend together and refresh old tabs. Never interrupt calls to obtain that condition. Native tests and release review must validate this sequence before execution.
 
 ## Deployed Edge baselines and release checkpoints
+
+Completed: `twilio-voice-status` v45 (seven files) and `google-calendar-inbound-sync` v492 (two files) are ACTIVE with complete byte-matched bundle readbacks and `verify_jwt: false` preserved. The table below records the pre-release baselines, not the currently deployed versions.
 
 | Bundle | Read-only baseline | SHA-256 of deployed index |
 | --- | --- | --- |
@@ -42,13 +45,15 @@ Retrieve both complete deployed bundles again before release and stop on drift. 
 
 ## Historical sale operations — separately quarantined
 
+**Applied and verified:** six-link operation `20261005163257`, two-sale repair `20261005163300`. Both exact approved script hashes match recorded history; the two owner-only receipts match current source/postimages. The scripts retain their authored `pending/` paths as guarded review/test artifacts. That directory name does not mean these operations remain pending. Do not move them into automatic schema migrations or replay them. The reversal was not executed.
+
 These are **outside `supabase/migrations`** and cannot be included by an automatic schema push:
 
 1. `supabase/ops/reporting-accuracy/pending/20261004062851_reviewed_legacy_policy_links.sql` links the six exact, unambiguous single-primary conversion events; changes no event facts and creates no events. Retain identities on rollback.
 2. `supabase/ops/reporting-accuracy/pending/20261004062328_reviewed_missing_policy_sales.sql` repairs only clients `54d44dc5-98c8-4778-a71d-f0b1d595d992` and `71137434-036b-4b3f-8e0a-c6e290b096ba`. Seller IDs, monthly snapshots $58.45/$41.64 and client-creation event-time proxies are fixed in the approved-plan table. Stored carrier whitespace is retained. Campaign/call attribution remains null.
 3. `reverse_reviewed_missing_policy_sales.sql` permits reversal only of those generated event IDs with exact recorded postimages and deterministic keys. It retains audit receipts/identities, never deletes the original six events and refuses silent reapplication after reversal.
 
-Expected frozen result:
+Verified before/after result:
 
 | Measure | Before | After two-event repair |
 | --- | ---: | ---: |
@@ -58,7 +63,7 @@ Expected frozen result:
 | September | 2 / $2,004.24 | 4 / $3,205.32 |
 | October | 0 / $0.00 | 0 / $0.00 |
 
-Those event times are disclosed proxies, not recovered sale timestamps. Fresh source/readback hashes, exact script approval, current trigger review and refreshed historical-celebration suppression on both UI paths are prerequisites. These scripts do not send `notify_win` or customer communications. Capture generated IDs/postimages and compare all unrelated source rows before/after any future execution.
+Those event times are disclosed proxies, not recovered sale timestamps. Exact source checks, approved script bytes, trigger review and historical-celebration suppression were verified before execution. The scripts do not call `notify_win` or customer communications. Generated IDs, postimage hashes and unchanged unrelated source hashes are recorded in the release evidence; full postimages remain in the private receipt table. Identity gaps and unlinked legacy events are now zero.
 
 ## Unresolved historical data
 
@@ -70,8 +75,10 @@ Use `scripts/reconcile_reporting.mjs` only after schema installation, with an ex
 
 ## Required release sequence and recovery
 
+This sequence was executed under the approvals above. Exact-head CI passed; schema/Edge/assets and authenticated DB-role reads are verified. Hosted secure sign-in failed to fetch, so a production browser walkthrough was not completed. The ten-minute observation contains DB timings but no reporting HTTP requests; HTTP-origin latency remains unmeasured. These limits are explicit and must not be represented as passed browser/HTTP gates. Historical repairs completed after observation and exact preimage/trigger checks; call/booking evidence work remains separate.
+
 1. Recheck fresh main, Reports overlap, live migration history, function hashes/ACLs, triggers, Edge bundles and source census. Resolve conflicts while preserving concurrent work.
-2. Run exact-head full frontend/DNC/backend CI, native reporting contention/security/index gates, and expanded browser fixture. Verify authenticated Agent/Admin/TL/Group flows on an authorized isolated environment. Native PostgreSQL 17.6, DNC and A2P passed on published PR #416; full frontend and browser failures are corrected with reruns pending, as recorded in `verification.md`.
+2. Run exact-head full frontend/DNC/backend CI, native reporting contention/security/index gates, and expanded browser fixture. Verify authenticated Agent/Admin/TL/Group flows on an authorized isolated environment. All five final CI gates passed on `a773a701`, including full frontend and the corrected real-browser fixture, as recorded in `verification.md`.
 3. Publication and the reviewed production checkpoints were explicitly approved October 4, including the exact ACL amendment. Reconcile the concrete commit/manifests with that approved scope; this approval does not waive verification, drift checks or the coordinated write window.
 4. Coordinate the write window described above. Apply only the eight exact migrations in order; verify schema, function owner/ACL/security configuration and empty historical mappings. Deploy the two reviewed Edge bundles in their separate checkpoints, then the frontend to both production projects. Verify exact revision, READY deployments and domain aliases.
 5. Refresh tabs after active calls finish. Verify all metric/period/scope/precision/error states and actual reads. Observe the existing stop rule: two successful standings responses over two seconds stop rollout and require investigation. Monitor duration errors/conflicts, booking RPC failures and stale states. Do not manufacture production sales or calls for tests.
