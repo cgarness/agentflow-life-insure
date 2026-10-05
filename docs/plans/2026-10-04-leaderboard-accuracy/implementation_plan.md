@@ -1,6 +1,6 @@
 # AgentFlow reporting and leaderboard correction plan
 
-Prepared October 3, 2026, Pacific / October 4 UTC. **Approved for isolated implementation; code and local verification completed October 4 UTC. Not deployed.**
+Prepared October 3, 2026, Pacific / October 4 UTC. **Released October 5, 2026 under the approved coordinated write window.** PR #416, eight schema migrations, both reviewed Edge bundles and both production frontend targets are deployed. The exact six-link/two-sale repair is applied and verified: eight policies/eight sale events/$9,373.92 annualized premium. See `production-release.md` and `production-release-evidence.json` for authoritative final status and verification limits. Original planning checkpoints below are retained; historical call/booking candidates remain unresolved.
 
 Chris requested a full correction plan and reserved Reports for another build. This replaces the narrow proposal archived in initial_plan.md. Evidence is in full_audit.md. All eight audited policies should have sale events; that business decision is already confirmed.
 

@@ -1,7 +1,7 @@
 {
   "branch": "codex/leaderboard-accuracy-audit-20261004",
   "base": "436d9d840732bca1262559597c17e5ef09893fbf",
-  "state": "release and exact ACL amendment approved; verification in progress; no production application",
+  "state": "released October 5, 2026; schema, Edge, frontend and exact historical policy repair readback-verified; legacy call/booking candidates unresolved",
   "manifest_excludes": "this inventory file itself",
   "files": [
     {
@@ -16,13 +16,13 @@
     },
     {
       "path": "AGENT_RULES.md",
-      "sha256": "66ea89c308ae550c9a31f7863162e64e2c18340059a62008d150d9058b795dde",
-      "bytes": 218200
+      "sha256": "a9c877dab2b0d0e4246c06ff01dccb684bbd24e65e03eab7763ca590eb5bf20c",
+      "bytes": 219087
     },
     {
       "path": "WORK_LOG.md",
-      "sha256": "7df82fc62c1b46ea761199502df7122114ae15c34fd2767c208ce06ab1db103b",
-      "bytes": 2237192
+      "sha256": "4b4cfc1649bf26354eeb2422ae5cb923ac3293e2e0b1e613fec75d640ee8e78b",
+      "bytes": 2241612
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/full_audit.md",
@@ -36,18 +36,28 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md",
-      "sha256": "e0ff54b6b2a833c789378482633321006cfc64f8d27615dea8ca2609c2363b96",
-      "bytes": 39758
+      "sha256": "08c71190e0f7f4c7e39faab24c01ebcc65b52baeee35844c44b85cfa2f0f7fb7",
+      "bytes": 40185
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/implementation_progress.md",
-      "sha256": "673e2e22d285626f999f0f0c62e5ad717bf8e7f100f3c5da0949ef6d1c9713bd",
-      "bytes": 8822
+      "sha256": "d0bef1ffe3922f22cf7e0abdf536f87e0b1ae9bf957b7f6084621b322f311e77",
+      "bytes": 9618
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/initial_plan.md",
       "sha256": "caa2f15a11588ec3d9c9549abcfbcff7a7ac62981a364c750b8458938338cdc8",
       "bytes": 14278
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/production-release-evidence.json",
+      "sha256": "49991619ea68384c4fddecd1d57b5ef05f56adc68e3203e97f6e5cf8ddd1c972",
+      "bytes": 17958
+    },
+    {
+      "path": "docs/plans/2026-10-04-leaderboard-accuracy/production-release.md",
+      "sha256": "18c0dacaf76a6010de809392ba24516337176137324157780b3cf4f178d451bc",
+      "bytes": 8435
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/reconciliation-manifest.json",
@@ -56,8 +66,8 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_packet.md",
-      "sha256": "4869635810b01928edbc3f18a73e4a7c865cfdc294a06a73691837149df42b9d",
-      "bytes": 10699
+      "sha256": "6f2419a37ba6f90611bc4da08b79a33403a6a9878a2f1e16e0c650bb0f3ad611",
+      "bytes": 12545
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_preflight_20261004.md",
@@ -66,8 +76,8 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/reports_handoff.md",
-      "sha256": "a259fc647a6f993e6f40ffd59699a022cf47d1c3717469fc81511a066220b61e",
-      "bytes": 9112
+      "sha256": "8821f3f49a635edbbf96cfa22e3fae61cc19612c68749de1a9bf22dba6879721",
+      "bytes": 9894
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/twilio-voice-status-baseline.json",
@@ -76,13 +86,13 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/verification.md",
-      "sha256": "61855d9ea9f88d95420c9385a86283fc307ceae1ece4d6cb9c8bbf19d41c4106",
-      "bytes": 9149
+      "sha256": "3f78ddbb21fff1415740f990b46c1c58e35e899463cc77400928c57c033be39a",
+      "bytes": 14102
     },
     {
       "path": "implementation_plan.md",
-      "sha256": "fe1497edb4f9af91612f3e0434534c76ac68e626789adaf2a7c49140c29fdfcc",
-      "bytes": 214459
+      "sha256": "f26dfce734937a4946a7c0e46fe4cbfdb7f33720d9f34bedda48ff2c0ed01d0e",
+      "bytes": 216431
     },
     {
       "path": "scripts/frontend_runtime_error_compare.py",
@@ -520,42 +530,42 @@
       "bytes": 24112
     },
     {
-      "path": "supabase/migrations/20261004054235_policy_identity_sale_integrity.sql",
+      "path": "supabase/migrations/20261005161611_policy_identity_sale_integrity.sql",
       "sha256": "7827393cb06c070403b7952f2a3de43eaefab432c95ea67dd628a14cba182586",
       "bytes": 22106
     },
     {
-      "path": "supabase/migrations/20261004055216_performance_reporting_contract.sql",
+      "path": "supabase/migrations/20261005161623_performance_reporting_contract.sql",
       "sha256": "fd96d063bf7136ef968690abb352fab726ad5ea7ec14574bf340537f380189cb",
       "bytes": 13881
     },
     {
-      "path": "supabase/migrations/20261004060013_performance_scoped_summaries.sql",
+      "path": "supabase/migrations/20261005161626_performance_scoped_summaries.sql",
       "sha256": "93f99c84dedad65ed179b706273a1fcedd3504123e26e41ed51d7f8793822dd9",
       "bytes": 9317
     },
     {
-      "path": "supabase/migrations/20261004060713_booking_disposition_receipts.sql",
+      "path": "supabase/migrations/20261005161629_booking_disposition_receipts.sql",
       "sha256": "885f064b31f2ce50466108a1c78b4b9c0adebc449a346eedaa452b359f106188",
       "bytes": 10647
     },
     {
-      "path": "supabase/migrations/20261004061001_call_attempt_duration_provenance.sql",
+      "path": "supabase/migrations/20261005161632_call_attempt_duration_provenance.sql",
       "sha256": "8b8850a464d0013da0f6fe754e8527e8f5aa8b0d99a8ba7d61134a0764b073df",
       "bytes": 7175
     },
     {
-      "path": "supabase/migrations/20261004061538_performance_reader_indexes.sql",
+      "path": "supabase/migrations/20261005161634_performance_reader_indexes.sql",
       "sha256": "269d5c913b8143c2b8a5c213011a4ecb18302d2050447f7bfd245499c0c7efc6",
       "bytes": 1441
     },
     {
-      "path": "supabase/migrations/20261004062049_external_booking_identity_guard.sql",
+      "path": "supabase/migrations/20261005161637_external_booking_identity_guard.sql",
       "sha256": "7119a05f88ba59d0b055964eb94b1f58e7ed8e9370cf25524f47bf6295840ae6",
       "bytes": 2113
     },
     {
-      "path": "supabase/migrations/20261004062224_trusted_dialer_canonical_counts.sql",
+      "path": "supabase/migrations/20261005161639_trusted_dialer_canonical_counts.sql",
       "sha256": "33488818bd7aaefb65e937818df89e511f028411d00b711602a25275874dc3fc",
       "bytes": 4826
     },
@@ -599,5 +609,8 @@
       "sha256": "83429a481aa4d3a40b61f9da84b41ec50daca51205fa3dbad435ac777516a3a4",
       "bytes": 9156
     }
-  ]
+  ],
+  "release_commit": "51308ce16fb570ab668b87ab36df2a2b9abda995",
+  "reviewed_head": "a773a70185d2e79fa60a26a170ac100a01bd8b4a",
+  "release_record_branch": "codex/reporting-release-record-20261005"
 }
