@@ -39,6 +39,9 @@ try {
   assert.ok(metrics.tablePhotos.every(p=>p.bottom<=metrics.table.bottom+1),`${label}: table clips photos`);
   assert.ok(metrics.originalRanks.every((r,i)=>r===i+1),`${label}: mutated source ranks`);
   await page.screenshot({path:`${output}/${label}.png`});
+  await page.getByTestId('tv-rankings').scrollIntoViewIfNeeded();
+  await page.screenshot({path:`${output}/${label}-table.png`});
+  await page.locator('main').evaluate(main=>main.scrollTo({top:0}));
   console.log('PASS',label,JSON.stringify({centerError:metrics.centerError,photos:metrics.photos.length}));
  }
  for(const [w,h] of [[1366,768],[1920,1080],[3840,2160],[1093,614]]) {

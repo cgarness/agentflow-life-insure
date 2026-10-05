@@ -10,14 +10,19 @@
       "bytes": 1776
     },
     {
+      "path": ".github/workflows/reports-frontend.yml",
+      "sha256": "5e692ddbb018fb2be0a55a82f55c22596c7c2e599984495999bc96b3882e6d9c",
+      "bytes": 1572
+    },
+    {
       "path": "AGENT_RULES.md",
       "sha256": "66ea89c308ae550c9a31f7863162e64e2c18340059a62008d150d9058b795dde",
       "bytes": 218200
     },
     {
       "path": "WORK_LOG.md",
-      "sha256": "57f4c895c4ddbee008664340cb234c09ac1d13b23bca7083f878d69b7bc48b4f",
-      "bytes": 2232313
+      "sha256": "981451786011432622a33f199b4268be17ccea7773ea06a96a4e946b8b8696c1",
+      "bytes": 2234607
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/full_audit.md",
@@ -51,8 +56,8 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_packet.md",
-      "sha256": "82b9f6eeed79b8e1c9385038b1941057bc4432e11b8289939546156a5441390f",
-      "bytes": 10563
+      "sha256": "4869635810b01928edbc3f18a73e4a7c865cfdc294a06a73691837149df42b9d",
+      "bytes": 10699
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/release_preflight_20261004.md",
@@ -71,13 +76,18 @@
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/verification.md",
-      "sha256": "67c5db56e75bca876798810e0b716b74a765396159c39186c2e9ebde972bc9da",
-      "bytes": 7111
+      "sha256": "61855d9ea9f88d95420c9385a86283fc307ceae1ece4d6cb9c8bbf19d41c4106",
+      "bytes": 9149
     },
     {
       "path": "implementation_plan.md",
-      "sha256": "2940d77abbc9b8052c52ad32d4a6ee0d1e5ad1bbb0b7f21d49dd65664bcc4a9c",
-      "bytes": 213609
+      "sha256": "fe1497edb4f9af91612f3e0434534c76ac68e626789adaf2a7c49140c29fdfcc",
+      "bytes": 214459
+    },
+    {
+      "path": "scripts/frontend_runtime_error_compare.py",
+      "sha256": "67c81375291491395170c7d14a6cec9ba7ba0577fd36d0602fd686a17d9d93db",
+      "bytes": 3123
     },
     {
       "path": "scripts/reconcile_reporting.mjs",
@@ -101,8 +111,8 @@
     },
     {
       "path": "scripts/tests/leaderboard-visual/README.md",
-      "sha256": "5f62d35500cb2fdba6d2b0da44751cf43fb64102a017bfb9028a0291bbb7193f",
-      "bytes": 1991
+      "sha256": "2833a8104264c4178b8a9d310073602cbc7640b83d13fd3cafdf6d7280f08068",
+      "bytes": 2418
     },
     {
       "path": "scripts/tests/leaderboard-visual/entry.tsx",
@@ -111,8 +121,8 @@
     },
     {
       "path": "scripts/tests/leaderboard-visual/verify.mjs",
-      "sha256": "694802a0e12bf9fc2532593f06de29912ae527a5706496e21e9801e5d01d3f02",
-      "bytes": 6081
+      "sha256": "f06dfc335b43f0607a37dab71efebe2b52aa3d8386643e19f99f1c6368315df9",
+      "bytes": 6280
     },
     {
       "path": "scripts/tests/policy-integrity-embedded.mjs",
@@ -126,8 +136,8 @@
     },
     {
       "path": "scripts/verify_reports_frontend.py",
-      "sha256": "6c913b609fbfec42de9dba2f3b364a339a2a7d37e2881baf13dcf02fc2ef12ac",
-      "bytes": 6214
+      "sha256": "68b1b01a4f82e23f0636a676a0fd715825eb038d1a80a70f3ef61c087a27c9f5",
+      "bytes": 6273
     },
     {
       "path": "src/components/calendar/AppointmentModal.tsx",
@@ -173,6 +183,11 @@
       "path": "src/components/dashboard/__tests__/dashboardCallbacks.test.ts",
       "sha256": "620bf3d9a26c22f0daa737c4f6097bc33be57d2aa4188c1591de2e881d8fe6d1",
       "bytes": 51099
+    },
+    {
+      "path": "src/components/dashboard/__tests__/dashboardDetailModalVoicemail.test.tsx",
+      "sha256": "74d46128598f2a8e6eb5157839af6e5d9c9b7763084986eff680f0b29f8d0eec",
+      "bytes": 3730
     },
     {
       "path": "src/components/dashboard/__tests__/dashboardRefresh.test.tsx",
@@ -246,8 +261,8 @@
     },
     {
       "path": "src/components/leaderboard/TVRankingsTable.tsx",
-      "sha256": "55c100905bb8fec1e02523866ee1904c8efc026b09358376eec772d5cab4737c",
-      "bytes": 7752
+      "sha256": "3cd73efaec5b1ed2710c137c8accb8e42237514cb6a1807cd779df5ecb5af0c3",
+      "bytes": 7783
     },
     {
       "path": "src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx",

@@ -20,6 +20,7 @@ vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1" }, profile: { id: "u1", organization_id: "org-1" }, realProfile: { id: "u1", organization_id: "org-1" } }) }));
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ getDataScope: () => "all" }) }));
 vi.mock("@/components/voicemail/VoicemailPlayer", () => ({ VoicemailPlayer: ({ voicemailId }: { voicemailId: string }) => <div data-testid="vm-player" data-id={voicemailId} /> }));
 vi.mock("@/lib/dashboard-contact-identity", async (orig) => ({ ...(await orig<Record<string, unknown>>()), resolveContactTypesByIds: async () => new Map() }));
 vi.mock("@/integrations/supabase/client", () => {

@@ -2,7 +2,16 @@
 
 Verified October 4, 2026 UTC. Isolated branch `codex/leaderboard-accuracy-audit-20261004`, base `436d9d840732bca1262559597c17e5ef09893fbf`. **Implementation complete; production release and historical corrections are not performed.** This record describes local evidence, not a certification of all historical data.
 
-## Executed checks
+## October 5 remote evidence and corrective follow-up
+
+PR [#416](https://github.com/cgarness/agentflow-life-insure/pull/416), head `3edb2817e7817c86975eb53ab880914b4f6fdb3f`, tree `c2795fe111726514b321d3601b1eb523ccbb72d7`, is published as a draft. This supersedes the unpublished/local-only status in the original record below. Production remains unchanged.
+
+- Native reporting integrity run `37203643788` **passed** on PostgreSQL 17.6: independent-session policy/booking replay contention, busy/release, provider duration races, Google identity races, 50,000-call index proof and annual summary (55 ms), and actual read-only reconciliation script. Policy transaction job in `37203643810`, DNC `37203643840` and A2P `37203643781` passed.
+- Frontend run `37203643830`: base 4,126 passing / 1 failed test; candidate 4,187 passing / 2 failed tests. One new failed assertion was the missed-call voicemail test's missing permission provider; its explicit all-scope mock now restores the existing behavior assertions. `clientMapping` simultaneously improved from setup failure to 14 passing tests. The comparator now permits resolved failures and rejects new/replacement/duplicate failure identities, with negative controls. The actual new assertion was fixed before accepting the comparison. TypeScript comparison passed (87 versus 88 diagnostics); both runtime error reporters recorded zero.
+- Browser run `37203643810` **failed** on table-photo clipping at 1366×768, with zero page errors. Wrapped headings exceeded the fixed panel budget. The correction uses intrinsic header/body minimum height; existing minimum row size, geometry assertions, rank motion, centering and scroll access remain. Added scrolled-table screenshots expose lower rows to manual inspection.
+- Local corrective follow-up: 30 tests pass across voicemail, client mapping and leaderboard status suites; root TypeScript, scoped ESLint and whitespace checks pass. Revised browser and full-suite runs remain pending; no browser success is claimed yet.
+
+## Original October 4 local checks
 
 | Check | Result and practical limit |
 | --- | --- |
