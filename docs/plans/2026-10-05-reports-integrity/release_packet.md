@@ -1,6 +1,6 @@
 # Reports Phase 1 candidate release packet
 
-**Awaiting public publication and production-release approval.** The October 5 approval covered the audited six-group implementation and isolated verification. No production or public GitHub action is part of the completed work.
+**Public publication approved; production release NOT approved.** Chris approved publishing the reviewed candidate and opening a draft PR on October 5 at 12:21 PDT. Draft PR #418 is open. Shell Git had no credentials, so the GitHub app created publication commit `450fdc28c724e8e158476dd3769d895a48f1497d` with the exact reviewed source tree `b48a9577ad6c5cefab04ef9c679b2ec00ecd2ac0` of local commit `a1701836504b6645f8af29c4378d2181d79ffaf7`. No production action occurred. Native CI and browser verification are being completed before a production approval request.
 
 ## Behavior
 
@@ -22,7 +22,7 @@
 
 ## Proposed activation, after approval and green release gates
 
-1. Publish this reviewed branch to the public `cgarness/agentflow-life-insure` repository and open a draft PR. Run native Reports/profile gates and the existing exact-base full frontend gate. Resolve any failures or main/source overlap before asking to activate production. Verify rendered Reports against this v2 contract; local component checks do not replace that gate.
+1. Publication is approved and draft PR #418 is open in the public `cgarness/agentflow-life-insure` repository. The isolated Chromium gate passes locally; run it again with native SQL payloads in CI alongside the native Reports/profile gates and existing exact-base full frontend gate. Resolve any failures or main/source overlap before asking to activate production. Verify rendered Reports against this v2 contract; local component checks do not replace that gate.
 2. Re-read the live migration list, exact source preimages, owner/search paths/effective ACLs and relevant schema dependencies. Stop on drift. Confirm the reviewed exclusion map has not acquired unapproved rows. Preserve all raw calls, sessions, bookings, clients, wins, identities and receipts.
 3. Use a short Reports-only unavailable window to avoid old frontend tabs mixing new denominators with old numerators. Apply the reviewed `supabase/ops/reports_disable.sql` transactionally as a **new**, separately approved migration; it revokes both versions and seals legacy RPCs. No core calling writer needs replacement.
 4. Apply the two pinned candidate migrations in order. They preserve disabled authenticated access. No historical repair, mapping insertion, RLS change, Edge deployment or provider action is included.
@@ -37,4 +37,4 @@ Disable Reports with the version-aware disable source, as a new approved migrati
 
 ## Remaining uncertainty
 
-Native CI, rendered browser and hosted API verification are pending publication/release access. The synthetic embedded summary timing is not a hosted performance claim. Historical 277 call and 12 booking candidates and legacy duration provenance remain evidence-dependent; no guessed cleanup is included.
+Native CI is pending runner assignment. Local synthetic real-browser verification passed after the premium clipping correction; native-backed browser verification remains part of CI. Authenticated hosted browser/API verification remains a production release readback, and no production release is approved. The synthetic embedded summary timing is not a hosted performance claim. Historical 277 call and 12 booking candidates and legacy duration provenance remain evidence-dependent; no guessed cleanup is included.

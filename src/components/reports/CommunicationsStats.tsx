@@ -17,6 +17,7 @@ interface Metric {
   label: string;
   value: string;
   subtitle?: string;
+  wide?: boolean;
   /** Export label and raw value (numbers stay numbers; an undefined value is null, never 0). */
   exportLabel: string;
   raw: CsvCell;
@@ -24,14 +25,14 @@ interface Metric {
 
 const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
 
-const StatTile: React.FC<Omit<Metric, "exportLabel" | "raw">> = ({ icon: Icon, label, value, subtitle }) => (
-  <div className="rounded-xl border border-border/50 bg-muted/40 p-4">
+const StatTile: React.FC<Omit<Metric, "exportLabel" | "raw">> = ({ icon: Icon, label, value, subtitle, wide }) => (
+  <div className={`min-w-0 rounded-xl border border-border/50 bg-muted/40 p-4${wide ? " col-span-2" : ""}`}>
     <div className="flex items-center gap-2 mb-2">
-      <Icon className="w-3.5 h-3.5 text-primary" />
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{label}</p>
+      <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground break-words">{label}</p>
     </div>
-    <p className="text-xl font-bold text-foreground tracking-tight truncate" title={value}>{value}</p>
-    {subtitle && <p className="text-[11px] text-muted-foreground truncate mt-0.5">{subtitle}</p>}
+    <p className="text-xl font-bold text-foreground tracking-tight [overflow-wrap:anywhere]" title={value}>{value}</p>
+    {subtitle && <p className="text-[11px] text-muted-foreground break-words mt-0.5">{subtitle}</p>}
   </div>
 );
 
@@ -44,8 +45,8 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
   const callsPerDay = round1(ratio(t.calls_made, dayCount));
 
   const metrics: Metric[] = [
-    { icon: TrendingUp, label: "Known annual premium", value: formatPremium(t.premium.annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} policies known · current book`, exportLabel: "Known annual premium (current monthly ×12)", raw: t.premium.annual_premium },
-    { icon: TrendingUp, label: "Avg annual premium / known policy", value: formatPremium(t.premium.average_annual_premium), subtitle: `${t.premium.unknown_count} unknown premiums excluded`, exportLabel: "Average annual premium per known policy", raw: t.premium.average_annual_premium },
+    { icon: TrendingUp, label: "Known annual premium", value: formatPremium(t.premium.annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} policies known · current book`, wide: true, exportLabel: "Known annual premium (current monthly ×12)", raw: t.premium.annual_premium },
+    { icon: TrendingUp, label: "Avg annual premium / known policy", value: formatPremium(t.premium.average_annual_premium), subtitle: `${t.premium.unknown_count} unknown premiums excluded`, wide: true, exportLabel: "Average annual premium per known policy", raw: t.premium.average_annual_premium },
     {
       icon: Phone,
       label: "Calls made",
@@ -117,7 +118,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     <ReportSection title="Call Summary" onExport={handleExport}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {metrics.map((m) => (
-          <StatTile key={m.label} icon={m.icon} label={m.label} value={m.value} subtitle={m.subtitle} />
+          <StatTile key={m.label} icon={m.icon} label={m.label} value={m.value} subtitle={m.subtitle} wide={m.wide} />
         ))}
       </div>
     </ReportSection>

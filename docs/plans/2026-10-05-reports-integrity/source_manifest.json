@@ -5,8 +5,8 @@
   "files": [
     {
       "path": ".github/workflows/reports-backend.yml",
-      "bytes": 2407,
-      "sha256": "0e77a69383a1375922e3f22041edd9db1a1c1c84baf88b3893ff672f29045201"
+      "bytes": 5225,
+      "sha256": "d6bd19d87e125baadcd513cef2493db1551d59fe0cc9f8ca7b28e32766318368"
     },
     {
       "path": "AGENT_RULES.md",
@@ -15,33 +15,33 @@
     },
     {
       "path": "WORK_LOG.md",
-      "bytes": 2245115,
-      "sha256": "8d38cc40e0cfa800d94bf9e5618daf240438e5f6a127a52505965a9ddfa46d55"
+      "bytes": 2248002,
+      "sha256": "3abb92afefc12c3bfd5b9a550430d51232b7c172dc7adc3dc538d760f59d2bfd"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/implementation_plan.md",
-      "bytes": 5310,
-      "sha256": "8f42098d88e681c94a205362bab8f634239d2996200fde52e3a5d08a8b7d6bbf"
+      "bytes": 6480,
+      "sha256": "950dcae718974b4aed9ec39290dca572453ec7b993b49314a80323d3a242df18"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/release_packet.md",
-      "bytes": 5182,
-      "sha256": "7564a69e36513411dbb8ce3cda708a5aefe1c301963e318a0717a3ecd83f06bd"
+      "bytes": 5827,
+      "sha256": "1bf4d32e0302c498cc48fbbd38255b3c114ff4c096d43ce9967befb60a900f29"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/verification.json",
-      "bytes": 4430,
-      "sha256": "551279994264ee41d059089011fa791887c7bb7375ee02875593790d77d723d8"
+      "bytes": 8311,
+      "sha256": "b5ac281371b12eda8c2c2a8c95c15ad3587c03c989c4219864f40edb5ce020df"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/verification.md",
-      "bytes": 5686,
-      "sha256": "0ef3f66bb1ba9df544f148ee92997b32fd20303933aaa55d22638ddef9286ed3"
+      "bytes": 8335,
+      "sha256": "1144a3f3463b2ae84fd3b472720a55d702543a194ef4c57ff480687ca9bf33d9"
     },
     {
       "path": "implementation_plan.md",
-      "bytes": 217491,
-      "sha256": "91114c2900119f1b11ec7c6aa8f47255933ec6793e71fa6b15479d22ed6dd1f7"
+      "bytes": 217572,
+      "sha256": "06477ca9009bc30eef7a0cb0d021803bb3c90b2ae6574f44ee5788c70d7d9a71"
     },
     {
       "path": "scripts/reports_integrity_fixture.py",
@@ -59,14 +59,44 @@
       "sha256": "ca502693196c6a04642446ebad11f771c424b952d40bc075545136c98ea9a9f4"
     },
     {
+      "path": "scripts/tests/reports-visual/README.md",
+      "bytes": 2413,
+      "sha256": "5eb3354baa505371df2c6fa2a5c226a9bdb7ebd8a412a0ac6b0895bb946768ff"
+    },
+    {
+      "path": "scripts/tests/reports-visual/entry.tsx",
+      "bytes": 978,
+      "sha256": "ff02b6b4412d56b1f918d6a74ce2d2baf3efde78ade4432b4083f71eb4c02059"
+    },
+    {
+      "path": "scripts/tests/reports-visual/index.html",
+      "bytes": 257,
+      "sha256": "4ea998bdc225ecbd135cbfb0c9ddbcd877c9cf5e16ab5bab92b42fbf40fade79"
+    },
+    {
+      "path": "scripts/tests/reports-visual/stubs.ts",
+      "bytes": 2472,
+      "sha256": "d250153eef78cb14d7cf4a4275629236d37606b3d97d834465882865f9e8bbf8"
+    },
+    {
+      "path": "scripts/tests/reports-visual/verify.mjs",
+      "bytes": 12448,
+      "sha256": "561bf3e8514b03ad34a62f55918c9f30405b0e3cd6bce9053c649959903a5311"
+    },
+    {
+      "path": "scripts/tests/reports-visual/vite.config.ts",
+      "bytes": 1484,
+      "sha256": "53f52b9c30a0f50a6f00aac88b7c136a9125c17328d3c46b49d2d7ed5423edd3"
+    },
+    {
       "path": "src/components/reports/AgentEfficiency.tsx",
       "bytes": 7754,
       "sha256": "275164cc2459b2a77d2544dbe7da676562fae1c34a743b2cdfb0d4c87928bdf3"
     },
     {
       "path": "src/components/reports/AgentPerformanceCards.tsx",
-      "bytes": 7408,
-      "sha256": "d4b15485b512fd7d25c3b1bc5888b0d919d6a702c917b5c27263107a52fe93f9"
+      "bytes": 7511,
+      "sha256": "57ebcf29042f06ef5391b157e74d0307614ab0963975a77060b25b6d89d95dd1"
     },
     {
       "path": "src/components/reports/CallDurationAnalysis.tsx",
@@ -80,8 +110,8 @@
     },
     {
       "path": "src/components/reports/CommunicationsStats.tsx",
-      "bytes": 4831,
-      "sha256": "f2f74ca1c434b846e0bc1d5e2fd7cd012e07a10fd11498ecb45e2be51bffd95e"
+      "bytes": 4962,
+      "sha256": "3614fa3a40cdf9de88eee987771e3c302f71528dafecf38cb7c9f64d706ba9af"
     },
     {
       "path": "src/components/reports/LeadSourceTable.tsx",

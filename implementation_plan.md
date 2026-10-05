@@ -1,6 +1,6 @@
-## 2026-10-05 — Reports integrity implementation complete; release pending
+## 2026-10-05 — Reports integrity published for verification; production release pending
 
-The six approved Phase 1 groups are implemented on `codex/reports-integrity-phase1-20261005`. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for the reviewed candidate, exact SQL and remaining native/browser/publication gates. Production remains unchanged by this task. Phase 2 layout changes and historical repairs are not included.
+Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.
 
 # Reports Phase 1 integrity — approved implementation
 

@@ -10,6 +10,13 @@ on:
       - 'scripts/run_reports_rpc_tests.sh'
       - 'scripts/run_reports_integrity_tests.sh'
       - 'scripts/reports_integrity_fixture.py'
+      - 'scripts/tests/reports-visual/**'
+      - 'src/pages/Reports.tsx'
+      - 'src/components/reports/**'
+      - 'src/hooks/useReportsData.ts'
+      - 'src/lib/reports-*.ts'
+      - 'src/lib/stat-computations.ts'
+      - 'src/lib/report-layout*.ts'
       - 'supabase/migrations/20260806000000_baseline_production_schema.sql'
       - 'supabase/migrations/20260811200920_campaign_leads_membership_uniqueness_and_attachment_core.sql'
       - 'supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql'
@@ -23,7 +30,7 @@ concurrency:
 jobs:
   postgres:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17.6
@@ -50,6 +57,41 @@ jobs:
           bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
           bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
           bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Install pinned isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/reports-browser" --no-save playwright@1.56.1 agent-browser@0.38.2
+          "$RUNNER_TEMP/reports-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Real Reports page against native synthetic SQL payloads
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/reports-browser/node_modules/playwright
+          REPORTS_SQL_PAYLOADS: ${{ github.workspace }}/reports-integrity-payloads.json
+          REPORTS_VISUAL_OUTPUT: ${{ runner.temp }}/reports-visual-evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORTS_VISUAL_OUTPUT"
+          export AGENT_BROWSER_EXECUTABLE_PATH="$(node -e 'process.stdout.write(require(process.env.PLAYWRIGHT_MODULE).chromium.executablePath())')"
+          export AGENT_BROWSER_ALLOWED_DOMAINS=127.0.0.1
+          REPORTS_BROWSER="$RUNNER_TEMP/reports-browser/node_modules/.bin/agent-browser"
+          npx vite --config scripts/tests/reports-visual/vite.config.ts > "$RUNNER_TEMP/reports-vite.log" 2>&1 &
+          REPORTS_VITE_PID=$!
+          trap '"$REPORTS_BROWSER" --session reports-check close || true; kill "$REPORTS_VITE_PID" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4180/ > /dev/null; then break; fi
+            sleep 1
+          done
+          "$REPORTS_BROWSER" --session reports-check open http://127.0.0.1:4180
+          "$REPORTS_BROWSER" --session reports-check wait --load networkidle
+          "$REPORTS_BROWSER" --session reports-check screenshot "$REPORTS_VISUAL_OUTPUT/initial-page.png"
+          "$REPORTS_BROWSER" --session reports-check snapshot -i > "$REPORTS_VISUAL_OUTPUT/initial-snapshot.txt"
+          "$REPORTS_BROWSER" --session reports-check eval 'if (!document.body.innerText.includes("Performance Analytics") || document.querySelector("vite-error-overlay")) throw new Error("Reports page did not render")'
+          "$REPORTS_BROWSER" --session reports-check errors > "$REPORTS_VISUAL_OUTPUT/initial-errors.txt"
+          "$REPORTS_BROWSER" --session reports-check close
+          node scripts/tests/reports-visual/verify.mjs 2>&1 | tee reports-browser-results.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -59,4 +101,7 @@ jobs:
             reports-profile-regression-results.txt
             reports-integrity-results.txt
             reports-integrity-payloads.json
+            reports-browser-results.txt
+            ${{ runner.temp }}/reports-visual-evidence
+            ${{ runner.temp }}/reports-vite.log
           retention-days: 14

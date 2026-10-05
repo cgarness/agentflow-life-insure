@@ -38,10 +38,10 @@ const initials = (name: string) =>
     .map((p) => p.charAt(0).toUpperCase())
     .join("");
 
-const Stat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="min-w-0">
-    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider truncate">{label}</p>
-    <p className="text-base font-black text-foreground leading-none mt-1 tabular-nums">{value}</p>
+const Stat: React.FC<{ label: string; value: string; fullWidth?: boolean }> = ({ label, value, fullWidth }) => (
+  <div className={cn("min-w-0", fullWidth && "col-span-3")}>
+    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider break-words">{label}</p>
+    <p className="text-base font-black text-foreground leading-none mt-1 tabular-nums [overflow-wrap:anywhere]">{value}</p>
   </div>
 );
 
@@ -52,7 +52,7 @@ const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
     <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
     <Stat label="Policies (current)" value={formatCount(a.policies_sold)} />
     <Stat label="Converted" value={formatCount(a.converted)} />
-    <Stat label={`Known annual premium (${a.premium.known_count}/${a.premium.policy_count})`} value={formatPremium(a.premium.annual_premium)} />
+    <Stat fullWidth label={`Known annual premium (${a.premium.known_count}/${a.premium.policy_count})`} value={formatPremium(a.premium.annual_premium)} />
   </div>
 );
 
