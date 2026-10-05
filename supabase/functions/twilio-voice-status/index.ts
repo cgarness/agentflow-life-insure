@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
-import { chooseDurationToWrite, parseDurationSeconds } from "./duration.ts";
+import { loadOutboundTwilioCreds } from "../_shared/twilioOutboundCreds.ts";
+import { captureDialEvidence, dialEvidenceTrigger, standardDialEvidenceDeps } from "./dial-evidence.ts";
+import { durationEvidence, parseDurationSeconds } from "./duration.ts";
 import {
   applyStatusLadder,
   decideVoiceStatusResponse,
@@ -144,6 +146,22 @@ type CallRow = {
 
 // insertMissedCallNotifications is now imported from "../_shared/notifications.ts"
 
+/**
+ * Recent-outbound routing (rev 4 §A3): the Dial-evidence capture is a Supabase Edge background task —
+ * EdgeRuntime.waitUntil keeps the worker alive until it settles (the guarded hand-off used by
+ * twilio-voice-inbound's keepAliveInBackground). The handler never awaits it.
+ */
+function keepDialEvidenceAlive(work: Promise<unknown>): void {
+  const guarded = work.catch((e) =>
+    console.error("[twilio-voice-status] dial-evidence background task failed:", e instanceof Error ? e.name : "unknown"));
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  try {
+    runtime?.waitUntil?.(guarded);
+  } catch (e) {
+    console.warn("[twilio-voice-status] EdgeRuntime.waitUntil unavailable:", e);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -176,9 +194,7 @@ Deno.serve(async (req) => {
     const callStatusFromForm = params["CallStatus"] ?? "";
     const mappedFromDial = mapDialCallStatusToCallStatus(dialCallStatus);
     const callStatus = mappedFromDial ?? callStatusFromForm;
-    const callDuration = parseDurationSeconds(
-      params["CallDuration"] ?? params["DialCallDuration"],
-    );
+    const callDuration = parseDurationSeconds(params["CallDuration"]) ?? parseDurationSeconds(params["DialCallDuration"]);
     const sipResponseCode = params["SipResponseCode"] ?? "";
     const webhookStirRaw =
       params["StirVerstat"] ??
@@ -213,6 +229,22 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
+
+    // Recent-outbound routing (rev 4 §A3): best-effort, provider-verified evidence of an outbound browser
+    // Dial, started after signature validation and client creation and before every early return below.
+    // Never awaited — no response, calls patch, ladder/CAS, duration, missed flag or notification depends
+    // on it (AGENT_RULES #30 rev 7(c) unchanged); losing it only keeps pre-feature routing.
+    const dialEvidence = dialEvidenceTrigger(params);
+    if (dialEvidence) {
+      keepDialEvidenceAlive((async () => {
+        const outboundCreds = loadOutboundTwilioCreds();
+        return captureDialEvidence(standardDialEvidenceDeps({
+          credentials: outboundCreds.ok ? outboundCreds.creds : null,
+          fetch: (url, init) => fetch(url, init),
+          rpc: (fn, args) => supabase.rpc(fn, args),
+        }), dialEvidence);
+      })());
+    }
 
     const nowIso = new Date().toISOString();
 
@@ -308,7 +340,8 @@ Deno.serve(async (req) => {
           durationCandidate = callDuration;
         } else if (existing.started_at) {
           const startMs = new Date(existing.started_at).getTime();
-          durationCandidate = Math.max(0, Math.round((Date.now() - startMs) / 1000));
+          const endMs = existing.ended_at ? Date.parse(existing.ended_at) : Date.now();
+          if (Number.isFinite(startMs) && endMs >= startMs) durationCandidate = Math.round((endMs - startMs) / 1000);
         }
         if (!patch.shaken_stir && accountSid) {
           // PSTN leg (child) usually carries STIR/SHAKEN; parent Voice SDK leg may not.
@@ -382,11 +415,20 @@ Deno.serve(async (req) => {
       delete patch.provider_error_code;
     }
 
-    // Monotonic guard: only persist duration when it improves on the stored value.
-    // Prevents a retried/late non-answer/busy/canceled/failed callback (candidate 0)
-    // from overwriting an already-recorded positive Twilio duration.
-    const durToWrite = chooseDurationToWrite(existing.duration, durationCandidate);
-    if (durToWrite !== null) patch.duration = durToWrite;
+    // Locking server evidence reconciliation owns duration. Provider truth may correct a prior estimate
+    // downwards; estimates and late non-answer callbacks cannot overwrite provider truth.
+    const evidence = durationEvidence(params, matchTwilioSid, durationCandidate);
+    if (evidence) {
+      const { error: durationError } = await supabase.rpc("record_call_duration_evidence", {
+        p_call_id: existing.id, p_account_sid: accountSid, p_matched_sid: matchTwilioSid,
+        p_duration_sid: evidence.sid, p_parent_sid: evidence.parentSid, p_candidate: durationCandidate,
+        p_source: evidence.source, p_sequence: evidence.sequence, p_observed_at: evidence.observedAt ?? nowIso,
+      });
+      if (durationError) {
+        console.error("[twilio-voice-status] duration evidence not persisted", durationError.code);
+        return new Response(EMPTY_TWIML, { status: 503, headers: twimlHeaders });
+      }
+    }
 
     // C7 (rev 6): the update is EXACT-ROW (the row resolved by the SID lookup) and its outcome is
     // verified — a failed or zero-row write must never be followed by a notification. When the

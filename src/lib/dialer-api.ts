@@ -1,3 +1,4 @@
+import { persistAppointment, bookingTimes, type BookingPayload } from "@/lib/appointmentPersistence";
 import { persistDisposition, type DispositionInput } from "@/lib/dialer-disposition";
 import { supabase } from "@/integrations/supabase/client";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
@@ -328,6 +329,7 @@ export async function saveCall(data: {
   contact_type?: string;
   converted_client_id?: string;
   callback_due_at?: string | null;
+  appointment?: BookingPayload | null;
 }, organizationId: string | null = null) {
   if (!data.id || !data.disposition_id) throw new Error("A persisted call and disposition are required.");
   return persistDisposition({
@@ -338,6 +340,7 @@ export async function saveCall(data: {
     notes: data.notes,
     convertedClientId: data.converted_client_id ?? null,
     callbackDueAt: data.callback_due_at ?? null,
+    appointment: data.appointment,
     callbackNote: data.notes,
     releaseLock: false,
   });
@@ -368,44 +371,11 @@ export async function saveNote(data: {
 
 
 export async function saveAppointment(data: {
-  master_lead_id: string;
-  campaign_lead_id: string;
-  agent_id: string;
-  campaign_id: string;
-  title: string;
-  date: string;
-  time: string;
-  end_time: string;
-  notes: string;
+  request_id: string;
+  master_lead_id: string; campaign_lead_id: string; agent_id: string; campaign_id: string;
+  title: string; date: string; time: string; end_time: string; notes: string;
 }, organizationId: string | null = null) {
-  // The picked date + wall-clock time are the dialing agent's LOCAL time; store that absolute instant
-  // (the same construction as the canonical campaign callback — src/lib/calendar/localDateTime.ts).
-  const startTime = localDateTimeToIso(data.date, data.time);
-  const endTime = data.end_time ? localDateTimeToIso(data.date, data.end_time) : null;
-  if (!startTime || (data.end_time && !endTime)) {
-    throw new Error("Invalid appointment date or time — nothing was saved");
-  }
-
-  // Main-Dialer ownership: the dialing agent is both the responsible user and the scheduler.
-  const { error: aptError } = await supabase.from("appointments").insert({
-    contact_id: data.master_lead_id,
-    user_id: data.agent_id,
-    created_by: data.agent_id,
-    title: data.title,
-    start_time: startTime,
-    end_time: endTime,
-    notes: data.notes,
-    status: "Scheduled",
-    organization_id: organizationId,
-  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (aptError) throw new Error(aptError.message);
-
-  const { error: actError } = await supabase.from("contact_activities").insert({
-    contact_id: data.master_lead_id,
-    agent_id: data.agent_id,
-    activity_type: "status",
-    description: "Appointment scheduled",
-    organization_id: organizationId,
-  } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (actError) throw new Error(actError.message);
+  if (!organizationId) throw new Error("Missing booking organization");
+  return persistAppointment(data.request_id, { title: data.title, contact_id: data.master_lead_id,
+    user_id: data.agent_id, notes: data.notes, ...bookingTimes(data.date, data.time, data.end_time), status: "Scheduled" });
 }

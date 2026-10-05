@@ -137,6 +137,14 @@ vi.mock("@/integrations/supabase/client", () => {
   };
   return {
     supabase: {
+      rpc: (_name: string, args: any) => {
+        // The RPC fixture stamps trusted ownership; client input may contain neither authority field.
+        expect(args.p_appointment).not.toHaveProperty("created_by");
+        expect(args.p_appointment).not.toHaveProperty("organization_id");
+        const query = makeBuilder("appointments");
+        (query.insert as any)([{ ...args.p_appointment, created_by: ADMIN, organization_id: REAL_ORG }]);
+        return Promise.resolve((query.single as any)()).then((r: any) => r.error ? r : { ...r, data: { ...r.data, booking_request_id: args.p_request_id } });
+      },
       from: (t: string) => makeBuilder(t),
       channel: () => channel,
       removeChannel: () => {},
@@ -255,7 +263,7 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
 
     let returned: unknown;
     await act(async () => {
-      returned = await ctx().addAppointment({
+      returned = await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001",
         title: "Sales call with Pat",
         type: "Sales Call",
         status: "Scheduled",
@@ -287,7 +295,7 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
     await mountSettled();
 
     await act(async () => {
-      await ctx().addAppointment({
+      await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001",
         title: "Self-booked",
         start_time: "2026-10-06T16:00:00.000Z",
         ...assignee,
@@ -304,7 +312,7 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
     await mountSettled();
 
     await act(async () => {
-      await ctx().addAppointment({
+      await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001",
         title: "Spoof attempt",
         start_time: "2026-10-06T16:00:00.000Z",
         user_id: AGENT_A,
@@ -325,7 +333,7 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
     // The camelCase shape DialerPage used to send (removed by the Dialer writer fix, root plan §19;
     // PostgREST rejects it, so it could never duplicate a row).
     const date = new Date(2026, 9, 6);
-    const camel = {
+    const camel = { booking_request_id: "f0000000-0000-4000-8000-000000000001",
       title: "Dialer appointment",
       type: "Sales Call",
       status: "Scheduled",
@@ -348,12 +356,12 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
       });
     });
 
-    expect(caught).toBe(pgError);
+    expect((caught as Error).message).toBe(pgError.message);
     const payload = insertedRow();
     expect(Object.keys(payload).sort()).toEqual(
-      [...Object.keys(camel), "user_id", "created_by", "organization_id"].sort(),
+      [...Object.keys(camel).filter(k => k !== "booking_request_id"), "user_id", "created_by", "organization_id"].sort(),
     );
-    for (const [k, v] of Object.entries(camel)) expect(payload[k]).toBe(v);
+    for (const [k, v] of Object.entries(camel).filter(([k]) => k !== "booking_request_id")) expect(payload[k]).toBe(v);
     expect(payload.date).toBe(date);
     for (const snake of ["contact_name", "contact_id", "start_time", "end_time", "agent_id"]) {
       expect(payload).not.toHaveProperty(snake);
@@ -373,7 +381,7 @@ describe("addAppointment — ownership stamp (Own-1, Own-2, Own-5)", () => {
 
     let caught: unknown;
     await act(async () => {
-      await ctx().addAppointment({ title: "x", user_id: AGENT_A }).catch((e: unknown) => {
+      await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001", title: "x", user_id: AGENT_A }).catch((e: unknown) => {
         caught = e;
       });
     });
@@ -572,7 +580,7 @@ describe("mapAppointment — created_by and raw_status survive every path", () =
     await mountSettled();
 
     await act(async () => {
-      await ctx().addAppointment({
+      await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001",
         title: "For Agent A",
         status: "Scheduled",
         start_time: "2026-10-07T16:00:00.000Z",
@@ -711,7 +719,7 @@ describe("fetchAppointments — freshness ordering (§5.3)", () => {
     expect(fetchCalls()).toHaveLength(baseFetches + 1);
 
     await act(async () => {
-      await ctx().addAppointment({
+      await ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001",
         title: "Booked mid-refresh",
         status: "Scheduled",
         start_time: "2026-10-08T16:00:00.000Z",
@@ -930,7 +938,7 @@ describe("fetchAppointments — a read that overlaps an in-flight write (review 
     db.queues.insert.push(insD.promise);
     let addP: Promise<unknown> | undefined;
     act(() => {
-      addP = ctx().addAppointment({ title: "New", status: "Scheduled", start_time: "2026-10-08T16:00:00.000Z" });
+      addP = ctx().addAppointment({ booking_request_id: "f0000000-0000-4000-8000-000000000001", title: "New", status: "Scheduled", start_time: "2026-10-08T16:00:00.000Z" });
     });
     const inserted = row(APPT_NEW, { start_time: "2026-10-08T16:00:00.000Z" });
     // The insert has committed server-side, so this read already contains it.

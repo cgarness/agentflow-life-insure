@@ -3,6 +3,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface DialerHeaderStatsProps {
   statsLoading: boolean;
+  status?: "ok" | "stale" | "unavailable";
+  updatedAt?: number | null;
+  timeZone?: string;
+  onRetry?: () => void;
   sessionStartedAt: string | null | undefined;
   sessionElapsed: number;
   sessionStats: {
@@ -17,6 +21,7 @@ interface DialerHeaderStatsProps {
 
 export const DialerHeaderStats: React.FC<DialerHeaderStatsProps> = ({
   statsLoading,
+  status = "ok", updatedAt, timeZone, onRetry,
   sessionStartedAt,
   sessionElapsed,
   sessionStats,
@@ -46,16 +51,19 @@ export const DialerHeaderStats: React.FC<DialerHeaderStatsProps> = ({
   ];
 
   return (
-    <div className="flex items-center justify-center flex-1 gap-2 overflow-hidden">
+    <div className="flex flex-col flex-1 min-w-0">
+    <div className="flex items-center justify-center gap-2 overflow-hidden">
       {stats.map((s) => (
         <div
           key={s.label}
           className="flex flex-col items-center px-3 py-1 bg-accent/30 border border-border/50 rounded-xl min-w-0 h-14 justify-center transition-all hover:bg-accent/50"
         >
           <div className="text-[8px] text-muted-foreground uppercase tracking-wider font-semibold truncate w-full text-center">{s.label}</div>
-          <div className="text-xs font-bold font-mono text-foreground truncate">{s.value}</div>
+          <div className="text-xs font-bold font-mono text-foreground truncate">{status === "unavailable" ? "—" : s.value}</div>
         </div>
       ))}
+    </div>
+    <p className="text-[10px] text-center text-muted-foreground">Selected campaign · Local day{timeZone ? ` (${timeZone})` : ""}{status === "stale" ? ` · Stale${updatedAt ? ` since ${new Date(updatedAt).toLocaleTimeString()}` : ""}` : status === "unavailable" ? " · Stats unavailable" : ""}{status !== "ok" && <button type="button" className="ml-2 underline" onClick={onRetry}>Retry stats</button>}</p>
     </div>
   );
 };

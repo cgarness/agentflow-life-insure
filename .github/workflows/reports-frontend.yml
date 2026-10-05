@@ -4,6 +4,8 @@ on:
     paths:
       - 'src/**'
       - 'scripts/verify_reports_frontend.py'
+      - 'scripts/frontend_runtime_error_compare.py'
+      - 'scripts/vitest-runtime-error-reporter.mjs'
       - 'supabase/**reports*'
       - '.github/workflows/reports-frontend.yml'
 permissions:

@@ -8,14 +8,15 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useTwilio, MakeCallOptions } from "@/contexts/TwilioContext";
 import { useNavigate } from "react-router-dom";
-import { triggerWin } from "@/lib/win-trigger";
-import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
 import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useFloatingDialerDispositions } from "@/hooks/useFloatingDialerDispositions";
 import { saveCall } from "@/lib/dialer-api";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
+import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
+import { clientsSupabaseApi } from "@/lib/supabase-clients";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { rowToLead } from "@/lib/supabase-contacts";
 import type { Lead } from "@/lib/types";
 import { primeIncomingCallAudio } from "@/lib/incomingCallAlerts";
@@ -228,6 +229,7 @@ const FloatingDialer: React.FC = () => {
   const convertedCallRef = useRef<{ callId: string; clientId: string } | null>(null);
   const conversionCallRef = useRef<{ callId: string; version: object; dispositionId: string } | null>(null);
   const [conversionLead, setConversionLead] = useState<Lead | null>(null);
+  const [policyClient, setPolicyClient] = useState<{ id: string; callId: string; version: object; dispositionId: string; primary: boolean } | null>(null);
 
 
   // --- Post-call disposition state ---
@@ -685,6 +687,7 @@ const FloatingDialer: React.FC = () => {
     conversionCallRef.current = null;
     convertedCallRef.current = null;
     setConversionLead(null);
+    setPolicyClient(null);
     setOpen(false);
   };
 
@@ -711,6 +714,13 @@ const FloatingDialer: React.FC = () => {
     const clientId = converted ?? (converting && selectedContact?.type === "client" ? selectedContact.id : undefined);
     dispositionSavingRef.current = true;
     try {
+      if (converting && !converted && selectedContact?.type === "client") {
+        const client = await clientsSupabaseApi.getById(selectedContact.id);
+        if (!isCurrentVisit()) return;
+        setPolicyClient({ id: selectedContact.id, callId, version: dispositionConfig.version, dispositionId: disp.id,
+          primary: !client.primaryPolicyId && !hasClientPolicyEvidence(client) });
+        return;
+      }
       if (converting && !clientId) {
         if (selectedContact?.type !== "lead") throw new Error("Select a lead to convert before saving this disposition.");
         const { data, error } = await supabase.from("leads").select("*")
@@ -729,28 +739,8 @@ const FloatingDialer: React.FC = () => {
         callback_due_at: disp.callback_scheduler ? new Date(`${callbackDate}T${callbackTime}`).toISOString() : null,
       }, organizationId);
       if (!isCurrentVisit()) return;
-      if (!persisted.replayed && disp.callback_scheduler && persisted.contact_id) {
-        const { error } = await supabase.from('appointments').insert([{
-          title: `Callback: ${selectedContact?.first_name ?? ""} ${selectedContact?.last_name ?? ""}`.trim(),
-          contact_id: persisted.contact_id, user_id: user.id, created_by: user.id,
-          status: 'Scheduled', start_time: new Date(`${callbackDate}T${callbackTime}`).toISOString(),
-          notes: `Callback scheduled from dialer. Disposition: ${disp.name}`, organization_id: organizationId,
-        }]);
-        if (!isCurrentVisit()) return;
-        if (error) toast.error("Disposition saved; callback calendar entry may not have saved.");
-      }
-      // ConvertLeadModal already records its idempotent win. Existing-client quick-call
-      // dispositions retain their win behavior, also keyed to this persisted call.
-      if (!persisted.replayed && converting && !converted && user && profile) {
-        try {
-          await triggerWin({
-            agentId: user.id, agentName: `${profile.first_name} ${profile.last_name}`,
-            contactName: selectedContact ? `${selectedContact.first_name} ${selectedContact.last_name}` : dialedNumber,
-            contactId: persisted.contact_id ?? undefined, policyType: disp.name, organizationId,
-            soldDate: todayLocalIsoDate(), idempotencyKey: `disposition:${callId}`,
-          });
-        } catch { /* Core disposition is already committed. */ }
-      }
+      // Both conversion and existing-client policy entry persist their own atomic sale.
+      // A disposition alone is never a policy sale.
       if (isCurrentVisit()) resetAll();
     } catch (err) {
       if (isCurrentVisit()) toast.error(err instanceof Error ? err.message : "Disposition save failed. Please retry.");
@@ -787,6 +777,15 @@ const FloatingDialer: React.FC = () => {
 
   return (
     <>
+      {policyClient && <RecordPolicyModal key={`${organizationId}|${policyClient.callId}|${policyClient.id}`}
+        open={callScopeMatches && dispositionConfig.status === "ready" && policyClient.version === dispositionConfig.version}
+        clientId={policyClient.id} primary={policyClient.primary} onClose={() => setPolicyClient(null)}
+        onSaved={() => {
+          if (!callScopeMatches || !dispositionConfig.isCurrent() || policyClient.callId !== callVisitRef.current
+            || policyClient.version !== dispositionConfig.version || policyClient.dispositionId !== selectedDispId) return;
+          setPolicyClient(null);
+          void handleSaveDisposition(policyClient.id);
+        }} />}
       <ConvertLeadModal
         open={!!conversionLead && callScopeMatches && dispositionConfig.status === "ready"
           && pendingConversion?.version === dispositionConfig.version}

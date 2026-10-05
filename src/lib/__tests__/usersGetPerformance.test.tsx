@@ -1,3 +1,4 @@
+import { summaryFixture } from "@/test/fixtures/performance";
 /**
  * usersApi.getPerformance `appointmentsSet` / `appsMonth` = Appointments Set (AGENT_RULES #23 / #38): booked this
  * month by the user, credited COALESCE(created_by, user_id), no status filter. UserProfileModal passes `appsMonth`
@@ -13,12 +14,21 @@ import type { RecordedQuery, Row } from "@/lib/__tests__/appointmentRowsFixture"
 const h = vi.hoisted(() => ({
   rows: {} as Record<string, Record<string, unknown>[]>,
   queries: [] as unknown[],
+  rpcCalls: [] as any[],
 }));
 
 vi.mock("@/integrations/supabase/client", async () => {
   const { RecordedQuery } = await import("@/lib/__tests__/appointmentRowsFixture");
   return {
     supabase: {
+      rpc: (fn: string, args: any) => {
+        h.rpcCalls.push({fn,args});
+        const at = new Date(); const start = new Date(at.getFullYear(),at.getMonth(),1);
+        const bookings = (h.rows.appointments ?? []).filter(r => (r.created_by ?? r.user_id) === args.p_agent_id && new Date(String(r.created_at)) >= start && new Date(String(r.created_at)) < at).length;
+        const result = fn === "get_performance_details" ? { ...summaryFixture({p_period:args.p_period}), rows:[] } : summaryFixture(args,{bookings});
+        const q = { abortSignal: () => q, then: (yes:any,no:any) => Promise.resolve({data:result,error:null}).then(yes,no) };
+        return q;
+      },
       from: (table: string) => {
         const q = new RecordedQuery(table, h.rows[table] ?? []);
         h.queries.push(q);
@@ -43,9 +53,13 @@ const apptQuery = () => (h.queries as RecordedQuery[]).find((q) => q.table === "
 
 beforeEach(() => {
   h.queries = [];
+  h.rpcCalls = [];
+  vi.useFakeTimers({toFake:["Date"]});
+  vi.setSystemTime(new Date(2026,9,15,12));
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 describe("usersApi.getPerformance — appointmentsSet is setter credit", () => {
@@ -65,14 +79,12 @@ describe("usersApi.getPerformance — appointmentsSet is setter credit", () => {
     expect((await usersApi.getPerformance(SETTER_A)).appointmentsSet).toBe(1);
   });
 
-  it("emits the booking window and setter filter, with no user_id-only or status filter", async () => {
+  it("requests the authorized month summary without browser metric fanout", async () => {
     setAppointments([]);
     await usersApi.getPerformance(SETTER_A);
-    const q = apptQuery();
-    expect(q.calls).toContainEqual(["or", `created_by.eq.${SETTER_A},and(created_by.is.null,user_id.eq.${SETTER_A})`]);
-    expect(q.calls).toContainEqual(["gte", "created_at", monthStart().toISOString()]);
-    expect(q.calls.some(([m]) => m === "not")).toBe(false);
-    expect(q.calls.some(([m, col]) => m === "eq" && col === "user_id")).toBe(false);
+    expect(h.rpcCalls[0]).toEqual({ fn: "get_performance_summary", args: { p_period: "month", p_mode: "own", p_agent_id: SETTER_A } });
+    expect(h.queries.some((q: any) => ["appointments","calls","wins"].includes(q.table))).toBe(false);
+
   });
 
   it("an invalid user id rejects before any read is sent", async () => {

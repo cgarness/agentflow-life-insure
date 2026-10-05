@@ -22,14 +22,10 @@ const { state } = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (table: string) => ({
-      insert: (payload: Record<string, unknown>) => {
-        state.inserts.push({ table, payload });
-        return Promise.resolve(
-          state.failTable === table ? { data: null, error: { message: `boom:${table}` } } : { data: null, error: null },
-        );
-      },
-    }),
+    rpc: (_name: string, args: any) => {
+      state.inserts.push({ table: "appointments", payload: args.p_appointment });
+      return Promise.resolve(state.failTable === "appointments" ? { data: null, error: {message: "boom:appointments"} } : { data: {id: "booking", booking_request_id: args.p_request_id, ...args.p_appointment}, error: null });
+    },
   },
 }));
 
@@ -48,6 +44,7 @@ const ABSOLUTE_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}
 
 function base(overrides: Partial<Parameters<typeof saveAppointment>[0]> = {}): Parameters<typeof saveAppointment>[0] {
   return {
+    request_id: "f0000000-0000-4000-8000-00000000000f",
     master_lead_id: LEAD,
     campaign_lead_id: "d0000000-0000-4000-8000-00000000000d",
     agent_id: AGENT,
@@ -91,35 +88,27 @@ describe("saveAppointment payload", () => {
     await saveAppointment(base(), ORG);
     const p = appointmentInserts()[0].payload;
     expect(p.user_id).toBe(AGENT);
-    expect(p.created_by).toBe(AGENT);
+    expect(p).not.toHaveProperty("created_by");
   });
 
   it("keeps organization, Scheduled status, contact identity, title and notes — and writes no type", async () => {
     await saveAppointment(base(), ORG);
     const p = appointmentInserts()[0].payload;
-    expect(p.organization_id).toBe(ORG);
+    expect(p).not.toHaveProperty("organization_id");
     expect(p.status).toBe("Scheduled");
     expect(p.contact_id).toBe(LEAD);
     expect(p.title).toBe("Callback");
     expect(p.notes).toBe("call back after lunch");
     expect(p).not.toHaveProperty("type");
     expect(Object.keys(p).sort()).toEqual(
-      ["contact_id", "created_by", "end_time", "notes", "organization_id", "start_time", "status", "title", "user_id"].sort(),
+      ["contact_id", "end_time", "notes", "start_time", "status", "title", "user_id"].sort(),
     );
   });
 
-  it("keeps the contact_activities row unchanged (dialing agent, 'Appointment scheduled')", async () => {
+  it("delegates appointment and activity to one atomic service (no second browser write)", async () => {
     await saveAppointment(base(), ORG);
-    expect(activityInserts()).toHaveLength(1);
-    expect(activityInserts()[0].payload).toEqual({
-      contact_id: LEAD,
-      agent_id: AGENT,
-      activity_type: "status",
-      description: "Appointment scheduled",
-      organization_id: ORG,
-    });
-    // The appointment row is written before the activity row.
-    expect(state.inserts.map((i) => i.table)).toEqual(["appointments", "contact_activities"]);
+    expect(state.inserts.map(i => i.table)).toEqual(["appointments"]);
+    expect(activityInserts()).toHaveLength(0);
   });
 
   it("accepts a 24-hour HH:mm time", async () => {

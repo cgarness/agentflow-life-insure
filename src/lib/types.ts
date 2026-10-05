@@ -107,6 +107,8 @@ export interface Lead {
 
 export interface Client {
   id: string;
+  /** Stable stored primary identity, retained after current-book removal. Read-only. */
+  primaryPolicyId?: string | null;
   firstName: string;
   lastName: string;
   phone: string;

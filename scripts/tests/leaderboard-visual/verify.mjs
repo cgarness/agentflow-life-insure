@@ -16,8 +16,37 @@ try {
  await page.goto(url);
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('vite-error-overlay').count(),0);
+ assert.match(await page.locator('body').innerText(),/Active agents · America\/Los_Angeles · As of/);
+ async function settleLayout() {
+  await page.evaluate(async()=>{
+   let previous='',stableSince=performance.now();const deadline=performance.now()+6000;
+   while(performance.now()<deadline){
+    await new Promise(requestAnimationFrame);
+    const positions=JSON.stringify([...document.querySelectorAll('[data-testid="tv-rankings"], [data-testid="tv-rankings"] img, [data-testid="tv-podium"] [data-agent-id]')].map(e=>{
+     const r=e.getBoundingClientRect();return [e.getAttribute('data-agent-id'),r.x,r.y,r.width,r.height].map(v=>typeof v==='number'?Math.round(v*10):v);
+    }));
+    if(positions!==previous){previous=positions;stableSince=performance.now();}
+    if(performance.now()-stableSince>400)return;
+   }
+   throw new Error('TV layout did not settle');
+  });
+ }
  async function measure(label) {
+  const expected=await page.evaluate(()=>{
+   const rows=window.fixtureRows();const keys=['policiesSold','callsMade','appointmentsSet','talkTime','conversionRate','premiumSold'];
+   const key=keys[Number(localStorage.getItem('leaderboardTvMetricIndex')??0)];
+   const ranked=[...rows].sort((a,b)=>(b[key]??-Infinity)-(a[key]??-Infinity));
+   const sum=k=>rows.reduce((total,row)=>total+row[k],0);
+   return {podium:[ranked[1],ranked[0],ranked[2]].filter(Boolean).map(row=>row.id),
+    totals:[String(sum('callsMade')),String(sum('policiesSold')),new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(sum('premiumSold')),String(sum('appointmentsSet'))]};
+  });
+  await page.waitForFunction(expected=>{
+   const ids=[...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId);
+   const totals=[...document.querySelectorAll('[data-testid="tv-agency-totals"] .tabular-nums')].map(e=>e.textContent);
+   return JSON.stringify(ids)===JSON.stringify(expected.podium)&&JSON.stringify(totals)===JSON.stringify(expected.totals);
+  },expected);
   await page.waitForFunction(()=>{const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img')];return photos.length===document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length&&photos.every(i=>i.complete&&i.naturalWidth>0);});
+  await settleLayout();
   const metrics=await page.evaluate(()=>{
    const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom};};
    const totals=rect(document.querySelector('[data-testid="tv-agency-totals"]'));
@@ -26,11 +55,16 @@ try {
    const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img,[data-testid="tv-rankings"] img')].map(rect);
    const table=document.querySelector('[data-testid="tv-rankings"]');
    const tablePhotos=[...table.querySelectorAll('img')].map(rect);
-   return {centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,table:rect(table),tablePhotos,
+   const panels=[...document.querySelector('[data-testid="tv-lower-panels"]').children].map(rect);
+   return {centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,panels,table:rect(table),tablePhotos,
     horizontalOverflow:document.documentElement.scrollWidth>window.innerWidth,originalRanks:window.fixtureRanks()};
   });
   assert.ok(metrics.centerError<1,`${label}: podium and Agency Totals centerline`);
   assert.equal(metrics.horizontalOverflow,false,`${label}: horizontal page overflow`);
+  for(let i=0;i<metrics.panels.length;i++)for(let j=i+1;j<metrics.panels.length;j++) {
+   const a=metrics.panels[i],b=metrics.panels[j];
+   assert.ok(a.right<=b.x+1||b.right<=a.x+1||a.bottom<=b.y+1||b.bottom<=a.y+1,`${label}: lower panels overlap ${i}/${j}: ${JSON.stringify(metrics.panels)}`);
+  }
   for(let i=0;i<metrics.photos.length;i++)for(let j=i+1;j<metrics.photos.length;j++) {
    const a=metrics.photos[i],b=metrics.photos[j];
    assert.ok(a.right<=b.x+1||b.right<=a.x+1||a.bottom<=b.y+1||b.bottom<=a.y+1,`${label}: overlapping avatars ${i}/${j}`);
@@ -38,6 +72,17 @@ try {
   assert.ok(metrics.tablePhotos.every(p=>p.bottom<=metrics.table.bottom+1),`${label}: table clips photos`);
   assert.ok(metrics.originalRanks.every((r,i)=>r===i+1),`${label}: mutated source ranks`);
   await page.screenshot({path:`${output}/${label}.png`});
+  await page.getByTestId('tv-rankings').scrollIntoViewIfNeeded();
+  await settleLayout();
+  const visiblePhotos=await page.getByTestId('tv-rankings').locator('img').evaluateAll(images=>images.map(img=>{
+   const r=img.getBoundingClientRect();const main=document.querySelector('main').getBoundingClientRect();
+   const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+   return {visible:r.top>=main.top-1&&r.bottom<=main.bottom+1&&hit===img,top:r.top,bottom:r.bottom,mainTop:main.top,mainBottom:main.bottom,hit:hit?.tagName};
+  }));
+  assert.ok(visiblePhotos.every(p=>p.visible),`${label}: table photos must be visible after scrolling: ${JSON.stringify(visiblePhotos)}`);
+  await page.screenshot({path:`${output}/${label}-table.png`});
+  await page.locator('main').evaluate(main=>main.scrollTo({top:0}));
+  await settleLayout();
   console.log('PASS',label,JSON.stringify({centerError:metrics.centerError,photos:metrics.photos.length}));
  }
  for(const [w,h] of [[1366,768],[1920,1080],[3840,2160],[1093,614]]) {
@@ -59,6 +104,12 @@ try {
   await page.waitForFunction(n=>document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length===Math.min(n,3),count);
   await measure(`roster-${count}`);
  }
+ await page.getByRole('button',{name:'TV display options'}).click();
+ await page.getByLabel('Viewing metric').selectOption('0');
+ await page.keyboard.press('Escape');
+ await measure('policies-manual-switch');
+ await page.evaluate(()=>window.fixtureLiveUpdate());
+ await measure('live-policy-update');
  await page.getByRole('button',{name:'Exit TV mode'}).click();
  await page.getByRole('button',{name:'Enter TV mode'}).click();
  await measure('reentered-tv');
@@ -69,6 +120,17 @@ try {
  const prior=await page.getByTestId('tv-podium').innerText();
  await page.waitForTimeout(30_100);
  assert.notEqual(await page.getByTestId('tv-podium').innerText(),prior,'automatic metric rotation');
+ await page.goto(`${url}/?view=normal`);
+ await page.setViewportSize({width:1440,height:1000});
+ await page.getByText('$701.40',{exact:true}).waitFor();
+ await page.getByText('1m 21s',{exact:true}).waitFor();
+ assert.match(await page.locator('body').innerText(),/1 policies with unknown premium/);
+ assert.match(await page.locator('body').innerText(),/—/);
+ for(const [width,height] of [[1440,1000],[390,844]]){
+  await page.setViewportSize({width,height});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
+  await page.screenshot({path:`${output}/normal-${width}.png`});
+ }
  assert.deepEqual(errors,[],'browser console errors');
  console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit and timer checks');
 } catch(error) {

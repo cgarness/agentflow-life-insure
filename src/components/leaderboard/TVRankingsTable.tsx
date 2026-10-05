@@ -1,9 +1,11 @@
+import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 import React from "react";
 import { motion, LayoutGroup } from "framer-motion";
 import { ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
 import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "./tvPanelLayout";
+import { cn } from "@/lib/utils";
 import { agentHighlightClass } from "./leaderboardHighlight";
 import { type AgentStats, type Metric, type RankMovement, formatPremiumSold } from "./leaderboardTypes";
 import { type RankMotionKind, tvTableRowLayoutTransition } from "./leaderboardRankMotion";
@@ -40,8 +42,8 @@ interface Props {
 }
 export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotions, tvRankAnimations, tvRankDeltas, tvRankMovements, spotlightAgentId, newLeaderId }: Props) {
  return (
-          <div className="order-1 xl:order-none min-w-0 flex min-h-[26rem] flex-col overflow-hidden xl:col-start-2" data-testid="tv-rankings">
-          <div className={TV_PANEL_CLASS}>
+          <div className="order-1 xl:order-none min-w-0 flex min-h-max flex-col xl:col-start-2" data-testid="tv-rankings">
+          <div className={cn(TV_PANEL_CLASS, "h-auto min-h-max flex-1")}>
             <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
                 <TrendingUp className="h-4 w-4" />
@@ -49,7 +51,7 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-max flex-1 flex-col">
               <div
                 className={`${TV_TABLE_ROW} shrink-0 border-b border-white/5 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500`}
               >
@@ -57,10 +59,10 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                 <span className="text-center">Agent</span>
                 <span className="text-center">Calls</span>
                 <span className="text-center">Policies</span>
-                <span className="text-center">Premium</span>
+                <span className="text-center">Annual Premium</span>
                 <span className="text-center">Appts</span>
                 <span className="text-center">Talk</span>
-                <span className="text-center">Conv</span>
+                <span className="text-center">Policies / 100 Calls</span>
               </div>
 
               <LayoutGroup id="tv-table">
@@ -108,16 +110,16 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                             <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />
+                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
                             <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums text-slate-400">
-                            <OdometerValue value={a.talkTime / 3600} format={(n) => `${n.toFixed(1)}h`} tv />
+                            <OdometerValue value={a.talkTime} format={formatTalkTime} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-orange-400">
-                            <OdometerValue value={a.conversionRate} format={(n) => `${n.toFixed(1)}%`} tv />
+                            <OdometerValue value={a.conversionRate} format={(n) => n.toFixed(1)} tv />
                           </div>
                         </motion.div>
                       );

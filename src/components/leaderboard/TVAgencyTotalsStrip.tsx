@@ -16,7 +16,7 @@ const METRIC_COLUMN: Partial<Record<Metric, "calls" | "policies" | "premium" | "
   "Policies Sold": "policies",
   "Premium Sold": "premium",
   "Appointments Set": "appts",
-  "Conversion Rate": "policies",
+  "Policies per 100 Calls": "policies",
 };
 
 interface TVAgencyTotalsStripProps {
@@ -67,7 +67,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
     },
     {
       key: "premium",
-      label: "Premium",
+      label: "Annual Premium",
       value: totals.premium,
       format: formatPremiumSold,
       valueClass: "text-amber-300",
@@ -86,7 +86,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-blue-400" />
-          <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-white">Agency Totals</h3>
+          <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-white">Active-Agent Totals</h3>
           <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">
             · {agents.length} agents
           </span>

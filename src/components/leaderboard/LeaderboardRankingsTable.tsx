@@ -1,3 +1,4 @@
+import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 import React from "react";
 import { motion, LayoutGroup } from "framer-motion";
 import { ArrowUp, ArrowDown, Download } from "lucide-react";
@@ -102,7 +103,7 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
             Policies
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap hidden md:block" role="columnheader">
-            Premium
+            Annual Premium
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap hidden md:block" role="columnheader">
             Appts
@@ -111,7 +112,7 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
             Talk Time
           </div>
           <div className="py-3 pr-4 pl-2 font-medium text-right whitespace-nowrap hidden lg:block" role="columnheader">
-            Conv %
+            Policies / 100 Calls
           </div>
         </div>
 
@@ -177,21 +178,21 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
                       <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} />
                     </div>
                     <div className="py-3 px-2 text-right text-foreground whitespace-nowrap tabular-nums hidden md:block" role="cell">
-                      <OdometerValue value={a.premiumSold} format={formatPremiumSold} />
+                      <OdometerValue value={a.premiumSold} format={formatPremiumSold} />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                     </div>
                     <div className="py-3 px-2 text-right text-foreground whitespace-nowrap tabular-nums hidden md:block" role="cell">
                       <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} />
                     </div>
                     <div className="py-3 px-2 text-right text-foreground whitespace-nowrap tabular-nums hidden xl:block" role="cell">
                       <OdometerValue
-                        value={a.talkTime / 3600}
-                        format={(n) => `${n.toFixed(1)} hrs`}
+                        value={a.talkTime}
+                        format={formatTalkTime}
                       />
                     </div>
                     <div className="py-3 pr-4 pl-2 text-right text-foreground whitespace-nowrap tabular-nums hidden lg:block" role="cell">
                       <OdometerValue
                         value={a.conversionRate}
-                        format={(n) => `${n.toFixed(1)}%`}
+                        format={(n) => n.toFixed(1)}
                       />
                     </div>
                   </motion.div>

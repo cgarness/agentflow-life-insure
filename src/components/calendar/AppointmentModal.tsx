@@ -40,7 +40,7 @@ const timeToMinutes = (t: string): number => {
 
 const minutesToTime = (min: number): string => {
   const m = min % 1440; // wrap around day
-  let h = Math.floor(m / 60);
+  const h = Math.floor(m / 60);
   const minutes = m % 60;
   const p = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
@@ -240,11 +240,18 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   // Each open is a new session: a save still pending from an earlier session neither closes this one
   // nor holds its CONFIRM disabled.
   const openSessionRef = useRef(0);
+  const bookingRequestRef = useRef(crypto.randomUUID());
+  const savePendingRef = useRef(false);
+  const saveScope = `${organizationId ?? ""}:${user?.id ?? ""}:${editing?.id ?? ""}:${prefillContactId ?? ""}`;
+  const saveScopeRef = useRef(saveScope);
+  saveScopeRef.current = saveScope;
   useEffect(() => {
-    if (!open) return;
     openSessionRef.current += 1;
+    if (!open) return;
+    bookingRequestRef.current = crypto.randomUUID();
+    savePendingRef.current = false;
     setSaving(false);
-  }, [open]);
+  }, [open, saveScope]);
 
   useEffect(() => {
     if (!open) return;
@@ -285,7 +292,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
         setDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`);
       }
     }
-  }, [open, editing, defaultDate, defaultTime, prefillContactName, apptTypes]);
+  }, [open, editing, defaultDate, defaultTime, prefillContactName, apptTypes, organizationId, user?.id]);
 
   const contactId = editing?.contactId || prefillContactId || selectedContactId || "";
   const [contactInfo, setContactInfo] = useState<{ name: string; phone: string; email: string; state: string; status: string; contactId: string } | null>(null);
@@ -342,7 +349,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
   };
 
   const handleSave = async () => {
-    if (saving || !validate()) return;
+    if (savePendingRef.current || saving || !validate()) return;
+    savePendingRef.current = true;
     const [y, m, d] = date.split("-").map(Number);
     const dateObj = new Date(y, m - 1, d);
     const contactIdPayload = editing?.contactId ?? prefillContactId ?? selectedContactId ?? "";
@@ -354,10 +362,12 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
       : isViewerAssignee && profile ? `${profile.first_name} ${profile.last_name}` : "";
 
     const session = openSessionRef.current;
+    const scope = saveScope;
     setSaving(true);
     let result: boolean | void;
     try {
       result = await onSave({
+        booking_request_id: bookingRequestRef.current,
         title: title.trim(), type, status,
         contactName: contactName.trim(),
         contactId: contactIdPayload,
@@ -369,7 +379,8 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
     } catch {
       result = false;
     }
-    if (session !== openSessionRef.current) return;
+    if (session !== openSessionRef.current || scope !== saveScopeRef.current) return;
+    savePendingRef.current = false;
     setSaving(false);
     // Never report a save that did not happen: stay open on failure (the parent showed the error).
     if (result === false) return;

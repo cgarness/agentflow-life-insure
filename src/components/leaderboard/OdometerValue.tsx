@@ -3,7 +3,7 @@ import { animate } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface OdometerValueProps {
-  value: number;
+  value: number | null;
   format: (n: number) => string;
   className?: string;
   tv?: boolean;
@@ -15,6 +15,9 @@ const OdometerValue: React.FC<OdometerValueProps> = ({ value, format, className,
 
   useEffect(() => {
     if (prevRef.current === value) return;
+    if (value === null || prevRef.current === null) {
+      prevRef.current = value; setDisplay(value); return;
+    }
     const controls = animate(prevRef.current, value, {
       duration: tv ? 0.65 : 0.48,
       ease: [0.22, 1, 0.36, 1],
@@ -26,7 +29,7 @@ const OdometerValue: React.FC<OdometerValueProps> = ({ value, format, className,
 
   return (
     <span className={cn("tabular-nums inline-block", className)}>
-      {format(display)}
+      {value === null || display === null ? "—" : format(display)}
     </span>
   );
 };

@@ -2,6 +2,13 @@
 from collections import Counter
 
 
+def assert_no_new_test_failures(base, branch):
+    """Resolved failures are improvements; a replacement or duplicate failure is not."""
+    for kind, previous, current in zip(('suite', 'test'), base, branch, strict=True):
+        added = Counter(current) - Counter(previous)
+        assert not added, f'New Vitest {kind} failures against base: {dict(added)}'
+
+
 def runtime_error_signatures(evidence, roots=()):
     if not isinstance(evidence, dict) or evidence.get('finished') is not True:
         raise ValueError('Runtime error run did not finish')
@@ -19,6 +26,19 @@ def runtime_error_signatures(evidence, roots=()):
 
 
 def selftest():
+    failed = (['old.ts'], [('old.ts', 'existing test')])
+    assert_no_new_test_failures(failed, failed)
+    assert_no_new_test_failures(failed, ([], []))
+    for regression in ((['replacement.ts'], []),
+                       (['old.ts'], [('old.ts', 'replacement test')]),
+                       (['old.ts', 'old.ts'], failed[1]),
+                       (failed[0], failed[1] * 2)):
+        try:
+            assert_no_new_test_failures(failed, regression)
+        except AssertionError:
+            continue
+        raise AssertionError('New/replacement/duplicate failures must be rejected')
+
     def done(*messages):
         return {'finished': True, 'reason': 'failed', 'errors': [{'name': 'Error', 'message': m} for m in messages]}
 

@@ -84,7 +84,10 @@ const UserProfileModal: React.FC<Props> = ({
   useEffect(() => {
     if (user && (tab === "performance" || tab === "goals") && !performance) {
       setPerfLoading(true);
-      usersApi.getPerformance(user.id).then(p => { setPerformance(p); setPerfLoading(false); });
+      let current = true;
+      usersApi.getPerformance(user.id).then(p => { if (current) setPerformance(p); }).catch(() => { if (current) setPerformance(null); })
+        .finally(() => { if (current) setPerfLoading(false); });
+      return () => { current = false; };
     }
   }, [user, tab, performance]);
 
@@ -93,10 +96,10 @@ const UserProfileModal: React.FC<Props> = ({
   const initials = `${user.firstName[0]}${user.lastName[0]}`;
   const isSelf = user.id === currentUserId;
   const goalActuals = {
-    callsMonth: performance?.callsMonthly ?? 0,
-    policiesMonth: performance?.policiesMonthly ?? 0,
-    appointmentsMonth: performance?.appsMonth ?? 0,
-    premiumMonth: performance?.premiumMonthly ?? 0,
+    callsMonth: performance?.callsMonthly ?? null,
+    policiesMonth: performance?.policiesMonthly ?? null,
+    appointmentsMonth: performance?.appsMonth ?? null,
+    premiumMonth: performance?.premiumMonthly ?? null,
   };
 
   const handleSaveProfile = async () => {

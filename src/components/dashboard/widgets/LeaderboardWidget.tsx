@@ -8,6 +8,7 @@ import { useTimeReached } from "@/hooks/useTimeReached";
 import { useLeaderboardWidgetStandings } from "@/hooks/useLeaderboardWidgetStandings";
 import { OFFLINE_HEADLINE, formatStatusTime, standingsDetail, standingsLive } from "@/lib/leaderboardStatusCopy";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { performanceCaption } from "@/lib/leaderboardExport";
 
 interface LeaderboardWidgetProps {
   userId: string;
@@ -25,7 +26,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
   refreshTracker,
 }) => {
   const navigate = useNavigate();
-  const { agencyGroup, widgetView, setWidgetView, ranked, loading, loadError, status, refreshHeldUntil, retry } =
+  const { agencyGroup, widgetView, setWidgetView, ranked, loading, loadError, status, refreshHeldUntil, retry, performanceSnapshot } =
     useLeaderboardWidgetStandings(userId, organizationId, refreshSignal, refreshTracker);
   const refreshHeldOver = useTimeReached(refreshHeldUntil);
   // Offline is not live: nothing can refresh until the connection is back.
@@ -128,6 +129,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
         </p>
       )}
       {viewToggle}
+      {performanceSnapshot && <p className="text-center text-[10px] text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}
       {noSalesYet ? (
         <p className="py-6 rounded-xl bg-muted/30 text-center text-sm font-medium text-muted-foreground">
           {!live && asOf ? `No sales recorded as of ${asOf}.` : "No sales recorded yet this month."}

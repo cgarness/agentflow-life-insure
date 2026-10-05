@@ -1,3 +1,4 @@
+import { summaryFixture } from "@/test/fixtures/performance";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { render, screen, fireEvent, cleanup, waitFor, act, renderHook } from "@testing-library/react";
@@ -39,6 +40,14 @@ vi.mock("@/integrations/supabase/client", () => {
   };
   return {
     supabase: {
+      rpc: (_name: string,args: any) => {
+        h.fromCalls.push("summary");
+        return {abortSignal: (signal: AbortSignal) => {
+          h.signals.push(signal);
+          const reply=h.deferNext?.table === "calls" ? new Promise<QueryResult>(resolve=>h.deferNext!.resolvers.push(resolve)) : Promise.resolve(h.result("calls"));
+          return reply.then(r=>({error:r.error,data:r.error?null:summaryFixture(args,{calls:r.count??0})}));
+        }};
+      },
       from: (table: string) => {
         h.fromCalls.push(table);
         return makeQuery(table);
@@ -113,7 +122,7 @@ describe("DashboardRefreshButton", () => {
 });
 
 describe("useDashboardStats", () => {
-  const STAT_TABLES = new Set(["calls", "clients", "appointments", "leads"]);
+  const STAT_TABLES = new Set(["summary"]);
   const statQueries = () => h.fromCalls.filter((t) => STAT_TABLES.has(t)).length;
 
   it("has no automatic refresh: one load, then nothing for 10 minutes", async () => {
@@ -123,7 +132,7 @@ describe("useDashboardStats", () => {
       await vi.advanceTimersByTimeAsync(10);
     });
     const firstLoad = statQueries();
-    expect(firstLoad).toBe(9);
+    expect(firstLoad).toBe(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10 * 60_000);
     });
@@ -145,17 +154,11 @@ describe("useDashboardStats", () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it("a first load behaves as before: an unused query failing never zeroes the cards", async () => {
-    let n = 0;
-    h.result = (t) => {
-      if (t !== "calls") return { data: [], error: null, count: 0 };
-      n += 1;
-      // The 9th query is the (undisplayed) talk-time read; make it fail.
-      return n === 3 ? { data: null, error: { message: "statement timeout" }, count: null } : { data: [], error: null, count: 5 };
-    };
-    const { result } = renderHook(() => useDashboardStats(USER, "Agent", "my", "day"));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.data?.callsToday).toBe(5);
+  it("a failed atomic summary never fabricates partial numbers", async () => {
+    h.result=()=>({data:null,error:{message:"timeout"}});
+    const {result}=renderHook(()=>useDashboardStats(USER,"Agent","my","day"));
+    await waitFor(()=>expect(result.current.loading).toBe(false));
+    expect(result.current.data).toBeNull();expect(result.current.section.failed).toBe(true);
   });
 
   it("a failed switch never shows the previous selection's numbers under the new one", async () => {
@@ -188,7 +191,7 @@ describe("useDashboardStats", () => {
     // Day is aborted; nothing for Week is sent while Day is still on the wire.
     expect(daySignals.every((signal) => signal.aborted)).toBe(true);
     expect(h.deferNext!.resolvers).toHaveLength(dayResolvers.length);
-    expect(h.fromCalls).toHaveLength(9);
+    expect(h.fromCalls).toHaveLength(1);
 
     act(() => dayResolvers.forEach((r) => r({ data: [], error: null, count: 111 })));
     await waitFor(() => expect(h.deferNext!.resolvers.length).toBeGreaterThan(dayResolvers.length));
@@ -244,3 +247,6 @@ describe("widgets reload on the Refresh signal", () => {
     expect(screen.queryByText("Jordan Kay")).not.toBeInTheDocument();
   });
 });
+
+vi.mock("@/contexts/BrandingContext",()=>({useBranding:()=>({branding:{timezone:Intl.DateTimeFormat().resolvedOptions().timeZone}})}));
+vi.mock("@/contexts/AuthContext",()=>({useAuth:()=>({profile:{organization_id:"11111111-1111-4111-8111-111111111111"}})}));

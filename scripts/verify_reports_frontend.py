@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run isolated Reports verification and prove no new failures versus the exact PR base."""
 from pathlib import Path
+from collections import Counter
 import json
 import os
 import re
 import subprocess
 import sys
-from frontend_runtime_error_compare import runtime_error_signatures, selftest
+from frontend_runtime_error_compare import assert_no_new_test_failures, runtime_error_signatures, selftest
 
 root = Path(__file__).resolve().parents[1]
 evidence = Path(os.environ.get('REPORTS_EVIDENCE', '/tmp/reports-frontend-evidence')).resolve()
@@ -39,8 +40,12 @@ for name, cwd in [('base', base), ('branch', root)]:
 
 def type_errors(name: str) -> list[str]:
     lines = (evidence/f'{name}-app-tsc.log').read_text().splitlines()
-    return sorted(x.replace(str(base),'<ROOT>').replace(str(root),'<ROOT>') for x in lines if 'error TS' in x)
-assert type_errors('base') == type_errors('branch'), 'TypeScript regression against base'
+    # Source edits move diagnostic locations. Compare file/code/message and multiplicity;
+    # resolved baseline errors are allowed, new or additional errors are not.
+    return sorted(re.sub(r'\(\d+,\d+\): (error TS)', r'(line,col): \1',
+                         x.replace(str(base),'<ROOT>').replace(str(root),'<ROOT>'))
+                  for x in lines if 'error TS' in x)
+assert not (Counter(type_errors('branch')) - Counter(type_errors('base'))), 'New TypeScript diagnostic against base'
 assert checks['base_root_tsc'] == checks['branch_root_tsc'], 'Root typecheck regression'
 
 def failures(path: Path, cwd: Path):
@@ -54,8 +59,8 @@ def failures(path: Path, cwd: Path):
     return j, (sorted(suites),sorted(tests))
 bj,bfail=failures(evidence/'base.json',base)
 hj,hfail=failures(evidence/'branch.json',root)
-assert bfail==hfail, 'Vitest failure set differs from base'
-assert bj.get('numFailedTests')==hj.get('numFailedTests'), 'New failed test'
+assert_no_new_test_failures(bfail, hfail)
+assert hj.get('numFailedTests') <= bj.get('numFailedTests'), 'New failed test'
 # JSON reporter versions do not all expose unhandled errors. Inspect both the field and
 # Vitest's explicit runtime-error summary; never turn an omitted field into a false zero.
 def runtime_errors(j, name):
@@ -76,7 +81,7 @@ for name, result in (('base', bj), ('branch', hj)):
     if reported is not None:
         assert reported == sum(runtime_signatures[name].values()), 'Runtime error reporters disagree'
 assert not (runtime_signatures['branch'] - runtime_signatures['base']), 'New unhandled runtime error'
-assert checks['base_vitest']==checks['branch_vitest'], 'Vitest process status differs from base'
+assert checks['base_vitest'] in (0, 1) and checks['branch_vitest'] in (0, checks['base_vitest']), 'Vitest process regression or abnormal exit'
 report_tests=sorted(str(p.relative_to(root)) for p in (root/'src').rglob('*.test.*')
                     if any(t in p.name.lower() for t in ['reports','reportstat','normalizedpolicy']))
 checks['reports_vitest']=run('reports-vitest',root,['npx','--no-install','vitest','run','--maxWorkers=2','--minWorkers=1',*report_tests])

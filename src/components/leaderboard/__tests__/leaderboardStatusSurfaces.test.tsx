@@ -252,3 +252,13 @@ describe("TV rev 1.2: offline and pending switches", () => {
     expect(screen.queryByText(/LIVE NEWS FEED/)).not.toBeInTheDocument();
   });
 });
+
+it("a historical top-feed insertion does not flash even if an older tab supplies its ID", () => {
+ const {container,rerender}=render(<RecentWinsPanel wins={[WIN]} agents={ROSTER} flashingWinId={null}/>);
+ const repaired={...WIN,id:"historical-repair",celebrated:true};
+ rerender(<RecentWinsPanel wins={[repaired,WIN]} agents={ROSTER} flashingWinId={repaired.id}/>);
+ expect(container.querySelector(".animate-leaderboard-flash")).toBeNull();
+ const fresh={...WIN,id:"fresh-sale",celebrated:false};
+ rerender(<RecentWinsPanel wins={[fresh,repaired,WIN]} agents={ROSTER} flashingWinId={null}/>);
+ expect(container.querySelector(".animate-leaderboard-flash")).not.toBeNull();
+});

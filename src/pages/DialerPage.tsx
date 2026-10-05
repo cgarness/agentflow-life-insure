@@ -1,3 +1,4 @@
+import { bookingTimes } from "@/lib/appointmentPersistence";
 import { useDispositionPersistence } from "@/hooks/useDispositionPersistence";
 import { applyPersistedDisposition, verifyOutboundAdmission, type DispositionInput } from "@/lib/dialer-disposition";
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
@@ -371,6 +372,7 @@ function writeCampaignStatsCache(
 const HEADER_STATS_CACHE_PREFIX = "af:dialer:headerStats:v1:";
 
 interface CachedHeaderStats {
+  updatedAt?: number;
   calls_made: number;
   contacted_calls: number;
   total_talk_seconds: number;
@@ -396,7 +398,9 @@ function readHeaderStatsCache(
   try {
     const raw = localStorage.getItem(headerStatsCacheKey(orgId, agentId, campaignId, localDay));
     if (!raw) return null;
-    return JSON.parse(raw) as CachedHeaderStats;
+    const value = JSON.parse(raw) as CachedHeaderStats;
+    if (!value.updatedAt || [value.calls_made,value.contacted_calls,value.total_talk_seconds,value.policies_sold,value.closed_session_duration_seconds].some(n => !Number.isFinite(n) || n < 0)) return null;
+    return value;
   } catch {
     return null;
   }
@@ -412,7 +416,7 @@ function writeHeaderStatsCache(
   try {
     localStorage.setItem(
       headerStatsCacheKey(orgId, agentId, campaignId, localDay),
-      JSON.stringify(stats),
+      JSON.stringify({ ...stats, updatedAt: Date.now() }),
     );
   } catch {
     /* quota / disabled storage — cache is best-effort */
@@ -614,6 +618,10 @@ export default function DialerPage() {
   // trusted reconcile (calls/wins/dialer_sessions) is still in flight, and
   // re-skeleton on a campaign switch instead of showing the prior campaign's
   // numbers (Issue 1, Dialer QA polish).
+  const standaloneBookingRequestRef = useRef(crypto.randomUUID());
+  const standaloneBookingPendingRef = useRef(false);
+  const trustedGenerationRef = useRef(0);
+  const [trustedStatus, setTrustedStatus] = useState<{ scope: string; kind: "ok" | "stale" | "unavailable"; updatedAt: number | null }>({ scope: "", kind: "unavailable", updatedAt: null });
   const [loadedStatsCampaignId, setLoadedStatsCampaignId] = useState<string | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
   const [smsTab, setSmsTab] = useState<"sms" | "email">("sms");
@@ -661,6 +669,15 @@ export default function DialerPage() {
   const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const { user, profile, isImpersonating } = useAuth();
   const { organizationId } = useOrganization();
+  const trustedScope = `${organizationId}:${user?.id}:${selectedCampaignId}:${userLocalDayBounds(resolveUserTimeZone()).startIso}`;
+  const trustedScopeRef = useRef(trustedScope); trustedScopeRef.current = trustedScope;
+  const standaloneBookingScope = `${organizationId}:${user?.id}:${dispositionVisitRef.current.generation}:${showCallbackModal}`;
+  const standaloneBookingScopeRef = useRef(standaloneBookingScope); standaloneBookingScopeRef.current = standaloneBookingScope;
+  useEffect(() => {
+    standaloneBookingRequestRef.current = crypto.randomUUID();
+    standaloneBookingPendingRef.current = false;
+  }, [standaloneBookingScope]);
+
   const { isLoading: permissionsLoading, hasContactsPermission } = usePermissions();
 
   // Fetch agent roster for resolving IDs to names in LeadCard
@@ -1046,12 +1063,15 @@ export default function DialerPage() {
   // session-duration values.
   const reconcileTrustedStats = useCallback(async () => {
     if (!user?.id || !organizationId) return;
+    const scope = trustedScopeRef.current, generation = ++trustedGenerationRef.current;
+    const isCurrent = () => generation === trustedGenerationRef.current && scope === trustedScopeRef.current;
     // Campaign-scoped (P1 Build 3B): with no campaign selected, show neutral
     // zeros rather than all-campaign totals.
     if (!selectedCampaignId) {
       setSessionStats({ calls_made: 0, contacted_calls: 0, total_talk_seconds: 0, policies_sold: 0 });
       setBaseSessionSeconds(0);
       setLoadedStatsCampaignId(null);
+      setTrustedStatus({ scope, kind: "ok", updatedAt: Date.now() });
       return;
     }
     const timeZone = resolveUserTimeZone();
@@ -1071,6 +1091,7 @@ export default function DialerPage() {
       });
       setBaseSessionSeconds(cached.closed_session_duration_seconds);
       setLoadedStatsCampaignId(selectedCampaignId); // clear skeleton instantly
+      setTrustedStatus({ scope, kind: "stale", updatedAt: cached.updatedAt ?? null });
     }
 
     try {
@@ -1084,6 +1105,8 @@ export default function DialerPage() {
         contactedDispositions: contactedSet,
         dncDispositionNames: dncSet,
       });
+      if (!isCurrent()) return;
+      setTrustedStatus({ scope, kind: "ok", updatedAt: Date.now() });
       setSessionStats({
         calls_made: trusted.calls_made,
         contacted_calls: trusted.contacted_calls,
@@ -1102,13 +1125,15 @@ export default function DialerPage() {
         closed_session_duration_seconds: trusted.closed_session_duration_seconds,
       });
     } catch (err) {
+      if (!isCurrent()) return;
+      setTrustedStatus(previous => ({ scope, kind: cached || (previous.scope === scope && previous.updatedAt) ? "stale" : "unavailable", updatedAt: cached?.updatedAt ?? (previous.scope === scope ? previous.updatedAt : null) }));
       console.error("[Dialer] reconcileTrustedStats:", err);
     } finally {
       // Trusted stats have resolved (or errored) for this campaign — clear the
       // header skeleton. Set even on error so the cards are never stuck on the
       // skeleton indefinitely (Phase B). Captured campaign id avoids marking a
       // newer campaign loaded if the user switched mid-flight.
-      setLoadedStatsCampaignId(selectedCampaignId);
+      if (isCurrent()) setLoadedStatsCampaignId(selectedCampaignId);
     }
   }, [user?.id, organizationId, selectedCampaignId, dispositions, setSessionStats, setBaseSessionSeconds]);
 
@@ -3488,6 +3513,7 @@ export default function DialerPage() {
         dispositionId: selectedDisp.id,
         callbackDueAt: callbackDueAtISO,
         callbackNote: selectedDisp.callbackScheduler ? noteText : null,
+        appointment: selectedDisp.appointmentScheduler ? { title: aptTitle, notes: aptNotes || noteText, status: "Scheduled", ...bookingTimes(aptDate, aptStartTime, aptEndTime) } : null,
         notes: noteText,
         convertedClientId: clientId,
         expectedVersion: lead.disposition_version ?? 0,
@@ -3498,32 +3524,7 @@ export default function DialerPage() {
       setLeadQueue((prev) => applyPersistedDisposition(prev, lead.id, advanced));
       // Save Only keeps this persisted (possibly terminal) row visible in wrap-up.
       // Save & Next removes/reorders by this ID only after confirmed persistence/release.
-      let schedulerWriteSucceeded = false;
-      if (!advanced.replayed && selectedDisp.appointmentScheduler) {
-        try {
-          await saveAppointment({
-            master_lead_id: contactWriteId, campaign_lead_id: lead.id, agent_id: user.id,
-            campaign_id: selectedCampaignId!, title: aptTitle, date: aptDate,
-            time: aptStartTime, end_time: aptEndTime, notes: aptNotes || noteText,
-          }, organizationId);
-          schedulerWriteSucceeded = true;
-        } catch (error) {
-          toast.error("Disposition saved; appointment may not have saved: " + (error instanceof Error ? error.message : String(error)));
-        }
-      }
-      if (!advanced.replayed && selectedDisp.callbackScheduler && callbackDate) {
-        try {
-          await saveAppointment({
-            master_lead_id: contactWriteId, campaign_lead_id: lead.id, agent_id: user.id,
-            campaign_id: selectedCampaignId!, title: "Callback", date: format(callbackDate, "yyyy-MM-dd"),
-            time: callbackTime, end_time: "", notes: noteText,
-          }, organizationId);
-          schedulerWriteSucceeded = true;
-        } catch (error) {
-          toast.error("Disposition saved; callback calendar entry may not have saved: " + (error instanceof Error ? error.message : String(error)));
-        }
-      }
-      if (schedulerWriteSucceeded) {
+      if (selectedDisp.appointmentScheduler || selectedDisp.callbackScheduler) {
         try { void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {}); } catch { /* refresh is nonfatal */ }
       }
       if (!isSameVisit()) return false;
@@ -3958,10 +3959,13 @@ export default function DialerPage() {
   };
 
   async function handleSaveCallback() {
-    if (!currentLead || !user || !callbackDate) return;
+    if (!currentLead || !user || !callbackDate || standaloneBookingPendingRef.current) return;
+    standaloneBookingPendingRef.current = true;
+    const scope = standaloneBookingScope;
     try {
       const masterId = currentLead.lead_id || currentLead.id;
       await saveAppointment({
+        request_id: standaloneBookingRequestRef.current,
         master_lead_id: masterId,
         campaign_lead_id: currentLead.id,
         agent_id: user.id,
@@ -3972,9 +3976,12 @@ export default function DialerPage() {
         end_time: "",
         notes: "",
       }, organizationId);
-    } catch {
-      /* ignore */
-    }
+    } catch (error) {
+      if (scope === standaloneBookingScopeRef.current) toast.error(error instanceof Error ? error.message : "Callback could not be saved. Retry.");
+      return;
+    } finally { if (scope === standaloneBookingScopeRef.current) standaloneBookingPendingRef.current = false; }
+    if (scope !== standaloneBookingScopeRef.current) return;
+    standaloneBookingRequestRef.current = crypto.randomUUID();
     setShowCallbackModal(false);
     setCallbackDate(undefined);
     setCallbackTime("");
@@ -4199,7 +4206,11 @@ export default function DialerPage() {
         </button>
 
         {/* CENTER: centered inline stats in subtle boxes */}
-        <DialerHeaderStats 
+        <DialerHeaderStats
+          status={!selectedCampaignId ? "ok" : trustedStatus.scope === trustedScope ? trustedStatus.kind : "unavailable"}
+          updatedAt={trustedStatus.scope === trustedScope ? trustedStatus.updatedAt : null}
+          timeZone={resolveUserTimeZone()}
+          onRetry={() => void reconcileTrustedStats()}
           statsLoading={headerStatsLoading}
           sessionStartedAt={sessionStartedAt ?? dialerStats?.session_started_at}
           sessionElapsed={sessionElapsedDisplay}
@@ -4619,28 +4630,17 @@ export default function DialerPage() {
             handleAdvance();
           }
         }}
-        onSave={(data) => {
-          // ONE write (saveAppointment), then a silent Calendar read — never CalendarContext.addAppointment.
-          if (currentLead && user && selectedCampaignId) {
-            const masterId = currentLead.lead_id || currentLead.id;
-            saveAppointment({
-              master_lead_id: masterId,
-              campaign_lead_id: currentLead.id,
-              agent_id: user.id,
-              campaign_id: selectedCampaignId,
-              title: data.title,
-              date: format(data.date, "yyyy-MM-dd"),
-              time: data.startTime,
-              end_time: data.endTime,
-              notes: data.notes,
-            }, organizationId)
-              .then(() => { void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {}); })
-              .catch(() => {});
-          }
-          setShowAppointmentModal(false);
-          if (shouldAdvanceAfterModal) {
-            handleAdvance();
-          }
+        onSave={async (data) => {
+          if (!currentLead || !user || !selectedCampaignId) return false;
+          try {
+            await saveAppointment({ request_id: data.booking_request_id!,
+              master_lead_id: currentLead.lead_id || currentLead.id, campaign_lead_id: currentLead.id,
+              agent_id: user.id, campaign_id: selectedCampaignId, title: data.title,
+              date: format(data.date, "yyyy-MM-dd"), time: data.startTime, end_time: data.endTime, notes: data.notes,
+            }, organizationId);
+            void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {});
+            return true;
+          } catch (error) { toast.error(error instanceof Error ? error.message : "Appointment could not be saved. Retry."); return false; }
         }}
         prefillContactName={currentLead ? `${currentLead.first_name} ${currentLead.last_name}` : ""}
         prefillContactId={currentLead?.id}

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { type ContactedDispositionLookup } from "@/lib/report-utils";
 
@@ -106,6 +107,16 @@ export async function deleteTodayStats(agentId: string): Promise<void> {
 //   - wins    → policies sold
 //   - dialer_sessions → session duration (server timestamps)
 // `dialer_daily_stats` is intentionally NOT read here.
+
+export class TrustedStatsUnavailable extends Error {
+  constructor(message = "Dialer stats are unavailable. Retry.") { super(message); this.name = "TrustedStatsUnavailable"; }
+}
+const trustedStatsSchema = z.object({
+  calls_made: z.number().int().nonnegative(), contacted_calls: z.number().int().nonnegative(),
+  total_talk_seconds: z.number().int().nonnegative(), policies_sold: z.number().int().nonnegative(),
+  session_duration_seconds: z.number().nonnegative().finite(), closed_session_duration_seconds: z.number().nonnegative().finite(),
+  active_session_id: z.string().nullable(), active_session_started_at: z.string().nullable(),
+});
 
 export interface TrustedDialerStats {
   calls_made: number;
@@ -266,7 +277,8 @@ export async function getTrustedTodayDialerStats(args: {
     active_session_started_at: null,
   };
 
-  if (!agentId || !organizationId || !campaignId) return empty;
+  if (!campaignId) return empty;
+  if (!agentId || !organizationId) throw new TrustedStatsUnavailable("Sign in to load campaign stats.");
 
   // Single server-side aggregate (migration 20260606020000): Postgres computes
   // calls/contacted/talk-time, policies sold, and session duration and returns
@@ -283,34 +295,8 @@ export async function getTrustedTodayDialerStats(args: {
     p_start: startIso,
     p_end: endIso,
   });
-  if (error) {
-    console.error("[getTrustedTodayDialerStats] rpc error:", error);
-    return empty;
-  }
-
-  // RETURNS TABLE → PostgREST yields an array with a single row.
-  const row = (Array.isArray(data) ? data[0] : data) as
-    | {
-        calls_made: number;
-        contacted_calls: number;
-        total_talk_seconds: number;
-        policies_sold: number;
-        session_duration_seconds: number;
-        closed_session_duration_seconds: number;
-        active_session_id: string | null;
-        active_session_started_at: string | null;
-      }
-    | undefined;
-  if (!row) return empty;
-
-  return {
-    calls_made: row.calls_made ?? 0,
-    contacted_calls: row.contacted_calls ?? 0,
-    total_talk_seconds: row.total_talk_seconds ?? 0,
-    policies_sold: row.policies_sold ?? 0,
-    session_duration_seconds: row.session_duration_seconds ?? 0,
-    closed_session_duration_seconds: row.closed_session_duration_seconds ?? 0,
-    active_session_id: row.active_session_id ?? null,
-    active_session_started_at: row.active_session_started_at ?? null,
-  };
+  if (error) throw new TrustedStatsUnavailable(error.message);
+  const parsed = trustedStatsSchema.safeParse(Array.isArray(data) && data.length === 1 ? data[0] : data);
+  if (!parsed.success) throw new TrustedStatsUnavailable("Dialer stats response was incomplete. Retry.");
+  return parsed.data as TrustedDialerStats;
 }

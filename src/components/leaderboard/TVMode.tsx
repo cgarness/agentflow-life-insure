@@ -1,3 +1,5 @@
+import type { PerformanceSnapshot } from "@/lib/performanceQueries";
+import { performanceCaption } from "@/lib/leaderboardExport";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { X, Settings, Clock, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,9 +43,9 @@ import {
 
 const METRICS = LEADERBOARD_METRICS;
 
-/** Lower panels never determine the independently centered totals/podium width. */
+/** Stacked panels keep their content height; wide panels share the remaining space. */
 const TV_GRID_CLASS =
-  "mx-auto grid w-full min-h-[26rem] flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)_minmax(12rem,1fr)]";
+  "mx-auto flex w-full shrink-0 flex-col gap-4 xl:grid xl:min-h-[26rem] xl:flex-1 xl:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)_minmax(12rem,1fr)]";
 
 const LS_AUTO = "leaderboardTvAutoRotate";
 const LS_METRIC = "leaderboardTvMetricIndex";
@@ -74,6 +76,7 @@ interface AgentStatsRow extends AgentStats {
 }
 
 interface Props {
+  performanceSnapshot?: PerformanceSnapshot | null;
   agents: AgentStatsRow[];
   wins: Win[];
   period: Period;
@@ -99,6 +102,7 @@ interface Props {
 }
 
 const TVMode: React.FC<Props> = ({
+  performanceSnapshot,
   agents,
   wins,
   period,
@@ -130,7 +134,7 @@ const TVMode: React.FC<Props> = ({
 
   const { profile } = useAuth();
   const { branding } = useBranding();
-  const timezone = branding.timezone || "America/Chicago";
+  const timezone = performanceSnapshot?.time_zone || branding.timezone || "UTC";
   const [organizationName, setOrganizationName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -435,7 +439,8 @@ const TVMode: React.FC<Props> = ({
           />
         )}
         <div data-testid="tv-agency-totals" className="mx-auto w-full max-w-[72rem] shrink-0">
-          <TVAgencyTotalsStrip
+          {performanceSnapshot && <p className="text-xs text-slate-400 text-center">{performanceCaption(performanceSnapshot)}</p>}
+      <TVAgencyTotalsStrip
             agents={agents}
             period={period}
             onPeriodChange={onPeriodChange}
@@ -448,7 +453,7 @@ const TVMode: React.FC<Props> = ({
           <TVPodium key={`${period}:${metric}`} agents={rankedAgents} metric={metric}
             tvRankMotions={tvRankMotions} tvRankAnimations={tvRankAnimations}
             spotlightAgentId={spotlightAgentId} newLeaderId={newLeaderId} />
-          <div className={TV_GRID_CLASS}>
+          <div className={TV_GRID_CLASS} data-testid="tv-lower-panels">
 
           <div className="order-2 flex min-h-[18rem] flex-col xl:order-none xl:col-start-1">
             <TVDeepRankPanel

@@ -10,11 +10,11 @@ beforeEach(() => { rpc.mockReset().mockResolvedValue({ data: result, error: null
 describe("canonical disposition client", () => {
   it("sends identity and input only, never org authority or behavior flags", async () => {
     await persistDisposition({ campaignLeadId: "lead-a", callId: "call-a", dispositionId: "disp", operationId: "op", notes: "requested", expectedVersion: 0 });
-    expect(rpc).toHaveBeenCalledWith("advance_campaign_lead", {
+    expect(rpc).toHaveBeenCalledWith("save_disposition_with_booking", { p_appointment: null, p_input: {
       p_campaign_lead_id: "lead-a", p_call_id: "call-a", p_disposition_id: "disp", p_operation_id: "op",
       p_notes: "requested", p_expected_version: 0, p_release_lock: true, p_callback_due_at: null,
       p_callback_note: null, p_converted_client_id: null, p_action: "disposition",
-    });
+    } });
   });
   it.each([
     { data: null, error: { message: "DNC persistence failed" } },
@@ -41,9 +41,9 @@ describe("canonical disposition client", () => {
     rpc.mockResolvedValueOnce({ data: null, error: { message: "response lost" } });
     await expect(hook.current(input)).rejects.toThrow();
     await hook.current({ ...input, releaseLock: true, expectedVersion: 1 });
-    expect(rpc.mock.calls[0][1].p_operation_id).toBe(rpc.mock.calls[1][1].p_operation_id);
+    expect(rpc.mock.calls[0][1].p_input.p_operation_id).toBe(rpc.mock.calls[1][1].p_input.p_operation_id);
     await hook.current({ ...input, visitKey: "a:3" });
-    expect(rpc.mock.calls[2][1].p_operation_id).not.toBe(rpc.mock.calls[0][1].p_operation_id);
+    expect(rpc.mock.calls[2][1].p_input.p_operation_id).not.toBe(rpc.mock.calls[0][1].p_input.p_operation_id);
   });
   it.each([null, {}, { admitted: null }, { admitted: false }])("never advances an unverified/refused outbound call", async (data) => {
     rpc.mockResolvedValue({ data, error: null });

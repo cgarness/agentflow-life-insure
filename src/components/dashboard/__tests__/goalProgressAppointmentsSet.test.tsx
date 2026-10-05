@@ -1,3 +1,4 @@
+import { summaryFixture } from "@/test/fixtures/performance";
 /**
  * GoalProgressWidget "Monthly Appointments" = Appointments Set (AGENT_RULES #23 / #38): booked this month by
  * the viewer, credited COALESCE(created_by, user_id), with no status filter — delegated bookings credit the
@@ -14,12 +15,23 @@ import type { RecordedQuery, Row } from "@/lib/__tests__/appointmentRowsFixture"
 const h = vi.hoisted(() => ({
   rows: { appointments: [] as Record<string, unknown>[] } as Record<string, Record<string, unknown>[]>,
   queries: [] as unknown[],
+  rpcCalls: [] as any[],
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ profile: { organization_id: "11111111-1111-4111-8111-111111111111" } }) }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } }) }));
 vi.mock("@/integrations/supabase/client", async () => {
   const { RecordedQuery } = await import("@/lib/__tests__/appointmentRowsFixture");
   return {
     supabase: {
+      rpc: (fn: string, args: any) => {
+        h.rpcCalls.push({fn,args});
+        const at = new Date(); const start = new Date(at.getFullYear(),at.getMonth(),1);
+        const bookings = (h.rows.appointments ?? []).filter(r => (r.created_by ?? r.user_id) === args.p_agent_id && new Date(String(r.created_at)) >= start && new Date(String(r.created_at)) < at).length;
+        const result = fn === "get_performance_details" ? { ...summaryFixture({p_period:args.p_period}), rows:[] } : summaryFixture(args,{bookings});
+        const q = { abortSignal: () => q, then: (yes:any,no:any) => Promise.resolve({data:result,error:null}).then(yes,no) };
+        return q;
+      },
       from: (table: string) => {
         const q = new RecordedQuery(table, h.rows[table] ?? []);
         h.queries.push(q);
@@ -67,10 +79,14 @@ const apptQuery = () =>
 beforeEach(() => {
   resetDashboardSectionLanes();
   h.queries = [];
+  h.rpcCalls = [];
+  vi.useFakeTimers({toFake:["Date"]});
+  vi.setSystemTime(new Date(2026,9,15,12));
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   resetDashboardSectionLanes();
   vi.restoreAllMocks();
 });
@@ -96,15 +112,12 @@ describe("GoalProgressWidget — Monthly Appointments is setter credit", () => {
     expect(await monthlyAppointmentsFor(SETTER_A)).toContain(`1 / ${GOAL}`);
   });
 
-  it("emits the booking window and setter filter, with no user_id-only or status filter", async () => {
+  it("requests the authorized month summary without browser metric fanout", async () => {
     setRows([], SETTER_A);
     await monthlyAppointmentsFor(SETTER_A);
-    const q = apptQuery();
-    expect(q.calls).toContainEqual(["or", `created_by.eq.${SETTER_A},and(created_by.is.null,user_id.eq.${SETTER_A})`]);
-    expect(q.calls).toContainEqual(["gte", "created_at", monthStart().toISOString()]);
-    expect(q.calls.some(([m]) => m === "not")).toBe(false);
-    expect(q.calls.some(([m, col]) => m === "eq" && col === "user_id")).toBe(false);
-    expect(q.calls.some(([, col]) => col === "start_time")).toBe(false);
+    expect(h.rpcCalls[0]).toEqual({ fn: "get_performance_summary", args: { p_period: "month", p_mode: "own", p_agent_id: SETTER_A } });
+    expect(h.queries.some((q: any) => ["appointments","calls","wins"].includes(q.table))).toBe(false);
+
   });
 
   it("an invalid viewer id fails the section instead of counting every visible row", async () => {

@@ -1,0 +1,49 @@
+name: Reporting integrity
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/ops/reporting-accuracy/**'
+      - 'supabase/tests/**'
+      - 'supabase/functions/twilio-voice-status/**'
+      - 'supabase/functions/google-calendar-inbound-sync/**'
+      - 'scripts/reporting_fixture.py'
+      - 'scripts/reconcile_reporting.mjs'
+      - 'docs/plans/2026-10-04-leaderboard-accuracy/reconciliation-manifest.json'
+      - 'scripts/run_reporting_integrity_tests.sh'
+      - 'scripts/tests/reporting-concurrency.mjs'
+      - 'src/**'
+      - '.github/workflows/reporting-integrity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55443:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Native transactions, independent-session contention and indexed volume
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55443
+        run: bash scripts/run_reporting_integrity_tests.sh
+      - name: Cross-browser-timezone calendar contracts
+        run: |
+          for zone in America/Los_Angeles America/New_York UTC; do
+            TZ="$zone" npx vitest run src/lib/__tests__/performanceContract.test.ts
+          done

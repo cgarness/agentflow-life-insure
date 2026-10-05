@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("@/integrations/supabase/client",()=>({supabase:{}}));
 import {
   rowToClient,
   clientToRow,
@@ -62,7 +63,7 @@ describe("rowToClient — canonical policy columns", () => {
     expect(c.faceAmount).not.toBe("$0");
   });
 
-  it("treats a stored 0 as blank (Build 1 decision D1)", () => {
+  it("preserves a known zero premium through editing; face display remains blank", () => {
     const c = rowToClient({
       id: "c3",
       first_name: "x",
@@ -71,7 +72,7 @@ describe("rowToClient — canonical policy columns", () => {
       face_amount: 0,
       created_at: "2020-01-01",
     });
-    expect(c.premiumAmount).toBe("");
+    expect(c.premiumAmount).toBe("$0.00");
     expect(c.faceAmount).toBe("");
   });
 

@@ -1,3 +1,4 @@
+import type { BookingPayload } from "@/lib/appointmentPersistence";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -23,6 +24,7 @@ const persistedSchema = z.object({
 }).passthrough();
 export type PersistedDisposition = z.infer<typeof persistedSchema>;
 export interface DispositionInput {
+  appointment?: BookingPayload | null;
   campaignLeadId: string | null;
   callId?: string | null;
   dispositionId?: string | null;
@@ -38,7 +40,7 @@ export interface DispositionInput {
 
 /** ONE write path. Disposition behavior and organization authority stay on the server. */
 export async function persistDisposition(input: DispositionInput): Promise<PersistedDisposition> {
-  const { data, error } = await (supabase as any).rpc("advance_campaign_lead", {
+  const { data, error } = await (supabase as any).rpc("save_disposition_with_booking", { p_appointment: input.appointment ?? null, p_input: {
     p_campaign_lead_id: input.campaignLeadId,
     p_call_id: input.callId ?? null,
     p_disposition_id: input.dispositionId ?? null,
@@ -50,7 +52,7 @@ export async function persistDisposition(input: DispositionInput): Promise<Persi
     p_converted_client_id: input.convertedClientId ?? null,
     p_expected_version: input.expectedVersion ?? null,
     p_action: input.action ?? "disposition",
-  });
+  } });
   if (error) throw new Error(error.message);
   const parsed = persistedSchema.safeParse(data);
   if (!parsed.success) throw new Error("Disposition save was not confirmed. Keep this lead open and retry.");

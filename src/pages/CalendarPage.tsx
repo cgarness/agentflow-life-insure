@@ -317,7 +317,7 @@ const CalendarPage: React.FC = () => {
 
     const assigneeId = resolveAppointmentAssignee(data.user_id, user.id);
     try {
-      const inserted = await addAppointment({ ...appointmentFields, user_id: assigneeId });
+      const inserted = await addAppointment({ ...appointmentFields, user_id: assigneeId, booking_request_id: data.booking_request_id });
       if (!inserted) { toast({ title: "Failed to save appointment", variant: "destructive" }); return false; }
 
       setModalOpen(false);

@@ -34,8 +34,12 @@ describe("interactive client sale", () => {
     await expect(clientsSupabaseApi.create(client,"org",{ requestId: "r",recordSale: true })).resolves.toMatchObject({ id:"client" });
   });
   it("contact-only interactive save uses receipt but requests no sale", async () => {
-    await clientsSupabaseApi.create(client,"org",{ requestId:"r",recordSale:false });
+    await clientsSupabaseApi.create({...client,carrier:"",premiumAmount:"",soldDate:""},"org",{ requestId:"r",recordSale:false });
     expect(h.rpc.mock.calls[0][1].p_record_sale).toBe(false);
+  });
+  it("refuses to save policy evidence without its event", async () => {
+    await expect(clientsSupabaseApi.create(client,"org",{requestId:"r",recordSale:false})).rejects.toThrow(/Every new policy/);
+    expect(h.rpc).not.toHaveBeenCalled();
   });
   it.each(["garbage", "-25", "$30abc", "1.001", "Infinity"])("rejects malformed premium %s before submitting", async premiumAmount => {
     await expect(clientsSupabaseApi.create({...client,premiumAmount},"org",{requestId:"r",recordSale:true})).rejects.toThrow(/premium/);

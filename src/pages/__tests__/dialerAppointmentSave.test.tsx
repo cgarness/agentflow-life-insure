@@ -11,7 +11,7 @@
  *     time in JS and hide the bug, while Postgres timestamptz reads it as UTC);
  *   - `created_by` = `user_id` = the dialing agent;
  *   - ONE silent Calendar refresh after a successful scheduler write, none after a failed one;
- *   - a failed shadow write never blocks the call save or the canonical advancement.
+ *   - a failed booking rolls back the complete server transaction and retains the draft.
  *
  * Process boundaries are mocked (Supabase client, auth/org/Twilio/branding/permission contexts, toast); the
  * dialer-api WRITERS run for real. TimeSelect (a Radix Select) is swapped for a native input that emits the
@@ -101,9 +101,19 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (name: string, args: Record<string, unknown>) => {
       h.rpc.push({ name, args });
       h.events.push(`rpc:${name}`);
-      if (name === "advance_campaign_lead") {
+      if (name === "get_trusted_today_dialer_stats") return Promise.resolve({data:[{calls_made:0,contacted_calls:0,total_talk_seconds:0,policies_sold:0,session_duration_seconds:0,closed_session_duration_seconds:0,active_session_id:null,active_session_started_at:null}],error:null});
+      if (name === "save_disposition_with_booking") {
+        const booking = args.p_appointment as Record<string,unknown>|null;
+        args=args.p_input as Record<string,unknown>;
         if (h.failCallWrite) return Promise.resolve({ data: null, error: { message: "boom:calls" } });
         if (h.failAdvance) return Promise.resolve({ data: null, error: { message: "DNC persistence failed" } });
+        const disp=DISPS.find(d=>d.id===args.p_disposition_id);
+        const common={organization_id:ORG,user_id:USER,created_by:USER,contact_id:args.p_converted_client_id??LEAD,status:"Scheduled"};
+        const bookings: Record<string,unknown>[]=[];
+        if(disp?.appointmentScheduler)bookings.push({...booking,...common});
+        if(disp?.callbackScheduler)bookings.push({...common,title:"Callback",start_time:args.p_callback_due_at,end_time:null,notes:args.p_callback_note,type:"Follow Up"});
+        if(bookings.some(p=>h.failAppointmentInsert||h.failAppointmentWhen?.(p)))return Promise.resolve({data:null,error:{message:"boom:appointments"}});
+        for(const payload of bookings){h.writes.push({table:"appointments",op:"insert",payload});h.events.push("insert:appointments");}
         return Promise.resolve({ data: {
           id: args.p_campaign_lead_id, call_attempts: 1, last_called_at: new Date().toISOString(),
           retry_eligible_at: null, status: "Called", callback_due_at: args.p_callback_due_at,
@@ -291,7 +301,7 @@ async function save(which: "Save" | "Save & Next") {
 
 const appointmentInserts = () =>
   h.writes.filter((w) => w.table === "appointments" && w.op === "insert").map((w) => w.payload as Record<string, unknown>);
-const advanceCalls = () => h.rpc.filter((r) => r.name === "advance_campaign_lead");
+const advanceCalls = () => h.rpc.filter((r) => r.name === "save_disposition_with_booking").map(r=>({...r,args:r.args.p_input as Record<string,unknown>}));
 const canonicalDue = () => advanceCalls()[0]?.args.p_callback_due_at as string | undefined;
 
 describe("authoritative disposition failure handling", () => {
@@ -355,7 +365,7 @@ describe.each(["Save", "Save & Next"] as const)("Personal campaign — %s", (whi
     fillCallback("2026-10-15", "2:30 PM");
     await save(which);
 
-    expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(1);
+    expect(api.saveAppointmentSpy).not.toHaveBeenCalled();
     expect(calendar.addAppointment).not.toHaveBeenCalled();
     const inserts = appointmentInserts();
     expect(inserts).toHaveLength(1);
@@ -376,7 +386,7 @@ describe.each(["Save", "Save & Next"] as const)("Personal campaign — %s", (whi
     expect(shadow.organization_id).toBe(ORG);
     expect(shadow.contact_id).toBe(LEAD);
     expect(shadow.status).toBe("Scheduled");
-    expect(shadow).not.toHaveProperty("type");
+    expect(shadow.type).toBe("Follow Up");
 
     expectSilentRefreshAfterInserts(1);
   }, 30000);
@@ -387,7 +397,7 @@ describe.each(["Save", "Save & Next"] as const)("Personal campaign — %s", (whi
     fillAppointment("2026-10-15", "2:30 PM", "3:00 PM");
     await save(which);
 
-    expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(1);
+    expect(api.saveAppointmentSpy).not.toHaveBeenCalled();
     expect(calendar.addAppointment).not.toHaveBeenCalled();
     const inserts = appointmentInserts();
     expect(inserts).toHaveLength(1);
@@ -411,7 +421,7 @@ describe("Personal campaign — other cases", () => {
     fillCallback("2026-10-16", "9:15 AM");
     await save("Save");
 
-    expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(2);
+    expect(api.saveAppointmentSpy).not.toHaveBeenCalled();
     expect(calendar.addAppointment).not.toHaveBeenCalled();
     const inserts = appointmentInserts();
     expect(inserts).toHaveLength(2);
@@ -428,21 +438,15 @@ describe("Personal campaign — other cases", () => {
     expectSilentRefreshAfterInserts(2);
   }, 30000);
 
-  it("a failed shadow write stays non-blocking: call saved, canonical advancement unchanged, no refresh", async () => {
-    h.failAppointmentInsert = true;
-    await mountOnLead("Personal");
-    pickDisposition(/^call back$/i);
-    fillCallback("2026-10-15", "2:30 PM");
-    await save("Save");
-
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; callback calendar entry may not have saved: boom:appointments/));
-    expect(h.writes.some((w) => w.table === "calls")).toBe(false); // Core call write belongs to the RPC.
-    expect(advanceCalls()).toHaveLength(1);
-    expect(canonicalDue()).toBe(new Date(2026, 9, 15, 14, 30).toISOString());
-    expect(h.toast.success).toHaveBeenCalledWith("Call saved successfully", expect.anything());
-    expect(h.fetchAppointments).not.toHaveBeenCalled();
-    expect(calendar.addAppointment).not.toHaveBeenCalled();
-  }, 30000);
+  it("a failed booking keeps the disposition draft and commits no partial scheduling", async () => {
+    h.failAppointmentInsert=true;await mountOnLead("Personal");pickDisposition(/^call back$/i);fillCallback("2026-10-15","2:30 PM");
+    fireEvent.click(screen.getByRole("button",{name:/^save$/i}));
+    await waitFor(()=>expect(h.toast.error).toHaveBeenCalledWith("boom:appointments"));
+    expect(h.toast.success).not.toHaveBeenCalled();expect(appointmentInserts()).toHaveLength(0);
+    expect(h.fetchAppointments).not.toHaveBeenCalled();expect(screen.getByLabelText("Callback time")).toHaveValue("2:30 PM");
+    h.failAppointmentInsert=false;await save("Save");expect(appointmentInserts()).toHaveLength(1);
+    expect(advanceCalls()[0].args.p_operation_id).toBe(advanceCalls()[1].args.p_operation_id);
+  });
 
   it("conversion path: the shadow attaches to the NEW client id, still one insert at the canonical instant", async () => {
     await mountOnLead("Personal");
@@ -469,7 +473,7 @@ describe("Team/Open campaign (lock mode)", () => {
     fillCallback("2026-10-15", "2:30 PM");
     await save("Save & Next");
 
-    expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(1);
+    expect(api.saveAppointmentSpy).not.toHaveBeenCalled();
     expect(calendar.addAppointment).not.toHaveBeenCalled();
     const inserts = appointmentInserts();
     expect(inserts).toHaveLength(1);
@@ -510,7 +514,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     ));
     expect(screen.queryByRole("button", { name: /complete conversion/i })).toBeNull();
     expect(h.writes.filter((w) => ["calls", "appointments", "leads", "campaign_leads"].includes(w.table))).toEqual([]);
-    expect(h.rpc.filter((r) => ["claim_lead", "advance_campaign_lead", "release_lead_lock"].includes(r.name))).toEqual([]);
+    expect(h.rpc.filter((r) => ["claim_lead", "save_disposition_with_booking", "release_lead_lock"].includes(r.name))).toEqual([]);
     expect(screen.getByTestId("team-open-lead-details")).toBeInTheDocument();
   }, 30000);
 
@@ -560,7 +564,7 @@ describe("Team lead details with the existing lock lifecycle", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     await waitFor(() => expect(screen.queryByTestId("team-open-lead-details")).toBeNull());
     expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(2);
-    expect(h.rpc.some((r) => r.name === "claim_lead" || r.name === "advance_campaign_lead")).toBe(false);
+    expect(h.rpc.some((r) => r.name === "claim_lead" || r.name === "save_disposition_with_booking")).toBe(false);
   }, 30000);
 
   it("a lost lock masks details but retains an unsaved disposition without loading another lead", async () => {
@@ -656,36 +660,14 @@ describe("failure isolation", () => {
     30000,
   );
 
-  it("an appointment write that fails on its own: no refresh, call saved, canonical advancement unchanged", async () => {
-    h.failAppointmentWhen = (p) => p.title !== "Callback";
-    await mountOnLead("Personal");
-    pickDisposition(/^appt set$/i);
-    fillAppointment("2026-10-15", "2:30 PM", "3:00 PM");
-    await save("Save");
+  it.each([false,true])("booking failure is atomic even with both schedulers: %s", async both => {
+    h.failAppointmentWhen=p=>p.title!=="Callback";await mountOnLead("Personal");
+    pickDisposition(both?/^both sched$/i:/^appt set$/i);fillAppointment("2026-10-15","10:00 AM","10:30 AM");
+    if(both)fillCallback("2026-10-16","9:15 AM");
+    fireEvent.click(screen.getByRole("button",{name:/^save$/i}));
+    await waitFor(()=>expect(h.toast.error).toHaveBeenCalledWith("boom:appointments"));
+    expect(appointmentInserts()).toHaveLength(0);expect(h.fetchAppointments).not.toHaveBeenCalled();
+    expect(h.toast.success).not.toHaveBeenCalled();expect(calendar.addAppointment).not.toHaveBeenCalled();
+  });
 
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; appointment may not have saved: boom:appointments/));
-    expect(h.fetchAppointments).not.toHaveBeenCalled();
-    expect(advanceCalls()).toHaveLength(1);
-    expect(h.writes.some((w) => w.table === "calls")).toBe(false); // Core call write belongs to the RPC.
-    expect(h.toast.success).toHaveBeenCalledWith("Call saved successfully", expect.anything());
-    expect(calendar.addAppointment).not.toHaveBeenCalled();
-  }, 30000);
-
-  it("mixed: the appointment fails but the callback shadow succeeds — exactly one refresh, after the shadow", async () => {
-    h.failAppointmentWhen = (p) => p.title !== "Callback";
-    await mountOnLead("Personal");
-    pickDisposition(/^both sched$/i);
-    fillAppointment("2026-10-15", "10:00 AM", "10:30 AM");
-    fillCallback("2026-10-16", "9:15 AM");
-    await save("Save");
-
-    expect(api.saveAppointmentSpy).toHaveBeenCalledTimes(2);
-    const shadow = appointmentInserts().find((p) => p.title === "Callback")!;
-    expect(shadow.start_time).toBe(canonicalDue());
-    expect(h.toast.error).toHaveBeenCalledWith(expect.stringMatching(/^Disposition saved; appointment may not have saved/));
-    expect(h.fetchAppointments).toHaveBeenCalledTimes(1);
-    expect(h.fetchAppointments).toHaveBeenCalledWith({ silent: true });
-    expect(h.events.indexOf("calendar:fetchAppointments")).toBeGreaterThan(h.events.lastIndexOf("insert:appointments"));
-    expect(calendar.addAppointment).not.toHaveBeenCalled();
-  }, 30000);
 });

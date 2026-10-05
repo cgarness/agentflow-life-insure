@@ -1122,3 +1122,5 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     cleanup();
   });
 });
+
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ getDataScope: () => "all" }) }));
