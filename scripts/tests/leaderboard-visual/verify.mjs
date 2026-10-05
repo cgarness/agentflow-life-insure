@@ -55,11 +55,16 @@ try {
    const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img,[data-testid="tv-rankings"] img')].map(rect);
    const table=document.querySelector('[data-testid="tv-rankings"]');
    const tablePhotos=[...table.querySelectorAll('img')].map(rect);
-   return {centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,table:rect(table),tablePhotos,
+   const panels=[...document.querySelector('[data-testid="tv-lower-panels"]').children].map(rect);
+   return {centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,panels,table:rect(table),tablePhotos,
     horizontalOverflow:document.documentElement.scrollWidth>window.innerWidth,originalRanks:window.fixtureRanks()};
   });
   assert.ok(metrics.centerError<1,`${label}: podium and Agency Totals centerline`);
   assert.equal(metrics.horizontalOverflow,false,`${label}: horizontal page overflow`);
+  for(let i=0;i<metrics.panels.length;i++)for(let j=i+1;j<metrics.panels.length;j++) {
+   const a=metrics.panels[i],b=metrics.panels[j];
+   assert.ok(a.right<=b.x+1||b.right<=a.x+1||a.bottom<=b.y+1||b.bottom<=a.y+1,`${label}: lower panels overlap ${i}/${j}: ${JSON.stringify(metrics.panels)}`);
+  }
   for(let i=0;i<metrics.photos.length;i++)for(let j=i+1;j<metrics.photos.length;j++) {
    const a=metrics.photos[i],b=metrics.photos[j];
    assert.ok(a.right<=b.x+1||b.right<=a.x+1||a.bottom<=b.y+1||b.bottom<=a.y+1,`${label}: overlapping avatars ${i}/${j}`);
@@ -71,9 +76,10 @@ try {
   await settleLayout();
   const visiblePhotos=await page.getByTestId('tv-rankings').locator('img').evaluateAll(images=>images.map(img=>{
    const r=img.getBoundingClientRect();const main=document.querySelector('main').getBoundingClientRect();
-   return r.top>=main.top-1&&r.bottom<=main.bottom+1&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===img;
+   const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+   return {visible:r.top>=main.top-1&&r.bottom<=main.bottom+1&&hit===img,top:r.top,bottom:r.bottom,mainTop:main.top,mainBottom:main.bottom,hit:hit?.tagName};
   }));
-  assert.ok(visiblePhotos.every(Boolean),`${label}: table photos must be visible after scrolling`);
+  assert.ok(visiblePhotos.every(p=>p.visible),`${label}: table photos must be visible after scrolling: ${JSON.stringify(visiblePhotos)}`);
   await page.screenshot({path:`${output}/${label}-table.png`});
   await page.locator('main').evaluate(main=>main.scrollTo({top:0}));
   await settleLayout();

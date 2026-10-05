@@ -43,9 +43,9 @@ import {
 
 const METRICS = LEADERBOARD_METRICS;
 
-/** Lower panels never determine the independently centered totals/podium width. */
+/** Stacked panels keep their content height; wide panels share the remaining space. */
 const TV_GRID_CLASS =
-  "mx-auto grid w-full min-h-[26rem] flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)_minmax(12rem,1fr)]";
+  "mx-auto flex w-full shrink-0 flex-col gap-4 xl:grid xl:min-h-[26rem] xl:flex-1 xl:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)_minmax(12rem,1fr)]";
 
 const LS_AUTO = "leaderboardTvAutoRotate";
 const LS_METRIC = "leaderboardTvMetricIndex";
@@ -453,7 +453,7 @@ const TVMode: React.FC<Props> = ({
           <TVPodium key={`${period}:${metric}`} agents={rankedAgents} metric={metric}
             tvRankMotions={tvRankMotions} tvRankAnimations={tvRankAnimations}
             spotlightAgentId={spotlightAgentId} newLeaderId={newLeaderId} />
-          <div className={TV_GRID_CLASS}>
+          <div className={TV_GRID_CLASS} data-testid="tv-lower-panels">
 
           <div className="order-2 flex min-h-[18rem] flex-col xl:order-none xl:col-start-1">
             <TVDeepRankPanel

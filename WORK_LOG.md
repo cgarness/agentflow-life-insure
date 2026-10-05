@@ -1,3 +1,9 @@
+## 2026-10-05 — Narrow TV stacked-panel overlap correction
+
+The stronger browser run `37333421844` proved a second layout defect at 1093×614: the narrow three-panel grid retained a single-row height budget, so the Ranks 11+ and Recent Wins panels covered ranking rows after scrolling. Change `TVMode.tsx` to a content-height flex column below the wide breakpoint, preserving the existing wide grid, centered totals/podium and scroll behavior. The browser verifier now also rejects any lower-panel rectangle intersection and reports visible-row diagnostics. Existing value, geometry, animation, roster and live-update assertions remain. No reporting calculation, data writer or permission changed.
+
+A normally TLS-verified download of official Chrome succeeded locally, but the managed environment denied Chrome's required Unix socket (`Operation not permitted`); agent-browser and the direct fixture therefore cannot run here. No TLS validation or socket restriction was bypassed. Hosted CI remains the browser execution evidence. Production is unchanged.
+
 ## 2026-10-05 — Final-value browser verification refinement
 
 Corrective head `140eb3f6` passed native reporting, DNC, A2P and policy/browser CI. Browser artifact `11355490005` has SHA-256 `00950346ffc2a2b0f8d0739c381f448bc6314bbee28e2aa8d5328db3ffd26cf4`. Inspection confirmed the table clipping fix at 1366×768 and correct desktop cents/seconds, but also found screenshots captured during roster animation and a blank scrolled 1093×614 table. Strengthen the fixture to await exact source totals/current podium IDs and stable geometry, then assert every table photo is inside the visible main area and hit-test visible after scrolling. Add a live policy/rank update. Production component behavior is unchanged in this follow-up; no animation is disabled to pass the checks. Files: the visual fixture entry/verifier/README, this log and the file inventory.
