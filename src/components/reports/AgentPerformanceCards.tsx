@@ -1,5 +1,5 @@
 import React from "react";
-import { formatCount, formatHours, formatRate } from "@/lib/reports-format";
+import { formatCount, formatHours, formatRate, formatPremium } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
 import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
 import type { ReportAgentRow, ReportSummary } from "@/lib/reports-schemas";
@@ -24,8 +24,8 @@ const EXPORT_HEADERS = [
   "Talk time (s)",
   "Policies (current assignment)",
   "Converted",
-  "Appointments",
-  "Session time (s)",
+  "Bookings created (all types)",
+  "Session time (s)", "Known annual premium", "Policies with known premium", "Policies with unknown premium",
 ];
 
 const statusSuffix = (status: string | null) => (status && status !== "Active" ? ` (${status.toLowerCase()})` : "");
@@ -52,6 +52,7 @@ const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
     <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
     <Stat label="Policies (current)" value={formatCount(a.policies_sold)} />
     <Stat label="Converted" value={formatCount(a.converted)} />
+    <Stat label={`Known annual premium (${a.premium.known_count}/${a.premium.policy_count})`} value={formatPremium(a.premium.annual_premium)} />
   </div>
 );
 
@@ -70,7 +71,7 @@ const AgentPerformanceCards: React.FC<Props> = ({
 }) => {
   const agents = summary.by_agent;
   const u = summary.unattributed;
-  const hasUnattributed = Object.values(u).some((n) => n > 0);
+  const hasUnattributed = [u.calls_made, u.inbound_calls, u.talk_time_seconds, u.policies_sold, u.appointments_set].some((n) => n > 0);
 
   const handleExport = onExport
     ? () => {
@@ -84,10 +85,10 @@ const AgentPerformanceCards: React.FC<Props> = ({
           a.policies_sold,
           a.converted,
           a.appointments_set,
-          a.session_seconds,
+          a.session_seconds, a.premium.annual_premium, a.premium.known_count, a.premium.unknown_count,
         ]);
         if (hasUnattributed) {
-          rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null, u.appointments_set, null]);
+          rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null, u.appointments_set, null, u.premium.annual_premium, u.premium.known_count, u.premium.unknown_count]);
         }
         onExport("Agent Performance", EXPORT_HEADERS, rows);
       }
@@ -144,12 +145,13 @@ const AgentPerformanceCards: React.FC<Props> = ({
               <div className="mb-4">
                 <p className="text-sm font-bold text-muted-foreground">Unattributed</p>
                 <p className="text-[11px] text-muted-foreground">Activity not linked to an agent</p>
+                <p className="text-[11px] text-muted-foreground">Known annual premium: {formatPremium(u.premium.annual_premium)} ({u.premium.known_count}/{u.premium.policy_count} policies known)</p>
               </div>
               <div className="grid grid-cols-3 gap-x-3 gap-y-3">
                 <Stat label="Calls made" value={formatCount(u.calls_made)} />
                 <Stat label="Inbound" value={formatCount(u.inbound_calls)} />
                 <Stat label="Policies (no agent)" value={formatCount(u.policies_sold)} />
-                <Stat label="Appointments" value={formatCount(u.appointments_set)} />
+                <Stat label="Bookings created (all types)" value={formatCount(u.appointments_set)} />
                 <Stat label="Talk time" value={formatHours(u.talk_time_seconds)} />
               </div>
             </div>

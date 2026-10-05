@@ -19,7 +19,7 @@
  */
 import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import type { LoadState } from "@/hooks/useReportsData";
-import { addDays, formatCount, formatRate, ratio } from "@/lib/reports-format";
+import { addDays, formatCount, formatRate, formatHours, formatPremium, ratio } from "@/lib/reports-format";
 
 export type StatCategory = "activity" | "results" | "pipeline" | "team";
 
@@ -86,6 +86,9 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_dnc_count", label: "DNC dispositions", category: "activity" },
   { id: "stat_dnc_rate", label: "DNC per 100 dials", category: "activity", invertTrend: true },
 
+  // New optional metrics retain all existing layout ids/order.
+  { id: "stat_annual_premium", label: "Known annual premium", category: "results" },
+  { id: "stat_avg_premium", label: "Avg annual premium / known policy", category: "results" },
   // Results
   { id: "stat_policies_sold", label: "Policies sold", category: "results" },
   { id: "stat_call_to_close", label: "Call to close rate", category: "results", unavailable: NO_CONVERSION },
@@ -95,7 +98,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_avg_days_to_close", label: "Avg days to close", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
   { id: "stat_best_closing_hour", label: "Best closing hour", category: "results", unavailable: NOT_TRACKED },
   { id: "stat_best_closing_day", label: "Best closing day", category: "results", unavailable: NOT_TRACKED },
-  { id: "stat_appointments_set", label: "Appointments set", category: "results" },
+  { id: "stat_appointments_set", label: "Bookings created (all types)", category: "results" },
   { id: "stat_appt_set_rate", label: "Appt set rate", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_contacted_to_appt", label: "Contacted to appt", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_appts_kept", label: "Appointments kept", category: "results", unavailable: NOT_TRACKED },
@@ -107,7 +110,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_active_leads", label: "Active leads", category: "pipeline", unavailable: NO_DEFINITION },
   { id: "stat_leads_contacted", label: "Leads contacted", category: "pipeline", unavailable: NOT_TRACKED },
   { id: "stat_leads_converted", label: "Converted leads/clients", category: "pipeline" },
-  { id: "stat_callback_rate", label: "Callbacks scheduled", category: "pipeline" },
+  { id: "stat_callback_rate", label: "Callback dispositions", category: "pipeline" },
   { id: "stat_callbacks_completed", label: "Callbacks completed", category: "pipeline", unavailable: NOT_TRACKED },
   { id: "stat_callback_conv_rate", label: "Callback conv rate", category: "pipeline", unavailable: NO_CONVERSION },
   { id: "stat_lead_exhaustion", label: "Lead exhaustion rate", category: "pipeline", unavailable: NOT_TRACKED, invertTrend: true },
@@ -145,7 +148,7 @@ const dur = (seconds: number | null): string => {
   if (s < 60) return `${s}s`;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (h >= 1) return `${h}h ${m}m`;
+  if (h >= 1) return formatHours(s);
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 };
 const num = (n: number | null, digits = 1): string => (n === null || !Number.isFinite(n) ? DASH : n.toFixed(digits));
@@ -186,13 +189,9 @@ function leader<T>(rows: T[], score: (r: T) => number | null, name: (r: T) => st
 function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): Computed {
   const t = s.totals;
   const dialers = s.by_agent.filter((a) => a.calls_made > 0);
-  // Session-based ratios use ONE population: agents with session time. Unattributed calls and agents
-  // who never opened a dialer session have no session denominator, so they are not in the numerator.
-  const withSessions = s.by_agent.filter((a) => a.session_seconds > 0);
-  const sessionPop = withSessions.reduce(
-    (acc, a) => ({ calls: acc.calls + a.calls_made, talk: acc.talk + a.talk_time_seconds, secs: acc.secs + a.session_seconds }),
-    { calls: 0, talk: 0, secs: 0 },
-  );
+  // Only calls inside a same-agent/campaign interval enter a session-rate numerator.
+  // The server unions overlapping intervals per agent before calculating the denominator.
+  const sessionPop = { calls: t.session_matched_calls, talk: t.session_matched_talk_seconds, secs: t.session_seconds };
   switch (id) {
     case "stat_total_dials":
     case "stat_outbound":
@@ -202,7 +201,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_calls_per_day":
       return { value: num(ratio(t.calls_made, inputs.dayCount)), subtitle: `over ${inputs.dayCount} day${inputs.dayCount === 1 ? "" : "s"}` };
     case "stat_calls_per_hour":
-      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "agents with session time only" };
+      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "calls inside same-agent/campaign sessions" };
     case "stat_session_time":
       return { value: dur(t.session_seconds), subtitle: "server-timestamped sessions" };
     case "stat_total_contacted":
@@ -210,12 +209,12 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_contact_rate":
       return { value: formatRate(t.contact_rate_pct), subtitle: "contacted calls ÷ calls made" };
     case "stat_total_talk_time":
-      return { value: dur(t.talk_time_seconds), subtitle: "outbound, carrier-timed" };
+      return { value: dur(t.talk_time_seconds), subtitle: "outbound, stored canonical duration" };
     case "stat_avg_duration_all":
       return { value: dur(t.avg_talk_per_dial_seconds), subtitle: "talk time ÷ calls made" };
     case "stat_talk_time_ratio": {
       const r = ratio(sessionPop.talk, sessionPop.secs);
-      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "their talk time ÷ their session time" };
+      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "matched-call talk ÷ non-overlapping session time" };
     }
     case "stat_dnc_count":
       return { value: formatCount(t.dnc_calls) };
@@ -223,6 +222,10 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       const r = ratio(t.dnc_calls, t.calls_made);
       return { value: r === null ? DASH : num(r * 100), subtitle: "DNC dispositions per 100 calls" };
     }
+    case "stat_annual_premium":
+      return { value: formatPremium(t.premium.annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} known; current monthly ×12` };
+    case "stat_avg_premium":
+      return { value: formatPremium(t.premium.average_annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} known policies` };
     case "stat_policies_sold":
       return { value: formatCount(t.policies_sold), subtitle: "stored policies, by sale date" };
     case "stat_dials_per_sale":
@@ -272,12 +275,12 @@ function computeFromVolume(id: string, v: ReportVolume, inputs: StatInputs): Com
     const row = v.by_date.find((d) => d.date === inputs.agencyToday);
     return { value: formatCount(row?.calls_made ?? 0), subtitle: "agency calendar day" };
   }
-  // Week = Sunday..Saturday of the agency today, and only when the whole week-to-date is in range.
+  // Week = Monday..Sunday of the agency today, and only when the whole week-to-date is in range.
   const today = new Date(`${inputs.agencyToday}T00:00:00Z`);
-  const weekStart = addDays(inputs.agencyToday, -today.getUTCDay());
+  const weekStart = addDays(inputs.agencyToday, -((today.getUTCDay() + 6) % 7));
   if (!inWindow(weekStart) || !inWindow(inputs.agencyToday)) return { unknown: "Select a period that includes this whole week" };
   const total = v.by_date.filter((d) => d.date >= weekStart && d.date <= inputs.agencyToday).reduce((a, d) => a + d.calls_made, 0);
-  return { value: formatCount(total), subtitle: "Sunday to today, agency calendar" };
+  return { value: formatCount(total), subtitle: "Monday to today, agency calendar" };
 }
 
 const VOLUME_STATS = new Set(["stat_calls_today", "stat_calls_this_week"]);

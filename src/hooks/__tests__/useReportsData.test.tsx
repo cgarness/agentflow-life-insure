@@ -16,9 +16,9 @@ vi.mock("@/lib/reports-queries", async () => {
     kind: string;
     constructor(kind: string) { super(kind); this.kind = kind; }
   }
-  const make = (fn: string) => (reqOrSignal?: unknown, maybeSignal?: AbortSignal) => {
+  const make = (fn: string) => (reqOrSignal?: unknown, maybeSignal?: unknown) => {
     const signal = (fn === "scope" ? reqOrSignal : maybeSignal) as AbortSignal | undefined;
-    const req = fn === "scope" ? null : reqOrSignal;
+    const req = fn === "scope" ? maybeSignal : reqOrSignal;
     h.calls.push({ fn, req });
     return new Promise((resolve, reject) => h.pending.push({ fn, req, signal, resolve, reject }));
   };
@@ -97,9 +97,78 @@ describe("useReportScope", () => {
     renderHook(() => useReportScope(null, null));
     expect(h.calls).toHaveLength(0);
   });
+
+  it("re-keys requested scope and rejects a late, broader answer", async () => {
+    const { result, rerender } = renderHook(({ mode }: { mode: "agency" | "personal" }) => useReportScope("u1", "o1", mode), { initialProps: { mode: "agency" as "agency" | "personal" } });
+    const broad = h.pending[0];
+    rerender({ mode: "personal" });
+    expect(broad.signal?.aborted).toBe(true);
+    expect(h.calls.map((c) => c.req)).toEqual(["agency", "personal"]);
+    await act(async () => { broad.resolve(reportScope({ requested_scope: "agency" })); });
+    expect(result.current.state.status).toBe("loading");
+    await act(async () => { h.pending[1].resolve(reportScope({ requested_scope: "personal", scope: "own" })); });
+    expect(result.current.state.status === "ready" && result.current.state.data.requested_scope).toBe("personal");
+  });
+
+  it("masks a loaded scope immediately on reload or View As entry", async () => {
+    const frames: string[] = [];
+    const { result, rerender } = renderHook(({ viewer }: { viewer: string | null }) => {
+      const scope = useReportScope(viewer, "o1"); frames.push(scope.state.status); return scope;
+    }, { initialProps: { viewer: "u1" as string | null } });
+    await act(async () => settle("scope"));
+    frames.length = 0;
+    act(() => result.current.reload());
+    expect(frames.every((s) => s === "loading")).toBe(true);
+    const late = h.pending[0];
+    rerender({ viewer: null });
+    await act(async () => late.resolve(reportScope()));
+    expect(result.current.key).toBeNull();
+    expect(result.current.state.status).toBe("loading");
+  });
+
+  it("rejects a broader response to the current explicit scope request", async () => {
+    const { result } = renderHook(() => useReportScope("u1", "o1", "personal"));
+    await act(async () => settle("scope", 0, "ok", reportScope({ requested_scope: "agency" })));
+    expect(result.current.state.status).toBe("error");
+  });
 });
 
 describe("useReportPanels", () => {
+  it("old export payloads stay invalid after A→B→A and same-key retry or refresh", async () => {
+    const { result, rerender } = renderHook(({ r }) => useReportPanels("u1|o1", r), { initialProps: { r: REQ_JULY } });
+    const first = reportSummary({ calls_made: 1 });
+    await act(async () => settle("summary", 0, "ok", first));
+    const key = result.current.key;
+    expect(result.current.isCurrent(key, "summary", first)).toBe(true);
+    rerender({ r: REQ_JUNE }); rerender({ r: REQ_JULY });
+    expect(result.current.isCurrent(key, "summary", first)).toBe(false);
+    const last = h.pending.filter((p) => p.fn === "summary").slice(-1)[0]!;
+    const second = reportSummary({ calls_made: 2 });
+    await act(async () => last.resolve(second));
+    expect(result.current.isCurrent(key, "summary", first)).toBe(false);
+    expect(result.current.isCurrent(key, "summary", second)).toBe(true);
+    act(() => result.current.retryPanel("summary"));
+    expect(result.current.isCurrent(key, "summary", second)).toBe(false);
+    const third = reportSummary({ calls_made: 3 });
+    await act(async () => h.pending.filter((p) => p.fn === "summary").slice(-1)[0]!.resolve(third));
+    expect(result.current.isCurrent(key, "summary", third)).toBe(true);
+    act(() => result.current.refresh());
+    expect(result.current.isCurrent(key, "summary", third)).toBe(false);
+    expect(result.current.panels.summary.status).toBe("loading");
+  });
+  it("requested scope changes invalidate both a late panel and its export key", async () => {
+    const { result, rerender } = renderHook(({ mode }: { mode: "agency" | "personal" }) => useReportPanels("u1|o1", { ...REQ_JULY, requestedScope: mode }), { initialProps: { mode: "agency" as "agency" | "personal" } });
+    const oldKey = result.current.key;
+    const old = [...h.pending];
+    rerender({ mode: "personal" });
+    expect(result.current.isCurrent(oldKey)).toBe(false);
+    expect(old.every((p) => p.signal?.aborted)).toBe(true);
+    await act(async () => old.find((p) => p.fn === "summary")!.resolve(reportSummary({ calls_made: 999 })));
+    expect(result.current.panels.summary.status).toBe("loading");
+    const current = h.pending.find((p) => p.fn === "summary" && (p.req as { requestedScope: string }).requestedScope === "personal")!;
+    await act(async () => current.resolve(reportSummary({ calls_made: 1 })));
+    expect(result.current.panels.summary.status === "ready" && result.current.panels.summary.data.totals.calls_made).toBe(1);
+  });
   it("sends no panel request until there is a scope and a valid request", () => {
     renderHook(() => useReportPanels("u1|o1", null));
     renderHook(() => useReportPanels(null, REQ_JULY));
@@ -191,10 +260,16 @@ describe("useReportPanels", () => {
     await waitFor(() => expect(result.current.isCurrent(julyKey)).toBe(false));
   });
 
-  it("unmount cancels every in-flight panel request (logout / navigation)", () => {
-    const { unmount } = renderHook(() => useReportPanels("u1|o1", REQ_JULY));
+  it("unmount cancels requests and invalidates ready exports (logout / navigation)", async () => {
+    const { result, unmount } = renderHook(() => useReportPanels("u1|o1", REQ_JULY));
     const inFlight = [...h.pending];
+    const data = reportSummary();
+    await act(async () => settle("summary", 0, "ok", data));
+    const key = result.current.key;
+    const isCurrent = result.current.isCurrent;
+    expect(isCurrent(key, "summary", data)).toBe(true);
     unmount();
-    expect(inFlight.every((p) => p.signal?.aborted)).toBe(true);
+    expect(inFlight.filter((p) => p.fn !== "summary").every((p) => p.signal?.aborted)).toBe(true);
+    expect(isCurrent(key, "summary", data)).toBe(false);
   });
 });

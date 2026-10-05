@@ -12,7 +12,7 @@ export const POLICY_SOURCE_NOTE =
   "Policies are stored client policies (primary and additional), counted on each policy's sale date.";
 
 export const CURRENT_ASSIGNMENT_NOTE =
-  "Agent policy counts use the client's current assigned agent, not the original seller; a reassigned client moves its policies.";
+  "Agent policy counts and premiums use the client's current assigned agent, not the original seller; a reassigned client moves its policies.";
 
 export const CAMPAIGN_ATTRIBUTION_NOTE =
   "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale. Campaign breakdowns include only campaigns this viewer may read; unavailable attribution is non-identifying.";

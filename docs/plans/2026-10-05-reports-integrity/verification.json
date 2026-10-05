@@ -1,0 +1,111 @@
+{
+  "base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
+  "branch": "codex/reports-integrity-phase1-20261005",
+  "status": "isolated candidate; not deployed",
+  "checked_date": "2026-10-05",
+  "targeted_tests": {
+    "files": 9,
+    "passed": 145,
+    "skipped": 0,
+    "sql_payload_roundtrip": true
+  },
+  "embedded_sql": {
+    "passed_steps": 28,
+    "negative_controls": 6,
+    "summary_calls": 50000,
+    "overlapping_sessions": 2000,
+    "matched_calls": 50000,
+    "union_seconds": 600300,
+    "elapsed_ms": 1149,
+    "engine": "PGlite 0.3.14; not native or hosted latency"
+  },
+  "typescript": {
+    "base_app_diagnostics": 87,
+    "candidate_app_diagnostics": 87,
+    "new_diagnostics": 0,
+    "root": "pass"
+  },
+  "lint": {
+    "baseline_errors": 11,
+    "candidate_errors": 11,
+    "baseline_warnings": 184,
+    "candidate_warnings": 184,
+    "scoped": "pass"
+  },
+  "build": "pass; existing >500kB chunk warning",
+  "production_actions": [],
+  "limits": [
+    "Native PostgreSQL/independent-session execution pending CI",
+    "Browser/hosted API verification not performed",
+    "Historical call and booking candidates remain unresolved",
+    "No production release or public branch publication performed"
+  ],
+  "migrations": [
+    {
+      "path": "supabase/migrations/20261005183955_reports_integrity_readers.sql",
+      "sha256": "1f1efcec700a9dc6926ea01eddb0a56ce670a157fedcd353783bcf2df7d05f29"
+    },
+    {
+      "path": "supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql",
+      "sha256": "f88855ae14cfd95f79c91fcf1d2512378d135f482dc1ac57ce8b16e9815578f6"
+    }
+  ],
+  "evidence_sha256": {
+    "embedded-reports-final.txt": "9124d85d23a5aa7de58c9d13c33390fbe11d4b4c14ce2f0ee05f2b5d39517186",
+    "reports-reviewed-tests.txt": "1a7186717f3b16628a93c9c6c232807ae0defaa845e6c4345cb8071fba286c9b",
+    "reports-sql-payloads.json": "dbdb4e093c07aa1e59ce7c8e550bfaae0cf7f9e032f510624b1ef0f721883127",
+    "base-app-tsc.txt": "266c270fe249a59d6d0456ab5f8f1f1827f14e1c5949c0b6feed8846e4f6ba58",
+    "candidate-app-tsc.txt": "266c270fe249a59d6d0456ab5f8f1f1827f14e1c5949c0b6feed8846e4f6ba58",
+    "base-lint.txt": "5a7f3df86dc2ccd068e43a38a847db97c43073760d082706aab40ae9e9f97114",
+    "candidate-lint.txt": "2d25908a499c57dcc8b7d3bcf308f06568f5e8cdeffc59dc5af9c717bc52859e",
+    "candidate-build.txt": "36c44badb8727bd062f212d622d7c30e1f3bcbc38f16a8b6be72c0253d4a5d98",
+    "base-full-tests.txt": "8c3d7a9deeb4b4408ba1bf6a97eb248bc78d34c99531dc242191bf0c2488096c",
+    "candidate-full-tests.txt": "9317aff08334f24ea88121b0ebe7913f54f0930b0db0a84d7961ede1740bdf47",
+    "candidate-final-tests.json": "84c3909aa6af6a4fb58e69fda757e3b8a4dbd44443726c7be4f1880fd4614f60",
+    "candidate-final-runtime-errors.json": "ffa8887959d80b18987a524a9d5f3f5ba02d74ece8c45e52156a5cd32cab1abd",
+    "candidate-final-tests.txt": "b4d5eb379cea1b056573da48e54468f958dc146daa89398b2e93ad5ab7152303",
+    "reports-scoped-lint.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-tsc.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "full_suite": {
+    "base_passed": 4187,
+    "candidate_passed": 4199,
+    "failed_files": 10,
+    "failed_tests": 1,
+    "skipped": 33,
+    "same_failure_files_as_base": true,
+    "failed_file_names": [
+      "src/lib/caller-id-selection.test.ts",
+      "src/lib/custom-fields-settings.test.ts",
+      "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+      "src/lib/__tests__/contactName.test.ts",
+      "src/lib/__tests__/contactScope.test.ts",
+      "src/lib/__tests__/leadDisposition.test.ts",
+      "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+      "src/lib/__tests__/userLocalDayBounds.test.ts",
+      "src/lib/control-center/runtimeEventLogger.test.ts",
+      "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts"
+    ],
+    "failed_test_identities": [
+      [
+        "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+        "handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+      ]
+    ],
+    "runtime_reporter": {
+      "finished": true,
+      "reason": "failed",
+      "errors": []
+    }
+  },
+  "independent_review": "SQL and frontend reviews complete; findings resolved and final spot-checks passed",
+  "open_prs_checked": [
+    398,
+    383,
+    382,
+    381,
+    378,
+    294
+  ],
+  "reports_source_overlap": []
+}

@@ -60,12 +60,12 @@ describe("RPC contract", () => {
     respond(reportCampaigns()); await fetchReportCampaigns(REQ);
     respond(reportLeadSources()); await fetchReportLeadSources(REQ);
     expect(h.calls.map((c) => c.fn)).toEqual([
-      "get_report_scope", "get_report_call_summary", "get_report_call_volume",
-      "get_report_disposition_breakdown", "get_report_campaign_performance", "get_report_lead_source_performance",
+      "get_report_scope_v2", "get_report_call_summary_v2", "get_report_call_volume_v2",
+      "get_report_disposition_breakdown_v2", "get_report_campaign_performance_v2", "get_report_lead_source_performance_v2",
     ]);
-    expect(h.calls[0].args).toEqual({});
-    expect(h.calls[1].args).toEqual({ p_start_date: "2026-07-01", p_end_date: "2026-07-31", p_agent_id: "11000000-0000-0000-0000-0000000000c1" });
-    expect(h.calls[2].args).toEqual({ p_start_date: "2026-07-01", p_end_date: "2026-07-31", p_agent_id: null });
+    expect(h.calls[0].args).toEqual({ p_requested_scope: null });
+    expect(h.calls[1].args).toEqual({ p_start_date: "2026-07-01", p_end_date: "2026-07-31", p_agent_id: "11000000-0000-0000-0000-0000000000c1", p_requested_scope: null });
+    expect(h.calls[2].args).toEqual({ p_start_date: "2026-07-01", p_end_date: "2026-07-31", p_agent_id: null, p_requested_scope: null });
     for (const c of h.calls) {
       expect(Object.keys(c.args)).not.toContain("p_org_id");
       expect(Object.keys(c.args).some((k) => /time_?zone/i.test(k))).toBe(false);

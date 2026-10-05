@@ -1,7 +1,7 @@
 import React from "react";
 import { Clock, Headphones, Percent, Phone, PhoneIncoming, Timer, TrendingUp, UserCheck, type LucideIcon } from "lucide-react";
 import type { ReportSummary } from "@/lib/reports-schemas";
-import { formatCount, formatDuration, formatHours, formatRate, ratio } from "@/lib/reports-format";
+import { formatCount, formatDuration, formatHours, formatRate, formatPremium, ratio } from "@/lib/reports-format";
 import type { ReportExportFn, CsvCell } from "@/lib/reports-export";
 import ReportSection from "./ReportSection";
 
@@ -44,6 +44,8 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
   const callsPerDay = round1(ratio(t.calls_made, dayCount));
 
   const metrics: Metric[] = [
+    { icon: TrendingUp, label: "Known annual premium", value: formatPremium(t.premium.annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} policies known · current book`, exportLabel: "Known annual premium (current monthly ×12)", raw: t.premium.annual_premium },
+    { icon: TrendingUp, label: "Avg annual premium / known policy", value: formatPremium(t.premium.average_annual_premium), subtitle: `${t.premium.unknown_count} unknown premiums excluded`, exportLabel: "Average annual premium per known policy", raw: t.premium.average_annual_premium },
     {
       icon: Phone,
       label: "Calls made",

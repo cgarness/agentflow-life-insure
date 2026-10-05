@@ -70,7 +70,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
         name: a.name,
         callsMade: a.calls_made,
         sessionSeconds: a.session_seconds,
-        callsPerHour: round1(ratio(a.calls_made, a.session_seconds / 3600)),
+        callsPerHour: round1(ratio(a.session_matched_calls, a.session_seconds / 3600)),
         contactRate: a.contact_rate_pct,
         talkSeconds: a.talk_time_seconds,
         policiesSold: a.policies_sold,
@@ -180,7 +180,7 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
             </ResponsiveContainer>
           )}
           <p className="text-xs text-muted-foreground mt-3">
-            Session time is server-timestamped dialer sessions, clipped to the selected period. {CURRENT_ASSIGNMENT_NOTE}
+            Session hours count overlapping spans once and cap stale sessions at heartbeat. Calls/hour uses only calls inside same-agent/campaign intervals; unmatched calls remain in Calls Made. {CURRENT_ASSIGNMENT_NOTE}
           </p>
         </>
       )}

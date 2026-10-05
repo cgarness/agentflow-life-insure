@@ -2,17 +2,14 @@ import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
-import { formatCount, formatRate } from "@/lib/reports-format";
+import { formatCount, formatRate, formatPremium } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import { CAMPAIGN_ATTRIBUTION_NOTE } from "@/lib/reports-policy-text";
 import type { ReportCampaigns } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
-
 type CampaignRow = ReportCampaigns["campaigns"][number];
-
 const CHART_TOP_N = 10;
-
 const COLUMNS: { label: string; numeric: boolean }[] = [
   { label: "Campaign", numeric: false },
   { label: "Type", numeric: false },
@@ -23,13 +20,12 @@ const COLUMNS: { label: string; numeric: boolean }[] = [
   { label: "Contacted leads", numeric: true },
   { label: "Converted leads", numeric: true },
   { label: "Policies (campaign-attributed)", numeric: true },
+  { label: "Known annual premium", numeric: true }, { label: "Known / total policies", numeric: true },
 ];
-
 interface Props {
   campaigns: ReportCampaigns;
   onExport?: ReportExportFn;
 }
-
 const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
 const tooltipStyle = {
   backgroundColor: "hsl(var(--card))",
@@ -39,22 +35,18 @@ const tooltipStyle = {
 };
 const textStyle = { color: "hsl(var(--foreground))" };
 const truncate = (s: string) => (s.length > 18 ? `${s.slice(0, 18)}…` : s);
-
 const cellClass = "py-3 px-4 text-right tabular-nums text-muted-foreground font-medium";
-
 const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
   const navigate = useNavigate();
   const rows = campaigns.campaigns;
-
   // Server order is calls_made DESC; the chart shows the busiest campaigns that placed calls.
   const chartData = useMemo(() => rows.filter((c) => c.calls_made > 0).slice(0, CHART_TOP_N), [rows]);
-
   const handleExport = onExport
     ? () =>
         onExport(
           "Campaign Performance",
           COLUMNS.map((c) => (c.label === "Call contact rate" ? "Call contact rate %" : c.label)),
-          rows.map((c) => [
+          [...rows.map((c) => [
             c.name,
             c.type,
             c.calls_made,
@@ -63,13 +55,11 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
             c.leads_dialed,
             c.contacted_leads,
             c.converted_leads,
-            c.attributed_policies,
-          ]),
+            c.attributed_policies, c.premium.annual_premium, `${c.premium.known_count}/${c.premium.policy_count}`,
+          ]), ["Attribution unavailable", null, campaigns.calls_attribution_unavailable, null, null, null, null, null, campaigns.policies_attribution_unavailable, campaigns.premium_attribution_unavailable.annual_premium, `${campaigns.premium_attribution_unavailable.known_count}/${campaigns.premium_attribution_unavailable.policy_count}`]],
         )
     : undefined;
-
   const open = (c: CampaignRow) => navigate(`/campaigns/${c.campaign_id}`);
-
   return (
     <ReportSection title="Campaign Performance" onExport={handleExport}>
       {rows.length === 0 ? (
@@ -106,7 +96,6 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
               </ResponsiveContainer>
             </>
           )}
-
           <div className={cn("overflow-x-auto rounded-xl border border-border", chartData.length > 0 && "mt-6")}>
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
@@ -152,6 +141,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
                     <td className={cellClass}>{formatCount(c.contacted_leads)}</td>
                     <td className={cellClass}>{formatCount(c.converted_leads)}</td>
                     <td className="py-3 px-4 text-right tabular-nums font-bold text-foreground">{formatCount(c.attributed_policies)}</td>
+                    <td className={cellClass}>{formatPremium(c.premium.annual_premium)}</td><td className={cellClass}>{c.premium.known_count}/{c.premium.policy_count}</td>
                   </tr>
                 ))}
               </tbody>
@@ -168,6 +158,8 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
         <p className="text-[11px] text-muted-foreground mt-1">
           {formatCount(campaigns.policies_attribution_unavailable)} of {formatCount(campaigns.policies_in_period)} policies sold in this
           period have unavailable campaign attribution (missing, ambiguous, or restricted).
+          {" "}Known annual premium in that subset: {formatPremium(campaigns.premium_attribution_unavailable.annual_premium)};
+          {" "}{campaigns.premium_attribution_unavailable.known_count}/{campaigns.premium_attribution_unavailable.policy_count} policies known.
         </p>
       )}
       {campaigns.calls_attribution_unavailable > 0 && (
@@ -178,5 +170,4 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
     </ReportSection>
   );
 };
-
 export default CampaignPerformance;

@@ -3,8 +3,8 @@
 -- =====================================================================================================
 -- Revokes EXECUTE on the six public get_report_* RPCs from authenticated (and PUBLIC / anon), keeping
 -- the functions in place, and RE-ASSERTS the seal on the four legacy public.rpc_report_* functions.
--- The Reports page then renders "Reports are temporarily unavailable" (never zeros). Reversible with
--- supabase/ops/reports_enable.sql. Reads and writes no table data; changes no RLS policy.
+-- The Reports page then renders "Reports are temporarily unavailable" (never zeros). Reversible with the version-matched enable:
+-- reports_integrity_enable.sql after v2, reports_enable.sql before v2. Reads and writes no table data; changes no RLS policy.
 -- Refuses (changes nothing) unless every get_report_* function exists.
 -- =====================================================================================================
 
@@ -30,6 +30,25 @@ BEGIN
     IF pg_catalog.has_function_privilege('authenticated', v_sig, 'EXECUTE')
        OR pg_catalog.has_function_privilege('anon', v_sig, 'EXECUTE') THEN
       RAISE EXCEPTION 'reports disable: % is still client-executable; refusing', v_sig;
+    END IF;
+  END LOOP;
+
+  -- Installed v2 functions are revoked too; pre-v2 environments still use this switch unchanged.
+  FOREACH v_sig IN ARRAY ARRAY[
+    'public.get_report_scope_v2(text)',
+    'public.get_report_call_summary_v2(date,date,uuid,text)',
+    'public.get_report_call_volume_v2(date,date,uuid,text)',
+    'public.get_report_disposition_breakdown_v2(date,date,uuid,text)',
+    'public.get_report_campaign_performance_v2(date,date,uuid,text)',
+    'public.get_report_lead_source_performance_v2(date,date,uuid,text)'
+  ] LOOP
+    IF pg_catalog.to_regprocedure(v_sig) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated',
+                                pg_catalog.to_regprocedure(v_sig)::text);
+      IF pg_catalog.has_function_privilege('authenticated',v_sig,'EXECUTE')
+         OR pg_catalog.has_function_privilege('anon',v_sig,'EXECUTE') THEN
+        RAISE EXCEPTION 'reports disable: % is still client-executable; refusing',v_sig;
+      END IF;
     END IF;
   END LOOP;
 

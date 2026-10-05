@@ -31,7 +31,7 @@ describe("canonical stat values", () => {
     expect(v("stat_policies_sold").value).toBe("5");
     expect(v("stat_leads_converted").value).toBe("2");
     expect(v("stat_appointments_set").value).toBe("4");
-    expect(v("stat_session_time").value).toBe("2h 40m");
+    expect(v("stat_session_time").value).toBe("2h 40m 0s");
     expect(v("stat_calls_per_day").value).toBe("0.6");
     expect(v("stat_policies_sold").subtitle).toBe("stored policies, by sale date");
     expect(v("stat_dials_per_sale").label).toBe("Dials per policy sold");
@@ -42,10 +42,10 @@ describe("canonical stat values", () => {
     expect(v("stat_dials_per_contact").subtitle).toBe("calls made ÷ contacted calls");
   });
 
-  it("session-based ratios use only agents with session time (no unattributed calls or session-less agents)", () => {
-    // Totals carry 19 calls / 740 s talk, but only Alice (10 calls, 264 s, 9000 s) and Bob (3, 185 s, 600 s) have sessions.
+  it("session-based ratios use the server interval-matched cohort", () => {
+    // Totals carry 19 calls / 740 s talk; only 13 calls / 449 s fall inside matching session intervals.
     expect(v("stat_calls_per_hour").value).toBe("4.9"); // 13 calls ÷ 2.67 session hours, not 19 ÷ 2.67
-    expect(v("stat_talk_time_ratio").value).toBe("4.7%"); // 449 s ÷ 9600 s, never above 100% from outside calls
+    expect(v("stat_talk_time_ratio").value).toBe("4.7%"); // 449 s ÷ 9600 s; outside calls are excluded
   });
 
   it("derives team leaders from per-agent canonical rows", () => {

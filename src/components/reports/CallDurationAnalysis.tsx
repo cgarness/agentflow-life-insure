@@ -150,7 +150,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
             </>
           )}
 
-          <p className="text-[11px] text-muted-foreground mt-3">Outbound calls; durations are carrier-timed.</p>
+          <p className="text-[11px] text-muted-foreground mt-3">Outbound calls; durations are stored canonical values; estimates and unknown provenance are disclosed in report data quality.</p>
         </>
       )}
     </ReportSection>

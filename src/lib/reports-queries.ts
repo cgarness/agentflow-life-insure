@@ -20,6 +20,7 @@ import {
   reportScopeSchema,
   reportSummarySchema,
   reportVolumeSchema,
+  type ReportRequestedScope,
   type ReportCampaigns,
   type ReportDispositions,
   type ReportLeadSources,
@@ -59,12 +60,12 @@ export function isReportsQueryError(e: unknown): e is ReportsQueryError {
 export const REPORT_REQUEST_TIMEOUT_MS = 25_000;
 
 export const REPORT_RPC = {
-  scope: "get_report_scope",
-  summary: "get_report_call_summary",
-  volume: "get_report_call_volume",
-  dispositions: "get_report_disposition_breakdown",
-  campaigns: "get_report_campaign_performance",
-  leadSources: "get_report_lead_source_performance",
+  scope: "get_report_scope_v2",
+  summary: "get_report_call_summary_v2",
+  volume: "get_report_call_volume_v2",
+  dispositions: "get_report_disposition_breakdown_v2",
+  campaigns: "get_report_campaign_performance_v2",
+  leadSources: "get_report_lead_source_performance_v2",
 } as const;
 
 type ReportRpcName = (typeof REPORT_RPC)[keyof typeof REPORT_RPC];
@@ -100,6 +101,7 @@ export interface ReportRequest {
   endDate: ReportDate;
   /** Narrows to one agent inside the caller's scope. `null` = the caller's whole permitted scope. */
   agentId: string | null;
+  requestedScope?: ReportRequestedScope | null;
 }
 
 async function callReportRpc<T>(
@@ -160,11 +162,11 @@ function windowArgs(req: ReportRequest): Record<string, unknown> {
   if (!REPORT_DATE.test(req.startDate) || !REPORT_DATE.test(req.endDate)) {
     throw new ReportsQueryError("invalid");
   }
-  return { p_start_date: req.startDate, p_end_date: req.endDate, p_agent_id: req.agentId ?? null };
+  return { p_start_date: req.startDate, p_end_date: req.endDate, p_agent_id: req.agentId ?? null, p_requested_scope: req.requestedScope ?? null };
 }
 
-export function fetchReportScope(signal?: AbortSignal): Promise<ReportScope> {
-  return callReportRpc(REPORT_RPC.scope, {}, reportScopeSchema, signal);
+export function fetchReportScope(signal?: AbortSignal, requestedScope: ReportRequestedScope | null = null): Promise<ReportScope> {
+  return callReportRpc(REPORT_RPC.scope, { p_requested_scope: requestedScope }, reportScopeSchema, signal);
 }
 
 export async function fetchReportSummary(req: ReportRequest, signal?: AbortSignal): Promise<ReportSummary> {

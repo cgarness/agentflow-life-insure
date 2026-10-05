@@ -3,11 +3,11 @@
  *
  * Contract (AGENT_RULES #22/#23/#31 patterns, mirrored from useImportHistory / useLeaderboardData):
  *
- * 1. **Scope first.** `get_report_scope()` resolves what this viewer may see, the agency time zone and
+ * 1. **Scope first.** `get_report_scope_v2()` resolves what this viewer may see, the agency time zone and
  *    the agency `today`. Panels are requested only after it succeeds; a denied scope sends no panel
  *    request at all.
  * 2. **State carries its key.** Scope state is keyed by viewer|organization; panel state by
- *    viewer|organization|scope|time zone|agency today|start|end|agent. A render whose key differs from
+ *    viewer|organization|scope|time zone|agency today|start|end|agent|requested scope. A render whose key differs from
  *    the stored key reads LOADING — never the previous viewer's, period's or agent's numbers, not even
  *    for one frame.
  * 3. **Only the newest request commits.** Every run has a generation; a superseded key aborts its
@@ -35,6 +35,7 @@ import type {
   ReportDispositions,
   ReportLeadSources,
   ReportScope,
+  ReportRequestedScope,
   ReportSummary,
   ReportVolume,
 } from "@/lib/reports-schemas";
@@ -60,32 +61,38 @@ export interface UseReportScopeReturn {
   reload: () => void;
 }
 
-export function useReportScope(viewerId: string | null, organizationId: string | null): UseReportScopeReturn {
-  const key = viewerId && organizationId ? `${viewerId}|${organizationId}` : null;
-  const [stored, setStored] = useState<{ key: string; state: LoadState<ReportScope> } | null>(null);
+export function useReportScope(viewerId: string | null, organizationId: string | null, requestedScope: ReportRequestedScope | null = null): UseReportScopeReturn {
+  const key = viewerId && organizationId ? `${viewerId}|${organizationId}|${requestedScope ?? "auto"}` : null;
+  const [stored, setStored] = useState<{ key: string; nonce: number; state: LoadState<ReportScope> } | null>(null);
   const [nonce, setNonce] = useState(0);
   const genRef = useRef(0);
+  const activeKey = useRef(key);
+  useLayoutEffect(() => { activeKey.current = key; });
 
   useEffect(() => {
-    if (!key) return;
+    if (!key || activeKey.current !== key) return;
     const gen = (genRef.current += 1);
     const controller = new AbortController();
-    setStored({ key, state: LOADING });
-    fetchReportScope(controller.signal).then(
+    setStored({ key, nonce, state: LOADING });
+    fetchReportScope(controller.signal, requestedScope).then(
       (data) => {
-        if (genRef.current === gen) setStored({ key, state: { status: "ready", data } });
+        if (genRef.current === gen && activeKey.current === key && !controller.signal.aborted) {
+          const state: LoadState<ReportScope> = requestedScope && data.requested_scope !== requestedScope
+            ? { status: "error", error: new ReportsQueryError("unavailable") } : { status: "ready", data };
+          setStored({ key, nonce, state });
+        }
       },
       (e) => {
-        if (genRef.current === gen && !controller.signal.aborted) {
-          setStored({ key, state: { status: "error", error: toReportsError(e) } });
+        if (genRef.current === gen && activeKey.current === key && !controller.signal.aborted) {
+          setStored({ key, nonce, state: { status: "error", error: toReportsError(e) } });
         }
       },
     );
     return () => controller.abort();
-  }, [key, nonce]);
+  }, [key, nonce, requestedScope]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
-  const state: LoadState<ReportScope> = stored && key && stored.key === key ? stored.state : LOADING;
+  const state: LoadState<ReportScope> = stored && key && stored.key === key && stored.nonce === nonce ? stored.state : LOADING;
   return { key, state, reload };
 }
 
@@ -125,8 +132,8 @@ export interface UseReportPanelsReturn {
   panels: PanelStates;
   retryPanel: (panel: PanelKey) => void;
   refresh: () => void;
-  /** True when `key` is still the report on screen — checked at export time. */
-  isCurrent: (key: string | null) => boolean;
+  /** With panel/data, also requires the currently ready payload, not a previous visit to the key. */
+  isCurrent: (key: string | null, panel?: PanelKey, data?: ReportPanelData[PanelKey]) => boolean;
 }
 
 /**
@@ -135,31 +142,35 @@ export interface UseReportPanelsReturn {
  */
 export function panelRequestKey(scopeKey: string | null, request: ReportRequest | null): string | null {
   if (!scopeKey || !request) return null;
-  return `${scopeKey}|${request.startDate}|${request.endDate}|${request.agentId ?? "all"}`;
+  return `${scopeKey}|${request.startDate}|${request.endDate}|${request.agentId ?? "all"}|${request.requestedScope ?? "auto"}`;
 }
 
 export function useReportPanels(scopeKey: string | null, request: ReportRequest | null): UseReportPanelsReturn {
   const key = panelRequestKey(scopeKey, request);
-  const [stored, setStored] = useState<{ key: string; panels: PanelStates } | null>(null);
+  const [stored, setStored] = useState<{ key: string; nonce: number; panels: PanelStates } | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const keyRef = useRef<string | null>(key);
   const requestRef = useRef<ReportRequest | null>(request);
   const panelGenRef = useRef<Record<PanelKey, number>>({ summary: 0, volume: 0, dispositions: 0, campaigns: 0, leadSources: 0 });
   const controllersRef = useRef<Set<AbortController>>(new Set());
+  const readyDataRef = useRef<Partial<ReportPanelData>>({});
 
   // Current for anything that runs after a commit (retry clicks, late callbacks), unlike a passive effect.
   useLayoutEffect(() => {
+    if (keyRef.current !== key) readyDataRef.current = {};
     keyRef.current = key;
     requestRef.current = request;
   });
 
   const commit = useCallback(<K extends PanelKey>(forKey: string, panel: K, next: LoadState<ReportPanelData[K]>) => {
-    setStored((prev) => (prev && prev.key === forKey ? { key: forKey, panels: { ...prev.panels, [panel]: next } } : prev));
+    setStored((prev) => (prev && prev.key === forKey ? { ...prev, panels: { ...prev.panels, [panel]: next } } : prev));
   }, []);
 
   const runPanel = useCallback(
     <K extends PanelKey>(forKey: string, req: ReportRequest, panel: K) => {
+      if (keyRef.current !== forKey) return;
+      delete readyDataRef.current[panel];
       const gen = (panelGenRef.current[panel] += 1);
       const controller = new AbortController();
       controllersRef.current.add(controller);
@@ -167,7 +178,10 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
       (FETCHERS[panel] as (r: ReportRequest, s: AbortSignal) => Promise<ReportPanelData[K]>)(req, controller.signal)
         .then(
           (data) => {
-            if (stillCurrent()) commit(forKey, panel, { status: "ready", data });
+            if (stillCurrent()) {
+              readyDataRef.current[panel] = data;
+              commit(forKey, panel, { status: "ready", data });
+            }
           },
           (e) => {
             if (stillCurrent()) commit(forKey, panel, { status: "error", error: toReportsError(e) });
@@ -182,12 +196,13 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
     if (!key || !request) return;
     // A stale START is refused too: only the key this render committed may begin requests.
     if (keyRef.current !== key) return;
-    setStored({ key, panels: ALL_LOADING });
+    setStored({ key, nonce, panels: ALL_LOADING });
     for (const panel of PANEL_KEYS) runPanel(key, request, panel);
     const controllers = controllersRef.current;
     return () => {
       controllers.forEach((c) => c.abort());
       controllers.clear();
+      readyDataRef.current = {};
     };
     // `request` is fully described by `key`; depending on the object would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,9 +219,10 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
     [commit, runPanel],
   );
 
-  const refresh = useCallback(() => setNonce((n) => n + 1), []);
-  const isCurrent = useCallback((k: string | null) => !!k && keyRef.current === k, []);
+  const refresh = useCallback(() => { readyDataRef.current = {}; setNonce((n) => n + 1); }, []);
+  const isCurrent = useCallback((k: string | null, panel?: PanelKey, data?: ReportPanelData[PanelKey]) =>
+    !!k && keyRef.current === k && (!panel || (!!data && readyDataRef.current[panel] === data)), []);
 
-  const panels = stored && key && stored.key === key ? stored.panels : ALL_LOADING;
+  const panels = stored && key && stored.key === key && stored.nonce === nonce ? stored.panels : ALL_LOADING;
   return useMemo(() => ({ key, panels, retryPanel, refresh, isCurrent }), [key, panels, retryPanel, refresh, isCurrent]);
 }
