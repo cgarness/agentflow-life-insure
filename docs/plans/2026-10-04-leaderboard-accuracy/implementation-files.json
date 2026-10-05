@@ -21,8 +21,8 @@
     },
     {
       "path": "WORK_LOG.md",
-      "sha256": "981451786011432622a33f199b4268be17ccea7773ea06a96a4e946b8b8696c1",
-      "bytes": 2234607
+      "sha256": "841dc5cd58ebcd65763d9c66cd041da71c7af5ba9674e77d5eb49b34208f3b0c",
+      "bytes": 2236132
     },
     {
       "path": "docs/plans/2026-10-04-leaderboard-accuracy/full_audit.md",
@@ -111,18 +111,18 @@
     },
     {
       "path": "scripts/tests/leaderboard-visual/README.md",
-      "sha256": "2833a8104264c4178b8a9d310073602cbc7640b83d13fd3cafdf6d7280f08068",
-      "bytes": 2418
+      "sha256": "0b341fa51bd1d3deef93ddd8d4fe16f1c22e8ffca73a710c573b0cb80b381f03",
+      "bytes": 3012
     },
     {
       "path": "scripts/tests/leaderboard-visual/entry.tsx",
-      "sha256": "555362b7b429224685d37d10cbdc93e5e9b9b69239590ee702205a25db40d51c",
-      "bytes": 2875
+      "sha256": "bbcb1bc860a2c1d8736abeb8dbd64b372d159a86aaf0b149a1d0b6b40fdac29c",
+      "bytes": 2918
     },
     {
       "path": "scripts/tests/leaderboard-visual/verify.mjs",
-      "sha256": "f06dfc335b43f0607a37dab71efebe2b52aa3d8386643e19f99f1c6368315df9",
-      "bytes": 6280
+      "sha256": "0d21b8d5e3c4ead86f386e64245516e36ef061d19735c850c28366df36da2f56",
+      "bytes": 8962
     },
     {
       "path": "scripts/tests/policy-integrity-embedded.mjs",

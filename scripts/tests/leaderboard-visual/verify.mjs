@@ -17,8 +17,36 @@ try {
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('vite-error-overlay').count(),0);
  assert.match(await page.locator('body').innerText(),/Active agents · America\/Los_Angeles · As of/);
+ async function settleLayout() {
+  await page.evaluate(async()=>{
+   let previous='',stableSince=performance.now();const deadline=performance.now()+6000;
+   while(performance.now()<deadline){
+    await new Promise(requestAnimationFrame);
+    const positions=JSON.stringify([...document.querySelectorAll('[data-testid="tv-rankings"], [data-testid="tv-rankings"] img, [data-testid="tv-podium"] [data-agent-id]')].map(e=>{
+     const r=e.getBoundingClientRect();return [e.getAttribute('data-agent-id'),r.x,r.y,r.width,r.height].map(v=>typeof v==='number'?Math.round(v*10):v);
+    }));
+    if(positions!==previous){previous=positions;stableSince=performance.now();}
+    if(performance.now()-stableSince>400)return;
+   }
+   throw new Error('TV layout did not settle');
+  });
+ }
  async function measure(label) {
+  const expected=await page.evaluate(()=>{
+   const rows=window.fixtureRows();const keys=['policiesSold','callsMade','appointmentsSet','talkTime','conversionRate','premiumSold'];
+   const key=keys[Number(localStorage.getItem('leaderboardTvMetricIndex')??0)];
+   const ranked=[...rows].sort((a,b)=>(b[key]??-Infinity)-(a[key]??-Infinity));
+   const sum=k=>rows.reduce((total,row)=>total+row[k],0);
+   return {podium:[ranked[1],ranked[0],ranked[2]].filter(Boolean).map(row=>row.id),
+    totals:[String(sum('callsMade')),String(sum('policiesSold')),new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(sum('premiumSold')),String(sum('appointmentsSet'))]};
+  });
+  await page.waitForFunction(expected=>{
+   const ids=[...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId);
+   const totals=[...document.querySelectorAll('[data-testid="tv-agency-totals"] .tabular-nums')].map(e=>e.textContent);
+   return JSON.stringify(ids)===JSON.stringify(expected.podium)&&JSON.stringify(totals)===JSON.stringify(expected.totals);
+  },expected);
   await page.waitForFunction(()=>{const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img')];return photos.length===document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length&&photos.every(i=>i.complete&&i.naturalWidth>0);});
+  await settleLayout();
   const metrics=await page.evaluate(()=>{
    const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom};};
    const totals=rect(document.querySelector('[data-testid="tv-agency-totals"]'));
@@ -40,8 +68,15 @@ try {
   assert.ok(metrics.originalRanks.every((r,i)=>r===i+1),`${label}: mutated source ranks`);
   await page.screenshot({path:`${output}/${label}.png`});
   await page.getByTestId('tv-rankings').scrollIntoViewIfNeeded();
+  await settleLayout();
+  const visiblePhotos=await page.getByTestId('tv-rankings').locator('img').evaluateAll(images=>images.map(img=>{
+   const r=img.getBoundingClientRect();const main=document.querySelector('main').getBoundingClientRect();
+   return r.top>=main.top-1&&r.bottom<=main.bottom+1&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===img;
+  }));
+  assert.ok(visiblePhotos.every(Boolean),`${label}: table photos must be visible after scrolling`);
   await page.screenshot({path:`${output}/${label}-table.png`});
   await page.locator('main').evaluate(main=>main.scrollTo({top:0}));
+  await settleLayout();
   console.log('PASS',label,JSON.stringify({centerError:metrics.centerError,photos:metrics.photos.length}));
  }
  for(const [w,h] of [[1366,768],[1920,1080],[3840,2160],[1093,614]]) {
@@ -63,6 +98,12 @@ try {
   await page.waitForFunction(n=>document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length===Math.min(n,3),count);
   await measure(`roster-${count}`);
  }
+ await page.getByRole('button',{name:'TV display options'}).click();
+ await page.getByLabel('Viewing metric').selectOption('0');
+ await page.keyboard.press('Escape');
+ await measure('policies-manual-switch');
+ await page.evaluate(()=>window.fixtureLiveUpdate());
+ await measure('live-policy-update');
  await page.getByRole('button',{name:'Exit TV mode'}).click();
  await page.getByRole('button',{name:'Enter TV mode'}).click();
  await measure('reentered-tv');
