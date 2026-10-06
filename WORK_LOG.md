@@ -1,3 +1,11 @@
+## 2026-10-06 — Narrow Conversations copy-fit correction before final review
+
+The final 390px browser pass found the new “Select a conversation” heading clipped beside the persistent sidebar. Corrected only that normal empty pane with responsive Tailwind minimum width/padding, heading wrapping and a smaller narrow-screen heading size while retaining its H2 hierarchy and desktop styling. The denied/read-only branches, sidebar component, handlers and data behavior are unchanged. This stays inside the approved Conversations file and 111-file allowlist.
+
+Actual-source Chromium rerun passes all six 320/390/1440px × light/dark cases: every glyph is inside the pane, viewport and clipping ancestors; “conversation” stays whole at390px; at320px the word wraps with every letter visible. No page errors, external requests or writes. Existing Conversations View As suite passes16/16; scoped lint, app build and whitespace check pass. The earlier full 4,272/base4,272 test comparison remains documented below; automatic exact-head CI re-runs for this final presentation correction. Core visual coverage totals96 state captures, plus this focused six-case correction. Existing Calling Settings and Calendar narrow clipping reproduce on the pinned base and remain separate follow-up work.
+
+Draft PR: https://github.com/cgarness/agentflow-life-insure/pull/423. Publish the final correction on the same review branch; the PR verification section records final CI/preview status. No production release, backend command or Supabase mutation occurred.
+
 ## 2026-10-06 — UI copy cleanup: locally verified draft candidate
 
 Chris approved the exact 111-file implementation/review-publication plan at 10:20 PDT. Implemented on `codex/ui-copy-cleanup-20261006` from main `3f7fa519011ab22307dfdda802b045b2028cd7b2`. The seven existing open PR heads and main were rechecked before publication; #419 SMS consent and #378 Google OAuth remain separate drafts, and their purpose/readiness/disclosure work was not imported, reverted or overwritten. Four source batches cover core CRM, reporting/profiles, phone settings and administration. This is not a production release.
