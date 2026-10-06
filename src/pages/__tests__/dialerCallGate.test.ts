@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { runGatedCall, runGatedDispatch } from "@/pages/dialerCallGate";
+import { resolveManualDialDecision, runGatedCall, runGatedDispatch } from "@/pages/dialerCallGate";
 
 /**
  * These test the ACTUAL helpers DialerPage.handleCall / proceedWithCall / caller-ID selection run through — not a reimplementation. They prove the ordering guarantee: campaign-session
@@ -108,5 +108,58 @@ describe("fail-closed final verification", () => {
     const steps = makeSteps({ dispatch: vi.fn(async () => false) });
     expect(await runGatedCall(steps)).toBe("not-started");
     expect(steps.incrementStats).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("resolveManualDialDecision — intentional repeat calls", () => {
+  const base = {
+    intent: "manual" as const,
+    callState: "idle",
+    dispositionSavePending: false,
+    pendingAdvanceForCurrentLead: false,
+    hasCurrentCall: false,
+    showWrapUp: false,
+    hasDraft: false,
+  };
+
+  it("allows a fresh manual dial", () => {
+    expect(resolveManualDialDecision(base)).toBe("dial");
+  });
+
+  it("allows a manual repeat call after the previous call ended", () => {
+    expect(resolveManualDialDecision({
+      ...base,
+      callState: "ended",
+      hasCurrentCall: true,
+      showWrapUp: true,
+    })).toBe("redial");
+  });
+
+  it("does not let auto-dial consume an existing call/wrap-up state", () => {
+    expect(resolveManualDialDecision({
+      ...base,
+      intent: "auto",
+      hasCurrentCall: true,
+    })).toBe("blocked-wrap-up");
+  });
+
+  it("still blocks while a call is actually active or starting", () => {
+    expect(resolveManualDialDecision({ ...base, callState: "dialing" })).toBe("blocked-active");
+    expect(resolveManualDialDecision({ ...base, callState: "active" })).toBe("blocked-active");
+    expect(resolveManualDialDecision({ ...base, callState: "incoming" })).toBe("blocked-active");
+  });
+
+  it("still blocks while the previous disposition/advance is being persisted", () => {
+    expect(resolveManualDialDecision({ ...base, dispositionSavePending: true })).toBe("blocked-persisting");
+    expect(resolveManualDialDecision({ ...base, pendingAdvanceForCurrentLead: true })).toBe("blocked-persisting");
+  });
+
+  it("protects an unsaved disposition or notes draft from being discarded by a redial", () => {
+    expect(resolveManualDialDecision({
+      ...base,
+      hasCurrentCall: true,
+      hasDraft: true,
+    })).toBe("blocked-draft");
   });
 });

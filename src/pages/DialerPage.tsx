@@ -42,7 +42,7 @@ import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { checkDNC } from "@/utils/dncCheck";
-import { runGatedCall, runGatedDispatch } from "@/pages/dialerCallGate";
+import { resolveManualDialDecision, runGatedCall, runGatedDispatch, type DialIntent } from "@/pages/dialerCallGate";
 import { logActivity } from "@/lib/activityLogger";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -2521,18 +2521,42 @@ export default function DialerPage() {
     setSelectedCampaignId,
   ]);
 
-  const handleCall = useCallback(async () => {
+  const handleCall = useCallback(async (intent: DialIntent = "manual") => {
     if (!currentLead) {
       toast.error("No lead selected");
       return;
     }
-    // Guard #5: never re-dial a lead whose just-ended call hasn't finished
-    // persisting its campaign_leads advancement (prevents the rapid duplicate
-    // "failed, duration 0" calls seen in the redial loop).
-    if (dispositionSaveRef.current || currentCallId || showWrapUp || pendingAdvanceRef.current === currentLead.id) {
-      console.warn("[DialerPage] Skipping dial — advancement still persisting for this lead");
+
+    // Manual repeat calls are intentional user actions. A completed call/wrap-up
+    // does NOT lock the agent out of calling the same lead again. Auto-dial remains
+    // strict so it cannot recreate the historical rapid-redial loop.
+    const currentCallAlreadySaved =
+      !!currentCallId && lastAdvancedLeadRef.current?.call_id === currentCallId;
+    const dialDecision = resolveManualDialDecision({
+      intent,
+      callState: twilioCallState,
+      dispositionSavePending: dispositionSaveRef.current,
+      pendingAdvanceForCurrentLead: pendingAdvanceRef.current === currentLead.id,
+      hasCurrentCall: !!currentCallId,
+      showWrapUp,
+      // A saved "Save Only" wrap-up is not an unsaved draft and may be called again.
+      hasDraft: !currentCallAlreadySaved && !!(selectedDisp || noteText.trim()),
+    });
+
+    if (dialDecision === "blocked-wrap-up") return;
+    if (dialDecision === "blocked-active") {
+      if (intent === "manual") toast.error("Finish the current call before placing another.");
       return;
     }
+    if (dialDecision === "blocked-persisting") {
+      if (intent === "manual") toast.error("The previous call is still saving. Try again in a moment.");
+      return;
+    }
+    if (dialDecision === "blocked-draft") {
+      toast.error("Save or clear the current outcome before calling again.");
+      return;
+    }
+
     if (twilioStatus === "error") {
       toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
       return;
@@ -2544,7 +2568,7 @@ export default function DialerPage() {
     // result aborts before all three. A cached session for a DIFFERENT campaign no longer slips
     // through — the gate goes to the server, which refuses a mismatch.
     let dnc: Awaited<ReturnType<typeof checkDNC>> | null = null;
-    await runGatedCall({
+    const outcome = await runGatedCall({
       ensureSession: ensureCampaignSession,
       checkDnc: async () => {
         dnc = await checkDNC(currentLead.phone, organizationId, currentLead.id);
@@ -2630,7 +2654,32 @@ export default function DialerPage() {
         return initiateCall(currentLead.phone, contactId);
       },
     });
-  }, [currentLead, currentCallId, showWrapUp, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, ensureCampaignSession]);
+
+    if (outcome === "dispatched" && dialDecision === "redial") {
+      // The new Voice.js dialing transition clears any deferred No Answer timer
+      // from the previous attempt. Only the newest attempt owns wrap-up/disposition.
+      setShowWrapUp(false);
+      setSelectedDisp(null);
+      setNoteText("");
+      setNoteError(false);
+      setCallbackDate(undefined);
+      setCallbackTime("");
+      setAptTitle("");
+      setAptDate("");
+      setAptStartTime("");
+      setAptEndTime("");
+      setAptNotes("");
+      lastAdvancedLeadRef.current = null;
+    }
+  }, [currentLead, currentCallId, showWrapUp, selectedDisp, noteText, twilioCallState, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, ensureCampaignSession]);
+
+  const handleManualCall = useCallback(() => {
+    void handleCall("manual");
+  }, [handleCall]);
+
+  const handleAutoCall = useCallback(() => {
+    void handleCall("auto");
+  }, [handleCall]);
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration);
@@ -3340,7 +3389,7 @@ export default function DialerPage() {
     dialDelayMs: SYSTEM_AUTO_DIAL_DELAY_MS,
     checkCallingHours: memoizedCheckHours,
     shouldDeferAutoDial,
-    onCall: handleCall,
+    onCall: handleAutoCall,
     onSkip: handleSkip,
   });
 
@@ -4511,7 +4560,7 @@ export default function DialerPage() {
           selectedDisp={selectedDisp}
           fmtDuration={fmtDuration}
           onHangUp={handleHangUp}
-          onCall={handleCall}
+          onCall={handleManualCall}
           onSkip={handleSkip}
           onSelectTab={setLeftTab}
           onSelectDisposition={handleSelectDisposition}
