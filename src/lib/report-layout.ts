@@ -1,179 +1,62 @@
 import { supabase } from "@/integrations/supabase/client";
-import { ReportLayoutConfig, DEFAULT_LAYOUT, SectionConfig, MAX_VISIBLE_STATS } from "./report-layout-constants";
+import type { Json } from "@/integrations/supabase/types";
+import { normalizeReportLayout, type ReportLayoutConfig } from "./report-layout-constants";
 
-export function getDefaultLayout(): ReportLayoutConfig {
-  return JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
-}
+export interface LayoutOwner { userId: string; orgId: string }
 
-function mergeWithDefault(fetched: any): ReportLayoutConfig {
-  if (!fetched) return getDefaultLayout();
+export function getDefaultLayout(): ReportLayoutConfig { return normalizeReportLayout(null); }
 
-  let fetchedSections: SectionConfig[] = [];
-
-  // Migration logic: v1 (tabs) -> v2 (flat sections)
-  if (fetched.version === 1 && fetched.tabs) {
-    const tabs = fetched.tabs;
-    // Flatten in a reasonable order
-    if (Array.isArray(tabs.overview)) fetchedSections.push(...tabs.overview);
-    if (Array.isArray(tabs.calls)) fetchedSections.push(...tabs.calls);
-    if (Array.isArray(tabs.pipeline)) fetchedSections.push(...tabs.pipeline);
-    if (Array.isArray(tabs.team)) fetchedSections.push(...tabs.team);
-    
-    // Deduplicate just in case
-    const seen = new Set<string>();
-    fetchedSections = fetchedSections.filter(s => {
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
-  } else if ((fetched.version === 2 || fetched.version === 3) && Array.isArray(fetched.sections)) {
-    fetchedSections = fetched.sections;
-  } else {
-    // Unknown format or missing sections
-    return getDefaultLayout();
-  }
-
-  const merged = getDefaultLayout();
-  
-  const validFetchedSections = fetchedSections.filter(fs => 
-    merged.sections.some(ds => ds.id === fs.id)
-  );
-  
-  const missingSections = merged.sections.filter(ds => 
-    !fetchedSections.some(fs => fs.id === ds.id)
-  );
-  
-  merged.sections = [...validFetchedSections, ...missingSections];
-
-  return merged;
-}
-
-export async function fetchUserLayout(orgId: string): Promise<ReportLayoutConfig> {
-  let needsMigrationSave = false;
-  let layoutToSave: ReportLayoutConfig | null = null;
-  let userId: string | null = null;
-
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (user) {
-      userId = user.id;
-      const { data: userLayout } = await supabase
-        .from("report_layouts")
-        .select("layout")
-        .eq("organization_id", orgId)
-        .eq("user_id", user.id)
-        .maybeSingle();
-        
-      if (userLayout?.layout) {
-        const parsed = userLayout.layout as any;
-        const merged = mergeWithDefault(parsed);
-        if (parsed.version === 1) {
-          needsMigrationSave = true;
-          layoutToSave = merged;
-        }
-        
-        // Background async save for migration
-        if (needsMigrationSave && layoutToSave && userId) {
-          saveUserLayout(orgId, layoutToSave).catch(e => console.error("Auto-migration save failed:", e));
-        }
-        
-        return merged;
-      }
-    }
-
-    const { data: orgLayout } = await supabase
-      .from("report_layouts")
-      .select("layout")
-      .eq("organization_id", orgId)
-      .is("user_id", null)
-      .maybeSingle();
-
-    if (orgLayout?.layout) {
-      const parsed = orgLayout.layout as any;
-      const merged = mergeWithDefault(parsed);
-      
-      // If we are relying on an org layout that is v1, we just return the v2 merged version.
-      // We don't automatically upgrade the org layout here (let an admin do it by saving).
-      return merged;
-    }
-  } catch (err) {
-    console.error("Error fetching report layout:", err);
-  }
-
-  return getDefaultLayout();
-}
-
-export async function saveUserLayout(orgId: string, layout: ReportLayoutConfig): Promise<void> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    
-    // Enforce 20 visible stats cap before saving
-    let visibleCount = 0;
-    layout.sections.forEach(s => {
-      if (s.id.startsWith("stat_") && s.visible) {
-        if (visibleCount >= MAX_VISIBLE_STATS) s.visible = false;
-        else visibleCount++;
-      }
-    });
-
-    const { data: existing } = await supabase
-      .from("report_layouts")
-      .select("id")
-      .eq("organization_id", orgId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase.from("report_layouts").update({ layout: layout as any, updated_at: new Date().toISOString() }).eq("id", existing.id);
-    } else {
-      await supabase.from("report_layouts").insert({ user_id: user.id, organization_id: orgId, layout: layout as any });
-    }
-  } catch (err) {
-    console.error("Error saving user layout:", err);
+async function assertOwner(owner: LayoutOwner): Promise<void> {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error) throw new Error("Could not verify your account. Try again.");
+  if (!user || user.id !== owner.userId || user.app_metadata.organization_id !== owner.orgId) {
+    throw new Error("Your account or organization changed. Reload Reports before changing your layout.");
   }
 }
 
-export async function saveOrgDefaultLayout(orgId: string, layout: ReportLayoutConfig): Promise<void> {
-  try {
-    // Enforce 20 visible stats cap before saving
-    let visibleCount = 0;
-    layout.sections.forEach(s => {
-      if (s.id.startsWith("stat_") && s.visible) {
-        if (visibleCount >= MAX_VISIBLE_STATS) s.visible = false;
-        else visibleCount++;
-      }
-    });
-
-    const { data: existing } = await supabase
-      .from("report_layouts")
-      .select("id")
-      .eq("organization_id", orgId)
-      .is("user_id", null)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase.from("report_layouts").update({ layout: layout as any, updated_at: new Date().toISOString() }).eq("id", existing.id);
-    } else {
-      await supabase.from("report_layouts").insert({ organization_id: orgId, layout: layout as any });
-    }
-  } catch (err) {
-    console.error("Error saving org layout:", err);
-  }
+function failure(action: string, error: { code?: string } | null): Error {
+  return new Error(error?.code === "23505"
+    ? "Your layout changed in another tab. Reload your layout and try again."
+    : `Could not ${action} your report layout. Try again.`);
 }
 
-export async function resetUserLayout(orgId: string): Promise<void> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    
-    await supabase
-      .from("report_layouts")
-      .delete()
-      .eq("organization_id", orgId)
-      .eq("user_id", user.id);
-  } catch (err) {
-    console.error("Error resetting user layout:", err);
-  }
+/** Reads never migrate or write preferences. An error is distinct from an absent personal row. */
+export async function fetchUserLayout(owner: LayoutOwner): Promise<ReportLayoutConfig> {
+  await assertOwner(owner);
+  const personal = await supabase.from("report_layouts").select("layout")
+    .eq("organization_id", owner.orgId).eq("user_id", owner.userId).maybeSingle();
+  if (personal.error) throw failure("load", personal.error);
+  if (personal.data) return normalizeReportLayout(personal.data.layout);
+  const inherited = await supabase.from("report_layouts").select("layout")
+    .eq("organization_id", owner.orgId).is("user_id", null).maybeSingle();
+  if (inherited.error) throw failure("load", inherited.error);
+  return normalizeReportLayout(inherited.data?.layout);
+}
+
+/** Explicit personal save; existing partial indexes do not support a column-only REST upsert. */
+export async function saveUserLayout(owner: LayoutOwner, layout: ReportLayoutConfig): Promise<ReportLayoutConfig> {
+  const snapshot = normalizeReportLayout(layout);
+  await assertOwner(owner);
+  const existing = await supabase.from("report_layouts").select("id")
+    .eq("organization_id", owner.orgId).eq("user_id", owner.userId).maybeSingle();
+  if (existing.error) throw failure("save", existing.error);
+  // Auth can change while the preceding request is outstanding. Never adopt its new identity.
+  await assertOwner(owner);
+  const values = { layout: snapshot as unknown as Json, updated_at: new Date().toISOString() };
+  const result = existing.data
+    ? await supabase.from("report_layouts").update(values).eq("id", existing.data.id)
+      .eq("organization_id", owner.orgId).eq("user_id", owner.userId).select("id").single()
+    : await supabase.from("report_layouts").insert({ ...values, organization_id: owner.orgId, user_id: owner.userId })
+      .select("id").single();
+  if (result.error || !result.data) throw failure("save", result.error);
+  return snapshot;
+}
+
+/** Reset removes only this person's override, then reads the inherited/default layout. */
+export async function resetUserLayout(owner: LayoutOwner): Promise<ReportLayoutConfig> {
+  await assertOwner(owner);
+  const result = await supabase.from("report_layouts").delete()
+    .eq("organization_id", owner.orgId).eq("user_id", owner.userId);
+  if (result.error) throw failure("reset", result.error);
+  return fetchUserLayout(owner);
 }

@@ -2,14 +2,6 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import type { StatCategory, StatState } from "@/lib/stat-computations";
 
-/** Static Tailwind classes for the category accent (colors match STAT_CATEGORIES). */
-const ACCENT: Record<StatCategory, string> = {
-  activity: "border-l-[#378ADD]",
-  results: "border-l-[#639922]",
-  pipeline: "border-l-[#1D9E75]",
-  team: "border-l-[#BA7517]",
-};
-
 interface StatCardProps {
   label: string;
   value: string;
@@ -19,47 +11,22 @@ interface StatCardProps {
   smallValue?: boolean;
 }
 
-/**
- * One stat tile. `error` and `unavailable` never show a number: an unknown value is "—" with its
- * reason, so a failed or undefined metric can never read as a real zero.
- */
-const StatCard: React.FC<StatCardProps> = ({ label, value, subtitle, category, state, smallValue }) => {
-  const muted = state !== "ready";
-  const accent = state === "unavailable" || !category ? "border-l-border" : ACCENT[category];
-
-  return (
-    <div
-      className={cn(
-        "group relative bg-card border border-border/50 border-l-[3px] flex flex-col justify-between transition-all min-h-[80px] px-3 py-2.5",
-        accent,
-        state === "unavailable" && "opacity-60",
-      )}
-      data-stat-state={state}
-    >
-      <div>
-        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.4px] mb-1 truncate">{label}</p>
-        {state === "loading" ? (
-          <div className="h-6 w-16 rounded bg-muted animate-pulse" aria-busy="true" />
-        ) : (
-          <p
-            className={cn(
-              "font-medium tracking-tight leading-tight truncate",
-              smallValue ? "text-base" : "text-xl",
-              muted ? "text-muted-foreground" : "text-foreground",
-            )}
-            title={value}
-          >
-            {value}
-          </p>
-        )}
-      </div>
-      {subtitle && (
-        <p className={cn("text-[11px] truncate mt-1", state === "error" ? "text-amber-500" : "text-muted-foreground")} title={subtitle}>
-          {subtitle}
-        </p>
-      )}
-    </div>
-  );
-};
+/** One cell of the grouped metric strip; unknown or failed metrics retain their reason. */
+const StatCard: React.FC<StatCardProps> = ({ label, value, subtitle, category, state, smallValue }) => (
+  <div className="flex h-full min-h-[104px] min-w-0 flex-col bg-card px-4 py-4"
+    data-stat-state={state} data-stat-category={category} aria-busy={state === "loading"}>
+    <p className="text-xs font-medium leading-snug text-muted-foreground [overflow-wrap:anywhere]">{label}</p>
+    {state === "loading" ? (
+      <div className="mt-2 h-7 w-16 animate-pulse rounded bg-muted" aria-label={`Loading ${label}`} />
+    ) : (
+      <p className={cn("mt-2 font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere]",
+        smallValue ? "text-base" : "text-2xl", state === "ready" ? "text-foreground" : "text-muted-foreground")}>
+        {value}
+      </p>
+    )}
+    {subtitle && <p className={cn("mt-1.5 text-[11px] leading-snug [overflow-wrap:anywhere]",
+      state === "error" ? "text-destructive" : "text-muted-foreground")}>{subtitle}</p>}
+  </div>
+);
 
 export default StatCard;

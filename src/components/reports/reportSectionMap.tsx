@@ -56,7 +56,7 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
 
   return {
     ...buildStatComponents({ summary: panels.summary, volume: panels.volume, dayCount: ctx.dayCount, agencyToday: ctx.agencyToday }),
-    call_volume: panel("Call Volume", "volume", (v) => (
+    call_volume: panel("Calling trend", "volume", (v) => (
       <CallVolumeChart volume={v} grouping={ctx.grouping} onGroupingChange={ctx.onGroupingChange} onExport={ctx.exportFor("volume")} />
     )),
     conversion_funnel: panel("Disposition Breakdown", "dispositions", (d) => (
@@ -73,7 +73,7 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
     disposition_deep_dive: panel("Disposition Deep Dive", "dispositions", (d) => (
       <DispositionDeepDive dispositions={d} onExport={ctx.exportFor("dispositions")} />
     )),
-    policies_sold: panel("Policies Sold", "volume", (v) => (
+    policies_sold: panel("Production trend", "volume", (v) => (
       <PoliciesSoldChart volume={v} summary={summaryData} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
     )),
     campaign_performance: panel("Campaign Performance", "campaigns", (c) => (

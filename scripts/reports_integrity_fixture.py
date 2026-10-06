@@ -9,12 +9,17 @@ def clean(s):return re.sub(r'^\\.*\n','',s,flags=re.M)
 def quote(s):return "$candidate$"+s+"$candidate$"
 def refused(sql,message):return "SELECT rt.expect_sql_failure("+quote(sql)+","+quote(message)+");"
 def payload_sql():
- pairs=[]
- for key,name in [('scope','scope'),('summary','call_summary'),('volume','call_volume'),('dispositions','disposition_breakdown'),('campaigns','campaign_performance'),('leadSources','lead_source_performance')]:
-  args="'agency'" if name=='scope' else "'2026-10-01','2026-10-01',NULL,'agency'"
-  query=f'SELECT public.get_report_{name}_v2({args})'
-  pairs.append("'"+key+"',rt.call(rt.iv(2),rt.iv(1),"+quote(query)+")")
- return 'SELECT jsonb_build_object('+','.join(pairs)+');'
+ def bundle(scope):
+  pairs=[]
+  for key,name in [('scope','scope'),('summary','call_summary'),('volume','call_volume'),('dispositions','disposition_breakdown'),('campaigns','campaign_performance'),('leadSources','lead_source_performance')]:
+   args=f"'{scope}'" if name=='scope' else f"'2026-10-01','2026-10-01',NULL,'{scope}'"
+   query=f'SELECT public.get_report_{name}_v2({args})'
+   pairs.append("'"+key+"',rt.call(rt.iv(2),rt.iv(1),"+quote(query)+")")
+  return 'jsonb_build_object('+','.join(pairs)+')'
+ # Keep the original agency payload intact. The additional scopes are separate real RPC
+ # responses for the same synthetic actor, never agency data with substituted metadata.
+ scopes=','.join("'"+scope+"',"+bundle(scope) for scope in ['personal','team'])
+ return "SELECT "+bundle('agency')+" || jsonb_build_object('scopes',jsonb_build_object("+scopes+"));"
 def steps():
  base='supabase/migrations/20260806000000_baseline_production_schema.sql'
  actor='supabase/migrations/20260811200920_campaign_leads_membership_uniqueness_and_attachment_core.sql'

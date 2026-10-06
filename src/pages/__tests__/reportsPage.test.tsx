@@ -215,6 +215,7 @@ describe("empty states name what is actually missing", () => {
     d.by_campaign = [];
     h.panels = { ...allReady(), dispositions: ready(d) };
     renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Disposition Deep Dive" }));
     fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
     expect(screen.getByText("No campaign breakdown is available for the 6 outbound calls in this period.")).toBeInTheDocument();
     expect(screen.queryByText(/No dispositioned calls/)).not.toBeInTheDocument();
@@ -290,10 +291,10 @@ describe("exports", () => {
 describe("Policies Sold: stored policies, current assignment, lineage-only campaigns (plan §20)", () => {
   it("the chart counts stored policies and ranks by CURRENT assignment, never as seller credit", () => {
     renderPage();
-    expect(screen.getAllByText("Most policies — current assignments").length).toBe(2); // stat tile + chart tile
+    expect(screen.getAllByText("Most policies — current assignments").length).toBe(1); // chart support metric; the default six-metric strip omits this ranking
     expect(screen.queryByText("Top performer")).not.toBeInTheDocument();
     expect(screen.getAllByText(/2 policies currently assigned/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Policies are stored client policies \(primary and additional\), counted on each policy's sale date/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Policies are stored client policies \(primary and additional\), counted on each policy's sale date/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/counted from wins/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/not the original seller/).length).toBeGreaterThan(0);
   });
@@ -318,7 +319,7 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
 
   it("agent views label policy counts as the current assignment", () => {
     renderPage();
-    expect(screen.getAllByText("Policies (current)").length).toBeGreaterThan(0);
+    expect(screen.getByRole("columnheader", { name: "Policies (current assignment)" })).toBeInTheDocument();
     expect(screen.getAllByText("Policies (current assignment)").length).toBeGreaterThan(0);
   });
 
