@@ -54,7 +54,7 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
           // Workflow automation is org-level — only Agency templates are valid here.
           const { data } = await sb
             .from("message_templates")
-            .select("id,name,type,subject,content")
+            .select("id,name,type,subject,content,sms_purpose")
             .eq("organization_id", organizationId)
             .eq("scope", "agency")
             .order("name", { ascending: true });

@@ -8,6 +8,7 @@ export interface SaveMessageTemplateInput {
   type: "email" | "sms";
   subject: string | null;
   content: string;
+  smsPurpose?: "informational" | "marketing" | null;
   attachments: TemplateAttachment[];
   category: TemplateCategory | null;
   scope: TemplateScope;
@@ -26,7 +27,8 @@ export async function saveMessageTemplate(input: SaveMessageTemplateInput): Prom
     type: input.type,
     subject: input.type === "email" ? input.subject : null,
     content: input.content,
-    attachments: input.attachments,
+    sms_purpose: input.type === "sms" ? input.smsPurpose ?? null : null,
+    attachments: input.attachments.map(({name,url,size})=>({name,url,size})),
     category: input.category,
     updated_at: new Date().toISOString(),
   };

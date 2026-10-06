@@ -209,3 +209,12 @@ verify_jwt = false
 
 [functions.a2p-reconcile]
 verify_jwt = false
+
+[functions.sms-consent-events]
+verify_jwt = false
+
+[functions.sms-consent-worker]
+verify_jwt = false
+
+[functions.sms-consent-status]
+verify_jwt = false

@@ -1,3 +1,4 @@
+import { SmsPurposeSelect } from "@/components/messaging/SmsPurposeSelect";
 import { Loader2, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -189,7 +190,7 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
               {f.formAttachments.length > 0 && (
                 <TemplateAttachmentChips attachments={f.formAttachments} onRemove={f.removeAttachment} />
               )}
-              {f.formType === "sms" && <TemplateSmsCounter content={f.formContent} />}
+              {f.formType === "sms" && <><SmsPurposeSelect value={f.smsPurpose} onChange={f.setSmsPurpose} /><TemplateSmsCounter content={f.formContent} /></>}
             </div>
           </div>
         )}

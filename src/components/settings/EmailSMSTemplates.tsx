@@ -55,6 +55,7 @@ const EmailSMSTemplates: React.FC = () => {
         subject: d.subject,
         content: d.content,
         updatedAt: new Date(d.updated_at),
+        smsPurpose: d.sms_purpose === "informational" || d.sms_purpose === "marketing" ? d.sms_purpose : null,
         category: parseCategory(d.category),
         attachments: parseAttachments(d.attachments),
         scope: (d.scope === "personal" ? "personal" : "agency") as TemplateScope,

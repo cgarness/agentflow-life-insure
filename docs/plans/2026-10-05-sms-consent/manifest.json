@@ -1,0 +1,251 @@
+{
+  "agentflow_base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
+  "uv_head": "d2a9c3266dec05211c54d5a86c10ef3b947d5922",
+  "publication": "approved for draft PRs and CI; production release not authorized",
+  "files": [
+    {
+      "path": ".github/workflows/sms-consent.yml",
+      "sha256": "f05276326595729cc73a554ba950e4c23768c871c97f67bd069804cba878b211"
+    },
+    {
+      "path": "AGENT_RULES.md",
+      "sha256": "b3ed04c9a90428c50f9ae70a61766f111e787e4d1c1ebbbbb6c68acf223cd5c4"
+    },
+    {
+      "path": "WORK_LOG.md",
+      "sha256": "ecd7c4f9de3a099421f20710d56d7f94e7c8f1f604558e905c883e6f2644b0c6"
+    },
+    {
+      "path": "docs/plans/2026-10-05-sms-consent/implementation_plan.md",
+      "sha256": "05485b3ecd9662126d126ffa9251fee233e3302511d9b1df565d5213f9293470"
+    },
+    {
+      "path": "docs/plans/2026-10-05-sms-consent/release.md",
+      "sha256": "9193e627d7d2127f52d9c51994569b8196b63b0d815b6b30a9a9300ad426e752"
+    },
+    {
+      "path": "docs/plans/2026-10-05-sms-consent/verification.md",
+      "sha256": "859c20c2d1dc9bda49dd2e2fb488d184037e3adced31e71cc5775ab3d341aad3"
+    },
+    {
+      "path": "scripts/test-sms-consent.mjs",
+      "sha256": "05eb7a9fe434b1c15ebc3bcccb56514190aa43db2323605d670ff294319de689"
+    },
+    {
+      "path": "scripts/tests/sms-visual/index.html",
+      "sha256": "ce9097899dd7338cae35aae3b1b71cb366474ad2656cecfc41cc9e8ad17ff95a"
+    },
+    {
+      "path": "scripts/tests/sms-visual/main.tsx",
+      "sha256": "b93616e78902f8c6c72db1fefceb423d82046cf52a9db0a082af31a25003b181"
+    },
+    {
+      "path": "scripts/tests/sms-visual/verify.mjs",
+      "sha256": "252d9bae18bd4e247d79bb9d3f174a4c64357c782ec8656fb74d4206aadf5ab2"
+    },
+    {
+      "path": "scripts/tests/sms-visual/vite.config.mts",
+      "sha256": "b8a07b5082ef9f3e7c592bab3c60eacc201d88e95506a99bedd3f7ca62dc173f"
+    },
+    {
+      "path": "src/components/contacts/FullScreenContactView.tsx",
+      "sha256": "c35ae623f13a0341cfa31477273c00c14ada6b4be35bbc40677c97e31644b5ec"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx",
+      "sha256": "c8efde0e55d2c099bce104cb8bec6ed18522a63b4f78464b27bc0b15ce53d288"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx",
+      "sha256": "3b8f1a67d4e07001288d42569ca9a824ab8fcd6e40f860733133183a6a9bc888"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewFieldVisibility.test.tsx",
+      "sha256": "ef92f91dc87506237f483177dd9e8ceb3a66728617d6c882d744974f32e2d1d1"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx",
+      "sha256": "fa16bd6b68e3c4b7068804acc70a9d671164dd07c0ff5e7a1a6f3db50f8cb4aa"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx",
+      "sha256": "ccb1577d9c92fd404a310fb98c6863f894206284402a47684f01263fde203280"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx",
+      "sha256": "04360dee07d0ba057769ccb5bffd905e1b095bc878bf0ab4cca8ae0680a5268a"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewScore.test.tsx",
+      "sha256": "3032ac3ba1cc1d10683f9a21a371f2ab4b2fd829fc9e3c302f0acc63a2510cb8"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx",
+      "sha256": "996975c66fd2a9311d7218434f7b9edcdc3f0478bf7d5afe93bc0c464940eb5a"
+    },
+    {
+      "path": "src/components/conversations/ConversationThread.tsx",
+      "sha256": "38d146b8343942cf739f0ce18e7d37b2234623687371803d3b97ef8d08fa8ddf"
+    },
+    {
+      "path": "src/components/messaging/MessageComposePanel.tsx",
+      "sha256": "8f429cbb5874ad16b7533e50ae5f503c86d0fd2ba044e63a7f35f98f5be01e10"
+    },
+    {
+      "path": "src/components/messaging/MessageTemplatesPickerModal.tsx",
+      "sha256": "163b8696036c11a36764620f978213a27926532d61f1c7d07dea4e4906482923"
+    },
+    {
+      "path": "src/components/messaging/SmsPurposeSelect.tsx",
+      "sha256": "22f39070bdfb962ba4fb19001543005ebbbf19b20f11ee588d064030673215a3"
+    },
+    {
+      "path": "src/components/messaging/SmsReadiness.tsx",
+      "sha256": "e4e4431a154b99a78fecce7f8690ea3d435fb29f051716ef9df92fec7e7be8a7"
+    },
+    {
+      "path": "src/components/messaging/smsConsent.test.tsx",
+      "sha256": "7cfc1bfee0587365d2ff98bafb5fdaccd53bf1d9015cb8ca8b3de88d3a8fa848"
+    },
+    {
+      "path": "src/components/settings/EmailSMSTemplates.tsx",
+      "sha256": "403e63f9abf0aed79ce5d1503f4e2ae5f14eadbb704f83d83b5a147a57236bb5"
+    },
+    {
+      "path": "src/components/settings/TemplateModal.tsx",
+      "sha256": "5f29c12a13d5036483b1edaef8dd420995e85b49ce685f5cf537cb628f43dd3a"
+    },
+    {
+      "path": "src/components/settings/messageTemplateTypes.ts",
+      "sha256": "2422108c2995228484ad453a9facee7f1c0c0e78cd05341f2591bc80ce5c3579"
+    },
+    {
+      "path": "src/components/settings/phone/a2p/A2pRegistration.test.tsx",
+      "sha256": "5b9eaa6418c8c593bdd1b19be4b46de8703e0b5480446fae17605bb5b1376739"
+    },
+    {
+      "path": "src/components/settings/phone/a2p/A2pRegistration.tsx",
+      "sha256": "d98b41cc8f3b2705f5cef27476e6267ee05266e032276d2ac0f50b9312903979"
+    },
+    {
+      "path": "src/components/settings/phone/a2p/SmsConsentReadiness.tsx",
+      "sha256": "f6f6ee85e76560771a408c86884dd830b3e26698e986d5e5903d147270fca80c"
+    },
+    {
+      "path": "src/components/settings/saveMessageTemplate.ts",
+      "sha256": "be623b23264f05218eb19c56d53947de82a735b17e157493832410f90f1e7778"
+    },
+    {
+      "path": "src/components/settings/useTemplateModalForm.ts",
+      "sha256": "6f5c03479641bbde2620f8d9d669cef17593a44b1f74774425cd823f30e0abb8"
+    },
+    {
+      "path": "src/components/workflows/panels/ActionConfigPanel.tsx",
+      "sha256": "3c74914aad810d9bd8ac410fad37acf9f8de4badd3db6f58d6bd40bc422b533f"
+    },
+    {
+      "path": "src/components/workflows/panels/actionForms.tsx",
+      "sha256": "7230519eb64ed7b12c3328e8893b81bbb72abc1f269b1fd697bc38803f692d85"
+    },
+    {
+      "path": "src/hooks/__tests__/useSmsConsentStatus.test.tsx",
+      "sha256": "ec4fdcc6bc8f83ec6b77b967c9e78b11ac1a2b3d3e82492286a0087877eba8da"
+    },
+    {
+      "path": "src/hooks/useScopedDraft.ts",
+      "sha256": "78e9263987bdffbcdf1572ffa4439deb67dd40cb34ca12621e2742cc3c514abe"
+    },
+    {
+      "path": "src/hooks/useSmsConsentStatus.ts",
+      "sha256": "a8989b6dc1d038c5fa2ea8d6de426a52ee027f17d5e09686d00be09dcdb692a1"
+    },
+    {
+      "path": "src/integrations/supabase/types.ts",
+      "sha256": "cbb2c1853f89dccddd0719f1b50ec37e96d685089101797aff01d82b62d43239"
+    },
+    {
+      "path": "src/lib/sms-intent.ts",
+      "sha256": "3d502b3e80b33013bcc59a72b5f0025490690285ef8247773b737c2623dd7747"
+    },
+    {
+      "path": "src/lib/sms-readiness.ts",
+      "sha256": "a43f1334faf95c6640a5ffdb227bb81402b47eef0d6a7d9054686739640eddee"
+    },
+    {
+      "path": "src/lib/workflow-types.ts",
+      "sha256": "e46e941b1c926fa99855ede1875128e192f0ed2d986989dacf6f37ecb169e360"
+    },
+    {
+      "path": "src/pages/Conversations.tsx",
+      "sha256": "88a87466012ce132de2c1648fbdd73554734368fbc53a277c46a4ffe3b8f72a8"
+    },
+    {
+      "path": "src/pages/__tests__/conversationsSendContract.test.tsx",
+      "sha256": "61800e15440100f96334f99e99203eaf92d8669278b57d2c485fa163c43a91c8"
+    },
+    {
+      "path": "src/pages/__tests__/conversationsViewAs.test.tsx",
+      "sha256": "36c63c4cbbe85e7580be47fd4ced12bfd44cfb5d6a415ef3287a5d4bbec4b8eb"
+    },
+    {
+      "path": "supabase/config.toml",
+      "sha256": "07af4375c2df0fde7aaf96379e89890b4ba2fe5d73b38ca1d46671b07a134285"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/confirmations.ts",
+      "sha256": "aa44430439f719d845e49d55562fe276b329891afb7dff60df9dcb5b82a6c78c"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/consent.ts",
+      "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/dispatch.ts",
+      "sha256": "fdf7498b8267b36d183b86d99655a709735621ea172ad0afeb60c87853172b3a"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/scope.ts",
+      "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/sms_test.ts",
+      "sha256": "399dd6412c1381a0db008a9ff8c808e306d7803dce6ce070e1efe7bd1abf7533"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/webhook.ts",
+      "sha256": "9e6a819b09ac66f816f6e284eb15ae2255f90e9f7669d18a404c5c6524b5019d"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/wire.ts",
+      "sha256": "acd6e99507acb1d8aba3beda4b90e61cc8b374eecce97cbcbef5c63374980e1a"
+    },
+    {
+      "path": "supabase/functions/sms-consent-events/index.ts",
+      "sha256": "3895830059f4be703cb562352dd7b9719e6df732dd39ece8f9bfa542d3d23dee"
+    },
+    {
+      "path": "supabase/functions/sms-consent-status/index.ts",
+      "sha256": "d5c3a6a453b80e7a41d2a2a263563bdbdfba91cfbefe48bd405c0f174db78f42"
+    },
+    {
+      "path": "supabase/functions/sms-consent-worker/index.ts",
+      "sha256": "7719a3ffd474172da80ca46df5be4da26a487d3a7e7d1c776722b75a2631216c"
+    },
+    {
+      "path": "supabase/functions/twilio-sms-webhook/index.ts",
+      "sha256": "53fc9283d3693870c96fb5bc1cb0bf3d5f5a3c96e8292707bb7d26dfef43a315"
+    },
+    {
+      "path": "supabase/functions/twilio-sms/index.ts",
+      "sha256": "500a67a4f611d05d704e0800e71e791beaaa298dce8672494943045998b30422"
+    },
+    {
+      "path": "supabase/functions/workflow-executor/index.ts",
+      "sha256": "6a0941f081291362508b062e390b7b61299bc43e92526471166d84cf3dffbb97"
+    },
+    {
+      "path": "supabase/migrations/20261005194649_sms_consent_dispatch.sql",
+      "sha256": "162b189c73f3c0bfb035fcafa7bc6edba935df7ea0036ce95f07c83b3a1cd267"
+    }
+  ]
+}

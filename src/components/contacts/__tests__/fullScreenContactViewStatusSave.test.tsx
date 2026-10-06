@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * `handleStatusChange` must not show a status that was never saved.
  *

@@ -1,3 +1,8 @@
+import { useScopedDraft } from "@/hooks/useScopedDraft";
+import { SmsIntent, type SmsPurpose } from "@/lib/sms-intent";
+import { useSmsConsentStatus } from "@/hooks/useSmsConsentStatus";
+import { smsBlockReason } from "@/lib/sms-readiness";
+import { SmsReadiness } from "@/components/messaging/SmsReadiness";
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { X, Phone, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, ChevronDown, Save, Clipboard, AlertTriangle, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
@@ -254,8 +259,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // Agency disposition colors (normalized name → hex) for call badges; org-scoped, refreshed per load.
   const [dispositionColors, setDispositionColors] = useState<Record<string, string>>({});
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
-  const [composeText, setComposeText] = useState("");
-  const [emailSubject, setEmailSubject] = useState("");
+  const [composeText, setComposeText] = useScopedDraft(fieldScope);
+  const [smsSelection, setSmsSelection] = useState<{scope:string;purpose:SmsPurpose}|null>(null);
+  const smsPurpose = smsSelection?.scope === fieldScope ? smsSelection.purpose : "";
+  const smsIntent = useRef(new SmsIntent());
+  const smsStatus = useSmsConsentStatus(contact?.id, type);
+  const smsBlocked = smsBlockReason(smsStatus.data, smsPurpose, !!smsStatus.error);
+
+  const [emailSubject, setEmailSubject] = useScopedDraft(fieldScope);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
   const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
@@ -281,7 +292,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     setComposeTab(ch === "sms" ? "SMS" : "Email");
     setComposeText("");
     setEmailSubject("");
-  }, []);
+  }, [setComposeText,setEmailSubject]);
 
   // Sync form + clear per-contact UI before paint when switching contact or type (avoids wrong lead's notes/fields flashing).
   useLayoutEffect(() => {
@@ -537,7 +548,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id, user?.id, fieldScope]);
+  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id, user?.id, fieldScope, setEmailSubject]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };
@@ -712,7 +723,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   };
 
   const handleSendMessage = async () => {
-    if (!composeText.trim()) return;
+    if (!composeText.trim() || messageSending || isImpersonating || (composeTab === "SMS" && smsBlocked)) return;
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -766,10 +777,13 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         const smsBody = composeText.trim();
         const smsFrom = toE164Plus(fromNumber);
         const smsTo = toE164Plus(contact.phone);
+        const intentPayload = [session.user.id,organizationId,type,contact.id,smsTo,smsFrom,smsBody,smsPurpose];
+        const sendingScope = fieldScope;
         const res = await fetch(`${base}/functions/v1/twilio-sms`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({
+            request_id: smsIntent.current.id(intentPayload), purpose:smsPurpose, actor_id:session.user.id, organization_id:organizationId, view_as:isImpersonating,
             to: smsTo,
             from: smsFrom,
             body: smsBody,
@@ -781,7 +795,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         const result = await res.json();
         if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
         toast.success("Message sent");
-        setComposeText("");
+        smsIntent.current.accepted(intentPayload);
+        if (fieldScopeRef.current === sendingScope) setComposeText("");
         // twilio-sms echoes the persisted row id and Twilio's own status — carry the real values,
         // never an invented delivery state (R2).
         history.refresh();
@@ -1129,6 +1144,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             />
 
             <MessageComposePanel
+              smsPurpose={smsPurpose}
+              onSmsPurposeChange={purpose=>setSmsSelection({scope:fieldScope,purpose})}
+              smsStatus={<SmsReadiness data={smsStatus.data} reason={smsBlocked} onRefresh={()=>void smsStatus.refetch()} />}
               className="mt-3 shrink-0"
               channel={composeTab === "SMS" ? "sms" : "email"}
               onChannelChange={handleComposeChannelChange}
@@ -1139,7 +1157,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onOpenTemplates={handleOpenComposeTemplates}
               onSendMessage={handleSendMessage}
               sendDisabled={
-                !composeText.trim() ||
+                isImpersonating || (composeTab === "SMS" && !!smsBlocked) || !composeText.trim() ||
                 messageSending ||
                 (composeTab === "SMS" && (!contact.phone || !fromNumber.trim())) ||
                 (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))
@@ -1339,7 +1357,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         onOpenChange={setShowTemplatesModal}
         channel={composeTab === "Email" ? "email" : "sms"}
         mergeInput={messageTemplateMergeInput}
-        onApply={({ body, subject }) => {
+        onApply={({ body, subject, purpose }) => {
+          setSmsSelection({scope:fieldScope,purpose:purpose ?? ""});
           setComposeText(body);
           if (subject !== null) setEmailSubject(subject);
         }}

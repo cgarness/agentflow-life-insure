@@ -1,3 +1,4 @@
+import { SmsConsentReadiness } from "./SmsConsentReadiness";
 import { lazy, Suspense, useState } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -73,6 +74,7 @@ function RegistrationContent({ actor, org }: { actor: string; org: string }) {
           contact support before submitting again.
         </p>
       )}
+      <SmsConsentReadiness />
       <A2pStatus data={d} busy={api.busy} attach={(id) => void api.attach(id)} />
       <p className="text-xs text-muted-foreground">
         {r?.last_synced_at

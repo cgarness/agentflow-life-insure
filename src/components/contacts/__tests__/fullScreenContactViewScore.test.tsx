@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * Lead-score exposure fix (2026-08-06) — Lead Details must not show or edit the
  * internal `leads.lead_score`, in READ mode or EDIT mode.

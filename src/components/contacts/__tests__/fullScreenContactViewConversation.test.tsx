@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * Conversation History (center column) — filters, channel visuals, inline endpoint
  * details, persisted email subject (2026-08-17 build).
@@ -45,7 +46,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       return {data:{items,hasMore:false,nextCursor:null},error:null};
     }}),
     auth: {
-      getSession: async () => ({ data: { session: { access_token: "test-token" } } }),
+      getSession: async () => ({ data: { session: { access_token: "test-token", user: {id:"user-1"} } } }),
       getUser: async () => ({ data: { user: { id: "user-1" } } }),
     },
   },

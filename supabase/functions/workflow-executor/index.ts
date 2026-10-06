@@ -1,3 +1,7 @@
+import { dispatch } from "../_shared/sms/dispatch.ts";
+import { policy, checked } from "../_shared/sms/consent.ts";
+import { contactScope, selectedSender } from "../_shared/sms/scope.ts";
+import { SmsError } from "../_shared/sms/wire.ts";
 import { registeredSender, registeredWorkflowNumber } from "../_shared/a2p/sending.ts";
 // workflow-executor
 // ---------------------------------------------------------------------------
@@ -405,7 +409,7 @@ async function executeAction(args: {
   try {
     switch (node.action_type) {
       case "send_sms":
-        return await actionSendSms({ supabase, execution, cfg, contact });
+        return await actionSendSms({ supabase, execution, cfg, contact, nodeId: node.id });
       case "send_email":
         return await actionSendEmail({ supabase, execution, cfg, contact });
       case "update_stage":
@@ -441,6 +445,7 @@ async function executeAction(args: {
 
 // --- SMS -------------------------------------------------------------------
 async function actionSendSms(args: {
+  nodeId: string;
   supabase: SupabaseClient;
   execution: ExecutionRow;
   cfg: Record<string, unknown>;
@@ -453,13 +458,19 @@ async function actionSendSms(args: {
     return { status: "failed", output: { reason: "Contact has no phone" }, error: "Contact has no phone" };
   }
 
-  const bodyOverride = typeof cfg.body_override === "string" ? cfg.body_override : "";
+  const smsPolicy = await policy(supabase, execution.organization_id);
+  if (smsPolicy?.enforced) {
+    const current = checked(await supabase.from("workflow_executions").select("created_at").eq("id",execution.id).eq("organization_id",execution.organization_id).single());
+    if (!current || !contact || contact.organization_id !== execution.organization_id || !smsPolicy.active_from || Date.parse(current.created_at) < Date.parse(smsPolicy.active_from)) throw new SmsError("WORKFLOW_REVIEW", "Review and re-enroll this workflow after SMS activation.");
+  }
+  const bodyOverride = typeof cfg.body === "string" ? cfg.body : typeof cfg.body_override === "string" ? cfg.body_override : "";
   const templateId = typeof cfg.template_id === "string" ? cfg.template_id : "";
   let body = bodyOverride;
   if (!body && templateId) {
     const { data: tpl } = await supabase
       .from("message_templates")
       .select("content")
+      .eq("organization_id", execution.organization_id)
       .eq("id", templateId)
       .maybeSingle();
     body = (tpl?.content as string) ?? "";
@@ -469,6 +480,11 @@ async function actionSendSms(args: {
     return { status: "failed", output: { reason: "Empty SMS body" }, error: "Empty SMS body" };
   }
 
+  if (smsPolicy?.enforced) {
+    const result = await dispatch(supabase, {org:execution.organization_id,key:`workflow:${execution.id}:${args.nodeId}`,to:phone,from:await selectedSender(supabase,smsPolicy),body,verifyRecipient:async()=>{await contactScope(supabase,execution.organization_id,execution.contact_id,execution.contact_type,phone);},purpose:cfg.purpose,contactId:execution.contact_id,contactType:execution.contact_type});
+    if (!result) throw new SmsError("SMS_POLICY","Texting policy changed.",503);
+    return {status:"completed",output:{...result}};
+  }
   // A2P-enabled agencies select a registered shared sender. Legacy orgs retain their existing selection.
   let from = await registeredWorkflowNumber(supabase, execution.organization_id);
   if (from === null) {

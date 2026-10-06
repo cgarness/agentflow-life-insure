@@ -1,3 +1,5 @@
+import { inboundCredential, recordInboundStop } from "../_shared/sms/webhook.ts";
+import { boundedBody, SmsError } from "../_shared/sms/wire.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { inboundSmsEventKey } from "../_shared/notification-recipients.ts";
 
@@ -72,7 +74,7 @@ async function validateTwilioSignature(
 }
 
 async function parseFormBody(req: Request): Promise<Record<string, string>> {
-  const raw = await req.text();
+  const raw = await boundedBody(req);
   const params: Record<string, string> = {};
   const search = new URLSearchParams(raw);
   for (const [k, v] of search.entries()) params[k] = v;
@@ -121,7 +123,7 @@ async function resolveOrgFromToNumber(
       .maybeSingle();
     if (error) {
       console.warn(`${FN} phone_numbers lookup error:`, cand, error.message);
-      continue;
+      throw new SmsError("WEBHOOK_LOOKUP", "Callback lookup unavailable.", 503);
     }
     if (data?.organization_id) return data.organization_id as string;
   }
@@ -306,20 +308,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
-    if (!authToken) {
-      console.error(`${FN} Missing TWILIO_AUTH_TOKEN`);
-      return new Response(EMPTY_TWIML, { status: 500, headers: twimlHeaders });
-    }
-
     const params = await parseFormBody(req);
-
-    // ── Signature validation ──
-    const valid = await validateTwilioSignature(req, authToken, params);
-    if (!valid) {
-      console.warn(`${FN} Signature validation failed`);
-      return new Response(EMPTY_TWIML, { status: 403, headers: twimlHeaders });
-    }
+    const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+    const organizationId = await resolveOrgFromToNumber(supabase, params.To ?? "");
+    if (!organizationId) return new Response(EMPTY_TWIML, {status:200,headers:twimlHeaders});
+    const scopedToken = await inboundCredential(supabase, organizationId, params);
+    const authToken = scopedToken ?? Deno.env.get("TWILIO_AUTH_TOKEN");
+    if (!authToken || !await validateTwilioSignature(req, authToken, params)) return new Response(EMPTY_TWIML, {status:403,headers:twimlHeaders});
+    // Critical durable opt-out occurs before contact lookup/history and must be retryable on failure.
+    if (scopedToken) await recordInboundStop(supabase, organizationId, params);
 
     // ── Extract fields ──
     const fromNumber = params["From"] ?? "";
@@ -336,18 +333,6 @@ Deno.serve(async (req) => {
 
     if (!fromNumber || !toNumber) {
       console.warn(`${FN} Missing From or To`);
-      return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
-
-    // ── Resolve organization from the To number ──
-    const organizationId = await resolveOrgFromToNumber(supabase, toNumber);
-    if (!organizationId) {
-      console.warn(`${FN} No org found for To=${toNumber} — dropping message`);
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 
@@ -448,6 +433,6 @@ Deno.serve(async (req) => {
     return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
   } catch (err) {
     console.error(`${FN} Fatal:`, err);
-    return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+    return new Response(EMPTY_TWIML, { status: err instanceof SmsError ? err.status : 503, headers: twimlHeaders });
   }
 });

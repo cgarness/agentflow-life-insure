@@ -1,3 +1,13 @@
+## 2026-10-05 — CG Financial SMS integration isolated implementation
+
+## 2026-10-06 — CG Financial SMS publication and CI approved
+
+Chris explicitly approved publishing the two isolated review branches, draft PRs and remaining CI. GitHub connector publication preserves reviewed trees; the UV paired commit is `d2a9c3266dec05211c54d5a86c10ef3b947d5922` (same tree as locally approved `4b91b022cc1a5e867c43f2a22f97e9442b297ab0`). No production migration/deployment, provider registration, number linking, activation or live message is authorized by this approval. Native PostgreSQL/browser CI results are pending.
+
+Chris approved the paired implementation plan. Added scoped UV consent relay, purpose-specific enrollment/confirmation, shared manual/workflow dispatch, immutable agency SMS suppression, final DNC guard, stable receipts and deliberate composer/template/workflow purpose. Converted/stale contacts, source events and old workflow jobs fail closed. Voice/routing and protected DNC functions remain unchanged. No production/provider action occurred.
+
+Local evidence: 43 paired SQL assertions, 35 Deno/A2P tests, 170 focused frontend tests (3 existing skips), UV 57 tests, eight Edge checks, root tsc, app comparison 87 baseline / 85 candidate / 0 added, scoped lint and builds. Native PostgreSQL/DNC and desktop/mobile fixture execution are prepared but blocked locally by non-root/socket runtime limits. Publication was rejected by automatic approval review because the isolated-build approval did not explicitly authorize external source publication; no workaround/retry attempted. Await explicit publication approval for these two branches, then draft PRs and exact-head CI. Production release, registration/fees, number linking and live messages remain separate decisions. See `docs/plans/2026-10-05-sms-consent/{release,verification,implementation_plan}.md`.
+
 ## 2026-10-05 — SHIPPED: reporting integrity, leaderboard and exact policy repair (PR #416)
 
 - **Authorization:** Chris approved the reviewed release and exact trusted-Dialer ACL amendment October 4, and confirmed the coordinated write window October 5 at 09:10 PDT. Fresh preflight at 16:16:08 UTC found no recent active calls or sessions; approved source preimages and complete Edge baselines matched. No live customer test call/message or synthetic production record was created.
