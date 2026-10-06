@@ -2,6 +2,7 @@ import React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ArrowDown, ArrowUp, GitBranch, Info } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -21,24 +22,24 @@ const TIERS: TierDef[] = [
   {
     key: "last_agent",
     label: "Last Agent",
-    description: "Ring the agent who last placed an outbound call to this caller.",
+    description: "Ring the last agent to call this number.",
   },
   {
     key: "campaign_agents",
     label: "Campaign Agents",
     description:
-      "Ring agents assigned to an active campaign whose number group includes the dialed number. Skipped if this number isn't in any campaign's number group.",
+      "Rings agents in active campaigns using this number's group; skipped if no campaign matches.",
   },
   {
     key: "state_licensed",
     label: "State-Licensed Agents",
     description:
-      "Ring agents licensed in the state mapped to the caller's area code. Requires the area code in the Area Code Mapping table and a current license for that state.",
+      "Requires a mapped caller area code and a current license in that state.",
   },
   {
     key: "all_available",
     label: "All Available Agents",
-    description: "Ring every active agent in the organization with a registered Twilio device.",
+    description: "Ring all active agents with a registered phone.",
   },
 ];
 
@@ -93,7 +94,7 @@ export const FallbackChainSection: React.FC<FallbackChainSectionProps> = ({
             Inbound Fallback Chain
           </CardTitle>
           <CardDescription>
-            When a call comes in and the primary agent is unavailable, the system tries each tier in order until someone answers.
+            If the primary agent is unavailable, try these tiers in order.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -133,8 +134,14 @@ export const FallbackChainSection: React.FC<FallbackChainSectionProps> = ({
                   {idx + 1}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground">{tier.label}</div>
-                  <div className="text-xs text-muted-foreground">{tier.description}</div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                    {tier.label}
+                    {(key === "campaign_agents" || isStateTier) && <Popover>
+                      <PopoverTrigger asChild><button type="button" aria-label={`About ${tier.label.toLowerCase()}`} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"><Info className="h-4 w-4" aria-hidden="true" /></button></PopoverTrigger>
+                      <PopoverContent className="text-xs" aria-label={tier.label}>{tier.description}</PopoverContent>
+                    </Popover>}
+                  </div>
+                  {key !== "campaign_agents" && !isStateTier && <div className="text-xs text-muted-foreground">{tier.description}</div>}
                   {isStateTier && hasStateLicenses === false && (
                     <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
                       <Info className="w-3 h-3 mt-0.5 shrink-0" />
@@ -163,8 +170,14 @@ export const FallbackChainSection: React.FC<FallbackChainSectionProps> = ({
                       —
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-muted-foreground">{tier.label}</div>
-                      <div className="text-xs text-muted-foreground/80">{tier.description}</div>
+                      <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                        {tier.label}
+                        {(key === "campaign_agents" || isStateTier) && <Popover>
+                          <PopoverTrigger asChild><button type="button" aria-label={`About ${tier.label.toLowerCase()}`} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"><Info className="h-4 w-4" aria-hidden="true" /></button></PopoverTrigger>
+                          <PopoverContent className="text-xs" aria-label={tier.label}>{tier.description}</PopoverContent>
+                        </Popover>}
+                      </div>
+                      {key !== "campaign_agents" && !isStateTier && <div className="text-xs text-muted-foreground/80">{tier.description}</div>}
                       {isStateTier && hasStateLicenses === false && (
                         <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-600/80">
                           <Info className="w-3 h-3 mt-0.5 shrink-0" />

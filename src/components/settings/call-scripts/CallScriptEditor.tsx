@@ -46,7 +46,7 @@ export const CallScriptEditor: React.FC<CallScriptEditorProps> = ({
       <div className="w-[65%] flex flex-col">
         <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-card">
           <FileText className="w-12 h-12 text-muted-foreground mb-3" />
-          <p className="text-sm text-muted-foreground">Select a script from the list to view{canManage ? " and edit" : ""} it.</p>
+          <p className="text-sm text-muted-foreground">Select a script</p>
         </div>
       </div>
     );
@@ -149,7 +149,7 @@ export const CallScriptEditor: React.FC<CallScriptEditorProps> = ({
             ref={editorRef}
             value={editorContent}
             onChange={(e) => onEditorChange(e.target.value)}
-            placeholder="Start writing your script here..."
+            placeholder="Write your script…"
             className="w-full h-full bg-transparent text-foreground text-sm resize-none focus:outline-none placeholder:text-muted-foreground leading-relaxed p-1"
             style={{ minHeight: 400 }}
           />

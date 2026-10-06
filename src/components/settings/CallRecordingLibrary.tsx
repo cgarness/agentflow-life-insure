@@ -260,10 +260,10 @@ const CallRecordingLibrary: React.FC = () => {
           </h4>
           <p className="text-sm text-muted-foreground">
             {recordingFilter === "with"
-              ? "No calls with attached recordings match your current filters."
+              ? "No recorded calls match these filters."
               : recordingFilter === "without"
-                ? "All matching calls have recordings attached."
-                : "Completed calls will appear here. Recordings attach automatically when recording is enabled."}
+                ? "All matching calls have recordings."
+                : "Completed calls appear here; recordings attach when enabled."}
           </p>
         </div>
       ) : (

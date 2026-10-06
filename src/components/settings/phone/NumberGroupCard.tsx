@@ -82,7 +82,7 @@ export const NumberGroupCard: React.FC<Props> = ({
           {groupMembers.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
               <Users className="h-6 w-6 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">No numbers assigned to this group yet.</p>
+              <p className="text-xs text-muted-foreground">No numbers assigned</p>
               {canManage && (
                 <Button size="sm" variant="outline" onClick={onAddNumbers}>
                   <Plus className="mr-1 h-3.5 w-3.5" /> Add numbers

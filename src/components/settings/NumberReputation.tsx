@@ -432,15 +432,12 @@ const NumberReputation: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
+            Reputation signals are not guarantees.
           </p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl border bg-card py-16 text-center">
           <Phone className="mb-4 h-12 w-12 text-muted-foreground" />
-          <h4 className="mb-1 text-lg font-semibold text-foreground">No active numbers</h4>
-          <p className="mb-4 max-w-sm text-sm text-muted-foreground">
-            Add phone numbers under Phone System to monitor reputation here.
-          </p>
+          <h4 className="mb-4 text-lg font-semibold text-foreground">No active numbers</h4>
           <Button
             variant="outline"
             onClick={() => {
@@ -463,7 +460,7 @@ const NumberReputation: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
+            Reputation signals are not guarantees.
           </p>
         </div>
 
@@ -474,7 +471,7 @@ const NumberReputation: React.FC = () => {
           <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setShowGuide(!showGuide)}>
             <div className="flex items-center gap-2 text-foreground font-medium">
               <ShieldCheck className="h-4 w-4 text-primary" />
-              <span>Reputation Signal Guide &amp; Legend</span>
+              <span>Signal guide</span>
             </div>
             <span className="text-primary hover:underline text-[11px] font-semibold">{showGuide ? "Hide Guide" : "Show Guide"}</span>
           </div>

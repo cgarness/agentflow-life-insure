@@ -211,7 +211,7 @@ const StageList: React.FC<{
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">{title}</h4>
-          <p className="text-sm text-muted-foreground">{description}</p>
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
         {canManage && (
           <Button onClick={openAdd} size="sm" className="gap-1.5">
@@ -393,7 +393,7 @@ const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string |
     <div className="space-y-8">
       <StageList
         title="Lead Stages"
-        description="Manage the status options that appear on lead records and the Kanban board."
+        description="Used on lead records and the Kanban board."
         pipelineType="lead"
         stages={leadStages}
         onReload={loadLead}
@@ -403,7 +403,7 @@ const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string |
       <div className="border-t" />
       <StageList
         title="Recruit Stages"
-        description="Manage the pipeline stages for your recruit Kanban board."
+        description=""
         pipelineType="recruit"
         stages={recruitStages}
         onReload={loadRecruit}
@@ -622,7 +622,7 @@ const CustomFieldsTab: React.FC = () => {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h4 className="text-base font-semibold text-foreground">Custom Fields</h4>
-          <p className="text-sm text-muted-foreground">Admins can create agency-wide fields visible to everyone in the org. Anyone can create personal fields visible only to themselves.</p>
+          <p className="text-sm text-muted-foreground">Admins create agency fields; anyone can create personal fields visible only to them.</p>
         </div>
         {canManagePersonalFields && (
           <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
@@ -632,8 +632,7 @@ const CustomFieldsTab: React.FC = () => {
       {fields.length === 0 ? (
         <div className="bg-accent/50 rounded-xl p-8 text-center">
           <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-          <h4 className="font-medium text-foreground mb-1">No custom fields yet</h4>
-          <p className="text-sm text-muted-foreground mb-4">Add your first custom field to capture information specific to your agency.</p>
+          <h4 className="font-medium text-foreground mb-4">No custom fields yet</h4>
           {canManagePersonalFields && (
             <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
           )}
@@ -719,7 +718,7 @@ const CustomFieldsTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Required</p>
-                <p className="text-xs text-muted-foreground">Enforcement on contact forms ships in a later release; this toggle saves your intent now.</p>
+                <p className="text-xs text-muted-foreground">Required in Contact Details and CSV imports.</p>
               </div>
               <Switch checked={form.required} onCheckedChange={v => setForm(f => ({ ...f, required: v }))} />
             </div>
@@ -727,7 +726,7 @@ const CustomFieldsTab: React.FC = () => {
               <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
                 <div>
                   <p className="text-sm font-medium text-foreground">Agency-wide field</p>
-                  <p className="text-xs text-muted-foreground">Visible to everyone in the org. Leave off to create a personal field only you can see and edit.</p>
+                  <p className="text-xs text-muted-foreground">On: visible agency-wide. Off: only you can see and edit it.</p>
                 </div>
                 <Switch checked={form.orgWide} onCheckedChange={v => setForm(f => ({ ...f, orgWide: v }))} />
               </div>
@@ -935,7 +934,7 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">Lead Sources</h4>
-          <p className="text-sm text-muted-foreground">Manage the lead source options that appear when adding or importing contacts.</p>
+          <p className="text-sm text-muted-foreground">Used when adding or importing contacts.</p>
         </div>
         {canManage && (
           <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Lead Source</Button>
@@ -1150,7 +1149,6 @@ const DuplicateDetectionTab: React.FC<{
     <div className="space-y-4">
       <div>
         <h4 className="text-base font-semibold text-foreground">Duplicate Detection</h4>
-        <p className="text-sm text-muted-foreground">Control how the system identifies and handles duplicate contacts.</p>
       </div>
 
       {!canManage && <ContactFlowReadOnlyBanner />}
@@ -1163,7 +1161,6 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">Detection Rule</h5>
-          <p className="text-xs text-muted-foreground">Choose what field combination triggers a duplicate warning.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" desc="Flag as duplicate if phone number already exists" />
@@ -1177,7 +1174,6 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">Detection Scope</h5>
-          <p className="text-xs text-muted-foreground">Define which contacts are checked when looking for duplicates.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" desc="A duplicate is flagged regardless of which agent owns the contact" />
@@ -1189,11 +1185,10 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">On Duplicate Found</h5>
-          <p className="text-xs text-muted-foreground">Choose what happens when a duplicate is detected.</p>
         </div>
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Adding Manually</p>
-          <RadioOption name="manual" value="warn" current={manualAction} onChange={setManualAction} label="Show Warning and Let Agent Decide" desc="Agent sees a side-by-side comparison and can save anyway, merge, or cancel" />
+          <RadioOption name="manual" value="warn" current={manualAction} onChange={setManualAction} label="Show Warning and Let Agent Decide" desc="Shows matching contacts; the agent can save anyway or cancel." />
           <RadioOption name="manual" value="block" current={manualAction} onChange={setManualAction} label="Block Save Entirely" desc="Agent cannot save the contact until the duplicate is resolved" />
         </div>
         <div className="border-t border-border" />
@@ -1313,7 +1308,7 @@ const RequiredFieldsTab: React.FC<{
     <div className="space-y-4">
       <div>
         <h4 className="text-base font-semibold text-foreground">Required Fields</h4>
-        <p className="text-sm text-muted-foreground">Choose which fields agents must fill in before a contact record can be saved.</p>
+        <p className="text-sm text-muted-foreground">Required to save a contact.</p>
       </div>
 
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-start gap-2.5">
@@ -1463,7 +1458,6 @@ const ContactManagementContent: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-foreground">Contact Management</h3>
-        <p className="text-sm text-muted-foreground">Configure pipeline stages, custom fields, lead sources, and contact behavior.</p>
       </div>
 
       {/* Tab bar */}
@@ -1797,9 +1791,9 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
         <div className="space-y-1">
           <h4 className="text-base font-semibold text-foreground">Field Layout</h4>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Drag and drop fields to reorder how they appear on the contact view.
-            {" "}<span className="text-foreground/80">My Layout</span> affects only your view.
-            {" "}<span className="text-foreground/80">Agency Default</span> applies to users who have not customized their own layout.
+            Drag to reorder.
+            {" "}<span className="text-foreground/80">My Layout</span> is personal;
+            {" "}<span className="text-foreground/80">Agency Default</span> applies to users without a custom layout.
           </p>
           <div className="flex items-center gap-2 mt-2">
             <div className="inline-flex bg-muted rounded-lg p-1">
@@ -1850,7 +1844,7 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         {visibleFields.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground italic">No fields configured for this type.</div>
+          <div className="p-8 text-center text-muted-foreground italic">No fields configured</div>
         ) : (
           visibleFields.map((item, idx) => {
             const isProtected = item.id === "firstName" || item.id === "phone";

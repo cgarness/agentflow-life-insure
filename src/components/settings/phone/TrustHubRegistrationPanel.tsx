@@ -304,7 +304,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">1. Business Profile Status</p>
-              <p className="text-xs text-muted-foreground">Verification of agency identity and authorized representative.</p>
+              <p className="text-xs text-muted-foreground">Agency and representative verification.</p>
               {isPending && (
                 <p className="text-[11px] text-muted-foreground mt-1">
                   ⏳ Under review — Telecom network verification typically completes within 1–5 business days.
@@ -325,7 +325,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">2. Number Link Status</p>
-              <p className="text-xs text-muted-foreground">Attach your active phone numbers to your verified business profile.</p>
+              <p className="text-xs text-muted-foreground">Link active numbers to your verified business.</p>
             </div>
             <div>
               {!isApproved ? (

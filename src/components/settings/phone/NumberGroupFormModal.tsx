@@ -96,7 +96,7 @@ export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, orga
             {mode === "create" ? "Create number group" : "Edit number group"}
           </DialogTitle>
           <DialogDescription>
-            Groups let you assign a subset of org numbers to a specific campaign.
+            Choose caller IDs for campaigns.
           </DialogDescription>
         </DialogHeader>
 

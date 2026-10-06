@@ -96,17 +96,14 @@ export const NumberGroupsSection: React.FC<Props> = ({
             )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Assign campaigns to a subset of org numbers. Only active Agency numbers are eligible — Personal numbers and direct lines are excluded.
+            Campaign caller-ID groups use active Agency numbers; Personal numbers and direct lines are excluded.
           </p>
         </CardHeader>
         <CardContent className="pt-4">
           {groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <Users className="mb-3 h-10 w-10 text-muted-foreground" />
-              <p className="mb-1 text-sm font-medium text-foreground">No number groups yet</p>
-              <p className="mb-4 max-w-sm text-xs text-muted-foreground">
-                Group numbers by geography, team, or purpose to keep campaign caller IDs focused.
-              </p>
+              <p className="mb-4 text-sm font-medium text-foreground">No number groups yet</p>
               {canManage && (
                 <Button size="sm" onClick={() => setCreateOpen(true)}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> Create group

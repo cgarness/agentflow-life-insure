@@ -104,7 +104,7 @@ export const CarrierReputationPanel: React.FC<{ data: unknown }> = ({ data }) =>
   if (!data || (typeof data === "object" && Object.keys(data as object).length === 0)) {
     return (
       <p className="text-sm italic text-muted-foreground">
-        No carrier data yet. Run a reputation check to pull Twilio Voice Insights.
+        No carrier data. Run a reputation check.
       </p>
     );
   }

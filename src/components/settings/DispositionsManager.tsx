@@ -355,7 +355,6 @@ const DispositionsManager: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Dispositions Manager</h3>
-          <p className="text-sm text-muted-foreground">Manage call outcome categories used after every call.</p>
         </div>
       </div>
 
@@ -533,8 +532,8 @@ const DispositionsManager: React.FC = () => {
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit Disposition" : "Add Disposition"}</DialogTitle>
-            <DialogDescription>
-              {editingId ? "Update the disposition settings." : "Create a new call disposition."}
+            <DialogDescription className="sr-only">
+              {editingId ? "Update disposition settings." : "Set up a call disposition."}
             </DialogDescription>
           </DialogHeader>
 
@@ -624,7 +623,7 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" /> Callback Scheduler
                     </p>
-                    <p className="text-xs text-muted-foreground">Opens date/time picker for a following call.</p>
+                    <p className="text-xs text-muted-foreground">Prompts the agent to schedule a callback.</p>
                   </div>
                   <Switch
                     checked={form.callbackScheduler}
@@ -642,7 +641,7 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" /> Appointment Scheduler
                     </p>
-                    <p className="text-xs text-muted-foreground">Opens the appointment modal for a new sale/meeting.</p>
+                    <p className="text-xs text-muted-foreground">Prompts the agent to schedule an appointment.</p>
                   </div>
                   <Switch
                     checked={form.appointmentScheduler}
@@ -660,7 +659,7 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5" /> Automation Trigger
                     </p>
-                    <p className="text-xs text-muted-foreground">Trigger an automation when this disposition is selected.</p>
+                    <p className="text-xs text-muted-foreground">Runs when this disposition is selected.</p>
                   </div>
                   <Switch
                     checked={form.automationTrigger}
@@ -670,7 +669,7 @@ const DispositionsManager: React.FC = () => {
                 {form.automationTrigger && (
                   automations.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      No disposition workflows yet. Create one in Settings → Workflow Builder, then return here to link it.
+                      No disposition workflows. Create one in Settings → Workflow Builder.
                     </p>
                   ) : (
                     <select
@@ -697,7 +696,7 @@ const DispositionsManager: React.FC = () => {
                 <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                   <GitBranch className="w-3.5 h-3.5" /> Pipeline Stage
                 </p>
-                <p className="text-xs text-muted-foreground">Automatically move leads to this pipeline stage when this disposition is selected.</p>
+                <p className="text-xs text-muted-foreground">Moves the lead to this stage.</p>
               </div>
               <select
                 value={form.pipelineStageId}
@@ -723,7 +722,6 @@ const DispositionsManager: React.FC = () => {
                 <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" /> Campaign Action
                 </p>
-                <p className="text-xs text-muted-foreground">What happens to the lead in the campaign after this disposition.</p>
               </div>
               <select
                 value={form.campaignAction}

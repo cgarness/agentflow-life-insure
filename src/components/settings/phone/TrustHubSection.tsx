@@ -27,7 +27,7 @@ export const TrustHubSection: React.FC<Props> = ({
         <div>
           <h3 className="text-base font-semibold text-foreground">Trust Hub Caller Identity</h3>
           <p className="text-xs text-muted-foreground">
-            Register your agency to verify your business identity with telecom networks and improve call answer rates.
+            Verify your agency&apos;s identity with telecom networks.
           </p>
         </div>
       </div>

@@ -494,7 +494,6 @@ const CallScripts: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Call Scripts</h3>
-          <p className="text-sm text-muted-foreground">Write and manage scripts for your agents to use during calls</p>
         </div>
         {canManage && (
           <Button onClick={() => setAddOpen(true)} className="gap-2">
@@ -506,7 +505,7 @@ const CallScripts: React.FC = () => {
       {!canManage && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md border bg-muted/30 text-xs text-muted-foreground">
           <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <span>Call scripts are managed by agency admins. Additional delegation will be handled through Permissions.</span>
+          <span>Only agency admins can manage call scripts.</span>
         </div>
       )}
 

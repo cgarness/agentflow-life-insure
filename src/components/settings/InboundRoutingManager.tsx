@@ -282,10 +282,7 @@ export const InboundRoutingManager: React.FC = () => {
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Inbound Journey</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Configure how every inbound call is answered, routed, and handled when no agent picks up.
-          </p>
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Inbound routing</h2>
         </div>
         <Button onClick={handleSave} disabled={saving} className="min-w-[120px] shadow-sm">
           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -307,7 +304,7 @@ export const InboundRoutingManager: React.FC = () => {
                   <Route className="w-5 h-5 text-primary" />
                   1. Routing Strategy
                 </CardTitle>
-                <CardDescription>How should incoming calls be distributed during business hours?</CardDescription>
+                <CardDescription>During business hours</CardDescription>
               </CardHeader>
               <CardContent>
                 <RadioGroup
@@ -346,7 +343,7 @@ export const InboundRoutingManager: React.FC = () => {
                       <PhoneCall className="w-6 h-6" />
                     </div>
                     <span className="font-medium text-sm text-foreground">Ring All</span>
-                    <span className="text-xs text-muted-foreground mt-1">Ring every active agent — first to answer wins</span>
+                    <span className="text-xs text-muted-foreground mt-1">Ring all active agents; first answer takes the call.</span>
                   </label>
 
                   <label
@@ -380,7 +377,7 @@ export const InboundRoutingManager: React.FC = () => {
                   Voicemail greeting
                 </CardTitle>
                 <CardDescription>
-                  Inbound Calling v2 plays this greeting for group voicemail, and for an agent's voicemail when that agent has no personal greeting.
+                  Used for group voicemail and agents without a personal greeting.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -397,7 +394,7 @@ export const InboundRoutingManager: React.FC = () => {
 
           {v2Active && (
             <p className="rounded-lg border border-border/60 bg-muted/30 px-4 py-2 text-sm text-muted-foreground" data-testid="legacy-controls-retired">
-              Inbound Calling v2 is active: the routing strategy, fallback chain, fallback action and forwarding number below are retired and not used by the active engine. Return to legacy routing to edit them. Business hours, the after-hours text and the voicemail greeting above stay in use.
+              v2 is active. Legacy routing, fallback and forwarding controls are inactive; switch to legacy routing to edit them. Business hours, after-hours SMS and the voicemail greeting remain active.
             </p>
           )}
 
@@ -418,7 +415,6 @@ export const InboundRoutingManager: React.FC = () => {
                   <ShieldAlert className="w-5 h-5 text-orange-500" />
                   2. Unanswered / Fallback
                 </CardTitle>
-                <CardDescription>If no agents are available, or the call goes unanswered, what happens next?</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 
@@ -459,7 +455,6 @@ export const InboundRoutingManager: React.FC = () => {
                       placeholder="Hi, you've reached us. Please leave a message."
                       className="resize-none min-h-[80px]"
                     />
-                    <p className="text-xs text-muted-foreground">This text will be spoken to the caller before the beep.</p>
                   </div>
                 )}
 
@@ -474,7 +469,6 @@ export const InboundRoutingManager: React.FC = () => {
                       placeholder="+1 (555) 123-4567"
                       className="max-w-[300px]"
                     />
-                    <p className="text-xs text-muted-foreground">Calls will be forwarded to this number if the primary routing fails.</p>
                   </div>
                 )}
 
@@ -508,7 +502,7 @@ export const InboundRoutingManager: React.FC = () => {
                       Auto-Create Leads
                     </h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      When an inbound caller isn't matched to a contact, create a new lead and attach the call to it.
+                      Create a lead and attach the call when no contact matches.
                     </p>
                   </div>
                   <Switch 
@@ -531,7 +525,6 @@ export const InboundRoutingManager: React.FC = () => {
                   <Clock className="w-5 h-5 text-primary" />
                   Business Hours
                 </CardTitle>
-                <CardDescription>Set your organization's availability.</CardDescription>
               </CardHeader>
               <CardContent className="pt-6 space-y-5">
                 {hours.map((h, i) => (
@@ -591,7 +584,7 @@ export const InboundRoutingManager: React.FC = () => {
                   className="resize-none h-24 text-sm"
                 />
                 <p className="text-[11px] text-muted-foreground mt-2">
-                  Sent automatically to the caller's number when the call lands outside business hours.
+                  Sent to callers outside business hours.
                 </p>
               </CardContent>
             </Card>

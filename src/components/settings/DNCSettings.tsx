@@ -242,10 +242,10 @@ const DNCSettings: React.FC = () => {
                     <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
                         Agency DNC List
                         <span className="text-sm font-normal text-muted-foreground ml-2">
-                            {numbers.length} numbers registered
+                            {numbers.length} numbers
                         </span>
                     </h3>
-                    <p className="text-sm text-muted-foreground">Your agency's "Do Not Call" list. Numbers here are blocked from auto-dialing and trigger a warning for manual calls.</p>
+                    <p className="text-sm text-muted-foreground">Outbound calls to these numbers are blocked across your agency.</p>
                 </div>
                 {canManage && (
                     <div className="flex gap-2">
@@ -264,8 +264,8 @@ const DNCSettings: React.FC = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Add to Agency DNC List</DialogTitle>
-                                    <DialogDescription>
-                                        Manually add a phone number to your agency's DNC list.
+                                    <DialogDescription className="sr-only">
+                                        Add a number to the agency DNC list.
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
@@ -346,7 +346,7 @@ const DNCSettings: React.FC = () => {
                                     <TableCell colSpan={canManage ? 4 : 3} className="text-center py-12">
                                         <div className="flex flex-col items-center gap-2">
                                             <ShieldAlert className="w-8 h-8 text-muted-foreground/50" />
-                                            <p className="text-sm text-muted-foreground italic">No matching DNC records found.</p>
+                                            <p className="text-sm text-muted-foreground italic">No matching DNC records</p>
                                         </div>
                                     </TableCell>
                                 </TableRow>

@@ -111,8 +111,7 @@ export const NumberGroupMembersModal: React.FC<Props> = ({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {eligible.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No eligible numbers. Campaign number groups only include active Agency numbers — purchase active
-              numbers, switch a Personal number to Agency, or unmark direct lines first.
+              No eligible numbers. Add an active Agency number without direct-line routing.
             </p>
           ) : (
             <ul className="divide-y divide-border/60 rounded-lg border border-border/60">

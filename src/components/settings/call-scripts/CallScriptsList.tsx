@@ -91,7 +91,7 @@ export const CallScriptsList: React.FC<CallScriptsListProps> = ({
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <FileText className="w-10 h-10 text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground mb-4">
-              {canManage ? "No scripts yet. Click Add Script to get started." : "No scripts available yet."}
+              {canManage ? "No scripts yet" : "No scripts available"}
             </p>
             {canManage && (
               <Button size="sm" onClick={onAdd} className="gap-2">
@@ -102,7 +102,7 @@ export const CallScriptsList: React.FC<CallScriptsListProps> = ({
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <Search className="w-8 h-8 text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No scripts match your search. Try adjusting your filters.</p>
+            <p className="text-sm text-muted-foreground">No matching scripts</p>
           </div>
         ) : (
           filtered.map((s) => (

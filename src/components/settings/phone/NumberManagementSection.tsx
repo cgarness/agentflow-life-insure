@@ -511,10 +511,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           {numbers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Phone className="w-12 h-12 text-muted-foreground mb-3" />
-              <p className="text-sm font-medium text-foreground mb-1">No phone numbers yet</p>
-              <p className="text-xs text-muted-foreground mb-4 max-w-sm">
-                Purchase a number from Twilio to use it for outbound caller ID and inbound routing.
-              </p>
+              <p className="text-sm font-medium text-foreground mb-4">No phone numbers yet</p>
               {canManageNumbers && (
                 <Button
                   size="sm"
@@ -883,7 +880,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-5">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently.
+                Search by area code, state or city. Availability changes frequently.
               </p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-4 px-0.5 pt-0.5">
                 <div className="space-y-1.5">

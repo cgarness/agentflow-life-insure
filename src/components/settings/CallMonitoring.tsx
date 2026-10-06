@@ -123,7 +123,7 @@ const CallMonitoring: React.FC = () => {
       <div className="flex items-start gap-3 bg-primary/5 border border-primary/20 rounded-xl p-4">
         <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <p className="text-sm text-foreground">
-          Listen, Whisper, and Barge require Twilio Call Control integration. Full functionality coming soon.
+          Listen, Whisper and Barge are not available yet.
         </p>
       </div>
 
@@ -137,7 +137,7 @@ const CallMonitoring: React.FC = () => {
             )}
           </h4>
           {!functionUnavailable && (
-            <span className="text-xs text-muted-foreground">Live via Realtime</span>
+            <span className="text-xs text-muted-foreground">Live updates</span>
           )}
         </div>
         {!functionUnavailable && (
@@ -169,8 +169,7 @@ const CallMonitoring: React.FC = () => {
       ) : calls.length === 0 ? (
         <div className="bg-accent/50 rounded-xl p-12 text-center">
           <Headphones className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <h4 className="font-semibold text-foreground mb-1">No active calls right now</h4>
-          <p className="text-sm text-muted-foreground">Live calls will appear here automatically.</p>
+          <h4 className="font-semibold text-foreground">No active calls</h4>
         </div>
       ) : (
         <div className="overflow-x-auto border rounded-xl">

@@ -573,14 +573,12 @@ const CalendarSettings: React.FC = () => {
       {/* Header */}
       <div>
         <h3 className="text-lg font-semibold text-foreground">Calendar Settings</h3>
-        <p className="text-sm text-muted-foreground mt-1">Control how your team's calendar looks and behaves</p>
       </div>
 
       {/* Card 1 — Default Calendar View */}
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Default Calendar View</CardTitle>
-          <CardDescription>Choose the default view agents see when they open the calendar</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-3">
@@ -607,7 +605,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">First Day of the Week</CardTitle>
-          <CardDescription>Controls how the calendar grid is displayed</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 max-w-xs">
@@ -634,7 +631,7 @@ const CalendarSettings: React.FC = () => {
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
             <CardTitle className="text-base">Appointment Types</CardTitle>
-            <CardDescription>Manage the types of appointments your team can schedule. Default types are locked and cannot be renamed or removed.</CardDescription>
+            <CardDescription>Default appointment types cannot be renamed or removed.</CardDescription>
           </div>
           {canManageAppointmentTypes && (
             <Button
@@ -704,12 +701,10 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Scheduling Defaults</CardTitle>
-          <CardDescription>Control default durations and buffer time between appointments</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>Buffer Time Between Appointments</Label>
-            <p className="text-xs text-muted-foreground">Prevents back-to-back appointments from being scheduled without a break</p>
             <Select value={bufferTime} disabled>
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -719,7 +714,6 @@ const CalendarSettings: React.FC = () => {
           </div>
           <div className="space-y-2">
             <Label>Max Appointments Per Day</Label>
-            <p className="text-xs text-muted-foreground">Caps the number of appointments that can be scheduled per agent per day</p>
             <div className="flex gap-4">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Agent</Label>
@@ -744,7 +738,6 @@ const CalendarSettings: React.FC = () => {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle className="text-base">Google Calendar Integration</CardTitle>
-              <CardDescription>Connect your Google Calendar and control how events sync.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Badge className={googleSyncSettings.connected ? "bg-[#22C55E] text-white" : "bg-muted text-muted-foreground"}>
@@ -826,8 +819,8 @@ const CalendarSettings: React.FC = () => {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {googleSyncSettings.syncMode === "two_way"
-                    ? "2-way Sync (Beta): Google events import into AgentFlow automatically every 5 minutes. Use the refresh button on the Calendar page to import on demand. Conflicts resolve as Google-wins."
-                    : "Outbound-only: AgentFlow appointments sync to your Google calendar. Events created in Google are not imported."}
+                    ? "Google events import every 5 minutes or on Calendar refresh. Google changes win conflicts."
+                    : "AgentFlow appointments sync to Google; Google events are not imported."}
                 </p>
               </div>
             </>
@@ -839,7 +832,7 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Appointment Reminders</CardTitle>
-          <CardDescription>Automatically remind contacts before their appointment</CardDescription>
+          <CardDescription>Contact reminders (not active)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 rounded-lg px-4 py-2.5 text-xs text-muted-foreground">
@@ -873,7 +866,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Appointment Confirmation</CardTitle>
-          <CardDescription>Automatically send a confirmation to contacts when an appointment is created</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 rounded-lg px-4 py-2.5 text-xs text-muted-foreground">
@@ -881,8 +873,7 @@ const CalendarSettings: React.FC = () => {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <Label>Send Confirmation Email on Appointment Created</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Contact receives an email confirmation immediately after an appointment is saved</p>
+              <Label>Send appointment confirmation email</Label>
             </div>
             <Switch checked={sendConfirmation} disabled />
           </div>
@@ -890,7 +881,7 @@ const CalendarSettings: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <Label>Calendar Color Coding</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Switch between coloring calendar events by appointment type or by assigned agent</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Color by appointment type or assigned agent.</p>
               <p className="text-xs text-muted-foreground mt-1 font-medium">
                 {colorByAgent ? "Coloring by agent" : "Coloring by appointment type"}
               </p>
@@ -904,7 +895,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Working Hours</CardTitle>
-          <CardDescription>Set the days and times agents are available to be scheduled</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-lg border divide-y">
@@ -941,14 +931,13 @@ const CalendarSettings: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Personal Appointment Reminders</CardTitle>
-          <CardDescription>Configure popups and alerts for your upcoming appointments and callbacks</CardDescription>
+          <CardDescription>Alerts for your appointments and callbacks.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label>Reminder Lead Time</Label>
-                <p className="text-xs text-muted-foreground">How many minutes before an appointment should we show the popup?</p>
+                <Label>Remind me before</Label>
               </div>
               <Select 
                 value={String(agentReminderTime)} 
@@ -971,8 +960,7 @@ const CalendarSettings: React.FC = () => {
             
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <Label>Enable Sound Notification</Label>
-                <p className="text-xs text-muted-foreground">Play a chime when the reminder popup appears</p>
+                <Label>Play reminder sound</Label>
               </div>
               <Switch 
                 checked={agentReminderSound} 

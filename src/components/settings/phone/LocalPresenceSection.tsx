@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { MapPin, Info } from "lucide-react";
+import { MapPin } from "lucide-react";
 
 type Props = {
   localPresenceEnabled: boolean;
@@ -23,28 +23,20 @@ export const LocalPresenceSection: React.FC<Props> = ({ localPresenceEnabled, on
           <div>
             <p className="text-sm font-medium text-foreground">Enable local presence</p>
             <p className="text-xs text-muted-foreground">
-              Local presence uses your active org numbers to choose the best caller ID for outbound dials based on the lead&apos;s area code. When off, the dialer uses your default number.
+              Matches the lead&apos;s area code using active agency numbers. When off, uses your default number.
             </p>
           </div>
           <Switch checked={localPresenceEnabled} onCheckedChange={(c) => onToggle(c === true)} />
         </div>
-        <p className="text-xs text-muted-foreground leading-relaxed rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-          Routing, voicemail, and local presence settings are saved as part of your organization&apos;s phone configuration.
-        </p>
         <div className="bg-accent/50 rounded-lg p-3">
           <p className="text-sm text-foreground">
-            You have numbers covering <span className="font-semibold">{uniqueAreaCodes.length}</span> area code{uniqueAreaCodes.length !== 1 ? "s" : ""}
+            <span className="font-semibold">{uniqueAreaCodes.length}</span> area code{uniqueAreaCodes.length !== 1 ? "s" : ""}
             {uniqueAreaCodes.length > 0 && (
               <>
                 : <span className="font-mono text-xs">{uniqueAreaCodes.join(", ")}</span>
               </>
             )}
           </p>
-          {uniqueAreaCodes.length < 3 && (
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <Info className="w-3 h-3" /> Tip: add numbers in additional area codes to improve answer rates when dialing term-life leads out of state.
-            </p>
-          )}
         </div>
       </CardContent>
     </Card>

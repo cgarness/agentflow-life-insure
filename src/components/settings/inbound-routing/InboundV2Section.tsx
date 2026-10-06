@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, PhoneIncoming, ShieldCheck, Smartphone, Users } from "lucide-react";
+import { Info, Loader2, PhoneIncoming, ShieldCheck, Smartphone, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { announceRoutingEngine } from "@/lib/agentAvailability";
 import {
@@ -179,8 +180,7 @@ export const InboundV2Section: React.FC<{ organizationId: string | null; onEngin
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Legacy routing"}</span>
           </CardTitle>
           <CardDescription>
-            Contact's assigned agent first (direct lines take precedence), 20-second browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers.
-            {active ? " While active, the routing strategy, fallback chain and fallback action below are not used." : ""}
+            Contact’s assigned agent → browser → mobile (press 1) → voicemail. Direct lines take priority; unassigned callers ring the inbound group.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -189,9 +189,9 @@ export const InboundV2Section: React.FC<{ organizationId: string | null; onEngin
           ) : (
             <>
               <div className="space-y-2">
-                <Label className="flex items-center gap-2 text-sm font-medium"><Users className="w-4 h-4 text-muted-foreground" /> Inbound group (unassigned callers ring all of these at once, max {INBOUND_GROUP_MAX})</Label>
+                <Label className="flex items-center gap-2 text-sm font-medium"><Users className="w-4 h-4 text-muted-foreground" /> Inbound group (max {INBOUND_GROUP_MAX})</Label>
                 {eligibleAgents.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No Active agents with a phone identity yet.</p>
+                  <p className="text-xs text-muted-foreground">No active agents configured for calls.</p>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {eligibleAgents.map((a) => {
@@ -209,14 +209,21 @@ export const InboundV2Section: React.FC<{ organizationId: string | null; onEngin
                     })}
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground">{settings.inbound_group_agent_ids.length} selected. Only Available, connected, non-busy members ring; when none qualifies the caller reaches the group voicemail.</p>
+                <p className="text-xs text-muted-foreground">{settings.inbound_group_agent_ids.length} selected. Available, connected, non-busy members ring together. If none qualify, group voicemail answers.</p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="v2-browser-ring">Browser ring (seconds)</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="v2-browser-ring">Browser ring (seconds)</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" aria-label="About provider timing" className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"><Info className="h-4 w-4" aria-hidden="true" /></button>
+                      </PopoverTrigger>
+                      <PopoverContent className="text-xs" aria-label="Provider timing">Twilio may ring up to about 5 seconds longer than this setting.</PopoverContent>
+                    </Popover>
+                  </div>
                   <Input id="v2-browser-ring" type="number" min={RING_SECONDS_MIN} max={RING_SECONDS_MAX} value={settings.browser_ring_seconds} onChange={(e) => setSettings((s) => ({ ...s, browser_ring_seconds: Number(e.target.value) }))} />
-                  <p className="text-[11px] text-muted-foreground">Provider setting (integer). Twilio may hold the ring up to ~5 s longer; measured timings show in each agent's connection diagnostics.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="v2-mobile-ring">Mobile ring (seconds)</Label>
