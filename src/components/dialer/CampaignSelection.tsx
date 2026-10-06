@@ -81,10 +81,7 @@ export default function CampaignSelection({
             <Phone className="h-3 w-3" />
             DIALER
           </div>
-          <h1 className="mb-1 text-3xl font-extrabold text-foreground">Select a Campaign</h1>
-          <p className="text-base text-muted-foreground">
-            Choose an active campaign to start dialing.
-          </p>
+          <h1 className="text-3xl font-extrabold text-foreground">Select a campaign</h1>
           {header.kind !== "unavailable" && (
             <div
               data-testid="presence-header"

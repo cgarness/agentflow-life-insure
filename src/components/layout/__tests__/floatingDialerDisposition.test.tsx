@@ -95,7 +95,7 @@ async function wrapUp(select = true) {
   await screen.findByRole("button", { name: /hang up/i });
   h.state = "ended";
   view.rerender(<FloatingDialer />);
-  await screen.findByText("How did it go?");
+  await screen.findByText("Call outcome");
   if (select) fireEvent.click(await screen.findByRole("button", { name: "Result" }));
   return view;
 }
@@ -264,7 +264,7 @@ it("does not run callback effects or dismiss wrap-up when a save resolves in a d
     dnc_suppressed: true, lock_released: true, replayed: false,
   }, error: null }));
   expect(h.inserts).toHaveLength(0);
-  expect(screen.getByText("How did it go?")).toBeVisible();
+  expect(screen.getByText("Call outcome")).toBeVisible();
   expect(h.win).not.toHaveBeenCalled();
 });
 it("does not duplicate a callback calendar entry for a replayed disposition", async () => {

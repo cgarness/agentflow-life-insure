@@ -4093,10 +4093,7 @@ export default function DialerPage() {
             <div className="bg-accent/30 p-8 rounded-full mb-6">
               <Users className="w-12 h-12 text-muted-foreground opacity-40" />
             </div>
-            <h2 className="text-xl font-bold mb-2">Campaign Queue Empty</h2>
-            <p className="text-sm text-muted-foreground max-w-md mb-8">
-              There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
-            </p>
+            <h2 className="text-xl font-bold mb-4">No contacts available</h2>
           </>
         )}
         <button
@@ -4281,14 +4278,14 @@ export default function DialerPage() {
           <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
             <Users className="w-8 h-8 text-muted-foreground/50" />
           </div>
-          <h3 className="text-xl font-bold text-foreground mb-2">No Available Contacts In Queue.</h3>
+          <h3 className="text-xl font-bold text-foreground mb-2">No contacts available</h3>
           {nextAvailableTime ? (
             <p className="text-sm font-semibold text-primary max-w-sm text-balance">
-              Next Available Contact Is In {formatTimeUntil(nextAvailableTime.toISOString(), new Date())}
+              Next eligible in {formatTimeUntil(nextAvailableTime.toISOString(), new Date())}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground max-w-sm text-balance">
-              Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.
+              Leads appear when assigned or eligible for retry.
             </p>
           )}
         </div>
@@ -4738,7 +4735,7 @@ export default function DialerPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-blue-500" />
-              Session Complete
+              Session complete
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -4756,9 +4753,6 @@ export default function DialerPage() {
                 </p>
               </div>
             </div>
-            <p className="text-sm text-slate-400 text-center">
-              Queue is now empty. Great work!
-            </p>
           </div>
           <DialogFooter>
             <Button

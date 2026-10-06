@@ -411,7 +411,7 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
               <CalendarIcon className="w-3.5 h-3.5" />
               {editing ? "Edit Appointment" : "Schedule Meeting"}
             </DialogTitle>
-            <DialogDescription className="text-[10px] text-muted-foreground opacity-80">
+            <DialogDescription className="sr-only">
               {editing ? "Update your meeting details." : "Set your next meeting details below."}
             </DialogDescription>
           </div>

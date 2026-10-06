@@ -218,7 +218,7 @@ const ConversationsSidebar: React.FC<ConversationsSidebarProps> = ({
           </div>
         ) : filteredConversations.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground">
-            <p className="text-sm">No conversations found.</p>
+            <p className="text-sm">No conversations found</p>
           </div>
         ) : (
           <div className="divide-y divide-border/50">

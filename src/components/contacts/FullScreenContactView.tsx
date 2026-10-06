@@ -1215,8 +1215,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                    {localNotes.length === 0 ? (
                      <div className="flex flex-col items-center justify-center py-12 text-center">
                         <FileText className="w-8 h-8 text-muted-foreground/50 mb-3" />
-                        <p className="text-sm text-foreground font-medium">No Notes Yet</p>
-                        <p className="text-xs text-muted-foreground mt-1">Important details and context will be stored here.</p>
+                        <p className="text-sm text-foreground font-medium">No notes yet</p>
                      </div>
                    ) : (
                       <div className="space-y-4 pt-1">
@@ -1270,7 +1269,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                   {campaigns.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                        <p className="text-sm text-foreground font-medium">Not in any campaigns</p>
-                       <p className="text-xs text-muted-foreground mt-1">This lead is not currently part of any dialer campaigns.</p>
                     </div>
                   ) : (
                     <div className="space-y-3">

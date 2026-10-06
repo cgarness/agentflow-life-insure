@@ -256,7 +256,7 @@ export const CreateCampaignModal: React.FC<CreateCampaignModalProps> = ({
                       <span className="text-sm text-muted-foreground">Loading agents...</span>
                     </div>
                   ) : agents.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-muted-foreground">No agents available — add agents in User Management first</p>
+                    <p className="px-3 py-3 text-sm text-muted-foreground">Add agents in User Management.</p>
                   ) : (
                     agents.map(a => (
                       <button

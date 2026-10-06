@@ -974,7 +974,7 @@ const FloatingDialer: React.FC = () => {
             twilioCallState !== "incoming" && (
             <div className="mx-3 mt-1.5 shrink-0 rounded-lg border border-border bg-muted/50 px-2.5 py-2">
               <p className="text-[10px] text-muted-foreground leading-snug mb-1.5">
-                One tap unlocks optional desktop pop-ups for inbound life-insurance calls (Twilio rings in the browser; your browser may require this for notifications).
+                Optional desktop alerts for incoming calls. Calls still ring in the browser.
               </p>
               <Button
                 type="button"
@@ -1009,7 +1009,6 @@ const FloatingDialer: React.FC = () => {
                   <div className="flex flex-col items-center justify-center py-8 space-y-2">
                     <Phone className="w-8 h-8 text-muted-foreground" />
                     <p className="font-medium text-foreground">No recent calls</p>
-                    <p className="text-sm text-muted-foreground">Your call history will appear here</p>
                   </div>
                 )}
                 {!recentLoading && !recentError && recentCalls.length > 0 && (
@@ -1156,7 +1155,7 @@ const FloatingDialer: React.FC = () => {
 
                 {!onCall && showDisposition && (
                   <div className="flex flex-col items-center space-y-3">
-                    <p className="font-medium text-foreground text-center">How did it go?</p>
+                    <p className="font-medium text-foreground text-center">Call outcome</p>
                     {!callScopeMatches ? (
                       <p role="alert" className="text-sm text-muted-foreground text-center">
                         Your account or agency changed. Return to this call's account and agency to finish.

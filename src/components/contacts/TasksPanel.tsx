@@ -116,7 +116,6 @@ export function TasksPanel({ contactId, contactType, organizationId, agents }: T
               <CheckCircle2 className="w-6 h-6 opacity-50" />
             </div>
             <p className="text-sm font-medium">No tasks yet</p>
-            <p className="text-xs mt-1">Add a follow-up task to keep track of next steps.</p>
           </div>
         ) : (
           <>

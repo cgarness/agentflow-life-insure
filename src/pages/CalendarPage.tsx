@@ -542,7 +542,7 @@ const CalendarPage: React.FC = () => {
             {dayAppts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                 <CalendarIcon className="w-12 h-12 mb-4 opacity-20" />
-                <p>No appointments scheduled for today</p>
+                <p>No appointments scheduled</p>
               </div>
             ) : (
               dayAppts.map(appt => (

@@ -104,7 +104,7 @@ async function runImport(container: HTMLElement) {
   fireEvent.click(screen.getByText("Continue"));
   await waitFor(() => expect((screen.getByText("Continue to Review") as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByText("Continue to Review"));
-  await waitFor(() => expect(screen.getByText("Review Your Import")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Review import")).toBeTruthy());
 
   fireEvent.click(screen.getByText(/Add to existing campaign/i));
   await waitFor(() => expect(screen.getByText("Aged FEX")).toBeTruthy());
@@ -286,7 +286,7 @@ describe("Import result screen — import with NO campaign (item 4)", () => {
     fireEvent.click(screen.getByText("Continue"));
     await waitFor(() => expect((screen.getByText("Continue to Review") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByText("Continue to Review"));
-    await waitFor(() => expect(screen.getByText("Review Your Import")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Review import")).toBeTruthy());
 
     const importBtn = await screen.findByText(/^Import \d+ Leads$/);
     await waitFor(() => expect((importBtn as HTMLButtonElement).disabled).toBe(false));

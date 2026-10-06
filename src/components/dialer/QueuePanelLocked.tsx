@@ -260,9 +260,7 @@ export default function QueuePanelLocked({
       {/* Lock notice */}
       <div className="px-3 py-3 bg-muted/20 border border-border/50 rounded-lg">
         <p className="text-[10px] text-muted-foreground leading-relaxed text-center">
-          Queue order is managed by your campaign admin.
-          <br />
-          Leads are assigned automatically as you dial.
+          Your admin sets queue order; leads are assigned as you dial.
         </p>
       </div>
 

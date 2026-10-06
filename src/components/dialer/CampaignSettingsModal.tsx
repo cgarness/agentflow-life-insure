@@ -101,8 +101,7 @@ export default function CampaignSettingsModal({
         <DialogHeader>
           <DialogTitle>Calling Settings</DialogTitle>
           <DialogDescription>
-            Configure call attempt limits and scheduling for{" "}
-            <span className="font-semibold">{campaignName}</span>.
+            <span className="font-semibold">{campaignName}</span>
           </DialogDescription>
         </DialogHeader>
 

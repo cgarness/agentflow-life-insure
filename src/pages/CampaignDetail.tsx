@@ -929,10 +929,10 @@ const CampaignDetail: React.FC = () => {
               <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
               <p className="text-muted-foreground text-sm">
                 {profile?.role?.toLowerCase() === "agent"
-                  ? "You haven't claimed any leads in this campaign yet. Join the Dialer to get started."
+                  ? "No claimed leads. Join the dialer to start."
                   : (profile?.role?.toLowerCase() === "team leader" || profile?.role?.toLowerCase() === "team_leader")
-                  ? "No leads have been claimed in this campaign by you or your team yet."
-                  : "This campaign has no leads yet."}
+                  ? "No leads claimed by you or your team."
+                  : "No campaign leads."}
               </p>
             </div>
           ) : (
@@ -941,7 +941,7 @@ const CampaignDetail: React.FC = () => {
                 {isAdmin && leadFilter === "All" && (
                   <div className="px-4 py-2 bg-accent/30 border-b border-border flex items-center gap-2">
                     <GripVertical className="w-4 h-4 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Drag rows to reorder the call queue priority</p>
+                    <p className="text-xs text-muted-foreground">Drag rows to set queue priority.</p>
                   </div>
                 )}
                 <table className="w-full text-sm">
@@ -1171,7 +1171,7 @@ const CampaignDetail: React.FC = () => {
           {leads.length === 0 ? (
             <div className="bg-card rounded-xl border p-8 text-center">
               <BarChart3 className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads from the Leads tab to get started.</p>
+              <p className="text-muted-foreground text-sm">Add leads from the Leads tab.</p>
             </div>
           ) : (
             <div className="bg-card rounded-xl border p-6 space-y-3">
@@ -1249,7 +1249,7 @@ const CampaignDetail: React.FC = () => {
                       <span className="text-sm text-muted-foreground">Loading agents...</span>
                     </div>
                   ) : agents.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-muted-foreground">No agents available — add agents in User Management first</p>
+                    <p className="px-3 py-3 text-sm text-muted-foreground">Add agents in User Management.</p>
                   ) : (
                     agents.map(a => (
                       <button key={a.id} type="button" onClick={() => toggleSettingsAgent(a.id)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left">
@@ -1312,7 +1312,7 @@ const CampaignDetail: React.FC = () => {
           ) : importHistory.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <FileText className="w-10 h-10 mb-3 opacity-50" />
-              <p className="text-sm font-medium">No imports yet for this campaign.</p>
+              <p className="text-sm font-medium">No campaign imports</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

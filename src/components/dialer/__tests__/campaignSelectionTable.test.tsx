@@ -121,8 +121,8 @@ describe("CampaignSelection — semantic table replaces cards", () => {
   it("renders a real table with the header copy", () => {
     renderSelection();
     expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByText("Select a Campaign")).toBeInTheDocument();
-    expect(screen.getByText("Choose an active campaign to start dialing.")).toBeInTheDocument();
+    expect(screen.getByText("Select a campaign")).toBeInTheDocument();
+    expect(screen.queryByText("Choose an active campaign to start dialing.")).not.toBeInTheDocument();
     // one row per campaign, campaign names present
     expect(rowFor("c-open")).toBeInTheDocument();
     expect(rowFor("c-team")).toBeInTheDocument();

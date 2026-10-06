@@ -51,37 +51,37 @@ export default function QueueExhaustedNotice({ campaignId, requireLicensedStateA
     return () => { cancelled = true; };
   }, [campaignId]);
 
-  let heading = "No Available Contacts In Queue.";
+  let heading = "No contacts available";
   let detail =
-    "Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.";
+    "Leads appear when assigned or eligible for retry.";
 
   if (loaded && row) {
     if (row.total_leads === 0) {
-      heading = "This Campaign Has No Leads.";
-      detail = "Import or assign leads to this campaign to start dialing.";
+      heading = "No campaign leads";
+      detail = "Import or assign leads to this campaign.";
     } else if (requireLicensedStateAccess) {
       // Licensed-state access is on (Build 2b): the queue is restricted to the
       // agent's licensed states. The campaign has leads, but none are claimable
       // for this agent — the most relevant explanation (get_queue_metrics does
       // not model licensing, so this takes precedence over its generic buckets).
-      heading = "No leads in your licensed states for this campaign.";
+      heading = "No leads in licensed states";
       detail =
-        "This campaign only serves contacts in states where you hold an active license. Contacts with no state are still shown. Add licenses in your profile or ask your admin.";
+        "Only leads in states where you hold an active license, or with no state, are shown. Add licenses in your profile or contact your admin.";
     } else if (row.eligible_leads === 0) {
-      heading = "Campaign Complete.";
-      detail = "Every lead in this campaign has been processed (called, removed, or marked DNC).";
+      heading = "Campaign complete";
+      detail = "All leads are called, removed, or marked DNC.";
     } else if (row.available_leads === 0 && row.locked_leads > 0) {
-      heading = "All Available Leads Are Being Dialed.";
+      heading = "Leads in use";
       const agents = row.active_agents;
-      detail = `${row.locked_leads} lead${row.locked_leads !== 1 ? "s are" : " is"} currently locked by ${agents} active agent${agents !== 1 ? "s" : ""}. One may free up shortly.`;
+      detail = `${row.locked_leads} lead${row.locked_leads !== 1 ? "s are" : " is"} locked by ${agents} active agent${agents !== 1 ? "s" : ""}; a lead may free up shortly.`;
     } else {
-      heading = "No Eligible Leads Right Now.";
+      heading = "No leads eligible yet";
       const bits: string[] = [];
       if (row.retry_blocked_leads > 0) bits.push(`${row.retry_blocked_leads} waiting on retry`);
       if (row.callback_waiting_leads > 0) bits.push(`${row.callback_waiting_leads} upcoming callback${row.callback_waiting_leads !== 1 ? "s" : ""}`);
       detail = bits.length
-        ? `Leads exist but aren't callable yet (${bits.join(", ")}).`
-        : "Leads exist but aren't callable yet (retry timing, callbacks, or suppression).";
+        ? `Waiting: ${bits.join(", ")}.`
+        : "Waiting on retry timing, callbacks, or suppression.";
     }
   }
 

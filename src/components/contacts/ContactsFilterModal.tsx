@@ -134,7 +134,7 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
       <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
         <SheetHeader className="px-6 pt-6 pb-2 shrink-0 text-left">
           <SheetTitle>Filter {activeTab}</SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="sr-only">
             Narrow down your {activeTab.toLowerCase()} using the filters below.
           </SheetDescription>
         </SheetHeader>

@@ -215,7 +215,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         {activeTab === "existing" && (
           <>
             <p className="text-sm text-muted-foreground">
-              Select an active campaign to add {contactCount} contact{contactCount !== 1 ? "s" : ""} to.
+              {contactCount} contact{contactCount !== 1 ? "s" : ""} selected
             </p>
 
             <div className="relative">
@@ -280,7 +280,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
         {activeTab === "new" && (
           <>
             <p className="text-sm text-muted-foreground">
-              Create a new campaign and add {contactCount} contact{contactCount !== 1 ? "s" : ""} to it.
+              {contactCount} contact{contactCount !== 1 ? "s" : ""} selected
             </p>
 
             <div>

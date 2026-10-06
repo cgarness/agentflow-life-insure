@@ -2553,7 +2553,7 @@ const Contacts: React.FC = () => {
     Icon: React.ComponentType<{ className?: string }>;
     noun: string;
     noDataTitle: string;
-    noDataBody: string;
+    noDataBody?: string;
     addLabel?: string;
     canAdd?: boolean;
   }) => {
@@ -2562,8 +2562,7 @@ const Contacts: React.FC = () => {
       return (
         <div className="text-center py-12">
           <Icon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-semibold text-foreground mb-1">No {noun}s match your filters</h3>
-          <p className="text-sm text-muted-foreground mb-4">Try adjusting or clearing your filters to see more.</p>
+          <h3 className="font-semibold text-foreground mb-4">No {noun}s match your filters</h3>
           <button onClick={clearAllFilters} className="px-4 py-2 rounded-lg border border-border bg-background text-foreground text-sm font-medium hover:bg-accent sidebar-transition">Clear filters</button>
         </div>
       );
@@ -2571,9 +2570,9 @@ const Contacts: React.FC = () => {
     return (
       <div className="text-center py-12">
         <Icon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-        <h3 className="font-semibold text-foreground mb-1">{noDataTitle}</h3>
-        <p className="text-sm text-muted-foreground mb-4">{noDataBody}</p>
-        {canAdd && addLabel && <button onClick={() => setAddModalOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">{addLabel}</button>}
+        <h3 className="font-semibold text-foreground">{noDataTitle}</h3>
+        {noDataBody && <p className="text-sm text-muted-foreground mt-1">{noDataBody}</p>}
+        {canAdd && addLabel && <button onClick={() => setAddModalOpen(true)} className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">{addLabel}</button>}
       </div>
     );
   };
@@ -2759,7 +2758,6 @@ const Contacts: React.FC = () => {
                 Icon: Users,
                 noun: "lead",
                 noDataTitle: "No leads yet",
-                noDataBody: "Add your first lead to start building your pipeline.",
                 addLabel: "Add Lead",
                 canAdd: canAddCurrentContact,
               })
@@ -2862,7 +2860,7 @@ const Contacts: React.FC = () => {
                 Icon: ShieldCheck,
                 noun: "client",
                 noDataTitle: "No clients yet",
-                noDataBody: "Convert leads to clients after policy sales, or add one manually.",
+                noDataBody: "Convert a lead after a policy sale, or add a client.",
                 addLabel: "Add Client",
                 canAdd: true,
               })
@@ -2959,7 +2957,6 @@ const Contacts: React.FC = () => {
                 Icon: Users,
                 noun: "recruit",
                 noDataTitle: "No recruits yet",
-                noDataBody: "Start building your recruit pipeline.",
                 addLabel: "Add Recruit",
                 canAdd: canAddCurrentContact,
               })
@@ -3078,8 +3075,7 @@ const Contacts: React.FC = () => {
             ) : importHistory.length === 0 ? (
               <div className="text-center py-12">
                 <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold text-foreground mb-1">No imports yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">When you import leads via CSV, your history will appear here.</p>
+                <h3 className="font-semibold text-foreground mb-4">No imports yet</h3>
                 {/* `/contacts/import` is refused by the route guard under "View As"; offering it
                     here would only navigate the operator into a refusal notice. */}
                 {!isImpersonating && hasContactsPermission("contacts.leads.import") && <button onClick={() => navigate('/contacts/import')} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 sidebar-transition">Import CSV</button>}

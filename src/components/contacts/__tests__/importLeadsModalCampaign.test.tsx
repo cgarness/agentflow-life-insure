@@ -82,10 +82,10 @@ async function reachStep3(container: HTMLElement) {
   fireEvent.change(input, { target: { files: [new File([CSV], "leads.csv", { type: "text/csv" })] } });
   await waitFor(() => expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByText("Continue"));
-  await waitFor(() => expect(screen.getByText("Map Your Fields")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Map fields")).toBeTruthy());
   await waitFor(() => expect((screen.getByText("Continue to Review") as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByText("Continue to Review"));
-  await waitFor(() => expect(screen.getByText("Review Your Import")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Review import")).toBeTruthy());
 }
 
 /** The assignment <select> is the one holding the strategy values. */

@@ -1285,9 +1285,8 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
           onDrop={handleDrop}
         >
           <CloudUpload className="w-8 h-8 text-primary mx-auto mb-3" />
-          <p className="text-foreground text-base font-medium">Drop your CSV file here</p>
-          <p className="text-muted-foreground text-sm mt-1">or click to browse files</p>
-          <p className="text-muted-foreground/60 text-xs mt-3">Accepts .csv files only — max 50MB</p>
+          <p className="text-foreground text-base font-medium">Drop a CSV or browse files</p>
+          <p className="text-muted-foreground/60 text-xs mt-1">CSV only · Max 50 MB</p>
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
         </div>
       ) : parsing ? (
@@ -2145,9 +2144,9 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   };
 
   const stepTitles: Record<number, { title: string; sub: string }> = {
-    1: { title: "Import Leads", sub: "Upload a CSV file to import leads into AgentFlow" },
-    2: { title: "Map Your Fields", sub: "Match your CSV columns to AgentFlow lead fields" },
-    3: { title: "Review Your Import", sub: "Review and confirm before importing" },
+    1: { title: "Import Leads", sub: "" },
+    2: { title: "Map fields", sub: "Match CSV columns to lead fields." },
+    3: { title: "Review import", sub: "" },
     4: { title: "Importing...", sub: "" },
     5: { title: "", sub: "" },
   };

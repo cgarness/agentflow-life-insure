@@ -85,7 +85,7 @@ export const CAMPAIGN_SETTINGS_COPY = {
   callingWindowHelper:
     "Auto-dial avoids dialing outside this window. Timezone is estimated from the lead's state.",
   localPresenceHelper:
-    "Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used.",
+    "Uses eligible agency numbers matching the lead's area code, or your default caller ID; personal/direct numbers are excluded.",
   sessionActiveNote: "Changes apply to your next call.",
   // Settings Access (edit-permission model)
   accessLabel: "Settings Access",
@@ -97,6 +97,6 @@ export const CAMPAIGN_SETTINGS_COPY = {
   // Licensed-state access (Build 2b)
   requireLicensedStateLabel: "Require licensed-state access",
   requireLicensedStateHelper:
-    "When on, agents only receive campaign contacts in states where they hold an active license. Contacts with no state are still shown.",
+    "Shows leads in states where agents hold active licenses, plus leads with no state.",
   requireLicensedStateNotApplicable: "Applies to Team and Open Pool campaigns.",
 } as const;

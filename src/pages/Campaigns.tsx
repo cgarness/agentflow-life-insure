@@ -157,7 +157,7 @@ const DuplicateCampaignModal: React.FC<{
         </div>
 
         <p className="text-sm text-muted-foreground">
-          This will create a copy of <span className="font-medium text-foreground">{campaign.name}</span> as a Draft. No leads will be carried over.
+          Copy <span className="font-medium text-foreground">{campaign.name}</span> as a draft without leads.
         </p>
 
         <div className="flex gap-3 pt-2">
@@ -327,8 +327,7 @@ const Campaigns: React.FC = () => {
         /* Empty State */
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Megaphone className="w-16 h-16 text-muted-foreground/40 mb-4" />
-          <h3 className="text-lg font-semibold text-foreground mb-1">No campaigns yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">Create your first campaign to start reaching leads</p>
+          <h3 className="text-lg font-semibold text-foreground mb-4">No campaigns yet</h3>
           <PermissionGate feature="Create Campaigns">
             <button onClick={() => setCreateOpen(true)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
               <Plus className="w-4 h-4" /> Create Campaign
@@ -337,7 +336,7 @@ const Campaigns: React.FC = () => {
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16">
-          <p className="text-muted-foreground">No campaigns match your filters.</p>
+          <p className="text-muted-foreground">No matching campaigns</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

@@ -322,7 +322,7 @@ describe("deep links are validated against the same scope", () => {
     await waitFor(() => expect(apiState.scopeCalls.length).toBeGreaterThan(0));
 
     expect(screen.queryByTestId("thread")).not.toBeInTheDocument();
-    expect(await screen.findByText(/Your Unified Inbox/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Select a conversation/i)).toBeInTheDocument();
   });
 
   it("an in-scope contactId opens the thread with the RESOLVED type, ignoring ?contactType=", async () => {

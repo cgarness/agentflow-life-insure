@@ -102,7 +102,7 @@ async function uploadAndMap(container: HTMLElement, csv: string) {
   fireEvent.change(input, { target: { files: [new File([csv], "leads.csv", { type: "text/csv" })] } });
   await waitFor(() => expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByText("Continue"));
-  await waitFor(() => expect(screen.getByText("Map Your Fields")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Map fields")).toBeTruthy());
 }
 
 /** The step-2 "Continue to Review" button (distinct from step 1's "Continue"). */
@@ -394,7 +394,7 @@ describe("Auto-detection on a later upload", () => {
     const { container } = renderModal();
     await uploadAndMap(container, csvWith("Email"));
 
-    await waitFor(() => expect(screen.getByText("Map Your Fields")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Map fields")).toBeTruthy());
     expect(mappingSelect(container, 3).value).toBe("Do Not Import");
   });
 
@@ -535,7 +535,7 @@ describe("Logical collapse keeps the mapping gates correct", () => {
     const { container } = renderModal();
     await uploadAndMap(container, csvWith("Unrelated Column"));
 
-    await waitFor(() => expect(screen.getByText("Map Your Fields")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Map fields")).toBeTruthy());
     expect(continueToReview().disabled).toBe(true);
 
     fireEvent.change(mappingSelect(container, 3), { target: { value: "custom:cf-1" } });
