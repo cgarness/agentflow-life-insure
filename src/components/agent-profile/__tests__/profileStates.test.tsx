@@ -203,7 +203,7 @@ describe("the real figures render with their definitions attached", () => {
     expect(screen.getByText("$681.07")).toBeTruthy();
     // Never 681.07 x 12.
     expect(screen.queryByText("$8,172.84")).toBeNull();
-    expect(screen.getByText("Recorded monthly premium; not annualized.")).toBeTruthy();
+    expect(screen.getByText("Recorded monthly premium. Not annualized.")).toBeTruthy();
     expect(screen.getByText(/1 policy has no premium recorded/)).toBeTruthy();
     expect(screen.getByText(/Includes 2 additional policies/)).toBeTruthy();
   });

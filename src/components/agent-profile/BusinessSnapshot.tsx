@@ -99,7 +99,7 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             icon={<Wallet className="h-4 w-4" />}
             label={`${prefix}Monthly Premium`}
             value={formatMonthlyCurrency(stats.totalPremiumMonthly)}
-            hint="Recorded monthly premium; not annualized."
+            hint="Recorded monthly premium. Not annualized."
             caveat={
               stats.policiesMissingPremium > 0
                 ? `${formatCount(stats.policiesMissingPremium)} ${

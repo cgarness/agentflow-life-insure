@@ -1,3 +1,726 @@
+# 2026-10-06 — Implementation complete; draft review candidate
+
+The approved 111-file scope is implemented. Four local source batches simplify core CRM, reporting/profiles, phone settings and administration; the final verification refinement preserves the existing “Not annualized.” wording with the concise prefix “Recorded monthly premium.” The exact allowlist below is unchanged: 99 frontend files + 10 existing tests + 2 existing root documents. No backend, dependency, CI or additional application/test file was edited.
+
+Local verification against `3f7fa519011ab22307dfdda802b045b2028cd7b2`:
+
+| Check | Result |
+|---|---|
+| Root TypeScript | Passed; root checks no application files |
+| Application TypeScript | Same 87 existing diagnostics; no new identities or multiplicities |
+| Changed-file ESLint | 0 errors; same 64 existing warnings |
+| Build / diff whitespace | Passed |
+| Full frontend tests | 4,272 pass on candidate and base; same 10 failed files / one pre-existing assertion; zero unhandled runtime errors |
+| Reports / normalization suites | All 12 passed inside the full run |
+| Functional freeze | 99 parsed source files; hooks, callbacks, data/query operations and schemas unchanged |
+| Real browser fixtures | Desktop/narrow and light/dark coverage; new help keyboard, Escape/focus, visible focus and touch verified; Reports/TV behavior gates passed |
+
+These are isolated synthetic browser fixtures with denied writes and blocked external traffic. They are not a live authenticated production walkthrough; full Dialer/Contacts/contact-detail flows are not claimed. Exact captured surfaces and known pre-existing accessibility/mobile limits are documented in the review packet and newest Work Log. Preserve the existing Profile tooltip keyboard limitation, long-name row clipping and missing custom-field dialog description as follow-up scope, not hidden implementation changes.
+
+The review branch/draft PR and automatic preview builds are authorized by the approval below. The PR's current verification section will record post-publication CI/preview results. Main merge and production release remain unapproved. No backend command, Supabase mutation, migration or production deployment occurred. The reviewed plan and historical root plan follow unchanged except this execution status.
+
+# 2026-10-06 — UI copy cleanup: implementation and draft PR approved
+
+Chris approved the reviewed 111-file plan at 10:20 PDT. Authority includes the isolated implementation, normal verification, publishing `codex/ui-copy-cleanup-20261006` and a draft PR with automatic previews. Main merge and production release remain separately gated. No backend commands or production mutation are authorized.
+
+Fresh main is `3f7fa519011ab22307dfdda802b045b2028cd7b2`; all seven open PR heads are unchanged. Full repository rules, vision and historical Work Log were read during the preceding audit. The exact approved source/test/documentation file list and copy mappings follow; older approval-request text describes the completed planning checkpoint and is superseded by this approval. Preserve the original root plan history after the review plan.
+
+# REFACTOR — AgentFlow UI copy and visual density cleanup
+
+Prepared for Chris Garness · October 6, 2026 · **Implementation approval requested**
+
+This plan removes redundant interface copy and tightens the spacing it leaves behind. It preserves AgentFlow’s current layouts, life-insurance terminology, operational guidance, and functional behavior.
+
+This is a source-based audit of current main, not a live visual audit. No application or repository documentation was edited; no tests, backend commands, production writes, push, PR, merge, or deployment were performed. This standalone `implementation_plan.md` is the requested review artifact. After approval, its scope will be recorded in the repository’s existing `implementation_plan.md` without replacing other project history.
+
+## 1. Verified baseline and concurrent work
+
+- Repository: `cgarness/agentflow-life-insure`.
+- Audited main: `3f7fa519011ab22307dfdda802b045b2028cd7b2`.
+- The attachment’s main is still the current baseline at inspection.
+- `AGENT_RULES.md` and `VISION.md` were read in full. The team read all 12,906 lines of `WORK_LOG.md` in bounded portions; newer shipped records supersede older candidate/blocked status. No `AGENTS.md` exists in this checkout.
+- All seven open PRs and their changed-file lists were inspected. All 414 remote branch names/heads were inventoried; recent main commits and relevant active PR branches were checked. This does not establish the contents of unpushed work on another computer.
+
+| Work | Verified status and handling |
+|---|---|
+| [Reports #421](https://github.com/cgarness/agentflow-life-insure/pull/421), [release record #422](https://github.com/cgarness/agentflow-life-insure/pull/422) | Both merged. Preserve the current Phase 2 layout/customization and Phase 1 integrity work. Only four Reports presentation files are proposed for copy edits. |
+| [SMS consent #419](https://github.com/cgarness/agentflow-life-insure/pull/419) | Open draft at `c6451e1079094f3d79b3199cae6a1901ec6bd31b`, based on audited main. Direct overlap: Conversations, FullScreenContactView, EmailSMSTemplates, TemplateModal, ActionConfigPanel, conversationsViewAs test, and WORK_LOG. Apply only the named text locations; preserve every purpose/readiness/consent control, draft and dispatch change. Recheck before editing and again before publication. |
+| [Google OAuth #378](https://github.com/cgarness/agentflow-life-insure/pull/378) | Open draft. CalendarSettings and EmailSetup overlap; its GoogleDataDisclosure and disconnect/history disclosures must remain intact if it lands. Do not delete privacy or access explanations as helper text. |
+| [Leaderboard #383](https://github.com/cgarness/agentflow-life-insure/pull/383) | Open draft. Its LeaderboardWidget/request-gate files are deliberately outside the edit list. Older recovery history does not justify altering current shipped state handling. |
+| [#382](https://github.com/cgarness/agentflow-life-insure/pull/382), [#381](https://github.com/cgarness/agentflow-life-insure/pull/381) | Older containment/documentation PRs; preserve work-log history. No backend changes in this plan. |
+| [Underwriting #398](https://github.com/cgarness/agentflow-life-insure/pull/398), [Realtime #294](https://github.com/cgarness/agentflow-life-insure/pull/294) | Separate feature work; no runtime overlap with this allowlist. Shared documentation must be appended, never replaced. |
+
+Repository release evidence records Reports Phase 2 as shipped. No new Vercel production verification was required or performed for this read-only copy plan.
+
+## 2. Recommended implementation sequence
+
+Use one isolated branch, `codex/ui-copy-cleanup-20261006`, from freshly checked main, with four reviewable commits/batches. Approval covers the entire listed copy scope and publishing that review branch/draft PR to `cgarness/agentflow-life-insure` after local verification, including its automatic preview builds. The batches organize verification and review, not four additional approval requests.
+
+1. **Core CRM:** Dialer, campaign selection/detail, Contacts, Conversations, Calendar and their mounted dialogs/empty states. Normalize wording while retaining every distinct queue, permission and error branch.
+2. **Reporting and profiles:** Dashboard, Leaderboard, the four Reports presentation files, Resources, Training, Agent Profile and Team Profile. Remove slogans and repeated descriptions; preserve metric definitions, scope, dates, time zones and uncertainty.
+3. **Phone and workflow settings:** inbound routing, recording, scripts, dispositions, DNC, Contact Flow, Calendar settings, caller-ID/number administration. Keep essential consequences visible. Use compact accessible help for the three specified advanced routing explanations.
+4. **Administration:** My Profile, users, permissions, branding, menu links, Agency Groups, workflow editor/list, email setup/templates, the Webhooks placeholder, carriers and Activity Log. Reconcile #419/#378 overlap before those edits.
+
+After all four batches, review the complete diff, CI and visual evidence before presenting a release candidate. Do not push directly to main or merge the PR. No production release occurs without Chris’s separate approval.
+
+## 3. Copy rules and protected information
+
+Every explicit proposal in the inventory is KEEP, SHORTEN, REMOVE or TOOLTIP. Unlisted labels, validation, errors, user-authored content, state information and disclosures default to **KEEP**. Do not perform global sentence-case replacement: some displayed names are also stored values or permission identifiers.
+
+- Ordinary empty title: 2–5 words. Add one short sentence only when it adds scope, timing or an actionable next step; retain existing eligible CTAs.
+- Never combine real empty, loading, failed, permission-denied, retry-waiting, locked, unavailable or incomplete states.
+- Keep DNC, active/orphan-call, caller-ID, connectivity, lock/retry and unsaved-data warnings; keep destructive confirmations and nonactive/Beta labels.
+- Keep View As identity, restricted-route/read-only explanations and Exit View As.
+- Preserve lead/client/recruit, Personal/Team/Open Pool, Contacted, disposition and policy terminology. Do not normalize user-created names, scripts, template content or stored activity strings.
+- Keep Reports’ stored-policy/date/current-owner basis distinct from Leaderboard sale events/original seller and Profile lifetime current-book/monthly-premium basis. Keep date, scope, time zone, as-of, coverage, unknown, excluded, estimated and conflict information necessary to interpret values.
+- Keep consent, SMS purpose, sender readiness, STOP, Gmail/Calendar disclosure and registration-state messages. A2P components are outside the edit list.
+- Remove only redundant nodes and immediately associated Tailwind margin/padding/gap. Preserve cards, columns, responsive grids, typography hierarchy, branding, controls and callbacks. No new component system, component extraction, dependency or inline style.
+- Existing accessible dialog titles must remain. When visible descriptions are removed, retain a concise screen-reader description or intentionally configure the Radix description relationship; do not introduce missing-description warnings.
+- New routing help uses the installed Radix/shadcn primitives with named focusable controls, visible focus, keyboard access and a usable touch disclosure. Critical consequences stay inline. No hover-only essential guidance.
+
+## 4. Confirmed wording corrections
+
+These correct text against current implementation; they do not change the underlying behavior.
+
+| Location | Replace with | Evidence |
+|---|---|---|
+| DNC settings says manual calls only warn | **Outbound calls to these numbers are blocked across your agency.** | `TwilioContext.tsx:2317–2318` checks DNC before call start; `utils/dncCheck.ts` fails closed. |
+| Custom field Required toggle says enforcement ships later | **Required in Contact Details and CSV imports.** | `FullScreenContactView.tsx:632–643` and `ImportLeadsModal.tsx:565–592` enforce required custom fields. Keep the separate detailed support-scope note. |
+| Duplicate warning option promises merge | **Shows matching contacts; the agent can save anyway or cancel.** | `Contacts.tsx:3519–3536` has matching contacts, Cancel and Save Anyway; merging remains inactive. |
+| Calendar selected-day empty state says today | **No appointments scheduled** | The branch displays `currentDate`, which can differ from today. |
+| Standalone Zapier/Webhooks placeholder says Ready for configuration | **Not available yet.** | No implemented `webhooks` case in SettingsRenderer. Change only this placeholder’s displayed wording, not routing or workflow webhook functionality. |
+| Agency Group invitation empty state says first agent | **No member agencies yet** | Group membership is agency-to-agency. Preserve the independent-data boundary. |
+| Resource action says Open Full Screen | **Open document** | Existing action opens a new tab. Its handler remains unchanged. |
+
+## 5. Final review refinements that govern the detailed inventory
+
+The following exact decisions supersede earlier alternatives in individual audit notes:
+
+1. DialerPage’s first normal empty state becomes **No contacts available** and its redundant explanation is removed. Preserve the original render branch. Do not infer campaign completion from this fallback.
+2. The licensed-state empty title becomes **No leads in licensed states**; its concise visible explanation retains the no-state exception and profile/admin remedy.
+3. Recording settings retain browser scope: **Browser call recordings older than the retention limit are eligible for automatic deletion.** Do not imply mobile audio is recorded or promise an exact cleanup time.
+4. Recording Library’s all-completed-calls empty branch becomes **Completed calls appear here; recordings attach when enabled.** It must not imply the library contains only recorded calls.
+5. Inbound v2 provider help becomes **Twilio may ring up to about 5 seconds longer than this setting.** Do not direct agents to unmounted connection diagnostics.
+6. Inbound-group eligibility stays explicit: **{count} selected. Available, connected, non-busy members ring together. If none qualify, group voicemail answers.** Keep max group size, configured browser-ring value and engine activation warnings.
+7. Legacy all-ring strategy: **Ring all active agents; first answer takes the call.** Keep the number-assigned versus contact-assigned routing distinction.
+8. DNC/Required/duplicate-helper wording uses the exact corrected text in section 4.
+9. Dashboard missed-call empty state becomes **No missed calls**, with **Last 24 hours** as secondary context. Anniversaries becomes **No upcoming policy anniversaries**, with **Next 30 days** as secondary context. Both match existing readers; no query changes.
+10. DayAgendaPanel and ListView have no current importers and are excluded. Other unmounted legacy report/prototype components are inventory-only. Do not refactor dead code as part of this task.
+
+## 6. Verification and release boundaries
+
+No verification results below are claimed yet; this is the implementation gate.
+
+1. Recheck main, relevant PR heads and the exact proposed file list. Preserve concurrent changes; do not replace files wholesale from the audited snapshot.
+2. Run `npx tsc --noEmit`, plus the meaningful `npx tsc -p tsconfig.app.json --noEmit`. The root config checks no app files. Compare application diagnostics against the exact clean base; do not report the repository globally type-clean. Latest release evidence records 87 existing app diagnostics, but re-establish the actual baseline.
+3. Run the existing full frontend suite (`npm test` / existing comparison runner), the relevant existing suites listed by surface, changed-file ESLint, `npm run build`, and `git diff --check`. Preserve existing failure identities; never delete assertions or broaden selectors to conceal regressions. Only the ten enumerated existing test files need mechanical approved-string updates.
+4. No new tests that merely repeat copy constants. Use existing behavior assertions to preserve failure/empty separation. Check new help with actual keyboard focus, Escape/dismissal and touch interaction. Exercise ordinary empty/search-empty/error/read-only/inactive states in isolated or read-only UI fixtures.
+5. Visually inspect each touched surface at desktop and narrow/mobile widths in light/dark themes. Check removed-paragraph spacing, all original controls, scrolling, long values, dialog names/descriptions and focus order. Do not send calls/messages, change settings or create production data as a test. Do not claim a live authenticated walkthrough unless actually performed.
+6. After publishing the approved review branch, retain all automatically triggered repository CI gates. Frontend, Dialer/DNC, reporting-integrity, Reports/Profile, A2P and applicable browser gates may run isolated fixtures. That does not authorize manual backend commands or production Supabase access/mutation for this task. Do not change workflow files to relax gates.
+7. Audit the final diff for queries, RPC arguments/names, schemas, permissions, org scoping, callbacks/effects, call routing, DNC/disposition logic, telemetry, metric calculations, migrations, RLS and Edge changes. **Expected: none.** The sole `.ts` implementation file in scope is the existing static campaign COPY object, not its Zod/schema definitions.
+8. Append a newest-first `WORK_LOG.md` entry recording actual copy changes, files, checks, retained safety text, visual-review limits and no backend/migration/production-deployment mutation. Record any authorized preview builds separately. Update the existing root plan without overwriting earlier plans. Propose any durable UI invariant for later approval; do not silently modify AGENT_RULES.
+
+Release handoff must include before/after examples, exact diff/file list, actual test results and baseline limits, screenshots/visual judgments, preserved warnings, no-backend confirmation and remaining opportunities. Recovery, if a release is later approved, is a frontend-only revert preserving other merged work; no database rollback is required.
+
+## 7. Approval requested
+
+Approve implementing the exact file allowlist and mappings below in an isolated branch, then publishing the review branch/draft PR and its automatic previews, with the listed verification and preservation rules. This is the explicit implementation-plan gate required by your attached handoff. Merge/production release still requires separate approval. The current turn has prepared the review artifact only; it has not modified application/repository files or production.
+
+## 8. Exact repository file allowlist
+
+**99 existing frontend files + 10 existing test files + 2 existing documentation files = 111 files.** This is the proposed maximum scope, not a record of edits already made. No new application, test, dependency, CI, backend or migration file is proposed. Files not listed remain unchanged; unexpected needs must be explained before expanding this approved scope.
+
+### Core CRM — 20 files
+
+```text
+src/pages/DialerPage.tsx
+src/components/dialer/QueueExhaustedNotice.tsx
+src/components/dialer/CampaignSelection.tsx
+src/components/dialer/QueuePanelLocked.tsx
+src/components/dialer/CampaignSettingsModal.tsx
+src/components/dialer/campaignSettingsSchema.ts
+src/pages/Campaigns.tsx
+src/pages/CampaignDetail.tsx
+src/components/campaigns/CreateCampaignModal.tsx
+src/pages/Contacts.tsx
+src/components/contacts/FullScreenContactView.tsx
+src/components/contacts/TasksPanel.tsx
+src/components/contacts/AddToCampaignModal.tsx
+src/components/contacts/ImportLeadsModal.tsx
+src/components/contacts/ContactsFilterModal.tsx
+src/pages/Conversations.tsx
+src/components/conversations/ConversationsSidebar.tsx
+src/pages/CalendarPage.tsx
+src/components/calendar/AppointmentModal.tsx
+src/components/layout/FloatingDialer.tsx
+```
+
+### Reporting and supporting screens — 29 files
+
+```text
+src/pages/Dashboard.tsx
+src/pages/Leaderboard.tsx
+src/pages/Resources.tsx
+src/pages/Training.tsx
+src/components/dashboard/DashboardDetailModal.tsx
+src/components/dashboard/widgets/AppointmentsWidget.tsx
+src/components/dashboard/widgets/MissedCallsWidget.tsx
+src/components/dashboard/widgets/AnniversariesWidget.tsx
+src/components/leaderboard/RecentWinsPanel.tsx
+src/components/leaderboard/TVMode.tsx
+src/components/reports/ReportsToolbar.tsx
+src/components/reports/ReportsActivityFlow.tsx
+src/components/reports/ReportCustomizer.tsx
+src/components/reports/SectionRenderer.tsx
+src/components/resources/AddAgencyResourceModal.tsx
+src/components/training/AddResourceModal.tsx
+src/components/training/ResourceDetail.tsx
+src/components/agent-profile/AgentProfileTab.tsx
+src/components/agent-profile/BusinessSnapshot.tsx
+src/components/agent-profile/ReadinessCard.tsx
+src/components/agent-profile/CarrierAppointmentsCard.tsx
+src/components/agent-profile/CarrierProductionCard.tsx
+src/components/agent-profile/PolicyTypeMixCard.tsx
+src/components/agent-profile/LicensingCard.tsx
+src/components/agent-profile/AchievementsCard.tsx
+src/components/agent-profile/team/TeamProfileTab.tsx
+src/components/agent-profile/team/TeamReadinessCard.tsx
+src/components/agent-profile/team/TeamDownlinePreview.tsx
+src/components/agent-profile/team/TeamCoverageCard.tsx
+```
+
+### Phone and call settings — 24 files
+
+```text
+src/components/settings/InboundRoutingManager.tsx
+src/components/settings/inbound-routing/InboundV2Section.tsx
+src/components/settings/inbound-routing/FallbackChainSection.tsx
+src/components/settings/CallRecordingSettings.tsx
+src/components/settings/CallRecordingLibrary.tsx
+src/components/settings/CallMonitoring.tsx
+src/components/settings/CallScripts.tsx
+src/components/settings/call-scripts/CallScriptEditor.tsx
+src/components/settings/call-scripts/CallScriptsList.tsx
+src/components/settings/DispositionsManager.tsx
+src/components/settings/DNCSettings.tsx
+src/components/settings/ContactManagement.tsx
+src/components/settings/CalendarSettings.tsx
+src/components/settings/phone/LocalPresenceSection.tsx
+src/components/settings/phone/NumberManagementSection.tsx
+src/components/settings/phone/NumberGroupsSection.tsx
+src/components/settings/phone/NumberGroupCard.tsx
+src/components/settings/phone/NumberGroupFormModal.tsx
+src/components/settings/phone/NumberGroupMembersModal.tsx
+src/components/settings/phone/PhoneNumberRoutingModal.tsx
+src/components/settings/phone/TrustHubSection.tsx
+src/components/settings/phone/CarrierReputationPanel.tsx
+src/components/settings/NumberReputation.tsx
+src/components/settings/phone/TrustHubRegistrationPanel.tsx
+```
+
+### Administration — 26 files
+
+```text
+src/components/settings/profile/ProfileInfoCard.tsx
+src/components/settings/profile/ProfilePreferencesCard.tsx
+src/components/settings/profile/ProfileGoalsCard.tsx
+src/components/settings/profile/ProfilePasswordCard.tsx
+src/components/settings/profile/ProfileStateLicensesCard.tsx
+src/components/settings/user-management/UserManagementHeader.tsx
+src/components/settings/user-management/PendingInvitesTable.tsx
+src/components/settings/user-management/TeamMembersTable.tsx
+src/components/settings/user-management/InviteUserModal.tsx
+src/components/settings/Permissions.tsx
+src/components/settings/BrandingUploadField.tsx
+src/components/settings/CustomMenuLinks.tsx
+src/components/settings/agency-group/AgencyGroupNoGroup.tsx
+src/components/settings/agency-group/CreateGroupModal.tsx
+src/components/settings/agency-group/AgencyGroupLeaderView.tsx
+src/components/workflows/WorkflowList.tsx
+src/components/workflows/NewWorkflowModal.tsx
+src/components/workflows/NewFolderModal.tsx
+src/components/workflows/panels/ActionConfigPanel.tsx
+src/components/settings/EmailSetup.tsx
+src/components/settings/EmailSMSTemplates.tsx
+src/components/settings/TemplatesListView.tsx
+src/components/settings/TemplateModal.tsx
+src/components/settings/SettingsRenderer.tsx
+src/components/settings/Carriers.tsx
+src/components/settings/ActivityLog.tsx
+```
+
+### Existing test expectations — 10 files
+
+Mechanical expected-label updates only; preserve each positive/negative safety and behavior assertion. In particular, failed Dashboard loads must still never pass as normal empty states.
+
+```text
+src/pages/__tests__/conversationsViewAs.test.tsx
+src/components/layout/__tests__/floatingDialerDisposition.test.tsx
+src/components/dialer/__tests__/campaignSelectionTable.test.tsx
+src/components/contacts/__tests__/importLeadsCustomFields.test.tsx
+src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx
+src/components/contacts/__tests__/importLeadsModalResult.test.tsx
+src/components/dashboard/__tests__/dashboardCallbacks.test.ts
+src/components/dashboard/__tests__/dashboardSections.test.tsx
+src/components/dashboard/__tests__/dashboardRefresh.test.tsx
+src/components/agent-profile/__tests__/profileStates.test.tsx
+```
+
+### Documentation — 2 files
+
+Append the approved plan and eventual verified work record; retain all existing history.
+
+```text
+implementation_plan.md
+WORK_LOG.md
+```
+
+## 9. Core CRM inventory
+
+| File:line | Class | Current | Proposed |
+|---|---|---|---|
+| DialerPage.tsx:4096–4099 | SHORTEN / REMOVE | Campaign Queue Empty / There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC. | No contacts available / Remove repeat paragraph. Keep distinct existing branch; do not assert permanent completion. |
+| DialerPage.tsx:4284 | SHORTEN | No Available Contacts In Queue. | No contacts available |
+| DialerPage.tsx:4287 | SHORTEN | Next Available Contact Is In {time} | Next eligible in {time} |
+| DialerPage.tsx:4291 | SHORTEN | Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry. | Leads appear when assigned or eligible for retry. |
+| DialerPage.tsx:4738,4759–61 | SHORTEN / REMOVE | Session Complete / Queue is now empty. Great work! | Session complete / remove congratulatory sentence; keep totals and End Session action |
+| QueueExhaustedNotice.tsx:54–56 | SHORTEN | No Available Contacts In Queue. / Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry. | No contacts available / Leads appear when assigned or eligible for retry. |
+| QueueExhaustedNotice.tsx:60–61 | SHORTEN | This Campaign Has No Leads. / Import or assign leads to this campaign to start dialing. | No campaign leads / Import or assign leads to this campaign. |
+| QueueExhaustedNotice.tsx:67–69 | SHORTEN | No leads in your licensed states for this campaign. / This campaign only serves contacts in states where you hold an active license. Contacts with no state are still shown. Add licenses in your profile or ask your admin. | No leads in licensed states / Only leads in states where you hold an active license, or with no state, are shown. Add licenses in your profile or contact your admin. Preserve active-license qualification and no-state exception. |
+| QueueExhaustedNotice.tsx:71–72 | SHORTEN | Campaign Complete. / Every lead in this campaign has been processed (called, removed, or marked DNC). | Campaign complete / All leads are called, removed, or marked DNC. No status/branch change. |
+| QueueExhaustedNotice.tsx:74–76 | SHORTEN | All Available Leads Are Being Dialed. / {locked} lead(s) currently locked by {agents} active agent(s). One may free up shortly. | Leads in use / {locked} leads locked by {agents} active agents; a lead may free up shortly. Keep concurrency counts and existing singular/plural interpolation. |
+| QueueExhaustedNotice.tsx:78–85 | SHORTEN | No Eligible Leads Right Now. / Leads exist but aren't callable yet ({existing retry/callback bits}). / Leads exist but aren't callable yet (retry timing, callbacks, or suppression). | No leads eligible yet / Waiting: {existing retry/callback bits}; fallback remains 'Waiting on retry timing, callbacks, or suppression.' No count logic edits. |
+| CampaignSelection.tsx:84–87 | SHORTEN / REMOVE | Select a Campaign / Choose an active campaign to start dialing. | Select a campaign / remove redundant paragraph |
+| QueuePanelLocked.tsx:261–66 | SHORTEN | Queue order is managed by your campaign admin. Leads are assigned automatically as you dial. | Your admin sets queue order; leads are assigned as you dial. Keep visible because this explains locked queue controls. |
+| CampaignSettingsModal.tsx:103–106 | SHORTEN | Configure call attempt limits and scheduling for {campaignName}. | {campaignName} (retain campaign context in accessible description) |
+| campaignSettingsSchema.ts:86 | KEEP | Auto-dial avoids dialing outside this window. Timezone is estimated from the lead's state. | Keep both the calling-window consequence and estimated time-zone information visible. Already concise operational context. |
+| campaignSettingsSchema.ts:88 | SHORTEN | Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used. | Uses eligible agency numbers matching the lead's area code, or your default caller ID; personal/direct numbers are excluded. |
+| campaignSettingsSchema.ts:99–100 | SHORTEN | When on, agents only receive campaign contacts in states where they hold an active license. Contacts with no state are still shown. | Shows leads in states where agents hold active licenses, plus leads with no state. |
+| Campaigns.tsx:159–161 | SHORTEN | This will create a copy of {name} as a Draft. No leads will be carried over. | Copy {name} as a draft without leads. Preserve clone semantics. |
+| Campaigns.tsx:330–331 | KEEP / REMOVE | No campaigns yet / Create your first campaign to start reaching leads | Keep title and Create campaign CTA; remove paragraph |
+| Campaigns.tsx:340 | SHORTEN | No campaigns match your filters. | No matching campaigns |
+| CampaignDetail.tsx:931–936 | SHORTEN | You haven't claimed any leads in this campaign yet. Join the Dialer to get started. / No leads have been claimed in this campaign by you or your team yet. / This campaign has no leads yet. | No claimed leads. Join the dialer to start. / No leads claimed by you or your team. / No campaign leads. Keep role-specific variants. |
+| CampaignDetail.tsx:944 | SHORTEN | Drag rows to reorder the call queue priority | Drag rows to set queue priority. Keep only current manager branch. |
+| CampaignDetail.tsx:1174 | SHORTEN | No leads in this campaign yet. Add leads from the Leads tab to get started. | Add leads from the Leads tab. |
+| CampaignDetail.tsx:1252 | SHORTEN | No agents available — add agents in User Management first | Add agents in User Management. |
+| CampaignDetail.tsx:1315 | SHORTEN | No imports yet for this campaign. | No campaign imports |
+| CreateCampaignModal.tsx:259 | SHORTEN | No agents available — add agents in User Management first | Add agents in User Management. |
+| Contacts.tsx:2565–2566 | KEEP / REMOVE | No {noun}s match your filters / Try adjusting or clearing your filters to see more. | Keep scoped heading and Clear filters; remove paragraph |
+| Contacts.tsx:2553–2575,2762,2962 | REMOVE | noDataBody with 'Add your first lead to start building your pipeline.' and 'Start building your recruit pipeline.' | Omit those two empty-state bodies and their spacing; optional noDataBody display only. Keep existing allowed Add actions. |
+| Contacts.tsx:2865 | SHORTEN | Convert leads to clients after policy sales, or add one manually. | Convert a lead after a policy sale, or add a client. |
+| Contacts.tsx:3016 | KEEP | You'll see yourself and anyone in your downline here. | Keep scope context (do not broadly remove all noDataBody strings) |
+| Contacts.tsx:3081–82 | KEEP / REMOVE | No imports yet / When you import leads via CSV, your history will appear here. | Keep title/import CTA; remove paragraph |
+| FullScreenContactView.tsx:1218–19 | SHORTEN / REMOVE | No Notes Yet / Important details and context will be stored here. | No notes yet / remove paragraph |
+| FullScreenContactView.tsx:1272–73 | KEEP / REMOVE | Not in any campaigns / This lead is not currently part of any dialer campaigns. | Keep title; remove paragraph |
+| TasksPanel.tsx:118–119 | KEEP / REMOVE | No tasks yet / Add a follow-up task to keep track of next steps. | Keep title/Add action; remove paragraph |
+| AddToCampaignModal.tsx:217–219,282–284 | SHORTEN | Select an active campaign to add {count} contacts to. / Create a new campaign and add {count} contacts to it. | {count} contact(s) selected (both tabs retain quantity/context and existing singular/plural interpolation) |
+| ImportLeadsModal.tsx:1288–1290 | SHORTEN | Drop your CSV file here / or click to browse files / Accepts .csv files only — max 50MB | Drop a CSV or browse files / CSV only · Max 50 MB (preserve file limit and browse affordance) |
+| ImportLeadsModal.tsx:2148 | REMOVE | Upload a CSV file to import leads into AgentFlow | Remove subtitle (upload target says format/action) |
+| ImportLeadsModal.tsx:2149 | SHORTEN | Map Your Fields / Match your CSV columns to AgentFlow lead fields | Map fields / Match CSV columns to lead fields. Keep field-matching instruction. |
+| ImportLeadsModal.tsx:2150 | SHORTEN / REMOVE | Review Your Import / Review and confirm before importing | Review import / remove redundant subtitle |
+| ContactsFilterModal.tsx:137–139 | REMOVE | Narrow down your {tab} using the filters below. | Remove visible paragraph; preserve accessible dialog description with sr-only or intentionally unset aria-describedby, following Radix convention. |
+| Conversations.tsx:311–314 | SHORTEN / REMOVE | Your Unified Inbox / Select a conversation from the list to start messaging with your leads across SMS and Email. | Select a conversation / remove paragraph (does not incorrectly restrict contacts to leads) |
+| ConversationsSidebar.tsx:221 | SHORTEN | No conversations found. | No conversations found |
+| CalendarPage.tsx:545 | SHORTEN | No appointments scheduled for today | No appointments scheduled (currentDate can be other than today; copy-only accuracy correction) |
+| AppointmentModal.tsx:413–416 | REMOVE | Update your meeting details. / Set your next meeting details below. | Remove visible descriptions; preserve Radix accessibility semantics. |
+| FloatingDialer.tsx:976–977 | SHORTEN | One tap unlocks optional desktop pop-ups for inbound life-insurance calls (Twilio rings in the browser; your browser may require this for notifications). | Optional desktop alerts for incoming calls. Calls still ring in the browser. Keep Enable desktop alerts CTA. |
+| FloatingDialer.tsx:1011–12 | KEEP / REMOVE | No recent calls / Your call history will appear here | Keep title; remove paragraph |
+| FloatingDialer.tsx:1159 | SHORTEN | How did it go? | Call outcome |
+
+### Audited but no edits: unused calendar components
+`src/components/calendar/DayAgendaPanel.tsx` and `src/components/calendar/ListView.tsx` have zero importers in the pinned source tree (verified `rg -n "ListView|DayAgendaPanel" src`). `CalendarPage.tsx:578,723` uses its inline `renderListView`. These dead components are excluded from this cleanup change list; do not create work in an unreachable surface.
+
+### Protected / deliberately unchanged
+- DialerPage.tsx:4120–4138 active-network-call after reload, audio cannot restore, Hang Up; 4159–4166 flagged caller-ID change and previous/proposed numbers; 4698–4728 DNC dialog/reason/skip; 4831–4848 early retry/callback override risk and confirmation. KEEP byte-identical where possible.
+- QueueExhaustedNotice: all existing branch conditions, metrics fetch, timing, counts, no-state licensing exception, DNC/suppression language. No merging distinct queue states or declaring completion on fallback/unknown.
+- CampaignSelection.tsx:120–128 count failure/Retry; presence/active agent counts/loading/unknown are meaning, KEEP. QueuePanelLocked.tsx:280–282 filters affect every campaign agent, KEEP.
+- CampaignDetail.tsx:1029,1034 Coming Soon; disabled SMS/Email tooltips; date range at 1046; permissions 1199/1296; immutable type 1212; permanent delete warning 1280. KEEP. CampaignDetail stats and reporting strings otherwise untouched because concurrent reporting work.
+- CreateCampaignModal.tsx:137–139 type descriptions KEEP pending semantic audit: Team description 'Admin assigns specific leads to specific agents' may conflict with current lock-mode behavior, and cannot safely be rewritten from copy audit alone.
+- Contacts.tsx:2712–17 full View As unavailability/security explanation KEEP. Contacts has coming-soon blast tooltips 2470–71; bulk/read-only restrictions; import partial/error/undo states; pagination and scope text; destructive dialogs KEEP.
+- RecordPolicyModal.tsx:62 'Save this policy and its sale together. Editing an existing policy does not record another sale.' KEEP: reporting semantics, recent policy work. ConvertLeadModal draft/effective/sold-date and shared-policy payment guidance KEEP.
+- ImportLeadsModal.tsx:1640 partial-selection warning; 1730–34 sole-participant restriction; 1773 stage applied to all imported leads; 1880 preview count; 1898 do not close; 1992–99 ambiguous-success/retry warning; 2062–88 imported-and-kept, attached/already present/ineligible/remaining/error counts KEEP. Do not 'simplify' mixed partial outcomes to success.
+- FullScreenContactView.tsx:1302 deletion, 1315 unsaved edits,1328 note deletion KEEP. Recent soft-pill call-history layouts/agent/outcome attribution untouched.
+- Conversations.tsx:282–85 inaccessible/deleted contact; ConversationThread.tsx:421–22 load error/Retry; scope failure, read-only View As composer and failed-send preservation KEEP. ContactBriefView unavailable state KEEP.
+- Follow-ups card/dialog: access scope, due date, overdue, truncated results and ownership/assignee KEEP. Calendar delete irreversible warning and Google sync semantics KEEP.
+- FloatingDialer.tsx:995–97 notifications denied/fallback ring behavior; 1161–67 disposition failure/loading; 1225–27 readiness prerequisite; flagged caller-ID warning KEEP.
+- Existing user text, campaign names/descriptions, notes, scripts, email/SMS bodies, disposition names, record statuses must not be case-normalized or rewritten.
+
+### TOOLTIP classification
+No new tooltip required in this core batch: lock/queue, licensing, calling-window, default caller-ID fallback, access and retry information directly affects safe decisions and fits a concise visible sentence. Existing details in tooltip title/aria-label (permission denial, call readiness etc.) stay. The global plan can still introduce tooltips in settings where those agents find useful advanced content; this avoids unnecessary interactive machinery here.
+
+## 10. Reporting and supporting-screen inventory
+
+`∅` means remove only that visible prose node, with immediately related spacing if needed.
+
+| File and current lines | Category | Current → proposed |
+|---|---|---|
+| `src/pages/Dashboard.tsx:513` | SHORTEN | `Perspective` → `View` (keep the visible scope selector). |
+| `src/pages/Dashboard.tsx:524,541,571,575,578,661` | SHORTEN | `Team Overview` / `Personal Stats` → `Team overview` / `Personal stats`; `Customize Layout` / `Done Editing` → `Customize layout` / `Done`; `Layout Editor Active` → `Edit layout`; `Save Changes` → `Save changes`; `Reset Default` → `Reset to default`; `Hidden Widgets` → `Hidden widgets`. Keep toggle semantics unchanged. |
+| `src/components/dashboard/DashboardDetailModal.tsx:144,146,152,156` | SHORTEN | `Callbacks Detail` → `Callbacks`; `Appointments Detail${rangeSuffix}` → `Appointments${rangeSuffix}`; `Missed Calls (Recent)` → `Missed calls`; `Annual Premium Sold Analysis${rangeSuffix}` → `Annual premium sold${rangeSuffix}`. Keep period subtitles. |
+| same `:706,714` | SHORTEN | `${data.length} RECORDS LOADED • SCROLL FOR MORE` → `${data.length} records loaded · Scroll for more` (retain conditional pagination hint); `Synchronizing Intelligence...` → `Loading records…`. |
+| same `:727–728` | SHORTEN + REMOVE | `No intelligence found in this range` → `No records in this range`; `Activity will appear here as records are processed.` → ∅. Existing successful-empty branch only. |
+| same `:798,824–832` | SHORTEN + REMOVE | `Loading next batch...` → `Loading more records…`; remove `AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}` and its decorative dot; `Dismiss View` → `Close`. Keep footer Close button and its handler. |
+| `src/components/dashboard/widgets/AppointmentsWidget.tsx:111` | SHORTEN | `Your schedule is clear for today` → `No appointments today`. Keep failed-load separation. |
+| `src/components/dashboard/widgets/MissedCallsWidget.tsx:173` | SHORTEN | `All caught up!` → `No missed calls` (normal-empty title); add `Last 24 hours` secondary context, matching the existing query. No change to 24-hour window. |
+| `src/components/dashboard/widgets/AnniversariesWidget.tsx:138` | SHORTEN | `No policy anniversaries soon` → `No upcoming policy anniversaries`; add secondary `Next 30 days` to preserve the actual window. |
+| `src/pages/Leaderboard.tsx:185` | SHORTEN | `Add active agents to your organization to start tracking standings.` → `Standings appear when your agency has active agents.` Keep `No agents on the board` title (already five words and extensively pinned). |
+| `src/components/leaderboard/RecentWinsPanel.tsx:140` | SHORTEN | `No wins yet. Get dialing and close some deals! 🦈` → `No wins yet`. Preserve Latest 20 / all periods / annualized premium caption and error/stale states. |
+| `src/components/leaderboard/TVMode.tsx:243` | SHORTEN | `🏆 No wins yet — get dialing!` → `No wins yet`. Successful empty only; preserve custom-banner precedence and unavailable ticker behavior. |
+| `src/components/reports/ReportsToolbar.tsx:66` | REMOVE | `Production and the activity behind it.` → ∅. Date/scope/agency timezone row `:111–124` stays. |
+| `src/components/reports/ReportsActivityFlow.tsx:30` | REMOVE | `A view across the work and outcomes recorded in this period.` → ∅. Keep title, per-stage basis and full independent-totals/no-funnel warning at `:43`. |
+| `src/components/reports/ReportCustomizer.tsx:51` | SHORTEN | `Choose your metrics and reorder panels within each group. Changes apply only to your report.` → `Choose metrics and reorder panels within each group. Only your report changes.` Keep fixed-production note, six-metric limit, scope restrictions, reset explanation, unsaved/error state. |
+| `src/components/reports/SectionRenderer.tsx:36–38` | REMOVE | `People, campaigns, and lead sources.` / `Call patterns and dialer activity.` → ∅; group and panel headings already say what is shown. |
+| `src/pages/Resources.tsx:86–88` | REMOVE | `Fast Access Library` → ∅. |
+| same `:166,228,255,273,299` | SHORTEN | `All Documents` → `All documents`; `Copy Script` → `Copy script`; `Back to Grid` → `Back`; `Open Full Screen` → `Open document` (it opens a new tab, not fullscreen). |
+| same `:242–245` | SHORTEN + REMOVE | `No script selected` → `Select a script`; `Select a script from the sidebar to view its contents.` → ∅. Clear on narrow layouts where sidebar becomes top navigation. |
+| same `:301–303` | REMOVE | `${filteredDocuments.length} resources available` → ∅; folder counts remain. |
+| same `:329–334` | REMOVE | Keep `No documents found`; remove `There are no agency documents uploaded yet.` / `There are no documents in this category.` These repeat the title and falsely imply no uploads when a search returns zero. Filter logic unchanged. |
+| `src/pages/Training.tsx:62,74,77` | SHORTEN + REMOVE | `Loading training center...` → `Loading training…`; `Training Center` → `Training`; `Knowledge Library` → ∅. |
+| same `:50,104,135–137` | SHORTEN + REMOVE | `All Resources` → `All resources`; `Viewing X resources in Y` → ∅, category heading remains. |
+| same `:177–180` | SHORTEN + REMOVE | `No results found` → `No resources found`; remove `We couldn't find any resources matching your criteria in this category.` No condition changes. |
+| `src/components/training/ResourceDetail.tsx:77–78,103–104,131` | SHORTEN + REMOVE | `No Video Available` → `No video attached`; `No Document Available` → `No document attached`; remove each following URL-attached explanation; `Mark as Complete` → `Mark complete`. Keep browser playback failure, resource description, added date and completion status. |
+| `src/components/resources/AddAgencyResourceModal.tsx:88,93,128,154` | SHORTEN / KEEP | Modal description → `Upload or link an agency document.`; labels `Document title` / `Document file`; keep `Provide a direct link to the file.` (URL usability requirement). Keep insurance-specific example `Mutual of Omaha E-App Guide`. |
+| `src/components/training/AddResourceModal.tsx:107,112,124,182,199` | SHORTEN | `Upload a new script, guide, or video link for your agency.` → `Add a script, document, or video.`; sentence case `Resource title`, `Resource type`, `Script content`, `File attachment`. Keep file constraints and URL instructions. |
+| `src/components/agent-profile/AgentProfileTab.tsx:89` | SHORTEN | `Lifetime totals across everything you have written.` → `Lifetime book of business.` This matches existing current-book semantics; no sales attribution change. |
+| `src/components/agent-profile/BusinessSnapshot.tsx:71,103,119,126` | REMOVE / SHORTEN | `People on the book.` → ∅; monthly hint → `Recorded monthly premium; not annualized.`; carriers hint → `Distinct carriers on these policies.`; states hint → `Distinct recorded license states.` Keep additional-policy hint/count and every caveat. |
+| same `:136` | TOOLTIP (existing) | Existing technical tooltip → `Primary and additional policies on current client records, including manually added and imported clients. These are book totals, not sale-event totals.` Keep existing DefinitionHint, trigger and visible lifetime/Reports footer. Removes database-table implementation detail without changing display location. |
+| `src/components/agent-profile/ReadinessCard.tsx:61` | REMOVE | `What it takes to be fully set up to write business.` → ∅. Keep individual missing-items detail, completion counts, and actions. |
+| `src/components/agent-profile/CarrierAppointmentsCard.tsx:39,49–50` | REMOVE / SHORTEN | Header description → ∅; title `No carrier appointments on file` → `No carrier appointments`; empty description → ∅ (existing Add action remains). Keep writing numbers / missing writing-number states. |
+| `src/components/agent-profile/CarrierProductionCard.tsx:104–105` | SHORTEN + REMOVE | `No policies on the book yet` → `No policies recorded`; redundant empty explanation → ∅. Keep header `Lifetime policies and monthly premium by carrier.` and unknown/overflow notes. |
+| `src/components/agent-profile/PolicyTypeMixCard.tsx:63,71–72` | REMOVE / SHORTEN | Header `Share of the book by product type.` → ∅; empty title → `No policies recorded`; redundant empty explanation → ∅. Keep unknown type/overflow/data context. |
+| `src/components/agent-profile/LicensingCard.tsx:95,115` | REMOVE | Header `Recorded state licences, the source of truth for where you can write.` → ∅; empty explanation → ∅ (Add action and `No state licences recorded` remain). Keep expiration warning, `No expiration on file`, missing-license-number status and legacy-license notice. |
+| `src/components/agent-profile/AchievementsCard.tsx:159,171` | REMOVE | Remove career-records subtitle and `Records appear as policies are written and dialing history builds up.`; keep `No records yet`, dated achievements, most-dials timezone and undated-policy note. |
+| `src/components/agent-profile/team/TeamProfileTab.tsx:77–78` | SHORTEN | `You haven't built a team yet` → `No downline agents`; long three-purpose description → `Agents appear when assigned beneath you.` |
+| same `:114–116,123,135` | SHORTEN | Scope prose → `Lifetime book totals for all active agency members.` (admin) / `Lifetime book totals for you and your downline.`; snapshot description → `Lifetime team book of business.`; downline hint → `All levels; excludes you.` Keep dynamic agency-wide identity label. |
+| `src/components/agent-profile/team/TeamReadinessCard.tsx:89` | REMOVE | `How much of the team is fully set up to write business.` → ∅. Keep readiness denominator and unknown-expiration note. |
+| `src/components/agent-profile/team/TeamDownlinePreview.tsx:86,110` | REMOVE | Remove `The team built beneath you.` and the normal-empty explanation following `No direct reports yet`. Keep missing-profile/admin-contact warning and tree scope labels. |
+| `src/components/agent-profile/team/TeamCoverageCard.tsx:56,74–75` | REMOVE / SHORTEN | Remove `Where the team is licensed to write.`; `No state licences recorded across the team` → `No team licenses recorded`; remove empty explanation. Keep normalized counts and overflow warning. |
+
+### KEEP inventory / reviewed without edits
+
+| Surface / paths | Protected copy and reason |
+|---|---|
+| `src/components/dashboard/StatCards.tsx:47–91`; `src/lib/leaderboardExport.ts:23–35` | Scope, date/zone/as-of, comparison with previous full period, annualized premium, unknown premiums/durations and outside-roster totals. No changes proposed to these files. |
+| `src/components/dashboard/DashboardSectionNotice.tsx`; `DashboardRefreshButton.tsx`; `widgets/CallbacksWidget.tsx:130–151`; `widgets/LeaderboardWidget.tsx:69–135`; `widgets/GoalProgressWidget.tsx:162` | Partial/unavailable/failed/stale/offline states, refresh timing and unknown-premium notice. Existing `No pending callbacks`, `No goals configured` already concise. |
+| `src/components/dashboard/DashboardDetailModal.tsx:169–178,517,541,558,719–721,808` | Time windows, resolvable-contact/no-phone errors, retry instruction and pagination failure. Never remove period/exclusion context from performanceSubtitle. |
+| `src/components/leaderboard/LeaderboardErrorBanner.tsx`; `TVStandingsNotice.tsx`; `src/lib/leaderboardStatusCopy.ts`; `RecentWinsPanel.tsx:119–135,225`; ranking tables | Busy/maintenance/offline/stale/loading, cooldown hints, latest-20/all-period caption, annualized premium, premium unknown. Keep metric names, rank movement and roster context. |
+| `src/components/leaderboard/AgentScorecardModal.tsx` | Existing labels/date range/goal states and coaching input preserved. No metric/data/goal work in this pass. |
+| `src/pages/Reports.tsx:123–146`; `src/components/reports/ReportPanelState.tsx` | Access denied, agency timezone missing, current-access reload, no-zero-on-error and saved-layout failure states. Verbose but operational; keep all in this pass. |
+| `src/components/reports/ReportsOverview.tsx:42–81`; `ReportDataQuality.tsx`; `src/lib/reports-policy-text.ts`; `src/lib/reports-integrity-text.ts` | Current stored primary/additional policy source, sale dates, current assigned agent, monthly×12 annualization, known/unknown/invalid/ambiguous/missing identity, undated/malformed scope-wide all-date warnings, per-panel as-of. None moved behind a tooltip. |
+| `src/components/reports/ReportsActivityFlow.tsx:19–23,43` | Each stage basis and explicit independent totals/not a funnel explanation. |
+| Other mounted Reports panels: `AgentEfficiency.tsx`, `AgentPerformanceCards.tsx`, `CallDurationAnalysis.tsx`, `CallFlowAnalysis.tsx`, `CallingHeatmap.tsx`, `CallVolumeChart.tsx`, `CampaignPerformance.tsx`, `CommunicationsStats.tsx`, `DispositionDeepDive.tsx`, `DispositionsPieChart.tsx`, `GoalTracking.tsx`, `LeadSourceTable.tsx`, `PoliciesSoldChart.tsx` | Scoped no-data states, rate denominators, outbound/inbound separation, agency-zone heatmap, unavailable attribution, no ROI/cost, unavailable goals, duration provenance and premium unknown. Technical prose here explains why numbers differ, so keep. |
+| `CustomReportBuilder.tsx`, `ScheduledReportsModal.tsx` | Legacy unmounted components: `reports-queries.ts:193` and `reportsContracts.test.ts:166` confirm. Inventory only; no cleanup edits or reactivation. Scheduled-delivery-not-active copy must remain if reused later. |
+| `src/components/resources/ResourceCategoryManager.tsx:47`; `src/components/training/CategoryManager.tsx:49`; resource cards | Modal descriptions already concise, useful distinction between document and training categories. Preserve user-authored resource titles/descriptions and all delete controls. |
+| Profile primitives / hero / achievement tiles / full org tree | Error and retry states, lifetime/monthly units, unknown expiry, legacy-license warning, malformed or missing premium, truncation and undated policies, agency/downline boundaries, browser IANA timezone on most-dials day. No edits to shared primitives/hooks/lib readers. |
+| `src/components/layout/AppLayout.tsx`; `Sidebar.tsx`; `TopBar.tsx`; `ImpersonationBanner.tsx:26–45`; `ViewAsUnsupportedNotice.tsx:32–49`; `ViewAsModal.tsx:153,177–188` | View As read-only/supported-route limitations, actual viewed identity, Exit View As, failed-user-load vs empty-list, offline/availability distinctions. All KEEP. No shared layout files proposed. Floating dialer/reminders are assigned to other audits. |
+
+## 11. Phone and call-settings inventory
+
+Paths below are relative to `src/components/settings/`.
+
+| Path:line | Class | Current | Proposed |
+|---|---|---|---|
+| InboundRoutingManager.tsx:285 | SHORTEN | Inbound Journey | Inbound routing |
+| InboundRoutingManager.tsx:286–288 | REMOVE | Configure how every inbound call is answered, routed, and handled when no agent picks up. | Remove paragraph |
+| InboundRoutingManager.tsx:310 | SHORTEN | How should incoming calls be distributed during business hours? | During business hours |
+| InboundRoutingManager.tsx:333 | KEEP | Ring the agent assigned to this number | Keep: number assignment differs from contact ownership |
+| InboundRoutingManager.tsx:349 | SHORTEN | Ring every active agent — first to answer wins | Ring all active agents; first answer takes the call. |
+| InboundRoutingManager.tsx:365 | KEEP | Ring the agent who took an inbound call least recently | Keep: defines non-obvious strategy |
+| InboundRoutingManager.tsx:383 | SHORTEN | Inbound Calling v2 plays this greeting for group voicemail, and for an agent's voicemail when that agent has no personal greeting. | Used for group voicemail and agents without a personal greeting. |
+| InboundRoutingManager.tsx:400 | SHORTEN | Inbound Calling v2 is active: the routing strategy, fallback chain, fallback action and forwarding number below are retired and not used by the active engine. Return to legacy routing to edit them. Business hours, the after-hours text and the voicemail greeting above stay in use. | v2 is active. Legacy routing, fallback and forwarding controls are inactive; switch to legacy routing to edit them. Business hours, after-hours SMS and the voicemail greeting remain active. |
+| InboundRoutingManager.tsx:421 | REMOVE | If no agents are available, or the call goes unanswered, what happens next? | Remove repeated card description |
+| InboundRoutingManager.tsx:462 | REMOVE | This text will be spoken to the caller before the beep. | Remove: Text-to-Speech Greeting label supplies meaning |
+| InboundRoutingManager.tsx:477 | REMOVE | Calls will be forwarded to this number if the primary routing fails. | Remove: nested under Forward to External Number fallback |
+| InboundRoutingManager.tsx:491 | KEEP | This message will play before immediately dropping the call. | Keep termination consequence visible |
+| InboundRoutingManager.tsx:511 | SHORTEN | When an inbound caller isn't matched to a contact, create a new lead and attach the call to it. | Create a lead and attach the call when no contact matches. |
+| InboundRoutingManager.tsx:534 | REMOVE | Set your organization's availability. | Remove repeated description |
+| InboundRoutingManager.tsx:594 | SHORTEN | Sent automatically to the caller's number when the call lands outside business hours. | Sent to callers outside business hours. |
+| inbound-routing/InboundV2Section.tsx:182–183 | SHORTEN | Contact's assigned agent first (direct lines take precedence), 20-second browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers. While active, the routing strategy, fallback chain and fallback action below are not used. | Assigned agent → browser → mobile (press 1) → voicemail. Direct lines take priority; unassigned callers ring the inbound group. (Keep active/legacy status and single detailed inactive-controls warning in parent; remove duplicated inactive-control sentence here.) |
+| inbound-routing/InboundV2Section.tsx:192 | SHORTEN | Inbound group (unassigned callers ring all of these at once, max {INBOUND_GROUP_MAX}) | Inbound group (max {INBOUND_GROUP_MAX}) |
+| inbound-routing/InboundV2Section.tsx:194 | SHORTEN | No Active agents with a phone identity yet. | No active agents configured for calls. |
+| inbound-routing/InboundV2Section.tsx:212 | SHORTEN | {count} selected. Only Available, connected, non-busy members ring; when none qualifies the caller reaches the group voicemail. | {count} selected. Available, connected, non-busy members ring together. If none qualify, group voicemail answers. |
+| inbound-routing/InboundV2Section.tsx:219 | TOOLTIP | Provider setting (integer). Twilio may hold the ring up to ~5 s longer; measured timings show in each agent's connection diagnostics. | Focusable info beside Browser ring: Twilio may ring up to about 5 seconds longer than this setting. |
+| inbound-routing/InboundV2Section.tsx:226,228 | KEEP | Voicemail retention (days, after listening); Unheard voicemails are kept up to 90 days regardless. | Keep deletion timing/exceptions visible |
+| inbound-routing/InboundV2Section.tsx:235,252 | KEEP | Activation check and saved-group/connected-phone prerequisites; switching affects new calls only | Keep operational constraints visible |
+| inbound-routing/FallbackChainSection.tsx:24 | SHORTEN | Ring the agent who last placed an outbound call to this caller. | Ring the last agent to call this number. |
+| inbound-routing/FallbackChainSection.tsx:30 | TOOLTIP | Ring agents assigned to an active campaign whose number group includes the dialed number. Skipped if this number isn't in any campaign's number group. | Focusable info: Rings agents in active campaigns using this number's group; skipped if no campaign matches. |
+| inbound-routing/FallbackChainSection.tsx:36 | TOOLTIP | Ring agents licensed in the state mapped to the caller's area code. Requires the area code in the Area Code Mapping table and a current license for that state. | Focusable info: Requires a mapped caller area code and a current license in that state. |
+| inbound-routing/FallbackChainSection.tsx:41 | SHORTEN | Ring every active agent in the organization with a registered Twilio device. | Ring all active agents with a registered phone. |
+| inbound-routing/FallbackChainSection.tsx:96 | SHORTEN | When a call comes in and the primary agent is unavailable, the system tries each tier in order until someone answers. | If the primary agent is unavailable, try these tiers in order. |
+| inbound-routing/FallbackChainSection.tsx:141,171,184 | KEEP | No state licenses configured; no fallback tiers enabled consequence | Keep missing prerequisites and routing consequence |
+| CallRecordingSettings.tsx:142–143 | SHORTEN | Control how browser-side call recordings are captured and stored. When you set a retention period, recordings older than that limit are eligible for automatic cleanup. | Browser call recordings older than the retention limit are eligible for automatic deletion. |
+| CallRecordingSettings.tsx:159,168 | KEEP | AI Transcription (Coming Soon); Auto-delete recordings after | Keep nonfunctional status and destructive retention label |
+| CallRecordingLibrary.tsx:263–266 | SHORTEN | No calls with attached recordings match your current filters. / All matching calls have recordings attached. / Completed calls will appear here. Recordings attach automatically when recording is enabled. | No recorded calls match these filters. / All matching calls have recordings. / Completed calls appear here; recordings attach when enabled. |
+| CallMonitoring.tsx:126 | SHORTEN | Listen, Whisper, and Barge require Twilio Call Control integration. Full functionality coming soon. | Listen, Whisper and Barge are not available yet. |
+| CallMonitoring.tsx:140 | SHORTEN | Live via Realtime | Live updates |
+| CallMonitoring.tsx:172–173 | SHORTEN / REMOVE | No active calls right now / Live calls will appear here automatically. | No active calls / remove explanation |
+| CallMonitoring.tsx:156 | KEEP | Live call tracking is not connected. The monitoring service may be temporarily unavailable. | Preserve failure state and Retry |
+| CallScripts.tsx:497 | REMOVE | Write and manage scripts for your agents to use during calls | Remove subtitle |
+| CallScripts.tsx:509 | SHORTEN | Call scripts are managed by agency admins. Additional delegation will be handled through Permissions. | Only agency admins can manage call scripts. |
+| call-scripts/CallScriptEditor.tsx:49 | SHORTEN | Select a script from the list to view [and edit] it. | Select a script |
+| call-scripts/CallScriptEditor.tsx:152 | SHORTEN | Start writing your script here... | Write your script… |
+| call-scripts/CallScriptsList.tsx:94 | SHORTEN | No scripts yet. Click Add Script to get started. / No scripts available yet. | No scripts yet / No scripts available |
+| call-scripts/CallScriptsList.tsx:105 | SHORTEN | No scripts match your search. Try adjusting your filters. | No matching scripts |
+| DispositionsManager.tsx:358 | REMOVE | Manage call outcome categories used after every call. | Remove subtitle |
+| DispositionsManager.tsx:536–538 | REMOVE (visual) | Update the disposition settings. / Create a new call disposition. | Remove visual description; preserve appropriate dialog accessible description semantics |
+| DispositionsManager.tsx:627 | SHORTEN | Opens date/time picker for a following call. | Prompts the agent to schedule a callback. |
+| DispositionsManager.tsx:645 | SHORTEN | Opens the appointment modal for a new sale/meeting. | Prompts the agent to schedule an appointment. |
+| DispositionsManager.tsx:663 | SHORTEN | Trigger an automation when this disposition is selected. | Runs when this disposition is selected. |
+| DispositionsManager.tsx:673 | SHORTEN | No disposition workflows yet. Create one in Settings → Workflow Builder, then return here to link it. | No disposition workflows. Create one in Settings → Workflow Builder. |
+| DispositionsManager.tsx:700 | SHORTEN | Automatically move leads to this pipeline stage when this disposition is selected. | Moves the lead to this stage. |
+| DispositionsManager.tsx:726 | REMOVE | What happens to the lead in the campaign after this disposition. | Remove repeated Campaign Action explanation; retain option-specific consequences |
+| DispositionsManager.tsx:374,488,512,554,596,715,738,741,752,769–771,802 | KEEP | Access, locked system dispositions, notes requirement, conversion warning, queue/campaign removal consequence, DNC, Contacted definition, historical-use delete warning | Preserve verbatim unless separately reviewed for accuracy |
+| DNCSettings.tsx:245 | SHORTEN | {numbers.length} numbers registered | {numbers.length} numbers |
+| DNCSettings.tsx:267–269 | REMOVE (visual) | Manually add a phone number to your agency's DNC list. | Remove duplicate visual description; preserve dialog accessibility |
+| DNCSettings.tsx:349 | SHORTEN | No matching DNC records found. | No matching DNC records |
+| DNCSettings.tsx:248 | SHORTEN / FACTUAL CORRECTION | Your agency's "Do Not Call" list. Numbers here are blocked from auto-dialing and trigger a warning for manual calls. | Outbound calls to these numbers are blocked across your agency. (Parent verified TwilioContext.tsx:2317–2318 checks DNC and throws before call start; no SMS claim.) |
+| DNCSettings.tsx:315 and destructive removal confirmation | KEEP | Read-only Admin constraint and removal consequence | Preserve agency scope and safety meaning |
+| ContactManagement.tsx:396 | SHORTEN | Manage the status options that appear on lead records and the Kanban board. | Used on lead records and the Kanban board. |
+| ContactManagement.tsx:406 | REMOVE | Manage the pipeline stages for your recruit Kanban board. | Remove repeated description |
+| ContactManagement.tsx:625 | SHORTEN | Admins can create agency-wide fields visible to everyone in the org. Anyone can create personal fields visible only to themselves. | Admins create agency fields; anyone can create personal fields visible only to them. |
+| ContactManagement.tsx:636 | SHORTEN | Add your first custom field to capture information specific to your agency. | No custom fields yet |
+| ContactManagement.tsx:730 | SHORTEN | Visible to everyone in the org. Leave off to create a personal field only you can see and edit. | On: visible agency-wide. Off: only you can see and edit it. |
+| ContactManagement.tsx:938 | SHORTEN | Manage the lead source options that appear when adding or importing contacts. | Used when adding or importing contacts. |
+| ContactManagement.tsx:1153,1166,1180,1192 | REMOVE | Control how the system identifies and handles duplicate contacts. / Choose what field combination triggers a duplicate warning. / Define which contacts are checked when looking for duplicates. / Choose what happens when a duplicate is detected. | Remove repeated headings/helpers; retain choices and scope distinctions |
+| ContactManagement.tsx:1316 | SHORTEN | Choose which fields agents must fill in before a contact record can be saved. | Required to save a contact. |
+| ContactManagement.tsx:1466 | REMOVE | Configure pipeline stages, custom fields, lead sources, and contact behavior. | Remove repeated tab list |
+| ContactManagement.tsx:1799–1803 | SHORTEN | Drag and drop fields to reorder how they appear on the contact view. My Layout affects only your view. Agency Default applies to users who have not customized their own layout. | Drag to reorder. My Layout is personal; Agency Default applies to users without a custom layout. |
+| ContactManagement.tsx:1853 | SHORTEN | No fields configured for this type. | No fields configured |
+| ContactManagement.tsx:61,65–69,289,322,344,1063,1213–1215,1303,1371,1821,1885 | KEEP | Admin-only, active enforcement scope, locked defaults, conversion trigger, source deletion precondition, merging not active, required fields, custom-field scope, layout permissions and visibility locks | Preserve operational/safety distinctions |
+| ContactManagement.tsx:722 | SHORTEN / FACTUAL CORRECTION | Enforcement on contact forms ships in a later release; this toggle saves your intent now. | Required in Contact Details and CSV imports. (Parent verified FullScreenContactView.tsx:632–643 and ImportLeadsModal.tsx:565–592; historical Build5 confirms shipped.) |
+| ContactManagement.tsx:1196 | SHORTEN / FACTUAL CORRECTION | Agent sees a side-by-side comparison and can save anyway, merge, or cancel | Shows matching contacts; the agent can save anyway or cancel. (Verified Contacts.tsx:3519–3536: match list, Cancel, Save Anyway; no merge control.) |
+| CalendarSettings.tsx:576,583,610,707,712,722,747,876,885,907 | REMOVE | Header descriptions restating Calendar Settings, default view, first weekday, scheduling defaults, buffer time, max/day, Google connection, appointment confirmation, confirmation-email switch, working hours | Remove matching paragraphs/CardDescriptions only; preserve controls and nonactive warnings |
+| CalendarSettings.tsx:637 | SHORTEN | Manage the types of appointments your team can schedule. Default types are locked and cannot be renamed or removed. | Default appointment types cannot be renamed or removed. |
+| CalendarSettings.tsx:829 | SHORTEN | 2-way Sync (Beta): Google events import into AgentFlow automatically every 5 minutes. Use the refresh button on the Calendar page to import on demand. Conflicts resolve as Google-wins. | Google events import every 5 minutes or on Calendar refresh. Google changes win conflicts. (Keep 2-way Sync (Beta) button visible.) |
+| CalendarSettings.tsx:830 | SHORTEN | Outbound-only: AgentFlow appointments sync to your Google calendar. Events created in Google are not imported. | AgentFlow appointments sync to Google; Google events are not imported. |
+| CalendarSettings.tsx:842 | SHORTEN | Automatically remind contacts before their appointment | Contact reminders (not active) |
+| CalendarSettings.tsx:884 | SHORTEN | Send Confirmation Email on Appointment Created | Send appointment confirmation email |
+| CalendarSettings.tsx:893 | SHORTEN | Switch between coloring calendar events by appointment type or by assigned agent | Color by appointment type or assigned agent. |
+| CalendarSettings.tsx:944 | SHORTEN | Configure popups and alerts for your upcoming appointments and callbacks | Alerts for your appointments and callbacks. |
+| CalendarSettings.tsx:950–951 | SHORTEN / REMOVE | Reminder Lead Time / How many minutes before an appointment should we show the popup? | Remind me before / remove explanation (select supplies units) |
+| CalendarSettings.tsx:974–975 | SHORTEN / REMOVE | Enable Sound Notification / Play a chime when the reminder popup appears | Play reminder sound / remove explanation |
+| CalendarSettings.tsx:349,602,628,698,734,824,846,880,933,1056 | KEEP | Disconnect keeps imports; not-active warnings; Admin-only type editing; Beta; reminder vs personal scope; deletion history preservation | Keep visible and preserve semantics |
+| phone/LocalPresenceSection.tsx:26 | SHORTEN | Local presence uses your active org numbers to choose the best caller ID for outbound dials based on the lead's area code. When off, the dialer uses your default number. | Matches the lead's area code using active agency numbers. When off, uses your default number. |
+| phone/LocalPresenceSection.tsx:31–33 | REMOVE | Routing, voicemail, and local presence settings are saved as part of your organization's phone configuration. | Remove technical/redundant note |
+| phone/LocalPresenceSection.tsx:36 | SHORTEN | You have numbers covering {count} area codes | {count} area codes |
+| phone/LocalPresenceSection.tsx:45 | REMOVE | Tip: add numbers in additional area codes to improve answer rates when dialing term-life leads out of state. | Remove promotional claim |
+| phone/NumberManagementSection.tsx:515–517 | REMOVE | Purchase a number from Twilio to use it for outbound caller ID and inbound routing. | Remove repeated empty-state explanation; keep purchase CTA |
+| phone/NumberManagementSection.tsx:886 | SHORTEN | Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently. | Search by area code, state or city. Availability changes frequently. |
+| phone/NumberManagementSection.tsx:567,772–774,1035–1048,1066–1069 | KEEP | Provider release distinction, assignment prerequisite, default warning, release/delete consequences | Keep caller-ID/destructive warnings |
+| phone/NumberGroupsSection.tsx:99 | SHORTEN | Assign campaigns to a subset of org numbers. Only active Agency numbers are eligible — Personal numbers and direct lines are excluded. | Campaign caller-ID groups use active Agency numbers; Personal numbers and direct lines are excluded. |
+| phone/NumberGroupsSection.tsx:107–109 | REMOVE | Group numbers by geography, team, or purpose to keep campaign caller IDs focused. | Remove empty-state marketing/help; retain New Group CTA |
+| phone/NumberGroupsSection.tsx:167–173 | KEEP | Group deletion effect on active campaigns and fallback caller-ID pool | Preserve consequence |
+| phone/NumberGroupCard.tsx:85 | SHORTEN | No numbers assigned to this group yet. | No numbers assigned |
+| phone/NumberGroupFormModal.tsx:99 | SHORTEN | Groups let you assign a subset of org numbers to a specific campaign. | Choose caller IDs for campaigns. |
+| phone/NumberGroupMembersModal.tsx:114–115 | SHORTEN | No eligible numbers. Campaign number groups only include active Agency numbers — purchase active numbers, switch a Personal number to Agency, or unmark direct lines first. | No eligible numbers. Add an active Agency number without direct-line routing. |
+| phone/NumberGroupMembersModal.tsx:107 | KEEP | Personal numbers and direct lines excluded; numbers can belong to multiple groups | Preserve eligibility context |
+| phone/PhoneNumberRoutingModal.tsx:139–141 | REMOVE | Determines who rings when this specific number is called. | Remove repeated routing label explanation |
+| phone/PhoneNumberRoutingModal.tsx:196 | KEEP | Per-number override. When set, this value always wins over the global setting for this number. | Preserve override precedence |
+| phone/TrustHubSection.tsx:30 | SHORTEN | Register your agency to verify your business identity with telecom networks and improve call answer rates. | Verify your agency's identity with telecom networks. |
+| phone/TrustHubRegistrationPanel.tsx:307 | SHORTEN | Verification of agency identity and authorized representative. | Agency and representative verification. |
+| phone/TrustHubRegistrationPanel.tsx:328 | SHORTEN | Attach your active phone numbers to your verified business profile. | Link active numbers to your verified business. |
+| phone/TrustHubRegistrationPanel.tsx:310,315,353,403,460,523,583,629 | KEEP | Pending/rejected status; SHAKEN/STIR/Voice Integrity/CNAM program definitions; admin requirement; CNAM/EIN constraints; authorized representative and review timing | Preserve registration instructions; no form logic or submission change |
+| phone/CarrierReputationPanel.tsx:107 | SHORTEN | No carrier data yet. Run a reputation check to pull Twilio Voice Insights. | No carrier data. Run a reputation check. |
+| NumberReputation.tsx:435,466 | SHORTEN | Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees. | Reputation signals are not guarantees. |
+| NumberReputation.tsx:442 | REMOVE | Add phone numbers under Phone System to monitor reputation here. | Remove repeated empty description; keep Go to Phone System |
+| NumberReputation.tsx:477 | SHORTEN | Reputation Signal Guide & Legend | Signal guide |
+| NumberReputation.tsx:486–507 and table tooltips | KEEP | Low/unknown/insufficient-data distinctions, attestation definitions and absent-carrier-data caveat | Data interpretation context stays in existing guide/tooltips |
+
+### Safety and functional freeze
+
+Do not modify `onClick`, `onChange`, effect dependencies, queries, mutations, Zod/schema validation, permission gating, routing settings keys, engine switching, API/RPC fields, DNC behavior, retention rules, recording upload, Calendar persistence, reminder delivery, any telemetry or activity-log strings. Preserve user-created scripts, custom stage/field/appointment names and descriptions. No new broad component extraction; existing oversized files receive small JSX/text edits only. Remove newly unused imports only as necessary.
+
+Tooltip entries must use existing Radix/shadcn Tooltip with a real focusable button, meaningful accessible name, visible focus style, readable content, and keyboard/touch-compatible disclosure. No wrapper span around a disabled control as the only trigger. Essential consequences/prerequisites stay inline. Dialog copy removals must retain accessible names/description behavior without producing Radix missing-description warnings.
+
+Only collapse spacing attached to removed paragraph/card description (for example orphaned `mt-1`, `mb-4` and heading `mb-1`); keep current cards, columns, responsive grid and branding.
+
+## 12. Administration inventory
+
+| File and line | Class | Current | Proposed |
+|---|---|---|---|
+| `src/components/settings/profile/ProfileInfoCard.tsx:156` | REMOVE | Your name, contact details, and availability | Remove redundant header helper; preserve title, avatar, fields and edit action. |
+| `src/components/settings/profile/ProfilePreferencesCard.tsx:128` | REMOVE | Appearance, notifications, call forwarding, and timezone | Remove header helper; preserve collapsible state and section labels. |
+| `src/components/settings/profile/ProfileGoalsCard.tsx:136` | REMOVE | Dialing and production targets | Remove header helper; preserve monthly units and actual/target context. |
+| `src/components/settings/profile/ProfilePasswordCard.tsx:127` | REMOVE | Update the password you use to sign in | Remove redundant helper; preserve password rules and reauthentication errors. |
+| `src/components/settings/profile/ProfileStateLicensesCard.tsx:326` | REMOVE | Manage your personal state licenses here. | Remove redundant header helper. |
+| `src/components/settings/profile/ProfileStateLicensesCard.tsx:342` | SHORTEN | No licenses added yet. Add your state licenses to receive state-specific calls. | No licenses added. Add licenses for state-based inbound routing. |
+| `src/components/settings/profile/ProfileStateLicensesCard.tsx:444` | REMOVE | Admins can manage team-wide licensing under Phone System → State Licenses. | Remove this branch's helper; existing adjacent Go to Phone System → State Licenses link carries destination. Preserve other branch explaining routing. |
+| `src/components/settings/profile/ProfileStateLicensesCard.tsx:469` | SHORTEN | Update your license details. State selection cannot be modified. | State cannot be changed. |
+| `src/components/settings/profile/ProfileStateLicensesCard.tsx:470` | SHORTEN | Record your state license. License number and expiration are optional but recommended. | License number and expiration are optional but recommended. |
+| `src/components/settings/user-management/UserManagementHeader.tsx:13` | REMOVE | Manage your team members and pending invitations. | Remove redundant header helper. |
+| `src/components/settings/user-management/PendingInvitesTable.tsx:103` | REMOVE | Invite new users to join your organization. | Remove sentence; retain No pending invitations and existing Invite control. |
+| `src/components/settings/user-management/TeamMembersTable.tsx:94` | SHORTEN | Try adjusting your filters or search terms. | Adjust your search or filters. |
+| `src/components/settings/user-management/InviteUserModal.tsx:121` | REMOVE | Send an invitation to join AgentFlow. | Remove visible helper; preserve valid Dialog accessibility description wiring (screen-reader-only description or explicit aria-describedby handling). |
+| `src/components/settings/Permissions.tsx:729` | REMOVE | Manage role-based access controls for your team. | Remove header helper. |
+| `src/components/settings/Permissions.tsx:755` | SHORTEN | Permission changes apply to active sessions when reloaded. All changes are logged to the Activity Log. | Changes apply after reload and are recorded in the Activity Log. |
+| `src/components/settings/Permissions.tsx:765–766` | SHORTEN | Admin has full access to everything and cannot be restricted. / All permissions below are shown as read-only for reference. | Admin access cannot be restricted. These permissions are read-only. |
+| `src/components/settings/Permissions.tsx:789` | SHORTEN | Control Contacts module actions for this role. Conversion (Lead → Client) is always available and is intentionally not listed here. | Lead → Client conversion is always available and is not configurable here. |
+| `src/components/settings/Permissions.tsx:838` | SHORTEN | Control which pages appear in the sidebar for this role. Settings is always available — use Settings Sections below to control tabs. | Settings is always available. Use Settings Sections to control its tabs. |
+| `src/components/settings/Permissions.tsx:864` | SHORTEN | Control which Settings tabs this role can see. Applies only within your organization. | Settings tab access for this role in your organization. |
+| `src/components/settings/Permissions.tsx:900` | SHORTEN | Control specific actions available to this role within each section. | Actions available to this role. |
+| `src/components/settings/Permissions.tsx:929` | SHORTEN | Control how much data this role can see across the platform. | Data visible to this role. |
+| `src/components/settings/Permissions.tsx:944` | SHORTEN | Control what commission and earnings information this role can see. | Commission and earnings visible to this role. |
+| `src/components/settings/BrandingUploadField.tsx:91` | SHORTEN | Drag and drop your logo here, or click to browse | Drop a logo or browse |
+| `src/components/settings/CustomMenuLinks.tsx:271` | SHORTEN | Add links to your agency sidebar (above Settings). Choose whether each opens in a new browser tab or inside AgentFlow. | Links appear above Settings in your agency sidebar. |
+| `src/components/settings/CustomMenuLinks.tsx:275` | SHORTEN | Custom menu links are managed by agency admins. Additional delegation will be handled through Permissions. | Custom menu links are managed by agency admins. |
+| `src/components/settings/CustomMenuLinks.tsx:292` | SHORTEN | Add important external tools directly into your sidebar. | No menu links yet |
+| `src/components/settings/CustomMenuLinks.tsx:389` | SHORTEN | Opens the URL in a separate browser tab (best for sites that cannot be embedded). | Opens in a separate browser tab. |
+| `src/components/settings/CustomMenuLinks.tsx:396` | SHORTEN | Shows the page in the main area while keeping the AgentFlow sidebar and header. Some external sites may block this. | Opens within AgentFlow. Some sites block embedding. |
+| `src/components/settings/agency-group/AgencyGroupNoGroup.tsx:22–37` | SHORTEN | Link independent agents under your agency for shared visibility — without merging their data. / See every agent's stats on one leaderboard / Share training scripts and resources / Each agent keeps their own account, numbers, and billing | Share leaderboards and resources with other agencies; contacts, phone numbers, billing, and settings stay separate. (One short paragraph replaces introductory paragraph and three bullets; keep both existing cards and CTA.) |
+| `src/components/settings/agency-group/AgencyGroupNoGroup.tsx:54–59` | SHORTEN | When a manager invites your agency to their group, you'll see the invitation here. / Your manager will send an invitation to your admin email address. You can also accept via the link in the email. | Invitations appear here and are sent to your agency admin by email. |
+| `src/components/settings/agency-group/CreateGroupModal.tsx:57` | SHORTEN | You'll be the master agency. Invite other independent agencies to join. | Your agency will lead the group. |
+| `src/components/settings/agency-group/AgencyGroupLeaderView.tsx:139` | SHORTEN | The Admin of the invited agency will get an email with an acceptance link valid for 7 days. | The agency admin receives an invitation link valid for 7 days. |
+| `src/components/settings/agency-group/AgencyGroupLeaderView.tsx:152` | SHORTEN | Invite your first agent | No member agencies yet |
+| `src/components/settings/agency-group/AgencyGroupLeaderView.tsx:154` | REMOVE | Enter their email address above to send an invitation. They'll appear here once they accept. | Remove redundant sentence; preserve Invite an Agency, Send Invite, member statuses and expiry guidance. |
+| `src/components/workflows/WorkflowList.tsx:92` | REMOVE | Visual automations triggered by lead activity, dispositions, and more. | Remove header helper. |
+| `src/components/workflows/WorkflowList.tsx:156` | SHORTEN | No workflows in this folder / Create your first automation | No workflows in this folder / No workflows yet (same conditional branches). |
+| `src/components/workflows/WorkflowList.tsx:160` | SHORTEN | Move workflows here from the All tab — or create a new one. | Move workflows here from All. |
+| `src/components/workflows/WorkflowList.tsx:161` | REMOVE | Workflows let you automate follow-ups, tag leads, send messages, and more — without writing code. | Remove this branch's promotional sentence; retain New Workflow CTA. |
+| `src/components/workflows/NewWorkflowModal.tsx:96` | SHORTEN | Choose a trigger and we'll set up a starting node for you. | Choose what starts this workflow. |
+| `src/components/workflows/NewFolderModal.tsx:48` | REMOVE | Group related workflows under a folder tab. | Remove visible helper; retain Dialog accessibility description semantics. |
+| `src/components/workflows/panels/ActionConfigPanel.tsx:106` | REMOVE | Configure this step | Remove static subtitle only. PR #419 coordination required. |
+| `src/components/settings/EmailSetup.tsx:118` | SHORTEN | Connect your Gmail inbox so contact email send/receive can appear in conversation history (Gmail is currently supported). | Connect Gmail to send and receive contact emails in AgentFlow. (Reconcile draft PR #378 before editing.) |
+| `src/components/settings/EmailSetup.tsx:166` | SHORTEN | My Connected Inboxes | Connected inboxes |
+| `src/components/settings/EmailSMSTemplates.tsx:232` | SHORTEN | Manage templates for automated and manual messaging. Agency templates are shared with your organization; Personal templates are visible only to you. | Agency templates are shared with your organization; Personal templates are visible only to you. |
+| `src/components/settings/TemplatesListView.tsx:41` | REMOVE | You haven't added any templates matching your criteria. | Remove sentence; retain No templates found and existing create action. |
+| `src/components/settings/TemplateModal.tsx:169` | SHORTEN | SMS is sent as text only; attachments are saved with this template for your own reference (for example a rate sheet or call script). | SMS sends text only. Attachments are for reference and are not sent. (Preserve new PR #419 purpose/consent UI.) |
+| `src/components/settings/SettingsRenderer.tsx:62` | SHORTEN | Ready for configuration. | Not available yet. (Only the Zapier & Webhooks slug; do not remove placeholder-state information or add functionality.) |
+| `src/components/settings/Carriers.tsx:343` | REMOVE | Manage your insurance carrier appointments, logos, and contact numbers | Remove redundant header helper. |
+| `src/components/settings/Carriers.tsx:375` | REMOVE | Add your first insurance carrier to begin tracking appointments. | Remove sentence; retain No carriers found and Add Carrier. |
+| `src/components/settings/Carriers.tsx:381` | REMOVE | No carriers have been added by your agency admins yet. | Remove sentence; keep existing permission banner. This branch currently also appears for a filtered no-match result, so its categorical no-data assertion is misleading. No filtering changes. |
+| `src/components/settings/ActivityLog.tsx:171` | REMOVE | View recent system actions and user activity | Remove header helper. |
+| `src/components/settings/ActivityLog.tsx:228` | REMOVE | Actions like inviting users, importing leads, and creating campaigns will appear here as they happen. | Remove sentence; retain No activity yet, filters, export and pagination. |
+
+### KEEP boundaries and deliberately unchanged components
+
+- **My Profile:** KEEP `MyProfile.tsx:20` No profile found + Reload. KEEP ProfileInfo commission/email admin tooltips (213/226). KEEP password requirements (ProfilePasswordCard 163–195), error details and unsaved-state dialogs. KEEP `ProfileNotificationsSection.tsx` browser blocked/not-supported/prompt states and Email/SMS · Not yet connected labels. KEEP `CallForwardingActivationNotice.tsx:19–20` not-active/unknown-state warnings; KEEP forwarding control's short explanation (a current test expressly requires it). ConnectionDiagnostics is unmounted internal/debug code, not user-visible cleanup scope; do not reintroduce it. KEEP state-license expiration, duplicate/error/removal warnings and routing role. No changes to `ProfileCarriersCard.tsx`, `ProfileCarriersSection.tsx`, preference/forwarding mutation logic.
+- **User Management / shared modals:** KEEP `UserProfileTab.tsx:90–91` Super Admin Access / Grants full system access across all organizations. KEEP `UserManagementConfirmDialogs.tsx:19` immediate access loss; `UserProfileModal.tsx` reset-password/delete confirmations; `TransferLeadsModal.tsx:87–114,128–131` deletion and contact ownership consequences; `InviteUserModal.tsx:65,106` send failure/resend and 7-day expiration; `TeamMembersTable.tsx:231–234` View As failure/access information. KEEP `UserPerformanceTab.tsx:45` Month to date · timezone and unknown-premium warning. Existing `Keep as is / Unassign` label in TransferLeadsModal contradicts its retained-assignment description; defer semantic correction to a separate confirmed behavior review, don't erase the warning during cleanup.
+- **Permissions:** KEEP all permission names/keys/default values and detailed permission help; many display names are exact lookup/storage keys. KEEP System rules (775–781), including security text, destructive High impact badges/warnings (818–819), unsaved-change prompt (512), reset warning (608), Save and Reset controls. Do not rewrite permission configuration objects merely for sentence case. Optional future visual judgment: technical system-rule explanation is dense but user explicitly protects security/safety guidance, so KEEP for this pass.
+- **Branding:** CompanyBranding already has no intro helper (249); May 22 cleanup expressly removed it. KEEP PNG/JPG 5 MB hint and upload permission failures; leave time zone option values and platform/agency branding separation unchanged. Only reusable logo drop text is proposed; do not touch favicon branch.
+- **Custom links:** KEEP delete confirmation, validation and embed-blocking meaning; do not change new_tab/in_frame values, route, fallback Open in new tab, gates or mutation handlers.
+- **Agency Groups:** KEEP `AgencyGroupPendingInvite.tsx:54,59–60` identity of inviting agency/group and the sharing/independence explanation before Accept; KEEP leader/member/remove/leave/delete consequences (LeaderView 56/89, MemberView 24), 7-day expiry, status badges, shared-resource upload caps, load errors + Retry, private-resource warnings and cleanup-failed error. Active members share leaderboard/resources, not contacts/billing/phone accounts. No-group wording fixes agent-versus-agency confusion using VISION's explicit model.
+- **Workflow:** KEEP disabled Coming Soon at TriggerTypeSelector 27 and NodePickerPopover; KEEP branch Yes/No, trigger information, duration units, validation, execution errors/skip summaries, merge fields, webhook request method/JSON hint and template scopes. KEEP DeleteWorkflowDialog 35: This cannot be undone. All execution history will also be deleted. No changes to lib/workflow-types.ts, schemas, workflows API, executor or stored node labels/config. No TOOLTIP migration selected here because the remaining operational explanations are useful at the point of decision.
+- **Email:** KEEP Connected / Unsupported / Needs reconnect / Sync paused / Disconnected status labels (EmailSetup 13–18), last-sync/error details (195–200), permission disclosure or Google Limited Use/privacy material from PR #378. No changes to Gmail connection/send/sync or OAuth behavior.
+- **Templates:** KEEP Agency/Personal badges and Visibility helper (TemplateModal 100–105), immutable visibility/type meaning, segment/cost warning (`TemplateSmsCounter.tsx:41`), attachment send limitation, deletion confirmation and all PR #419 SMS-purpose/informational/marketing/consent disclosures. Do not alter template content, merge tokens, scope values, form schema or saved SMS-purpose fields.
+- **Zapier/Webhooks:** `settingsConfig.ts:78` registers slug webhooks, but SettingsRenderer has no implemented case. The fallback is the whole standalone surface. Workflow webhook actions are a separate implemented surface. Never make the standalone tab look functional merely by removing its helper.
+- **Carriers:** KEEP agency-admin read-only banner (355), appointment status, logo upload caps (530), contacts labels, validation and delete consequences. KEEP insurance carrier terminology; do not treat appointments here as Calendar appointments.
+- **Activity Log:** KEEP category/date filters, actor, timestamp, pagination range and export action. Audit log event text comes from stored data; don't rewrite it or logActivity calls. No audit-log persistence changes.
+
+## 13. Existing verification coverage by surface
+
+The full frontend run covers the existing suites. These are the focused suites to inspect/run for the changed surfaces; they are not additional files authorized for editing. Surfaces without component suites require actual visual review.
+
+### Core CRM
+
+Use existing full frontend suite as main gate, plus focused diagnostics when needed. No test has been run in this read-only plan.
+- Dialer and campaign selection: src/pages/__tests__/dialerRenderStability.test.tsx; dialerCallGate.test.ts; dialerTeamOpenWiring.test.ts; components/dialer/__tests__/campaignSelectionInteractions.test.tsx and campaignSelectionTable.test.tsx; pages/__tests__/campaignDetailImportRetry.test.tsx. Protect queue branch behavior with manual fixtures for no leads, in use, retry/callback, licensed-state, completion, unknown/error; do not call production to produce fixtures.
+- Contacts/import: src/lib/__tests__/contactsRender.test.tsx, contactsGatingRender.test.tsx; src/pages/__tests__/contactsImportHistoryTab.test.tsx, contactsViewAsFailClosed.test.tsx, contactsViewAsPreferences.test.tsx; src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx, importLeadsModalResult.test.tsx, importLeadsCustomFields.test.tsx, fullScreenContactViewSaveFailure.test.tsx, fullScreenContactViewConversation.test.tsx, fullScreenContactViewFieldVisibility.test.tsx, fullScreenContactViewStatusSave.test.tsx; fullScreenContactViewAdditionalPolicies.test.tsx, communicationHistoryPill.test.tsx, contactHistoryMutationRefresh.test.tsx.
+- Conversations: src/pages/__tests__/conversationsViewAs.test.tsx and conversationsSendContract.test.tsx; src/components/conversations/__tests__/conversationThreadIsolation.test.tsx, staleRenderIsolation.test.tsx, sidebarStaleReload.test.tsx.
+- Calendar: src/pages/__tests__/calendarPageListFilter.test.tsx, calendarPageAppointmentOwnership.test.tsx, calendarContactIdentity.test.tsx; src/components/calendar/__tests__/appointmentModalAssignee.test.tsx. Exercise a selected non-today date to verify neutral empty copy.
+- Floating dialer: src/components/layout/__tests__/floatingDialerDisposition.test.tsx; src/lib/__tests__/floatingDialerRecent.test.ts.
+- Exact existing-test change allowlist from copy selector scan (6 files; preserve all behavioral assertions):
+  1. `src/pages/__tests__/conversationsViewAs.test.tsx:325`: `Your Unified Inbox` → `Select a conversation`.
+  2. `src/components/layout/__tests__/floatingDialerDisposition.test.tsx:98,267`: `How did it go?` → `Call outcome`.
+  3. `src/components/dialer/__tests__/campaignSelectionTable.test.tsx:124–125`: title sentence case; replace removed helper expectation with absence assertion (do not remove table behavior assertions).
+  4. `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx:105,397,538`: `Map Your Fields` → `Map fields`.
+  5. `src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx:85,88`: mapping/review title selectors → `Map fields` / `Review import`.
+  6. `src/components/contacts/__tests__/importLeadsModalResult.test.tsx:107,289`: `Review Your Import` → `Review import`.
+- Existing `No conversations found` regex assertions tolerate punctuation removal, and `No imports yet` remains unchanged; no mechanical edit is needed in those checks.
+- Normal typecheck/build/lint/test gates per AGENT_RULES, plus diff audit proving only source text, accessibility description housekeeping and necessary Tailwind spacing changed. No callbacks, operational conditions, queries, schemas/RPCs/functions/migrations/RLS/telephony.
+
+### Reporting and profiles
+
+```text
+src/pages/__tests__/dashboardRefreshWiring.test.tsx
+src/pages/__tests__/leaderboardPage.test.tsx
+src/components/dashboard/__tests__/dashboardCallbacks.test.ts
+src/components/dashboard/__tests__/dashboardSections.test.tsx
+src/components/dashboard/__tests__/dashboardRefresh.test.tsx
+src/components/dashboard/__tests__/dashboardDetailModalVoicemail.test.tsx
+src/components/dashboard/__tests__/dashboardContactActions.test.ts
+src/components/dashboard/__tests__/leaderboardWidget.test.tsx
+src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx
+src/components/leaderboard/__tests__/tvModeRegression.test.tsx
+src/pages/__tests__/reportsPage.test.tsx
+src/pages/__tests__/reportsScopeIntegration.test.tsx
+src/components/reports/__tests__/reportsControls.test.tsx
+src/components/reports/__tests__/ReportsOverview.test.tsx
+src/components/reports/__tests__/reportCustomizer.test.tsx
+src/components/reports/__tests__/reportPresentation.test.tsx
+src/components/reports/__tests__/reportTrendCharts.test.tsx
+src/components/reports/__tests__/agentPerformanceTable.test.tsx
+src/components/agent-profile/__tests__/profileContracts.test.ts
+src/components/agent-profile/__tests__/profileStates.test.tsx
+src/lib/__tests__/profileReadinessAndMix.test.ts
+src/lib/__tests__/profileScopeAndOrgTree.test.ts
+src/lib/__tests__/performanceContract.test.ts
+src/lib/__tests__/reportsContracts.test.ts
+src/lib/__tests__/reportsIntegrity.test.ts
+src/lib/__tests__/reportsPolicySource.test.ts
+src/lib/__tests__/reportsExportFormat.test.ts
+```
+
+No dedicated Resources/Training suite found in `src`. Verify both surfaces visually at desktop/mobile, populated/search-empty/truly empty, resource dialog and completion controls. No new test suite needed for these copy-only edits. Run required root `npx tsc --noEmit` AND meaningful app `npx tsc -p tsconfig.app.json --noEmit`, compare against clean baseline; root command alone checks zero files. Run required app build/lint and parent-established gates. Tests should use local/stubbed clients; do not connect live backend for UI copy verification.
+
+### Phone/settings
+
+Direct settings tests:
+- src/components/settings/inbound-routing/__tests__/inboundV2Section.test.tsx
+- src/components/settings/__tests__/inboundRoutingManagerGating.test.tsx
+- src/components/settings/__tests__/contactManagementFieldLayout.test.tsx
+
+Relevant behavior guards (run existing tests, do not modify logic):
+- src/lib/__tests__/inboundSettingsBoundary.test.ts
+- src/lib/__tests__/inboundRouting.test.ts
+- src/lib/__tests__/inboundOwnershipUi.test.ts
+- src/lib/call-recording-policy.test.ts
+- src/lib/__tests__/recordingRetentionBaseline.test.ts
+- src/lib/__tests__/recordingRetentionHandler.test.ts
+- src/lib/__tests__/recordingRetentionVoicemail.test.ts
+- src/lib/dialer-disposition.test.ts
+- src/lib/__tests__/leadDisposition.test.ts
+- src/lib/twilio-dnc-admission.test.ts
+- src/utils/dncCheck.test.ts
+- src/lib/caller-id-selection.test.ts
+- src/lib/calendar/__tests__/reminderEligibility.test.ts
+- src/lib/calendar/__tests__/appointmentOwnership.test.ts
+- src/contexts/__tests__/calendarViewAsIdentity.test.tsx
+- src/pages/__tests__/calendarPageAppointmentOwnership.test.tsx
+
+No direct tests found referencing CalendarSettings, CallScripts, DispositionsManager, DNCSettings, LocalPresenceSection, NumberGroupsSection, PhoneNumberRoleModal, NumberManagementSection, CallRecordingSettings, NumberReputation or CallMonitoring by component name. Manual desktop/narrow visual checks required for each touched surface, including empty/error/access-denied/nonactive/legacy-v2 states and keyboard tooltips. Run required tsc/build/test gates; final diff must have no backend/API/telephony changes. Existing selector-sensitive labels (Save Changes, Field Layout, Agency Default) need no rename to satisfy this plan.
+
+### Administration
+
+Relevant existing tests (execute only during approved implementation):
+
+- `src/components/settings/profile/__tests__/myProfileSurface.test.tsx`
+- `src/components/settings/profile/__tests__/profilePreferencesNotifications.test.tsx`
+- `src/components/settings/profile/__tests__/profileCallForwardingSection.test.tsx`
+- `src/components/settings/user-management/__tests__/teamMembersImpersonate.test.tsx`
+- `src/lib/__tests__/permissionsSettingsContacts.test.tsx`
+- `src/lib/__tests__/contactsPermissions.test.ts`
+- `src/lib/__tests__/usersGetPerformance.test.tsx`
+- `src/lib/__tests__/usersAllowedIdsQuery.test.ts`
+- `src/lib/__tests__/profileScopeAndOrgTree.test.ts`
+- `src/lib/profile-org-tree.test.ts`
+- `src/contexts/__tests__/impersonationAuthority.test.tsx`
+
+No dedicated current-main component test was found for Branding, Custom links, Agency Groups, Workflow list/forms, EmailSetup, Templates, Carriers or ActivityLog. Verify these in browser at desktop/narrow widths, checking Admin and read-only roles and ordinary empty/filtered/permission/error states. Don't claim tests cover those surfaces. Run required typecheck, normal test/build gates, and confirm removed dialog descriptions do not regress accessible descriptions. Preserve visible warning text and all callbacks. PR #419/#378 branch reinspection and diff freeze checks precede implementation. Changes should be text/necessary Tailwind-only, never queries, functions, hooks, schema/RLS, saved keys, event logging or backend.
+
+Selector-impact scan: no proposed old-copy substrings matched `src/**/*test*` / `src/**/*spec*`. No test-file edits needed for this exact list. Preserve exact `Call Forwarding` and `/send unanswered calls to your mobile/i` in myProfileSurface, `Contacts Permissions` / `Save Permissions` in permissionsSettingsContacts, `/Impersonate/i` and `/went wrong/i` in teamMembersImpersonate, and notification/forwarding unavailable/error warning selectors. Broad sentence-case replacement is outside this explicit list and would require separate selector review.
+
+## 14. Intentionally deferred
+
+- Screens already concise remain unchanged, including shared View As/security notices and core Reports basis/quality copy.
+- Unmounted legacy components, generalized design changes, technical debt in large components and existing inline styles are outside this cleanup.
+- Possible semantic issues such as the Transfer Leads “Keep as is / Unassign” label or historical Team campaign type descriptions need a separate behavior audit; keep current safety guidance until confirmed.
+- No historical data repair, security hardening, new permissions, live-call test, A2P registration/submission or Gmail configuration is included.
+- Proposed durable rule for later review: ordinary empty states must not conceal failure, limited access, waiting, incomplete data or inactive functionality. AGENT_RULES is not edited in this plan.
+
+---
+
+# Earlier implementation plans (preserved)
+
 ## 2026-10-05 — Reports integrity published for verification; production release pending
 
 Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.
