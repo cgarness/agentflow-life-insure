@@ -165,5 +165,23 @@
     "agent_browser_cli_local": "daemon startup unavailable; direct Playwright provided actual browser evidence",
     "ci": "both initial agent-browser gut check and Playwright flow required",
     "clock": "Real browser clock; calendar navigates to exact SQL window without time mocking"
+  },
+  "production_release_record": "docs/plans/2026-10-05-reports-integrity/production-release.md",
+  "production_release_status": "shipped; hosted CSV download, filter and refresh verification remain tooling-limited; earlier status/results are historical checkpoints",
+  "production_verification": {
+    "catalog_guards_passed": 15,
+    "acl_functions_checked": 34,
+    "anon_denied_all": true,
+    "authenticated_and_service_only_six_public_v2": true,
+    "migration_ledger_hashes_match": 4,
+    "aggregate_reconciliations_passed": 31,
+    "actual_profile_role_simulation_groups": 3,
+    "expected_42501_denials": 7,
+    "nonbrowser_live_aggregate_csv_assertions": 201,
+    "nonbrowser_csv_exports": 5,
+    "actual_admin_browser_panels_rendered": 6,
+    "hosted_browser_csv_filter_refresh": "incomplete_platform_credential_protection",
+    "unexpected_security_advisor_regressions": 0,
+    "http_log_corroboration": "4 authenticated POST routes 200; no reported errors; not complete six-route log coverage"
   }
 }

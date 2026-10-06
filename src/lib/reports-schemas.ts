@@ -1,6 +1,6 @@
 /**
  * reports-schemas.ts — runtime contracts for the secured Reports v2 RPCs
- * (supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql).
+ * (supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql).
  *
  * Every payload is parsed before it reaches the UI. A payload that does not match is treated as an
  * UNAVAILABLE report, never as zeros: a silently mis-shaped response is how a failed report used to
