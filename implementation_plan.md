@@ -1,3 +1,17 @@
+## 2026-10-05 — Reports integrity published for verification; production release pending
+
+Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.
+
+# Reports Phase 1 integrity — approved implementation
+
+Chris approved the six-group audit plan on October 5, 2026. Base: b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1. Isolated branch: codex/reports-integrity-phase1-20261005.
+
+Full VISION.md, AGENT_RULES.md and WORK_LOG.md were read before application changes. Current main and open PR overlap checked. No production writes, migration application, historical repair, deployment, merge or main push are authorized. Phase 2 tabs/redesign are deferred.
+
+See [the exact approved implementation plan](docs/plans/2026-10-05-reports-integrity/implementation_plan.md).
+
+---
+
 ## 2026-10-05 — Reporting and leaderboard release completed
 
 Chris confirmed the coordinated write window at 09:10 PDT under the October 4 release/permission approvals. PR #416 shipped as `51308ce16fb570ab668b87ab36df2a2b9abda995` after all five exact-head CI gates passed. Eight schema migrations, voice-status v45 and Google inbound sync v492 are applied and byte-verified. Both production frontend deployments are READY with served assets verified.

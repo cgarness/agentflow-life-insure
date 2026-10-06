@@ -1,0 +1,252 @@
+{
+  "base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
+  "branch": "codex/reports-integrity-phase1-20261005",
+  "manifest_excludes_itself": true,
+  "files": [
+    {
+      "path": ".github/workflows/reports-backend.yml",
+      "bytes": 5225,
+      "sha256": "d6bd19d87e125baadcd513cef2493db1551d59fe0cc9f8ca7b28e32766318368"
+    },
+    {
+      "path": "AGENT_RULES.md",
+      "bytes": 221701,
+      "sha256": "12bf3912c460e7e2840a489693ccfd37ad6d5d41f9efc4bbed900a991d5fb16f"
+    },
+    {
+      "path": "WORK_LOG.md",
+      "bytes": 2248002,
+      "sha256": "3abb92afefc12c3bfd5b9a550430d51232b7c172dc7adc3dc538d760f59d2bfd"
+    },
+    {
+      "path": "docs/plans/2026-10-05-reports-integrity/implementation_plan.md",
+      "bytes": 6480,
+      "sha256": "950dcae718974b4aed9ec39290dca572453ec7b993b49314a80323d3a242df18"
+    },
+    {
+      "path": "docs/plans/2026-10-05-reports-integrity/release_packet.md",
+      "bytes": 5827,
+      "sha256": "1bf4d32e0302c498cc48fbbd38255b3c114ff4c096d43ce9967befb60a900f29"
+    },
+    {
+      "path": "docs/plans/2026-10-05-reports-integrity/verification.json",
+      "bytes": 8311,
+      "sha256": "b5ac281371b12eda8c2c2a8c95c15ad3587c03c989c4219864f40edb5ce020df"
+    },
+    {
+      "path": "docs/plans/2026-10-05-reports-integrity/verification.md",
+      "bytes": 8335,
+      "sha256": "1144a3f3463b2ae84fd3b472720a55d702543a194ef4c57ff480687ca9bf33d9"
+    },
+    {
+      "path": "implementation_plan.md",
+      "bytes": 217572,
+      "sha256": "06477ca9009bc30eef7a0cb0d021803bb3c90b2ae6574f44ee5788c70d7d9a71"
+    },
+    {
+      "path": "scripts/reports_integrity_fixture.py",
+      "bytes": 6011,
+      "sha256": "a962e71638a71d210af9a8b6aab9daa8f52623c7ef39c9180b7cbf8802029d5f"
+    },
+    {
+      "path": "scripts/run_reports_integrity_tests.sh",
+      "bytes": 1845,
+      "sha256": "bff600a748b69717cff4c820053076a629573a4ce84c201fde67698f67fac0b0"
+    },
+    {
+      "path": "scripts/tests/reports-integrity-embedded.mjs",
+      "bytes": 1410,
+      "sha256": "ca502693196c6a04642446ebad11f771c424b952d40bc075545136c98ea9a9f4"
+    },
+    {
+      "path": "scripts/tests/reports-visual/README.md",
+      "bytes": 2413,
+      "sha256": "5eb3354baa505371df2c6fa2a5c226a9bdb7ebd8a412a0ac6b0895bb946768ff"
+    },
+    {
+      "path": "scripts/tests/reports-visual/entry.tsx",
+      "bytes": 978,
+      "sha256": "ff02b6b4412d56b1f918d6a74ce2d2baf3efde78ade4432b4083f71eb4c02059"
+    },
+    {
+      "path": "scripts/tests/reports-visual/index.html",
+      "bytes": 257,
+      "sha256": "4ea998bdc225ecbd135cbfb0c9ddbcd877c9cf5e16ab5bab92b42fbf40fade79"
+    },
+    {
+      "path": "scripts/tests/reports-visual/stubs.ts",
+      "bytes": 2472,
+      "sha256": "d250153eef78cb14d7cf4a4275629236d37606b3d97d834465882865f9e8bbf8"
+    },
+    {
+      "path": "scripts/tests/reports-visual/verify.mjs",
+      "bytes": 12448,
+      "sha256": "561bf3e8514b03ad34a62f55918c9f30405b0e3cd6bce9053c649959903a5311"
+    },
+    {
+      "path": "scripts/tests/reports-visual/vite.config.ts",
+      "bytes": 1484,
+      "sha256": "53f52b9c30a0f50a6f00aac88b7c136a9125c17328d3c46b49d2d7ed5423edd3"
+    },
+    {
+      "path": "src/components/reports/AgentEfficiency.tsx",
+      "bytes": 7754,
+      "sha256": "275164cc2459b2a77d2544dbe7da676562fae1c34a743b2cdfb0d4c87928bdf3"
+    },
+    {
+      "path": "src/components/reports/AgentPerformanceCards.tsx",
+      "bytes": 7511,
+      "sha256": "57ebcf29042f06ef5391b157e74d0307614ab0963975a77060b25b6d89d95dd1"
+    },
+    {
+      "path": "src/components/reports/CallDurationAnalysis.tsx",
+      "bytes": 7032,
+      "sha256": "64565f6d577277495d46d56d08e31e42186faa06155732f1628a3ef54446ca7b"
+    },
+    {
+      "path": "src/components/reports/CampaignPerformance.tsx",
+      "bytes": 9319,
+      "sha256": "e09697d07309fbb2a4eaa7db0192e74f7e9e035f4bcdbc44cc1dd95870dd5ba9"
+    },
+    {
+      "path": "src/components/reports/CommunicationsStats.tsx",
+      "bytes": 4962,
+      "sha256": "3614fa3a40cdf9de88eee987771e3c302f71528dafecf38cb7c9f64d706ba9af"
+    },
+    {
+      "path": "src/components/reports/LeadSourceTable.tsx",
+      "bytes": 5291,
+      "sha256": "6645358ae9b5d4b70582f70863981d0df2afdca1dc9e32fce2f86e1fcc4a0a1c"
+    },
+    {
+      "path": "src/components/reports/ReportDataQuality.tsx",
+      "bytes": 906,
+      "sha256": "08b89a5d86558382376da8b2a1e5171955d1011590c911b08fe4eaa09e5ec30e"
+    },
+    {
+      "path": "src/hooks/__tests__/useReportsData.test.tsx",
+      "bytes": 14608,
+      "sha256": "a6d9ca18807eceda6899e6b6074141be8ce22aaff5a3a6d6d94c333155f798ca"
+    },
+    {
+      "path": "src/hooks/useReportsData.ts",
+      "bytes": 10284,
+      "sha256": "35e51146ea12fa23c058395ad4b1ffdaef968b1258522c2f5b2032d20de31cef"
+    },
+    {
+      "path": "src/lib/__tests__/reportStatComputations.test.ts",
+      "bytes": 9456,
+      "sha256": "ee09912de8980c3ae6a6446961b4a6e96741167b3133440e7bec93ea5044e8b8"
+    },
+    {
+      "path": "src/lib/__tests__/reportsExportFormat.test.ts",
+      "bytes": 5808,
+      "sha256": "f441c8cd5ef556c4de874dc0ba05ca915ba390cd0d491fac07025495182c5ff3"
+    },
+    {
+      "path": "src/lib/__tests__/reportsFixtures.ts",
+      "bytes": 9199,
+      "sha256": "6aeff7b43eca9856795a3e4d323e4ae9d4e684d95b849641bfde39dc68673565"
+    },
+    {
+      "path": "src/lib/__tests__/reportsIntegrity.test.ts",
+      "bytes": 3725,
+      "sha256": "1783dceeddea87b06cc950b35769e5b2203b66811836a01a720e548853007778"
+    },
+    {
+      "path": "src/lib/__tests__/reportsQueries.test.ts",
+      "bytes": 8849,
+      "sha256": "7b7a840a255924b5bd4a0e348326b06f03cfa4853380c832360d022ebe5b7fe7"
+    },
+    {
+      "path": "src/lib/reports-export.ts",
+      "bytes": 3621,
+      "sha256": "61a3595292535ed0b14cce508e38fa0141685eeeebb6d03a048b5c27688a532c"
+    },
+    {
+      "path": "src/lib/reports-format.ts",
+      "bytes": 9293,
+      "sha256": "0d46fad29d9455c6376a85d18d8f0151b0018e1f6f11b3a1211e1ab8a9a8b428"
+    },
+    {
+      "path": "src/lib/reports-integrity-text.ts",
+      "bytes": 3238,
+      "sha256": "ab7e57407c8c70baac9d25cacf6b8d65858afd579d2eb86f4e1988d705123d1e"
+    },
+    {
+      "path": "src/lib/reports-policy-text.ts",
+      "bytes": 2882,
+      "sha256": "482f05e940c283de9446cd56870468fcbc73ed612c343c336ef24da5ed525cdb"
+    },
+    {
+      "path": "src/lib/reports-queries.ts",
+      "bytes": 10441,
+      "sha256": "3af5761932f57f1cb66bfcd8a815d0de1a56980bee98bcfca8edcc4ffc0106be"
+    },
+    {
+      "path": "src/lib/reports-schemas.ts",
+      "bytes": 9739,
+      "sha256": "b3bd411e20a654bc725c9a58faa60de54558760f10c902875291dfbb10835976"
+    },
+    {
+      "path": "src/lib/stat-computations.ts",
+      "bytes": 19311,
+      "sha256": "8bba2486a86b4ba37a6e36b6dcb1904c8cd57819f4c3a41753a6003975fc9b05"
+    },
+    {
+      "path": "src/pages/Reports.tsx",
+      "bytes": 10679,
+      "sha256": "b09933f9d5f1c2096cff6e97c908ac9971147ab4fb31f3a85a90d13f1adebbb4"
+    },
+    {
+      "path": "src/pages/__tests__/reportsPage.test.tsx",
+      "bytes": 20751,
+      "sha256": "ab15f483a3aa43fbed0f070e93ff93830b25cddfe847e6278b8c7b8d404d9ba1"
+    },
+    {
+      "path": "supabase/migrations/20261005183955_reports_integrity_readers.sql",
+      "bytes": 21940,
+      "sha256": "1f1efcec700a9dc6926ea01eddb0a56ce670a157fedcd353783bcf2df7d05f29"
+    },
+    {
+      "path": "supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql",
+      "bytes": 47019,
+      "sha256": "f88855ae14cfd95f79c91fcf1d2512378d135f482dc1ac57ce8b16e9815578f6"
+    },
+    {
+      "path": "supabase/ops/reports_disable.sql",
+      "bytes": 3883,
+      "sha256": "17141977ba6480f8e99153665e185385e3f6ef203b122efdf67947a62d5079b2"
+    },
+    {
+      "path": "supabase/ops/reports_integrity_enable.sql",
+      "bytes": 4503,
+      "sha256": "a5433ce838eec87b338c9b3a79cfc939e2fdfb30ac232a4d948227522ae98a32"
+    },
+    {
+      "path": "supabase/tests/reports_integrity.sql",
+      "bytes": 11715,
+      "sha256": "35e3c1a6fe9929014205a5d94c16804f999c840fa8191b92537e8dde3ed7162d"
+    },
+    {
+      "path": "supabase/tests/reports_integrity_controls.sql",
+      "bytes": 2566,
+      "sha256": "16465da5fd2d9d8111dec0f44862cfad5033029907cda919f12f911de812050b"
+    },
+    {
+      "path": "supabase/tests/reports_integrity_dependencies.sql",
+      "bytes": 2128,
+      "sha256": "0804bc4685b17eb4a2f56ed357e3b9d8c1c8c50658db3a472512ad1acf8fb74d"
+    },
+    {
+      "path": "supabase/tests/reports_integrity_negative.sql",
+      "bytes": 2106,
+      "sha256": "b66d67b28a558894d03e4dec9ef5bb9b861084b0c5c1083bc7502953234fa6ed"
+    },
+    {
+      "path": "supabase/tests/reports_integrity_performance.sql",
+      "bytes": 2950,
+      "sha256": "b7dfe36662e58646f1d941ea4856f0b93af14c6fd51766def13c1cf956a3ba2a"
+    }
+  ]
+}

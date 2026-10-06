@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   scopeState: { status: "loading" } as { status: string; data?: unknown; error?: unknown },
   panels: {} as Record<string, { status: string; data?: unknown; error?: unknown }>,
   current: true,
+  mismatchDate: false,
   retryScope: vi.fn(),
   retryPanel: vi.fn(),
   refresh: vi.fn(),
@@ -28,7 +29,8 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 vi.mock("@/hooks/useReportsData", () => ({
   useReportScope: () => ({ key: "u|o", state: h.scopeState, reload: h.retryScope }),
-  useReportPanels: () => ({ key: "u|o|k", panels: h.panels, retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
+  useReportPanels: (_scope: string, req: { startDate: string; endDate: string } | null) => ({ key: "u|o|k", panels: Object.fromEntries(Object.entries(h.panels).map(([key, state]) => [key,
+    state.status === "ready" && req && !h.mismatchDate ? { ...state, data: { ...(state.data as object), window: { ...(state.data as { window: object }).window, start_date: req.startDate, end_date: req.endDate } } } : state])), retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
 }));
 vi.mock("@/lib/report-layout", async () => {
   const { DEFAULT_LAYOUT } = await vi.importActual<typeof import("@/lib/report-layout-constants")>("@/lib/report-layout-constants");
@@ -65,7 +67,7 @@ const renderPage = () => render(<MemoryRouter><Reports /></MemoryRouter>);
 beforeEach(() => {
   h.scopeState = ready(reportScope());
   h.panels = allReady();
-  h.current = true;
+  h.current = true; h.mismatchDate = false;
   h.downloads = [];
   h.retryScope.mockReset(); h.retryPanel.mockReset(); h.refresh.mockReset(); h.toastError.mockReset();
 });
@@ -258,7 +260,7 @@ describe("exports", () => {
     rerender(<MemoryRouter><Reports /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
     await waitFor(() => expect(h.downloads).toHaveLength(1));
-    expect(h.downloads[0].name).toBe("report-summary-2026-07-01-to-2026-07-31.csv");
+    expect(h.downloads[0].name).toBe("report-summary-2026-06-21-to-2026-07-20.csv");
     expect(h.downloads[0].csv).toContain(`"Scope","Your team"`);
     expect(h.downloads[0].csv).toContain(`"Time zone","America/Los_Angeles"`);
     expect(h.downloads[0].csv).toContain(`"Calls made (outbound)",19`);
@@ -279,7 +281,7 @@ describe("exports", () => {
     for (const b of csvButtons) fireEvent.click(b);
     await waitFor(() => expect(h.downloads.length).toBe(csvButtons.length));
     for (const d of h.downloads) {
-      expect(d.csv).toContain(`"Period","2026-07-01 to 2026-07-31"`);
+      expect(d.csv).toContain(`"Period","2026-06-21 to 2026-07-20"`);
       expect(d.csv).not.toMatch(/(^|,)"=Sold"/m); // the "=Sold" disposition name is neutralized
     }
   });
@@ -332,7 +334,7 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
     await waitFor(() => expect(h.downloads).toHaveLength(1));
     expect(h.downloads[0].csv).toContain(`"Policies sold (stored, by sale date)",5`);
-    expect(h.downloads[0].csv).toMatch(/"Note","Agent policy counts use the client's current assigned agent, not the original seller/);
+    expect(h.downloads[0].csv).toMatch(/"Note","Agent policy counts and premiums use the client's current assigned agent, not the original seller/);
     expect(h.downloads[0].csv).toMatch(/"Note","Policies are stored client policies/);
   });
 
@@ -348,5 +350,23 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
       expect(e.textContent).toMatch(/Couldn't load/);
       expect(e.textContent).not.toMatch(/\d/);
     }
+  });
+});
+
+describe("v2 quality and response integrity", () => {
+  it("withholds a response for the wrong dates, including exports", () => {
+    h.mismatchDate = true; renderPage();
+    expect(screen.getByText("Your report access changed while this page was open.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^export$/i })).toBeDisabled();
+  });
+  it("shows known premium and preserves unknown coverage in CSV", async () => {
+    renderPage();
+    expect(screen.getByText("Report basis and data quality")).toBeInTheDocument();
+    expect(screen.getByText(/Known annual premium in that subset:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
+    await waitFor(() => expect(h.downloads).toHaveLength(1));
+    expect(h.downloads[0].csv).toContain('"Known annual premium",1481.4');
+    expect(h.downloads[0].csv).toContain('"Policies with unknown premium",1');
+    expect(h.downloads[0].csv).toContain('"Response as of","2026-07-20T18:00:00Z"');
   });
 });

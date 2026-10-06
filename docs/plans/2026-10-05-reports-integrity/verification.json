@@ -1,0 +1,169 @@
+{
+  "base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
+  "branch": "codex/reports-integrity-phase1-20261005",
+  "status": "published in draft PR #418; production not approved or deployed",
+  "checked_date": "2026-10-05",
+  "targeted_tests": {
+    "files": 9,
+    "passed": 145,
+    "skipped": 0,
+    "sql_payload_roundtrip": true
+  },
+  "embedded_sql": {
+    "passed_steps": 28,
+    "negative_controls": 6,
+    "summary_calls": 50000,
+    "overlapping_sessions": 2000,
+    "matched_calls": 50000,
+    "union_seconds": 600300,
+    "elapsed_ms": 1149,
+    "engine": "PGlite 0.3.14; not native or hosted latency"
+  },
+  "typescript": {
+    "base_app_diagnostics": 87,
+    "candidate_app_diagnostics": 87,
+    "new_diagnostics": 0,
+    "root": "pass"
+  },
+  "lint": {
+    "baseline_errors": 11,
+    "candidate_errors": 11,
+    "baseline_warnings": 184,
+    "candidate_warnings": 184,
+    "scoped": "pass"
+  },
+  "build": "pass; existing >500kB chunk warning",
+  "production_actions": [],
+  "limits": [
+    "Native PostgreSQL and independent-session CI pending runner assignment",
+    "Hosted authenticated browser/API verification remains a production release readback",
+    "Historical call and booking candidates remain unresolved",
+    "Production release, merge and migrations remain unapproved"
+  ],
+  "migrations": [
+    {
+      "path": "supabase/migrations/20261005183955_reports_integrity_readers.sql",
+      "sha256": "1f1efcec700a9dc6926ea01eddb0a56ce670a157fedcd353783bcf2df7d05f29"
+    },
+    {
+      "path": "supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql",
+      "sha256": "f88855ae14cfd95f79c91fcf1d2512378d135f482dc1ac57ce8b16e9815578f6"
+    }
+  ],
+  "evidence_sha256": {
+    "embedded-reports-final.txt": "9124d85d23a5aa7de58c9d13c33390fbe11d4b4c14ce2f0ee05f2b5d39517186",
+    "reports-reviewed-tests.txt": "1a7186717f3b16628a93c9c6c232807ae0defaa845e6c4345cb8071fba286c9b",
+    "reports-sql-payloads.json": "dbdb4e093c07aa1e59ce7c8e550bfaae0cf7f9e032f510624b1ef0f721883127",
+    "base-app-tsc.txt": "266c270fe249a59d6d0456ab5f8f1f1827f14e1c5949c0b6feed8846e4f6ba58",
+    "candidate-app-tsc.txt": "266c270fe249a59d6d0456ab5f8f1f1827f14e1c5949c0b6feed8846e4f6ba58",
+    "base-lint.txt": "5a7f3df86dc2ccd068e43a38a847db97c43073760d082706aab40ae9e9f97114",
+    "candidate-lint.txt": "2d25908a499c57dcc8b7d3bcf308f06568f5e8cdeffc59dc5af9c717bc52859e",
+    "candidate-build.txt": "36c44badb8727bd062f212d622d7c30e1f3bcbc38f16a8b6be72c0253d4a5d98",
+    "base-full-tests.txt": "8c3d7a9deeb4b4408ba1bf6a97eb248bc78d34c99531dc242191bf0c2488096c",
+    "candidate-full-tests.txt": "9317aff08334f24ea88121b0ebe7913f54f0930b0db0a84d7961ede1740bdf47",
+    "candidate-final-tests.json": "84c3909aa6af6a4fb58e69fda757e3b8a4dbd44443726c7be4f1880fd4614f60",
+    "candidate-final-runtime-errors.json": "ffa8887959d80b18987a524a9d5f3f5ba02d74ece8c45e52156a5cd32cab1abd",
+    "candidate-final-tests.txt": "b4d5eb379cea1b056573da48e54468f958dc146daa89398b2e93ad5ab7152303",
+    "reports-scoped-lint.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-tsc.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reports-browser-final.txt": "1b9f41538fbfbb634c63ec30af9b1ca3378516949ba09d55813e6df782940e83",
+    "reports-browser-local/agent-performance-2026-10-01-to-2026-10-01.csv": "321a8054dc6c4b2dc5be75d49917c5c6719d15ebdd6e75e9fa79b44994d049cc",
+    "reports-browser-local/campaign-performance-2026-10-01-to-2026-10-01.csv": "d8fa222cd45e4744f0f7b30af6874a7b80f5a35c00da5618e0b2beb256b05f8e",
+    "reports-browser-local/fixture-formula-safety.csv": "a19467063c8aab1b8d4e8b0fe159499f6800f677b3df78fd4969bd52177f6649",
+    "reports-browser-local/panel-failure.png": "74e639eb4c936b95fa88d6872c7b7a69568c04f52520284c1beb90199c07948e",
+    "reports-browser-local/report-summary-2026-10-01-to-2026-10-01.csv": "7c289d7ab653c1e8066066a2fbf72a4e78c82ab88eac44908555e769cf9698ce",
+    "reports-browser-local/reports-1440-call-summary.png": "b538703e55f915e196e33eef3df30474c0d5f2bf67e7e9615eb7c12451bac680",
+    "reports-browser-local/reports-1440-inspected-b6cdda706a51.png": "b6cdda706a51c57a364521515918b31b8bce07548f18c6f37e10e47dc1e6b957",
+    "reports-browser-local/reports-1440.json": "fca7eed3047cda438129b21cbbe38ddeeaab7c2d0f268b7887d81fb9b1b5b4ea",
+    "reports-browser-local/reports-1440.png": "1fa5f7b183f91295f068547fbca23e4ae0905ee2de670db28951d598ccd7c479",
+    "reports-browser-local/reports-390-call-summary.png": "5861ac4f63dae6d873b591196bcaed1017ba73d57dab797c9e60eab0a27256fe",
+    "reports-browser-local/reports-390.json": "8ce446f295522f90e88a452116767dbc3bdc75adf6c10225c8d5525f007eaec7",
+    "reports-browser-local/reports-390.png": "9c4877be145038462091e90d0374ea38c92aa365329edd4d3c83f3958e5e94a8",
+    "reports-browser-local/rpc-requests.json": "cf1a49631f33f8c304db6d78b5c7c35b18b5e8aa581d2c847a9bf5e0f5a6ce87",
+    "reports-browser-local/reports-1440-final-1fa5f7b183f9.png": "1fa5f7b183f91295f068547fbca23e4ae0905ee2de670db28951d598ccd7c479",
+    "reports-browser-local/reports-390-final-9c4877be1450.png": "9c4877be145038462091e90d0374ea38c92aa365329edd4d3c83f3958e5e94a8"
+  },
+  "full_suite": {
+    "base_passed": 4187,
+    "candidate_passed": 4199,
+    "failed_files": 10,
+    "failed_tests": 1,
+    "skipped": 33,
+    "same_failure_files_as_base": true,
+    "failed_file_names": [
+      "src/lib/caller-id-selection.test.ts",
+      "src/lib/custom-fields-settings.test.ts",
+      "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+      "src/lib/__tests__/contactName.test.ts",
+      "src/lib/__tests__/contactScope.test.ts",
+      "src/lib/__tests__/leadDisposition.test.ts",
+      "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+      "src/lib/__tests__/userLocalDayBounds.test.ts",
+      "src/lib/control-center/runtimeEventLogger.test.ts",
+      "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts"
+    ],
+    "failed_test_identities": [
+      [
+        "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+        "handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29"
+      ]
+    ],
+    "runtime_reporter": {
+      "finished": true,
+      "reason": "failed",
+      "errors": []
+    }
+  },
+  "independent_review": "SQL and frontend reviews complete; findings resolved and final spot-checks passed",
+  "open_prs_checked": [
+    398,
+    383,
+    382,
+    381,
+    378,
+    294
+  ],
+  "reports_source_overlap": [],
+  "publication": {
+    "approved": true,
+    "pull_request": "https://github.com/cgarness/agentflow-life-insure/pull/418",
+    "initial_remote_commit": "450fdc28c724e8e158476dd3769d895a48f1497d",
+    "initial_local_commit": "a1701836504b6645f8af29c4378d2181d79ffaf7",
+    "identical_initial_tree": "b48a9577ad6c5cefab04ef9c679b2ec00ecd2ac0",
+    "final_exact_head_results": "PR body and saved review packet"
+  },
+  "interruption_integrity": {
+    "recorded_source_hashes_checked": 43,
+    "evidence_hashes_checked": 15,
+    "missing_or_mismatched": []
+  },
+  "browser": {
+    "engine": "Playwright 1.56.1 / Chromium",
+    "transport": "isolated synthetic SQL responses; local payloads from embedded PostgreSQL; native payloads required in CI",
+    "viewport_widths": [
+      1440,
+      390
+    ],
+    "page_overflow": false,
+    "clipped_monetary_values": false,
+    "charts": 9,
+    "visible_pie_sectors": 2,
+    "positive_bar_shapes": 10,
+    "real_rpc_hooks": 6,
+    "checks": [
+      "full amounts and known/unknown coverage",
+      "exact time values and quality disclosure",
+      "real summary, agent and campaign CSV downloads",
+      "blank unknown CSV fields",
+      "formula protection",
+      "independent panel failure and retry",
+      "stale-window values and exports withheld",
+      "no unexpected page or console errors",
+      "no external HTTP data requests"
+    ],
+    "screenshot_review": "Final desktop/mobile images inspected: charts filled, full amounts/coverage and no page overflow",
+    "agent_browser_cli_local": "daemon startup unavailable; direct Playwright provided actual browser evidence",
+    "ci": "both initial agent-browser gut check and Playwright flow required",
+    "clock": "Real browser clock; calendar navigates to exact SQL window without time mocking"
+  }
+}

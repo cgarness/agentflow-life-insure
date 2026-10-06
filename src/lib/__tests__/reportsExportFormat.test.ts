@@ -74,16 +74,16 @@ describe("agency calendar arithmetic", () => {
       { date: "2026-07-01", calls_made: 3 }, { date: "2026-07-05", calls_made: 4 },
     ];
     const weekly = groupDailySeries(rows, "weekly", ["calls_made"]);
-    expect(weekly.map((b) => b.key)).toEqual(["2026-06-28", "2026-07-05"]);
-    expect(weekly.map((b) => b.calls_made)).toEqual([6, 4]);
+    expect(weekly.map((b) => b.key)).toEqual(["2026-06-29"]);
+    expect(weekly.map((b) => b.calls_made)).toEqual([10]);
     const monthly = groupDailySeries(rows, "monthly", ["calls_made"]);
     // Both months are clipped by the rows, so they are labelled with the days they really cover.
     expect(monthly.map((b) => [b.label, b.calls_made])).toEqual([["Jun 29 – Jun 30", 3], ["Jul 01 – Jul 05", 7]]);
-    expect(weekly.map((b) => b.label)).toEqual(["Jun 29 – Jul 01", "Jul 05 – Jul 05"]);
+    expect(weekly.map((b) => b.label)).toEqual(["Week of Jun 29"]);
     const fullJuly = Array.from({ length: 31 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, calls_made: 1 }));
     expect(groupDailySeries(fullJuly, "monthly", ["calls_made"])[0].label).toBe("Jul 2026");
-    expect(groupDailySeries(fullJuly, "weekly", ["calls_made"])[1].label).toBe("Week of Jul 05");
-    expect(bucketKey("2026-07-04", "weekly")).toBe("2026-06-28"); // Saturday -> preceding Sunday
+    expect(groupDailySeries(fullJuly, "weekly", ["calls_made"])[1].label).toBe("Week of Jul 06");
+    expect(bucketKey("2026-07-04", "weekly")).toBe("2026-06-29"); // Saturday -> preceding Monday
     expect(autoGrouping({ startDate: "2026-07-01", endDate: "2026-07-31" })).toBe("weekly");
   });
 
@@ -95,11 +95,11 @@ describe("agency calendar arithmetic", () => {
   });
 
   it("formats hours without ever producing a 60-minute remainder", () => {
-    expect(formatHours(3599)).toBe("1h 0m");
-    expect(formatHours(7170)).toBe("2h 0m");
-    expect(formatHours(7169)).toBe("1h 59m");
-    expect(formatHours(0)).toBe("0h 0m");
-    expect(formatHours(99_600)).toBe("27h 40m");
+    expect(formatHours(3599)).toBe("0h 59m 59s");
+    expect(formatHours(7170)).toBe("1h 59m 30s");
+    expect(formatHours(7169)).toBe("1h 59m 29s");
+    expect(formatHours(0)).toBe("0h 0m 0s");
+    expect(formatHours(99_600)).toBe("27h 40m 0s");
     expect(formatHours(null)).toBe("—");
   });
 });
