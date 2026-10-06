@@ -108,7 +108,7 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
           <Calendar className="w-8 h-8 text-muted-foreground opacity-50" />
         </div>
         <p className="text-sm text-muted-foreground font-medium mb-4">
-          Your schedule is clear for today
+          No appointments today
         </p>
         <Button 
           variant="outline" 

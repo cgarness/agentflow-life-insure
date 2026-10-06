@@ -810,12 +810,12 @@ describe("25/26. DashboardDetailModal failure UI", () => {
     return rtl;
   };
 
-  it("25. an initial failure renders the failure message, NOT 'No intelligence found'", async () => {
+  it("25. an initial failure renders the failure message, NOT 'No records in this range'", async () => {
     state.rowErrors["campaign-due"] = { message: "permission denied for table campaign_leads", code: "42501" };
     const { screen, waitFor, cleanup } = await renderModal();
     await waitFor(() => expect(screen.getByText("Couldn't load these records")).toBeTruthy());
     // THE assertion this requirement exists for.
-    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("No records in this range")).toBeNull();
     // No raw database detail in the DOM.
     expect(document.body.textContent).not.toContain("permission denied");
     expect(document.body.textContent).not.toContain("42501");
@@ -824,7 +824,7 @@ describe("25/26. DashboardDetailModal failure UI", () => {
 
   it("a successful empty initial load renders the valid-empty message, not the failure one", async () => {
     const { screen, waitFor, cleanup } = await renderModal();
-    await waitFor(() => expect(screen.getByText("No intelligence found in this range")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No records in this range")).toBeTruthy());
     expect(screen.queryByText("Couldn't load these records")).toBeNull();
     cleanup();
   });
@@ -952,7 +952,7 @@ describe("Correction 2 — stale requests cannot overwrite newer results", () =>
     // The newer rows survive; the stale failure never lands.
     expect(screen.getByText("Bo Bee")).toBeTruthy();
     expect(screen.queryByText("Couldn't load these records")).toBeNull();
-    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("No records in this range")).toBeNull();
     expect(screen.queryByText("Couldn't load more records")).toBeNull();
     // And no raw detail leaked.
     expect(document.body.textContent).not.toContain("permission denied");
@@ -981,10 +981,10 @@ describe("Correction 2 — stale requests cannot overwrite newer results", () =>
     settleFirst({ data: [], error: null });
     await new Promise((r) => setTimeout(r, 0));
     // Still loading, because the NEWER request has not settled.
-    expect(screen.getByText("Synchronizing Intelligence...")).toBeTruthy();
+    expect(screen.getByText("Loading records…")).toBeTruthy();
 
     settleSecond({ data: [], error: null });
-    await waitFor(() => expect(screen.getByText("No intelligence found in this range")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No records in this range")).toBeTruthy());
     cleanup();
   });
 });
@@ -1060,7 +1060,7 @@ describe("requirement 26 — a real pagination failure keeps loaded rows and say
 
     // 8. The other three states stay absent.
     expect(screen.queryByText("Couldn't load these records")).toBeNull();
-    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("No records in this range")).toBeNull();
     expect(screen.queryByText("End of list")).toBeNull();
 
     // 9. No raw database detail anywhere in the DOM.
@@ -1089,9 +1089,9 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     view.rerender(React.createElement(Modal, { ...props, type: "callbacks" as const }));
     await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
 
-    // 4. `hasMore === true` is observable as "SCROLL FOR MORE" (mixed text node, so read
+    // 4. `hasMore === true` is observable as "Scroll for more" (mixed text node, so read
     //    the container's textContent rather than matching a single node).
-    expect(container.textContent).toContain("SCROLL FOR MORE");
+    expect(container.textContent).toContain("Scroll for more");
 
     // 5. NOW let the stale `calls` request resolve SUCCESSFULLY with an empty result.
     settleStale({ data: [], error: null });
@@ -1100,7 +1100,7 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     // 6. The current rows and `hasMore` must survive. This is the assertion that fails
     //    before the fix: the stale success reaches `setHasMore(false)` unguarded.
     expect(screen.getAllByText(/Agent\d+ Row/)).toHaveLength(first.length);
-    expect(container.textContent).toContain("SCROLL FOR MORE");
+    expect(container.textContent).toContain("Scroll for more");
 
     // 7. Pagination is still alive for the CURRENT generation: exactly one new query.
     const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
@@ -1115,7 +1115,7 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     expect((state.rowQueryCount["campaign-due"] ?? 0) - before).toBe(1);
 
     // 8. No stale empty, error or end-of-list state.
-    expect(screen.queryByText("No intelligence found in this range")).toBeNull();
+    expect(screen.queryByText("No records in this range")).toBeNull();
     expect(screen.queryByText("Couldn't load these records")).toBeNull();
     expect(screen.queryByText("Couldn't load more records")).toBeNull();
     expect(screen.queryByText("End of list")).toBeNull();

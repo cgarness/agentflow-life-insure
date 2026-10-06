@@ -204,7 +204,7 @@ describe("correction 1: coordinated, non-overlapping refresh", () => {
     const summary1 = await first;
     expect(summary1.outcomes).toEqual({ appointments: { status: "failed" }, missed_calls: { status: "ok" } });
     expect(screen.getByText("Couldn't load your schedule")).toBeInTheDocument();
-    expect(screen.queryByText("Your schedule is clear for today")).not.toBeInTheDocument();
+    expect(screen.queryByText("No appointments today")).not.toBeInTheDocument();
 
     // Refresh 2, eligible 30 s later, with the stalled read still on the wire: Schedule
     // sends nothing and does not hold the wait; Missed Calls refreshes.
@@ -309,8 +309,8 @@ describe("correction 2: nothing is sent while hidden or offline", () => {
     expect(h.queries).toEqual([]);
     expect(screen.getAllByText("You're offline")).toHaveLength(2);
     expect(screen.getByText("Your schedule will load when you reconnect.")).toBeInTheDocument();
-    expect(screen.queryByText("Your schedule is clear for today")).not.toBeInTheDocument();
-    expect(screen.queryByText("All caught up!")).not.toBeInTheDocument();
+    expect(screen.queryByText("No appointments today")).not.toBeInTheDocument();
+    expect(screen.queryByText("No missed calls")).not.toBeInTheDocument();
 
     act(() => setOnline(true));
     await waitFor(() => expect(screen.getByText("Pat Lee")).toBeInTheDocument());
@@ -436,7 +436,7 @@ describe("correction 3: a failed refresh keeps the data and says so", () => {
     expect(screen.getByText("Couldn't load missed calls")).toBeInTheDocument();
     expect(screen.getByText("Couldn't load anniversaries")).toBeInTheDocument();
     expect(screen.getByText("Couldn't load goal progress")).toBeInTheDocument();
-    for (const empty of ["Your schedule is clear for today", "All caught up!", "No policy anniversaries soon", "No goals configured"]) {
+    for (const empty of ["No appointments today", "No missed calls", "No upcoming policy anniversaries", "No goals configured"]) {
       expect(screen.queryByText(empty)).not.toBeInTheDocument();
     }
   });
@@ -444,11 +444,11 @@ describe("correction 3: a failed refresh keeps the data and says so", () => {
   it("over an empty result, a failed Refresh shows the empty message only together with the stale note", async () => {
     h.result = () => ({ data: [], error: null });
     const view = render(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={0} />);
-    await waitFor(() => expect(screen.getByText("All caught up!")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No missed calls")).toBeInTheDocument());
     h.result = () => FAIL;
     view.rerender(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={1} />);
     await waitFor(() => expect(screen.getByText(/Couldn't refresh — showing missed calls from/)).toBeInTheDocument());
-    expect(screen.getByText("All caught up!")).toBeInTheDocument();
+    expect(screen.getByText("No missed calls")).toBeInTheDocument();
   });
 
   it("Missed Calls: a failed contact lookup is a failure, never rows claiming 'no linked contact'", async () => {

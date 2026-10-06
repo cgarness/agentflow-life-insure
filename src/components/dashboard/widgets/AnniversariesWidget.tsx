@@ -135,7 +135,8 @@ const AnniversariesWidget: React.FC<AnniversariesWidgetProps> = ({
         <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center mb-4">
           <Gift className="w-8 h-8 text-pink-500 opacity-50" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium">No policy anniversaries soon</p>
+        <p className="text-sm text-muted-foreground font-medium">No upcoming policy anniversaries</p>
+        <p className="mt-1 text-xs text-muted-foreground">Next 30 days</p>
       </div>
     );
   }

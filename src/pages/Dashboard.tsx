@@ -510,7 +510,7 @@ const Dashboard: React.FC = () => {
 
           {(role === "Admin" || role === "Team Leader") && (
             <div className="flex items-center gap-2 bg-card shadow-sm px-3 py-1.5 rounded-2xl border border-border/40">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">Perspective</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1">View</span>
               <button
                 onClick={() =>
                   setAdminViewMode(adminViewMode === "team" ? "my" : "team")
@@ -521,7 +521,7 @@ const Dashboard: React.FC = () => {
                     : "bg-blue-600 border-blue-500"
                 }`}
               >
-                {adminViewMode === "team" ? "Team Overview" : "Personal Stats"}
+                {adminViewMode === "team" ? "Team overview" : "Personal stats"}
               </button>
             </div>
           )}
@@ -538,7 +538,7 @@ const Dashboard: React.FC = () => {
             }`}
           >
             <Pencil className="h-3.5 w-3.5 mr-2 text-primary" />
-            <span className="text-xs font-semibold">{editMode ? "Done Editing" : "Customize Layout"}</span>
+            <span className="text-xs font-semibold">{editMode ? "Done" : "Customize layout"}</span>
           </Button>
         </div>
       </div>
@@ -568,14 +568,14 @@ const Dashboard: React.FC = () => {
         >
           <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
           <span className="text-sm font-bold text-yellow-500 uppercase tracking-wider">
-            Layout Editor Active
+            Edit layout
           </span>
           <div className="ml-auto flex gap-2">
             <Button size="sm" onClick={saveLayout} className="bg-yellow-600 hover:bg-yellow-700 text-white border-0 rounded-lg">
-              Save Changes
+              Save changes
             </Button>
             <Button variant="outline" size="sm" onClick={resetLayout} className="border-yellow-500/20 hover:bg-yellow-500/10 rounded-lg">
-              Reset Default
+              Reset to default
             </Button>
           </div>
         </motion.div>
@@ -658,7 +658,7 @@ const Dashboard: React.FC = () => {
       {editMode && hiddenWidgetKeys.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-            Hidden Widgets
+            Hidden widgets
           </h3>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             {hiddenWidgetKeys.map((key) => {

@@ -228,7 +228,7 @@ describe("widgets reload on the Refresh signal", () => {
     await waitFor(() => expect(loads()).toBe(2));
     await flush();
     expect(screen.getByText("Pat Lee")).toBeInTheDocument();
-    expect(screen.queryByText("Your schedule is clear for today")).not.toBeInTheDocument();
+    expect(screen.queryByText("No appointments today")).not.toBeInTheDocument();
   });
 
   it("Missed Calls clears its list when a refresh finds nothing (never leaves calls that are gone)", async () => {
@@ -243,7 +243,7 @@ describe("widgets reload on the Refresh signal", () => {
 
     h.result = () => ({ data: [], error: null });
     rerender(<MissedCallsWidget userId={USER} role="Admin" adminToggle="team" refreshSignal={1} />);
-    await waitFor(() => expect(screen.getByText("All caught up!")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No missed calls")).toBeInTheDocument());
     expect(screen.queryByText("Jordan Kay")).not.toBeInTheDocument();
   });
 });

@@ -27,7 +27,6 @@ export default function ReportsActivityFlow({ summary, onRetry }: ReportsActivit
             <div className="min-w-0 rounded-2xl border border-border/70 bg-card p-5 sm:p-6">
               <div className="mb-6">
                 <h2 className="text-base font-semibold tracking-tight text-foreground">Activity and production</h2>
-                <p className="mt-1 text-sm text-muted-foreground">A view across the work and outcomes recorded in this period.</p>
               </div>
               <dl className="grid min-w-0 grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3 lg:grid-cols-5">
                 {stages.map((stage, index) => (

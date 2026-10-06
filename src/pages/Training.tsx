@@ -47,7 +47,7 @@ const Training: React.FC = () => {
   };
 
   const activeCategoryName = activeCategoryId === "all" 
-    ? "All Resources" 
+    ? "All resources"
     : categories.find(c => c.id === activeCategoryId)?.name || "Category";
 
   // Case-insensitive role check for Admin and Super Admin
@@ -59,7 +59,7 @@ const Training: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)]">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-        <p className="text-muted-foreground">Loading training center...</p>
+        <p className="text-muted-foreground">Loading training…</p>
       </div>
     );
   }
@@ -71,11 +71,8 @@ const Training: React.FC = () => {
         <div className="space-y-1">
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <GraduationCap className="h-6 w-6 text-primary" />
-            Training Center
+            Training
           </h1>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-            Knowledge Library
-          </p>
         </div>
 
         <div className="space-y-4">
@@ -101,7 +98,7 @@ const Training: React.FC = () => {
             >
               <div className="flex items-center gap-2">
                 <Hash className={cn("h-3.5 w-3.5 opacity-50", activeCategoryId === "all" ? "text-primary-foreground" : "text-primary")} />
-                All Resources
+                All resources
               </div>
               {activeCategoryId === "all" && <ChevronRight className="h-3 w-3" />}
             </button>
@@ -132,9 +129,6 @@ const Training: React.FC = () => {
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <h2 className="text-2xl font-bold tracking-tight">{activeCategoryName}</h2>
-            <p className="text-muted-foreground text-sm">
-              Viewing {filteredResources.length} resources in {activeCategoryName}
-            </p>
           </div>
           
           <div className="flex items-center gap-3">
@@ -174,10 +168,7 @@ const Training: React.FC = () => {
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Search className="h-8 w-8 text-muted-foreground/50" />
             </div>
-            <h3 className="text-lg font-semibold">No results found</h3>
-            <p className="text-muted-foreground max-w-xs mt-1 text-sm">
-              We couldn't find any resources matching your criteria in this category.
-            </p>
+            <h3 className="text-lg font-semibold">No resources found</h3>
           </div>
         )}
 

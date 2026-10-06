@@ -74,8 +74,7 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                     <Play className="h-10 w-10 fill-current" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-lg">No Video Available</h4>
-                    <p className="text-sm text-muted-foreground">This resource does not have a video URL attached.</p>
+                    <h4 className="font-semibold text-lg">No video attached</h4>
                   </div>
                 </div>
               )
@@ -100,8 +99,7 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                     <FileText className="h-10 w-10" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-lg">No Document Available</h4>
-                    <p className="text-sm text-muted-foreground">This resource does not have a document URL attached.</p>
+                    <h4 className="font-semibold text-lg">No document attached</h4>
                   </div>
                 </div>
               )
@@ -128,7 +126,7 @@ const ResourceDetail: React.FC<ResourceDetailProps> = ({
                     Completed
                   </>
                 ) : (
-                  "Mark as Complete"
+                  "Mark complete"
                 )}
               </Button>
             </PermissionGate>

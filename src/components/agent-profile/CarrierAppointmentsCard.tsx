@@ -36,7 +36,6 @@ export const CarrierAppointmentsCard: React.FC<CarrierAppointmentsCardProps> = (
   return (
     <ProfileSection
       title="Carrier appointments"
-      description="Carriers on file for you, with writing numbers where recorded."
       action={
         <Button variant="outline" size="sm" onClick={() => navigate("/settings?section=my-profile")}>
           Manage carriers
@@ -46,8 +45,7 @@ export const CarrierAppointmentsCard: React.FC<CarrierAppointmentsCardProps> = (
       {carriers.length === 0 ? (
         <ProfileEmptyState
           icon={<Building2 className="h-6 w-6" />}
-          title="No carrier appointments on file"
-          description="Add the carriers you are appointed with so they appear on your profile."
+          title="No carrier appointments"
           action={
             <Button size="sm" onClick={() => navigate("/settings?section=my-profile")}>
               Add a carrier

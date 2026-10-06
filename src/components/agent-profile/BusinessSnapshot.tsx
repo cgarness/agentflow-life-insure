@@ -68,7 +68,6 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             icon={<Users className="h-4 w-4" />}
             label={`${prefix}Clients`}
             value={formatCount(stats.totalClients)}
-            hint="People on the book."
             caveat={
               stats.clientsWithoutPolicyDetail > 0
                 ? `${formatCount(stats.clientsWithoutPolicyDetail)} with no policy details recorded`
@@ -100,7 +99,7 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             icon={<Wallet className="h-4 w-4" />}
             label={`${prefix}Monthly Premium`}
             value={formatMonthlyCurrency(stats.totalPremiumMonthly)}
-            hint="Sum of the monthly premium recorded on each policy. Not annualized."
+            hint="Recorded monthly premium; not annualized."
             caveat={
               stats.policiesMissingPremium > 0
                 ? `${formatCount(stats.policiesMissingPremium)} ${
@@ -116,14 +115,14 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             value={formatCount(stats.distinctCarriers)}
             // Never "active carriers": no appointment status is stored anywhere, so claiming one
             // would be inventing a field.
-            hint="Distinct carriers represented across these policies."
+            hint="Distinct carriers on these policies."
           />
 
           <StatTile
             icon={<MapPin className="h-4 w-4" />}
             label={scopeLabel === "Team" ? "States Covered" : "Licensed States"}
             value={formatCount(stats.distinctLicensedStates)}
-            hint="Distinct states from recorded state licences."
+            hint="Distinct recorded license states."
           />
 
           {extraTile}
@@ -133,7 +132,7 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
       {stats && !error && (
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
           Lifetime totals from the{" "}
-          <DefinitionHint text="A policy is the primary policy stored on a client record, plus any additional policies recorded against that client. There is no separate policies table, and policy sale events (wins) are not used here — they freeze values at the moment of sale and miss manually created or imported clients.">
+          <DefinitionHint text="Primary and additional policies on current client records, including manually added and imported clients. These are book totals, not sale-event totals.">
             book of business
           </DefinitionHint>
           . For performance over a date range, see Reports.

@@ -92,7 +92,6 @@ export const LicensingCard: React.FC<LicensingCardProps> = ({
   return (
     <ProfileSection
       title="State licensing"
-      description="Recorded state licences, the source of truth for where you can write."
       action={
         <Button
           variant="outline"
@@ -112,7 +111,6 @@ export const LicensingCard: React.FC<LicensingCardProps> = ({
           <ProfileEmptyState
             icon={<ShieldCheck className="h-6 w-6" />}
             title="No state licences recorded"
-            description="Add your state licences so your profile reflects where you can write business."
             action={
               <Button size="sm" onClick={() => navigate("/settings?section=state-licenses")}>
                 Add a licence

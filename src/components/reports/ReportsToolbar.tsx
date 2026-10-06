@@ -63,7 +63,6 @@ const ReportsToolbar: React.FC<Props> = (p) => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Reports</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Production and the activity behind it.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" className={cn("h-9 gap-2 rounded-lg", p.editMode && "border-primary text-primary")}

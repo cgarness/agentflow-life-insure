@@ -156,7 +156,6 @@ export const AchievementsCard: React.FC<AchievementsCardProps> = ({
   return (
     <ProfileSection
       title={isTeam ? "Team achievements" : "Lifetime achievements"}
-      description="Career records, derived from recorded policy and dialing history."
     >
       {error ? (
         <MetricUnavailable title="Achievements couldn't load" onRetry={onRetry} />
@@ -168,7 +167,6 @@ export const AchievementsCard: React.FC<AchievementsCardProps> = ({
             <ProfileEmptyState
               icon={<Trophy className="h-6 w-6" />}
               title="No records yet"
-              description="Records appear as policies are written and dialing history builds up."
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{tiles}</div>

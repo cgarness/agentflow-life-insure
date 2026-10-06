@@ -83,9 +83,6 @@ const Resources: React.FC = () => {
               <FolderOpen className="h-6 w-6 text-primary" />
               Resources
             </h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-              Fast Access Library
-            </p>
           </div>
 
           <div className="flex bg-muted/50 p-1 rounded-lg">
@@ -163,7 +160,7 @@ const Resources: React.FC = () => {
                     : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
                 )}
               >
-                All Documents
+                All documents
                 <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                   {documents.length}
                 </span>
@@ -225,7 +222,7 @@ const Resources: React.FC = () => {
                   // Optional: add a toast here for feedback
                 }}>
                   <ScrollText className="h-4 w-4" />
-                  Copy Script
+                  Copy script
                 </Button>
               </header>
               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -239,10 +236,7 @@ const Resources: React.FC = () => {
               <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
                 <ScrollText className="h-8 w-8 text-muted-foreground/50" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground">No script selected</h3>
-              <p className="text-muted-foreground text-sm max-w-sm mt-1">
-                Select a script from the sidebar to view its contents.
-              </p>
+              <h3 className="text-lg font-semibold text-foreground">Select a script</h3>
             </div>
           )
         ) : (
@@ -252,7 +246,7 @@ const Resources: React.FC = () => {
                 <div className="flex items-center gap-4">
                   <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={() => setSelectedDocument(null)}>
                     <ChevronRight className="h-4 w-4 rotate-180" />
-                    Back to Grid
+                    Back
                   </Button>
                   <div className="h-6 w-px bg-border mx-2" />
                   <div>
@@ -270,7 +264,7 @@ const Resources: React.FC = () => {
                   <Button variant="outline" size="sm" className="gap-2" asChild>
                     <a href={selectedDocument.content_url} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-4 w-4" />
-                      Open Full Screen
+                      Open document
                     </a>
                   </Button>
                 </div>
@@ -295,12 +289,9 @@ const Resources: React.FC = () => {
             <div className="flex flex-col h-full bg-card/10">
               <header className="px-8 py-6 border-b border-border/50 bg-background/50 backdrop-blur shrink-0 flex justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight text-foreground mb-1">
-                    {selectedCategoryId === "all" ? "All Documents" : categories.find(c => c.id === selectedCategoryId)?.name || "Documents"}
+                  <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                    {selectedCategoryId === "all" ? "All documents" : categories.find(c => c.id === selectedCategoryId)?.name || "Documents"}
                   </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {filteredDocuments.length} resources available
-                  </p>
                 </div>
                 {isAdmin && (
                   <AddAgencyResourceModal categories={categories} onAdd={(doc, file) => addDocument.mutate({ doc, file })} isLoading={addDocument.isPending} />
@@ -326,12 +317,7 @@ const Resources: React.FC = () => {
                     <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center mb-6">
                       <FileText className="h-10 w-10 text-primary/40" />
                     </div>
-                    <h3 className="text-xl font-bold tracking-tight text-foreground mb-2">No documents found</h3>
-                    <p className="text-muted-foreground text-sm mb-8">
-                      {selectedCategoryId === "all" 
-                        ? "There are no agency documents uploaded yet."
-                        : "There are no documents in this category."}
-                    </p>
+                    <h3 className="text-xl font-bold tracking-tight text-foreground">No documents found</h3>
                   </div>
                 )}
               </div>

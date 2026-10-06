@@ -83,7 +83,6 @@ export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
   return (
     <ProfileSection
       title="Organization"
-      description="The team built beneath you."
       action={
         view?.root && view.totalDownline > 0 ? (
           <Button variant="outline" size="sm" onClick={onOpenFullTree}>
@@ -107,7 +106,6 @@ export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
         <ProfileEmptyState
           icon={<Users className="h-6 w-6" />}
           title="No direct reports yet"
-          description="Agents appear here once they are placed beneath you in the hierarchy."
         />
       ) : (
         <>

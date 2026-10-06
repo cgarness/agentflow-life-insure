@@ -48,7 +48,7 @@ const ReportCustomizer: React.FC<Props> = ({
         <Settings2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <div className="min-w-0">
           <h2 id={titleId} className="text-base font-semibold">Customize your report</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choose your metrics and reorder panels within each group. Changes apply only to your report.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Choose metrics and reorder panels within each group. Only your report changes.</p>
           <p className="mt-1 text-xs text-muted-foreground">Production totals and trends stay visible.</p>
         </div>
       </div>

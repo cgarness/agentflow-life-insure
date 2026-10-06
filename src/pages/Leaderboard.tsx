@@ -182,7 +182,7 @@ const Leaderboard: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Trophy className="w-16 h-16 text-muted-foreground mb-4" />
           <h2 className="text-xl font-semibold text-foreground mb-2">No agents on the board</h2>
-          <p className="text-muted-foreground mb-6">Add active agents to your organization to start tracking standings.</p>
+          <p className="text-muted-foreground mb-6">Standings appear when your agency has active agents.</p>
         </div>
       ) : (
         <>

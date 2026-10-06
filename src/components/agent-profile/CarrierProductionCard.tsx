@@ -101,8 +101,7 @@ export const CarrierProductionCard: React.FC<CarrierProductionCardProps> = ({
       ) : ordered.length === 0 ? (
         <ProfileEmptyState
           icon={<Building2 className="h-6 w-6" />}
-          title="No policies on the book yet"
-          description="Carrier production appears once policies are recorded against clients."
+          title="No policies recorded"
         />
       ) : (
         <>

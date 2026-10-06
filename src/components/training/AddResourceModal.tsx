@@ -104,12 +104,12 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
           <DialogHeader>
             <DialogTitle>Add Training Resource</DialogTitle>
             <DialogDescription>
-              Upload a new script, guide, or video link for your agency.
+              Add a script, document, or video.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-1">
             <div className="grid gap-2">
-              <Label htmlFor="title">Resource Title</Label>
+              <Label htmlFor="title">Resource title</Label>
               <Input 
                 id="title" 
                 placeholder="e.g. Handling Pricing Objections" 
@@ -121,7 +121,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
             
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="type">Resource Type</Label>
+                <Label htmlFor="type">Resource type</Label>
                 <Select value={type} onValueChange={(v) => { setType(v as ResourceType); setSelectedFile(null); setUrl(""); }}>
                   <SelectTrigger id="type">
                     <SelectValue placeholder="Select type" />
@@ -179,7 +179,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
 
             {type === "script" ? (
               <div className="grid gap-2 mt-2">
-                <Label htmlFor="content">Script Content</Label>
+                <Label htmlFor="content">Script content</Label>
                 <Textarea 
                   id="content" 
                   placeholder="Paste the script here..." 
@@ -196,7 +196,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
                 </TabsList>
                 <TabsContent value="upload" className="space-y-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="file">File Attachment</Label>
+                    <Label htmlFor="file">File attachment</Label>
                     <Input 
                       id="file" 
                       type="file"

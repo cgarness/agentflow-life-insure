@@ -170,7 +170,8 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
         <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
           <CheckCircle className="w-8 h-8 text-emerald-500 opacity-50" />
         </div>
-        <p className="text-sm text-muted-foreground font-medium">All caught up!</p>
+        <p className="text-sm text-muted-foreground font-medium">No missed calls</p>
+        <p className="mt-1 text-xs text-muted-foreground">Last 24 hours</p>
       </div>
     );
   }

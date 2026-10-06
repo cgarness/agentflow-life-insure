@@ -137,7 +137,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
         </p>
       ) : wins.length === 0 ? (
         <p className={cn("py-8 text-center text-sm", isTv ? "text-slate-400" : "text-muted-foreground")}>
-          No wins yet. Get dialing and close some deals! 🦈
+          No wins yet
         </p>
       ) : (
         <div

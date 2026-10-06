@@ -33,9 +33,6 @@ const SectionRenderer: React.FC<Props> = ({ sections, components, showTeamSectio
           {item.id !== "stats" && (
             <div className="mb-4">
               <h2 className="text-lg font-semibold tracking-tight">{item.label}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {item.id === "performance" ? "People, campaigns, and lead sources." : "Call patterns and dialer activity."}
-              </p>
             </div>
           )}
           <div className={item.id === "stats"

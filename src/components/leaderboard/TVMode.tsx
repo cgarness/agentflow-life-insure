@@ -240,7 +240,7 @@ const TVMode: React.FC<Props> = ({
   const winsTicker =
     wins.length > 0
       ? wins.map(w => `🏆 ${w.agent_name || "Agent"} closed ${w.contact_name || "a deal"}${w.campaign_name ? ` (${w.campaign_name})` : ""}`).join("  ·  ")
-      : "🏆 No wins yet — get dialing!";
+      : "No wins yet";
 
   const formatTvTime = (ms: number) =>
     formatInTz(new Date(ms), timezone, { hour: "numeric", minute: "2-digit", hour12: true });

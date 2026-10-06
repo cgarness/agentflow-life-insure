@@ -141,19 +141,19 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     const rangeSuffix = timeRange ? ` (${timeRange})` : "";
     switch (type) {
       case "callbacks":
-        return "Callbacks Detail";
+        return "Callbacks";
       case "appointments":
-        return `Appointments Detail${rangeSuffix}`;
+        return `Appointments${rangeSuffix}`;
       case "calls_today":
         return `Calls Made${rangeSuffix}`;
       case "policies_sold":
         return `Policies Sold${rangeSuffix}`;
       case "missed_calls":
-        return "Missed Calls (Recent)";
+        return "Missed calls";
       case "anniversaries":
         return "Upcoming Anniversaries & Birthdays";
       case "premium_sold":
-        return `Annual Premium Sold Analysis${rangeSuffix}`;
+        return `Annual premium sold${rangeSuffix}`;
       default:
         return "Details";
     }
@@ -446,7 +446,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       }
     } catch (err) {
       // A returned query error is a FAILURE, not a valid empty result. An initial failure
-      // must render the failure state, never "No intelligence found in this range". A
+      // must render the failure state, never "No records in this range". A
       // pagination failure keeps the rows already on screen but says more failed to load.
       // Raw Supabase detail goes to the console only.
       console.error("Error loading detail modal feed:", err);
@@ -703,7 +703,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                 <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] opacity-50">Records</span>
                 {data.length > 0 && (
                   <span className="text-[9px] font-black text-primary px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 tracking-wider">
-                    {data.length} RECORDS LOADED {hasMore && "• SCROLL FOR MORE"}
+                    {data.length} records loaded {hasMore && "· Scroll for more"}
                   </span>
                 )}
               </div>
@@ -711,7 +711,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               {loading && page === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20">
                   <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                  <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Synchronizing Intelligence...</p>
+                  <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Loading records…</p>
                 </div>
               ) : loadError ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10">
@@ -724,8 +724,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               ) : data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10 text-muted-foreground">
                   <Loader2 className="w-10 h-10 mb-4 opacity-20" />
-                  <p className="text-lg font-bold opacity-80">No intelligence found in this range</p>
-                  <p className="text-sm mt-2">Activity will appear here as records are processed.</p>
+                  <p className="text-lg font-bold opacity-80">No records in this range</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3 py-2">
@@ -795,7 +794,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   {isFetchingNextPage && (
                     <div className="flex items-center justify-center py-6 gap-3">
                       <Loader2 className="w-5 h-5 text-primary animate-spin" />
-                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading next batch...</span>
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading more records…</span>
                     </div>
                   )}
                   
@@ -821,15 +820,9 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
-                  AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}
-                </span>
-              </div>
+            <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-end">
               <button onClick={onClose} className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
-                Dismiss View
+                Close
               </button>
             </div>
           </motion.div>

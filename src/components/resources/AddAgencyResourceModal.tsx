@@ -85,12 +85,12 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
           <DialogHeader>
             <DialogTitle>Add Agency Resource</DialogTitle>
             <DialogDescription>
-              Link a new carrier document, form, or cheat sheet for your agents.
+              Upload or link an agency document.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="title">Document Title</Label>
+              <Label htmlFor="title">Document title</Label>
               <Input 
                 id="title" 
                 placeholder="e.g. Mutual of Omaha E-App Guide" 
@@ -125,7 +125,7 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
               </TabsList>
               <TabsContent value="upload" className="space-y-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="file">Document File</Label>
+                  <Label htmlFor="file">Document file</Label>
                   <Input 
                     id="file" 
                     type="file"

@@ -174,7 +174,7 @@ describe("a VALID EMPTY result is distinguishable from a failure", () => {
     ui(
       <CarrierProductionCard rows={[]} overflowPolicies={0} isLoading={false} error={null} onRetry={vi.fn()} />,
     );
-    expect(screen.getByText(/No policies on the book yet/)).toBeTruthy();
+    expect(screen.getByText(/No policies recorded/)).toBeTruthy();
     expect(screen.queryByText(/This is not a zero\./)).toBeNull();
   });
 
@@ -203,7 +203,7 @@ describe("the real figures render with their definitions attached", () => {
     expect(screen.getByText("$681.07")).toBeTruthy();
     // Never 681.07 x 12.
     expect(screen.queryByText("$8,172.84")).toBeNull();
-    expect(screen.getByText(/Not annualized\./)).toBeTruthy();
+    expect(screen.getByText("Recorded monthly premium; not annualized.")).toBeTruthy();
     expect(screen.getByText(/1 policy has no premium recorded/)).toBeTruthy();
     expect(screen.getByText(/Includes 2 additional policies/)).toBeTruthy();
   });

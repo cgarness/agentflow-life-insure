@@ -74,8 +74,8 @@ export const TeamProfileTab: React.FC<TeamProfileTabProps> = ({
         >
           <ProfileEmptyState
             icon={<Users className="h-7 w-7" />}
-            title="You haven't built a team yet"
-            description="When agents are placed beneath you in the hierarchy, this tab shows the business your organization has written, how ready your team is to operate, and your full org chart."
+            title="No downline agents"
+            description="Agents appear when assigned beneath you."
           />
         </ProfileSection>
       </div>
@@ -111,16 +111,15 @@ export const TeamProfileTab: React.FC<TeamProfileTabProps> = ({
         ) : (
           <p className="text-sm leading-relaxed text-muted-foreground">
             {isOrganizationWide
-              ? "As an administrator this covers every active member of the organization."
-              : "This covers you and everyone in your downline."}{" "}
-            Business figures are lifetime totals, not activity.
+              ? "Lifetime book totals for all active agency members."
+              : "Lifetime book totals for you and your downline."}
           </p>
         )}
       </ProfileSection>
 
       <BusinessSnapshot
         title="Team business snapshot"
-        description="Lifetime totals across the team's book of business."
+        description="Lifetime team book of business."
         scopeLabel="Team"
         stats={book.data}
         isLoading={book.isLoading}
@@ -132,7 +131,7 @@ export const TeamProfileTab: React.FC<TeamProfileTabProps> = ({
               icon={<Building2 className="h-4 w-4" />}
               label="Total Downline"
               value={formatCount(readiness.data?.totalDownline ?? Math.max(book.data.scopeAgentCount - 1, 0))}
-              hint="Agents beneath you, at every level. Excludes you."
+              hint="All levels; excludes you."
             />
           ) : undefined
         }

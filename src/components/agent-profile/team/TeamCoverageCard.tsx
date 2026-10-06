@@ -53,7 +53,6 @@ export const TeamCoverageCard: React.FC<TeamCoverageCardProps> = ({
   return (
     <ProfileSection
       title="Licensing coverage"
-      description="Where the team is licensed to write."
     >
       {error ? (
         <MetricUnavailable title="Coverage couldn't load" onRetry={onRetry} />
@@ -71,8 +70,7 @@ export const TeamCoverageCard: React.FC<TeamCoverageCardProps> = ({
             <ProfileEmptyState
               className="mt-5"
               icon={<MapPin className="h-6 w-6" />}
-              title="No state licences recorded across the team"
-              description="Coverage appears once team members record their state licences."
+              title="No team licenses recorded"
             />
           ) : (
             <div className="mt-6">
