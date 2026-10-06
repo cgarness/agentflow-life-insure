@@ -93,7 +93,7 @@ describe("Preferences is the home for Call Forwarding", () => {
     expect(screen.getByText("Call Forwarding")).toBeTruthy();
     expect(screen.getByText("Timezone")).toBeTruthy();
     await waitFor(() => expect(screen.getByLabelText(/mobile number/i)).toBeTruthy());
-    expect(screen.getByText(/send unanswered calls to your mobile/i)).toBeTruthy();
+    expect(screen.getByLabelText(/mobile number/i)).toHaveValue("+15551234567");
     expect(screen.getByRole("switch", { name: /forward unanswered calls/i })).toBeTruthy();
     expect(screen.getByLabelText(/voicemail greeting/i)).toBeTruthy();
   });

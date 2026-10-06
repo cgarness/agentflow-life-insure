@@ -597,7 +597,7 @@ const CalendarSettings: React.FC = () => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-3">Coming soon — this setting is not active yet.</p>
+          <p className="text-xs text-muted-foreground mt-3">Not active yet.</p>
         </CardContent>
       </Card>
 
@@ -622,7 +622,7 @@ const CalendarSettings: React.FC = () => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-3">Coming soon — this setting is not active yet.</p>
+          <p className="text-xs text-muted-foreground mt-3">Not active yet.</p>
         </CardContent>
       </Card>
 
@@ -725,7 +725,7 @@ const CalendarSettings: React.FC = () => {
               </div>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">Coming soon — this setting is not active yet.</p>
+          <p className="text-xs text-muted-foreground">Not active yet.</p>
           <div className="flex justify-end">
             <Button disabled className="bg-[#3B82F6]/50 text-white cursor-not-allowed">Save</Button>
           </div>
@@ -881,7 +881,6 @@ const CalendarSettings: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <Label>Calendar Color Coding</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">Color by appointment type or assigned agent.</p>
               <p className="text-xs text-muted-foreground mt-1 font-medium">
                 {colorByAgent ? "Coloring by agent" : "Coloring by appointment type"}
               </p>
@@ -920,7 +919,7 @@ const CalendarSettings: React.FC = () => {
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">Coming soon — this setting is not active yet.</p>
+          <p className="text-xs text-muted-foreground">Not active yet.</p>
           <div className="flex justify-end">
             <Button disabled className="bg-[#3B82F6]/50 text-white cursor-not-allowed">Save</Button>
           </div>
@@ -931,7 +930,6 @@ const CalendarSettings: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Personal Appointment Reminders</CardTitle>
-          <CardDescription>Alerts for your appointments and callbacks.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">
@@ -955,9 +953,7 @@ const CalendarSettings: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-            
             <Separator />
-            
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Play reminder sound</Label>
@@ -972,7 +968,6 @@ const CalendarSettings: React.FC = () => {
               />
             </div>
           </div>
-          
           <div className="flex justify-end">
             <Button
               onClick={handleAgentRemindersSave}

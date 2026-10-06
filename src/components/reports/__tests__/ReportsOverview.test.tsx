@@ -80,6 +80,23 @@ describe("Reports activity and production", () => {
     expect(container.textContent).not.toContain("%");
   });
 
+  it("keeps the scope visible while methodology opens and closes without changing totals", () => {
+    const { container } = render(<ReportsActivityFlow summary={ready(reportSummary())} onRetry={vi.fn()} />);
+    const details = container.querySelector("details")!;
+    const summary = details.querySelector("summary")!;
+    const explanation = screen.getByText(/independent period totals, not one cohort/);
+    const counts = Array.from(container.querySelectorAll("dd"), (node) => node.textContent);
+    expect(screen.getByText("Independent period totals · Not a conversion funnel")).toBeVisible();
+    expect(details).not.toHaveAttribute("open");
+    expect(explanation).not.toBeVisible();
+    fireEvent.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect(explanation).toBeVisible();
+    fireEvent.click(summary);
+    expect(details).not.toHaveAttribute("open");
+    expect(Array.from(container.querySelectorAll("dd"), (node) => node.textContent)).toEqual(counts);
+  });
+
   it("shows successful zeros but removes them when access is denied", () => {
     const view = render(<ReportsActivityFlow summary={ready(emptySummary())} onRetry={vi.fn()} />);
     expect(screen.getAllByText("0")).toHaveLength(5);

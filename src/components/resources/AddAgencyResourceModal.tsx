@@ -32,7 +32,6 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  
   const [uploadType, setUploadType] = useState<"link" | "upload">("upload");
   const [url, setUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -51,7 +50,6 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
       category_id: categoryId,
       content_url: uploadType === "link" ? finalUrl : undefined,
     }, uploadType === "upload" && selectedFile ? selectedFile : undefined);
-    
     if (!isLoading) {
       setOpen(false);
       resetForm();
@@ -84,7 +82,7 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Add Agency Resource</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               Upload or link an agency document.
             </DialogDescription>
           </DialogHeader>
@@ -99,7 +97,6 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
                 required
               />
             </div>
-            
             <div className="grid grid-cols-1 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
@@ -150,9 +147,6 @@ const AddAgencyResourceModal: React.FC<AddAgencyResourceModalProps> = ({ categor
                     onChange={(e) => setUrl(e.target.value)}
                     required={uploadType === 'link'}
                   />
-                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    Provide a direct link to the file.
-                  </p>
                 </div>
               </TabsContent>
             </Tabs>

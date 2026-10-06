@@ -95,7 +95,7 @@ export const NumberGroupFormModal: React.FC<Props> = ({ open, onOpenChange, orga
             <Users className="h-5 w-5 text-primary" />
             {mode === "create" ? "Create number group" : "Edit number group"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             Choose caller IDs for campaigns.
           </DialogDescription>
         </DialogHeader>

@@ -140,7 +140,11 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onGroupingChange, 
           </ComposedChart>
         </ResponsiveContainer>
       )}
-      <p className="mt-3 text-[11px] text-muted-foreground">Call contact rate = contacted outbound calls ÷ outbound calls. Inbound calls are shown separately and do not enter the rate.</p>
+      <p className="mt-3 text-xs text-muted-foreground">Call contact rate uses outbound calls only.</p>
+      <details className="mt-3 text-xs text-muted-foreground">
+        <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How call contact rate is calculated</summary>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Call contact rate = contacted outbound calls ÷ outbound calls. Inbound calls are shown separately and do not enter the rate.</p>
+      </details>
     </ReportSection>
   );
 };

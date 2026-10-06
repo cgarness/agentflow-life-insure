@@ -35,7 +35,6 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
   const [type, setType] = useState<ResourceType>("video");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
-  
   const [uploadType, setUploadType] = useState<"link" | "upload">("upload");
   const [url, setUrl] = useState("");
   const [content, setContent] = useState("");
@@ -67,7 +66,6 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
     };
 
     onAdd(newResource, uploadType === "upload" && selectedFile ? selectedFile : undefined);
-    
     // Don't close or reset immediately if isLoading, let the parent handle it
     if (!isLoading) {
       setOpen(false);
@@ -103,7 +101,7 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Add Training Resource</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               Add a script, document, or video.
             </DialogDescription>
           </DialogHeader>
@@ -118,7 +116,6 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
                 required
               />
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="type">Resource type</Label>
@@ -148,7 +145,6 @@ const AddResourceModal: React.FC<AddResourceModalProps> = ({ categories, onAdd, 
                   </SelectContent>
                 </Select>
               </div>
-              
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
                 <Select value={categoryId} onValueChange={setCategoryId}>

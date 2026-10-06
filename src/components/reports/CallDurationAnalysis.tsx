@@ -150,7 +150,11 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
             </>
           )}
 
-          <p className="text-[11px] text-muted-foreground mt-3">Outbound calls; durations are stored canonical values; estimates and unknown provenance are disclosed in report data quality.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Outbound calls · Stored duration</p>
+          <details className="mt-3 text-xs text-muted-foreground">
+            <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About call duration</summary>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Outbound calls; durations are stored canonical values; estimates and unknown provenance are disclosed in report data quality.</p>
+          </details>
         </>
       )}
     </ReportSection>

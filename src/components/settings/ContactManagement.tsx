@@ -341,7 +341,7 @@ const StageList: React.FC<{
               <div className="flex items-center justify-between border-t pt-4">
                 <div>
                   <p className="text-sm font-medium text-foreground">Convert to Client</p>
-                  <p className="text-xs text-muted-foreground">Automatically trigger the conversion form when this stage is reached</p>
+                  <p className="text-xs text-muted-foreground">Opens the conversion form.</p>
                 </div>
                 <Switch
                   checked={form.convertToClient}
@@ -393,7 +393,7 @@ const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string |
     <div className="space-y-8">
       <StageList
         title="Lead Stages"
-        description="Used on lead records and the Kanban board."
+        description=""
         pipelineType="lead"
         stages={leadStages}
         onReload={loadLead}
@@ -726,7 +726,7 @@ const CustomFieldsTab: React.FC = () => {
               <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
                 <div>
                   <p className="text-sm font-medium text-foreground">Agency-wide field</p>
-                  <p className="text-xs text-muted-foreground">On: visible agency-wide. Off: only you can see and edit it.</p>
+                  <p className="text-xs text-muted-foreground">Off: visible only to you.</p>
                 </div>
                 <Switch checked={form.orgWide} onCheckedChange={v => setForm(f => ({ ...f, orgWide: v }))} />
               </div>
@@ -934,7 +934,6 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">Lead Sources</h4>
-          <p className="text-sm text-muted-foreground">Used when adding or importing contacts.</p>
         </div>
         {canManage && (
           <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Lead Source</Button>
@@ -1133,14 +1132,14 @@ const DuplicateDetectionTab: React.FC<{
     }
   };
 
-  const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc: string }) => (
+  const RadioOption = ({ name, value, current, onChange, label, desc }: { name: string; value: string; current: string; onChange: (v: string) => void; label: string; desc?: string }) => (
     <label className={`flex items-start gap-3 py-2 ${canManage ? "cursor-pointer" : "cursor-default opacity-80"}`} onClick={() => { if (!canManage) return; onChange(value); markDirty(); }}>
       <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${current === value ? "border-[#3B82F6]" : "border-[#64748B]"}`}>
         {current === value && <div className="w-2 h-2 rounded-full bg-[#3B82F6]" />}
       </div>
       <div>
         <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground">{desc}</p>
+        {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
       </div>
     </label>
   );
@@ -1163,10 +1162,10 @@ const DuplicateDetectionTab: React.FC<{
           <h5 className="text-sm font-bold text-foreground">Detection Rule</h5>
         </div>
         <div className="space-y-1">
-          <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" desc="Flag as duplicate if phone number already exists" />
-          <RadioOption name="rule" value="email_only" current={detectionRule} onChange={setDetectionRule} label="Match on Email Only" desc="Flag as duplicate if email address already exists" />
-          <RadioOption name="rule" value="phone_or_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone OR Email" desc="Flag as duplicate if either field matches an existing contact" />
-          <RadioOption name="rule" value="phone_and_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone AND Email" desc="Flag as duplicate if both fields match the same existing contact" />
+          <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" />
+          <RadioOption name="rule" value="email_only" current={detectionRule} onChange={setDetectionRule} label="Match on Email Only" />
+          <RadioOption name="rule" value="phone_or_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone OR Email" />
+          <RadioOption name="rule" value="phone_and_email" current={detectionRule} onChange={setDetectionRule} label="Match on Phone AND Email" desc="Both must match the same contact." />
         </div>
       </div>
 
@@ -1176,8 +1175,8 @@ const DuplicateDetectionTab: React.FC<{
           <h5 className="text-sm font-bold text-foreground">Detection Scope</h5>
         </div>
         <div className="space-y-1">
-          <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" desc="A duplicate is flagged regardless of which agent owns the contact" />
-          <RadioOption name="scope" value="assigned_only" current={detectionScope} onChange={setDetectionScope} label="Check Within Assigned Agent Only" desc="Only flag as duplicate if the same agent already has that contact" />
+          <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" />
+          <RadioOption name="scope" value="assigned_only" current={detectionScope} onChange={setDetectionScope} label="Check Within Assigned Agent Only" />
         </div>
       </div>
 
@@ -1189,12 +1188,12 @@ const DuplicateDetectionTab: React.FC<{
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Adding Manually</p>
           <RadioOption name="manual" value="warn" current={manualAction} onChange={setManualAction} label="Show Warning and Let Agent Decide" desc="Shows matching contacts; the agent can save anyway or cancel." />
-          <RadioOption name="manual" value="block" current={manualAction} onChange={setManualAction} label="Block Save Entirely" desc="Agent cannot save the contact until the duplicate is resolved" />
+          <RadioOption name="manual" value="block" current={manualAction} onChange={setManualAction} label="Block Save Entirely" />
         </div>
         <div className="border-t border-border" />
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Importing via CSV</p>
-          <RadioOption name="csv" value="skip" current={csvAction} onChange={setCsvAction} label="Skip Duplicates Automatically" desc="Duplicate rows are ignored and not imported" />
+          <RadioOption name="csv" value="skip" current={csvAction} onChange={setCsvAction} label="Skip Duplicates Automatically" />
           <RadioOption name="csv" value="flag" current={csvAction} onChange={setCsvAction} label="Flag for Review" desc="Import proceeds but duplicates are marked for admin review" />
           <RadioOption name="csv" value="import" current={csvAction} onChange={setCsvAction} label="Import Anyway" desc="All rows import regardless of duplicates, a Duplicate tag is applied" />
         </div>
@@ -1205,7 +1204,7 @@ const DuplicateDetectionTab: React.FC<{
         <div className="flex items-center justify-between">
           <div>
             <h5 className="text-sm font-bold text-foreground">Merge Settings</h5>
-            <p className="text-xs text-muted-foreground">Contact merging is not built yet — these preferences are not saved.</p>
+            <p className="text-xs text-muted-foreground">Unavailable. Preferences are not saved.</p>
           </div>
           <span className="text-[10px] font-bold uppercase tracking-wide bg-muted text-muted-foreground px-2 py-0.5 rounded border border-border">Not Active</span>
         </div>
@@ -1308,7 +1307,6 @@ const RequiredFieldsTab: React.FC<{
     <div className="space-y-4">
       <div>
         <h4 className="text-base font-semibold text-foreground">Required Fields</h4>
-        <p className="text-sm text-muted-foreground">Required to save a contact.</p>
       </div>
 
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-start gap-2.5">
@@ -1362,9 +1360,12 @@ const RequiredFieldsTab: React.FC<{
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab).
-      </p>
+      <details className="mt-3 text-xs text-muted-foreground">
+        <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Custom field requirements</summary>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab).
+        </p>
+      </details>
 
       {canManage && (
         <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
@@ -1608,7 +1609,6 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
   }, [settings, activeType, customFields, userContactLayout, mode]);
 
   const currentVis = fieldVisibility[activeType] || {};
-  
   const isFieldVisible = (id: string) => {
     if (id === "firstName" || id === "phone") return true;
     if (typeof currentVis[id] === "boolean") return currentVis[id];
@@ -1630,7 +1630,6 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
     const reorderedVisible = [...visibleFields];
     const [moved] = reorderedVisible.splice(dragIdx, 1);
     reorderedVisible.splice(visibleIdx, 0, moved);
-    
     setItems([...reorderedVisible, ...hiddenFields]);
     setDragIdx(null);
     setOverIdx(null);
@@ -1667,7 +1666,6 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
       const typeVis = { ...(prev[activeType] || {}) };
       typeVis[id] = isVisible;
       const next = { ...prev, [activeType]: typeVis };
-      
       if (visibilitySaveTimer.current) clearTimeout(visibilitySaveTimer.current);
       visibilitySaveTimer.current = setTimeout(() => {
         saveVisibilityToSupabase(next);
@@ -1908,7 +1906,6 @@ const FieldLayoutTab: React.FC<{ settings: ContactManagementSettings | null; onR
           </div>
           {showHidden ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </button>
-        
         {showHidden && hiddenFields.length > 0 && (
           <div className="border-t border-border">
             {hiddenFields.map((item) => (

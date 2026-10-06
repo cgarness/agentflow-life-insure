@@ -48,8 +48,7 @@ const ReportCustomizer: React.FC<Props> = ({
         <Settings2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <div className="min-w-0">
           <h2 id={titleId} className="text-base font-semibold">Customize your report</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choose metrics and reorder panels within each group. Only your report changes.</p>
-          <p className="mt-1 text-xs text-muted-foreground">Production totals and trends stay visible.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Only your report layout changes.</p>
         </div>
       </div>
 
@@ -100,7 +99,10 @@ const ReportCustomizer: React.FC<Props> = ({
       </div>
 
       {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
-      <p className="mt-5 text-xs text-muted-foreground">Reset removes your saved layout and uses your agency default when available.</p>
+      <details className="mt-3 text-xs text-muted-foreground">
+        <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About resetting your layout</summary>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Reset removes your saved layout and uses your agency default when available.</p>
+      </details>
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
         <Button type="button" variant="outline" disabled={busy} onClick={onReset} className="gap-2">
           <RotateCcw aria-hidden="true" className="h-4 w-4" />Reset to default

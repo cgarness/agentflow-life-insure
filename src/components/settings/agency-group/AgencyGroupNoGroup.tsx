@@ -20,7 +20,7 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             <h3 className="font-semibold">Create an Agency Group</h3>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            Share leaderboards and resources with other agencies; contacts, phone numbers, billing, and settings stay separate.
+            Shared leaderboards and resources. Contacts, numbers, billing and settings stay separate.
           </p>
           <button
             onClick={() => setModalOpen(true)}
@@ -37,9 +37,6 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             </div>
             <h3 className="font-semibold">Waiting for an invite?</h3>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Invitations appear here and are sent to your agency admin by email.
-          </p>
         </div>
       </div>
 

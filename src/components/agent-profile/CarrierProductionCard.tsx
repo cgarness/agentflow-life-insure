@@ -71,7 +71,7 @@ export const CarrierProductionCard: React.FC<CarrierProductionCardProps> = ({
   return (
     <ProfileSection
       title={title}
-      description="Lifetime policies and monthly premium by carrier."
+      description="Lifetime · Monthly premium"
       action={
         rows && rows.length > 0 && !error ? (
           <div className="inline-flex rounded-lg border border-border/60 bg-muted/40 p-0.5">

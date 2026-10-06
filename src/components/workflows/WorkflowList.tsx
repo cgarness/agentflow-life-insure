@@ -152,9 +152,6 @@ const EmptyState: React.FC<{ onCreate: () => void; hasWorkflows: boolean }> = ({
     <h4 className="text-base font-semibold text-foreground">
       {hasWorkflows ? "No workflows in this folder" : "No workflows yet"}
     </h4>
-    {hasWorkflows && (
-      <p className="max-w-sm text-sm text-muted-foreground">Move workflows here from All.</p>
-    )}
     <Button onClick={onCreate} className="mt-2">
       <Plus className="mr-2 h-4 w-4" /> New Workflow
     </Button>

@@ -1,3 +1,65 @@
+# 2026-10-06 — Second copy pass implemented for preview review
+
+Implemented 25 of the 29 inspected source files, plus the three existing verification files listed below and two root documents. The other four already hid or expanded their introductions/reference text; no extra nested disclosure was kept. Root typecheck, unchanged 87 app diagnostics, lint, build, 64 focused assertions and structural functional review pass. Full/CI results belong to the current PR evidence; the localhost remote-browser limitation is recorded in WORK_LOG.
+
+## Approval at 16:13 PDT
+
+Chris reviewed the first preview, requested less unnecessary text, and approved a stronger app-wide pass: remove descriptions beneath self-explanatory controls, move optional explanations to click-to-open help, retain essential warnings/errors/compliance/data context, and tighten vacated spacing. This approval supersedes the first pass's default-KEEP rule for the presentation-only changes below. Continue the same draft PR #423 and automatic testing previews; no main merge or production deployment is authorized.
+
+## Baseline and integration
+
+Reviewed preview head: e6960f1c753206d8c7e9aaaefd63ee2181116dcd. Current main advanced solely through the shipped manual-redial fix #424, 1a877532068bf254aace53bdcacde606a4a693a5. Integrated that exact commit without conflicts into the review branch to preserve current behavior; its three files are src/pages/DialerPage.tsx, src/pages/dialerCallGate.ts and src/pages/__tests__/dialerCallGate.test.ts. The second-pass comparison baseline is local merge 433a3349f544cd65f4c1b39498d9caa18051449f. SMS #419 and Google OAuth #378 remain unchanged separate drafts. No backend commands or production reads/writes are needed.
+
+## Exact second-pass source list (recorded before application edits)
+
+- `src/components/agent-profile/AgentProfileTab.tsx`
+- `src/components/agent-profile/CarrierProductionCard.tsx`
+- `src/components/agent-profile/team/TeamProfileTab.tsx`
+- `src/components/reports/AgentEfficiency.tsx`
+- `src/components/reports/CallDurationAnalysis.tsx`
+- `src/components/reports/CallVolumeChart.tsx`
+- `src/components/reports/ReportCustomizer.tsx`
+- `src/components/reports/ReportsActivityFlow.tsx`
+- `src/components/resources/AddAgencyResourceModal.tsx`
+- `src/components/settings/CalendarSettings.tsx`
+- `src/components/settings/ContactManagement.tsx`
+- `src/components/settings/CustomMenuLinks.tsx`
+- `src/components/settings/DNCSettings.tsx`
+- `src/components/settings/DispositionsManager.tsx`
+- `src/components/settings/EmailSMSTemplates.tsx`
+- `src/components/settings/NumberReputation.tsx`
+- `src/components/settings/Permissions.tsx`
+- `src/components/settings/agency-group/AgencyGroupNoGroup.tsx`
+- `src/components/settings/phone/NumberGroupFormModal.tsx`
+- `src/components/settings/phone/NumberManagementSection.tsx`
+- `src/components/settings/profile/ProfileCallForwardingSection.tsx`
+- `src/components/settings/profile/ProfileInfoCard.tsx`
+- `src/components/settings/profile/ProfileNotificationsSection.tsx`
+- `src/components/settings/user-management/InviteUserModal.tsx`
+- `src/components/settings/user-management/TeamMembersTable.tsx`
+- `src/components/training/AddResourceModal.tsx`
+- `src/components/workflows/NewFolderModal.tsx`
+- `src/components/workflows/NewWorkflowModal.tsx`
+- `src/components/workflows/WorkflowList.tsx`
+
+Verification refinement: also edit existing `src/lib/__tests__/permissionsSettingsContacts.test.tsx` for open/Escape/focus/no-write help behavior, `src/components/reports/__tests__/ReportsOverview.test.tsx` for expandable-methodology visibility, and `src/components/settings/profile/__tests__/myProfileSurface.test.tsx` to assert the real forwarding control instead of the removed subtitle. Preserve all existing behavioral assertions. The first full run also caught two shortened call-rate labels; retain the mandatory “Call contact rate” wording in both visible text and help labels, without changing those contract tests.
+
+Documentation: update only this implementation_plan.md and WORK_LOG.md, preserving history. If an existing copy assertion needs adaptation, list its exact file before changing it. No new test for a copy constant; verify new help interactions with isolated fixtures and preserve full existing regression gates.
+
+## Implementation decisions
+
+- Remove the explanatory rows under Required Notes, Callback Scheduler, Appointment Scheduler, Automation Trigger and Pipeline Stage; preserve campaign removal/skip and DNC consequences.
+- Remove repeated headings/field instructions in Contact Management, notifications, Calendar, custom links, invitation empties and workflow folders. Duplicate-detection choices keep stored values and callbacks; only redundant desc props become optional. AND matching retains the same-contact qualification; manual save/cancel and review/tag consequences stay visible.
+- Seven ordinary dialog introductions become screen-reader-only using sr-only; titles, accessible description relationships, form fields and actions remain.
+- Permissions lose repeated section, data-scope and commission descriptions. Existing feature definitions move to existing Radix Popovers with explicit button names, 24px targets, visible focus and Escape/touch behavior. No permission keys/defaults, role gates or persistence changes.
+- Eight long reference explanations use native details/summary for keyboard/touch access. Reports keep concise visible outbound/period/current-assignment context and preserve every original methodology sentence in expandable content. Unknown/stale/conflict notices and all calculations/exports remain unchanged.
+- Profile lifetime/current-book/monthly-premium context becomes compact labels. Registration, caller eligibility, DNC, recording, privacy/consent, View As, destructive actions and inactive states stay visible.
+- Only directly associated spacing changes; no card/grid redesign, component extraction, new dependency or backend/data/telephony change.
+
+## Verification and handoff
+
+Inspect final diff and AST evidence for unchanged hooks, event handlers, data operations and validation schemas against the merged baseline. Run root/app TypeScript, changed lint, build, existing affected tests and the normal full frontend comparison/CI gates; distinguish baseline failures. Check the new expandable/help controls and affected compact forms at desktop/narrow sizes and light/dark where available. Verify the correct agentflow Vercel project's preview renders (agentflow-life-insure preview lacks required configuration). Deliver a new tested preview link, without claiming an authenticated production walkthrough.
+
 # 2026-10-06 — Implementation complete; draft review candidate
 
 The approved 111-file scope is implemented. Final narrow-screen review found and corrected a Conversations empty-heading fit regression with only responsive Tailwind spacing/minimum width/wrapping and a smaller mobile heading size; H2 hierarchy and desktop styling remain. Actual-source320/390/1440px light/dark checks and all16 existing Conversations tests pass. Draft PR: https://github.com/cgarness/agentflow-life-insure/pull/423. Four local source batches simplify core CRM, reporting/profiles, phone settings and administration; the final verification refinement preserves the existing “Not annualized.” wording with the concise prefix “Recorded monthly premium.” The exact allowlist below is unchanged: 99 frontend files + 10 existing tests + 2 existing root documents. No backend, dependency, CI or additional application/test file was edited.

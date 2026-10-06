@@ -386,7 +386,6 @@ const CustomMenuLinks: React.FC = () => {
                   <RadioGroupItem value="new_tab" id="open-new-tab" className="mt-1 shrink-0" />
                   <label htmlFor="open-new-tab" className="flex-1 cursor-pointer leading-snug">
                     <span className="text-sm font-medium text-foreground">New tab</span>
-                    <p className="text-xs text-muted-foreground mt-1">Opens in a separate browser tab.</p>
                   </label>
                 </div>
                 <div className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-accent/40">

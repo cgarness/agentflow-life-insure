@@ -229,7 +229,7 @@ const EmailSMSTemplates: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Email & SMS Templates</h3>
           <p className="text-sm text-muted-foreground">
-            Agency templates are shared with your organization; Personal templates are visible only to you.
+            Agency: shared · Personal: only you
           </p>
         </div>
         <Button onClick={openAdd} className="gap-2" disabled={!organizationId}>

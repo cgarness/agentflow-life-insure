@@ -93,7 +93,7 @@ const NewWorkflowModal: React.FC<Props> = ({ open, onOpenChange, onCreated }) =>
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Workflow</DialogTitle>
-          <DialogDescription>Choose what starts this workflow.</DialogDescription>
+          <DialogDescription className="sr-only">Choose what starts this workflow.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>

@@ -119,7 +119,7 @@ export const TeamProfileTab: React.FC<TeamProfileTabProps> = ({
 
       <BusinessSnapshot
         title="Team business snapshot"
-        description="Lifetime team book of business."
+        description="Lifetime · Current team book"
         scopeLabel="Team"
         stats={book.data}
         isLoading={book.isLoading}

@@ -880,7 +880,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-5">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Search by area code, state or city. Availability changes frequently.
+                Availability may change.
               </p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-4 px-0.5 pt-0.5">
                 <div className="space-y-1.5">

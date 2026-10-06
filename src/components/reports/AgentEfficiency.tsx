@@ -179,9 +179,13 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
               </ScatterChart>
             </ResponsiveContainer>
           )}
-          <p className="text-xs text-muted-foreground mt-3">
-            Session hours count overlapping spans once and cap stale sessions at heartbeat. Calls/hour uses only calls inside same-agent/campaign intervals; unmatched calls remain in Calls Made. {CURRENT_ASSIGNMENT_NOTE}
-          </p>
+          <p className="mt-3 text-xs text-muted-foreground">Calls/hour uses matched agent and campaign sessions. Current assignments apply.</p>
+          <details className="mt-3 text-xs text-muted-foreground">
+            <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How efficiency is calculated</summary>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Session hours count overlapping spans once and cap stale sessions at heartbeat. Calls/hour uses only calls inside same-agent/campaign intervals; unmatched calls remain in Calls Made. {CURRENT_ASSIGNMENT_NOTE}
+            </p>
+          </details>
         </>
       )}
     </ReportSection>

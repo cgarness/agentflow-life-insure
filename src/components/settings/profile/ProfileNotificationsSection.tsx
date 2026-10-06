@@ -50,7 +50,6 @@ export const ProfileNotificationsSection: React.FC<{
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">Browser notifications</p>
-          <p className="text-xs text-muted-foreground">Receive alerts while AgentFlow is in the background.</p>
           <p data-testid="push-status" className="mt-1 text-xs text-muted-foreground/90">
             {pushStatus}
           </p>

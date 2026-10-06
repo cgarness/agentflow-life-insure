@@ -86,7 +86,7 @@ export const AgentProfileTab: React.FC<AgentProfileTabProps> = ({
 
       <BusinessSnapshot
         title="Business snapshot"
-        description="Lifetime book of business."
+        description="Lifetime · Current book"
         stats={book.data}
         isLoading={book.isLoading}
         error={book.error}

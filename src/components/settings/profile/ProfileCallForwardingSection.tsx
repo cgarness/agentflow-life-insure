@@ -147,7 +147,7 @@ export const ProfileCallForwardingSection: React.FC = () => {
   if (!active) return null;
 
   return (
-    <ProfileSettingsSection title="Call Forwarding" description="Send unanswered calls to your mobile." data-testid="profile-call-forwarding">
+    <ProfileSettingsSection title="Call Forwarding" data-testid="profile-call-forwarding">
       {activationPending && <CallForwardingActivationNotice engine={engine} />}
       {loading ? (
         <div className="h-24 animate-pulse rounded-lg bg-muted/30" />

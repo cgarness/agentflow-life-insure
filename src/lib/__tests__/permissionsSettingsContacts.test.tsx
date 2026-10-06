@@ -59,6 +59,25 @@ describe("Settings → Permissions — Contacts module", () => {
     expect(screen.queryByText("Convert leads")).not.toBeInTheDocument();
   });
 
+  it("opens reference help without changing permissions and restores focus on Escape", async () => {
+    render(<Permissions />);
+    const trigger = await screen.findByRole("button", { name: "About Import Leads" });
+    const switches = screen.getAllByRole("switch");
+    const before = switches.map((element) => element.getAttribute("aria-checked"));
+    expect(trigger).toHaveAttribute("type", "button");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    trigger.focus();
+    fireEvent.click(trigger);
+    const help = await screen.findByRole("dialog");
+    expect(help).toHaveTextContent("Upload CSV files to add leads in bulk");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(help, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(switches.map((element) => element.getAttribute("aria-checked"))).toEqual(before);
+    expect(h.upsertArgs).toEqual([]);
+  });
+
   it("persists a normalized permissions.contacts block on save", async () => {
     render(<Permissions />);
     await screen.findByText("Contacts Permissions");

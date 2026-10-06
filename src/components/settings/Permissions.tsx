@@ -21,6 +21,7 @@ import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 /*
  * Role name mapping:
  *   UI camelCase key  →  DB value (profiles.role / role_permissions.role)
@@ -313,7 +314,7 @@ async function writeActivityLog(
 
 const AccordionSection: React.FC<{
   title: string;
-  description: string;
+  description?: string;
   icon: React.ElementType;
   defaultOpen?: boolean;
   children: React.ReactNode;
@@ -329,7 +330,7 @@ const AccordionSection: React.FC<{
           <Icon className="w-5 h-5 text-primary" />
           <div>
             <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-            <p className="text-xs text-muted-foreground">{description}</p>
+            {description && <p className="text-xs text-muted-foreground">{description}</p>}
           </div>
         </div>
         <ChevronDown
@@ -859,7 +860,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Settings Sections" description="Settings tab access for this role in your organization." icon={Lock}>
+        <AccordionSection title="Settings Sections" icon={Lock}>
           <div className="space-y-4">
             {SETTINGS_CONFIG.map((cat) => {
               const catSections = settingsSections.filter((row) =>
@@ -895,7 +896,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Feature Permissions" description="Actions available to this role." icon={SlidersHorizontal}>
+        <AccordionSection title="Feature Permissions" icon={SlidersHorizontal}>
           <div className="space-y-4">
             {features.map((cat, catIdx) => (
               <div key={cat.category}>
@@ -910,9 +911,16 @@ const Permissions: React.FC = () => {
                         key={feat.name}
                         className="flex items-center justify-between py-2 px-3 rounded-lg bg-background"
                       >
-                        <div>
+                        <div className="flex min-w-0 items-center gap-1.5 pr-3">
                           <p className="text-sm text-foreground">{feat.name}</p>
-                          <p className="text-xs text-muted-foreground">{feat.description}</p>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button type="button" aria-label={`About ${feat.name}`} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                <Info aria-hidden="true" className="h-3.5 w-3.5" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="max-w-[calc(100vw-2rem)] text-xs" side="top">{feat.description}</PopoverContent>
+                          </Popover>
                         </div>
                         <Switch checked={val} onCheckedChange={() => toggleFeature(catIdx, featIdx)} disabled={isAdmin} />
                       </div>
@@ -924,14 +932,13 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Data Access" description="Data visible to this role." icon={Database}>
+        <AccordionSection title="Data Access" icon={Database}>
           <div className="space-y-4">
             {dataAccess.map((item, idx) => {
               const val: DataScope = isAdmin ? "all" : item[activeRole as "agent" | "teamLeader"];
               return (
                 <div key={item.label} className="p-3 rounded-lg bg-background">
-                  <p className="text-sm font-medium mb-1 text-foreground">{item.label}</p>
-                  <p className="text-xs mb-3 text-muted-foreground">{item.description}</p>
+                  <p className="text-sm font-medium mb-2 text-foreground">{item.label}</p>
                   <DataScopePills value={val} onChange={(v) => updateDataScope(idx, v)} disabled={isAdmin} />
                 </div>
               );
@@ -939,7 +946,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Commission Visibility" description="Commission and earnings visible to this role." icon={DollarSign}>
+        <AccordionSection title="Commission Visibility" icon={DollarSign}>
           <div className="space-y-1">
             {commission.map((item, idx) => {
               const val = isAdmin ? true : item[activeRole as "agent" | "teamLeader"];
@@ -950,7 +957,6 @@ const Permissions: React.FC = () => {
                 >
                   <div>
                     <p className="text-sm text-foreground">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">{item.description}</p>
                   </div>
                   <Switch checked={val} onCheckedChange={() => toggleCommission(idx)} disabled={isAdmin} />
                 </div>

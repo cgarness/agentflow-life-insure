@@ -38,9 +38,13 @@ export default function ReportsActivityFlow({ summary, onRetry }: ReportsActivit
                   </div>
                 ))}
               </dl>
-              <p className="mt-6 border-t border-border/60 pt-4 text-xs leading-relaxed text-muted-foreground">
-                These are independent period totals, not one cohort moving through a funnel. Calls and conversions use call creation dates; bookings use booking creation dates; policies use their sale dates. Conversions count distinct identities on converting outbound calls, with campaign-lead or call identity used when a contact identity is missing. No stage-to-stage conversion rate is implied.
-              </p>
+              <p className="mt-3 text-xs text-muted-foreground">Independent period totals · Not a conversion funnel</p>
+              <details className="mt-3 text-xs text-muted-foreground">
+                <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How totals are counted</summary>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  These are independent period totals, not one cohort moving through a funnel. Calls and conversions use call creation dates; bookings use booking creation dates; policies use their sale dates. Conversions count distinct identities on converting outbound calls, with campaign-lead or call identity used when a contact identity is missing. No stage-to-stage conversion rate is implied.
+                </p>
+              </details>
             </div>
           );
         }}

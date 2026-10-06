@@ -4,7 +4,7 @@ import { pipelineSupabaseApi } from "@/lib/supabase-settings";
 import { Disposition, PipelineStage } from "@/lib/types";
 import { toast } from "@/hooks/use-toast";
 import {
-  GripVertical, Plus, Pencil, Trash2, Info, Calendar, FileText, Zap,
+  GripVertical, Plus, Pencil, Trash2, Calendar, FileText, Zap,
   AlertTriangle, Users, ShieldBan, Lock, GitBranch, PhoneCall,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -358,13 +358,12 @@ const DispositionsManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
-        <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-        <p className="text-sm text-foreground/80">
+      <details className="text-xs text-muted-foreground">
+        <summary className="w-fit cursor-pointer rounded py-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">About disposition order</summary>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           The order here determines what agents see after every call in the dialer.
         </p>
-      </div>
+      </details>
 
       {!fullAccess && (
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
@@ -592,7 +591,6 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5" /> Required Notes
                     </p>
-                    <p className="text-xs text-muted-foreground">Agent must type a note before advancing.</p>
                   </div>
                   <Switch
                     checked={form.requireNotes}
@@ -623,7 +621,6 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" /> Callback Scheduler
                     </p>
-                    <p className="text-xs text-muted-foreground">Prompts the agent to schedule a callback.</p>
                   </div>
                   <Switch
                     checked={form.callbackScheduler}
@@ -641,7 +638,6 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" /> Appointment Scheduler
                     </p>
-                    <p className="text-xs text-muted-foreground">Prompts the agent to schedule an appointment.</p>
                   </div>
                   <Switch
                     checked={form.appointmentScheduler}
@@ -659,7 +655,6 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5" /> Automation Trigger
                     </p>
-                    <p className="text-xs text-muted-foreground">Runs when this disposition is selected.</p>
                   </div>
                   <Switch
                     checked={form.automationTrigger}
@@ -696,7 +691,6 @@ const DispositionsManager: React.FC = () => {
                 <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                   <GitBranch className="w-3.5 h-3.5" /> Pipeline Stage
                 </p>
-                <p className="text-xs text-muted-foreground">Moves the lead to this stage.</p>
               </div>
               <select
                 value={form.pipelineStageId}
@@ -747,7 +741,7 @@ const DispositionsManager: React.FC = () => {
                   <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                     <ShieldBan className="w-3.5 h-3.5" /> Auto-Add to DNC
                   </p>
-                  <p className="text-xs text-muted-foreground">Automatically adds the lead's phone number to the Do Not Call list when this disposition is selected.</p>
+                  <p className="text-xs text-muted-foreground">Blocks future agency calls to this number.</p>
                 </div>
                 <Switch
                   checked={form.dncAutoAdd}
