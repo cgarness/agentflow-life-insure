@@ -1,5 +1,7 @@
 # Reports Phase 1 candidate release packet
 
+**Historical candidate record.** Its release-status statements are superseded by [the production release record](production-release.md), which documents the approved, shipped implementation and remaining hosted-verification limits. Authored filenames and prior approval boundaries below are preserved as historical evidence.
+
 **Public publication approved; production release NOT approved.** Chris approved publishing the reviewed candidate and opening a draft PR on October 5 at 12:21 PDT. Draft PR #418 is open. Shell Git had no credentials, so the GitHub app created publication commit `450fdc28c724e8e158476dd3769d895a48f1497d` with the exact reviewed source tree `b48a9577ad6c5cefab04ef9c679b2ec00ecd2ac0` of local commit `a1701836504b6645f8af29c4378d2181d79ffaf7`. No production action occurred. Native CI and browser verification are being completed before a production approval request.
 
 ## Behavior

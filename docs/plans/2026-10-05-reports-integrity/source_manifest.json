@@ -1,6 +1,6 @@
 {
   "base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
-  "branch": "codex/reports-integrity-phase1-20261005",
+  "branch": "codex/reports-release-closeout-20261006",
   "manifest_excludes_itself": true,
   "files": [
     {
@@ -10,28 +10,33 @@
     },
     {
       "path": "AGENT_RULES.md",
-      "bytes": 221701,
-      "sha256": "12bf3912c460e7e2840a489693ccfd37ad6d5d41f9efc4bbed900a991d5fb16f"
+      "bytes": 222595,
+      "sha256": "9e12a985efc8270be106b165e595a818336ed43ebeb9d376144fa485e33c14f3"
     },
     {
       "path": "WORK_LOG.md",
-      "bytes": 2248002,
-      "sha256": "3abb92afefc12c3bfd5b9a550430d51232b7c172dc7adc3dc538d760f59d2bfd"
+      "bytes": 2250772,
+      "sha256": "1e8f48e7f74cc71f5b4940c6174d8886090efa05cfc53eb860b828664893397b"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/implementation_plan.md",
-      "bytes": 6480,
-      "sha256": "950dcae718974b4aed9ec39290dca572453ec7b993b49314a80323d3a242df18"
+      "bytes": 7783,
+      "sha256": "3ecfa08a18ec29e25970ff2e70de91d58e2a9b4a08e29c0cada8c65a6f54c727"
+    },
+    {
+      "path": "docs/plans/2026-10-05-reports-integrity/production-release.md",
+      "bytes": 7537,
+      "sha256": "d0d3057eecfd08cfe4b775331345ac31b689eaeac054ddf3f6e69b9c941231e7"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/release_packet.md",
-      "bytes": 5827,
-      "sha256": "1bf4d32e0302c498cc48fbbd38255b3c114ff4c096d43ce9967befb60a900f29"
+      "bytes": 6153,
+      "sha256": "11e7f874c5d3ed02d7d2950b171bd64dc9fdef30d20b404f47733e38fcc724e8"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/verification.json",
-      "bytes": 8311,
-      "sha256": "b5ac281371b12eda8c2c2a8c95c15ad3587c03c989c4219864f40edb5ce020df"
+      "bytes": 9321,
+      "sha256": "00e5e900ae23261a4d2dc0454c7c74d2dc07cf364714b98f842f92a1b8336bf0"
     },
     {
       "path": "docs/plans/2026-10-05-reports-integrity/verification.md",
@@ -46,7 +51,7 @@
     {
       "path": "scripts/reports_integrity_fixture.py",
       "bytes": 6011,
-      "sha256": "a962e71638a71d210af9a8b6aab9daa8f52623c7ef39c9180b7cbf8802029d5f"
+      "sha256": "b278a902ab021102b8c52068317a955a7b017efba485b176c11d3c620c8d77aa"
     },
     {
       "path": "scripts/run_reports_integrity_tests.sh",
@@ -186,7 +191,7 @@
     {
       "path": "src/lib/reports-schemas.ts",
       "bytes": 9739,
-      "sha256": "b3bd411e20a654bc725c9a58faa60de54558760f10c902875291dfbb10835976"
+      "sha256": "8e47b92fc994ed28c4d61c04b98237e96a3c231f04615a70f635daa3ad4aacbc"
     },
     {
       "path": "src/lib/stat-computations.ts",
@@ -204,14 +209,24 @@
       "sha256": "ab15f483a3aa43fbed0f070e93ff93830b25cddfe847e6278b8c7b8d404d9ba1"
     },
     {
-      "path": "supabase/migrations/20261005183955_reports_integrity_readers.sql",
+      "path": "supabase/migrations/20261006043725_reports_integrity_release_disable.sql",
+      "bytes": 3883,
+      "sha256": "17141977ba6480f8e99153665e185385e3f6ef203b122efdf67947a62d5079b2"
+    },
+    {
+      "path": "supabase/migrations/20261006043731_reports_integrity_readers.sql",
       "bytes": 21940,
       "sha256": "1f1efcec700a9dc6926ea01eddb0a56ce670a157fedcd353783bcf2df7d05f29"
     },
     {
-      "path": "supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql",
+      "path": "supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql",
       "bytes": 47019,
       "sha256": "f88855ae14cfd95f79c91fcf1d2512378d135f482dc1ac57ce8b16e9815578f6"
+    },
+    {
+      "path": "supabase/migrations/20261006044003_reports_integrity_release_enable.sql",
+      "bytes": 4503,
+      "sha256": "a5433ce838eec87b338c9b3a79cfc939e2fdfb30ac232a4d948227522ae98a32"
     },
     {
       "path": "supabase/ops/reports_disable.sql",
@@ -248,5 +263,8 @@
       "bytes": 2950,
       "sha256": "b7dfe36662e58646f1d941ea4856f0b93af14c6fd51766def13c1cf956a3ba2a"
     }
-  ]
+  ],
+  "approved_candidate_commit": "d11b4b0108b51a313559dc453105031b0ff56bb9",
+  "production_merge": "960accd10b828cb113c690a9f9dd07e2c1217e28",
+  "manifest_stage": "production release closeout; approved candidate hashes remain accessible at approved_candidate_commit"
 }

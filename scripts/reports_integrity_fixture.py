@@ -32,16 +32,16 @@ def steps():
   yield name,clean(read('supabase/tests/'+name+'.sql'))
  yield 'current reporting schema dependencies',read('supabase/tests/reports_integrity_dependencies.sql')
  yield 'integrity control helpers and source fingerprint',read('supabase/tests/reports_integrity_controls.sql')
- first=read('supabase/migrations/20261005183955_reports_integrity_readers.sql')
- second=read('supabase/migrations/20261005184012_reports_scopes_and_policy_premium.sql')
+ first=read('supabase/migrations/20261006043731_reports_integrity_readers.sql')
+ second=read('supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql')
  disable=read('supabase/ops/reports_disable.sql')
  enable=read('supabase/ops/reports_integrity_enable.sql')
  yield 'migration order refusal',refused(second,'Reports shared-reader drift or order')
  yield 'shared-reader authorization drift refusal',refused('ALTER FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) SECURITY INVOKER;'+first,'Reports preimage or authorization drift')
  yield 'access authorization drift refusal',refused('ALTER FUNCTION private.report_access(uuid) SECURITY INVOKER;'+second,'Reports preimage or authorization drift')
  yield 'disabled deployment preserves the seal',refused(disable+first+second+"SELECT rt.assert_sealed(false);DO $proof$ BEGIN RAISE EXCEPTION 'disabled-deployment proof rollback'; END $proof$;",'disabled-deployment proof rollback')
- yield '20261005183955_reports_integrity_readers',first
- yield '20261005184012_reports_scopes_and_policy_premium',second
+ yield '20261006043731_reports_integrity_readers',first
+ yield '20261006043738_reports_scopes_and_policy_premium',second
  yield 'read-only migrations preserve every fixture source row',"SELECT rt.eq('source immutability',rt.source_fingerprint(),(SELECT fingerprint FROM rt.integrity_preimage));"
  yield 'both migration replays refuse',refused(first,'refusing replay')+refused(second,'refusing replay')
  yield 'Reports v2 integrity assertions',read('supabase/tests/reports_integrity.sql')
