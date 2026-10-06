@@ -1,5 +1,5 @@
 {
-  "agentflow_base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1",
+  "agentflow_base": "3f7fa519011ab22307dfdda802b045b2028cd7b2",
   "uv_head": "d2a9c3266dec05211c54d5a86c10ef3b947d5922",
   "publication": "approved for draft PRs and CI; production release not authorized",
   "files": [
@@ -9,11 +9,11 @@
     },
     {
       "path": "AGENT_RULES.md",
-      "sha256": "b3ed04c9a90428c50f9ae70a61766f111e787e4d1c1ebbbbb6c68acf223cd5c4"
+      "sha256": "924beb957f46a672a3a8df0d1f5403fe32d6f123ec7fb9de2d38044a116fd61e"
     },
     {
       "path": "WORK_LOG.md",
-      "sha256": "7331961c0fa0d2302e40156f5c3a0111f1bd80f99743130bef53904b1dfef0f4"
+      "sha256": "c336c490bdd559474b7afc66cd35c57ecf8c0ff0c3b0cf4e57f3b079017a1e80"
     },
     {
       "path": "docs/plans/2026-10-05-sms-consent/implementation_plan.md",
@@ -25,7 +25,7 @@
     },
     {
       "path": "docs/plans/2026-10-05-sms-consent/verification.md",
-      "sha256": "859c20c2d1dc9bda49dd2e2fb488d184037e3adced31e71cc5775ab3d341aad3"
+      "sha256": "07e2ac7c57e252a68a0b31e05cde672bcf230b897c746743e722013c4eba8872"
     },
     {
       "path": "scripts/test-sms-consent.mjs",
@@ -229,7 +229,7 @@
     },
     {
       "path": "supabase/functions/_shared/sms/sms_test.ts",
-      "sha256": "399dd6412c1381a0db008a9ff8c808e306d7803dce6ce070e1efe7bd1abf7533"
+      "sha256": "8edc4f91e62ad1c64217f86cb860bb0499a184588466931863e7f7aad50444ae"
     },
     {
       "path": "supabase/functions/_shared/sms/webhook.ts",
@@ -267,5 +267,6 @@
       "path": "supabase/migrations/20261005194649_sms_consent_dispatch.sql",
       "sha256": "162b189c73f3c0bfb035fcafa7bc6edba935df7ea0036ce95f07c83b3a1cd267"
     }
-  ]
+  ],
+  "original_agentflow_base": "b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1"
 }

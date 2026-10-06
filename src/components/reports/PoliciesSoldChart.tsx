@@ -1,9 +1,10 @@
 import React, { useMemo } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Calendar, TrendingUp, Trophy, type LucideIcon } from "lucide-react";
 import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
-import { formatCount, groupDailySeries, type Grouping } from "@/lib/reports-format";
+import { formatCount, formatPremium, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
+import { PREMIUM_BASIS } from "@/lib/reports-integrity-text";
 import { CURRENT_ASSIGNMENT_NOTE, POLICY_SOURCE_NOTE, policyQualityNote } from "@/lib/reports-policy-text";
 import ReportSection from "./ReportSection";
 
@@ -16,13 +17,40 @@ interface Props {
 }
 
 const AXIS_TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--foreground))",
-  fontSize: 12,
-};
+const PREMIUM_AXIS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
+
+/** Sum cents, not floating dollars; retain all-unknown buckets as gaps, including in CSV. */
+function productionSeries(volume: ReportVolume, grouping: Grouping) {
+  return groupDailySeries(volume.by_date.map((d) => ({
+    date: d.date, policies_sold: d.policies_sold, premium_policy_count: d.premium.policy_count,
+    known_count: d.premium.known_count, unknown_count: d.premium.unknown_count,
+    premium_cents: d.premium.annual_premium === null ? 0 : Math.round(d.premium.annual_premium * 100),
+    unavailable_known_amount: d.premium.known_count > 0 && d.premium.annual_premium === null ? 1 : 0,
+  })), grouping, ["policies_sold", "premium_policy_count", "known_count", "unknown_count", "premium_cents", "unavailable_known_amount"])
+    .map((b) => ({ ...b,
+      annual_premium: b.premium_policy_count > 0 && (b.known_count === 0 || b.unavailable_known_amount > 0) ? null : b.premium_cents / 100,
+      coverage_pct: b.premium_policy_count > 0 ? 100 * b.known_count / b.premium_policy_count : null,
+    }));
+}
+
+type ProductionPeriod = ReturnType<typeof productionSeries>[number];
+
+function ProductionTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: ProductionPeriod }> }) {
+  const period = payload?.[0]?.payload;
+  if (!active || !period) return null;
+  return (
+    <div className="max-w-[280px] rounded-xl border border-border bg-card p-3 text-xs text-foreground shadow-lg">
+      <p className="mb-2 font-semibold">{periodCell(period.first, period.last)}</p>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+        <dt>Policies sold</dt><dd className="text-right font-semibold tabular-nums">{formatCount(period.policies_sold)}</dd>
+        <dt>Known annual premium</dt><dd className="text-right font-semibold tabular-nums">{formatPremium(period.annual_premium)}</dd>
+        <dt>Premium coverage</dt><dd className="text-right tabular-nums">{formatRate(period.coverage_pct)}</dd>
+      </dl>
+      <p className="mt-2 text-muted-foreground">{formatCount(period.known_count)} of {formatCount(period.premium_policy_count)} policies known · {formatCount(period.unknown_count)} unknown</p>
+      {period.annual_premium === null && <p className="mt-1 text-muted-foreground">Known premium unavailable for this period.</p>}
+    </div>
+  );
+}
 
 function periodCell(first: string, last: string): string {
   return first === last ? first : `${first} to ${last}`;
@@ -36,6 +64,7 @@ function policiesLabel(n: number): string {
 function sameReport(summary: ReportSummary, volume: ReportVolume): boolean {
   return (
     summary.scope === volume.scope &&
+    summary.requested_scope === volume.requested_scope &&
     summary.filter_agent_id === volume.filter_agent_id &&
     summary.window.start_date === volume.window.start_date &&
     summary.window.end_date === volume.window.end_date &&
@@ -54,10 +83,10 @@ const Tile: React.FC<TileProps> = ({ icon: Icon, label, value, subtitle }) => (
   <div className="rounded-xl border border-border/50 bg-muted/40 p-4">
     <div className="flex items-center gap-2 mb-2">
       <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{label}</p>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
     </div>
-    <p className="text-lg font-bold text-foreground truncate" title={value}>{value}</p>
-    {subtitle && <p className="text-[11px] text-muted-foreground truncate mt-0.5">{subtitle}</p>}
+    <p className="break-words text-lg font-bold text-foreground" title={value}>{value}</p>
+    {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
   </div>
 );
 
@@ -67,23 +96,11 @@ const Tile: React.FC<TileProps> = ({ icon: Icon, label, value, subtitle }) => (
  * agent ranking is by CURRENT assignment, so it is labelled that way and never as seller credit.
  */
 const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExport }) => {
-  const series = useMemo(
-    () =>
-      groupDailySeries(
-        volume.by_date.map((d) => ({ date: d.date, policies_sold: d.policies_sold })),
-        grouping,
-        ["policies_sold"],
-      ).map((b) => ({
-        key: b.key,
-        label: b.label,
-        first: b.first,
-        last: b.last,
-        policies_sold: b.policies_sold,
-      })),
-    [volume.by_date, grouping],
-  );
-
+  const series = useMemo(() => productionSeries(volume, grouping), [volume, grouping]);
   const total = useMemo(() => series.reduce((sum, b) => sum + b.policies_sold, 0), [series]);
+  const coverage = useMemo(() => series.reduce((sum, b) => ({
+    known: sum.known + b.known_count, policies: sum.policies + b.premium_policy_count, unknown: sum.unknown + b.unknown_count,
+  }), { known: 0, policies: 0, unknown: 0 }), [series]);
   const qualityNote = policyQualityNote(volume.policy_quality);
 
   const peak = useMemo(() => {
@@ -105,28 +122,33 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
     ? () =>
         onExport(
           "Policies Sold",
-          ["Period", "Policies sold"],
-          series.map((b) => [periodCell(b.first, b.last), b.policies_sold]),
+          ["Period", "Policies sold", "Known annual premium", "Policies with known premium", "Policies with unknown premium", "Premium coverage (%)"],
+          series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium, b.known_count, b.unknown_count, b.coverage_pct]),
         )
     : undefined;
 
   return (
-    <ReportSection title="Policies Sold" onExport={handleExport}>
+    <ReportSection title="Production trend" onExport={handleExport}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3 text-xs text-muted-foreground">
+        <div className="flex flex-wrap gap-x-4 gap-y-2" aria-label="Production chart legend">
+          <span><span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-success" aria-hidden="true" />Policies sold · left axis</span>
+          <span><span className="mr-2 inline-block h-0.5 w-4 bg-primary align-middle" aria-hidden="true" />Known annual premium · right axis</span>
+        </div>
+        <p>{formatCount(coverage.known)} / {formatCount(coverage.policies)} policies have known premium · {formatCount(coverage.unknown)} unknown</p>
+      </div>
       {total === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">No policies sold in this period.</p>
       ) : (
         <ResponsiveContainer width="100%" height={250}>
-          <LineChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+          <ComposedChart data={series} margin={{ top: 8, right: 0, left: -12, bottom: 0 }} accessibilityLayer>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
             <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: "hsl(var(--border))" }} minTickGap={12} />
-            <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} />
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-              formatter={(value: number) => [formatCount(value), "Policies sold"]}
-            />
-            <Line type="monotone" dataKey="policies_sold" name="Policies sold" stroke="hsl(var(--success))" strokeWidth={3} dot={{ r: 4 }} />
-          </LineChart>
+            <YAxis yAxisId="policies" tick={AXIS_TICK} tickLine={false} axisLine={false} allowDecimals={false} width={48} />
+            <YAxis yAxisId="premium" orientation="right" tick={AXIS_TICK} tickLine={false} axisLine={false} width={58} tickFormatter={(value: number) => PREMIUM_AXIS.format(value)} />
+            <Tooltip content={<ProductionTooltip />} />
+            <Bar yAxisId="policies" dataKey="policies_sold" name="Policies sold" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+            <Line yAxisId="premium" type="linear" dataKey="annual_premium" name="Known annual premium" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+          </ComposedChart>
         </ResponsiveContainer>
       )}
 
@@ -155,6 +177,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, summary, grouping, onExpor
       <p className="text-[11px] text-muted-foreground mt-3">
         {POLICY_SOURCE_NOTE} One client can hold several policies. {CURRENT_ASSIGNMENT_NOTE}
       </p>
+      <p className="text-[11px] text-muted-foreground mt-1">{PREMIUM_BASIS} Missing premium is a gap, not zero.</p>
       {qualityNote && <p className="text-[11px] text-muted-foreground mt-1">{qualityNote}</p>}
     </ReportSection>
   );

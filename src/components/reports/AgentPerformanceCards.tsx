@@ -1,166 +1,117 @@
 import React from "react";
-import { formatCount, formatHours, formatRate } from "@/lib/reports-format";
+import { formatCount, formatHours, formatRate, formatPremium } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
 import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
-import type { ReportAgentRow, ReportSummary } from "@/lib/reports-schemas";
+import type { ReportPremium, ReportSummary } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
 import ReportSection from "./ReportSection";
 
 interface Props {
   summary: ReportSummary;
   selectedAgentId: string | null;
-  /** Agents the viewer may filter to; any other card is not clickable. */
+  /** Only server-returned agents may narrow the current report. */
   selectableAgentIds: ReadonlySet<string>;
   onSelectAgent: (id: string | null) => void;
   onExport?: ReportExportFn;
 }
 
 const EXPORT_HEADERS = [
-  "Agent",
-  "Status",
-  "Calls made",
-  "Contacted",
-  "Call contact rate %",
-  "Talk time (s)",
-  "Policies (current assignment)",
-  "Converted",
-  "Appointments",
-  "Session time (s)",
+  "Agent", "Status", "Calls made", "Contacted", "Call contact rate %", "Talk time (s)",
+  "Policies (current assignment)", "Converted", "Bookings created (all types)", "Session time (s)",
+  "Known annual premium", "Policies with known premium", "Policies with unknown premium",
 ];
+const HEADERS = ["Agent", "Policies (current assignment)", "Known annual premium", "Calls made", "Call contact rate", "Bookings created (all types)", "Talk time"];
+const numericCell = "px-4 py-4 text-right tabular-nums whitespace-nowrap";
 
-const statusSuffix = (status: string | null) => (status && status !== "Active" ? ` (${status.toLowerCase()})` : "");
-
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p.charAt(0).toUpperCase())
-    .join("");
-
-const Stat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="min-w-0">
-    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider truncate">{label}</p>
-    <p className="text-base font-black text-foreground leading-none mt-1 tabular-nums">{value}</p>
-  </div>
+const PremiumValue = ({ premium }: { premium: ReportPremium }) => (
+  <>
+    <span className="font-medium text-foreground">{formatPremium(premium.annual_premium)}</span>
+    <span className="mt-1 block text-xs text-muted-foreground">
+      {premium.known_count}/{premium.policy_count} known{premium.unknown_count > 0 ? " · " + premium.unknown_count + " unknown" : ""}
+    </span>
+  </>
 );
 
-const AgentStats: React.FC<{ a: ReportAgentRow }> = ({ a }) => (
-  <div className="grid grid-cols-3 gap-x-3 gap-y-3">
-    <Stat label="Calls made" value={formatCount(a.calls_made)} />
-    <Stat label="Contacted" value={formatCount(a.contacted)} />
-    <Stat label="Call contact rate" value={formatRate(a.contact_rate_pct)} />
-    <Stat label="Policies (current)" value={formatCount(a.policies_sold)} />
-    <Stat label="Converted" value={formatCount(a.converted)} />
-  </div>
-);
-
-/**
- * Agent Performance — one card per agent in the secured summary, in server order. A card toggles the
- * agent filter only when the viewer may filter to that agent. Converted (unique contacts) and
- * policies (stored client policies by sale date, credited to the client's CURRENT agent — not the original
- * seller) are separate counts; there is no conversion rate and no goal bar.
- */
-const AgentPerformanceCards: React.FC<Props> = ({
-  summary,
-  selectedAgentId,
-  selectableAgentIds,
-  onSelectAgent,
-  onExport,
-}) => {
+/** Comparable supported metrics in server order; current ownership is never presented as seller credit. */
+const AgentPerformanceCards: React.FC<Props> = ({ summary, selectedAgentId, selectableAgentIds, onSelectAgent, onExport }) => {
   const agents = summary.by_agent;
   const u = summary.unattributed;
-  const hasUnattributed = Object.values(u).some((n) => n > 0);
-
-  const handleExport = onExport
-    ? () => {
-        const rows: CsvCell[][] = agents.map((a) => [
-          a.name,
-          a.status,
-          a.calls_made,
-          a.contacted,
-          a.contact_rate_pct,
-          a.talk_time_seconds,
-          a.policies_sold,
-          a.converted,
-          a.appointments_set,
-          a.session_seconds,
-        ]);
-        if (hasUnattributed) {
-          rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null, u.appointments_set, null]);
-        }
-        onExport("Agent Performance", EXPORT_HEADERS, rows);
-      }
-    : undefined;
+  const hasUnattributed = [u.calls_made, u.inbound_calls, u.talk_time_seconds, u.policies_sold, u.appointments_set].some((n) => n > 0);
+  const handleExport = onExport ? () => {
+    const rows: CsvCell[][] = agents.map((a) => [
+      a.name, a.status, a.calls_made, a.contacted, a.contact_rate_pct, a.talk_time_seconds,
+      a.policies_sold, a.converted, a.appointments_set, a.session_seconds, a.premium.annual_premium,
+      a.premium.known_count, a.premium.unknown_count,
+    ]);
+    if (hasUnattributed) {
+      rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null,
+        u.appointments_set, null, u.premium.annual_premium, u.premium.known_count, u.premium.unknown_count]);
+    }
+    onExport("Agent Performance", EXPORT_HEADERS, rows);
+  } : undefined;
 
   return (
     <ReportSection title="Agent Performance" onExport={handleExport}>
-      {agents.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-12">No agents in this report.</p>
-      )}
-      {(agents.length > 0 || hasUnattributed) && (
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {agents.map((a) => {
-            const selectable = selectableAgentIds.has(a.agent_id);
-            const selected = selectedAgentId === a.agent_id;
-            const cardClass = cn(
-              "shrink-0 w-60 rounded-2xl border p-4 text-left transition-all duration-200",
-              selected ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20" : "bg-card border-border/60",
-              selectable && !selected && "group hover:border-primary/40 hover:shadow-md",
-            );
-            const header = (
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0 transition-transform group-hover:scale-105">
-                  {initials(a.name)}
-                </div>
-                <p className="text-sm font-bold text-foreground truncate min-w-0" title={a.name + statusSuffix(a.status)}>
-                  {a.name}
-                  {a.status && a.status !== "Active" && (
-                    <span className="font-medium text-muted-foreground">{statusSuffix(a.status)}</span>
-                  )}
-                </p>
-              </div>
-            );
-            return selectable ? (
-              <button
-                key={a.agent_id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onSelectAgent(selected ? null : a.agent_id)}
-                className={cardClass}
-              >
-                {header}
-                <AgentStats a={a} />
-              </button>
-            ) : (
-              <div key={a.agent_id} className={cardClass}>
-                {header}
-                <AgentStats a={a} />
-              </div>
-            );
-          })}
-          {hasUnattributed && (
-            <div className="shrink-0 w-60 rounded-2xl border border-dashed border-border/60 bg-muted/30 p-4">
-              <div className="mb-4">
-                <p className="text-sm font-bold text-muted-foreground">Unattributed</p>
-                <p className="text-[11px] text-muted-foreground">Activity not linked to an agent</p>
-              </div>
-              <div className="grid grid-cols-3 gap-x-3 gap-y-3">
-                <Stat label="Calls made" value={formatCount(u.calls_made)} />
-                <Stat label="Inbound" value={formatCount(u.inbound_calls)} />
-                <Stat label="Policies (no agent)" value={formatCount(u.policies_sold)} />
-                <Stat label="Appointments" value={formatCount(u.appointments_set)} />
-                <Stat label="Talk time" value={formatHours(u.talk_time_seconds)} />
-              </div>
-            </div>
-          )}
+      <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{CURRENT_ASSIGNMENT_NOTE}</p>
+      {agents.length === 0 && !hasUnattributed ? (
+        <p className="py-12 text-center text-sm text-muted-foreground">No agents in this report.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          role="region" aria-label="Agent performance table" tabIndex={0}>
+          <table className="w-full min-w-[900px] text-sm">
+            <caption className="sr-only">Agent production and activity for the selected report. Select an available agent name to filter.</caption>
+            <thead className="bg-muted/40">
+              <tr>
+                {HEADERS.map((label, i) => (
+                  <th key={label} scope="col" className={cn("px-4 py-3 text-xs font-medium text-muted-foreground", i === 0 ? "text-left" : "text-right")}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {agents.map((a) => {
+                const selectable = selectableAgentIds.has(a.agent_id);
+                const selected = selectedAgentId === a.agent_id;
+                return (
+                  <tr key={a.agent_id} className={cn("transition-colors hover:bg-muted/20", selected && "bg-primary/5")}>
+                    <th scope="row" className="min-w-[180px] max-w-[240px] px-4 py-4 text-left font-medium">
+                      {selectable ? (
+                        <button type="button" aria-pressed={selected}
+                          aria-label={(selected ? "Clear agent filter for " : "Filter reports to ") + a.name}
+                          onClick={() => onSelectAgent(selected ? null : a.agent_id)}
+                          className="rounded-sm text-left text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <span className="break-words">{a.name}</span>
+                        </button>
+                      ) : <span className="break-words text-foreground">{a.name}</span>}
+                      {a.status && a.status !== "Active" && <span className="mt-1 block text-xs font-normal text-muted-foreground">{a.status}</span>}
+                      {selected && <span className="mt-1 block text-xs font-normal text-primary">Selected</span>}
+                    </th>
+                    <td className={numericCell}>{formatCount(a.policies_sold)}</td>
+                    <td className={numericCell}><PremiumValue premium={a.premium} /></td>
+                    <td className={numericCell}>{formatCount(a.calls_made)}</td>
+                    <td className={numericCell}>{formatRate(a.contact_rate_pct)}</td>
+                    <td className={numericCell}>{formatCount(a.appointments_set)}</td>
+                    <td className={numericCell}>{formatHours(a.talk_time_seconds)}</td>
+                  </tr>
+                );
+              })}
+              {hasUnattributed && (
+                <tr className="bg-muted/20 text-muted-foreground">
+                  <th scope="row" className="px-4 py-4 text-left font-medium">
+                    Unattributed
+                    <span className="mt-1 block text-xs font-normal">Activity or policies without an agent</span>
+                    {u.inbound_calls > 0 && <span className="mt-1 block text-xs font-normal">{formatCount(u.inbound_calls)} inbound calls</span>}
+                  </th>
+                  <td className={numericCell}>{formatCount(u.policies_sold)}</td>
+                  <td className={numericCell}><PremiumValue premium={u.premium} /></td>
+                  <td className={numericCell}>{formatCount(u.calls_made)}</td>
+                  <td className={numericCell}>—</td>
+                  <td className={numericCell}>{formatCount(u.appointments_set)}</td>
+                  <td className={numericCell}>{formatHours(u.talk_time_seconds)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
-      {agents.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-3">
-          Converted counts unique contacts converted. Policies are stored client policies on their sale date; one client
-          can hold several. {CURRENT_ASSIGNMENT_NOTE}
-        </p>
       )}
     </ReportSection>
   );

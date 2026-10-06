@@ -117,11 +117,11 @@ export function longDateLabel(date: string): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
-/** Bucket key for a calendar date: the day, the Sunday that starts its week, or its month. */
+/** Bucket key for a calendar date: the day, the Monday that starts its week, or its month. */
 export function bucketKey(date: string, grouping: Grouping): string {
   if (grouping === "daily") return date;
   const d = toUtc(date);
-  if (grouping === "weekly") return addDays(date, -d.getUTCDay());
+  if (grouping === "weekly") return addDays(date, -((d.getUTCDay() + 6) % 7));
   return date.slice(0, 7);
 }
 
@@ -199,12 +199,11 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** Duration as "Xh Ym" (or "—" when unknown). */
+/** Duration as "Xh Ym Zs" (or "—" when unknown). */
 export function formatHours(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "—";
-  // Round once to whole minutes, then split — rounding the remainder alone renders "1h 60m".
-  const minutes = Math.round(seconds / 60);
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${s % 60}s`;
 }
 
 /** A server rate (null when its denominator is zero) → "57.9%" or "—". Never a fabricated "0%". */
@@ -222,3 +221,7 @@ export function ratio(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
+
+export function formatPremium(amount: number | null | undefined): string {
+  return amount == null || !Number.isFinite(amount) ? "—" : amount.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

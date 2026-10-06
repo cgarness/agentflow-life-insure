@@ -1,0 +1,32 @@
+{
+  "head": "6b468da9610362530d9d10ec989879ab849d6b80",
+  "base_sha": "92e486ca4bd84ff1ee2938ad38fe94ba39635eba",
+  "checks": {
+    "base_root_tsc": 0,
+    "base_app_tsc": 2,
+    "base_vitest": 1,
+    "branch_root_tsc": 0,
+    "branch_app_tsc": 2,
+    "branch_vitest": 1,
+    "reports_vitest": 0,
+    "eslint": 0,
+    "build": 0
+  },
+  "base_passed": 4199,
+  "branch_passed": 4272,
+  "preexisting_failed_tests": 1,
+  "preexisting_failed_files": [
+    "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts",
+    "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+    "src/lib/__tests__/contactName.test.ts",
+    "src/lib/__tests__/contactScope.test.ts",
+    "src/lib/__tests__/leadDisposition.test.ts",
+    "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+    "src/lib/__tests__/userLocalDayBounds.test.ts",
+    "src/lib/caller-id-selection.test.ts",
+    "src/lib/control-center/runtimeEventLogger.test.ts",
+    "src/lib/custom-fields-settings.test.ts"
+  ],
+  "app_type_errors": 87,
+  "reported_unhandled_errors": 0
+}

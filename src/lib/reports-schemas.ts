@@ -1,6 +1,6 @@
 /**
- * reports-schemas.ts — runtime contracts for the secured Reports RPCs
- * (supabase/migrations/20260928120000_reports_secure_scoped_rpcs.sql).
+ * reports-schemas.ts — runtime contracts for the secured Reports v2 RPCs
+ * (supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql).
  *
  * Every payload is parsed before it reaches the UI. A payload that does not match is treated as an
  * UNAVAILABLE report, never as zeros: a silently mis-shaped response is how a failed report used to
@@ -47,13 +47,36 @@ export const policyQualitySchema = z.object({
   malformed_additional_policies: count,
 });
 
+export const requestedScopeSchema = z.enum(["personal", "team", "agency"]);
+export type ReportRequestedScope = z.infer<typeof requestedScopeSchema>;
+export const reportPremiumSchema = z.object({
+  policy_count: count, known_count: count, unknown_count: count,
+  monthly_premium: z.number().nonnegative().nullable(), annual_premium: z.number().nonnegative().nullable(),
+  average_annual_premium: z.number().nonnegative().nullable(), coverage_pct: rate,
+  invalid_count: count, ambiguous_zero_count: count, missing_identity_count: count,
+  basis: z.literal("current_stored_monthly_x12"),
+});
+export type ReportPremium = z.infer<typeof reportPremiumSchema>;
+export const reportQualitySchema = z.object({
+  basis: z.literal("reports_integrity_v2"), as_of: z.string().datetime({ offset: true }),
+  duration: z.object({ outbound_calls: count, estimated_calls: count, unknown_calls: count, conflicting_calls: count }),
+  duplicates: z.object({ excluded_outbound_calls: count, excluded_bookings: count, basis: z.literal("reviewed_mappings_only") }),
+  bookings: z.object({ all_types: count, appointment_kind: count, callback_kind: count, unknown_kind: count }),
+  sessions: z.object({ stale_capped: count, missing_evidence: count, overlapping_rows: count, overlap_seconds_removed: count }),
+});
+export type ReportQuality = z.infer<typeof reportQualitySchema>;
+const integrityMeta = { basis_version: z.literal("reports_integrity_v2"), as_of: z.string().datetime({ offset: true }), requested_scope: requestedScopeSchema };
+const sessionCohort = { session_matched_calls: count, session_matched_contacted: count, session_matched_talk_seconds: count, session_unmatched_calls: count };
+
 const reportMetaSchema = z.object({
+  ...integrityMeta, quality: reportQualitySchema,
   scope: reportScopeKindSchema,
   filter_agent_id: z.string().uuid().nullable(),
   window: reportWindowSchema,
 });
 
 export const reportScopeSchema = z.object({
+  ...integrityMeta, available_scopes: z.array(requestedScopeSchema).min(1),
   scope: reportScopeKindSchema,
   role: z.string(),
   can_export: z.boolean(),
@@ -72,6 +95,7 @@ export const reportScopeSchema = z.object({
 });
 
 export const reportAgentRowSchema = z.object({
+  ...sessionCohort, premium: reportPremiumSchema,
   agent_id: z.string().uuid(),
   name: z.string(),
   status: z.string().nullable(),
@@ -88,6 +112,7 @@ export const reportAgentRowSchema = z.object({
 
 export const reportSummarySchema = reportMetaSchema.extend({
   totals: z.object({
+    ...sessionCohort, premium: reportPremiumSchema,
     calls_made: count,
     inbound_calls: count,
     other_calls: count,
@@ -106,6 +131,7 @@ export const reportSummarySchema = reportMetaSchema.extend({
   }),
   by_agent: z.array(reportAgentRowSchema),
   unattributed: z.object({
+    premium: reportPremiumSchema,
     calls_made: count,
     inbound_calls: count,
     talk_time_seconds: count,
@@ -125,6 +151,7 @@ export const reportVolumeSchema = reportMetaSchema.extend({
   by_date: z.array(
     z.object({
       date: isoDate,
+      premium: reportPremiumSchema,
       calls_made: count,
       contacted: count,
       inbound_calls: count,
@@ -184,11 +211,13 @@ export const reportCampaignsSchema = reportMetaSchema.extend({
       converted_leads: count,
       /** Normalized policies attributed by CONVERSION LINEAGE only (never COUNT(wins)). */
       attributed_policies: count,
+      premium: reportPremiumSchema,
     }),
   ),
   unattributed_calls: count,
   policy_source: policySource,
   policy_attribution: z.literal("conversion_lineage_only"),
+  premium: reportPremiumSchema, premium_attribution_unavailable: reportPremiumSchema,
   policies_in_period: count,
   policies_attribution_unavailable: count,
 });

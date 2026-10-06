@@ -1,6 +1,6 @@
 # SMS integration verification
 
-This is an isolated build, not a production release. AgentFlow baseline: `b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1`. UV baseline: `8a1d81e78d096c521b325b2b8232c204007e881e`. Main was refreshed without changing the implementation base.
+This is an isolated build, not a production release. Original AgentFlow implementation baseline: `b90e12d3bdcfb188ca0fbc6f25e971aaf77ddbf1`. Current CI comparison base: `3f7fa519011ab22307dfdda802b045b2028cd7b2`. UV baseline: `8a1d81e78d096c521b325b2b8232c204007e881e`. The newer Reports releases were merged into the review branch, preserving both documentation histories; no application conflict occurred.
 
 ## Completed local evidence
 

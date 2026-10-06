@@ -34,6 +34,8 @@ export interface ReportExportContext {
   agentLabel: string;
   window: ReportWindow;
   generatedAt?: Date;
+  asOf?: string;
+  basisVersion?: string;
   /** Basis notes (e.g. how policies are counted and credited), written as metadata rows. */
   notes?: string[];
 }
@@ -51,6 +53,8 @@ export function buildReportCsv(context: ReportExportContext, headers: string[], 
     ["Agent filter", context.agentLabel],
     ["Period", `${context.window.start_date} to ${context.window.end_date}`],
     ["Time zone", context.window.time_zone],
+    ...(context.asOf ? [["Response as of", context.asOf]] : []),
+    ...(context.basisVersion ? [["Basis version", context.basisVersion]] : []),
     ["Generated", (context.generatedAt ?? new Date()).toISOString()],
     ...(context.notes ?? []).map((n): CsvCell[] => ["Note", n]),
   ];

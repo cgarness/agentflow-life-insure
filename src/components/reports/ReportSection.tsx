@@ -1,7 +1,6 @@
 import React from "react";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 interface Props {
   title: string;
@@ -14,38 +13,33 @@ interface Props {
 
 const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, children, badge }) => {
   const [open, setOpen] = React.useState(defaultOpen);
+  const id = React.useId();
+  const titleId = `${id}-title`;
+  const contentId = `${id}-content`;
 
   return (
-    <div className="bg-card rounded-xl border border-border/60 overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300">
-      <div
-        className="w-full flex items-center justify-between px-6 py-4 cursor-pointer select-none"
-        onClick={() => setOpen(o => !o)}
-      >
-        <div className="flex items-center gap-3">
-          <div className={cn("p-1.5 rounded-lg transition-colors", open ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-            {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </div>
-          <h3 className="font-bold text-foreground text-base tracking-tight">{title}</h3>
-          {badge && <span className="text-[10px] uppercase font-black tracking-widest bg-primary/5 text-primary px-2.5 py-1 rounded-lg border border-primary/10">{badge}</span>}
-        </div>
+    <section className="rounded-xl border border-border/60 bg-card">
+      <div className="flex items-center gap-2 px-4 py-3 sm:px-5">
+        <h3 className="min-w-0 flex-1 text-base font-semibold tracking-tight">
+          <button type="button" id={titleId} aria-expanded={open} aria-controls={contentId}
+            onClick={() => setOpen((value) => !value)}
+            className="flex w-full items-center gap-2 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+            {open ? <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />}
+            <span className="break-words">{title}</span>
+          </button>
+        </h3>
+        {badge && <span className="rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">{badge}</span>}
         {onExport && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 px-3 rounded-xl hover:bg-primary/5 hover:text-primary text-muted-foreground font-bold text-xs"
-            onClick={e => { e.stopPropagation(); onExport(); }}
-          >
-            <Download className="w-3.5 h-3.5 mr-2" />
-            CSV
+          <Button type="button" variant="ghost" size="sm" aria-label={`Export ${title} CSV`}
+            className="shrink-0 gap-1.5 text-xs text-muted-foreground" onClick={onExport}>
+            <Download aria-hidden="true" className="h-3.5 w-3.5" />CSV
           </Button>
         )}
       </div>
-      <div className={cn("transition-all duration-300 ease-in-out overflow-hidden", open ? "max-h-[5000px] opacity-100" : "max-h-0 opacity-0")}>
-        <div className="px-6 pb-6">
-          {children}
-        </div>
+      <div id={contentId} role="region" aria-labelledby={titleId} hidden={!open}>
+        {open && <div className="px-4 pb-5 sm:px-5">{children}</div>}
       </div>
-    </div>
+    </section>
   );
 };
 

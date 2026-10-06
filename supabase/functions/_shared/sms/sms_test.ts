@@ -133,7 +133,8 @@ function fixture() {
   const db = {
     from: (table: string) => {
       let columns = "*";
-      let single = false, patch: any, filters: ((r: any) => boolean)[] = [];
+      let single = false, patch: any;
+      const filters: ((r: any) => boolean)[] = [];
       const q: any = {
         select: (fields = "*") => {
           columns = fields;

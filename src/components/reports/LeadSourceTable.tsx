@@ -48,7 +48,7 @@ const LeadSourceTable: React.FC<Props> = ({ leadSources, onExport }) => {
         onExport(
           "Lead Source Performance",
           EXPORT_HEADERS,
-          sources.map((s): CsvCell[] => [
+          [...sources.map((s): CsvCell[] => [
             s.lead_source,
             s.new_leads,
             s.calls_made,
@@ -57,7 +57,7 @@ const LeadSourceTable: React.FC<Props> = ({ leadSources, onExport }) => {
             s.leads_dialed,
             s.contacted_leads,
             null,
-          ]),
+          ]), ["Attribution unavailable", null, unattributed, null, null, null, null, null]],
         )
     : undefined;
 
