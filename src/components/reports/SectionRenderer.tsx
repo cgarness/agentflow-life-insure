@@ -1,195 +1,57 @@
-import React, { useState } from "react";
-import DraggableSection from "./DraggableSection";
-import { SectionConfig, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
-import { StatCategory, STAT_CATEGORIES, STAT_DEFINITION_MAP, isStatAvailable } from "@/lib/stat-computations";
-import { EyeOff } from "lucide-react";
-import { toast } from "sonner";
+import React from "react";
+import { REPORT_LAYOUT_GROUPS, REPORT_LAYOUT_SECTIONS, type SectionConfig } from "@/lib/report-layout-constants";
 
 interface Props {
   sections: SectionConfig[];
   components: Record<string, React.ReactNode>;
-  editMode: boolean;
   /** True when the server scope covers more than the viewer (team / organization). */
   showTeamSections: boolean;
-  onSectionsChange: (sections: SectionConfig[]) => void;
+  group?: "stats" | "performance" | "diagnostics";
 }
 
-const TEAM_SECTIONS = ["agent_performance_cards", "agent_efficiency", "goal_tracking"];
-const CATEGORY_ORDER: StatCategory[] = ["activity", "results", "pipeline", "team"];
+const SECTION_META = new Map(REPORT_LAYOUT_SECTIONS.map((section) => [section.id, section]));
 
-const SectionRenderer: React.FC<Props> = ({
-  sections, components, editMode, showTeamSections, onSectionsChange,
-}) => {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
+/** Preferences control only registered sections; fixed production content is rendered by Reports. */
+const SectionRenderer: React.FC<Props> = ({ sections, components, showTeamSections, group }) => (
+  <>
+    {REPORT_LAYOUT_GROUPS.filter((item) => !group || item.id === group).map((item) => {
+      const visible = sections.filter((section) => {
+        const meta = SECTION_META.get(section.id);
+        return section.visible && meta?.group === item.id &&
+          (showTeamSections || !meta.teamOnly) && components[section.id] != null;
+      });
+      if (!visible.length) return null;
 
-  const handleDragStart = (id: string) => setDraggedId(id);
-  const handleDragOver = (id: string) => {
-    if (draggedId && draggedId !== id) setDragOverId(id);
-  };
-
-  const handleDrop = (id: string) => {
-    if (!draggedId || draggedId === id) { setDraggedId(null); setDragOverId(null); return; }
-    const current = [...sections];
-    const from = current.findIndex(s => s.id === draggedId);
-    const to = current.findIndex(s => s.id === id);
-    if (from > -1 && to > -1) {
-      const [item] = current.splice(from, 1);
-      current.splice(to, 0, item);
-      onSectionsChange(current);
-    }
-    setDraggedId(null); setDragOverId(null);
-  };
-
-  const handleToggleVisibility = (id: string) => {
-    const section = sections.find(s => s.id === id);
-    if (!section) return;
-
-    if (!section.visible && id.startsWith("stat_")) {
-      const visibleCount = sections.filter(s => s.id.startsWith("stat_") && s.visible).length;
-      if (visibleCount >= MAX_VISIBLE_STATS) {
-        toast.error(`Maximum ${MAX_VISIBLE_STATS} stats — hide one to add another.`);
-        return;
-      }
-    }
-
-    onSectionsChange(sections.map(s => s.id === id ? { ...s, visible: !s.visible } : s));
-  };
-
-  const visibleStatSections: SectionConfig[] = [];
-  const hiddenStatSections: SectionConfig[] = [];
-  const otherSections: SectionConfig[] = [];
-
-  for (const s of sections) {
-    if (!showTeamSections && TEAM_SECTIONS.includes(s.id)) continue;
-    if (s.id.startsWith("stat_")) {
-      if (s.visible) visibleStatSections.push(s);
-      // Stats with no approved definition are never offered in the picker.
-      else if (isStatAvailable(s.id)) hiddenStatSections.push(s);
-    } else {
-      otherSections.push(s);
-    }
-  }
-
-  // Group hidden stats by category for the edit-mode picker
-  const hiddenByCategory = new Map<string, SectionConfig[]>();
-  for (const s of hiddenStatSections) {
-    const def = STAT_DEFINITION_MAP[s.id];
-    if (!def) continue;
-    const arr = hiddenByCategory.get(def.category) ?? [];
-    arr.push(s);
-    hiddenByCategory.set(def.category, arr);
-  }
-
-  const dragProps = (s: SectionConfig) => ({
-    id: s.id, visible: s.visible, editMode,
-    isDragging: draggedId === s.id, dragOverId,
-    onDragStart: handleDragStart, onDragOver: handleDragOver,
-    onDrop: handleDrop, onToggleVisibility: handleToggleVisibility,
-  });
-
-  const renderOtherSections = (): React.ReactNode[] => {
-    const out: React.ReactNode[] = [];
-    let batch: React.ReactNode[] = [];
-    const flush = () => {
-      if (!batch.length) return;
-      out.push(
-        <div key={`grid-${out.length}`} className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          {batch}
-        </div>
-      );
-      batch = [];
-    };
-    otherSections.forEach((section) => {
-      const content = components[section.id];
-      if (!content) return;
-      batch.push(
-        <DraggableSection key={section.id} {...dragProps(section)}>
-          {content}
-        </DraggableSection>
-      );
-    });
-    flush();
-    return out;
-  };
-
-  return (
-    <div className="space-y-0" onDragOver={(e) => e.preventDefault()}>
-      {/* Flat grid of stat cards */}
-      <div className="mb-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-          {visibleStatSections.map((s) => (
-            <DraggableSection key={s.id} {...dragProps(s)}>
-              {components[s.id]}
-            </DraggableSection>
-          ))}
-        </div>
-
-        {/* Color Legend - only in non-edit mode */}
-        {!editMode && visibleStatSections.length > 0 && (
-          <div className="flex gap-4 flex-wrap mt-2 mb-6">
-            {CATEGORY_ORDER.map((cat) => {
-              const meta = STAT_CATEGORIES[cat];
-              return (
-                <div key={cat} className="flex items-center gap-1.5">
-                  <div 
-                    className="w-[3px] h-[14px] rounded-full" 
-                    style={{ backgroundColor: meta.color }} 
-                  />
-                  <span className="text-[11px] text-muted-foreground/80 font-medium uppercase tracking-wider">
-                    {meta.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Edit-mode picker: hidden stats grouped by category */}
-      {editMode && hiddenStatSections.length > 0 && (
-        <div className="mb-6 mt-2 border-t border-border/50 pt-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-            Available stats — toggle to add
-          </p>
-          <div className="space-y-4">
-            {Array.from(hiddenByCategory.entries()).map(([cat, items]) => {
-              const meta = STAT_CATEGORIES[cat as keyof typeof STAT_CATEGORIES];
-              return (
-                <div key={cat}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: meta?.color }} />
-                    <span className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">
-                      {meta?.label ?? cat}
-                    </span>
-                  </div>
-                  <div className="grid gap-[8px]" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-                    {items.map((s) => {
-                      const def = STAT_DEFINITION_MAP[s.id];
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => handleToggleVisibility(s.id)}
-                          className="flex items-center justify-between gap-2 px-2.5 py-2 bg-card border border-border/50 hover:border-primary/50 transition-colors text-left"
-                          style={{ borderLeft: `3px solid ${meta?.color}` }}
-                          title={`Show ${def?.label}`}
-                        >
-                          <span className="text-xs font-medium truncate">{def?.label ?? s.id}</span>
-                          <EyeOff className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+      return (
+        <div
+          key={item.id}
+          role="group"
+          aria-label={item.label}
+          data-report-group={item.id}
+          className="min-w-0"
+        >
+          {item.id !== "stats" && (
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold tracking-tight">{item.label}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {item.id === "performance" ? "People, campaigns, and lead sources." : "Call patterns and dialer activity."}
+              </p>
+            </div>
+          )}
+          <div className={item.id === "stats"
+            ? "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 md:grid-cols-3 xl:grid-cols-6"
+            : "grid grid-cols-1 gap-4 lg:grid-cols-2"}>
+            {visible.map((section) => (
+              <div key={section.id} data-report-section={section.id}
+                className={section.id === "agent_performance_cards" || section.id === "agent_efficiency" ? "min-w-0 lg:col-span-2" : "min-w-0"}>
+                {components[section.id]}
+              </div>
+            ))}
           </div>
         </div>
-      )}
-
-      {renderOtherSections()}
-    </div>
-  );
-};
+      );
+    })}
+  </>
+);
 
 export default SectionRenderer;

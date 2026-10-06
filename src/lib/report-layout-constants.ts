@@ -1,118 +1,98 @@
 import { STAT_DEFINITIONS, STAT_CATEGORIES as STAT_CATEGORY_META } from "@/lib/stat-computations";
 
-export interface SectionConfig {
+export interface SectionConfig { id: string; visible: boolean }
+export interface ReportLayoutConfig { version: 4; sections: SectionConfig[] }
+export type ReportLayoutGroup = "stats" | "performance" | "diagnostics";
+export interface ReportLayoutSection {
   id: string;
-  visible: boolean;
+  label: string;
+  group: ReportLayoutGroup;
+  teamOnly: boolean;
 }
 
-export interface ReportLayoutConfig {
-  version: 3;
-  sections: SectionConfig[];
-}
-
-/** Category color map (re-exported for convenience). */
 export const STAT_CATEGORIES = STAT_CATEGORY_META;
-
-export const MAX_VISIBLE_STATS = 20;
-
-/**
- * Stats visible by default — only stats with an approved definition (see stat-computations.ts);
- * ordered by category.
- */
-export const DEFAULT_VISIBLE_STATS: string[] = [
-  // Activity (blue)
-  "stat_total_dials",
-  "stat_total_contacted",
-  "stat_contact_rate",
-  "stat_total_talk_time",
-  "stat_avg_duration_all",
-  "stat_session_time",
-  "stat_calls_per_hour",
-  "stat_calls_per_day",
-  "stat_inbound",
-  "stat_calls_today",
-
-  // Results (green)
-  "stat_policies_sold",
-  "stat_appointments_set",
-  "stat_dials_per_sale",
-
-  // Pipeline (teal)
-  "stat_leads_converted",
-  "stat_callback_rate",
-  "stat_dnc_count",
-
-  // Team (amber)
-  "stat_top_performer",
-  "stat_top_dialer",
-  "stat_avg_calls_agent",
-  "stat_dials_per_contact",
+export const MAX_VISIBLE_STATS = 6;
+export const DEFAULT_VISIBLE_STATS = [
+  "stat_total_dials", "stat_total_contacted", "stat_contact_rate",
+  "stat_appointments_set", "stat_total_talk_time", "stat_session_time",
+];
+export const REPORT_LAYOUT_GROUPS: { id: ReportLayoutGroup; label: string }[] = [
+  { id: "stats", label: "Key metrics" },
+  { id: "performance", label: "Performance" },
+  { id: "diagnostics", label: "Dialer intelligence" },
 ];
 
-const ALL_STAT_IDS = STAT_DEFINITIONS.map((d) => d.id);
-
-const buildDefaultStatSections = (): SectionConfig[] => {
-  const visibleSet = new Set(DEFAULT_VISIBLE_STATS);
-  const visibleOrdered: SectionConfig[] = DEFAULT_VISIBLE_STATS.map((id) => ({ id, visible: true }));
-  const hiddenOrdered: SectionConfig[] = ALL_STAT_IDS
-    .filter((id) => !visibleSet.has(id))
-    .map((id) => ({ id, visible: false }));
-  return [...visibleOrdered, ...hiddenOrdered];
-};
-
+const fixedStats = new Set(["stat_policies_sold", "stat_annual_premium"]);
+const teamStats = new Set([
+  "stat_top_performer", "stat_top_dialer", "stat_best_contact_agent", "stat_avg_calls_agent", "stat_agents_active",
+]);
+export const REPORT_LAYOUT_SECTIONS: ReportLayoutSection[] = [
+  ...STAT_DEFINITIONS.filter((s) => !s.unavailable && !fixedStats.has(s.id)).map((s) => ({
+    id: s.id, label: s.label, group: "stats" as const, teamOnly: teamStats.has(s.id),
+  })),
+  { id: "agent_performance_cards", label: "Agent performance", group: "performance", teamOnly: true },
+  { id: "agent_efficiency", label: "Agent efficiency", group: "performance", teamOnly: true },
+  { id: "campaign_performance", label: "Campaign performance", group: "performance", teamOnly: false },
+  { id: "lead_source_roi", label: "Lead sources", group: "performance", teamOnly: false },
+  { id: "conversion_funnel", label: "Disposition breakdown", group: "diagnostics", teamOnly: false },
+  { id: "communications_stats", label: "Call summary", group: "diagnostics", teamOnly: false },
+  { id: "calling_heatmap", label: "Calling heatmap", group: "diagnostics", teamOnly: false },
+  { id: "call_flow_analysis", label: "Call flow", group: "diagnostics", teamOnly: false },
+  { id: "call_duration_analysis", label: "Call duration", group: "diagnostics", teamOnly: false },
+  { id: "disposition_deep_dive", label: "Disposition deep dive", group: "diagnostics", teamOnly: false },
+];
+const sectionById = new Map(REPORT_LAYOUT_SECTIONS.map((s) => [s.id, s]));
+const defaultVisible = new Set(DEFAULT_VISIBLE_STATS);
 export const DEFAULT_LAYOUT: ReportLayoutConfig = {
-  version: 3,
+  version: 4,
   sections: [
-    ...buildDefaultStatSections(),
-
-    // Paired sections
-    { id: "call_volume", visible: true },
-    { id: "conversion_funnel", visible: true },
-    { id: "communications_stats", visible: true },
-    { id: "calling_heatmap", visible: true },
-    { id: "call_flow_analysis", visible: true },
-    { id: "call_duration_analysis", visible: true },
-    { id: "disposition_deep_dive", visible: true },
-    { id: "policies_sold", visible: true },
-    { id: "campaign_performance", visible: true },
-    { id: "lead_source_roi", visible: true },
-
-    // Team sections (shown when the server scope is team or organization)
-    { id: "agent_performance_cards", visible: true },
-    { id: "agent_efficiency", visible: true },
-    { id: "goal_tracking", visible: false },
+    ...DEFAULT_VISIBLE_STATS.map((id) => ({ id, visible: true })),
+    ...REPORT_LAYOUT_SECTIONS.filter((s) => !defaultVisible.has(s.id)).map((s) => ({
+      id: s.id, visible: s.group !== "stats",
+    })),
   ],
 };
 
-/**
- * Migrate a saved layout to the latest version, appending any newly registered
- * stat IDs as hidden so the user doesn't lose access to them.
- * Also enforces the MAX_VISIBLE_STATS cap.
- */
-export function migrateLayout(saved: { version?: number; sections?: SectionConfig[] } | null | undefined): ReportLayoutConfig {
-  if (!saved || !saved.sections) return DEFAULT_LAYOUT;
-  const known = new Set(saved.sections.map((s) => s.id));
-  const appended: SectionConfig[] = [];
-  for (const id of ALL_STAT_IDS) {
-    if (!known.has(id)) appended.push({ id, visible: false });
-  }
-  
-  const allSections = [...saved.sections, ...appended];
-  
-  // Cap visible stats at 20
-  let visibleStatCount = 0;
-  for (const s of allSections) {
-    if (s.id.startsWith("stat_") && s.visible) {
-      if (visibleStatCount >= MAX_VISIBLE_STATS) {
-        s.visible = false;
-      } else {
-        visibleStatCount++;
-      }
-    }
-  }
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function freshDefault(): ReportLayoutConfig {
+  return { version: 4, sections: DEFAULT_LAYOUT.sections.map((s) => ({ ...s })) };
+}
 
+/** Read-only migration of untrusted saved JSON. Heroes/trends never belong to this layout. */
+export function normalizeReportLayout(saved: unknown): ReportLayoutConfig {
+  if (!record(saved)) return freshDefault();
+  let raw: unknown[];
+  if (saved.version === 1 && record(saved.tabs)) {
+    const tabs = saved.tabs;
+    raw = ["overview", "calls", "pipeline", "team"].flatMap((tab) =>
+      Array.isArray(tabs[tab]) ? tabs[tab] as unknown[] : []);
+  } else if ([2, 3, 4].includes(saved.version as number) && Array.isArray(saved.sections)) {
+    raw = saved.sections;
+  } else return freshDefault();
+
+  const seen = new Set<string>();
+  const selected: SectionConfig[] = [];
+  let visibleStats = 0;
+  for (const item of raw) {
+    if (!record(item) || typeof item.id !== "string" || typeof item.visible !== "boolean") continue;
+    const definition = sectionById.get(item.id);
+    if (!definition || seen.has(item.id)) continue;
+    seen.add(item.id);
+    let visible = item.visible;
+    if (definition.group === "stats" && visible) visible = visibleStats++ < MAX_VISIBLE_STATS;
+    selected.push({ id: item.id, visible });
+  }
+  // New metrics stay hidden; newly introduced panels remain available in their fixed group.
+  for (const definition of REPORT_LAYOUT_SECTIONS) {
+    if (!seen.has(definition.id)) selected.push({ id: definition.id, visible: definition.group !== "stats" });
+  }
   return {
-    version: 3,
-    sections: allSections,
+    version: 4,
+    sections: REPORT_LAYOUT_GROUPS.flatMap((group) => selected.filter((s) => sectionById.get(s.id)?.group === group.id)),
   };
 }
+
+/** Compatibility name for callers that previously migrated only v3 sections. */
+export const migrateLayout = normalizeReportLayout;

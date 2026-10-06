@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useReportPanels, useReportScope, type PanelKey } from "@/hooks/useReportsData";
+import { useReportLayout } from "@/hooks/useReportLayout";
+import type { ReportRequestedScope } from "@/lib/reports-schemas";
 import {
   autoGrouping, dayCount, presetRange, validateRange,
   type CalendarRange, type Grouping, type ReportPreset,
@@ -10,27 +12,33 @@ import { buildReportCsv, csvFileName, downloadCsv, type ReportExportFn } from "@
 import ReportDataQuality from "@/components/reports/ReportDataQuality";
 import { integrityExportNotes } from "@/lib/reports-integrity-text";
 import { policyExportNotes } from "@/lib/reports-policy-text";
-import { fetchUserLayout, getDefaultLayout, resetUserLayout, saveOrgDefaultLayout, saveUserLayout } from "@/lib/report-layout";
-import type { ReportLayoutConfig, SectionConfig } from "@/lib/report-layout-constants";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
 import ReportCustomizer from "@/components/reports/ReportCustomizer";
 import SectionRenderer from "@/components/reports/SectionRenderer";
 import { ReportNotice, ReportPanelSkeleton } from "@/components/reports/ReportPanelState";
 import { buildReportSections } from "@/components/reports/reportSectionMap";
+import ReportsOverview from "@/components/reports/ReportsOverview";
+import ReportsActivityFlow from "@/components/reports/ReportsActivityFlow";
 const Reports: React.FC = () => {
   const { profile, isImpersonating } = useAuth();
   const viewerId = isImpersonating ? null : profile?.id ?? null;
   const orgId = profile?.organization_id ?? null;
-  const canSetOrgDefault = profile?.role === "Admin" || profile?.is_super_admin === true;
-  const scope = useReportScope(viewerId, orgId);
+  const viewerKey = viewerId && orgId ? `${viewerId}|${orgId}` : null;
+  const [scopeSelection, setScopeSelection] = useState<{ key: string | null; value: ReportRequestedScope | null }>({ key: null, value: null });
+  const requestedScope = scopeSelection.key === viewerKey ? scopeSelection.value : null;
+  const scope = useReportScope(viewerId, orgId, requestedScope);
   const scopeData = scope.state.status === "ready" ? scope.state.data : null;
   const [preset, setPreset] = useState<ReportPreset>("30d");
   const [customStart, setCustomStart] = useState<string | null>(null);
   const [customEnd, setCustomEnd] = useState<string | null>(null);
   const [agentSel, setAgentSel] = useState<{ key: string | null; id: string | null }>({ key: null, id: null });
   const [groupingSel, setGroupingSel] = useState<Grouping | null>(null);
-  const [layout, setLayout] = useState<ReportLayoutConfig>(getDefaultLayout());
-  const [editMode, setEditMode] = useState(false);
+  useEffect(() => { setScopeSelection({ key: viewerKey, value: null }); setAgentSel({ key: null, id: null }); }, [viewerKey]);
+  const onScope = (value: ReportRequestedScope) => {
+    if (!scopeData?.available_scopes.includes(value) || scopeData.requested_scope === value) return;
+    setScopeSelection({ key: viewerKey, value });
+    setAgentSel({ key: null, id: null });
+  };
   const range: CalendarRange | null = useMemo(() => {
     if (!scopeData) return null;
     if (preset !== "custom") return presetRange(preset, scopeData.today);
@@ -50,17 +58,13 @@ const Reports: React.FC = () => {
   const resolvedScope = scope.key && scopeData ? `${scope.key}|${scopeData.scope}|${scopeData.time_zone}|${scopeData.today}` : null;
   const reports = useReportPanels(resolvedScope, request);
   const grouping = groupingSel ?? (range ? autoGrouping(range) : "daily");
-  useEffect(() => {
-    if (!orgId || !viewerId) return;
-    let live = true;
-    fetchUserLayout(orgId).then((l) => live && setLayout(l), (e) => console.error("[Reports] layout load failed:", e));
-    return () => { live = false; };
-  }, [orgId, viewerId]);
   const scopeDrift = !!scopeData && Object.values(reports.panels).some((p) =>
     p.status === "ready" &&
     (p.data.scope !== scopeData.scope || p.data.window.time_zone !== scopeData.time_zone || p.data.filter_agent_id !== agentId || p.data.requested_scope !== scopeData.requested_scope || p.data.window.start_date !== range?.startDate || p.data.window.end_date !== range?.endDate));
   const panelZoneMissing = Object.values(reports.panels).some((p) => p.status === "error" && p.error.kind === "configuration");
   const withheld = scopeDrift || panelZoneMissing;
+  const preferences = useReportLayout(viewerId, orgId, !!scopeData && !withheld);
+  const layout = preferences.editMode ? preferences.draft : preferences.layout;
   const scopeError = scope.state.status === "error" ? scope.state.error.kind : null;
   const zoneRequired = scopeError === "configuration" || panelZoneMissing;
   const scopeStatusText = scope.state.status === "loading" ? "Loading your report scope…"
@@ -105,17 +109,14 @@ const Reports: React.FC = () => {
         onSelectAgent: onAgent, currentUserId: viewerId,
       })
     : null;
-  const onSections = (next: SectionConfig[]) => setLayout((prev) => ({ ...prev, sections: next }));
-  const saveLayout = async () => { if (orgId) { await saveUserLayout(orgId, layout); setEditMode(false); } };
-  const resetLayout = async () => { if (orgId) { await resetUserLayout(orgId); setLayout(await fetchUserLayout(orgId)); setEditMode(false); } };
-  const saveDefault = async () => { if (orgId && canSetOrgDefault) { await saveOrgDefaultLayout(orgId, layout); setEditMode(false); } };
   return (
-    <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
+    <div className="max-w-[1600px] min-w-0 mx-auto space-y-8 pb-10" data-reports-workspace>
       <ReportsToolbar
         scope={scopeData} scopeStatusText={scopeStatusText} preset={preset} onPreset={setPreset}
         customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
         range={range} rangeProblem={rangeProblem} agentId={agentId} onAgent={onAgent}
-        editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} onRefresh={scope.reload}
+        onScope={onScope} editMode={preferences.editMode} customizationReady={preferences.status === "ready" && !preferences.busy && !withheld}
+        onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={scope.reload}
         canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !withheld} onExport={exportSummary}
       />
       {scope.state.status === "loading" && <ReportPanelSkeleton title="Loading your reports" />}
@@ -132,6 +133,7 @@ const Reports: React.FC = () => {
         <ReportNotice title="Reports" tone="error" message="Reports are temporarily unavailable."
           detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.reload} />
       )}
+      {scopeError && requestedScope && <button type="button" className="text-sm text-primary underline underline-offset-4" onClick={() => { setScopeSelection({ key: viewerKey, value: null }); setAgentSel({ key: null, id: null }); }}>Use default report scope</button>}
       {scopeDrift && !panelZoneMissing && (
         <ReportNotice title="Reports" tone="unavailable" message="Your report access changed while this page was open."
           detail="Reload to see reports for your current access." onRetry={scope.reload} />
@@ -140,14 +142,22 @@ const Reports: React.FC = () => {
         <ReportNotice title="Custom range" tone="unavailable" message="Pick a start and end date to run the report." />
       )}
       {sections && (
-        <>
+        <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData?.requested_scope}`} className="min-w-0 space-y-8">
+          {preferences.status === "error" && <ReportNotice title="Your layout" tone="error" message="Your saved layout couldn't be loaded." detail="Reports are using the standard layout. Retry before customizing." onRetry={preferences.reload} />}
+          <ReportCustomizer editMode={preferences.editMode} sections={preferences.draft.sections} onSectionsChange={preferences.setSections}
+            showTeamSections={scopeData?.scope !== "own"} busy={preferences.busy} error={preferences.error}
+            onSave={preferences.save} onCancel={preferences.cancel} onReset={preferences.reset} />
+          <ReportsOverview summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
+          <SectionRenderer group="stats" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
+          <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2" data-report-group="trends">
+            <div className="min-w-0" data-report-section="policies_sold">{sections.policies_sold}</div>
+            <div className="min-w-0" data-report-section="call_volume">{sections.call_volume}</div>
+          </div>
+          <ReportsActivityFlow summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
+          <SectionRenderer group="performance" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
+          <SectionRenderer group="diagnostics" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
           {reports.panels.summary.status === "ready" && <ReportDataQuality summary={reports.panels.summary.data} />}
-          <ReportCustomizer editMode={editMode} canSetOrgDefault={canSetOrgDefault} onSave={saveLayout} onReset={resetLayout} onSaveAsDefault={saveDefault} />
-          <SectionRenderer
-            sections={layout.sections} editMode={editMode} showTeamSections={scopeData?.scope !== "own"}
-            onSectionsChange={onSections} components={sections}
-          />
-        </>
+        </div>
       )}
     </div>
   );

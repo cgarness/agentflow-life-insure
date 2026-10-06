@@ -88,7 +88,7 @@ jobs:
           "$REPORTS_BROWSER" --session reports-check wait --load networkidle
           "$REPORTS_BROWSER" --session reports-check screenshot "$REPORTS_VISUAL_OUTPUT/initial-page.png"
           "$REPORTS_BROWSER" --session reports-check snapshot -i > "$REPORTS_VISUAL_OUTPUT/initial-snapshot.txt"
-          "$REPORTS_BROWSER" --session reports-check eval 'if (!document.body.innerText.includes("Performance Analytics") || document.querySelector("vite-error-overlay")) throw new Error("Reports page did not render")'
+          "$REPORTS_BROWSER" --session reports-check eval 'if (document.querySelector("h1")?.textContent !== "Reports" || document.querySelector("vite-error-overlay")) throw new Error("Reports page did not render")'
           "$REPORTS_BROWSER" --session reports-check errors > "$REPORTS_VISUAL_OUTPUT/initial-errors.txt"
           "$REPORTS_BROWSER" --session reports-check close
           node scripts/tests/reports-visual/verify.mjs 2>&1 | tee reports-browser-results.txt

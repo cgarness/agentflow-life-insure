@@ -10,8 +10,13 @@ const payloads = JSON.parse(raw);
 if (payloads.scope?.self_id !== "f5000000-0000-0000-0000-000000000002") {
   throw new Error("Reports visual fixture requires the synthetic integrity-test actor.");
 }
-for (const name of ["scope", "summary", "volume", "dispositions", "campaigns", "leadSources"]) {
-  if (!payloads[name]) throw new Error(`Missing native SQL payload: ${name}`);
+for (const scope of ["agency", "personal", "team"]) {
+  const bundle = scope === "agency" ? payloads : payloads.scopes?.[scope];
+  for (const name of ["scope", "summary", "volume", "dispositions", "campaigns", "leadSources"]) {
+    if (!bundle?.[name]) throw new Error(`Missing native SQL payload: ${scope}/${name}`);
+    if (bundle[name].requested_scope !== scope) throw new Error(`SQL scope mismatch: ${scope}/${name}`);
+  }
+  if (bundle.scope.self_id !== payloads.scope.self_id) throw new Error("SQL scope actor mismatch");
 }
 
 export default defineConfig({
