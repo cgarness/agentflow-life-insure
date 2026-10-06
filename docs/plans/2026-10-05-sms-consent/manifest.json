@@ -5,7 +5,7 @@
   "files": [
     {
       "path": ".github/workflows/sms-consent.yml",
-      "sha256": "8d8f683f3f543e08bf17158b03ee7b20f9086467182b9cd9c3d9bfd3b52914b6"
+      "sha256": "689b7c699f6f9cbcf7d4fca3ae3a9db4525db47e06309401b6fc9d12cd72c05c"
     },
     {
       "path": "AGENT_RULES.md",
