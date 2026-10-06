@@ -726,7 +726,6 @@ const Permissions: React.FC = () => {
     <div className="space-y-4">
       <div>
         <h3 className="text-lg font-semibold text-foreground">Permissions</h3>
-        <p className="text-sm text-muted-foreground">Manage role-based access controls for your team.</p>
       </div>
 
       {/* Role tabs */}
@@ -752,7 +751,7 @@ const Permissions: React.FC = () => {
         <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/10 border border-primary">
           <Info className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
           <p className="text-xs text-primary">
-            Permission changes apply to active sessions when reloaded. All changes are logged to the Activity Log.
+            Changes apply after reload and are recorded in the Activity Log.
           </p>
         </div>
       )}
@@ -762,8 +761,7 @@ const Permissions: React.FC = () => {
         <div className="flex items-start gap-3 p-4 rounded-lg bg-card border">
           <Lock className="w-5 h-5 mt-0.5 shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium text-foreground">Admin has full access to everything and cannot be restricted.</p>
-            <p className="text-xs mt-1 text-muted-foreground">All permissions below are shown as read-only for reference.</p>
+            <p className="text-sm font-medium text-foreground">Admin access cannot be restricted. These permissions are read-only.</p>
           </div>
         </div>
       )}
@@ -786,7 +784,7 @@ const Permissions: React.FC = () => {
       <div className="space-y-3">
         <AccordionSection
           title="Contacts Permissions"
-          description="Control Contacts module actions for this role. Conversion (Lead → Client) is always available and is intentionally not listed here."
+          description="Lead → Client conversion is always available and is not configurable here."
           icon={Users}
         >
           <div className="space-y-4">
@@ -835,7 +833,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Page Access" description="Control which pages appear in the sidebar for this role. Settings is always available — use Settings Sections below to control tabs." icon={LayoutGrid}>
+        <AccordionSection title="Page Access" description="Settings is always available. Use Settings Sections to control its tabs." icon={LayoutGrid}>
           <div className="space-y-1">
             {pages.map((page, idx) => {
               const val = isAdmin ? true : page[activeRole as "agent" | "teamLeader"];
@@ -861,7 +859,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Settings Sections" description="Control which Settings tabs this role can see. Applies only within your organization." icon={Lock}>
+        <AccordionSection title="Settings Sections" description="Settings tab access for this role in your organization." icon={Lock}>
           <div className="space-y-4">
             {SETTINGS_CONFIG.map((cat) => {
               const catSections = settingsSections.filter((row) =>
@@ -897,7 +895,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Feature Permissions" description="Control specific actions available to this role within each section." icon={SlidersHorizontal}>
+        <AccordionSection title="Feature Permissions" description="Actions available to this role." icon={SlidersHorizontal}>
           <div className="space-y-4">
             {features.map((cat, catIdx) => (
               <div key={cat.category}>
@@ -926,7 +924,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Data Access" description="Control how much data this role can see across the platform." icon={Database}>
+        <AccordionSection title="Data Access" description="Data visible to this role." icon={Database}>
           <div className="space-y-4">
             {dataAccess.map((item, idx) => {
               const val: DataScope = isAdmin ? "all" : item[activeRole as "agent" | "teamLeader"];
@@ -941,7 +939,7 @@ const Permissions: React.FC = () => {
           </div>
         </AccordionSection>
 
-        <AccordionSection title="Commission Visibility" description="Control what commission and earnings information this role can see." icon={DollarSign}>
+        <AccordionSection title="Commission Visibility" description="Commission and earnings visible to this role." icon={DollarSign}>
           <div className="space-y-1">
             {commission.map((item, idx) => {
               const val = isAdmin ? true : item[activeRole as "agent" | "teamLeader"];

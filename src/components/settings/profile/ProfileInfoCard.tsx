@@ -153,7 +153,6 @@ export const ProfileInfoCard: React.FC = () => {
           </div>
           <div>
             <CardTitle className="text-lg">Profile Information</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">Your name, contact details, and availability</p>
           </div>
         </div>
       </CardHeader>

@@ -115,7 +115,7 @@ const EmailSetup: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Email Setup</h3>
           <p className="text-sm text-muted-foreground">
-            Connect your Gmail inbox so contact email send/receive can appear in conversation history (Gmail is currently supported).
+            Connect Gmail to send and receive contact emails in AgentFlow.
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => void loadConnections()}>
@@ -163,7 +163,7 @@ const EmailSetup: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">My Connected Inboxes</CardTitle>
+          <CardTitle className="text-base">Connected inboxes</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {loading && <p className="text-sm text-muted-foreground">Loading inbox connections...</p>}

@@ -100,7 +100,6 @@ const PendingInvitesTable: React.FC<Props> = ({ organizationId, active }) => {
               <Mail className="w-8 h-8 text-muted-foreground/50" />
             </div>
             <h4 className="text-lg font-medium text-foreground">No pending invitations</h4>
-            <p className="text-muted-foreground text-sm mt-1">Invite new users to join your organization.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

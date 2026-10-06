@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Network, MailOpen, Trophy, Users, FileText } from "lucide-react";
+import { Network, MailOpen } from "lucide-react";
 import CreateGroupModal from "./CreateGroupModal";
 
 interface Props {
@@ -20,22 +20,8 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             <h3 className="font-semibold">Create an Agency Group</h3>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            Link independent agents under your agency for shared visibility — without merging their data.
+            Share leaderboards and resources with other agencies; contacts, phone numbers, billing, and settings stay separate.
           </p>
-          <ul className="space-y-2 mb-5 text-sm">
-            <li className="flex items-start gap-2.5 text-foreground/90">
-              <Trophy className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <span>See every agent's stats on one leaderboard</span>
-            </li>
-            <li className="flex items-start gap-2.5 text-foreground/90">
-              <FileText className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <span>Share training scripts and resources</span>
-            </li>
-            <li className="flex items-start gap-2.5 text-foreground/90">
-              <Users className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-              <span>Each agent keeps their own account, numbers, and billing</span>
-            </li>
-          </ul>
           <button
             onClick={() => setModalOpen(true)}
             className="h-10 px-4 rounded-lg text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 self-start mt-auto"
@@ -51,11 +37,8 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             </div>
             <h3 className="font-semibold">Waiting for an invite?</h3>
           </div>
-          <p className="text-sm text-muted-foreground mb-3">
-            When a manager invites your agency to their group, you'll see the invitation here.
-          </p>
           <p className="text-sm text-muted-foreground">
-            Your manager will send an invitation to your admin email address. You can also accept via the link in the email.
+            Invitations appear here and are sent to your agency admin by email.
           </p>
         </div>
       </div>

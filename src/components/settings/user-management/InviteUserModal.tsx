@@ -118,7 +118,7 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Invite User</DialogTitle>
-          <DialogDescription>Send an invitation to join AgentFlow.</DialogDescription>
+          <DialogDescription className="sr-only">Send an invitation to join AgentFlow.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">

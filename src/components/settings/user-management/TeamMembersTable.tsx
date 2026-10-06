@@ -91,7 +91,7 @@ const TeamMembersTable: React.FC<Props> = ({
               <Users className="w-8 h-8 text-muted-foreground/50" />
             </div>
             <h4 className="text-lg font-medium text-foreground">No team members found</h4>
-            <p className="text-muted-foreground text-sm mt-1">Try adjusting your filters or search terms.</p>
+            <p className="text-muted-foreground text-sm mt-1">Adjust your search or filters.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

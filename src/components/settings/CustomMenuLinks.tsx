@@ -268,11 +268,11 @@ const CustomMenuLinks: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Custom Menu Links</h3>
           <p className="text-sm text-muted-foreground">
-            Add links to your agency sidebar (above Settings). Choose whether each opens in a new browser tab or inside AgentFlow.
+            Links appear above Settings in your agency sidebar.
           </p>
           {!canManage && (
             <p className="text-xs text-muted-foreground mt-2">
-              Custom menu links are managed by agency admins. Additional delegation will be handled through Permissions.
+              Custom menu links are managed by agency admins.
             </p>
           )}
         </div>
@@ -289,7 +289,7 @@ const CustomMenuLinks: React.FC = () => {
         ) : links.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-12 text-center border-dashed">
             <LinkIcon className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
-            <p className="text-sm text-muted-foreground mb-4">Add important external tools directly into your sidebar.</p>
+            <p className="text-sm text-muted-foreground mb-4">No menu links yet</p>
             {canManage && (
               <Button size="sm" onClick={openAdd} className="gap-2">
                 <Plus className="w-4 h-4" /> Create Link
@@ -386,14 +386,14 @@ const CustomMenuLinks: React.FC = () => {
                   <RadioGroupItem value="new_tab" id="open-new-tab" className="mt-1 shrink-0" />
                   <label htmlFor="open-new-tab" className="flex-1 cursor-pointer leading-snug">
                     <span className="text-sm font-medium text-foreground">New tab</span>
-                    <p className="text-xs text-muted-foreground mt-1">Opens the URL in a separate browser tab (best for sites that cannot be embedded).</p>
+                    <p className="text-xs text-muted-foreground mt-1">Opens in a separate browser tab.</p>
                   </label>
                 </div>
                 <div className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-accent/40">
                   <RadioGroupItem value="in_frame" id="open-in-frame" className="mt-1 shrink-0" />
                   <label htmlFor="open-in-frame" className="flex-1 cursor-pointer leading-snug">
                     <span className="text-sm font-medium text-foreground">Inside AgentFlow</span>
-                    <p className="text-xs text-muted-foreground mt-1">Shows the page in the main area while keeping the AgentFlow sidebar and header. Some external sites may block this.</p>
+                    <p className="text-xs text-muted-foreground mt-1">Opens within AgentFlow. Some sites block embedding.</p>
                   </label>
                 </div>
               </RadioGroup>

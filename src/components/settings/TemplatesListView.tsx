@@ -38,8 +38,7 @@ export function TemplatesListView({
         <div className="flex h-[300px] flex-col items-center justify-center p-6 text-center">
           <Mail className="mb-3 h-10 w-10 text-muted-foreground" />
           <p className="font-medium text-foreground">No templates found</p>
-          <p className="mb-4 text-sm text-muted-foreground">You haven&apos;t added any templates matching your criteria.</p>
-          <Button size="sm" onClick={onAdd} className="gap-2">
+          <Button size="sm" onClick={onAdd} className="mt-3 gap-2">
             <Plus className="h-4 w-4" /> Add Template
           </Button>
         </div>

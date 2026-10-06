@@ -166,7 +166,7 @@ export function TemplateModal({ open, onOpenChange, editTarget, organizationId, 
               </div>
               {f.formType === "sms" && (
                 <p className="text-xs text-muted-foreground">
-                  SMS is sent as text only; attachments are saved with this template for your own reference (for example a rate sheet or call script).
+                  SMS sends text only. Attachments are for reference and are not sent.
                 </p>
               )}
               <label className="block text-sm font-medium text-foreground">Message Content</label>

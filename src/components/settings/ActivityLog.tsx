@@ -168,7 +168,6 @@ const ActivityLog: React.FC = () => {
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-semibold text-foreground">Activity Log</h3>
-                    <p className="text-sm text-muted-foreground">View recent system actions and user activity</p>
                 </div>
             </div>
 
@@ -225,7 +224,6 @@ const ActivityLog: React.FC = () => {
                     <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
                         <Clock className="w-12 h-12 mb-4 opacity-50" />
                         <p className="text-foreground font-medium text-lg">No activity yet</p>
-                        <p className="text-sm">Actions like inviting users, importing leads, and creating campaigns will appear here as they happen.</p>
                     </div>
                 ) : (
                     logs.map(log => {

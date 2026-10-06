@@ -88,7 +88,7 @@ const BrandingUploadField: React.FC<BrandingUploadFieldProps> = ({
   const Icon = kind === "logo" ? Upload : ImageIcon;
   const iconSize = kind === "logo" ? "w-8 h-8 mb-2" : "w-6 h-6 mb-1.5";
   const dropText = kind === "logo"
-    ? "Drag and drop your logo here, or click to browse"
+    ? "Drop a logo or browse"
     : "Drag and drop your favicon here, or click to browse";
   const hint = kind === "logo"
     ? "PNG, JPG — max 5MB"

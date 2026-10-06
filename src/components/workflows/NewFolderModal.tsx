@@ -45,7 +45,7 @@ const NewFolderModal: React.FC<Props> = ({ open, initial, onOpenChange, onSubmit
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>{initial ? "Rename Folder" : "New Folder"}</DialogTitle>
-          <DialogDescription>Group related workflows under a folder tab.</DialogDescription>
+          <DialogDescription className="sr-only">Group related workflows under a folder tab.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>

@@ -136,7 +136,7 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
             <Mail className="w-4 h-4" /> Send Invite
           </button>
         </div>
-        <p className="text-xs text-muted-foreground">The Admin of the invited agency will get an email with an acceptance link valid for 7 days.</p>
+        <p className="text-xs text-muted-foreground">The agency admin receives an invitation link valid for 7 days.</p>
       </div>
 
       <div className="rounded-2xl bg-card border border-border p-6">
@@ -149,10 +149,7 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
         {visibleMembers.length <= 1 && visibleMembers.every((m) => m.role === "leader") && (
           <div className="text-center py-6 px-4 rounded-lg bg-accent/30 border border-dashed border-border">
             <UserPlus className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">Invite your first agent</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Enter their email address above to send an invitation. They'll appear here once they accept.
-            </p>
+            <p className="text-sm font-semibold text-foreground">No member agencies yet</p>
           </div>
         )}
         <ul className="space-y-2">

@@ -125,7 +125,6 @@ export const ProfilePreferencesCard: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-lg">Preferences</CardTitle>
-                <p className="text-xs text-muted-foreground">Appearance, notifications, call forwarding, and timezone</p>
               </div>
             </div>
             <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />

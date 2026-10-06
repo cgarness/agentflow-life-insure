@@ -88,9 +88,6 @@ const WorkflowList: React.FC<Props> = ({ onOpenWorkflow }) => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Workflow Builder</h3>
-          <p className="text-sm text-muted-foreground">
-            Visual automations triggered by lead activity, dispositions, and more.
-          </p>
         </div>
         <Button onClick={() => setShowModal(true)}>
           <Plus className="mr-2 h-4 w-4" /> New Workflow
@@ -153,13 +150,11 @@ const EmptyState: React.FC<{ onCreate: () => void; hasWorkflows: boolean }> = ({
       <Workflow className="h-7 w-7" />
     </div>
     <h4 className="text-base font-semibold text-foreground">
-      {hasWorkflows ? "No workflows in this folder" : "Create your first automation"}
+      {hasWorkflows ? "No workflows in this folder" : "No workflows yet"}
     </h4>
-    <p className="max-w-sm text-sm text-muted-foreground">
-      {hasWorkflows
-        ? "Move workflows here from the All tab — or create a new one."
-        : "Workflows let you automate follow-ups, tag leads, send messages, and more — without writing code."}
-    </p>
+    {hasWorkflows && (
+      <p className="max-w-sm text-sm text-muted-foreground">Move workflows here from All.</p>
+    )}
     <Button onClick={onCreate} className="mt-2">
       <Plus className="mr-2 h-4 w-4" /> New Workflow
     </Button>

@@ -59,7 +59,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
         <div className="bg-accent/50 rounded-xl p-8 text-center">
           <Icon className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="font-semibold mb-1">{section?.label || "Settings"}</h3>
-          <p className="text-sm text-muted-foreground">Ready for configuration.</p>
+          <p className="text-sm text-muted-foreground">{activeSlug === "webhooks" ? "Not available yet." : "Ready for configuration."}</p>
         </div>
       );
     }

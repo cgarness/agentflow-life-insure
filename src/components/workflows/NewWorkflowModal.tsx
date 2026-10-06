@@ -93,7 +93,7 @@ const NewWorkflowModal: React.FC<Props> = ({ open, onOpenChange, onCreated }) =>
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New Workflow</DialogTitle>
-          <DialogDescription>Choose a trigger and we'll set up a starting node for you.</DialogDescription>
+          <DialogDescription>Choose what starts this workflow.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>

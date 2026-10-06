@@ -322,9 +322,6 @@ export const ProfileStateLicensesCard: React.FC = () => {
               </div>
               <div>
                 <CardTitle className="text-lg font-semibold tracking-tight">State Licenses</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Manage your personal state licenses here.
-                </p>
               </div>
             </div>
             <Button size="sm" onClick={handleAddClick} className="shadow-sm">
@@ -339,7 +336,7 @@ export const ProfileStateLicensesCard: React.FC = () => {
             </div>
           ) : licenses.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground border-2 border-dashed border-border/60 rounded-xl bg-secondary/5">
-              No licenses added yet. Add your state licenses to receive state-specific calls.
+              No licenses added. Add licenses for state-based inbound routing.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -439,11 +436,9 @@ export const ProfileStateLicensesCard: React.FC = () => {
           )}
 
           <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
-            <span>
-              {canAccessPhoneSystem
-                ? "Admins can manage team-wide licensing under Phone System → State Licenses."
-                : "Your licenses are used to route state-based inbound calls to you."}
-            </span>
+            {!canAccessPhoneSystem && (
+              <span>Your licenses are used to route state-based inbound calls to you.</span>
+            )}
             {canAccessPhoneSystem && (
               <Button
                 type="button"
@@ -466,8 +461,8 @@ export const ProfileStateLicensesCard: React.FC = () => {
             <DialogTitle>{editingLicense ? "Edit State License" : "Add State License"}</DialogTitle>
             <DialogDescription>
               {editingLicense
-                ? "Update your license details. State selection cannot be modified."
-                : "Record your state license. License number and expiration are optional but recommended."}
+                ? "State cannot be changed."
+                : "License number and expiration are optional but recommended."}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

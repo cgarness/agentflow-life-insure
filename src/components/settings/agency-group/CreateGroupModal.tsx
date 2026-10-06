@@ -54,7 +54,7 @@ const CreateGroupModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
       <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <h3 className="text-lg font-semibold mb-1">Create Agency Group</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          You'll be the master agency. Invite other independent agencies to join.
+          Your agency will lead the group.
         </p>
         <label className="text-sm font-medium block mb-1.5">Group Name</label>
         <input
