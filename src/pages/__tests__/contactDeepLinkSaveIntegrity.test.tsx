@@ -1,4 +1,9 @@
 /**
+ * SMS readiness is an independent service boundary, covered by its hook tests.
+ */
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
+
+/**
  * Deep-linked contact save integrity — `/leads/:id`, `/clients/:id`, `/recruits/:id`.
  *
  * THE DEFECT THESE PIN (AGENT_RULES invariant #35 open follow-up 3, and the R4 exclusion recorded

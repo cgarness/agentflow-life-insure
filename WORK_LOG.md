@@ -1,8 +1,10 @@
-## 2026-10-05 — CG Financial SMS integration isolated implementation
-
 ## 2026-10-06 — CG Financial SMS publication and CI approved
 
-Chris explicitly approved publishing the two isolated review branches, draft PRs and remaining CI. GitHub connector publication preserves reviewed trees; the UV paired commit is `d2a9c3266dec05211c54d5a86c10ef3b947d5922` (same tree as locally approved `4b91b022cc1a5e867c43f2a22f97e9442b297ab0`). No production migration/deployment, provider registration, number linking, activation or live message is authorized by this approval. Native PostgreSQL/browser CI results are pending.
+Chris explicitly approved publishing the two isolated review branches, draft PRs and remaining CI. Drafts are AF #419 and UV #13. GitHub connector publication preserves reviewed trees; the UV paired commit is `d2a9c3266dec05211c54d5a86c10ef3b947d5922` (same tree as locally approved `4b91b022cc1a5e867c43f2a22f97e9442b297ab0`). No production migration/deployment, provider registration, number linking, activation or live message is authorized by this approval.
+
+Initial CI passed A2P, DNC and reporting. Native paired SQL revealed a harness adapter issue (postgres.js double-encoded already serialized JSON); five older contact suites needed the new SMS-status boundary stub. Fixed both without changing application/migration behavior; 90 additional frontend tests and all 43 PGlite checks pass locally. SMS CI now checks out the exact PR head and does not persist GitHub credentials. Native/browser/full-CI results on the corrected head remain pending.
+
+## 2026-10-05 — CG Financial SMS integration isolated implementation
 
 Chris approved the paired implementation plan. Added scoped UV consent relay, purpose-specific enrollment/confirmation, shared manual/workflow dispatch, immutable agency SMS suppression, final DNC guard, stable receipts and deliberate composer/template/workflow purpose. Converted/stale contacts, source events and old workflow jobs fail closed. Voice/routing and protected DNC functions remain unchanged. No production/provider action occurred.
 

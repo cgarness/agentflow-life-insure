@@ -11,7 +11,9 @@ async function database(label) {
  if(!['localhost','127.0.0.1'].includes(url.hostname)||!['postgres:','postgresql:'].includes(url.protocol)) throw Error('Native tests require disposable localhost PostgreSQL');
  const {default:postgres}=await import('postgres');const admin=postgres(url.toString(),{max:1});
  const name=`sms_test_${label}_${process.pid}`;await admin.unsafe(`create database ${name}`);url.pathname='/'+name;
- const sql=postgres(url.toString(),{max:1});
+ // PGlite receives serialized JSON parameters. Keep those bytes on the native
+ // adapter too: postgres.js otherwise JSON.stringify's an already encoded array.
+ const sql=postgres(url.toString(),{max:1,types:{json:{to:114,from:[114,3802],serialize:value=>typeof value==='string'?value:JSON.stringify(value),parse:JSON.parse}}});
  return {query:async(text,args=[])=>({rows:await sql.unsafe(text,args)}),exec:text=>sql.unsafe(text,[],{prepare:false}),url:url.toString(),close:async()=>{await sql.end();await admin.unsafe(`drop database ${name}`);await admin.end();}};
 }
 const uvRoot=process.env.UV_SOURCE_ROOT;

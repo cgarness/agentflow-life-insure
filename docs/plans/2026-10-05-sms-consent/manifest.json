@@ -5,7 +5,7 @@
   "files": [
     {
       "path": ".github/workflows/sms-consent.yml",
-      "sha256": "f05276326595729cc73a554ba950e4c23768c871c97f67bd069804cba878b211"
+      "sha256": "8d8f683f3f543e08bf17158b03ee7b20f9086467182b9cd9c3d9bfd3b52914b6"
     },
     {
       "path": "AGENT_RULES.md",
@@ -13,7 +13,7 @@
     },
     {
       "path": "WORK_LOG.md",
-      "sha256": "ecd7c4f9de3a099421f20710d56d7f94e7c8f1f604558e905c883e6f2644b0c6"
+      "sha256": "7331961c0fa0d2302e40156f5c3a0111f1bd80f99743130bef53904b1dfef0f4"
     },
     {
       "path": "docs/plans/2026-10-05-sms-consent/implementation_plan.md",
@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/test-sms-consent.mjs",
-      "sha256": "05eb7a9fe434b1c15ebc3bcccb56514190aa43db2323605d670ff294319de689"
+      "sha256": "e3a12163007007bba402e0868ee8702cb93f8ac162cd445685053f8301a3cc30"
     },
     {
       "path": "scripts/tests/sms-visual/index.html",
@@ -50,6 +50,10 @@
     {
       "path": "src/components/contacts/FullScreenContactView.tsx",
       "sha256": "c35ae623f13a0341cfa31477273c00c14ada6b4be35bbc40677c97e31644b5ec"
+    },
+    {
+      "path": "src/components/contacts/__tests__/conversationDispositionColors.test.tsx",
+      "sha256": "67531d81f772bcfb39e452bded7c1f75c1a1a3d7805465adc6a1346c338ec04b"
     },
     {
       "path": "src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx",
@@ -178,6 +182,22 @@
     {
       "path": "src/pages/Conversations.tsx",
       "sha256": "88a87466012ce132de2c1648fbdd73554734368fbc53a277c46a4ffe3b8f72a8"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx",
+      "sha256": "28f638bc711f5728ac31fd65267aad9d2f4818e6ec593f536c641359813ce272"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkQuickCall.test.tsx",
+      "sha256": "96a4db3cc2d6b1c7c62009c60c9cc201d78a3d961898abf675e329c68fd58b33"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx",
+      "sha256": "d35f7f4c493a942c6ccf4f316f42b2a2bdad8c75ea270b3a8c5c2fea0b2441ff"
+    },
+    {
+      "path": "src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx",
+      "sha256": "29555f97a0e88fe3dfd247309dbb1bcb8dd9c8bcbccb1fda1783079f5c795b88"
     },
     {
       "path": "src/pages/__tests__/conversationsSendContract.test.tsx",

@@ -17,9 +17,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: sms-consent-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   consent:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -31,11 +35,15 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: cgarness/underwriter-verified
           ref: d2a9c3266dec05211c54d5a86c10ef3b947d5922
           path: paired-uv
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
