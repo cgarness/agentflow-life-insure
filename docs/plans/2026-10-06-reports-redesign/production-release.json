@@ -1,0 +1,38 @@
+{
+  "verified_at": "2026-10-06T15:38:44.601310+00:00",
+  "url": "https://www.fflagent.com/reports",
+  "html_http_status": 200,
+  "asset": "https://www.fflagent.com/assets/index-_iHNejOR.js",
+  "asset_http_status": 200,
+  "bytes": 4306396,
+  "sha256": "a339806d25bc090addde58101ced3d86790814e5b386c17b3c2e06d2bf5cd9a7",
+  "markers": {
+    "Customize your report": true,
+    "Known Annual Premium": true,
+    "reports-scope-panel": true,
+    "Activity and production": true,
+    "Save layout": true,
+    "Reset to default": true,
+    "get_report_call_summary_v2": true,
+    "get_report_call_volume_v2": true,
+    "get_report_campaign_performance_v2": true,
+    "get_report_disposition_breakdown_v2": true,
+    "get_report_lead_source_performance_v2": true,
+    "get_report_scope_v2": true
+  },
+  "correct_supabase_host": true,
+  "deployment": "dpl_7RLf9AtEda5b5zMRaLKPed74SQEH",
+  "merge": "ff1f21a2d772ff628df16ccd4f52a967c75ecb8a",
+  "snapshot": "initial approved Phase 2 production deployment; later documentation-only closeout may create a different build artifact",
+  "approved_head": "b5f2250441b0f3aada1067b95b810323e378570c",
+  "approved_tree": "6ab39fdefb1a029f32d7de65ba2d88c8ecbd4b9f",
+  "approval_local": "2026-10-06T08:35:21-07:00",
+  "ci_runs": {
+    "frontend": 37459261569,
+    "reports_backend_native_browser": 37459261667,
+    "reporting_integrity": 37459261645,
+    "dialer_dnc": 37459261602
+  },
+  "hosted_authenticated_walkthrough": false,
+  "schema_or_rls_changes": false
+}

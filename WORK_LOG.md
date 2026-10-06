@@ -1,3 +1,11 @@
+## 2026-10-06 UTC — SHIPPED: Reports Phase 2 redesign and personal layouts
+
+Chris explicitly approved deploying PR #421 at 08:35 PDT. The approved head `b5f2250441b0f3aada1067b95b810323e378570c` merged as `ff1f21a2d772ff628df16ccd4f52a967c75ecb8a`; merge tree `6ab39fdefb1a029f32d7de65ba2d88c8ecbd4b9f` exactly matches the reviewed candidate. All four exact-head Actions gates passed: frontend `37459261569`, Reports backend/native SQL + real browser `37459261667`, Reporting integrity `37459261645`, and Dialer/DNC `37459261602`.
+
+Canonical Vercel production `dpl_7RLf9AtEda5b5zMRaLKPed74SQEH` is READY and owns `www.fflagent.com`. At 15:38:44 UTC the public Reports HTML and new entry asset returned HTTP 200; served JavaScript contains the redesigned overview, scope panel and customization controls, all six v2 RPC names, and the correct Supabase host. Initial release asset SHA-256: `a339806d25bc090addde58101ced3d86790814e5b386c17b3c2e06d2bf5cd9a7`. Public asset verification is not a new signed-in production walkthrough; the previously documented protected-browser limits remain. No schema, RLS, RPC, historical-data or calling-writer change occurred.
+
+This closeout only records release status and evidence; application/config/database source stays identical to the approved release. Initial deployment evidence is in `docs/plans/2026-10-06-reports-redesign/production-release.json`. Any subsequent documentation-only deployment is identified in the closeout PR, without claiming its generated asset hash must equal the initial release artifact.
+
 ## 2026-10-06 UTC — Reports Phase 2 candidate: executive layout and personal customization
 
 Chris authorized starting the approved next redesign phase and adding customization. Built from main `92e486ca4bd84ff1ee2938ad38fe94ba39635eba` in an isolated worktree. Added server-authorized Personal/Team/Agency tabs, fixed Policies Sold/Known Annual Premium heroes, a six-metric strip, truthful production/calling trends, independent activity totals, prominent agent tables and grouped diagnostics. Existing v2 data, authorization, date/agent metadata, unknown premium semantics and click-time export guards remain authoritative.
