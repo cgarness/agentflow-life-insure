@@ -32,7 +32,7 @@ type HarnessOptions = {
 function harness(options: HarnessOptions = {}) {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const logs: string[] = [];
-  const env = {
+  const env: Record<string, string | undefined> = {
     TWILIO_MASTER_ACCOUNT_SID: MASTER_SID,
     TWILIO_MASTER_AUTH_TOKEN: MASTER_TOKEN,
     TWILIO_ACCOUNT_SID: FALLBACK_SID,
