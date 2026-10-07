@@ -46,4 +46,12 @@ jobs:
       - name: Scoped lint
         run: npx eslint src/components/super-admin/TwilioBalanceTile.tsx src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx
       - run: npx tsc --noEmit
+      - name: Diff whitespace check
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
       - run: npm run build
+      - name: Frontend bundle secret-marker check
+        run: |
+          if grep -R -E 'TWILIO_MASTER_AUTH_TOKEN|TWILIO_MASTER_ACCOUNT_SID|SUPABASE_SERVICE_ROLE_KEY' dist; then
+            echo "Server-only credential marker found in frontend bundle"
+            exit 1
+          fi
