@@ -118,7 +118,16 @@ export async function handleTwilioAccountBalance(
   const jwt = getBearerToken(req);
   if (!jwt) return json({ error: "Unauthorized" }, 401);
 
-  const { data: { user }, error: userError } = await deps.authClient.auth.getUser(jwt);
+  let user: AuthUser | null = null;
+  let userError: unknown = null;
+  try {
+    const result = await deps.authClient.auth.getUser(jwt);
+    user = result.data.user;
+    userError = result.error;
+  } catch {
+    deps.logger?.error(`${FN} caller authentication transport failed`);
+    return json({ error: "Balance unavailable" }, 503);
+  }
   if (userError || !user) {
     return json({ error: "Unauthorized" }, 401);
   }
@@ -126,11 +135,20 @@ export async function handleTwilioAccountBalance(
   const claims = decodeJwtClaims(jwt);
   const claimSuperAdmin = claims?.is_super_admin === true;
 
-  const { data: profile, error: profileError } = await deps.adminClient
-    .from("profiles")
-    .select("is_super_admin")
-    .eq("id", user.id)
-    .maybeSingle();
+  let profile: { is_super_admin?: unknown } | null = null;
+  let profileError: unknown = null;
+  try {
+    const result = await deps.adminClient
+      .from("profiles")
+      .select("is_super_admin")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = result.data;
+    profileError = result.error;
+  } catch {
+    deps.logger?.error(`${FN} caller profile transport failed`);
+    return json({ error: "Server configuration error" }, 500);
+  }
 
   if (profileError) {
     deps.logger?.error(`${FN} caller profile lookup failed`);
