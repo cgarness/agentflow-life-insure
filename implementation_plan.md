@@ -11,7 +11,8 @@ Chris approved repository implementation on October 7, 2026. Base/main at start:
 **Files before runtime edits:**
 - `implementation_plan.md`
 - NEW `supabase/functions/twilio-account-balance/index.ts`
-- NEW Edge test for `twilio-account-balance` following current repo conventions
+- NEW `supabase/functions/twilio-account-balance/logic.ts` — dependency-injected read-only handler logic so auth/provider behavior is testable without starting an Edge server
+- NEW `supabase/functions/twilio-account-balance/logic.test.ts` — focused auth/master-account/zero/error regressions
 - `supabase/config.toml`
 - NEW `src/components/super-admin/TwilioBalanceTile.tsx`
 - NEW `src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx`
