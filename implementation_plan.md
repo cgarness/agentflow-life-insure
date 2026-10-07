@@ -1,3 +1,44 @@
+## 2026-10-06 — APPROVED BUILD: Super Admin master Twilio balance
+
+**Authorization.** Chris explicitly approved repository implementation with “Proceed with build” and then “You start the build.” This authorizes the isolated code/test/documentation build below only. It does **not** authorize a Supabase Edge deployment, backend mutation, Vercel production deployment, merge to `main`, or direct push to `main`.
+
+**Source of truth reviewed.** Current base is `1a877532068bf254aace53bdcacde606a4a693a5`. `AGENT_RULES.md`, `VISION.md`, and the complete 12,907-line `WORK_LOG.md` were read from current main. The relevant invariants remain: frontend-called Edge Functions use `verify_jwt=false` with in-function `auth.getUser(jwt)`; Super Admin authority is `is_super_admin`, not a role-string shortcut; View As is a fail-closed route allow-list and `/super-admin` is not admitted; the production Voice/Dialer architecture remains single-leg WebRTC and is out of scope. Open PR #419 overlaps `supabase/config.toml` and `WORK_LOG.md`; PR #378 overlaps root `implementation_plan.md` and `WORK_LOG.md`. Every shared file must be reread before final publication/rebase.
+
+**Goal.** Add a compact, read-only Twilio Balance health tile to `/super-admin` showing the **master Twilio account's actual balance**. Subaccounts share the parent billing balance and are never presented as independent billing accounts.
+
+**Backend design.**
+- New `twilio-account-balance` Edge Function, frontend-called with `verify_jwt=false`.
+- Require an Authorization Bearer token; validate it through an anon Supabase client with `auth.getUser(jwt)`.
+- Require BOTH JWT claim `is_super_admin === true` and the caller's real `profiles.is_super_admin === true` from a service-role `.maybeSingle()` lookup.
+- Require exact `TWILIO_MASTER_ACCOUNT_SID` and `TWILIO_MASTER_AUTH_TOKEN`; no fallback to `TWILIO_ACCOUNT_SID`, org subaccount SID, `phone_settings`, or Vault subaccount credentials.
+- Read only `GET https://api.twilio.com/2010-04-01/Accounts/{MASTER_ACCOUNT_SID}/Balance.json` with server-side Basic Auth.
+- Validate `balance` + `currency`, preserve genuine zero, and return only `{ balance, currency, updated_at }`.
+- Never return/log account SID, auth token, Authorization header, raw Twilio payload, or credential-bearing exception details. Failures remain a neutral unavailable state in the UI.
+- No migration, RLS change, or database write.
+
+**Frontend design.**
+- New `TwilioBalanceTile` under `src/components/super-admin/`.
+- TanStack Query with a narrow key, 60-second stale time, `retry:false`, `refetchOnWindowFocus:false`, no interval polling.
+- Explicitly disabled while `useAuth().isImpersonating`; the existing AppLayout View-As allow-list already prevents `/super-admin` from mounting, and that behavior stays unchanged.
+- Loading skeleton, prominent amount, subtle currency, accessible manual Refresh, neutral `Unavailable` on failure, genuine `$0.00` on a provider zero.
+- Keep the dashboard usable when the balance request fails; no technical error text is rendered.
+- Tailwind only; no new page/navigation/settings surface.
+
+**Expected files before runtime edits.**
+1. NEW `supabase/functions/twilio-account-balance/balance.ts` — pure provider/validation logic for offline tests.
+2. NEW `supabase/functions/twilio-account-balance/index.ts` — request/auth handler and dependency wiring.
+3. NEW `supabase/functions/twilio-account-balance/balance.test.ts` — offline provider/response/security regressions.
+4. NEW `src/components/super-admin/TwilioBalanceTile.tsx`.
+5. NEW `src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx`.
+6. MODIFY `src/pages/SuperAdminDashboard.tsx` — mount the tile and adjust responsive health-grid columns only.
+7. MODIFY `supabase/config.toml` — additive `[functions.twilio-account-balance] verify_jwt=false` block.
+8. MODIFY `implementation_plan.md` — this plan/evidence.
+9. MODIFY `WORK_LOG.md` after implementation — newest-first build evidence, explicitly “NOT DEPLOYED”.
+
+**Verification.** Run focused Deno tests, focused React tests, current View-As regression(s), root `npx tsc --noEmit`, actual app `npx tsc -p tsconfig.app.json --noEmit` baseline comparison, scoped ESLint, `npm run build`, and `git diff --check`. Search frontend source/build output for master credential names/values and verify the browser-safe response contract. Production deployment remains a separate explicit approval gate.
+
+---
+
 ## 2026-10-05 — Reports integrity published for verification; production release pending
 
 Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.

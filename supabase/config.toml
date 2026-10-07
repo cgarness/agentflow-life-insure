@@ -103,6 +103,12 @@ verify_jwt = false
 [functions.retry-twilio-provisioning]
 verify_jwt = false
 
+# Read-only master Twilio billing balance for the Super Admin dashboard.
+# JWT is validated in-code (ES256 gateway constraint) and the caller must pass
+# both the JWT is_super_admin claim and the server-side profiles.is_super_admin check.
+[functions.twilio-account-balance]
+verify_jwt = false
+
 # Outbound SMS — JWT from the logged-in agent; Twilio credentials read from phone_settings.
 [functions.twilio-sms]
 verify_jwt = false

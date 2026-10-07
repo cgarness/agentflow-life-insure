@@ -28,6 +28,7 @@ import ProvisioningPanel from "@/components/super-admin/provisioning/Provisionin
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Mail, RefreshCw } from "lucide-react";
 import ProvisioningStatusBadge from "@/components/super-admin/provisioning/ProvisioningStatusBadge";
+import TwilioBalanceTile from "@/components/super-admin/TwilioBalanceTile";
 
 // ---- Types ----
 interface Organization {
@@ -570,7 +571,7 @@ const SuperAdminDashboard: React.FC = () => {
       </div>
 
       {/* Health Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <HealthTile
           icon={<Building2 className="w-5 h-5 text-white" />}
           label="Total Agencies"
@@ -590,6 +591,7 @@ const SuperAdminDashboard: React.FC = () => {
           subtitle="In-progress calls"
           color="bg-emerald-600"
         />
+        <TwilioBalanceTile />
         <HealthTile
           icon={<DollarSign className="w-5 h-5 text-white" />}
           label="Total Leads"
