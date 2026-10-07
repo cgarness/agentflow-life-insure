@@ -10,7 +10,7 @@ type AuthUser = { id: string };
 
 export interface BalanceAuthClient {
   auth: {
-    getUser(jwt: string): Promise<{
+    getUser(jwt: string): PromiseLike<{
       data: { user: AuthUser | null };
       error: unknown;
     }>;
@@ -21,7 +21,7 @@ export interface BalanceAdminClient {
   from(table: string): {
     select(columns: string): {
       eq(column: string, value: string): {
-        maybeSingle(): Promise<{
+        maybeSingle(): PromiseLike<{
           data: { is_super_admin?: unknown } | null;
           error: unknown;
         }>;
