@@ -1,3 +1,21 @@
+## 2026-10-07 UTC — IMPLEMENTED, NOT DEPLOYED: Super Admin live master Twilio balance
+
+Chris approved the repository build. Base/main remained `1a877532068bf254aace53bdcacde606a4a693a5`; implementation branch `feature/twilio-account-balance-20261007`, draft PR #426. Full `AGENT_RULES.md`, `VISION.md`, and the complete 12,907-line `WORK_LOG.md` were read before runtime edits. Open-work overlap was checked; PR #419 also touches `supabase/config.toml`, so this branch makes only an additive function block and preserves current config bytes.
+
+**What changed:** added read-only `twilio-account-balance` Edge Function using ONLY exact `TWILIO_MASTER_ACCOUNT_SID` + `TWILIO_MASTER_AUTH_TOKEN`; it never falls back to organization/subaccount credentials. The provider call is `GET /2010-04-01/Accounts/{MASTER}/Balance.json` with server-side Basic Auth. Frontend-safe success response is only `balance`, `currency`, `updated_at`; provider `account_sid`, raw payload, credentials and secret-bearing errors are stripped. Genuine zero is valid; provider/config/malformed failures return unavailable rather than fabricated `$0.00`.
+
+**Authorization / View As:** `verify_jwt=false` follows AgentFlow's ES256 convention, but the function validates the Bearer JWT with Supabase `auth.getUser(jwt)` and requires BOTH JWT `is_super_admin === true` and server-side `profiles.is_super_admin === true` via `.maybeSingle()`. Unauthorized/ordinary users fail closed. The Super Admin dashboard remains unsupported during View As by the existing central route allow-list, and the new tile independently disables its query/render while `isImpersonating`.
+
+**UI:** added compact `TwilioBalanceTile` to the existing Super Admin health grid. It fetches on load through TanStack Query with 60-second stale time, no polling, no window-focus refetch, no automatic retry, and an accessible manual Refresh. Loading uses a skeleton; API/config failure shows neutral `Unavailable`; a real zero displays as money. Tailwind only.
+
+**Files:** NEW `.github/workflows/twilio-account-balance.yml`; NEW `supabase/functions/twilio-account-balance/{index.ts,logic.ts,logic.test.ts}`; NEW `src/components/super-admin/TwilioBalanceTile.tsx`; NEW `src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx`; modified `src/pages/SuperAdminDashboard.tsx`, `supabase/config.toml`, `implementation_plan.md`, `WORK_LOG.md`.
+
+**Verification (runtime head `10237284ebaf850e7adc4c815edf39a58f8c3b0f`):** dedicated feature CI PASSED: 12/12 Deno handler tests, Edge bundle type-check, 7/7 React tile tests, scoped ESLint, root `npx tsc --noEmit`, `git diff --check`, production Vite build, and frontend bundle scan for server-only Twilio/service-role credential markers. Dialer DNC integrity PASSED; Reporting integrity PASSED; A2P registration PASSED. A2P's exact-base app TypeScript comparison: base 87 diagnostics, candidate 87, new 0. At this entry's closeout, the broad Reports frontend exact-candidate/base workflow is still in progress and is not claimed as passed.
+
+**Migration:** none. **Edge deployment:** NOT DEPLOYED. **Supabase mutation:** none. **Vercel production:** not released. **Secrets:** no master Twilio/service-role credential marker appears in the built frontend bundle; browser response contract contains only balance/currency/updated_at by implementation and tests. Exact production secret presence/value was not read or exposed.
+
+**Next:** wait for remaining broad frontend comparison, then request Chris's separate approval before deploying the complete Edge Function, reading it back, testing unauthenticated/Agent/Admin/Super Admin behavior against live auth, verifying the real master balance response, and releasing the frontend. Do not merge or deploy from this entry alone.
+
 ## 2026-10-06 UTC — SHIPPED: Reports Phase 2 redesign and personal layouts
 
 Chris explicitly approved deploying PR #421 at 08:35 PDT. The approved head `b5f2250441b0f3aada1067b95b810323e378570c` merged as `ff1f21a2d772ff628df16ccd4f52a967c75ecb8a`; merge tree `6ab39fdefb1a029f32d7de65ba2d88c8ecbd4b9f` exactly matches the reviewed candidate. All four exact-head Actions gates passed: frontend `37459261569`, Reports backend/native SQL + real browser `37459261667`, Reporting integrity `37459261645`, and Dialer/DNC `37459261602`.
