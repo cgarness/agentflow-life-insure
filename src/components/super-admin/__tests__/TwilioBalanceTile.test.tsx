@@ -159,14 +159,8 @@ describe("TwilioBalanceTile", () => {
   });
 
   it("is mounted by the Super Admin Dashboard without changing the View As allow-list", () => {
-    const dashboard = readFileSync(
-      new URL("../../../pages/SuperAdminDashboard.tsx", import.meta.url),
-      "utf8",
-    );
-    const viewAs = readFileSync(
-      new URL("../../../lib/viewAsSurfaces.ts", import.meta.url),
-      "utf8",
-    );
+    const dashboard = readFileSync("src/pages/SuperAdminDashboard.tsx", "utf8");
+    const viewAs = readFileSync("src/lib/viewAsSurfaces.ts", "utf8");
 
     expect(dashboard).toContain('import TwilioBalanceTile from "@/components/super-admin/TwilioBalanceTile"');
     expect(dashboard).toContain("<TwilioBalanceTile />");
