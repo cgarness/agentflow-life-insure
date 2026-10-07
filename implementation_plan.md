@@ -22,6 +22,8 @@ Chris approved repository implementation on October 7, 2026. Base/main at start:
 
 **Verification:** focused auth/provider/zero/error Edge tests; UI loading/success/zero/unavailable/manual-refresh/View-As tests; Super Admin integration/regressions; `npx tsc --noEmit`; actual app TypeScript baseline comparison if root tsc is vacuous; scoped lint; production build; `git diff --check`; secret-response/frontend-bundle review. No production Edge deploy, Supabase mutation, migration, Vercel production release, merge, or push to `main` is authorized in this build.
 
+**Build verification checkpoint (runtime head `10237284ebaf850e7adc4c815edf39a58f8c3b0f`):** dedicated Twilio balance CI PASSED — 12/12 Deno handler tests, Edge bundle type-check, 7/7 tile tests, scoped lint, root `npx tsc --noEmit`, `git diff --check`, production Vite build, and frontend bundle scan for `TWILIO_MASTER_*` / `SUPABASE_SERVICE_ROLE_KEY`. Existing Dialer/DNC, Reporting integrity, and A2P gates also passed. A2P exact-base app TypeScript comparison reports base=87, candidate=87, new=0. The broader Reports frontend exact-candidate/base workflow remains in progress at this checkpoint; do not misstate it as passed. No production deployment or Supabase mutation occurred.
+
 ---
 
 ## 2026-10-05 — Reports integrity published for verification; production release pending
