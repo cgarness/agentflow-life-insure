@@ -1,3 +1,27 @@
+## 2026-10-07 — APPROVED BUILD: Super Admin live master Twilio balance
+
+Chris approved repository implementation on October 7, 2026. Base/main at start: `1a877532068bf254aace53bdcacde606a4a693a5`; isolated branch: `feature/twilio-account-balance-20261007`. Full `AGENT_RULES.md`, `VISION.md`, and the complete 12,907-line `WORK_LOG.md` were read before runtime edits. Current open-work overlap was checked: PR #419 also changes `supabase/config.toml`; PR #378 and other historical open PRs touch shared documentation. Preserve current branch bytes and make only additive/surgical changes.
+
+**Scope:** add a compact read-only master Twilio balance metric to the existing Super Admin Dashboard. No navigation page, billing management, per-agency allocation, usage graph, low-balance alerts, schema/RLS changes, subaccount changes, or Dialer/Voice behavior.
+
+**Backend:** new `twilio-account-balance` Edge Function using only exact `TWILIO_MASTER_ACCOUNT_SID` + `TWILIO_MASTER_AUTH_TOKEN`. Call `GET https://api.twilio.com/2010-04-01/Accounts/{MASTER_ACCOUNT_SID}/Balance.json` with server-side Basic Auth. Do not use the fallback behavior in `_shared/twilioOutboundCreds.ts`. Validate Bearer JWT with anon-client `auth.getUser(jwt)`, then require BOTH JWT `is_super_admin === true` and server-side `profiles.is_super_admin === true` via `.maybeSingle()`. Return only `balance`, `currency`, `updated_at`; strip `account_sid`, raw Twilio payload, and secret-bearing diagnostics. Genuine zero is valid; malformed/upstream/config failure is unavailable, never fabricated zero. Add `[functions.twilio-account-balance] verify_jwt = false` to config.
+
+**Frontend:** new `TwilioBalanceTile` mounted in `SuperAdminDashboard`, matching existing health tiles. TanStack Query with explicit modest stale time, no polling, no window-focus refresh and minimal/no automatic retry; manual accessible Refresh. Skeleton while loading, prominent amount + subtle currency on success, neutral `Unavailable` on failure. The query/render is disabled while `isImpersonating`; preserve the existing View-As allow-list that already blocks `/super-admin`.
+
+**Files before runtime edits:**
+- `implementation_plan.md`
+- NEW `supabase/functions/twilio-account-balance/index.ts`
+- NEW Edge test for `twilio-account-balance` following current repo conventions
+- `supabase/config.toml`
+- NEW `src/components/super-admin/TwilioBalanceTile.tsx`
+- NEW `src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx`
+- `src/pages/SuperAdminDashboard.tsx`
+- `WORK_LOG.md` after implementation/verification
+
+**Verification:** focused auth/provider/zero/error Edge tests; UI loading/success/zero/unavailable/manual-refresh/View-As tests; Super Admin integration/regressions; `npx tsc --noEmit`; actual app TypeScript baseline comparison if root tsc is vacuous; scoped lint; production build; `git diff --check`; secret-response/frontend-bundle review. No production Edge deploy, Supabase mutation, migration, Vercel production release, merge, or push to `main` is authorized in this build.
+
+---
+
 ## 2026-10-05 — Reports integrity published for verification; production release pending
 
 Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.
