@@ -1,7 +1,3 @@
-import type { SmsPurpose } from "@/lib/sms-intent";
-import type { SmsConsentStatus } from "@/hooks/useSmsConsentStatus";
-import { smsBlockReason } from "@/lib/sms-readiness";
-import { SmsReadiness } from "@/components/messaging/SmsReadiness";
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { MessageSquare, Mail, Phone, Info, MoreVertical, Play, Mic, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,10 +17,7 @@ interface ConversationThreadProps {
    * is cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
    * user's text exactly where they can retry it.
    */
-  onSendMessage: (text: string, channel: "sms" | "email", subject?: string, purpose?: SmsPurpose) => Promise<boolean>;
-  smsStatus?: SmsConsentStatus;
-  smsStatusError?: boolean;
-  refreshSmsStatus?: ()=>void;
+  onSendMessage: (text: string, channel: "sms" | "email", subject?: string) => Promise<boolean>;
   sending?: boolean;
   /**
    * Read-only preview: render the thread, but NO composer.
@@ -65,10 +58,9 @@ interface ComposerState {
   text: string;
   subject: string;
   channel: "sms" | "email";
-  purpose: SmsPurpose;
 }
 
-const emptyComposer = (key: string): ComposerState => ({ key, text: "", subject: "", channel: "sms", purpose: "" });
+const emptyComposer = (key: string): ComposerState => ({ key, text: "", subject: "", channel: "sms" });
 
 /** Per-contact disclosure state, keyed the same way. */
 interface ExpandedState {
@@ -85,7 +77,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactType,
   onSendMessage,
   readOnly = false,
-  sending = false, smsStatus, smsStatusError, refreshSmsStatus,
+  sending = false,
 }) => {
   // Thread data and status are stored WITH the contact identity they were loaded for, and matched
   // at RENDER time. Two defects this closes:
@@ -273,12 +265,10 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const smsPurpose = activeComposer?.purpose ?? "";
-  const smsBlocked = refreshSmsStatus ? smsBlockReason(smsStatus,smsPurpose,smsStatusError) : "";
   const handleSend = async () => {
-    if (!messageText.trim() || sending || readOnly || (channel === "sms" && smsBlocked)) return;
+    if (!messageText.trim() || sending || readOnly) return;
     const boundContactId = contactId;
-    const sent = await onSendMessage(messageText, channel, subjectText, smsPurpose);
+    const sent = await onSendMessage(messageText, channel, subjectText);
     // NOTHING happens unless the message actually went out. A failed send that cleared the composer
     // destroyed the only copy of the user's text and left them nothing to retry.
     if (!sent) return;
@@ -463,10 +453,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
           </div>
         ) : (
           <MessageComposePanel
-            smsPurpose={smsPurpose}
-            onSmsPurposeChange={purpose=>patchComposer({purpose})}
-            smsStatus={refreshSmsStatus && <SmsReadiness data={smsStatus} reason={smsBlocked} onRefresh={refreshSmsStatus} />}
-            sendDisabled={channel === "sms" && !!smsBlocked}
+            sendDisabled={!messageText.trim()}
             channel={channel}
             onChannelChange={setChannel}
             messageText={messageText}

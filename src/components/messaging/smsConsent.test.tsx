@@ -3,20 +3,24 @@ import {render,screen,fireEvent,cleanup,renderHook,act} from '@testing-library/r
 import {afterEach,it,expect,vi} from 'vitest';
 import {MessageComposePanel} from './MessageComposePanel';
 import {smsBlockReason} from '@/lib/sms-readiness';
-import {SmsReadiness} from './SmsReadiness';
-import {SmsIntent,type SmsPurpose} from '@/lib/sms-intent';
+import {SmsIntent} from '@/lib/sms-intent';
 import {useScopedDraft} from '@/hooks/useScopedDraft';
 import {SmsForm} from '@/components/workflows/panels/actionForms';
 import {sendSmsSchema} from '@/lib/workflow-types';
 afterEach(cleanup);
 const ready={enforced:true,send_enabled:true,provider_ready:true,informational:true,informational_confirmed:true,marketing:false,marketing_confirmed:false};
-it('requires deliberate purpose, blocks marketing without permission, preserves draft',()=>{
+it('manual composer sends without a purpose or enrollment-readiness controls',()=>{
  const send=vi.fn();
- function Test(){const [text,setText]=useState('Keep this draft'),[purpose,setPurpose]=useState<SmsPurpose>('');const reason=smsBlockReason(ready,purpose);return <MessageComposePanel channel="sms" onChannelChange={()=>{}} messageText={text} onMessageChange={setText} subjectText="" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send} smsPurpose={purpose} onSmsPurposeChange={setPurpose} sendDisabled={!!reason} smsStatus={<SmsReadiness data={ready} reason={reason} onRefresh={()=>{}}/>}/>;}
- render(<Test/>);expect(screen.getByTitle('Send SMS')).toBeDisabled();
- fireEvent.change(screen.getByLabelText('Text purpose'),{target:{value:'marketing'}});expect(screen.getByText(/No marketing SMS permission/)).toBeInTheDocument();
- fireEvent.keyDown(screen.getByPlaceholderText('Type SMS message…'),{key:'Enter'});expect(send).not.toHaveBeenCalled();expect(screen.getByDisplayValue('Keep this draft')).toBeInTheDocument();
- fireEvent.change(screen.getByLabelText('Text purpose'),{target:{value:'informational'}});fireEvent.click(screen.getByTitle('Send SMS'));expect(send).toHaveBeenCalledOnce();
+ function Test(){const [text,setText]=useState('Keep this draft');return <MessageComposePanel channel="sms" onChannelChange={()=>{}} messageText={text} onMessageChange={setText} subjectText="" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send}/>;}
+ render(<Test/>);expect(screen.getByTitle('Send SMS')).toBeEnabled();
+ expect(screen.queryByLabelText('Text purpose')).not.toBeInTheDocument();
+ expect(screen.queryByText(/Informational:|Marketing:|Choose a text purpose|Refresh/)).not.toBeInTheDocument();
+ fireEvent.keyDown(screen.getByPlaceholderText('Type SMS message…'),{key:'Enter'});expect(send).toHaveBeenCalledOnce();expect(screen.getByDisplayValue('Keep this draft')).toBeInTheDocument();
+ fireEvent.click(screen.getByTitle('Send SMS'));expect(send).toHaveBeenCalledTimes(2);
+});
+it('manual composer respects an in-flight send for both Enter and Send',()=>{
+ const send=vi.fn();render(<MessageComposePanel channel="sms" onChannelChange={()=>{}} messageText="Keep this draft" onMessageChange={()=>{}} subjectText="" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send} sendLoading/>);
+ fireEvent.keyDown(screen.getByPlaceholderText('Type SMS message…'),{key:'Enter'});fireEvent.click(screen.getByTitle('Send SMS'));expect(send).not.toHaveBeenCalled();
 });
 it('blocks opted-out, paused, missing and unconfirmed readiness',()=>{
  expect(smsBlockReason({...ready,suppressed:true},'informational')).toMatch(/blocked/);

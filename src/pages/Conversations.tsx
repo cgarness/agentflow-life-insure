@@ -1,5 +1,4 @@
-import { SmsIntent, type SmsPurpose } from "@/lib/sms-intent";
-import { useSmsConsentStatus } from "@/hooks/useSmsConsentStatus";
+import { SmsIntent } from "@/lib/sms-intent";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -37,6 +36,7 @@ const ConversationsPage = () => {
   const [selected, setSelected] = useState<{ key: string; contact: ConversationPreview | ScopedContact } | null>(null);
   const [deepLink, setDeepLink] = useState<{ key: string; state: "idle" | "resolving" | "denied" }>({ key: "", state: "idle" });
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const { selectedCallerNumber } = useTwilio();
 
   // ---- Effective viewer + scope ------------------------------------------------------------
@@ -56,7 +56,6 @@ const ConversationsPage = () => {
 
   // Render-time identity match — nothing loaded for a previous viewer can survive into this render.
   const selectedContact = viewerKey && selected?.key === viewerKey ? selected.contact : null;
-  const smsStatus = useSmsConsentStatus(selectedContact?.contact_id, selectedContact?.contact_type);
   const deepLinkState = viewerKey && deepLink.key === viewerKey ? deepLink.state : "idle";
 
   useEffect(() => {
@@ -161,8 +160,8 @@ const ConversationsPage = () => {
    * `ConversationThread` cleared the composer and the user's text was gone with nothing to retry.
    * `true` is returned ONLY after a confirmed provider success.
    */
-  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string, purpose?: SmsPurpose): Promise<boolean> => {
-    if (!selectedContact) return false;
+  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string): Promise<boolean> => {
+    if (!selectedContact || !text.trim() || sendingRef.current) return false;
 
     /**
      * "View As" IS READ-ONLY, and this refusal comes FIRST — before the session, the mailbox and
@@ -184,6 +183,7 @@ const ConversationsPage = () => {
       return false;
     }
 
+    sendingRef.current = true;
     setSending(true);
 
     try {
@@ -229,13 +229,10 @@ const ConversationsPage = () => {
           return false;
         }
 
-        if (!selectedCallerNumber) {
-          toast.error("No caller ID selected. Use the dialer to select a number.");
-          return false;
-        }
-
         const base = import.meta.env.VITE_SUPABASE_URL as string;
-        const intentPayload = [session.user.id,profile?.organization_id,selectedContact.contact_type,selectedContact.contact_id,contactPhone,selectedCallerNumber,text,purpose];
+        const smsTo = toE164Plus(contactPhone);
+        const smsFrom = selectedCallerNumber ? toE164Plus(selectedCallerNumber) : undefined;
+        const intentPayload = [session.user.id,profile?.organization_id,selectedContact.contact_type,selectedContact.contact_id,smsTo,smsFrom,text];
         const res = await fetch(`${base}/functions/v1/twilio-sms`, {
           method: "POST",
           headers: { 
@@ -243,9 +240,9 @@ const ConversationsPage = () => {
             Authorization: `Bearer ${session.access_token}` 
           },
           body: JSON.stringify({
-            request_id:smsIntent.current.id(intentPayload), purpose, actor_id:session.user.id, organization_id:profile?.organization_id, view_as:isImpersonating,
-            to: toE164Plus(contactPhone),
-            from: toE164Plus(selectedCallerNumber),
+            request_id:smsIntent.current.id(intentPayload), actor_id:session.user.id, organization_id:profile?.organization_id, view_as:isImpersonating,
+            to: smsTo,
+            from: smsFrom,
             body: text,
             contact_id: selectedContact.contact_id,
             contact_type: selectedContact.contact_type,
@@ -265,6 +262,7 @@ const ConversationsPage = () => {
       toast.error(err instanceof Error && err.message ? err.message : "Couldn't send the message.");
       return false;
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -296,7 +294,6 @@ const ConversationsPage = () => {
         <>
           <ConversationThread
             key={viewerKey}
-            smsStatus={smsStatus.data} smsStatusError={!!smsStatus.error} refreshSmsStatus={()=>void smsStatus.refetch()}
             contactId={selectedContact.contact_id}
             contactName={selectedContact.contact_name}
             // The RESOLVED type, from the table the contact was actually found in — never the URL.

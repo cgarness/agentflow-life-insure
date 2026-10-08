@@ -1,8 +1,10 @@
 import { dispatch } from "../_shared/sms/dispatch.ts";
 import { policy } from "../_shared/sms/consent.ts";
 import { contactScope } from "../_shared/sms/scope.ts";
+import { manualSender } from "../_shared/sms/manual.ts";
 import { SmsError, UUID } from "../_shared/sms/wire.ts";
 import { registeredSender } from "../_shared/a2p/sending.ts";
+import { A2pError } from "../_shared/a2p/types.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const FN = "[twilio-sms]";
@@ -135,14 +137,29 @@ Deno.serve(async (req) => {
         ? contactTypeRaw
         : undefined;
 
-    if (!toRaw || !fromRaw || !bodyText.trim()) {
+    if (!toRaw || !bodyText.trim()) {
       return jsonResponse(
-        { success: false, error: "Missing required fields: to, from, body" },
+        { success: false, error: "Missing required fields: to, body" },
         400,
       );
     }
 
     const to = toE164Plus(toRaw);
+    const textingPolicy = await policy(supabase, organizationId);
+    if (textingPolicy?.enforced) {
+      if (bodyJson.view_as === true || bodyJson.actor_id !== user.id || bodyJson.organization_id !== organizationId || typeof bodyJson.request_id !== "string" || !UUID.test(bodyJson.request_id)) throw new SmsError("SEND_SCOPE", "Reload your own account before sending.", 403);
+      const caller = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+      await contactScope(caller, organizationId, contactId, contactType, to);
+      const from = await manualSender(supabase, textingPolicy, fromRaw);
+      // This authenticated endpoint sends human-composed messages. Browser purpose
+      // flags cannot grant consent or select an automated/confirmation send path.
+      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); }, manual: true, purpose: "manual", actor: user.id, contactId, contactType });
+      if (!result) throw new SmsError("SMS_POLICY", "Texting settings changed. Please retry.", 503);
+      return jsonResponse({ ...result }, 200);
+    }
+    if (!fromRaw) {
+      return jsonResponse({ success: false, error: "A sender number is required." }, 400);
+    }
     const from = toE164Plus(fromRaw);
     if (!to.startsWith("+") || !from.startsWith("+")) {
       return jsonResponse({ success: false, error: "Invalid phone number format (E.164 required)." }, 400);
@@ -170,14 +187,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    if ((await policy(supabase, organizationId))?.enforced) {
-      if (bodyJson.view_as === true || bodyJson.actor_id !== user.id || bodyJson.organization_id !== organizationId || typeof bodyJson.request_id !== "string" || !UUID.test(bodyJson.request_id)) throw new SmsError("SEND_SCOPE", "Reload your own account before sending.", 403);
-      const caller = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-      await contactScope(caller, organizationId, contactId, contactType, to);
-      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); }, purpose: bodyJson.purpose, actor: user.id, contactId, contactType });
-      if (!result) throw new SmsError("SMS_POLICY", "Texting policy changed. Reload before sending.", 503);
-      return jsonResponse({ ...result }, 200);
-    }
     const registered = await registeredSender(supabase, organizationId, from, user.id);
     let accountSid = registered?.accountSid ?? "";
     let authToken = registered?.authToken ?? "";
@@ -285,7 +294,7 @@ Deno.serve(async (req) => {
       200,
     );
   } catch (err) {
-    if (err instanceof SmsError) return jsonResponse({ success: false, code: err.code, error: err.message }, err.status);
+    if (err instanceof SmsError || err instanceof A2pError) return jsonResponse({ success: false, code: err.code, error: err.message }, err.status);
     console.error(`${FN} Unhandled:`, err);
     return jsonResponse(
       {

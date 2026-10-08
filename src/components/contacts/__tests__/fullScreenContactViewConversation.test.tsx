@@ -1,4 +1,3 @@
-vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * Conversation History (center column) — filters, channel visuals, inline endpoint
  * details, persisted email subject (2026-08-17 build).
@@ -59,6 +58,7 @@ const h = vi.hoisted(() => ({
   connections: [] as Array<Record<string, unknown>>,
   sentEmails: [] as Array<Record<string, unknown>>,
   sendEmailResult: { success: true } as Record<string, unknown>,
+  isImpersonating: false,
 }));
 
 vi.mock("sonner", () => ({
@@ -89,7 +89,7 @@ vi.mock("@/lib/supabase-email", () => ({
   },
 }));
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: { id: "user-1" }, profile: { id: "user-1", first_name: "Alexa", last_name: "Segura" } }),
+  useAuth: () => ({ user: { id: "user-1" }, profile: { id: "user-1", first_name: "Alexa", last_name: "Segura" }, isImpersonating: h.isImpersonating }),
 }));
 vi.mock("@/contexts/CalendarContext", () => ({ useCalendar: () => ({ addAppointment: vi.fn() }) }));
 vi.mock("@/contexts/SidebarContext", () => ({ useSidebarContext: () => ({ collapsed: false }) }));
@@ -213,11 +213,13 @@ beforeEach(() => {
   h.connections = [];
   h.sentEmails = [];
   h.sendEmailResult = { success: true };
+  h.isImpersonating = false;
 });
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function renderView(contact: Record<string, unknown> = CONTACT) {
@@ -445,6 +447,59 @@ describe("B. channel visuals / recording preservation", () => {
     expect(emailLabel.closest(".bg-\\[\\#007AFF\\]")).toBeNull();
     expect(emailLabel.closest(".rounded-full")).toHaveClass("w-fit");
     expect(callTitle.closest(".rounded-full")).toHaveClass("w-fit");
+  });
+});
+
+describe("manual SMS composer", () => {
+  it("sends with no website enrollment, purpose or selected voice number and refreshes real history", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const payload = JSON.parse(String(init.body));
+      tableData.messages = [{ id: "provider-row", direction: "outbound", body: payload.body, sent_at: "2026-10-08T15:00:00Z", status: "queued", from_number: "+12162706473", to_number: payload.to }];
+      return { json: async () => ({ success: true, id: "provider-row", status: "queued" }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderView();
+    expect(screen.queryByLabelText("Text purpose")).toBeNull();
+    expect(screen.queryByText(/Informational:|Marketing:|Choose a text purpose/)).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Manual message" } });
+    expect(screen.getByTitle("Send SMS")).toBeEnabled();
+    fireEvent.click(screen.getByTitle("Send SMS"));
+
+    await screen.findByText("Manual message");
+    expect(screen.getByPlaceholderText("Type SMS message…")).toHaveValue("");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const payload = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(payload).toMatchObject({ body: "Manual message", to: "+15125550123", contact_id: CONTACT.id, contact_type: "lead", actor_id: "user-1", organization_id: "org-1", view_as: false });
+    expect(payload).not.toHaveProperty("purpose");
+    expect(payload).not.toHaveProperty("from");
+    fireEvent.click(screen.getByRole("button", { name: "SMS details" }));
+    expect(screen.getByText("queued")).toBeInTheDocument();
+  });
+
+  it("preserves the draft and request ID after a server STOP refusal", async () => {
+    const fetchMock = vi.fn(async () => ({ json: async () => ({ success: false, error: "Recipient opted out" }) } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+    renderView();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(h.errorToasts).toHaveLength(1));
+    expect(screen.getByPlaceholderText("Type SMS message…")).toHaveValue("Keep this draft");
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(h.errorToasts).toHaveLength(2));
+    const requests = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(JSON.parse(String(requests[1][1].body)).request_id).toBe(JSON.parse(String(requests[0][1].body)).request_id);
+    expect(h.errorToasts).toEqual(["Recipient opted out", "Recipient opted out"]);
+  });
+
+  it("continues to refuse sending in View As", () => {
+    h.isImpersonating = true;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    renderView();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Do not send" } });
+    expect(screen.getByTitle("Send SMS")).toBeDisabled();
+    fireEvent.keyDown(screen.getByPlaceholderText("Type SMS message…"), { key: "Enter" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
