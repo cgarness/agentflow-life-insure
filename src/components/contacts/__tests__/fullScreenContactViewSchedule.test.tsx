@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * Contact page "Schedule" → AppointmentModal.onSave, and the Follow-ups card mount
  * (plan 2026-09-28-contact-followups §4.5, §7.4, §11 `fullScreenContactViewSchedule`).

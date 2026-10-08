@@ -1,4 +1,9 @@
 /**
+ * SMS readiness is an independent service boundary, covered by its hook tests.
+ */
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
+
+/**
  * Deep-linked contact quick-call identity (production defect, 2026-08-11).
  *
  * `/leads/:id`, `/clients/:id` and `/recruits/:id` fetch with `select("*")`, so the page

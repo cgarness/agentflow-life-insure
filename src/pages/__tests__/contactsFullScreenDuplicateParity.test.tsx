@@ -1,4 +1,9 @@
 /**
+ * SMS readiness is an independent service boundary, covered by its hook tests.
+ */
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
+
+/**
  * Duplicate-detection parity on the CONTACTS page's `FullScreenContactView` — leads, clients and
  * recruits (decisions D-2b and D-3).
  *

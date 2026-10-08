@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * `additional_policies` corruption fix (BUGFIX, 2026-09-19).
  *

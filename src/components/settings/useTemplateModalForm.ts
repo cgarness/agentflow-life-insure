@@ -1,3 +1,4 @@
+import type { SmsPurpose } from "@/lib/sms-intent";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { saveMessageTemplate } from "@/components/settings/saveMessageTemplate";
@@ -32,6 +33,7 @@ export function useTemplateModalForm(
   const [formType, setFormType] = useState<"email" | "sms">("email");
   const [formSubject, setFormSubject] = useState("");
   const [formContent, setFormContent] = useState("");
+  const [smsPurpose,setSmsPurpose] = useState<SmsPurpose>("");
   const [formCategory, setFormCategory] = useState<TemplateCategory | null>(null);
   const [formScope, setFormScope] = useState<TemplateScope>("personal");
   const [formAttachments, setFormAttachments] = useState<TemplateAttachment[]>([]);
@@ -62,6 +64,7 @@ export function useTemplateModalForm(
       setFormType(editTarget.type);
       setFormSubject(editTarget.subject || "");
       setFormContent(editTarget.content);
+      setSmsPurpose(editTarget.smsPurpose ?? "");
       setFormCategory(editTarget.category);
       setFormScope(editTarget.scope);
       setFormAttachments(editTarget.attachments);
@@ -71,6 +74,7 @@ export function useTemplateModalForm(
       setFormType("email");
       setFormSubject("");
       setFormContent("");
+      setSmsPurpose("");
       setFormCategory(null);
       setFormScope(canManageAgency ? "agency" : "personal");
       setFormAttachments([]);
@@ -128,6 +132,7 @@ export function useTemplateModalForm(
       return;
     }
 
+    if (formType === "sms" && !smsPurpose) { toast({title:"Choose the SMS purpose",variant:"destructive"}); return; }
     const attachmentsPayload = formAttachments;
     const parsed = templateFormSchema.safeParse({
       name: formName,
@@ -163,6 +168,7 @@ export function useTemplateModalForm(
         type: parsed.data.type,
         subject: parsed.data.type === "email" ? parsed.data.subject?.trim() ?? null : null,
         content: parsed.data.content,
+        smsPurpose:smsPurpose || null,
         attachments: attachmentsPayload,
         category: parsed.data.category ?? null,
         scope: parsed.data.scope,
@@ -212,7 +218,7 @@ export function useTemplateModalForm(
     formSubject,
     setFormSubject,
     formContent,
-    setFormContent,
+    setFormContent, smsPurpose, setSmsPurpose,
     formCategory,
     setFormCategory,
     formScope,

@@ -354,6 +354,7 @@ export const triggerConfigSchemas: Record<TriggerType, z.ZodTypeAny> = {
 };
 
 export const sendSmsSchema = z.object({
+  purpose: z.enum(["informational", "marketing"], { required_error: "Choose the SMS purpose" }),
   template_id: z.string().optional().nullable(),
   body: z.string().trim().min(1).max(1600),
 });

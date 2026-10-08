@@ -15,6 +15,7 @@ export type TemplateCategory =
 export type TemplateScope = "agency" | "personal";
 
 export interface Template {
+  smsPurpose?: "informational" | "marketing" | null;
   id: string;
   name: string;
   type: "email" | "sms";

@@ -1,3 +1,4 @@
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * A failed send must not destroy the message the user typed.
  *
@@ -108,7 +109,7 @@ vi.mock("@/integrations/supabase/client", () => {
         getSession: () => {
           sendState.credentialReads.push("session");
           return Promise.resolve({
-            data: { session: sendState.accessToken ? { access_token: sendState.accessToken } : null },
+            data: { session: sendState.accessToken ? { access_token: sendState.accessToken, user: {id:AGENT} } : null },
           });
         },
       },

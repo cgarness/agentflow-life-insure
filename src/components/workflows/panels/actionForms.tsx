@@ -1,11 +1,13 @@
 import React from "react";
+import { SmsPurposeSelect } from "@/components/messaging/SmsPurposeSelect";
+import type { SmsPurpose } from "@/lib/sms-intent";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { MERGE_FIELDS } from "@/lib/workflow-types";
 import type { PipelineStage } from "@/lib/types";
 
-export interface Template { id: string; name: string; type: string | null; subject: string | null; content: string }
+export interface Template { sms_purpose?: "informational" | "marketing" | null; id: string; name: string; type: string | null; subject: string | null; content: string }
 export interface AgentRow { id: string; first_name: string; last_name: string }
 
 type Cfg = Record<string, unknown>;
@@ -34,12 +36,13 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) 
 
 export const SmsForm: React.FC<{ config: Cfg; set: Setter; templates: Template[] }> = ({ config, set, templates }) => (
   <>
+    <SmsPurposeSelect value={(config.purpose as SmsPurpose) || ""} onChange={purpose=>set({purpose})} />
     <Field label="Template (optional)">
       <Select
         value={(config.template_id as string) || ""}
         onChange={(e) => {
           const t = templates.find((x) => x.id === e.target.value);
-          set({ template_id: e.target.value || null, body: t?.content ?? config.body ?? "" });
+          set({ template_id: e.target.value || null, body: t?.content ?? config.body ?? "", purpose: t?.sms_purpose ?? "" });
         }}
       >
         <option value="">Custom message</option>

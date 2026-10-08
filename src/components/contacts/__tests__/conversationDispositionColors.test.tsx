@@ -1,4 +1,9 @@
 /**
+ * SMS readiness is an independent service boundary, covered by its hook tests.
+ */
+vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
+
+/**
  * Conversation History call-disposition badge colors (2026-08-18 surgical fix).
  *
  * Regression pinned: CallHistoryItem rendered every disposition badge with

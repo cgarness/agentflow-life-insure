@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import type { SmsPurpose } from "@/lib/sms-intent";
+import { SmsPurposeSelect } from "./SmsPurposeSelect";
 import { FileText, Send, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +16,9 @@ export interface MessageComposePanelProps {
   sendDisabled?: boolean;
   sendLoading?: boolean;
   className?: string;
+  smsPurpose?: SmsPurpose;
+  onSmsPurposeChange?: (purpose:SmsPurpose)=>void;
+  smsStatus?: ReactNode;
 }
 
 /**
@@ -30,7 +36,7 @@ export function MessageComposePanel({
   onSendMessage,
   sendDisabled,
   sendLoading,
-  className,
+  className, smsPurpose = "", onSmsPurposeChange, smsStatus,
 }: MessageComposePanelProps) {
   return (
     <div className={cn("shrink-0 bg-card border rounded-xl flex flex-col", className)}>
@@ -51,7 +57,8 @@ export function MessageComposePanel({
             />
           </div>
         ) : (
-          <div className="text-foreground">
+          <div className="text-foreground space-y-2">
+            {onSmsPurposeChange && <SmsPurposeSelect value={smsPurpose} onChange={onSmsPurposeChange} />}
             <input
               value={messageText}
               onChange={(e) => onMessageChange(e.target.value)}
@@ -66,6 +73,7 @@ export function MessageComposePanel({
             />
           </div>
         )}
+        {channel === "sms" && smsStatus}
       </div>
 
       <div className="flex items-center justify-between px-4 py-3 border-t mt-3">

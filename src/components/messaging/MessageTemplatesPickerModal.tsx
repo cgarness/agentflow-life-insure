@@ -21,6 +21,7 @@ type TemplateRow = {
   subject: string | null;
   content: string;
   scope: string | null;
+  sms_purpose?: "informational" | "marketing" | null;
 };
 
 export interface MessageTemplatesPickerModalProps {
@@ -29,7 +30,7 @@ export interface MessageTemplatesPickerModalProps {
   /** SMS vs Email tab — only matching template types are listed. */
   channel: "sms" | "email";
   mergeInput: MessageTemplateMergeInput;
-  onApply: (payload: { body: string; subject: string | null }) => void;
+  onApply: (payload: { body: string; subject: string | null; purpose?: "informational" | "marketing" | null }) => void;
 }
 
 export function MessageTemplatesPickerModal({
@@ -61,7 +62,7 @@ export function MessageTemplatesPickerModal({
       // RLS enforces the same; the explicit filter is defense-in-depth.
       let q = supabase
         .from("message_templates")
-        .select("id, name, type, subject, content, scope")
+        .select("id, name, type, subject, content, scope, sms_purpose")
         .eq("organization_id", organizationId)
         .order("name");
       if (currentUserId) {
@@ -102,7 +103,7 @@ export function MessageTemplatesPickerModal({
 
   function handlePick(t: TemplateRow) {
     const trimmedSubject = channel === "email" ? (t.subject?.trim() ?? "") : "";
-    onApply({
+    onApply({ purpose: t.sms_purpose,
       body: applyMessageTemplateMerge(t.content ?? "", mergeInput),
       subject: channel === "email" ? (trimmedSubject ? applyMessageTemplateMerge(trimmedSubject, mergeInput) : "") : null,
     });

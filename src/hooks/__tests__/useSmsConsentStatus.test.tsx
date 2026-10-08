@@ -1,0 +1,14 @@
+import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {renderHook,waitFor,act,cleanup} from '@testing-library/react';
+import {afterEach,beforeEach,it,expect,vi} from 'vitest';
+import {useSmsConsentStatus} from '../useSmsConsentStatus';
+const state=vi.hoisted(()=>({auth:{user:{id:'actor-a'},profile:{id:'actor-a',organization_id:'org-a'},isImpersonating:false},fetch:vi.fn()}));
+vi.mock('@/contexts/AuthContext',()=>({useAuth:()=>state.auth}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{auth:{getSession:async()=>({data:{session:{user:state.auth.user,access_token:'synthetic'}}})}}}));
+const clients:QueryClient[]=[];
+function wrapper(){const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}});clients.push(client);return ({children}:{children:React.ReactNode})=><QueryClientProvider client={client}>{children}</QueryClientProvider>;}
+beforeEach(()=>{state.auth={user:{id:'actor-a'},profile:{id:'actor-a',organization_id:'org-a'},isImpersonating:false};state.fetch.mockReset();vi.stubGlobal('fetch',state.fetch);});
+afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals();});
+it('binds the request to real actor, organization and contact',async()=>{state.fetch.mockResolvedValue(Response.json({enforced:true,informational:true}));const h=renderHook(()=>useSmsConsentStatus('contact-a','lead'),{wrapper:wrapper()});await waitFor(()=>expect(h.result.current.data?.enforced).toBe(true));const b=JSON.parse(state.fetch.mock.calls[0][1].body);expect(b).toEqual({action:'status',actor_id:'actor-a',organization_id:'org-a',contact_id:'contact-a',contact_type:'lead',view_as:false});});
+it('View As makes no request and cannot expose the previous actor consent result',async()=>{state.fetch.mockResolvedValue(Response.json({enforced:true,informational:true}));const h=renderHook(()=>useSmsConsentStatus('contact-a','lead'),{wrapper:wrapper()});await waitFor(()=>expect(h.result.current.data).toBeDefined());state.auth={...state.auth,isImpersonating:true};h.rerender();expect(h.result.current.data).toBeUndefined();expect(state.fetch).toHaveBeenCalledTimes(1);});
+it('late response for a previous contact cannot authorize the current contact',async()=>{let resolve!:(v:Response)=>void;state.fetch.mockImplementationOnce(()=>new Promise<Response>(r=>resolve=r)).mockResolvedValue(Response.json({enforced:true,informational:false}));const h=renderHook(({id})=>useSmsConsentStatus(id,'lead'),{initialProps:{id:'a'},wrapper:wrapper()});await waitFor(()=>expect(state.fetch).toHaveBeenCalledTimes(1));h.rerender({id:'b'});await waitFor(()=>expect(h.result.current.data?.informational).toBe(false));await act(async()=>resolve(Response.json({enforced:true,informational:true})));expect(h.result.current.data?.informational).toBe(false);});

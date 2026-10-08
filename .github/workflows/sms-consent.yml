@@ -1,0 +1,85 @@
+name: SMS consent integration
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/migrations/**'
+      - 'src/components/messaging/**'
+      - 'src/components/conversations/**'
+      - 'src/components/contacts/**'
+      - 'src/components/settings/**'
+      - 'src/hooks/useSmsConsentStatus.ts'
+      - 'src/hooks/useScopedDraft.ts'
+      - 'src/lib/sms-*'
+      - 'scripts/test-sms-consent.mjs'
+      - 'scripts/tests/sms-visual/**'
+      - '.github/workflows/sms-consent.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sms-consent-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  consent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: cgarness/underwriter-verified
+          ref: 396aaff53947a181bc61a6f914cd231639b7c56c
+          path: paired-uv
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Start disposable PostgreSQL on loopback only
+        run: |
+          docker run --detach --name sms-consent-postgres --network host \
+            -e POSTGRES_PASSWORD=synthetic-test-password postgres:17 \
+            -c listen_addresses=127.0.0.1 -c port=55440
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 55440 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: npm ci --no-audit --no-fund
+      - run: npm install --prefix "$RUNNER_TEMP/sms-tools" --no-package-lock deno@2.5.2 @electric-sql/pglite@0.3.14 playwright@1.56.1
+      - name: Real native PostgreSQL integration and concurrent dispatch
+        env:
+          SMS_NATIVE_PG: postgres://postgres:synthetic-test-password@127.0.0.1:55440/postgres
+          UV_SOURCE_ROOT: ${{ github.workspace }}/paired-uv
+        run: node scripts/test-sms-consent.mjs
+      - name: Existing Dialer DNC native regression
+        env:
+          PGURL: postgres://postgres:synthetic-test-password@127.0.0.1:55440
+        run: bash scripts/run_dialer_dnc_tests.sh
+      - name: Edge tests and type checks
+        run: |
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" test --allow-env supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/a2p/workflow_test.ts
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" check supabase/functions/sms-consent-events/index.ts supabase/functions/sms-consent-worker/index.ts supabase/functions/sms-consent-status/index.ts supabase/functions/twilio-sms/index.ts supabase/functions/twilio-sms-webhook/index.ts supabase/functions/workflow-executor/index.ts paired-uv/supabase/functions/agentflow-consent/index.ts paired-uv/supabase/functions/consent-event-worker/index.ts
+      - name: Browser fixture
+        env:
+          SMS_PLAYWRIGHT_MODULE: ${{ runner.temp }}/sms-tools/node_modules/playwright/index.mjs
+          SMS_VISUAL_EVIDENCE: ${{ runner.temp }}/sms-visual-evidence
+        run: |
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/playwright" install --with-deps chromium
+          node node_modules/vite/bin/vite.js build --config scripts/tests/sms-visual/vite.config.mts
+          python3 -m http.server 4188 --bind 127.0.0.1 --directory /tmp/cg-sms-visual-dist &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node scripts/tests/sms-visual/verify.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sms-consent-browser
+          path: ${{ runner.temp }}/sms-visual-evidence
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force sms-consent-postgres

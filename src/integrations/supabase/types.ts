@@ -3973,6 +3973,7 @@ export type Database = {
           name: string
           organization_id: string
           scope: string
+          sms_purpose: string | null
           subject: string | null
           type: string | null
           updated_at: string
@@ -3987,6 +3988,7 @@ export type Database = {
           name: string
           organization_id: string
           scope?: string
+          sms_purpose?: string | null
           subject?: string | null
           type?: string | null
           updated_at?: string
@@ -4001,6 +4003,7 @@ export type Database = {
           name?: string
           organization_id?: string
           scope?: string
+          sms_purpose?: string | null
           subject?: string | null
           type?: string | null
           updated_at?: string

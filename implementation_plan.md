@@ -2345,3 +2345,8 @@ Full frontend run `37155866517` passes: 4,091 passing candidate tests vs 4,039 b
 Production primary `dpl_FqDf3qezc99Agret25wgFCHutruW` and secondary `dpl_6msRSgs2i7uhYSTXaLq9JUCPDAsP` are READY at the merge SHA, production target. Primary serves www.fflagent.com / fflagent.com. Both domain HTML and entry assets returned HTTP 200; both contain the field-settings guard and preserved contact-history reader. Assets: primary `index-DaPV_ZqG.js` (SHA256 `2ef2b0c1a47c2c3412db14c01a4db8219d152afcffcfe44720fbe0314fc6dfa4`), secondary `index-DzC2gzDN.js` (`918d10f4edeaecbb6862d1189329fe262815290e54753e932cb817b141a0ed8a`).
 
 Implemented, reviewed, merged and deployed. No production data/definitions, database connection, migration/RLS, Edge, telephony, import processing or customer call/message change occurred. No signed-in production walkthrough or automated narrow-screen visual acceptance is claimed. Existing loaded tabs need a refresh after active calls end.
+
+
+## October 8 SMS activation authorization
+
+Chris instructed getting SMS working after A2P approval. The prepared backend release and guarded mapping are now applied with sending/relay paused. Complete secret provisioning, authenticated recovery, five-number registration and controlled consenting-recipient verification before activation. Earlier pending-approval notes describe the previous phase.

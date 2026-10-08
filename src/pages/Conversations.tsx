@@ -1,3 +1,5 @@
+import { SmsIntent, type SmsPurpose } from "@/lib/sms-intent";
+import { useSmsConsentStatus } from "@/hooks/useSmsConsentStatus";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -42,7 +44,8 @@ const ConversationsPage = () => {
   // always the real Super Admin while "View As" is active.
   const { viewer, key: viewerKey } = useEffectiveViewer();
   // READS are effective-viewer scoped and stay available under "View As"; WRITES do not.
-  const { isImpersonating } = useAuth();
+  const { isImpersonating, profile } = useAuth();
+  const smsIntent = useRef(new SmsIntent());
   const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [scopeReloadToken, setScopeReloadToken] = useState(0);
@@ -53,6 +56,7 @@ const ConversationsPage = () => {
 
   // Render-time identity match — nothing loaded for a previous viewer can survive into this render.
   const selectedContact = viewerKey && selected?.key === viewerKey ? selected.contact : null;
+  const smsStatus = useSmsConsentStatus(selectedContact?.contact_id, selectedContact?.contact_type);
   const deepLinkState = viewerKey && deepLink.key === viewerKey ? deepLink.state : "idle";
 
   useEffect(() => {
@@ -157,7 +161,7 @@ const ConversationsPage = () => {
    * `ConversationThread` cleared the composer and the user's text was gone with nothing to retry.
    * `true` is returned ONLY after a confirmed provider success.
    */
-  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string): Promise<boolean> => {
+  const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string, purpose?: SmsPurpose): Promise<boolean> => {
     if (!selectedContact) return false;
 
     /**
@@ -231,6 +235,7 @@ const ConversationsPage = () => {
         }
 
         const base = import.meta.env.VITE_SUPABASE_URL as string;
+        const intentPayload = [session.user.id,profile?.organization_id,selectedContact.contact_type,selectedContact.contact_id,contactPhone,selectedCallerNumber,text,purpose];
         const res = await fetch(`${base}/functions/v1/twilio-sms`, {
           method: "POST",
           headers: { 
@@ -238,6 +243,7 @@ const ConversationsPage = () => {
             Authorization: `Bearer ${session.access_token}` 
           },
           body: JSON.stringify({
+            request_id:smsIntent.current.id(intentPayload), purpose, actor_id:session.user.id, organization_id:profile?.organization_id, view_as:isImpersonating,
             to: toE164Plus(contactPhone),
             from: toE164Plus(selectedCallerNumber),
             body: text,
@@ -249,6 +255,7 @@ const ConversationsPage = () => {
 
         const result = await res.json();
         if (!result.success) throw new Error(result.error || "Failed to send SMS");
+        smsIntent.current.accepted(intentPayload);
         toast.success("Message sent");
         return true;
       }
@@ -288,6 +295,8 @@ const ConversationsPage = () => {
       ) : selectedContact ? (
         <>
           <ConversationThread
+            key={viewerKey}
+            smsStatus={smsStatus.data} smsStatusError={!!smsStatus.error} refreshSmsStatus={()=>void smsStatus.refetch()}
             contactId={selectedContact.contact_id}
             contactName={selectedContact.contact_name}
             // The RESOLVED type, from the table the contact was actually found in — never the URL.
