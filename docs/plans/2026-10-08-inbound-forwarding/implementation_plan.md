@@ -103,4 +103,4 @@ Chris approved this implementation and asked to investigate Alexa Segura’s for
 
 ## Implementation status
 
-The approved isolated implementation is complete. See verification.md for 267 inbound tests, 21 forwarding/profile tests, independent review, TypeScript results, live-bundle reconciliation and release limits. Chris subsequently confirmed Alexa found the separate save button; no UI or account-setting change is needed. Publication and release of the reviewed bundle are now authorized and in progress; see verification.md for the release record.
+The approved isolated implementation is complete. See verification.md for 267 inbound tests, 21 forwarding/profile tests, independent review, TypeScript results, live-bundle reconciliation and release limits. Chris subsequently confirmed Alexa found the separate save button; no UI or account-setting change is needed. The complete reviewed bundle was deployed as inbound v48 and all ten files read back exactly; see verification.md and PR #431 for the release record. Source closeout changes documentation only.

@@ -1,6 +1,6 @@
 # Incoming call forwarding verification
 
-October 8, 2026. Isolated implementation approved by Chris at 12:26 PDT. After reviewing the completed fix and separate release requirement, Chris confirmed Alexa found the save button and instructed continuation at 13:39 PDT; publication and deployment of this reviewed inbound bundle are authorized. Release is in progress. Base main is `d70fc6d14624ac001b4c68fad20eb979a9d9e06d`; branch is `codex/inbound-forwarding-20261008`.
+October 8, 2026. Isolated implementation approved by Chris at 12:26 PDT. After reviewing the completed fix and separate release requirement, Chris confirmed Alexa found the save button and instructed continuation at 13:39 PDT; publication and deployment of this reviewed inbound bundle are authorized. The runtime fix is deployed as inbound v48; source closeout is recorded in PR #431. Base main is `d70fc6d14624ac001b4c68fad20eb979a9d9e06d`; branch is `codex/inbound-forwarding-20261008`.
 
 ## Alexa save investigation
 
@@ -35,10 +35,15 @@ Coverage includes browser preparation failures, ordinary online and offline path
 
 No hosted save, live call, audio, production deployment or production write was used as a substitute for local verification. No fresh native database suite was required because no SQL, policy or schema changed; handler tests use inspected live RPC result contracts rather than reimplementing SQL eligibility.
 
-## Release preflight and remaining steps
+## Completed runtime release
 
-- Fresh main remains `d70fc6d14624ac001b4c68fad20eb979a9d9e06d`; no overlapping incoming-call PR was found among current open PRs.
-- Fresh live retrieval is still v47 with the same bundle fingerprint and ten source files. Nine candidate files match live exactly; only the reviewed stages module differs. Independent release review found no new blocker.
-- Publish the reviewed branch, check its CI, then deploy the complete package preserving `verify_jwt=false` and existing signature validation. Read back and compare all ten files byte-for-byte; record actual version and fingerprint only after success.
-- Keep the captured compatible v47 bundle as the recovery reference. No frontend behavior, SQL, agent settings, historical calls or provider callback configuration changes are part of this release.
-- A controlled real-call check remains outstanding: an owner-authorized caller should verify browser miss → mobile → AgentFlow voicemail and Break/DND/another-call exclusions. This release does not place a live call or fabricate audio proof.
+- [PR #431](https://github.com/cgarness/agentflow-life-insure/pull/431) publishes implementation head `7bafcd708f9a1a2d0133dcab4a54aae22df586d3`, with tree `e6b3b71c3032f3c26cbd832f5226c026df41e439` identical to the reviewed local source.
+- All five workflows passed on that head: Dialer DNC `37841728906`, Reporting integrity `37841728595`, SMS consent `37841728558`, A2P `37841728775`, Reports frontend `37841728586`. Both Vercel previews passed. Full frontend comparison: 4,323 candidate tests passed versus 4,301 baseline, unchanged existing failed tests/files and 85 app diagnostics, zero unhandled errors; root TypeScript, scoped lint, Reports tests and production build passed.
+- Immediately before deployment, main remained `d70fc6d14624ac001b4c68fad20eb979a9d9e06d`; every live v47 source and its configuration still matched the reviewed baseline. No overlapping incoming-call PR was found.
+- Deployed complete ten-file package at **2026-10-08T20:56:08.733Z**: **v48**, **ACTIVE**, `verify_jwt=false`, fingerprint `a0a459768b340096c36f119baeff08de7028fa3e7f5e218daddd5a19c79b6b62`. Immediate retrieval matched **all ten candidate files byte-for-byte**. Signature validation remains unchanged. Only stages differs from the pre-release live bundle.
+- The recovery package was parsed using the same JSON file structure accepted by the deployment tool; its exact set of ten names and SHA-256 source hashes equals the pre-release live baseline. Recovery JSON SHA-256: `0aa2c26c67678684cc2ccc8a184036bccb09a2dd10af065fa4e60c9fd11ce185`.
+- This closeout changes documentation only after the successful implementation-head gates. Final source-merge metadata is recorded on PR #431.
+
+## Verification limits
+
+A controlled real-call check remains outstanding: an owner-authorized caller should verify browser miss → mobile → AgentFlow voicemail and Break/DND/another-call exclusions. This release did not place a live call or fabricate audio proof. No SQL, agent setting, historical record or provider callback configuration was changed.
