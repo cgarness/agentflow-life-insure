@@ -1,15 +1,17 @@
 import type { Db } from "../a2p/types.ts";
 import { registeredSender } from "../a2p/sending.ts";
 import { checked, eligibility, policy, suppress } from "./consent.ts";
-import { digest, phone, purpose, SmsError } from "./wire.ts";
+import { digest, phone, purpose, SmsError, UUID } from "./wire.ts";
 export interface Dispatch {
+  /** Internal entry-point choice; never copied from a request body or workflow config. */
+  manual?: boolean;
   verifyRecipient?: () => Promise<void>;
   org: string;
   key: string;
   to: string;
   from: string;
   body: string;
-  purpose: unknown;
+  purpose?: unknown;
   actor?: string;
   contactId?: string;
   contactType?: string;
@@ -33,9 +35,21 @@ export async function dispatch(
   if (!p.send_enabled) {
     throw new SmsError("SMS_PAUSED", "Agency texting is not activated.");
   }
+  const manual = input.manual === true;
+  if (
+    manual && (
+      !UUID.test(input.actor ?? "") || !UUID.test(input.contactId ?? "") ||
+      !["lead", "client", "recruit"].includes(input.contactType ?? "") ||
+      input.confirmation || typeof input.verifyRecipient !== "function" ||
+      !input.key.startsWith(`manual:${input.actor}:`) ||
+      !UUID.test(input.key.slice(`manual:${input.actor}:`.length))
+    )
+  ) {
+    throw new SmsError("SEND_SCOPE", "Reload the contact before sending.", 403);
+  }
   const to = phone(input.to),
     from = phone(input.from),
-    category = purpose(input.purpose);
+    category = manual ? "manual" : purpose(input.purpose);
   if (
     !input.key || input.key.length > 160 || !input.body.trim() ||
     input.body.length > 1600
@@ -79,8 +93,10 @@ export async function dispatch(
     }
   }
   let evidence: string[] = [];
-  for (const item of input.confirmation?.purposes ?? [category]) {
-    evidence.push(...await eligibility(p, to, item, transport));
+  if (!manual) {
+    for (const item of input.confirmation?.purposes ?? [category]) {
+      evidence.push(...await eligibility(p, to, item, transport));
+    }
   }
   if (input.confirmation) evidence = input.confirmation.evidence; // Job's immutable enrollment references; current decisions still checked above.
   const hash = await digest(
@@ -125,9 +141,12 @@ export async function dispatch(
       "This send already has an attempt. Check its status before trying again.",
     );
   }
-  // Fresh remote check after receipt preparation, then final serialized local suppression/DNC check.
-  for (const item of input.confirmation?.purposes ?? [category]) {
-    await eligibility(p, to, item, transport);
+  // Automated consent stays purpose-specific. Manual sends make no consent claim.
+  // Both paths retain the final serialized local suppression/DNC check.
+  if (!manual) {
+    for (const item of input.confirmation?.purposes ?? [category]) {
+      await eligibility(p, to, item, transport);
+    }
   }
   await input.verifyRecipient?.();
   if (input.contactType === "lead" && input.contactId) {

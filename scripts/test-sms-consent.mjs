@@ -59,6 +59,10 @@ try {
  await af.exec('revoke all on function private.dnc_phone_lock_key(uuid,text),private.is_dnc_phone(uuid,text) from public,anon,authenticated,service_role;grant execute on function private.phone_digits_e164ish(text) to service_role;');
  const before=await query(af,"select proname,prosrc,proacl::text from pg_proc where pronamespace='private'::regnamespace order by proname");
  await af.exec(await readFile('supabase/migrations/20261005194649_sms_consent_dispatch.sql','utf8'));
+ const dispatchAccessSql="select oid::regprocedure::text as signature,proowner,proacl::text,prosecdef,proconfig from pg_proc where oid='public.sms_prepare_dispatch(uuid,text,text,text,text,text,text,uuid[],uuid,uuid,text,uuid)'::regprocedure";
+ const dispatchAccess=await query(af,dispatchAccessSql);
+ await af.exec(await readFile('supabase/migrations/20261008144711_manual_sms_dispatch.sql','utf8'));
+ assert.deepEqual(await query(af,dispatchAccessSql),dispatchAccess);checks++;
  const after=await query(af,"select proname,prosrc,proacl::text from pg_proc where pronamespace='private'::regnamespace and proname in ('dnc_phone_lock_key','is_dnc_phone','phone_digits_e164ish') order by proname");
  assert.deepEqual(after,before);checks++;
  for(const db of [af,uv]) {
@@ -134,6 +138,55 @@ try {
  await prepare(marketing,'uncertain','marketing');await af.query('select sms_start_dispatch($1,$2)',[org,'uncertain']);
  await af.query("select sms_finish_dispatch($1,$2,'uncertain',null,null,'timeout')",[org,'uncertain']);
  ok(!(await query(af,'select sms_start_dispatch($1,$2) as started',[org,'uncertain']))[0].started,'uncertain cannot auto resend');
+ // Owner-requested manual sending records a manual receipt, never a consent grant.
+ const manualPhone='+19095559990',manualActor=id(60),manualContact=id(61);
+ const manualKey=n=>`manual:${manualActor}:${id(n)}`;
+ const manualArgs=(n,patch={})=>{
+  const v={org,key:manualKey(n),phone:manualPhone,from:'+19095550100',body:'Manual synthetic message',purpose:'manual',hash:'manual-'+n,evidence:[],actor:manualActor,contact:manualContact,type:'client',confirmation:null,...patch};
+  return [v.org,v.key,v.phone,v.from,v.body,v.purpose,v.hash,v.evidence,v.actor,v.contact,v.type,v.confirmation];
+ };
+ const manualSql='select sms_prepare_dispatch($1,$2,$3,$4,$5,$6,$7,$8::uuid[],$9,$10,$11,$12) as r';
+ const m=(await query(af,manualSql,manualArgs(601)))[0].r;
+ ok(m.purpose==='manual'&&m.evidence_ids.length===0&&m.confirmation_id===null,'manual receipt has no fabricated grant/evidence');
+ ok((await query(af,'select count(*)::int n from sms_enrollments where phone_e164=$1',[manualPhone]))[0].n===0,'manual does not create enrollment');
+ ok((await query(af,'select count(*)::int n from sms_confirmation_jobs where phone_e164=$1',[manualPhone]))[0].n===0,'manual does not queue confirmation');
+ ok((await query(af,'select sms_start_dispatch($1,$2) as started',[org,manualKey(601)]))[0].started,'unenrolled manual starts');
+ ok(!(await query(af,'select sms_start_dispatch($1,$2) as started',[org,manualKey(601)]))[0].started,'manual duplicate start blocked');
+ await af.query("select sms_finish_dispatch($1,$2,'accepted',$3,'queued')",[org,manualKey(601),'SM'+'6'.repeat(32)]);
+ await af.query("select sms_finish_dispatch($1,$2,'accepted',$3,'queued')",[org,manualKey(601),'SM'+'6'.repeat(32)]);
+ const history=await query(af,'select * from messages where provider_message_id=$1',['SM'+'6'.repeat(32)]);
+ ok(history.length===1&&history[0].created_by===manualActor&&history[0].contact_id===manualContact&&history[0].contact_type==='client'&&history[0].lead_id===null,'manual provider receipt writes correct history once');
+ ok((await query(af,manualSql,manualArgs(601)))[0].r.state==='accepted','accepted manual retry returns same receipt');
+ await rejects(af,manualSql,manualArgs(601,{hash:'changed'}),/conflict/);
+ for(const patch of [{actor:null},{contact:null},{type:null},{type:'other'},{key:'workflow:execution:node'},{key:`manual:${id(99)}:${id(602)}`},{key:`manual:${manualActor}:invalid`},{confirmation:id(50)},{evidence:null},{evidence:[id(50)]}]) {
+  await rejects(af,manualSql,manualArgs(602,patch),/manual_scope/);
+ }
+ await rejects(af,manualSql,manualArgs(603,{purpose:'informational'}),/permission/);
+ await rejects(af,manualSql,manualArgs(603,{purpose:'marketing',evidence:[id(50)]}),/confirmation_pending/);
+ // A STOP/DNC committed after preparation still blocks the final provider handoff.
+ await query(af,manualSql,manualArgs(604));
+ await af.query("select sms_record_suppression($1,$2,'stop','manual-after-prepare')",[org,manualPhone]);
+ await rejects(af,'select sms_start_dispatch($1,$2)',[org,manualKey(604)],/suppressed/);
+ await rejects(af,manualSql,manualArgs(605),/suppressed/);
+ await rejects(af,manualSql,manualArgs(606,{phone:info.phone}),/suppressed/);
+ await query(af,manualSql,manualArgs(607,{phone:'+19095559989'}));
+ await af.query("select sms_record_suppression($1,$2,'provider_block','manual-provider-reject')",[org,'+19095559989']);
+ await rejects(af,'select sms_start_dispatch($1,$2)',[org,manualKey(607)],/suppressed/);
+ await query(af,manualSql,manualArgs(608,{phone:'+19095559988'}));
+ await af.query("insert into dnc_list values($1,'(909) 555-9988')",[org]);
+ await rejects(af,'select sms_start_dispatch($1,$2)',[org,manualKey(608)],/suppressed/);
+ await rejects(af,manualSql,manualArgs(609,{phone:'+19095559988'}),/suppressed/);
+ await query(af,manualSql,manualArgs(610,{phone:'+19095559987'}));
+ await af.query('select sms_start_dispatch($1,$2)',[org,manualKey(610)]);
+ await af.query("select sms_finish_dispatch($1,$2,'uncertain',null,null,'timeout')",[org,manualKey(610)]);
+ ok(!(await query(af,'select sms_start_dispatch($1,$2) as started',[org,manualKey(610)]))[0].started,'manual uncertain cannot retry');
+ await query(af,manualSql,manualArgs(611,{phone:'+19095559986',from:'+19095550999'}));
+ await rejects(af,'select sms_start_dispatch($1,$2)',[org,manualKey(611)],/suppressed_or_paused/);
+ await query(af,manualSql,manualArgs(612,{phone:'+19095559985'}));
+ await af.exec('update sms_agency_policies set send_enabled=false');
+ await rejects(af,'select sms_start_dispatch($1,$2)',[org,manualKey(612)],/suppressed_or_paused/);
+ await rejects(af,manualSql,manualArgs(613,{phone:'+19095559984'}),/paused/);
+ await af.exec('update sms_agency_policies set send_enabled=true');
  await af.exec('reset role');await uv.exec('reset role');
  ok((await query(af,"select not has_function_privilege('service_role','private.is_dnc_phone(uuid,text)','EXECUTE') as ok"))[0].ok,'private DNC ACL stays closed');
  if(af.url){
@@ -143,6 +196,9 @@ try {
   try {
    const results=await Promise.all([x,y].map(c=>c.begin(async tx=>{await tx.unsafe('set local role service_role');return (await tx`select sms_start_dispatch(${org},'contended') as started`)[0].started;})));
    assert.deepEqual(results.sort(),[false,true]);checks++;
+   await query(af,manualSql,manualArgs(614,{phone:'+19095559983'}));
+   const manualResults=await Promise.all([x,y].map(c=>c.begin(async tx=>{await tx.unsafe('set local role service_role');return (await tx`select sms_start_dispatch(${org},${manualKey(614)}) as started`)[0].started;})));
+   assert.deepEqual(manualResults.sort(),[false,true]);checks++;
   } finally {await x.end();await y.end();}
  }
  console.log(`SMS_SQL_OK ${checks} assertions: real UV intake -> outbox -> AF enrollment -> confirmation -> dispatch -> STOP, isolation, evidence, expiry and receipt guards`);

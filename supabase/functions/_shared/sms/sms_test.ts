@@ -128,6 +128,7 @@ function fixture() {
       status: "registered",
       messaging_service_sid: sid("MG"),
     }],
+    profiles: [{ id: profile, organization_id: org, status: "Active" }],
   };
   let receipt: any = null, blocked = false, posts = 0, mode = "ok", checks = 0;
   const db = {
@@ -179,6 +180,12 @@ function fixture() {
           state: "prepared",
           organization_id: org,
           request_key: args.p_key,
+          purpose: args.p_purpose,
+          evidence_ids: args.p_evidence,
+          actor_id: args.p_actor,
+          contact_id: args.p_contact,
+          contact_type: args.p_type,
+          confirmation_id: args.p_confirmation,
         };
         return { data: structuredClone(receipt), error: null };
       }
@@ -217,6 +224,7 @@ function fixture() {
     const url = String(input);
     if (url.includes("agentflow-consent")) {
       checks++;
+      if (mode === "consent-unavailable") throw Error("UV unavailable");
       const b = JSON.parse(String(init?.body));
       if (mode === "stop-race" && checks === 2) blocked = true;
       return Response.json({
@@ -253,6 +261,7 @@ function fixture() {
       mode = v;
     },
     posts: () => posts,
+    checks: () => checks,
     receipt: () => receipt,
     blocked: () => blocked,
   };
@@ -314,6 +323,122 @@ Deno.test("independent enforcement: missing registration or disabled A2P cannot 
   f.rows.sms_agency_policies = [];
   assert.equal(await dispatch(f.db, input, f.transport), null);
 });
+
+const manualInput = {
+  ...input,
+  manual: true,
+  key: `manual:${profile}:${id(90)}`,
+  actor: profile,
+  contactId: id(6),
+  contactType: "lead",
+  purpose: undefined,
+  verifyRecipient: async () => {},
+};
+for (const mode of ["no-consent", "consent-unavailable"]) {
+  Deno.test(`manual dispatch works with ${mode}, records no grant and sends once`, async () => {
+    const f = fixture(), original = globalThis.fetch;
+    f.mode(mode);
+    globalThis.fetch = f.transport;
+    let verified = 0;
+    const request = {
+      ...manualInput,
+      verifyRecipient: async () => {
+        verified++;
+      },
+    };
+    try {
+      assert.ok(await dispatch(f.db, request, f.transport));
+      assert.equal(
+        (await dispatch(f.db, request, f.transport))?.replayed,
+        true,
+      );
+      assert.equal(f.posts(), 1);
+      assert.equal(f.checks(), 0);
+      assert.equal(verified, 1);
+      assert.equal(f.receipt().purpose, "manual");
+      assert.deepEqual(f.receipt().evidence_ids, []);
+      assert.equal(f.receipt().confirmation_id, null);
+      assert.equal(f.receipt().actor_id, profile);
+      assert.equal(f.receipt().contact_id, id(6));
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+}
+Deno.test("manual mode requires actor, contact, actor-bound intent and recipient recheck", async () => {
+  const f = fixture();
+  for (
+    const patch of [
+      { actor: undefined },
+      { actor: "bad" },
+      { contactId: undefined },
+      { contactType: "other" },
+      { key: `manual:${id(77)}:${id(90)}` },
+      { key: `manual:${profile}:workflow` },
+      { verifyRecipient: undefined },
+      {
+        confirmation: {
+          id: id(10),
+          purposes: ["informational"],
+          evidence: [id(5)],
+        },
+      },
+      { manual: false, purpose: "manual" },
+    ]
+  ) {
+    await assert.rejects(() =>
+      dispatch(f.db, { ...manualInput, ...patch }, f.transport)
+    );
+  }
+  assert.equal(f.posts(), 0);
+  assert.equal(f.checks(), 0);
+});
+Deno.test("manual dispatch retains STOP at final handoff and active actor checks", async () => {
+  const f = fixture(), original = globalThis.fetch;
+  globalThis.fetch = f.transport;
+  try {
+    f.rows.profiles[0].status = "Inactive";
+    await assert.rejects(
+      () => dispatch(f.db, manualInput, f.transport),
+      /account cannot send/,
+    );
+    f.rows.profiles[0].status = "Active";
+    await assert.rejects(() =>
+      dispatch(f.db, {
+        ...manualInput,
+        verifyRecipient: async () => {
+          await recordInboundStop(f.db, org, {
+            Body: "STOP",
+            From: input.to,
+            MessageSid: sid("SM"),
+          });
+        },
+      }, f.transport)
+    );
+    assert.equal(f.posts(), 0);
+    assert.ok(f.blocked());
+    assert.equal(f.checks(), 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+for (const mode of ["timeout", "21610", "persist-fail"]) {
+  Deno.test(`manual dispatch ${mode} preserves suppression or uncertain receipt without retry`, async () => {
+    const f = fixture(), original = globalThis.fetch;
+    f.mode(mode);
+    globalThis.fetch = f.transport;
+    try {
+      await assert.rejects(() => dispatch(f.db, manualInput, f.transport));
+      await assert.rejects(() => dispatch(f.db, manualInput, f.transport));
+      assert.equal(f.posts(), 1);
+      assert.equal(f.checks(), 0);
+      if (mode === "21610") assert.ok(f.blocked());
+      else assert.equal(f.receipt().state, "uncertain");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+}
 Deno.test("wrong sender, purpose, agency and consent response fail closed", async () => {
   const f = fixture();
   await assert.rejects(() =>

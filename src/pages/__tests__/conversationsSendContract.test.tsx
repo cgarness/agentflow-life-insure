@@ -1,4 +1,3 @@
-vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * A failed send must not destroy the message the user typed.
  *
@@ -37,6 +36,7 @@ const sendState = vi.hoisted(() => ({
   /** Result body of the twilio-sms fetch. */
   smsResult: { success: true } as Record<string, unknown>,
   smsThrows: null as string | null,
+  smsRequests: [] as Record<string, unknown>[],
   /** Contacts as the sidebar reports them. */
   contacts: [] as Record<string, unknown>[],
   /** Contact ids whose thread load hangs until released. */
@@ -178,6 +178,7 @@ beforeEach(() => {
   sendState.emailThrows = null;
   sendState.smsResult = { success: true };
   sendState.smsThrows = null;
+  sendState.smsRequests = [];
   sendState.contacts = [convo(CONTACT_A, "Alpha")];
   sendState.threadDefer = new Set();
   sendState.threadPending = [];
@@ -190,8 +191,9 @@ beforeEach(() => {
   if (!(Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView) {
     (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
   }
-  vi.stubGlobal("fetch", () => {
+  vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
     sendState.credentialReads.push("twilio-sms");
+    sendState.smsRequests.push(JSON.parse(String(init.body)));
     if (sendState.smsThrows) return Promise.reject(new Error(sendState.smsThrows));
     return Promise.resolve({ json: () => Promise.resolve(sendState.smsResult) } as Response);
   });
@@ -246,16 +248,6 @@ describe("a failed SMS send keeps the draft", () => {
 
     expect(composer().value).toBe(DRAFT);
     expect(toastState.errors.join(" ")).toMatch(/no phone number/i);
-  });
-
-  it("no caller ID selected", async () => {
-    sendState.callerNumber = null;
-    await openThread();
-    await typeSms(DRAFT);
-    await clickSend();
-
-    expect(composer().value).toBe(DRAFT);
-    expect(toastState.errors.join(" ")).toMatch(/caller id/i);
   });
 
   it("the provider reports failure", async () => {
@@ -482,6 +474,57 @@ describe("View As is READ-ONLY in Conversations", () => {
     expect(sent, "an impersonated send reported success").toBe(false);
     expect(sendState.credentialReads, "a credential was read before the refusal").toEqual([]);
     expect(toastState.errors.join(" ")).toMatch(/read-only/i);
+  });
+});
+
+describe("manual SMS request contract", () => {
+  it("sends without website enrollment, a purpose, or a selected voice number", async () => {
+    sendState.callerNumber = null;
+    await openThread();
+    expect(screen.queryByLabelText("Text purpose")).toBeNull();
+    expect(screen.queryByText(/Informational:|Marketing:|Choose a text purpose|Refresh/)).toBeNull();
+    await typeSms(DRAFT);
+    await clickSend();
+    expect(composer().value).toBe("");
+    expect(sendState.smsRequests).toHaveLength(1);
+    expect(sendState.smsRequests[0]).toMatchObject({ body: DRAFT, contact_id: CONTACT_A, contact_type: "lead", actor_id: AGENT, organization_id: ORG, view_as: false });
+    expect(sendState.smsRequests[0]).not.toHaveProperty("purpose");
+    expect(sendState.smsRequests[0]).not.toHaveProperty("from");
+    expect(sendState.smsRequests[0].request_id).toEqual(expect.any(String));
+  });
+
+  it("passes the selected voice number as a sender preference without changing it", async () => {
+    await openThread();
+    await typeSms(DRAFT);
+    await clickSend();
+    expect(sendState.smsRequests[0].from).toBe("+15550001111");
+    expect(sendState.callerNumber).toBe("+15550001111");
+  });
+
+  it("keeps the same request ID and draft when the server refuses a suppressed recipient", async () => {
+    sendState.smsResult = { success: false, error: "Recipient opted out" };
+    await openThread();
+    await typeSms(DRAFT);
+    await clickSend();
+    await clickSend();
+    expect(composer().value).toBe(DRAFT);
+    expect(sendState.smsRequests).toHaveLength(2);
+    expect(sendState.smsRequests[1].request_id).toBe(sendState.smsRequests[0].request_id);
+    expect(toastState.errors).toEqual(["Recipient opted out", "Recipient opted out"]);
+  });
+
+  it("rejects a second send while the first request is still in flight", async () => {
+    let finish!: (response: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    await openThread();
+    await typeSms(DRAFT);
+    let first!: Promise<boolean>;
+    await act(async () => { first = sendState.lastOnSend!(DRAFT, "sms"); });
+    const second = await act(async () => sendState.lastOnSend!(DRAFT, "sms"));
+    expect(second).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await act(async () => { finish({ json: async () => ({ success: true }) } as Response); await first; });
   });
 });
 

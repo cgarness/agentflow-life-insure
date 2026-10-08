@@ -1,8 +1,5 @@
 import { useScopedDraft } from "@/hooks/useScopedDraft";
-import { SmsIntent, type SmsPurpose } from "@/lib/sms-intent";
-import { useSmsConsentStatus } from "@/hooks/useSmsConsentStatus";
-import { smsBlockReason } from "@/lib/sms-readiness";
-import { SmsReadiness } from "@/components/messaging/SmsReadiness";
+import { SmsIntent } from "@/lib/sms-intent";
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { X, Phone, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, ChevronDown, Save, Clipboard, AlertTriangle, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
@@ -260,17 +257,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [dispositionColors, setDispositionColors] = useState<Record<string, string>>({});
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useScopedDraft(fieldScope);
-  const [smsSelection, setSmsSelection] = useState<{scope:string;purpose:SmsPurpose}|null>(null);
-  const smsPurpose = smsSelection?.scope === fieldScope ? smsSelection.purpose : "";
   const smsIntent = useRef(new SmsIntent());
-  const smsStatus = useSmsConsentStatus(contact?.id, type);
-  const smsBlocked = smsBlockReason(smsStatus.data, smsPurpose, !!smsStatus.error);
 
   const [emailSubject, setEmailSubject] = useScopedDraft(fieldScope);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
   const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
   const [messageSending, setMessageSending] = useState(false);
+  const messageSendingRef = useRef(false);
   const latestContactIdRef = useRef<string | null>(null);
   latestContactIdRef.current = contact?.id ?? null;
 
@@ -723,7 +717,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   };
 
   const handleSendMessage = async () => {
-    if (!composeText.trim() || messageSending || isImpersonating || (composeTab === "SMS" && smsBlocked)) return;
+    if (!composeText.trim() || messageSendingRef.current || isImpersonating) return;
+    messageSendingRef.current = true;
     setMessageSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -768,22 +763,17 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           setMessageSending(false);
           return;
         }
-        if (!fromNumber.trim()) {
-          toast.error("Select an agency number to send from.");
-          setMessageSending(false);
-          return;
-        }
         const base = import.meta.env.VITE_SUPABASE_URL as string;
         const smsBody = composeText.trim();
-        const smsFrom = toE164Plus(fromNumber);
+        const smsFrom = fromNumber.trim() ? toE164Plus(fromNumber) : undefined;
         const smsTo = toE164Plus(contact.phone);
-        const intentPayload = [session.user.id,organizationId,type,contact.id,smsTo,smsFrom,smsBody,smsPurpose];
+        const intentPayload = [session.user.id,organizationId,type,contact.id,smsTo,smsFrom,smsBody];
         const sendingScope = fieldScope;
         const res = await fetch(`${base}/functions/v1/twilio-sms`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({
-            request_id: smsIntent.current.id(intentPayload), purpose:smsPurpose, actor_id:session.user.id, organization_id:organizationId, view_as:isImpersonating,
+            request_id: smsIntent.current.id(intentPayload), actor_id:session.user.id, organization_id:organizationId, view_as:isImpersonating,
             to: smsTo,
             from: smsFrom,
             body: smsBody,
@@ -801,7 +791,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         // never an invented delivery state (R2).
         history.refresh();
       }
-    } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { setMessageSending(false); }
+    } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { messageSendingRef.current = false; setMessageSending(false); }
   };
 
   const inputCls = "w-full h-8 px-2.5 rounded-md bg-background text-xs text-foreground border border-border focus:ring-2 focus:ring-ring focus:outline-none transition-all duration-150";
@@ -1144,9 +1134,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             />
 
             <MessageComposePanel
-              smsPurpose={smsPurpose}
-              onSmsPurposeChange={purpose=>setSmsSelection({scope:fieldScope,purpose})}
-              smsStatus={<SmsReadiness data={smsStatus.data} reason={smsBlocked} onRefresh={()=>void smsStatus.refetch()} />}
               className="mt-3 shrink-0"
               channel={composeTab === "SMS" ? "sms" : "email"}
               onChannelChange={handleComposeChannelChange}
@@ -1157,9 +1144,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onOpenTemplates={handleOpenComposeTemplates}
               onSendMessage={handleSendMessage}
               sendDisabled={
-                isImpersonating || (composeTab === "SMS" && !!smsBlocked) || !composeText.trim() ||
+                isImpersonating || !composeText.trim() ||
                 messageSending ||
-                (composeTab === "SMS" && (!contact.phone || !fromNumber.trim())) ||
+                (composeTab === "SMS" && !contact.phone) ||
                 (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))
               }
               sendLoading={messageSending}
@@ -1357,8 +1344,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         onOpenChange={setShowTemplatesModal}
         channel={composeTab === "Email" ? "email" : "sms"}
         mergeInput={messageTemplateMergeInput}
-        onApply={({ body, subject, purpose }) => {
-          setSmsSelection({scope:fieldScope,purpose:purpose ?? ""});
+        onApply={({ body, subject }) => {
           setComposeText(body);
           if (subject !== null) setEmailSubject(subject);
         }}
