@@ -1,3 +1,17 @@
+## 2026-10-08 UTC — SHIPPED: Super Admin live master Twilio balance
+
+Chris approved the production release sequence. PR #426 merged to `main` as `158601c90e748d901197a103f4b570c367b454cd` after all five fresh-head gates passed: Twilio account balance, Dialer DNC integrity, Reporting integrity, A2P registration, and Reports frontend exact candidate-vs-base verification.
+
+**Backend production:** `twilio-account-balance` Edge Function v1 is ACTIVE on `jncvvsvckxhqgqvkppmj`, `verify_jwt=false`, bundle SHA-256 `1d690adccb1715f8378f65e4e76737098c5b8386ba4f57b513230be45ff68c28`. Deployment readback matched the reviewed `index.ts` and `logic.ts` byte-for-byte. No migration, RLS, schema, production data, subaccount, Dialer/Voice, queue, disposition or telemetry mutation.
+
+**Frontend production:** canonical Vercel project `agentflow` deployment `dpl_8VqL5hF7xWbx3ENh7djDBitBHDtP` is READY at the exact merge SHA and owns `www.fflagent.com` / `fflagent.com`. Secondary project deployment `dpl_FrbskHNduyuezuU85MBvLfWKUFRA` is also READY at the same merge. Vercel runtime-error scan found no errors in the selected post-release window.
+
+**Verification boundary:** management-plane Edge deployment/readback, CI auth/provider/zero/error tests, built-frontend secret scan and Vercel production state are verified. This tool session does not expose a reusable authenticated AgentFlow Super Admin JWT, so it does not claim a live user-authenticated provider-balance response or browser rendering without evidence. No production auth/session credentials were extracted or manufactured to force that check. A real Super Admin opening the Agencies page will naturally invoke the deployed function; subsequent logs/network can confirm the live request.
+
+No new AgentFlow invariant was introduced beyond the existing master-Twilio, Edge JWT, View-As and secret-handling rules.
+
+---
+
 ## 2026-10-08 UTC — PRODUCTION EDGE DEPLOYED; frontend release gate in progress
 
 Chris explicitly approved the production release sequence on October 7 PDT / October 8 UTC. Before deployment, production project `jncvvsvckxhqgqvkppmj` was ACTIVE_HEALTHY and had no existing `twilio-account-balance` function. Supabase public deployment/configuration guidance was rechecked; AgentFlow's reviewed `verify_jwt=false` + in-function ES256 bearer validation pattern remains intentional.
