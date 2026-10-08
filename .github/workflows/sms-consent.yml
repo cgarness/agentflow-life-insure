@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: cgarness/underwriter-verified
-          ref: 396aaff53947a181bc61a6f914cd231639b7c56c
+          ref: c1dd3c68471c01030af48073df692033be712f31
           path: paired-uv
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -62,7 +62,8 @@ jobs:
         run: bash scripts/run_dialer_dnc_tests.sh
       - name: Edge tests and type checks
         run: |
-          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" test --allow-env supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/a2p/workflow_test.ts
+          cmp supabase/functions/_shared/sms/wire.ts paired-uv/supabase/functions/_shared/sms/wire.ts
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" test --allow-env supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/sms/wire_test.ts supabase/functions/_shared/a2p/workflow_test.ts
           "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" check supabase/functions/sms-consent-events/index.ts supabase/functions/sms-consent-worker/index.ts supabase/functions/sms-consent-status/index.ts supabase/functions/twilio-sms/index.ts supabase/functions/twilio-sms-webhook/index.ts supabase/functions/workflow-executor/index.ts paired-uv/supabase/functions/agentflow-consent/index.ts paired-uv/supabase/functions/consent-event-worker/index.ts
       - name: Browser fixture
         env:

@@ -95,8 +95,15 @@ export async function verifyRequest(
   const url = new URL(req.url),
     time = req.headers.get("x-sms-time") ?? "",
     nonce = req.headers.get("x-sms-nonce") ?? "";
+  // Hosted Supabase removes /functions/v1 before invoking the Edge runtime.
+  // Both exact transport forms bind to the same public path in the HMAC below.
+  const runtimePath = expectedPath.startsWith("/functions/v1/")
+    ? expectedPath.slice("/functions/v1".length)
+    : expectedPath;
   if (
-    req.method !== "POST" || url.pathname !== expectedPath || url.search ||
+    req.method !== "POST" ||
+    (url.pathname !== expectedPath && url.pathname !== runtimePath) ||
+    url.search ||
     !/^\d{10}$/.test(time) || !UUID.test(nonce) ||
     Math.abs(now / 1000 - Number(time)) > 60
   ) {
