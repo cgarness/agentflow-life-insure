@@ -1,3 +1,19 @@
+## 2026-10-08 — Incoming forwarding release authorized; Alexa save clarified
+
+Chris confirmed Alexa found the separate forwarding save button and asked to continue at 13:39 PDT, after the reviewed fix and publication/deployment requirement were presented. This authorizes publishing and releasing the reviewed inbound bundle. No Alexa UI or account-setting change is needed.
+
+Fresh main remains `d70fc6d`; fresh inbound production remains v47 with the captured bundle fingerprint. All ten sources were compared: nine candidate files equal live exactly and only the reviewed stages module differs. Independent release review found no blocker. Publication, CI and deployment/readback are in progress; the entry below records the prior isolated-build state, not current authorization. No SQL, provider configuration or live-call test is part of the release. Actual release identifiers will be recorded after execution.
+
+## 2026-10-08 — Inbound owner forwarding fallback prepared; Alexa save investigation
+
+Chris approved the incoming-call implementation plan at 12:26 PDT and asked to inspect Alexa's inability to save forwarding first. Read-only production evidence shows no settings row, a successful empty settings GET at 12:25:08 PDT, and no forwarding write request in the inspected 24-hour log window. The form has a separate Save call forwarding control; Save Preferences does not save it. No Alexa-specific failure is confirmed without her clicked control/validation/toast. No agent settings were changed.
+
+On isolated branch `codex/inbound-forwarding-20261008`, a suppressed owner-browser wave now tries the existing guarded `advance_to_owner_mobile` transition before voicemail. SQL continues to enforce the toggle, configured number, Break/DND/busy exclusions, parent state and atomic reservation/missed classification. Group routing and outbound behavior are unchanged. Failure telemetry distinguishes `wave_suppressed` from real Dial callbacks; unknown-commit handling retains the prior failure order.
+
+Reconciled the current v47 voicemail callback repair into repository planner/stages before modifying routing. Nine of ten packaged files remain byte-identical to live; only stages changes relative to production. No SQL/migration/RLS, UI, provider setting, historical data or production deployment changed. Publication/release approval is still required.
+
+Files: `supabase/functions/twilio-voice-inbound/{stages,planner}.ts`, `src/lib/__tests__/{inboundForwardingFallback,inboundStages}.test.ts`, `AGENT_RULES.md`, this log and `docs/plans/2026-10-08-inbound-forwarding/`. Verification: 267 inbound tests, 21 existing forwarding/profile tests, 71 independently rerun focused assertions, modified Edge module type checks, scoped lint/diff and root TypeScript passed. Meaningful application TypeScript comparison: 85 baseline/85 candidate/zero new diagnostics. No hosted save or real call/audio verification is claimed. See the verification record for exact evidence, bundle hashes, Alexa's remaining diagnostic question and proposed release steps.
+
 ## 2026-10-08 — Owner-requested manual SMS simplification
 
 Chris requested reverting the recent restrictive SMS experience and restoring normal production manual texting. The screenshot identified the purpose dropdown and informational/marketing permission/status paragraph. Current production is main `7e5caef2`; the unmerged START drafts never reached production. Reverting the sender activation alone would break texting, so this forward change removes the manual consent dependency while preserving the five approved senders and existing history.

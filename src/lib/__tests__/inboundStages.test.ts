@@ -124,7 +124,7 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     });
     const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isVoicemail(r.twiml)).toBe(true);
-    expect(r.twiml).toContain(`mailbox=agent%3A${A1}`);
+    expect(r.twiml).toContain(`mailbox=agent&amp;mailbox_agent_id=${A1}`);
     expect(r.twiml).toContain(`stage=voicemail_done`);
     expect(calls.map((c) => c.name)).toEqual(["plan_inbound_route", "converge_inbound_notifications"]);
   });
@@ -168,13 +168,18 @@ describe("S1 — initial inbound: the planner's persisted stage decides the TwiM
     expect(calls.find((c) => c.name === "mark_inbound_missed")?.args).toMatchObject({ p_reason: "no_answer", p_recipient_ids: [A1], p_for_agent_id: A1 });
   });
 
-  it("R14: routed persistence failure suppresses the wave — voicemail, stage moved, missed marked for the reserved agents", async () => {
-    const { deps, calls } = makeDeps({ plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: attempt() } }) }, { persist: false });
+  it("R14: routed persistence failure suppresses the wave — guarded mobile refusal selects owner voicemail", async () => {
+    const { deps, calls } = makeDeps({
+      plan_inbound_route: () => ({ data: { created: true, stage: "owner_browser", attempt: attempt() } }),
+      advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason: "no_mobile", stage: "owner_voicemail", owner: A1 } }),
+    }, { persist: false });
     const r = await handleInitialV2(deps, { callRowId: CALL, orgId: ORG, parentCallSid: PARENT_SID, ownerAgentId: A1, ownerSource: "contact", groupIds: [], fromNumber: "" });
     expect(isClientDial(r.twiml)).toBe(false);
     expect(isVoicemail(r.twiml)).toBe(true);
-    expect(calls.find((c) => c.name === "advance_inbound_route_stage")?.args).toMatchObject({ p_from_stage: "owner_browser", p_to_stage: "owner_voicemail" });
-    expect(calls.find((c) => c.name === "mark_inbound_missed")?.args).toMatchObject({ p_recipient_ids: [A1] });
+    expect(calls.find((c) => c.name === "advance_to_owner_mobile")?.args).toEqual({ p_attempt_id: ATT, p_org_id: ORG, p_call_row_id: CALL });
+    // The guarded RPC owns the refusal stage and missed mark; Edge must not overwrite them.
+    expect(calls.map((c) => c.name)).not.toContain("advance_inbound_route_stage");
+    expect(calls.map((c) => c.name)).not.toContain("mark_inbound_missed");
   });
 });
 
@@ -191,7 +196,7 @@ describe("S2 — owner_browser return: forwarding ONLY on the database's atomic 
       const { deps } = makeDeps({ advance_to_owner_mobile: () => ({ data: { updated: true, forward: false, reason, stage: "owner_voicemail", owner: A1 } }) });
       const r = await handleOwnerBrowserReturn(deps, ctx, { DialCallStatus: "no-answer" });
       expect(isVoicemail(r.twiml)).toBe(true);
-      expect(r.twiml).toContain(`mailbox=agent%3A${A1}`);
+      expect(r.twiml).toContain(`mailbox=agent&amp;mailbox_agent_id=${A1}`);
       expect(isMobileDial(r.twiml)).toBe(false);
     }
   });

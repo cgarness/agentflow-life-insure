@@ -1,0 +1,70 @@
+{
+  "project_id": "jncvvsvckxhqgqvkppmj",
+  "function": "twilio-voice-inbound",
+  "live_version": 47,
+  "verify_jwt": false,
+  "live_ezbr_sha256": "996586e697d143b2285319c722a5c6d8a817896224bf547609dee17092d6dac9",
+  "status": "isolated candidate, not deployed",
+  "files": [
+    {
+      "name": "functions/_shared/notification-recipients.ts",
+      "live_sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726",
+      "candidate_sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726",
+      "matches_live": true
+    },
+    {
+      "name": "functions/_shared/notifications.ts",
+      "live_sha256": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c",
+      "candidate_sha256": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/failure.ts",
+      "live_sha256": "7555787d8fa86bdfce997851951ab67fbdcdafe3e5109fc8156dcfb1ae3aae40",
+      "candidate_sha256": "7555787d8fa86bdfce997851951ab67fbdcdafe3e5109fc8156dcfb1ae3aae40",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/index.ts",
+      "live_sha256": "a7fe08178a2b7ca995af09d94d702f6d89ab0bb79d7298e605d1cf767b4bbcf1",
+      "candidate_sha256": "a7fe08178a2b7ca995af09d94d702f6d89ab0bb79d7298e605d1cf767b4bbcf1",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/planner.ts",
+      "live_sha256": "9659164e7f0cdb618c88fb9a539847fc9843b9889a9d4c4fb3ca48d213ac22ee",
+      "candidate_sha256": "9659164e7f0cdb618c88fb9a539847fc9843b9889a9d4c4fb3ca48d213ac22ee",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/request.ts",
+      "live_sha256": "3df94b4567fe28b69fcbec23f48bc28a866a9313e393179a845c4d88eb98fba1",
+      "candidate_sha256": "3df94b4567fe28b69fcbec23f48bc28a866a9313e393179a845c4d88eb98fba1",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/routing.ts",
+      "live_sha256": "da1724c407bcaef17bd52ae29f26aec2d17e8a175d88cebe4efb0a83cd207627",
+      "candidate_sha256": "da1724c407bcaef17bd52ae29f26aec2d17e8a175d88cebe4efb0a83cd207627",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/settings.ts",
+      "live_sha256": "a1b47ad960cea5193555d2aaf5eb2220cf7bd532f3ad39f73bc1afe7e619fdab",
+      "candidate_sha256": "a1b47ad960cea5193555d2aaf5eb2220cf7bd532f3ad39f73bc1afe7e619fdab",
+      "matches_live": true
+    },
+    {
+      "name": "functions/twilio-voice-inbound/stages.ts",
+      "live_sha256": "8f4ab0f3b07cc1a3701c05d985f388bfd80b721b28acb6d662cea5eaaf72ae58",
+      "candidate_sha256": "449ca002062fe279c48c621fb9e92036fced43f047be9f96fe57adae25c4a419",
+      "matches_live": false
+    },
+    {
+      "name": "functions/twilio-voice-inbound/twiml.ts",
+      "live_sha256": "87afd997166bb48d23a1b2113082014bb3b0b537305f0a567430a5d21dca4f80",
+      "candidate_sha256": "87afd997166bb48d23a1b2113082014bb3b0b537305f0a567430a5d21dca4f80",
+      "matches_live": true
+    }
+  ]
+}

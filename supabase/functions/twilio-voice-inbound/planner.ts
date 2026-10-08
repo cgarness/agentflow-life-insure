@@ -50,7 +50,10 @@ export interface AttemptView {
   terminal: boolean;
 }
 
-/** Mailbox identifier carried in the SIGNED recording callback: 'agent:<uuid>' or 'group'. */
+/**
+ * Internal mailbox identifier: 'agent:<uuid>' or 'group'. It is never placed in a URL as-is — the signed
+ * recording callback carries it through `voicemailCallbackQuery` (the ':' would be percent-encoded).
+ */
 export function mailboxForAttempt(a: Pick<AttemptView, "mode" | "owner_agent_id" | "voicemail_kind" | "voicemail_agent_id">): string {
   const agent = (a.voicemail_agent_id || (a.mode === "owner" ? a.owner_agent_id : null) || "").trim();
   if (a.voicemail_kind === "group") return "group";
@@ -62,6 +65,26 @@ export function parseMailbox(raw: string | null | undefined): { kind: "agent"; a
   if (v === "group") return { kind: "group" };
   const m = /^agent:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(v);
   return m ? { kind: "agent", agentId: m[1].toLowerCase() } : null;
+}
+
+/**
+ * Mailbox fields of the SIGNED voicemail recording callback (agent-voicemail callback repair, 2026-09-30).
+ * Every key and value is [A-Za-z0-9._-], so no serializer percent-encodes it and no canonicalization of the
+ * URL (by Twilio or the platform) can change the signed bytes. The old `mailbox=agent:<uuid>` value became
+ * `agent%3A<uuid>` and every agent-mailbox callback failed signature validation while group callbacks passed.
+ *   agent:<uuid> → source=voicemail&mailbox=agent&mailbox_agent_id=<uuid>
+ *   group        → source=voicemail&mailbox=group   (unchanged)
+ * An unparseable mailbox (unreachable: agent ids come from UUID columns) yields `mailbox=agent` WITHOUT an
+ * id, which twilio-recording-status rejects fail-closed. It never falls back to the group mailbox, which
+ * would expose an agent's voicemail to group recipients.
+ */
+export function voicemailCallbackQuery(mailbox: string): { query: Record<string, string>; valid: boolean } {
+  const parsed = parseMailbox(mailbox);
+  if (parsed?.kind === "group") return { query: { source: "voicemail", mailbox: "group" }, valid: true };
+  if (parsed?.kind === "agent") {
+    return { query: { source: "voicemail", mailbox: "agent", mailbox_agent_id: parsed.agentId }, valid: true };
+  }
+  return { query: { source: "voicemail", mailbox: "agent" }, valid: false };
 }
 
 export type NextTwiml =
