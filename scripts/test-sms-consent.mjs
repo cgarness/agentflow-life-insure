@@ -27,7 +27,17 @@ async function rejects(db,sql,args=[],pattern){await assert.rejects(()=>db.query
 try {
  await uv.exec(await readFile(`${uvRoot}/supabase/tests/harness_bootstrap.sql`,'utf8'));
  const productionMapping='20261008022332_cg_financial_consent_bridge_prepare.sql';
- for(const f of (await readdir(`${uvRoot}/supabase/migrations`)).filter(x=>x.endsWith('.sql')&&x!==productionMapping).sort()) await uv.exec(await readFile(`${uvRoot}/supabase/migrations/${f}`,'utf8'));
+ // Hosted-only operations depend on real identity, Vault and Cron. Their guarded
+ // production readbacks are in activation.md; every schema/ACL migration runs here.
+ const productionOperations=new Set([productionMapping,
+  '20261008033052_cg_financial_consent_recovery.sql',
+  '20261008035005_cg_financial_consent_activate.sql']);
+ for(const f of (await readdir(`${uvRoot}/supabase/migrations`)).filter(x=>x.endsWith('.sql')&&!productionOperations.has(x)).sort()) {
+  if(f==='20261008034820_consent_bridge_normalizer_permission.sql') {
+   ok(!(await query(uv,"select has_function_privilege('service_role','public.normalize_us_phone_e164(text)','execute') as allowed"))[0].allowed,'production normalizer privilege defect reproduced before fix');
+  }
+  await uv.exec(await readFile(`${uvRoot}/supabase/migrations/${f}`,'utf8'));
+ }
  // All schema/consent migrations run. The production-only identity mapping must
  // reject this empty synthetic database instead of enrolling an unrelated profile.
  const mappingSql=await readFile(`${uvRoot}/supabase/migrations/${productionMapping}`,'utf8');
@@ -61,7 +71,10 @@ try {
  await uv.exec('set role service_role');await af.exec('set role service_role');
  const submit=async(n,info,market,requestKey=n+100)=>{
   const phone=`+1909555${String(n).padStart(4,'0')}`;
+  // The real website intake runs as anon; only the subsequent bridge is service_role.
+  await uv.exec('set role anon');
   await uv.query("select submit_public_intake($1,'quote','/sms-opt-in','cg-financial','christopher-garness','Synthetic','Consent','synthetic@example.test',$2,'California',$3,$4,'2026-10-05-policy-clarifications','')",[id(requestKey),phone,info,market]);
+  await uv.exec('set role service_role');
   const events=await query(uv,'select claim_consent_bridge_events() as e');const e=events.find(x=>x.e.phone===phone)?.e;assert.ok(e);
   await af.query('select sms_ingest_consent($1,$2,$3,$4,$5::jsonb,$6)',[org,agent,e.request_id,phone,JSON.stringify(e.events),'hash-'+n]);
   // Complete outbox checkpoint to make claim recovery deterministic.

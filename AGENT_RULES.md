@@ -604,9 +604,11 @@ This branch implementation is not deployment evidence. The isolated build has no
 
 Contact field identity release update: Chris accepted the hosted preview and approved release at 14:35 PDT. PR #410 shipped as `fbce826377dc993e574934ef713d151eaa01d9c6` after all frontend/DNC/A2P gates passed; both production targets and served entry assets are verified. This supersedes the branch-only release status above, not the field-preservation/permission invariants. Automated desktop/narrow verification remains unclaimed; owner preview acceptance is recorded separately. No database/definition cleanup or backend change was performed. See §24 and WORK_LOG for exact evidence.
 
-### CG Financial SMS consent integration (isolated branch, not deployed)
+### CG Financial SMS consent integration
 
 An enrolled agency's independent SMS enforcement may never fall back to legacy sending, including if A2P registration actions are disabled. SMS requires explicit purpose, current UV eligibility, selected registered sender and final agency DNC/local-suppression checks. STOP/provider suppression overrides historical grants; HELP/START does not clear it. Preserve purpose-specific evidence and dispatch receipts. Never auto-retry an uncertain provider outcome or replay old enrollment confirmations across activation. UV service-role credentials remain in UV. This invariant's migrations/functions are unapplied until an approved coordinated release; see `docs/plans/2026-10-05-sms-consent/release.md`.
+
+October 8 activation supersedes that historical branch status: the approved production release is live with exactly five registered CG Financial senders and a shared `2026-10-08T03:52:00Z` watermark. The signed bridge accepts only its exact public path or Supabase's exact runtime path with `/functions/v1` removed; its HMAC always binds the canonical public path. Never accept arbitrary suffixes or omit path/signature/replay checks. UV's invoker RPC needs explicit server-only EXECUTE on its phone normalizer. SQL fixtures must reproduce production function ACLs rather than implicitly grant every function to service_role. See `docs/plans/2026-10-05-sms-consent/activation.md` for live evidence and uncompleted checks.
 
 ## Reports personal layout invariant — October 6, 2026
 
