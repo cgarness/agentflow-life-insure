@@ -46,9 +46,10 @@ try {
  await uv.exec(await readFile(`${uvRoot}/supabase/tests/integration_seed.sql`,'utf8'));
  if (!process.env.SMS_NATIVE_PG) await af.exec("create role anon;create role authenticated;create role service_role bypassrls;");
  await af.exec(`create schema private;
- create table organizations(id uuid primary key);create table phone_numbers(id uuid primary key,organization_id uuid,phone_number text,status text);
+ create table organizations(id uuid primary key);create table phone_numbers(id uuid primary key,organization_id uuid,phone_number text,status text,assignment_type text default 'agency');
  create table message_templates(id uuid primary key);create table messages(id uuid primary key default gen_random_uuid(),organization_id uuid,direction text,body text,from_number text,to_number text,status text,provider_message_id text,created_by uuid,sent_at timestamptz,contact_id uuid,contact_type text,lead_id uuid);
  create table dnc_list(organization_id uuid,phone_number text);
+ create table workflow_executions(id uuid primary key,organization_id uuid,created_at timestamptz);
  grant usage on schema public,private to service_role;grant all on all tables in schema public to service_role;
  alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
  alter default privileges in schema public grant all on functions to anon,authenticated,service_role;`);
@@ -59,13 +60,14 @@ try {
  await af.exec('revoke all on function private.dnc_phone_lock_key(uuid,text),private.is_dnc_phone(uuid,text) from public,anon,authenticated,service_role;grant execute on function private.phone_digits_e164ish(text) to service_role;');
  const before=await query(af,"select proname,prosrc,proacl::text from pg_proc where pronamespace='private'::regnamespace order by proname");
  await af.exec(await readFile('supabase/migrations/20261005194649_sms_consent_dispatch.sql','utf8'));
+ await af.exec(await readFile('supabase/migrations/20261008044755_sms_start_reenrollment.sql','utf8'));
  const after=await query(af,"select proname,prosrc,proacl::text from pg_proc where pronamespace='private'::regnamespace and proname in ('dnc_phone_lock_key','is_dnc_phone','phone_digits_e164ish') order by proname");
  assert.deepEqual(after,before);checks++;
  for(const db of [af,uv]) {
   const names=db===af?['sms_agency_policies','sms_suppressions','sms_suppression_events','sms_consent_inbox','sms_enrollments','sms_confirmation_jobs','sms_dispatches','sms_bridge_nonces']:['agentflow_consent_links','consent_bridge_nonces','consent_bridge_outbox'];
   for(const t of names) ok((await query(db,"select relrowsecurity and not has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') and not has_table_privilege('authenticated',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') as ok from pg_class where oid=$1::regclass",[`public.${t}`]))[0].ok,`RLS/ACL ${t}`);
  }
- await af.query('insert into organizations values($1)',[org]);await af.query('insert into phone_numbers values($1,$2,$3,$4)',[sender,org,'+19095550100','active']);
+ await af.query('insert into organizations values($1)',[org]);await af.query('insert into phone_numbers(id,organization_id,phone_number,status) values($1,$2,$3,$4)',[sender,org,'+19095550100','active']);
  await af.query("insert into sms_agency_policies(organization_id,enforced,send_enabled,uv_profile_id,uv_project,sender_name,selected_phone_ids,active_from) values($1,true,true,$2,'jzdzeevjpootbeuniygx','CG Financial',array[$3::uuid],now()-interval '1 minute')",[org,agent,sender]);
  await uv.query("insert into agentflow_consent_links(organization_id,agent_id,agency_slug,agent_slug,sender_name,sender_agency,relay_enabled,active_from) values($1,$2,'cg-financial','christopher-garness','Christopher Garness','CG Financial',true,now()-interval '1 minute')",[org,agent]);
  await uv.exec('set role service_role');await af.exec('set role service_role');
@@ -145,5 +147,7 @@ try {
    assert.deepEqual(results.sort(),[false,true]);checks++;
   } finally {await x.end();await y.end();}
  }
- console.log(`SMS_SQL_OK ${checks} assertions: real UV intake -> outbox -> AF enrollment -> confirmation -> dispatch -> STOP, isolation, evidence, expiry and receipt guards`);
+ const {testStartLifecycle}=await import('./test-sms-start.mjs');
+ checks+=await testStartLifecycle({af,uv,org,agent,sender,query,submit,prepare,id});
+ console.log(`SMS_SQL_OK ${checks} assertions: real UV intake -> outbox -> AF enrollment -> confirmation -> dispatch -> STOP/START, isolation, evidence, expiry and receipt guards`);
 } finally {await uv.close();await af.close();}

@@ -343,7 +343,7 @@ Deno.test("wrong sender, purpose, agency and consent response fail closed", asyn
   }
   assert.equal(f.posts(), 0);
 });
-Deno.test("STOP variants and OptOutType persist for unmatched contacts; HELP/START never clear", async () => {
+Deno.test("STOP variants persist for unmatched contacts; HELP and disabled START never clear", async () => {
   for (
     const word of [
       "STOP",
