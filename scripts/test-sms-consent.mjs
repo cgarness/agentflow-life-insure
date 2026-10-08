@@ -26,7 +26,13 @@ let checks=0; const ok=(v,label)=>{assert.ok(v,label);checks++;};
 async function rejects(db,sql,args=[],pattern){await assert.rejects(()=>db.query(sql,args),pattern);checks++;}
 try {
  await uv.exec(await readFile(`${uvRoot}/supabase/tests/harness_bootstrap.sql`,'utf8'));
- for(const f of (await readdir(`${uvRoot}/supabase/migrations`)).filter(x=>x.endsWith('.sql')).sort()) await uv.exec(await readFile(`${uvRoot}/supabase/migrations/${f}`,'utf8'));
+ const productionMapping='20261008022332_cg_financial_consent_bridge_prepare.sql';
+ for(const f of (await readdir(`${uvRoot}/supabase/migrations`)).filter(x=>x.endsWith('.sql')&&x!==productionMapping).sort()) await uv.exec(await readFile(`${uvRoot}/supabase/migrations/${f}`,'utf8'));
+ // All schema/consent migrations run. The production-only identity mapping must
+ // reject this empty synthetic database instead of enrolling an unrelated profile.
+ const mappingSql=await readFile(`${uvRoot}/supabase/migrations/${productionMapping}`,'utf8');
+ await assert.rejects(()=>uv.exec(mappingSql),/query returned no rows/);checks++;
+ await uv.exec('ROLLBACK');
  await uv.exec(await readFile(`${uvRoot}/supabase/tests/integration_seed.sql`,'utf8'));
  if (!process.env.SMS_NATIVE_PG) await af.exec("create role anon;create role authenticated;create role service_role bypassrls;");
  await af.exec(`create schema private;

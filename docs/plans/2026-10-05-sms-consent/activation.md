@@ -21,3 +21,5 @@ Current access limitation: Supabase connector supports migrations/functions but 
 Account-specific provisioning SQL is retained byte-for-byte in Supabase hosted migration 20261008022519 (SHA-256 23fd9abf657277d386eade6861c31d8418bc5e5e62ea1eb9da79af704f359d91). It is not published in GitHub because repository secret protection rejects the Twilio Account SID. The reviewed schema migrations and all application source are published; no credential or account identifier is encoded to bypass this rule.
 
 At 02:36 UTC all five attachments were read back, callbacks unchanged, and the genuine signed number-registration.pending event for every selected sender was received. Event sink DG9d0ece22b1edafde710778f66b17b1e4 and subscription DF20da66efdfba81d476eb054e5c199ef7 subscribe to 15 current published compliance event schemas. Receipt of a pending event is not registration success.
+
+By 02:39 UTC Twilio emitted successful-registration events for all five senders. Hosted migration 20261008024411 processed the authenticated inbox through the existing number-event RPC; all five are registered, with zero unprocessed events. SMS remains paused and no dispatch exists.
