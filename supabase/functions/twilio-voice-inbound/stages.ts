@@ -21,6 +21,7 @@ import {
   nextForPersistedStage,
   parseDurationInt,
   phoneDigitsE164ish,
+  voicemailCallbackQuery,
 } from "./planner.ts";
 import {
   buildClientDialTwiml,
@@ -178,8 +179,15 @@ async function voicemailTwiml(deps: StageDeps, ctx: StageContext, mailbox: strin
       deps.log("[v2] agent greeting lookup failed — organization greeting used", { agentId, err: String(err) });
     }
   }
+  // Signed callback fields use only [A-Za-z0-9._-]: the agent id rides `mailbox_agent_id`, never `agent:<uuid>`.
+  const callback = voicemailCallbackQuery(mailbox);
+  if (!callback.valid) {
+    deps.log("[v2] voicemail mailbox unparseable — agent callback emitted without an id (recording-status rejects it)", {
+      callRowId: ctx.callRowId,
+    });
+  }
   const recordingUrl = deps.urls.recordingStatus(sanitizeQuery({
-    source: "voicemail", mailbox, call_row_id: ctx.callRowId, org_id: ctx.orgId, attempt_id: ctx.attemptId,
+    ...callback.query, call_row_id: ctx.callRowId, org_id: ctx.orgId, attempt_id: ctx.attemptId,
   }));
   const doneUrl = deps.urls.stage({ stage: "voicemail_done", ...ctxQuery(ctx) });
   return buildVoicemailTwiml(recordingUrl, doneUrl, greetingText, greetingUrl);
@@ -198,8 +206,8 @@ function mobileTwiml(deps: StageDeps, ctx: StageContext, mobile: string): string
 
 /**
  * R14 + D10: the exact reserved wave is persisted (append_call_routed_agents) BEFORE the <Client>
- * nouns are emitted. Persistence failure or an empty identity set ⇒ the attempt moves to its voicemail
- * stage (missed marked for the reserved agents) — never a ring whose claim is guaranteed to fail.
+ * nouns are emitted. A suppressed owner wave tries the same guarded mobile transition as an unanswered
+ * browser ring; a group wave retains its group voicemail path. Never ring a Client that cannot claim.
  */
 async function clientDialOrVoicemail(
   deps: StageDeps,
@@ -220,9 +228,16 @@ async function clientDialOrVoicemail(
       claimCallbackBaseUrl: deps.urls.claimCallbackBase,
     });
   }
-  deps.log("[v2] browser wave suppressed (routed persistence or identity resolution failed) — voicemail safe path", {
+  deps.log("[v2] browser wave suppressed (routed persistence or identity resolution failed)", {
     callRowId: ctx.callRowId, stage: next.stage, persisted, identities: identities.length,
   });
+  if (next.stage === "owner_browser" && attempt?.mode === "owner" && attempt.owner_agent_id === ctx.agentId && ctx.agentId) {
+    // This is preparation failure, not a Dial action. SQL rechecks current settings, Break/DND,
+    // occupancy and the parent/attempt state; no browser-side eligibility is inferred here.
+    return await advanceOwnerToMobileOrVoicemail(deps, ctx, {
+      event: "wave_suppressed", persisted, identities: identities.length,
+    });
+  }
   const toStage = next.stage === "owner_browser" ? "owner_voicemail" : "group_voicemail";
   const mailbox = next.stage === "owner_browser" && attempt?.owner_agent_id ? `agent:${attempt.owner_agent_id}` : "group";
   await rpcWithRetry(deps, "advance_inbound_route_stage", {
@@ -326,6 +341,17 @@ export async function handleOwnerBrowserReturn(
     await finalizeCompleted(deps, ctx);
     return { status: 200, twiml: buildEmptyTwiml() };
   }
+  return { status: 200, twiml: await advanceOwnerToMobileOrVoicemail(deps, ctx, {
+    event: "dial_action", dial_call_status: dialStatus, dial_call_sid: params["DialCallSid"] || null,
+  }) };
+}
+
+/** Both an unanswered ring and a suppressed owner wave use the database's atomic mobile decision. */
+async function advanceOwnerToMobileOrVoicemail(
+  deps: StageDeps,
+  ctx: StageContext,
+  outcome: Record<string, unknown>,
+): Promise<string> {
   const adv = await rpcWithRetry(deps, "advance_to_owner_mobile", {
     p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId, p_call_row_id: ctx.callRowId,
   });
@@ -337,22 +363,22 @@ export async function handleOwnerBrowserReturn(
       p_recipient_ids: ctx.agentId ? [ctx.agentId] : [], p_for_agent_id: ctx.agentId || null,
     });
     await convergeNotifications(deps, ctx.callRowId);
-    return { status: 200, twiml: await voicemailTwiml(deps, ctx, ctx.agentId ? `agent:${ctx.agentId}` : "group") };
+    return await voicemailTwiml(deps, ctx, ctx.agentId ? `agent:${ctx.agentId}` : "group");
   }
   const r = asObject(adv.data) as AdvanceToMobileResult;
   await rpcWithRetry(deps, "append_inbound_provider_outcome", {
     p_attempt_id: ctx.attemptId, p_org_id: ctx.orgId,
-    p_entry: { event: "dial_action", stage: "owner_browser", dial_call_status: dialStatus, dial_call_sid: params["DialCallSid"] || null, advance: r.reason ?? (r.forward ? "forward" : "refused") },
+    p_entry: { ...outcome, stage: "owner_browser", advance: r.reason ?? (r.forward ? "forward" : "refused") },
   });
-  const owner = (r.owner as string | null) || ctx.agentId || null;
+  const owner = r.owner || ctx.agentId || null;
   const next = decideOwnerBrowserReturn(r, owner, deps.settings.browserRingSeconds);
-  deps.log("[v2] owner_browser return", { callRowId: ctx.callRowId, dialStatus, forward: r.forward, updated: r.updated, reason: r.reason, stage: r.stage, next: next.kind });
+  deps.log("[v2] owner_browser fallback", { callRowId: ctx.callRowId, event: outcome.event, forward: r.forward, updated: r.updated, reason: r.reason, stage: r.stage, next: next.kind });
   if (next.kind === "mobile_dial" || next.kind === "voicemail") {
     // D13 (mobile) or the refusal's missed mark landed inside the RPC — converge now, sweep later.
     await convergeNotifications(deps, ctx.callRowId);
   }
   if (next.kind === "empty") await finalizeCompleted(deps, ctx);
-  return { status: 200, twiml: await emitNext(deps, ctx, next, null) };
+  return await emitNext(deps, ctx, next, null);
 }
 
 // ── stage=owner_mobile: the mobile <Dial> returned (parent action) ───────────────────────────────────
