@@ -19,3 +19,5 @@ Recovery: pause sends and relay; retain enforcement, records, suppressions, outb
 Current access limitation: Supabase connector supports migrations/functions but not Edge secrets; dashboard secret administration requires secure sign-in. Complete the authorized setup that does not require that sign-in first.
 
 Account-specific provisioning SQL is retained byte-for-byte in Supabase hosted migration 20261008022519 (SHA-256 23fd9abf657277d386eade6861c31d8418bc5e5e62ea1eb9da79af704f359d91). It is not published in GitHub because repository secret protection rejects the Twilio Account SID. The reviewed schema migrations and all application source are published; no credential or account identifier is encoded to bypass this rule.
+
+At 02:36 UTC all five attachments were read back, callbacks unchanged, and the genuine signed number-registration.pending event for every selected sender was received. Event sink DG9d0ece22b1edafde710778f66b17b1e4 and subscription DF20da66efdfba81d476eb054e5c199ef7 subscribe to 15 current published compliance event schemas. Receipt of a pending event is not registration success.
