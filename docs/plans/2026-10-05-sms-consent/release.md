@@ -1,6 +1,6 @@
 # CG Financial SMS integration release review
 
-Status: local implementation prepared; **not production-ready for activation**. No production migration, function deployment, secret, cron, registration submission, provider fee, sender attachment or message was created. Chris explicitly approved GitHub publication, draft PRs and CI on October 6. Production actions still require a separately reviewed release.
+Historical October 6 review (superseded by [activation.md](activation.md)): local implementation prepared; **not production-ready for activation**. No production migration, function deployment, secret, cron, registration submission, provider fee, sender attachment or message was created. Chris explicitly approved GitHub publication, draft PRs and CI on October 6. Production actions still require a separately reviewed release.
 
 ## Review branches
 
@@ -37,9 +37,9 @@ Only these previously selected agency numbers are candidates. Provider ownership
 | Number | Existing PN reference |
 | --- | --- |
 | +12162706473 | PN1982b5e219b25ff92daa123638bad549 |
-| +19096108403 | PNe370ab9eccda90790e2a2a3d31df2fe5 |
+| +14632313033 | PN58627f62325b4bf3b888f7bd05ea9897 |
 | +12136676225 | PNc00214a3e0b1bb188890115f57c196c9 |
-| +17143642905 | PNac5451ba0a09ce7cad8d0d56d020faa6 |
+| +15673645227 | PNcf2b254a23bab6561bb7a590a8949a34 |
 | +19162998778 | PN17e3b0257b58b736d0160b457eca2a80 |
 
 The other 11 senders stay excluded from initial SMS activation. Support 909-775-6963 is not a launch sender. No number assignment, voice caller ID, forwarding, DNC implementation or routing change is authorized here.
