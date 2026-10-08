@@ -1,0 +1,57 @@
+name: Twilio account balance
+
+on:
+  pull_request:
+    paths:
+      - 'src/components/super-admin/TwilioBalanceTile.tsx'
+      - 'src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx'
+      - 'src/pages/SuperAdminDashboard.tsx'
+      - 'supabase/functions/twilio-account-balance/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/twilio-account-balance.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: twilio-account-balance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install isolated Deno
+        run: npm install --prefix "$RUNNER_TEMP/twilio-balance-tools" --no-package-lock deno@2.5.2
+      - name: Edge handler tests
+        run: '"$RUNNER_TEMP/twilio-balance-tools/node_modules/.bin/deno" test --allow-env supabase/functions/twilio-account-balance/logic.test.ts'
+      - name: Edge bundle type-check
+        run: >-
+          "$RUNNER_TEMP/twilio-balance-tools/node_modules/.bin/deno" check
+          supabase/functions/twilio-account-balance/index.ts
+          supabase/functions/twilio-account-balance/logic.ts
+      - name: Balance tile tests
+        run: npx vitest run src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx
+      - name: Scoped lint
+        run: npx eslint src/components/super-admin/TwilioBalanceTile.tsx src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx
+      - run: npx tsc --noEmit
+      - name: Diff whitespace check
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+      - run: npm run build
+      - name: Frontend bundle secret-marker check
+        run: |
+          if grep -R -E 'TWILIO_MASTER_AUTH_TOKEN|TWILIO_MASTER_ACCOUNT_SID|SUPABASE_SERVICE_ROLE_KEY' dist; then
+            echo "Server-only credential marker found in frontend bundle"
+            exit 1
+          fi

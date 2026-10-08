@@ -1,3 +1,43 @@
+## 2026-10-08 UTC — PRODUCTION EDGE DEPLOYED; frontend release gate in progress
+
+Chris explicitly approved the production release sequence on October 7 PDT / October 8 UTC. Before deployment, production project `jncvvsvckxhqgqvkppmj` was ACTIVE_HEALTHY and had no existing `twilio-account-balance` function. Supabase public deployment/configuration guidance was rechecked; AgentFlow's reviewed `verify_jwt=false` + in-function ES256 bearer validation pattern remains intentional.
+
+**Edge deployment:** deployed the complete reviewed `twilio-account-balance` bundle to production as **v1**, ACTIVE, `verify_jwt=false`, `ezbr_sha256=1d690adccb1715f8378f65e4e76737098c5b8386ba4f57b513230be45ff68c28`. Immediate readback confirms deployed `index.ts` and `logic.ts` are byte-for-byte identical to the review branch. No migration, RLS, database row, Twilio subaccount, Dialer/Voice, or Vercel production change occurred in the Edge deployment.
+
+**Live verification boundary:** management-plane deployment/readback is verified. The current tool session does not expose a reusable authenticated AgentFlow user JWT, so it cannot truthfully claim a live Agent/Admin/Super-Admin invocation or actual provider balance yet without creating/mutating production auth state, which is outside the approved scope. The function's 401/403/master-endpoint/zero/error behavior remains covered by the green dedicated CI. Frontend release should expose the tile to the real Super Admin session, after which production function logs/network can confirm the real call without manufacturing credentials.
+
+**Release gate:** current PR runtime is mergeable, feature/DNC/reporting checks are green. Two repository-wide workflows on the documentation-closeout head reported pre-job failures with zero jobs instantiated; no application test step ran or failed in those two executions. A fresh documentation/deployment record commit intentionally retriggers the PR workflows before merge so the release decision uses current evidence.
+
+---
+
+## 2026-10-07 — APPROVED BUILD: Super Admin live master Twilio balance
+
+Chris approved repository implementation on October 7, 2026. Base/main at start: `1a877532068bf254aace53bdcacde606a4a693a5`; isolated branch: `feature/twilio-account-balance-20261007`. Full `AGENT_RULES.md`, `VISION.md`, and the complete 12,907-line `WORK_LOG.md` were read before runtime edits. Current open-work overlap was checked: PR #419 also changes `supabase/config.toml`; PR #378 and other historical open PRs touch shared documentation. Preserve current branch bytes and make only additive/surgical changes.
+
+**Scope:** add a compact read-only master Twilio balance metric to the existing Super Admin Dashboard. No navigation page, billing management, per-agency allocation, usage graph, low-balance alerts, schema/RLS changes, subaccount changes, or Dialer/Voice behavior.
+
+**Backend:** new `twilio-account-balance` Edge Function using only exact `TWILIO_MASTER_ACCOUNT_SID` + `TWILIO_MASTER_AUTH_TOKEN`. Call `GET https://api.twilio.com/2010-04-01/Accounts/{MASTER_ACCOUNT_SID}/Balance.json` with server-side Basic Auth. Do not use the fallback behavior in `_shared/twilioOutboundCreds.ts`. Validate Bearer JWT with anon-client `auth.getUser(jwt)`, then require BOTH JWT `is_super_admin === true` and server-side `profiles.is_super_admin === true` via `.maybeSingle()`. Return only `balance`, `currency`, `updated_at`; strip `account_sid`, raw Twilio payload, and secret-bearing diagnostics. Genuine zero is valid; malformed/upstream/config failure is unavailable, never fabricated zero. Add `[functions.twilio-account-balance] verify_jwt = false` to config.
+
+**Frontend:** new `TwilioBalanceTile` mounted in `SuperAdminDashboard`, matching existing health tiles. TanStack Query with explicit modest stale time, no polling, no window-focus refresh and minimal/no automatic retry; manual accessible Refresh. Skeleton while loading, prominent amount + subtle currency on success, neutral `Unavailable` on failure. The query/render is disabled while `isImpersonating`; preserve the existing View-As allow-list that already blocks `/super-admin`.
+
+**Files before runtime edits:**
+- `implementation_plan.md`
+- NEW `supabase/functions/twilio-account-balance/index.ts`
+- NEW `supabase/functions/twilio-account-balance/logic.ts` — dependency-injected read-only handler logic so auth/provider behavior is testable without starting an Edge server
+- NEW `supabase/functions/twilio-account-balance/logic.test.ts` — focused auth/master-account/zero/error regressions
+- `supabase/config.toml`
+- NEW `src/components/super-admin/TwilioBalanceTile.tsx`
+- NEW `src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx`
+- NEW `.github/workflows/twilio-account-balance.yml` — narrow PR verification for the new Deno handler and UI tile
+- `src/pages/SuperAdminDashboard.tsx`
+- `WORK_LOG.md` after implementation/verification
+
+**Verification:** focused auth/provider/zero/error Edge tests; UI loading/success/zero/unavailable/manual-refresh/View-As tests; Super Admin integration/regressions; `npx tsc --noEmit`; actual app TypeScript baseline comparison if root tsc is vacuous; scoped lint; production build; `git diff --check`; secret-response/frontend-bundle review. No production Edge deploy, Supabase mutation, migration, Vercel production release, merge, or push to `main` is authorized in this build.
+
+**Build verification checkpoint (runtime head `10237284ebaf850e7adc4c815edf39a58f8c3b0f`):** dedicated Twilio balance CI PASSED — 12/12 Deno handler tests, Edge bundle type-check, 7/7 tile tests, scoped lint, root `npx tsc --noEmit`, `git diff --check`, production Vite build, and frontend bundle scan for `TWILIO_MASTER_*` / `SUPABASE_SERVICE_ROLE_KEY`. Existing Dialer/DNC, Reporting integrity, and A2P gates also passed. A2P exact-base app TypeScript comparison reports base=87, candidate=87, new=0. The broader Reports frontend exact-candidate/base workflow remains in progress at this checkpoint; do not misstate it as passed. No production deployment or Supabase mutation occurred.
+
+---
+
 ## 2026-10-05 — Reports integrity published for verification; production release pending
 
 Publication is approved and draft PR #418 is open. The reviewed candidate's files/evidence remain intact. The continuation adds a real-browser synthetic Reports gate and corrects premium clipping found in screenshots. See `docs/plans/2026-10-05-reports-integrity/{verification,release_packet}.md` for results and remaining native CI/hosted release gates. Production remains unchanged; Phase 2 and historical repairs remain excluded.
