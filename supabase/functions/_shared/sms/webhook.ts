@@ -1,8 +1,8 @@
 import type { Db } from "../a2p/types.ts";
 import { account, registration } from "../a2p/store.ts";
 import { credentials } from "../a2p/auth.ts";
-import { policy, suppress } from "./consent.ts";
-import { SmsError } from "./wire.ts";
+import { checked, policy, suppress } from "./consent.ts";
+import { phone, SmsError } from "./wire.ts";
 export function isStop(params: Record<string, string>) {
   return params.OptOutType?.toUpperCase() === "STOP" ||
     /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPTOUT)$/i.test(
@@ -38,6 +38,28 @@ export async function recordInboundStop(
       "stop",
       `inbound:${params.MessageSid}`,
     );
+  } else if ((params.Body ?? "").trim().toUpperCase() === "START") {
+    const p = await policy(db, org);
+    if (!p?.start_enabled) return;
+    const sender = checked(
+      await db.from("phone_numbers").select("id,assignment_type,status")
+        .eq("organization_id", org).eq("phone_number", phone(params.To))
+        .maybeSingle(),
+    );
+    if (
+      !sender || sender.assignment_type !== "agency" ||
+      !["active", "Active"].includes(sender.status) ||
+      !p.selected_phone_ids.includes(sender.id)
+    ) {
+      throw new SmsError("START_SENDER", "Invalid re-enrollment sender.", 403);
+    }
+    checked(
+      await db.rpc("sms_receive_start", {
+        p_org: org,
+        p_phone: phone(params.From),
+        p_sid: params.MessageSid,
+      }),
+    );
   }
-  // HELP and START never change consent/suppression. Twilio handles its own opt-out reply.
+  // HELP never changes permission. Twilio remains the sole automatic keyword responder.
 }

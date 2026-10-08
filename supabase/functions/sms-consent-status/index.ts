@@ -2,7 +2,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.98.0";
 import { cors, database, json } from "../_shared/a2p/auth.ts";
 import { account, registration } from "../_shared/a2p/store.ts";
 import { campaignReady } from "../_shared/a2p/types.ts";
-import { bridge, checked, policy, suppress } from "../_shared/sms/consent.ts";
+import {
+  bridge,
+  checked,
+  policy,
+  purposeStatus,
+  suppress,
+} from "../_shared/sms/consent.ts";
 import { contactScope } from "../_shared/sms/scope.ts";
 import { boundedBody, phone, SmsError, UUID } from "../_shared/sms/wire.ts";
 export async function handle(req: Request) {
@@ -50,10 +56,13 @@ export async function handle(req: Request) {
         "uncertain",
         "attempting",
       ]);
-      const relay = await db.from("sms_suppressions").select("phone_e164", {
-        count: "exact",
-        head: true,
-      }).eq("organization_id", actor.organization_id).is("synced_at", null);
+      const relay = await db.from("sms_recipient_lifecycle").select(
+        "phone_e164",
+        {
+          count: "exact",
+          head: true,
+        },
+      ).eq("organization_id", actor.organization_id).is("synced_at", null);
       checked(pending);
       checked(review);
       checked(relay);
@@ -123,10 +132,7 @@ export async function handle(req: Request) {
       enforced: true,
       send_enabled: p.send_enabled,
       provider_ready: providerReady,
-      suppressed: !!local || info.reason === "suppressed" ||
-        market.reason === "suppressed",
-      informational: info.allowed === true,
-      marketing: market.allowed === true,
+      ...purposeStatus(!!local, info, market),
       informational_confirmed: !!e?.informational_confirmed,
       marketing_confirmed: !!e?.marketing_confirmed,
     });

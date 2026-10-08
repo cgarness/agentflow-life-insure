@@ -315,7 +315,8 @@ Deno.serve(async (req) => {
     const scopedToken = await inboundCredential(supabase, organizationId, params);
     const authToken = scopedToken ?? Deno.env.get("TWILIO_AUTH_TOKEN");
     if (!authToken || !await validateTwilioSignature(req, authToken, params)) return new Response(EMPTY_TWIML, {status:403,headers:twimlHeaders});
-    // Critical durable opt-out occurs before contact lookup/history and must be retryable on failure.
+    // Persist opt-out or queue authenticated START before contact/history work.
+    // START is not effective until provider proof and both consent systems agree.
     if (scopedToken) await recordInboundStop(supabase, organizationId, params);
 
     // ── Extract fields ──

@@ -1,5 +1,6 @@
 import { database } from "../_shared/a2p/auth.ts";
-import { bridge, checked, policy } from "../_shared/sms/consent.ts";
+import { checked, policy } from "../_shared/sms/consent.ts";
+import { processLifecycle } from "../_shared/sms/lifecycle.ts";
 import { dispatch } from "../_shared/sms/dispatch.ts";
 import { selectedSender } from "../_shared/sms/scope.ts";
 import { confirmationBody } from "../_shared/sms/confirmations.ts";
@@ -18,35 +19,7 @@ export async function handle(req: Request) {
         new Date(Date.now() - 86400000).toISOString(),
       ),
     );
-    const stops = checked(
-      await db.from("sms_suppressions").select("*").is("synced_at", null).lte(
-        "retry_at",
-        new Date().toISOString(),
-      ).limit(5),
-    );
-    for (const s of stops ?? []) {
-      let ok = false;
-      try {
-        const p = await policy(db, s.organization_id);
-        if (p?.enforced) {
-          ok = (await bridge(p, {
-            action: "suppress",
-            phone: s.phone_e164,
-            reason: s.reason,
-          })).recorded === true;
-        }
-      } catch { /* Local suppression remains authoritative. */ }
-      checked(
-        await db.from("sms_suppressions").update({
-          synced_at: ok ? new Date().toISOString() : null,
-          sync_attempts: s.sync_attempts + 1,
-          retry_at: new Date(Date.now() + 60000).toISOString(),
-        }).eq("organization_id", s.organization_id).eq(
-          "phone_e164",
-          s.phone_e164,
-        ).is("synced_at", null),
-      );
-    }
+    const lifecycle = await processLifecycle(db);
     const jobs = checked(await db.rpc("sms_claim_confirmations"));
     for (const j of jobs ?? []) {
       let state = "pending";
@@ -98,7 +71,7 @@ export async function handle(req: Request) {
     }
     return json({
       processed: jobs?.length ?? 0,
-      suppressions: stops?.length ?? 0,
+      ...lifecycle,
     });
   } catch (e) {
     return failure(e);

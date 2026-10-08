@@ -9,6 +9,8 @@ export interface Policy {
   sender_name: string;
   selected_phone_ids: string[];
   active_from: string | null;
+  start_enabled?: boolean;
+  start_active_from?: string | null;
 }
 // Database boundary is intentionally untyped, matching the existing shared A2P client.
 // deno-lint-ignore no-explicit-any
@@ -27,6 +29,20 @@ export async function policy(db: Db, org: string): Promise<Policy | null> {
     await db.from("sms_agency_policies").select("*").eq("organization_id", org)
       .maybeSingle(),
   ) as Policy | null;
+}
+
+/** A purpose-specific marketing block must not hide restored informational permission. */
+export function purposeStatus(
+  localBlocked: boolean,
+  info: { allowed: unknown; reason: unknown },
+  market: { allowed: unknown; reason: unknown },
+) {
+  return {
+    suppressed: localBlocked ||
+      (info.reason === "suppressed" && market.reason === "suppressed"),
+    informational: info.allowed === true,
+    marketing: market.allowed === true,
+  };
 }
 export async function bridge(
   p: Policy,
