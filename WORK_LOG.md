@@ -1,3 +1,16 @@
+## 2026-10-08 UTC — PRODUCTION EDGE DEPLOYED: Super Admin master Twilio balance; frontend release pending final PR gate
+
+Chris explicitly approved the production release sequence. Production Supabase `jncvvsvckxhqgqvkppmj` was rechecked before deployment; `twilio-account-balance` did not previously exist.
+
+- **Edge deploy:** deployed complete reviewed bundle as `twilio-account-balance` **v1**, ACTIVE, `verify_jwt=false`, bundle hash `1d690adccb1715f8378f65e4e76737098c5b8386ba4f57b513230be45ff68c28`.
+- **Readback:** immediately retrieved live function after deploy. Deployed `twilio-account-balance/index.ts` and `logic.ts` are byte-for-byte identical to the branch review source.
+- **Security posture:** exact master-only env names remain server-side; JWT is validated in-function with `auth.getUser(jwt)`; both JWT `is_super_admin` and server `profiles.is_super_admin` must be true. Response contract remains only `balance`, `currency`, `updated_at`.
+- **Verification boundary:** dedicated CI already passed 12/12 Deno auth/provider tests, Edge type-check, 7/7 React tests, lint, TypeScript, diff check, production build and frontend bundle secret scan. This tool session does not expose an authenticated AgentFlow user JWT, so no fabricated live Agent/Admin/Super-Admin invocation or actual provider-balance claim is made. Creating production auth state solely for testing was not performed.
+- **Migration / data:** none. No schema, RLS, data row, Twilio subaccount, Dialer/Voice, queue, disposition or telemetry mutation.
+- **Frontend:** not yet released at this checkpoint. Draft PR #426 remains the release vehicle.
+- **CI note:** two repository-wide workflows on the prior documentation-closeout head reported failure before creating any jobs; no test step ran in those two executions. The deployment-record commit retriggers current PR workflows before merge.
+- **Next:** verify fresh PR checks, then merge/release frontend under the already-approved production sequence, confirm Vercel READY/aliases, and observe the real Super Admin balance request through production logs/network without manufacturing credentials.
+
 ## 2026-10-07 UTC — IMPLEMENTED, NOT DEPLOYED: Super Admin live master Twilio balance
 
 Chris approved the repository build. Base/main remained `1a877532068bf254aace53bdcacde606a4a693a5`; implementation branch `feature/twilio-account-balance-20261007`, draft PR #426. Full `AGENT_RULES.md`, `VISION.md`, and the complete 12,907-line `WORK_LOG.md` were read before runtime edits. Open-work overlap was checked; PR #419 also touches `supabase/config.toml`, so this branch makes only an additive function block and preserves current config bytes.
