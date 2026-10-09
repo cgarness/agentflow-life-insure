@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import Reports from "../../../src/pages/Reports";
 import { buildReportCsv, downloadCsv } from "../../../src/lib/reports-export";
 import { fixture } from "./stubs";
+import "./fonts/inter.css";
 import "../../../src/index.css";
 
 Object.assign(window, { reportsFixture: {

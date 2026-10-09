@@ -104,13 +104,35 @@ async function ready() {
   assert.equal(await page.getByRole('button', { name: 'Export', exact: true }).isEnabled(), true);
   await page.waitForFunction(() => !document.querySelector('[data-report-state="loading"]'));
 }
-async function rowByHeader(id, rowLabel) {
-  return section(id).evaluate((root, rowLabel) => {
+async function interRenders() {
+  // Layout budgets and one-line checks are measured in Inter, which the fixture serves itself (fonts/inter.css).
+  // A missing face must fail here, by name, instead of later as a budget miss in a fallback font.
+  const font = await page.evaluate(async () => {
+    const faces = [...document.fonts].filter(face => face.family.replace(/["']/g, '') === 'Inter');
+    await Promise.allSettled(faces.map(face => face.load()));
+    await document.fonts.ready;
+    // document.fonts.check() is true for families it cannot match, so compare rendered widths instead.
+    const context = document.createElement('canvas').getContext('2d');
+    const width = family => { context.font = `600 32px ${family}`; return context.measureText('$14,406.00 Policies sold').width; };
+    return {
+      faces: faces.map(face => `${face.weight}:${face.status}`).sort(),
+      inter: width('Inter, monospace'), monospace: width('monospace'),
+      body: getComputedStyle(document.body).fontFamily,
+    };
+  });
+  const missing = 'the fixture\'s Inter web font did not render; budgets assume Inter (see README "Font")';
+  assert.deepEqual(font.faces, ['400:loaded', '500:loaded', '600:loaded', '700:loaded'], `Font precondition: ${missing} ${JSON.stringify(font)}`);
+  assert.ok(Math.abs(font.inter - font.monospace) > 1, `Font precondition: ${missing} ${JSON.stringify(font)}`);
+  assert.match(font.body, /^"?Inter"?,/, `Font precondition: the page's sans stack starts with Inter ${JSON.stringify(font)}`);
+  console.log('PASS font precondition: the fixture\'s Inter renders', JSON.stringify(font));
+}
+async function rowByHeader(id, rowLabel, rows = 'tbody tr, tfoot tr') {
+  return section(id).evaluate((root, [rowLabel, rows]) => {
     const table = root.querySelector('table');
     const heads = [...table.querySelectorAll('thead th')].map(th => th.innerText.replace(/\s+/g, ' ').trim());
-    const row = [...table.querySelectorAll('tbody tr, tfoot tr')].find(tr => tr.firstElementChild?.innerText.includes(rowLabel));
+    const row = [...table.querySelectorAll(rows)].find(tr => tr.firstElementChild?.innerText.includes(rowLabel));
     return row ? Object.fromEntries([...row.children].map((cell, i) => [heads[i] ?? `#${i}`, cell.innerText.trim()])) : null;
-  }, rowLabel);
+  }, [rowLabel, rows]);
 }
 async function dataBasisFlow(label, check) {
   // Each trigger owns its Sheet: open by keyboard, focus moves in, geometry fits, focus returns on close.
@@ -150,10 +172,11 @@ async function customize() {
   await editor().waitFor();
   await editor().evaluate(node => node.scrollIntoView({ block: 'start' }));
   await page.screenshot({ path: `${output}/customize-desktop-top.png` });
-  // Production anchors: an anchored, case-insensitive name check, a label-independent id check, and a
-  // positive control so neither can pass against an empty editor.
+  // Production anchors: an anchored, case-insensitive name check and a label-independent id check, each with
+  // a positive control so neither can pass against an empty editor or a renamed attribute.
   assert.equal(await editor().getByRole('checkbox', { name: 'Show Calls made', exact: true }).count(), 1, 'editor lists registered metrics');
   assert.equal(await editor().getByRole('checkbox', { name: /^Show (Policies sold|Known annual premium)$/i }).count(), 0, 'production anchors cannot be hidden');
+  assert.equal(await editor().locator('[data-customizer-section="stat_total_dials"]').count(), 1, 'editor marks registered metrics by id');
   assert.equal(await editor().locator('[data-customizer-section="stat_policies_sold"],[data-customizer-section="stat_annual_premium"]').count(), 0, 'production anchors are not registered');
   assert.equal(await editor().getByRole('checkbox', { name: 'Show Contacted calls', exact: true }).count(), 1, 'contacted calls label');
   assert.equal(await editor().getByRole('checkbox', { name: 'Show Dials per booking', exact: true }).count(), 1, 'R-1 approved label');
@@ -238,6 +261,8 @@ async function scopes() {
   await page.evaluate(() => window.reportsFixture.release());
   await ready();
   assert.equal(await page.getByRole('tab', { name: 'Personal', exact: true }).getAttribute('aria-selected'), 'true');
+  // The fixture's three summaries share one as_of, so this cannot tell scopes apart; the scope-specific
+  // protection is the check above that no as-of shows while the new scope loads.
   assert.equal(await asOf().locator('time').getAttribute('datetime'), payloads.scopes.personal.summary.as_of, 'freshness belongs to the current scope summary');
   const personalPremium = await premiumArticle().innerText();
   assert.match(personalPremium, /Unavailable[\s\S]*0 of 1 premium known · 1 unknown excluded/);
@@ -312,7 +337,7 @@ async function firstScreen(label) {
     const hero = ['Policies sold', 'Known annual premium'].map(name => box(document.querySelector(`[aria-label="${name}"] [data-report-value="hero"]`)));
     const tablist = head.querySelector('[role="tablist"]');
     return {
-      width: innerWidth, height: innerHeight, headerTop: box(head).top, header: box(head).height, customBlock,
+      width: innerWidth, height: innerHeight, header: box(head).height, customBlock,
       hero: hero.map(h => h && { top: h.top, bottom: h.bottom }),
       tiles: [...document.querySelectorAll('[data-report-group="stats"] [data-report-section]')].map(tile => box(tile).bottom),
       trendsTitle: box(document.getElementById('report-trends-title'))?.bottom ?? null,
@@ -427,7 +452,14 @@ async function measure(label) {
   });
   const measurements = await page.evaluate(() => {
     const nonblank = node => { const box = node.getBBox(); return box.width > 1 && box.height > 1; };
-    // Every leaf money node, measured on its nearest non-inline box (an inline span never reports overflow).
+    // Rendered line count: [overflow-wrap:anywhere] wraps a long number instead of clipping it.
+    const lines = node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size;
+    };
+    // Every leaf money node, measured on its nearest non-inline box (an inline span never reports overflow)
+    // and for wrapping, which clipping cannot see.
     const money = [...document.querySelectorAll('[data-reports-workspace] *')].filter(node => node.children.length === 0 && /^\$[\d,]+\.\d{2}$/.test(node.textContent.trim()));
     const clipped = money.filter(node => {
       let block = node;
@@ -443,12 +475,10 @@ async function measure(label) {
       trendBars: ['policies_sold', 'call_volume'].map(id => [...document.querySelectorAll(`[data-report-section="${id}"] .recharts-bar-rectangle path`)].filter(nonblank).length),
       moneyChecked: money.length,
       monetaryClipping: clipped.map(node => node.textContent.trim()),
+      moneyWrapped: money.filter(node => lines(node) > 1).map(node => node.textContent.trim()),
       heroLines: ['Policies sold', 'Known annual premium'].map(name => {
         const value = document.querySelector(`[aria-label="${name}"] [data-report-value="hero"]`);
-        if (!value) return 0;
-        const range = document.createRange();
-        range.selectNodeContents(value);
-        return new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size;
+        return value ? lines(value) : 0;
       }),
       headings: [...document.querySelectorAll('h1,h2,h3')].map(node => node.textContent),
       hierarchy: ['[aria-label="Production overview"]', '[data-report-group="stats"]', '[data-report-group="trends"]', 'section[aria-labelledby="report-totals-title"]', '[data-report-group="performance"]', '[data-report-group="diagnostics"]']
@@ -462,6 +492,7 @@ async function measure(label) {
   assert.ok(measurements.trendBars.every(count => count >= 1), `${label}: nonblank production and calling bars ${JSON.stringify(measurements.trendBars)}`);
   assert.ok(measurements.moneyChecked >= 3, `${label}: money nodes were checked (${measurements.moneyChecked})`);
   assert.deepEqual(measurements.monetaryClipping, [], `${label}: monetary values must show their cents`);
+  assert.deepEqual(measurements.moneyWrapped, [], `${label}: monetary values never wrap mid-number`);
   assert.deepEqual(measurements.heroLines, [1, 1], `${label}: hero values never wrap`);
   for (let i = 1; i < measurements.hierarchy.length; i++) {
     assert.ok(measurements.hierarchy[i].top > measurements.hierarchy[i - 1].top, `${label}: executive-first hierarchy ${JSON.stringify(measurements.hierarchy)}`);
@@ -493,8 +524,11 @@ async function exportAll() {
     const file = `${output}/csv/${download.suggestedFilename()}`;
     await download.saveAs(file);
     const bytes = await readFile(file);
-    // "Generated" is the client clock; drop it so the same payload always hashes the same.
-    const normalized = bytes.toString('utf8').split('\n').filter(line => !line.startsWith('"Generated",')).join('\n');
+    // "Generated" is the client clock; drop it so the same payload always hashes the same. Each kept line
+    // ends in a newline, exactly as `grep -v '^"Generated",' file | sha256sum` hashes it.
+    const lines = bytes.toString('utf8').split('\n');
+    if (lines.at(-1) === '') lines.pop();
+    const normalized = lines.filter(line => !line.startsWith('"Generated",')).map(line => `${line}\n`).join('');
     manifest.push({ button: name, file: download.suggestedFilename(), bytes: bytes.length, normalizedSha256: createHash('sha256').update(normalized).digest('hex') });
   }
   assert.deepEqual(manifest.map(entry => entry.file).sort(), EXPORT_FILES, 'every export control downloads its unchanged file name');
@@ -504,6 +538,7 @@ async function exportAll() {
 try {
   await page.goto(url);
   await page.getByRole('heading', { name: 'Reports', exact: true }).waitFor();
+  await interRenders();
   // The real default preset, before the fixture moves to its SQL window.
   await page.getByRole('tab', { name: 'Agency', exact: true }).waitFor();
   assert.ok((await periodSelect().innerText()).includes('Last 30 days'), 'default period preserved');
@@ -552,16 +587,16 @@ try {
   assert.equal(await totals.locator('svg.lucide-arrow-right').count(), 0);
   assert.ok(!/%/.test(await totals.innerText()), 'no percentage in Period totals');
   // tfoot rows keep the attribution disclosures in their own columns.
-  const unavailable = await rowByHeader('campaign_performance', 'Attribution unavailable');
-  assert.ok(unavailable, 'campaign Attribution unavailable row');
+  const unavailable = await rowByHeader('campaign_performance', 'Attribution unavailable', 'tfoot tr');
+  assert.ok(unavailable, 'campaign Attribution unavailable row in tfoot');
   assert.equal(unavailable['Calls made'], '1');
   assert.equal(unavailable['Policies (campaign-attributed)'], '8');
   assert.ok(unavailable['Known annual premium'].includes('$14,406.00'));
   assert.equal(unavailable['Known / total policies'], '3/8');
   assert.ok((await section('campaign_performance').innerText()).includes('Campaign-attributed policies use conversion lineage only'), 'campaign lineage note');
   assert.equal(await section('campaign_performance').locator('tr[role="link"]').count(), 0, 'U-3: real links, no tr[role=link]');
-  const unlinked = await rowByHeader('lead_source_roi', 'Not linked to a current lead');
-  assert.ok(unlinked && unlinked['Calls made'] === '5', `unlinked source calls still disclosed with zero sources ${JSON.stringify(unlinked)}`);
+  const unlinked = await rowByHeader('lead_source_roi', 'Not linked to a current lead', 'tfoot tr');
+  assert.ok(unlinked && unlinked['Calls made'] === '5', `unlinked source calls still disclosed in tfoot with zero sources ${JSON.stringify(unlinked)}`);
   const unknownRow = page.getByRole('row').filter({ has: page.getByRole('button', { name: 'Filter reports to Synthetic admin', exact: true }) });
   assert.match(await unknownRow.innerText(), /—[\s\S]*0\/1 known/);
   assert.ok(!(await unknownRow.innerText()).includes('$0.00'), 'all-unknown premium never presented as zero');
