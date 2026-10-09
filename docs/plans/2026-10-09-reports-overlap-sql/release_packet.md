@@ -97,7 +97,19 @@ The postcondition checks the new md5, owner, INVOKER, `STABLE`, `prorettype=json
 
 File 4 mirrors these guards with the md5s swapped and restores the byte-identical preimage text.
 
-**CI triggers:** all eight files match `reports-backend.yml` globs (`supabase/migrations/*reports*.sql`, `rollback/*reports*.sql`, `supabase/ops/reports_*.sql`, `supabase/tests/reports_*.sql`, the fixture). `reporting-integrity`, `reports-frontend`, `dialer-dnc-backend` and `sms-consent` are triggered by `supabase/**` paths. No workflow file changes.
+**CI triggers (exactly five workflows run on this branch):**
+
+| Workflow | Triggered by |
+|---|---|
+| `reports-backend` | all eight files (`supabase/migrations/*reports*.sql`, `rollback/*reports*.sql`, `supabase/ops/reports_*.sql`, `supabase/tests/reports_*.sql`, the fixture) |
+| `reporting-integrity` | `supabase/migrations/**` and `supabase/tests/**` |
+| `sms-consent` | `supabase/migrations/**` |
+| `reports-frontend` | `supabase/**reports*` |
+| `dialer-dnc-backend` | `supabase/**` |
+
+No workflow file changes.
+
+**CI dependency on PR-A.** This branch changes no `.ts`/`.tsx` file. On `main` today, `scripts/verify_reports_frontend.py` then calls ESLint with no paths, which lints the whole repository and fails on 11 errors that already exist on `main`. As a result, the `reports-frontend` gate cannot pass on this branch alone. PR-A carries the one-line guard (skip ESLint when no TypeScript changed). **Rebase this branch onto `main` after PR-A merges**, then obtain exact-head CI green on all five gates. Never touch an unrelated `.ts` file to work around it.
 
 ## 4. Local evidence
 
@@ -112,7 +124,7 @@ Disposable PostgreSQL 16.15 at 127.0.0.1:55463 (loopback TCP only, trust auth, o
 | `PGURL=… bash scripts/run_profile_rpc_tests.sh` | **PASS**, exit 0: "ALL PROFILE RPC PROOFS PASSED (suite + negative control + rollback)" |
 | `env -u PGHOST -u PGDATABASE PGURL=postgres://postgres@127.0.0.1:55463 bash scripts/run_reporting_integrity_tests.sh` | **PASS**, exit 0: 50,000-row indexed fixture; native policy and booking SQL, permissions and independent-session contention |
 
-The regenerated `reports-integrity-payloads.json` (sha256 `f7f3f7cf9d91fffc794d6e10d19e693f31bab5471ab6dd0c2d05b5548f08963a`; not committed) equals the `main` baseline payload, except for `as_of` and `scope.today`, which reflect the generation date (2026-10-08 → 2026-10-09). The browser gate's input is therefore unchanged.
+The regenerated `reports-integrity-payloads.json` (not committed) equals a `main` baseline generated the same day, except for the `as_of` timestamps. When generated on a different date, `scope.today` also differs. The payload carries timestamps, so its hash is not reproducible and is not recorded. The browser gate's input is therefore unchanged.
 
 ### 4.2 The 18 new integrity steps (all passed)
 
@@ -254,7 +266,7 @@ Authored versions `20261009170000/100/200` sort after production's newest record
    - `supabase/migrations/<v3>_reports_overlap_release_enable.sql`
    - `supabase/migrations/rollback/<v2>_reports_integrity_quality_overlap_seconds.rollback.sql`
 
-   `scripts/reports_integrity_fixture.py` finds each file by suffix, so the rename needs no other edit. Re-run `run_reports_integrity_tests.sh` after the rename.
+   `scripts/reports_integrity_fixture.py` finds each file by suffix, so the rename needs no other edit. Re-run `run_reports_integrity_tests.sh` after the rename, **and obtain exact-head CI green on the renamed head before the step-4 merge**. Branch protection is not assumed.
 2. Merge PR-B in the same window (step 4), once the merged ops enable equals the live pins.
 3. Record a production-release note next to this packet: recorded versions, readback values, advisor counts and CI run IDs.
    - Amend AGENT_RULES #41: the new `report_integrity_quality` pin `c1355d55…`; still fifteen pins.
@@ -268,6 +280,15 @@ If Chris approves a reversal (§6 "Reversal"), the same change that applies the 
 - Revert the fixture's corrected-state steps in `scripts/reports_integrity_fixture.py`.
 
 The applied migration files stay as the historical record; applied migrations are never edited or replayed.
+
+**Naming for a reversal.** The fixture asserts exactly one file per suffix. The reversal **disable** and the **re-enable** migrations must therefore use new, distinct names, never another `*_reports_overlap_release_disable.sql` or `*_reports_overlap_release_enable.sql`.
+
+## 8a. Coordination with PR-A
+
+- PR-A (Reports UI refresh) merges first. Rebase this branch onto the resulting `main`, then re-run all four suites before requesting the apply window.
+- `rt.overlap_compare()` hard-codes exactly 20 corrected payloads. It snapshots the integrity organization on 2026-10-01 plus the O1 Admin, Team Leader and Agent scopes.
+  - PR-A's new SQL regression fixtures live in separate synthetic organizations, so they are not expected to change those snapshots. Confirm this after the rebase.
+  - PR-A does not edit `scripts/reports_integrity_fixture.py`.
 
 ## 9. Unverified (exact reason)
 
