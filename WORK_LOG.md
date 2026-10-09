@@ -1,3 +1,29 @@
+## 2026-10-09 — Campaigns table Phase 1 published as draft PR #433 (not merged, not deployed)
+
+**Status:** Chris approved pushing the feature branch and opening a PR to `main`. He did not approve a merge, a production deploy or any database change. The branch `feature/campaigns-table-phase1-20261009` was pushed at `0210a3c`, the reviewed local head, and opened as draft PR #433: https://github.com/cgarness/agentflow-life-insure/pull/433. This docs-only commit follows the push, per the work-log-after-push rule. The entry below this one still reads "(not pushed)"; that was its status when written.
+
+**Pre-publish checks**, run fresh at `0210a3c`:
+- **Campaigns suites:** 484/484.
+- **Full suite:** TZ=America/Los_Angeles 4,918 passed / 1 failed / 4 skipped. The failure is the pre-existing `recordingRetentionVoicemail` v29 test.
+- **Reports frontend CI comparison** (run locally against a base worktree): no new test, type or runtime failures; base 4,321 vs branch 4,805 tests passing.
+- **App tsc:** 85 diagnostics, the same multiset as base. Root tsc compiles no files, so it is not counted.
+- **ESLint, build, `git diff --check`:** clean.
+
+A complete read of AGENT_RULES, VISION and WORK_LOG, a scope audit and an open-PR overlap check found no blockers. No open PR touches Campaigns code. Docs prepends overlap with drafts #432, #429, #425, #398 and #378.
+
+**Docs corrected in this commit:**
+- The Campaigns table invariant now says the RPC can omit both another user's Personal campaign (shown only to Admin/Super Admin) and an unassigned Team campaign seen through configurable View All.
+- The unknown-version rule now applies to a `v` that is present and not 1.
+- The plan's status line now records the PR.
+
+No code changed.
+
+**Screenshots:** published as a private page for Chris, https://claude.ai/artifact/65iXqXc2fPGuMJReZNMTYX. These are synthetic harness renders, and no images were committed. CI and Vercel preview results are recorded on PR #433.
+
+**Migrations/deploys:** none. Nothing was merged or promoted, and no production data was written.
+
+**Not verified:** any authenticated walkthrough, on the preview or in production. Preview isolation from production Supabase has never been established, so on the preview, Columns Save/Reset, Duplicate and New Campaign would write to production.
+
 ## 2026-10-09 — Campaigns table Phase 1 built and verified locally (not pushed)
 
 **Status:** Chris approved the rev 2 plan with D1-B and D2–D9 at their recommendations. Phase 1 is built on `feature/campaigns-table-phase1-20261009`, base `main` `8d53531`. It is committed locally only: no push, PR, merge or deploy. Push and release each need Chris's separate approval.

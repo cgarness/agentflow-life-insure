@@ -1,6 +1,6 @@
 ## 2026-10-09 — APPROVED and BUILT LOCALLY (not pushed): Campaigns page table redesign, Phase 1
 
-**Current status:** Chris approved rev 2 with D1-B and D2–D9 as recommended. Phase 1 is built and verified locally on `feature/campaigns-table-phase1-20261009`. Nothing is pushed, merged or deployed, and production was only read (the §9 preflight). §14 records what was built and where it differs from this plan. The text below §14's heading is the approved plan, kept as written.
+**Current status:** Chris approved rev 2 with D1-B and D2–D9 as recommended. Phase 1 is built and verified locally on `feature/campaigns-table-phase1-20261009`. Chris then approved publishing: the branch is pushed and open as draft PR #433 for his visual review. It is not merged or deployed, and production was only read (the §9 preflight). §14 records what was built and where it differs from this plan. The text below §14's heading is the approved plan, kept as written.
 
 **Status when submitted for approval:** Phase 0 is complete. No application file has been edited, no backend command has been run, and nothing has been pushed. The only repository change is this section of `implementation_plan.md`.
 
