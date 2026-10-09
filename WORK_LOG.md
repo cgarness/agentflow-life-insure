@@ -1,3 +1,28 @@
+## 2026-10-09 — Campaigns table Phase 1 released (PR #433, merge `d88982d`)
+
+**Status:** Chris approved one more Dialer DNC re-run, then merging PR #433 and releasing the existing Phase 1 frontend once the checks passed.
+
+**CI** on the reviewed head `67d638a`:
+- Reports frontend verification passed.
+- Dialer DNC integrity passed on attempt 4 (run 37990183956). The PostgreSQL transaction and concurrency suites passed, and the Disposition/DNC/provider/Team-Open regressions passed 39 files / 498 tests. Attempts 1–3 failed before any test ran, because the database image couldn't be downloaded from Docker Hub.
+- Reporting integrity passed on attempt 3, run on the PR merge ref `9113c9d`, whose tree is identical to `67d638a`.
+- Supabase Preview was skipped (no `supabase/` changes). Vercel previews passed.
+
+**Release:**
+- PR #433 was marked ready and squash-merged as `d88982d` on top of `be2690d`. The merge tree is identical to the verified head.
+- Vercel production deployments are READY at `d88982d`:
+  - `agentflow` `dpl_CqwX4UyW9q7NesqYu2bua3i9EWN1`, aliased to `www.fflagent.com`, `fflagent.com` and `agentflow-eta.vercel.app`.
+  - `agentflow-life-insure` `dpl_FqK77YQTfLbGXrqYASaREnLeFXfy`, aliased to `agentflow-life-insure.vercel.app`.
+  - Neither has an alias error.
+- No migrations, data, Edge, permission, telephony or credential changes.
+
+**Docs:** this closeout updates only release status, in this entry, `implementation_plan.md` §15 and the two AGENT_RULES "not released" phrases.
+
+**Not verified:**
+- Served-asset checks of the production domains: this environment's egress policy returned 403, and the available fetch tool would create an authentication-bypass link, so it wasn't used.
+- No authenticated hosted check was run: role visibility, live metrics, Create/Duplicate, saved columns and Campaign Detail navigation.
+- Screenshots are synthetic harness renders only.
+
 ## 2026-10-09 — Campaigns branch synchronized with main `be2690d` (draft PR #433, not merged)
 
 **Status:** Chris approved merging the latest `origin/main` into `feature/campaigns-table-phase1-20261009`, resolving the WORK_LOG conflict with both branches' entries kept, narrow plan/log updates, local verification, pushing the branch and updating draft PR #433. Merging PR #433 into `main`, promotion and production changes stay separately gated.
