@@ -38,6 +38,23 @@ export function rateAxisMax(maxRatePct: number): number {
 
 export const TOOLTIP_FRAME = "max-w-[280px] rounded-xl border border-border bg-card p-3 text-xs text-foreground shadow-lg";
 
+/** 11px muted tick labels, for the diagnostics charts' own axes. */
+export const CHART_TICK = TICK;
+/** Hairline grid for a horizontal bar chart (layout="vertical"): vertical lines only. */
+export const BAR_GRID = { horizontal: false, stroke: "hsl(var(--border))" } as const;
+
+/**
+ * recharts' own readout (formatter-based) in the card palette, for the diagnostics charts: the default content
+ * renders its own white box, so only these style props can theme it.
+ */
+export const DIAGNOSTIC_TOOLTIP = {
+  contentStyle: { backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 },
+  labelStyle: { color: "hsl(var(--foreground))", fontWeight: 600 },
+  itemStyle: { color: "hsl(var(--foreground))" },
+  cursor: { fill: "hsl(var(--muted))", fillOpacity: 0.6 },
+  isAnimationActive: false,
+} as const;
+
 interface DotProps {
   key?: string;
   cx?: number | null;

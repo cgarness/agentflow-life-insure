@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportVolume } from "@/lib/reports-schemas";
-import { cn } from "@/lib/utils";
+import { CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, rateAxisMax } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
+import ReportSegmented from "./ReportSegmented";
+import { NoTooltip, TrendPanel } from "./ReportTrends";
 
 type Tab = "hour" | "day";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "hour", label: "By hour" },
-  { key: "day", label: "By day" },
-];
+const TABS: ReadonlyArray<readonly [Tab, string]> = [["hour", "By hour"], ["day", "By day"]];
+const SYNC_ID = "call-flow";
 
 interface Props {
   volume: ReportVolume;
@@ -32,15 +32,26 @@ function toRow(label: string, calls: number, contacted: number): Row {
   return { label, calls, contacted, rate: r === null ? null : Math.round(r * 1000) / 10 };
 }
 
-const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--foreground))",
-};
-const textStyle = { color: "hsl(var(--foreground))" };
+function FlowTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: Row }> }) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  return (
+    <div className={TOOLTIP_FRAME}>
+      <p className="mb-2 font-semibold">{row.label}</p>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+        <dt>Calls made</dt><dd className="text-right font-semibold tabular-nums">{formatCount(row.calls)}</dd>
+        <dt>Contacted calls</dt><dd className="text-right tabular-nums">{formatCount(row.contacted)}</dd>
+        <dt>Call contact rate</dt><dd className="text-right font-semibold tabular-nums">{formatRate(row.rate)}</dd>
+      </dl>
+      {row.calls === 0 && <p className="mt-2 text-muted-foreground">No outbound calls; rate unavailable.</p>}
+    </div>
+  );
+}
 
+/**
+ * Call flow — outbound calls by agency hour or weekday above the call contact rate for the same buckets:
+ * two single-axis panels on one series, styled like Trends. A bucket with no calls has no rate (a gap).
+ */
 const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
   const [tab, setTab] = useState<Tab>("hour");
 
@@ -57,6 +68,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
   }, [volume]);
 
   const rows = tab === "hour" ? hourly : daily;
+  const rateMax = rateAxisMax(rows.reduce((max, r) => Math.max(max, r.rate ?? 0), 0));
 
   const handleExport = onExport
     ? () =>
@@ -70,71 +82,31 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
   return (
     <ReportSection title="Call flow" defaultOpen={false} onExport={handleExport}>
       {empty ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
+        <p className="py-12 text-center text-sm text-muted-foreground">No outbound calls in this period.</p>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit" role="group" aria-label="Call flow grouping">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                aria-pressed={t.key === tab}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
-                  t.key === tab ? "bg-card text-primary shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Calls made</p>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={rows} syncId="call-flow" margin={{ left: 0, right: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="label" tick={tick} interval="preserveStartEnd" />
-              <YAxis tick={tick} allowDecimals={false} width={40} />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={textStyle}
-                itemStyle={textStyle}
-                cursor={{ fill: "hsl(var(--muted))" }}
-                formatter={(v: number) => [formatCount(v), "Calls made"]}
-              />
-              <Bar dataKey="calls" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} name="Calls made" />
+          <ReportSegmented ariaLabel="Call flow view" value={tab} onChange={(next) => setTab(next)} options={TABS} className="mb-4" />
+          <TrendPanel caption="Calls made" size="main">
+            <BarChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%" accessibilityLayer>
+              <CartesianGrid {...CHART_THEME.grid} />
+              <XAxis dataKey="label" hide />
+              <YAxis {...CHART_THEME.yAxis} allowDecimals={false} />
+              <Tooltip content={<FlowTooltip />} cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.6 }} {...CHART_THEME.tooltip} />
+              <Bar dataKey="calls" name="Calls made" fill={SERIES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
             </BarChart>
-          </ResponsiveContainer>
-
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-5 mb-2">Call contact rate</p>
-          <ResponsiveContainer width="100%" height={150}>
-            <LineChart data={rows} syncId="call-flow" margin={{ left: 0, right: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="label" tick={tick} interval="preserveStartEnd" />
-              <YAxis tick={tick} domain={[0, 100]} unit="%" width={40} />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={textStyle}
-                itemStyle={textStyle}
-                formatter={(v: number | null) => [formatRate(v), "Call contact rate"]}
-              />
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="hsl(var(--primary))"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "hsl(var(--primary))" }}
-                connectNulls={false}
-                name="Call contact rate"
-              />
+          </TrendPanel>
+          <TrendPanel caption="Call contact rate" size="companion">
+            <LineChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.margin} accessibilityLayer>
+              <CartesianGrid {...CHART_THEME.grid} />
+              <XAxis {...CHART_THEME.xAxis} />
+              <YAxis {...CHART_THEME.yAxis} domain={[0, rateMax]} ticks={[0, rateMax / 2, rateMax]} tickFormatter={(value: number) => `${value}%`} />
+              <Tooltip content={<NoTooltip />} cursor={CHART_THEME.cursor} {...CHART_THEME.tooltip} />
+              <Line type="linear" dataKey="rate" name="Call contact rate" stroke={SERIES_COLOR} strokeWidth={2}
+                dot={{ r: 3, fill: SERIES_COLOR, strokeWidth: 0 }} activeDot={CHART_THEME.activeDot} connectNulls={false} isAnimationActive={false} />
             </LineChart>
-          </ResponsiveContainer>
-
-          <p className="text-[11px] text-muted-foreground mt-3">
-            Call contact rate is contacted outbound calls divided by outbound calls made; buckets with no calls show no rate.{" "}
-            {tab === "hour" ? "Hours" : "Days"} are in the agency time zone:{" "}
-            {volume.window.time_zone}.
+          </TrendPanel>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Hours and days are in the agency time zone; a bucket with no calls shows no call contact rate.
           </p>
         </>
       )}

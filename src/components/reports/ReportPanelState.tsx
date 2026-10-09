@@ -27,10 +27,10 @@ export const ReportNotice: React.FC<NoticeProps> = ({ title, tone, message, deta
   return (
     <div className={PANEL_SHELL} role={tone === "error" ? "alert" : "status"} data-report-state={tone}>
       <div className="px-6 py-4 border-b border-border/40">
-        <h3 className="font-bold text-foreground text-base tracking-tight">{title}</h3>
+        <h3 className="font-semibold text-foreground text-base tracking-tight">{title}</h3>
       </div>
       <div className="px-6 py-8 flex flex-col items-center text-center gap-3">
-        <Icon className={tone === "denied" ? "w-6 h-6 text-muted-foreground" : "w-6 h-6 text-amber-500"} />
+        <Icon aria-hidden="true" className={tone === "denied" ? "w-6 h-6 text-muted-foreground" : "w-6 h-6 text-warning"} />
         <p className="text-sm font-semibold text-foreground">{message}</p>
         {detail && <p className="text-xs text-muted-foreground max-w-md">{detail}</p>}
         {onRetry && (
@@ -47,7 +47,7 @@ export const ReportNotice: React.FC<NoticeProps> = ({ title, tone, message, deta
 export const ReportPanelSkeleton: React.FC<{ title: string }> = ({ title }) => (
   <div className={PANEL_SHELL} aria-busy="true" data-report-state="loading">
     <div className="px-6 py-4 border-b border-border/40">
-      <h3 className="font-bold text-foreground text-base tracking-tight">{title}</h3>
+      <h3 className="font-semibold text-foreground text-base tracking-tight">{title}</h3>
     </div>
     <div className="px-6 py-6 space-y-3">
       <Skeleton className="h-4 w-1/3 rounded" />

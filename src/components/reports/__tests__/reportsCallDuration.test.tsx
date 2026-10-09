@@ -94,8 +94,12 @@ describe("Call duration (R-5)", () => {
 });
 
 describe("Call summary durations", () => {
+  // Call summary is collapsed by default (the metric strip already leads with these totals).
+  const open = () => fireEvent.click(screen.getByRole("button", { name: "Call summary" }));
+
   it("shows talk time in the elapsed format and the per-dial average at 0.1 s", () => {
     render(<CommunicationsStats summary={reportSummary()} dayCount={31} />);
+    open();
     expect(screen.getByText("38.9s")).toBeInTheDocument(); // avg talk per dial, not "0:39"
     expect(screen.getByText("12m 20s")).toBeInTheDocument(); // 740 s talk time, not "0h 12m 20s"
     expect(screen.getByText("5m 40s")).toBeInTheDocument(); // 340 s inbound talk time
@@ -106,7 +110,8 @@ describe("Call summary durations", () => {
   it("an unknown per-dial average is a dash, never 0s", () => {
     const summary = reportSummary({ avg_talk_per_dial_seconds: null });
     render(<CommunicationsStats summary={summary} dayCount={31} />);
-    const tile = screen.getByText("Avg talk time per dial").closest("div")!.parentElement!;
+    open();
+    const tile = screen.getByText("Avg talk time per dial").closest("div")!;
     expect(tile).toHaveTextContent("—");
     expect(tile).not.toHaveTextContent(/\ds/);
   });
