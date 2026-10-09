@@ -1,3 +1,11 @@
+## 2026-10-09 — Google OAuth verification website and submission preparation
+
+Chris asked to prioritize Google verification over broader AgentFlow usability and authorized submission preparation. On an isolated branch from current production/main `8d53531d`, added proposed public Privacy Policy and Terms pages, real homepage/footer links, and a short explanation of optional Gmail/Calendar use. Reused the approved personal operator identity and retention targets; exact copy remains explicitly pending publication approval with no effective date. The existing 512×512 AgentFlow icon is ready for the Google branding upload.
+
+Prepared exact branding fields, current live scope inventory, Gmail justifications, a real-demo storyboard and a sequenced submission checklist. Live read-only evidence shows unmatched Gmail imports, local credential clearing on disconnect without erasure/revocation, and Calendar requesting broader permissions than the old draft. The packet identifies scope minimization, credential/storage controls, deletion evidence and restricted-scope assessment as unresolved; it does not claim PR #378 is deployed or Google approval is complete.
+
+Root TypeScript, scoped lint, diff checks and production build pass. Meaningful application comparison has 85 baseline/85 candidate diagnostics with byte-identical output and zero new errors. Hosted checks are recorded in the task verification record as they complete. No backend, schema, dependency, production configuration, user data, message, appointment or OAuth client changed. No Google submission, assessment purchase or production release occurred. See `docs/plans/2026-10-09-google-verification/{implementation_plan,submission-packet,verification}.md`.
+
 ## 2026-10-08 — Incoming forwarding fix deployed as inbound v48
 
 Chris authorized continuation at 13:39 PDT after confirming Alexa found the forwarding save control. Deployed the complete reviewed ten-file `twilio-voice-inbound` bundle to production at 2026-10-08T20:56:08.733Z; version **48**, **ACTIVE**, `verify_jwt=false`, bundle fingerprint `a0a459768b340096c36f119baeff08de7028fa3e7f5e218daddd5a19c79b6b62`. Immediate readback matched all ten candidate source files byte-for-byte. Nine files are identical to pre-release v47; only `stages.ts` changes runtime behavior. The existing voicemail callback repair remains intact.

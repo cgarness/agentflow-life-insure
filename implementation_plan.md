@@ -2350,3 +2350,8 @@ Implemented, reviewed, merged and deployed. No production data/definitions, data
 ## October 8 SMS activation authorization
 
 Chris instructed getting SMS working after A2P approval. The prepared backend release and guarded mapping are now applied with sending/relay paused. Complete secret provisioning, authenticated recovery, five-number registration and controlled consenting-recipient verification before activation. Earlier pending-approval notes describe the previous phase.
+
+
+## 2026-10-09 — Google OAuth verification preparation
+
+Chris authorized starting the submission work, with verification prioritized over broader integration usability. The scoped plan is [Google verification preparation](docs/plans/2026-10-09-google-verification/implementation_plan.md). It covers public legal review pages, homepage links, the existing logo and an evidence-based submission packet. Final legal publication and any production backend release remain separate concrete gates.
