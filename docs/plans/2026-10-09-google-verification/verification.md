@@ -20,10 +20,13 @@ Date: October 9, 2026. Base/main/production source: `8d53531d0edc509cc97fdc49a06
 | `git diff --check` | PASS at initial implementation checkpoint. |
 | `npx tsc -p tsconfig.app.json --noEmit` | 85 base / 85 candidate diagnostics; full output byte-identical, zero new errors. Both exit 2 on existing errors. |
 | `npm run build` | PASS, 22.57 seconds. Existing large-chunk and stale Browserslist warnings remain. |
-| Vercel preview build | READY: `dpl_HnbGe8V9ejekjNEyLt7vM42iwQAB`, source `67d69c557bd3c00fdafc57744158e0fda77c16da`, target preview. |
-| Hosted public page render/navigation | BLOCKED by Vercel login. Automatic approval rejected a temporary share link because it would expand access without explicit authorization. No share link was created and no protection setting changed. Visual/navigation checks remain unverified. |
+| Vercel preview build | READY: `dpl_EgTvCN81nLUPmg8fhzstudUaUc7p`, source `4688d399d560d56ea82e8ec28ffc2a0aacdee521`, target preview. Application tree unchanged from the locally checked implementation. |
+| Hosted public page render/navigation | PASS after Chris explicitly approved temporary preview access at 12:52 PDT. Privacy loads directly, Terms loads through its link and after a direct reload, Home returns to the homepage, both legal footer links work, and the Google summary privacy link works. No AgentFlow sign-in was needed. |
+| Desktop visual check | PASS: readable Privacy/Terms layout and Google summary/footer inspected at 1349 × 926. Publication-review banner remains visible. Mobile-specific rendering was not exercised. |
 
 No new low-impact tests were added. No authenticated integration, real mailbox send, event creation, deletion or Google submission was executed. Passing website checks cannot establish OAuth or assessment readiness.
+
+The remote browser initially had a selector timeout during homepage Terms navigation; the visible accessibility link completed the same navigation successfully. The sampled browser errors were extension metadata errors, not application errors. No application changes were needed from visual review. Saved the privacy review screenshot as `agentflow-policy-review-20261009-1254.jpg` for the owner's review.
 
 ## Production evidence and limits
 
@@ -36,6 +39,7 @@ No merge, production release, schema/function/configuration change, new account,
 ## Review handoff
 
 - Draft PR: https://github.com/cgarness/agentflow-life-insure/pull/432
-- Preview: https://agentflow-8fei61988-cgarness-projects.vercel.app/privacy (requires existing Vercel access).
+- Preview: https://agentflow-it5mp5cy1-cgarness-projects.vercel.app/privacy (requires existing Vercel access or the separately authorized temporary link).
 - `policy-review.md` is generated directly from the exact application policy/terms text for readable owner review; `submission-packet.md` contains Google fields and remaining evidence gates.
-- A temporary share link would grant anyone holding that link access to the protected preview. Owner authorization is needed before creating one to finish the browser check. Alternatively the owner can inspect the preview while signed in to Vercel; no deployment-protection change is needed.
+- Automatic approval initially rejected creating a temporary link. Chris subsequently explicitly approved that action, and the link was created for this preview only; provider expiry is October 10, 2026 at 18:52:27 UTC. The token is not committed. No project-wide deployment-protection setting changed.
+- Website preparation and available browser checks are complete. Exact policy publication approval, real effective date, production deployment and readback remain before the website URLs can support Google's review. The submission packet lists the separate domain/scope/security/assessment/demo gates.

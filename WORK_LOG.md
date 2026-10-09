@@ -1,3 +1,7 @@
+## 2026-10-09 — Google verification preview checks completed
+
+Chris explicitly approved temporary Vercel preview access at 12:52 PDT. Created a link for the PR #432 preview only (expires October 10 at 18:52:27 UTC; token not committed). Preview `dpl_EgTvCN81nLUPmg8fhzstudUaUc7p`, source `4688d399d560d56ea82e8ec28ffc2a0aacdee521`, is READY. Browser checks passed for direct Privacy/Terms access without AgentFlow sign-in, legal navigation, both homepage footer links, and the new Google disclosure/Privacy link. Inspected desktop rendering and saved a review screenshot; no application fixes were needed. Local build/lint and unchanged app-typecheck baseline remain applicable. Exact policy/publication approval is still required. Production, Google configuration and backend are unchanged; this does not resolve the submission packet's domain, scope, security/assessment and real-demo gates.
+
 ## 2026-10-09 — Google OAuth verification website and submission preparation
 
 Chris asked to prioritize Google verification over broader AgentFlow usability and authorized submission preparation. On an isolated branch from current production/main `8d53531d`, added proposed public Privacy Policy and Terms pages, real homepage/footer links, and a short explanation of optional Gmail/Calendar use. Reused the approved personal operator identity and retention targets; exact copy remains explicitly pending publication approval with no effective date. The existing 512×512 AgentFlow icon is ready for the Google branding upload.
