@@ -109,7 +109,7 @@ File 4 mirrors these guards with the md5s swapped and restores the byte-identica
 
 No workflow file changes.
 
-**CI dependency on PR-A.** This branch changes no `.ts`/`.tsx` file. On `main` today, `scripts/verify_reports_frontend.py` then calls ESLint with no paths, which lints the whole repository and fails on 11 errors that already exist on `main`. As a result, the `reports-frontend` gate cannot pass on this branch alone. PR-A carries the one-line guard (skip ESLint when no TypeScript changed). **Rebase this branch onto `main` after PR-A merges**, then obtain exact-head CI green on all five gates. Never touch an unrelated `.ts` file to work around it.
+**CI and the lint guard.** This branch changes no `.ts`/`.tsx` file. On `main` today, `scripts/verify_reports_frontend.py` then calls ESLint with no paths. That lints the whole repository, which fails on 11 errors that already exist on `main`. This branch therefore carries the same one-line guard as PR-A (skip ESLint when no TypeScript changed; cherry-picked from PR-A commit `79ca7007`). With it, the `reports-frontend` gate can pass here on its own, and whichever PR merges second sees an identical change. Still **rebase this branch onto `main` after PR-A merges** (§8a), then obtain exact-head CI green on all five gates. Never touch an unrelated `.ts` file to work around it.
 
 ## 4. Local evidence
 

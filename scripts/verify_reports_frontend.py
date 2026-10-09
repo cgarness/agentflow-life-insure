@@ -88,7 +88,8 @@ checks['reports_vitest']=run('reports-vitest',root,['npx','--no-install','vitest
 assert checks['reports_vitest']==0, 'Reports/Profile normalization tests must pass'
 changed=subprocess.check_output(['git','diff','--name-only',os.environ['REPORTS_BASE_SHA'],'HEAD'],cwd=root,text=True).splitlines()
 typescript=[p for p in changed if p.endswith(('.ts','.tsx')) and (root/p).is_file()]
-checks['eslint']=run('eslint',root,['npx','--no-install','eslint',*typescript])
+# With no changed TypeScript, a bare eslint call would lint the whole repository (pre-existing errors on main).
+checks['eslint']=run('eslint',root,['npx','--no-install','eslint',*typescript]) if typescript else 0
 checks['build']=run('build',root,['npm','run','build'])
 assert checks['eslint']==0 and checks['build']==0, 'Lint or build failed'
 summary={'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
