@@ -1,3 +1,21 @@
+## 2026-10-09 — Google verification website publication approved
+
+Chris approved the exact reviewed Privacy Policy/Terms and publication on fflagent.com at 12:58 PDT. Finalize PR #432 by setting the publication flag and October 9, 2026 effective date; approved policy paragraphs are unchanged. Fresh main and Vercel production remain `8d53531d`. The scoped website release and live readback are in progress. This approval does not certify Google compliance or authorize the separate backend, assessment-purchase or Google-submission actions.
+
+## 2026-10-09 — Google verification preview checks completed
+
+Chris explicitly approved temporary Vercel preview access at 12:52 PDT. Created a link for the PR #432 preview only (expires October 10 at 18:52:27 UTC; token not committed). Preview `dpl_EgTvCN81nLUPmg8fhzstudUaUc7p`, source `4688d399d560d56ea82e8ec28ffc2a0aacdee521`, is READY. Browser checks passed for direct Privacy/Terms access without AgentFlow sign-in, legal navigation, both homepage footer links, and the new Google disclosure/Privacy link. Inspected desktop rendering and saved a review screenshot; no application fixes were needed. Local build/lint and unchanged app-typecheck baseline remain applicable. Exact policy/publication approval is still required. Production, Google configuration and backend are unchanged; this does not resolve the submission packet's domain, scope, security/assessment and real-demo gates.
+
+## 2026-10-09 — Google OAuth verification website and submission preparation
+
+Chris asked to prioritize Google verification over broader AgentFlow usability and authorized submission preparation. On an isolated branch from current production/main `8d53531d`, added proposed public Privacy Policy and Terms pages, real homepage/footer links, and a short explanation of optional Gmail/Calendar use. Reused the approved personal operator identity and retention targets; exact copy remains explicitly pending publication approval with no effective date. The existing 512×512 AgentFlow icon is ready for the Google branding upload.
+
+Prepared exact branding fields, current live scope inventory, Gmail justifications, a real-demo storyboard and a sequenced submission checklist. Live read-only evidence shows unmatched Gmail imports, local credential clearing on disconnect without erasure/revocation, and Calendar requesting broader permissions than the old draft. The packet identifies scope minimization, credential/storage controls, deletion evidence and restricted-scope assessment as unresolved; it does not claim PR #378 is deployed or Google approval is complete.
+
+Root TypeScript, scoped lint, diff checks and production build pass. Meaningful application comparison has 85 baseline/85 candidate diagnostics with byte-identical output and zero new errors. Hosted checks are recorded in the task verification record as they complete. No backend, schema, dependency, production configuration, user data, message, appointment or OAuth client changed. No Google submission, assessment purchase or production release occurred. See `docs/plans/2026-10-09-google-verification/{implementation_plan,submission-packet,verification}.md`.
+
+Published draft PR #432 with source `67d69c557bd3c00fdafc57744158e0fda77c16da`; its Vercel preview is READY. Browser review reaches Vercel login. Automatic approval rejected a temporary share link as an access expansion without explicit permission; no link was created, no protection setting changed, and rendered checks remain unverified. Added `policy-review.md`, generated from the exact app text, for direct owner review. Final legal approval/publication, scope/security evidence and Google submission remain outstanding.
+
 ## 2026-10-08 — Incoming forwarding fix deployed as inbound v48
 
 Chris authorized continuation at 13:39 PDT after confirming Alexa found the forwarding save control. Deployed the complete reviewed ten-file `twilio-voice-inbound` bundle to production at 2026-10-08T20:56:08.733Z; version **48**, **ACTIVE**, `verify_jwt=false`, bundle fingerprint `a0a459768b340096c36f119baeff08de7028fa3e7f5e218daddd5a19c79b6b62`. Immediate readback matched all ten candidate source files byte-for-byte. Nine files are identical to pre-release v47; only `stages.ts` changes runtime behavior. The existing voicemail callback repair remains intact.

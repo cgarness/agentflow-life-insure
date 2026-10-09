@@ -75,7 +75,11 @@ const MarketingFooter: React.FC = () => {
           <ul className="space-y-2.5 text-sm text-muted-foreground">
             {["Privacy Policy", "Terms of Service", "Security", "TCPA Compliance", "DNC Policy"].map((l) => (
               <li key={l}>
-                <span className="hover:text-foreground transition-colors cursor-pointer">{l}</span>
+                {l === "Privacy Policy" || l === "Terms of Service" ? (
+                  <Link to={l === "Privacy Policy" ? "/privacy" : "/terms"} className="hover:text-foreground transition-colors">{l}</Link>
+                ) : (
+                  <span className="hover:text-foreground transition-colors cursor-pointer">{l}</span>
+                )}
               </li>
             ))}
           </ul>
