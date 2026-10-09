@@ -22,7 +22,6 @@ import CampaignPerformance from "./CampaignPerformance";
 import CommunicationsStats from "./CommunicationsStats";
 import DispositionDeepDive from "./DispositionDeepDive";
 import DispositionsPieChart from "./DispositionsPieChart";
-import GoalTracking from "./GoalTracking";
 import LeadSourceTable from "./LeadSourceTable";
 import PoliciesSoldChart from "./PoliciesSoldChart";
 
@@ -92,6 +91,5 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
     agent_efficiency: panel("Agent efficiency", "summary", (s) => (
       <AgentEfficiency summary={s} currentUserId={ctx.currentUserId} onExport={ctx.exportFor("summary")} />
     )),
-    goal_tracking: <GoalTracking />,
   };
 }
