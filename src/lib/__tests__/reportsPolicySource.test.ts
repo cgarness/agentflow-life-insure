@@ -172,7 +172,10 @@ describe("campaign privacy response and fixture contracts", () => {
   });
   it("labels restricted or missing lineage as unavailable, not nonexistent", () => {
     expect(CAMPAIGN_ATTRIBUTION_NOTE).toContain("unavailable attribution is non-identifying");
-    expect(read("src/components/reports/CampaignPerformance.tsx")).toContain("unavailable campaign attribution");
+    // The campaign table's tfoot row names that subset "Attribution unavailable" (missing, ambiguous or restricted).
+    expect(read("src/components/reports/CampaignPerformance.tsx")).toMatch(/<CampaignTotalsFoot campaigns=\{campaigns\}/);
+    expect(read("src/components/reports/CampaignTotalsFoot.tsx")).toContain("Attribution unavailable");
+    expect(read("src/components/reports/CampaignTotalsFoot.tsx")).toContain("Missing, ambiguous or restricted");
     expect(read("src/components/reports/DispositionDeepDive.tsx")).toContain("No campaign breakdown is available");
   });
   it("fixture setup is separate, fatal and uses the exact loader tested by the failure probe", () => {

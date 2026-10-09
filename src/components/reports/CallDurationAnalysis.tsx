@@ -72,7 +72,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Call Duration" defaultOpen={false} onExport={handleExport}>
+    <ReportSection title="Call duration" defaultOpen={false} onExport={handleExport}>
       {empty ? (
         <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (

@@ -75,7 +75,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
   const tzCaption = `Hours are in the agency time zone: ${volume.window.time_zone}.`;
 
   return (
-    <ReportSection title="Calling Heatmap" badge="Activity" onExport={handleExport}>
+    <ReportSection title="Calling heatmap" onExport={handleExport}>
       {empty ? (
         <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (

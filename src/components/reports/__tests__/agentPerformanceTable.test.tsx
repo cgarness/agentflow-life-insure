@@ -29,7 +29,8 @@ describe("Agent performance table", () => {
     const alice = screen.getByRole("row", { name: /Alice Agent/ });
     expect(within(alice).getByText("0/1 known · 1 unknown")).toBeInTheDocument();
     expect(within(alice).getByText("—")).toBeInTheDocument();
-    expect(within(alice).getByText("0h 4m 24s")).toBeInTheDocument();
+    expect(within(alice).getByText("4m 24s")).toBeInTheDocument(); // the one elapsed format, never "0h 4m 24s"
+    expect(within(alice).queryByText(/^0h /)).not.toBeInTheDocument();
     const bob = screen.getByRole("row", { name: /Bob Agent/ });
     expect(within(bob).getByText("$0.00")).toBeInTheDocument();
     expect(within(bob).getByText("2/2 known")).toBeInTheDocument();
@@ -48,6 +49,30 @@ describe("Agent performance table", () => {
     expect(rows[0][5]).toBe(264);
     expect(rows[0][10]).toBe(summary.by_agent[0].premium.annual_premium);
     expect(rows.at(-1)).toEqual(["Unattributed", null, 0, null, null, 0, 1, null, 1, null, null, 0, 1]);
-    expect(screen.getByRole("row", { name: /Unattributed/ })).toHaveTextContent("0/1 known · 1 unknown");
+    const unattributed = screen.getByRole("row", { name: /Unattributed/ });
+    expect(unattributed).toHaveTextContent("0/1 known · 1 unknown");
+    // The Unattributed row is the table's tfoot, one cell per screen column (no colSpan).
+    expect(unattributed.closest("tfoot")).not.toBeNull();
+    expect(unattributed.children).toHaveLength(screen.getAllByRole("columnheader").length);
+    for (const cell of Array.from(unattributed.children)) expect(cell).not.toHaveAttribute("colspan");
+  });
+
+  it("shows Contacted calls on screen and keeps the CSV columns; the Unattributed row leaves unmeasured cells blank", () => {
+    const summary = reportSummary();
+    summary.unattributed.calls_made = 3;
+    summary.unattributed.inbound_calls = 2;
+    render(<AgentPerformanceCards summary={summary} selectedAgentId={null} selectableAgentIds={new Set()} onSelectAgent={vi.fn()} />);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Agent", "Policies (current assignment)", "Known annual premium", "Calls made", "Contacted calls", "Call contact rate",
+      "Bookings created (all types)", "Talk time",
+    ]);
+    const alice = screen.getByRole("row", { name: /Alice Agent/ });
+    expect(alice.children[4]).toHaveTextContent(String(summary.by_agent[0].contacted));
+    const unattributed = screen.getByRole("row", { name: /Unattributed/ });
+    expect(unattributed).toHaveTextContent("2 inbound calls");
+    expect([unattributed.children[3].textContent, unattributed.children[4].textContent, unattributed.children[5].textContent]).toEqual(["3", "", ""]);
+    expect(unattributed).not.toHaveTextContent("—");
+    // The methodology lives in Data basis; the header carries "current assignment".
+    expect(screen.queryByText(/not the original seller/)).not.toBeInTheDocument();
   });
 });

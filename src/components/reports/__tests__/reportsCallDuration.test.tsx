@@ -59,7 +59,7 @@ beforeEach(() => { cleanup(); chart.data = []; chart.tooltip = []; chart.ticks =
 describe("Call duration (R-5)", () => {
   it("bar labels, tooltip and insight keep the payload's 0.1 s; never '2:33' or '2m 33s'", () => {
     const { container } = render(<CallDurationAnalysis dispositions={dispositions()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Call Duration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Call duration" }));
 
     const labels = screen.getByRole("list", { name: "Bar labels" });
     expect(Array.from(labels.querySelectorAll("li"), (li) => li.textContent)).toEqual(["2m 32.5s", "25.3s"]);
@@ -76,7 +76,7 @@ describe("Call duration (R-5)", () => {
 
   it("x-axis ticks are whole seconds in the same elapsed format", () => {
     render(<CallDurationAnalysis dispositions={dispositions()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Call Duration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Call duration" }));
     const tick = chart.ticks[chart.ticks.length - 1]!;
     expect([0, 30, 60, 120, 150].map(tick)).toEqual(["0s", "30s", "1m 0s", "2m 0s", "2m 30s"]);
   });
@@ -84,7 +84,7 @@ describe("Call duration (R-5)", () => {
   it("the CSV keeps the raw 0.1 s averages (unchanged rows)", () => {
     const onExport = vi.fn();
     render(<CallDurationAnalysis dispositions={dispositions()} onExport={onExport} />);
-    fireEvent.click(screen.getByRole("button", { name: "Export Call Duration CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export Call duration CSV" }));
     expect(onExport).toHaveBeenCalledWith(
       "Call Duration by Disposition",
       ["Disposition", "Calls", "Avg duration (s)"],
@@ -114,7 +114,7 @@ describe("Call summary durations", () => {
   it("the Call Summary CSV keeps raw seconds", () => {
     const onExport = vi.fn();
     render(<CommunicationsStats summary={reportSummary()} dayCount={31} onExport={onExport} />);
-    fireEvent.click(screen.getByRole("button", { name: "Export Call Summary CSV" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export Call summary CSV" }));
     const rows = onExport.mock.calls[0]![2] as Array<[string, unknown]>;
     expect(rows).toContainEqual(["Talk time (seconds)", 740]);
     expect(rows).toContainEqual(["Avg talk time per dial (seconds)", 38.9]);

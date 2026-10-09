@@ -105,7 +105,7 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Disposition Deep Dive" defaultOpen={false} onExport={handleExport}>
+    <ReportSection title="Disposition deep dive" defaultOpen={false} onExport={handleExport}>
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl w-fit">
           {TABS.map((t) => (

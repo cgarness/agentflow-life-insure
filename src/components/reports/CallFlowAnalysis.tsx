@@ -68,7 +68,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Call Flow" defaultOpen={false} onExport={handleExport}>
+    <ReportSection title="Call flow" defaultOpen={false} onExport={handleExport}>
       {empty ? (
         <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (

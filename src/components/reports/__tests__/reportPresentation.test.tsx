@@ -96,6 +96,16 @@ describe("accessible report panels", () => {
     expect(screen.getByText("Panel contents")).toBeVisible();
   });
 
+  it("keeps a compact header: a 40px title toggle, the meta beside it and an export named after the sentence-case title", () => {
+    render(<ReportSection title="Lead sources" meta="2 of 4 premiums known" onExport={vi.fn()}><p>Body</p></ReportSection>);
+    const toggle = screen.getByRole("button", { name: "Lead sources" });
+    expect(toggle.className).toMatch(/min-h-10/);
+    const header = toggle.closest("h3")!.parentElement!.parentElement!;
+    expect(within(header).getByText("2 of 4 premiums known")).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Export Lead sources CSV" })).toBeInTheDocument();
+    expect(within(header).queryByText("Activity")).not.toBeInTheDocument(); // the badge slot is gone
+  });
+
   it("gives repeated titles separate content IDs and supports initially closed panels", () => {
     render(<><ReportSection title="Details" defaultOpen={false}>First</ReportSection><ReportSection title="Details">Second</ReportSection></>);
     const toggles = screen.getAllByRole("button", { name: "Details" });

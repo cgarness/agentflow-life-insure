@@ -57,30 +57,30 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
     call_volume: panel("Calling trend", "volume", (v) => (
       <CallVolumeChart volume={v} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
     )),
-    conversion_funnel: panel("Disposition Breakdown", "dispositions", (d) => (
+    conversion_funnel: panel("Disposition breakdown", "dispositions", (d) => (
       <DispositionsPieChart dispositions={d} onExport={ctx.exportFor("dispositions")} />
     )),
-    communications_stats: panel("Call Summary", "summary", (s) => (
+    communications_stats: panel("Call summary", "summary", (s) => (
       <CommunicationsStats summary={s} dayCount={ctx.dayCount} onExport={ctx.exportFor("summary")} />
     )),
-    calling_heatmap: panel("Calling Heatmap", "volume", (v) => <CallingHeatmap volume={v} onExport={ctx.exportFor("volume")} />),
-    call_flow_analysis: panel("Call Flow", "volume", (v) => <CallFlowAnalysis volume={v} onExport={ctx.exportFor("volume")} />),
-    call_duration_analysis: panel("Call Duration", "dispositions", (d) => (
+    calling_heatmap: panel("Calling heatmap", "volume", (v) => <CallingHeatmap volume={v} onExport={ctx.exportFor("volume")} />),
+    call_flow_analysis: panel("Call flow", "volume", (v) => <CallFlowAnalysis volume={v} onExport={ctx.exportFor("volume")} />),
+    call_duration_analysis: panel("Call duration", "dispositions", (d) => (
       <CallDurationAnalysis dispositions={d} onExport={ctx.exportFor("dispositions")} />
     )),
-    disposition_deep_dive: panel("Disposition Deep Dive", "dispositions", (d) => (
+    disposition_deep_dive: panel("Disposition deep dive", "dispositions", (d) => (
       <DispositionDeepDive dispositions={d} onExport={ctx.exportFor("dispositions")} />
     )),
     policies_sold: panel("Production trend", "volume", (v) => (
       <PoliciesSoldChart volume={v} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
     )),
-    campaign_performance: panel("Campaign Performance", "campaigns", (c) => (
+    campaign_performance: panel("Campaign performance", "campaigns", (c) => (
       <CampaignPerformance campaigns={c} onExport={ctx.exportFor("campaigns")} />
     )),
-    lead_source_roi: panel("Lead Source Performance", "leadSources", (l) => (
+    lead_source_roi: panel("Lead sources", "leadSources", (l) => (
       <LeadSourceTable leadSources={l} onExport={ctx.exportFor("leadSources")} />
     )),
-    agent_performance_cards: panel("Agent Performance", "summary", (s) => (
+    agent_performance_cards: panel("Agent performance", "summary", (s) => (
       <AgentPerformanceCards
         summary={s}
         selectedAgentId={ctx.selectedAgentId}
@@ -89,7 +89,7 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
         onExport={ctx.exportFor("summary")}
       />
     )),
-    agent_efficiency: panel("Agent Efficiency", "summary", (s) => (
+    agent_efficiency: panel("Agent efficiency", "summary", (s) => (
       <AgentEfficiency summary={s} currentUserId={ctx.currentUserId} onExport={ctx.exportFor("summary")} />
     )),
     goal_tracking: <GoalTracking />,

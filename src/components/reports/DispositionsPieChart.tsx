@@ -96,7 +96,7 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Disposition Breakdown" onExport={handleExport}>
+    <ReportSection title="Disposition breakdown" onExport={handleExport}>
       {total === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
       ) : (

@@ -115,7 +115,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     : undefined;
 
   return (
-    <ReportSection title="Call Summary" onExport={handleExport}>
+    <ReportSection title="Call summary" onExport={handleExport}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {metrics.map((m) => (
           <StatTile key={m.label} icon={m.icon} label={m.label} value={m.value} subtitle={m.subtitle} wide={m.wide} />

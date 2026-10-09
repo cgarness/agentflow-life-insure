@@ -84,6 +84,11 @@ const choosePeriod = async (label: string) => {
   fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: label }));
   await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
 };
+/** A table row's cell texts keyed by its column header (one cell per column, tfoot included). */
+const cellsByHeader = (table: HTMLElement, row: RegExp) => {
+  const heads = Array.from(table.querySelectorAll("thead th"), (th) => th.textContent ?? "");
+  return Object.fromEntries(Array.from(within(table).getByRole("row", { name: row }).children, (cell, i) => [heads[i], cell.textContent ?? ""]));
+};
 const customizeButton = () => screen.getByRole("button", { name: "Customize layout" });
 const editorRegion = () => screen.queryByRole("region", { name: "Customize your report" });
 /** The viewer's saved layout resolves asynchronously; Customize enables once it has and sections exist. */
@@ -114,7 +119,7 @@ describe("scope states", () => {
     renderPage();
     expect(screen.getByText("You don't have access to Reports.")).toBeInTheDocument();
     expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
-    expect(screen.queryByText("Campaign Performance")).not.toBeInTheDocument();
+    expect(screen.queryByText("Campaign performance")).not.toBeInTheDocument();
   });
 
   it("an unconfigured agency time zone says so, computes nothing and offers Retry", () => {
@@ -244,7 +249,7 @@ describe("empty states name what is actually missing", () => {
     d.by_campaign = [];
     h.panels = { ...allReady(), dispositions: ready(d) };
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Disposition Deep Dive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Disposition deep dive" }));
     fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
     expect(screen.getByText("No campaign breakdown is available for the 6 outbound calls in this period.")).toBeInTheDocument();
     expect(screen.queryByText(/No dispositioned calls/)).not.toBeInTheDocument();
@@ -389,6 +394,22 @@ describe("exports", () => {
     expect(h.downloads[0].csv).toContain(`"Calls made (outbound)",19`);
   });
 
+  it("sentence-case panel titles name the CSV buttons; report names and filenames are unchanged", async () => {
+    renderPage();
+    const expected: [string, string][] = [
+      ["Export Agent performance CSV", "agent-performance-2026-06-21-to-2026-07-20.csv"],
+      ["Export Agent efficiency CSV", "agent-efficiency-2026-06-21-to-2026-07-20.csv"],
+      ["Export Campaign performance CSV", "campaign-performance-2026-06-21-to-2026-07-20.csv"],
+      ["Export Lead sources CSV", "lead-source-performance-2026-06-21-to-2026-07-20.csv"],
+      ["Export Disposition breakdown CSV", "disposition-breakdown-2026-06-21-to-2026-07-20.csv"],
+      ["Export Call summary CSV", "call-summary-2026-06-21-to-2026-07-20.csv"],
+    ];
+    for (const [button] of expected) fireEvent.click(screen.getByRole("button", { name: button }));
+    await waitFor(() => expect(h.downloads).toHaveLength(expected.length));
+    expect(h.downloads.map((d) => d.name)).toEqual(expected.map(([, file]) => file));
+    expect(screen.queryByRole("button", { name: /^Export [A-Z][a-z]+ [A-Z]/ })).not.toBeInTheDocument(); // no Title Case left
+  });
+
   it("refuses to export a report that is no longer the one on screen", () => {
     h.current = false;
     renderPage();
@@ -461,12 +482,18 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(within(screen.getByRole("dialog", { name: "Data basis" })).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
   });
 
-  it("Campaign Performance shows campaign-attributed policies and the policies with no provable campaign", () => {
+  it("Campaign performance shows campaign-attributed policies and, in its tfoot, the policies with no provable campaign", () => {
     renderPage();
     const header = screen.getByRole("columnheader", { name: "Policies (campaign-attributed)" });
     const table = header.closest("table")!;
     expect(within(table).queryByRole("columnheader", { name: "Policies sold" })).not.toBeInTheDocument();
-    expect(screen.getByText(/3 of 5 policies sold in this\s+period have unavailable campaign attribution/)).toBeInTheDocument();
+    const unavailable = cellsByHeader(table, /^Attribution unavailable/);
+    expect(within(table).getByRole("row", { name: /^Attribution unavailable/ }).closest("tfoot")).not.toBeNull();
+    // 2 campaign-attributed + 3 unavailable = the 5 policies sold in the period, so the partition reconciles on screen.
+    expect(unavailable["Policies (campaign-attributed)"]).toBe("3");
+    expect(cellsByHeader(table, /^Spring Team/)["Policies (campaign-attributed)"]).toBe("2");
+    expect(unavailable["Calls made"]).toBe("13");
+    expect(screen.queryByText(/policies sold in this\s+period have unavailable campaign attribution/)).not.toBeInTheDocument();
     expect(screen.getByText(/not complete campaign sales attribution and not proof the campaign caused the sale/)).toBeInTheDocument();
   });
 
@@ -536,7 +563,9 @@ describe("v2 quality and response integrity", () => {
   });
   it("shows known premium and preserves unknown coverage in CSV", async () => {
     renderPage();
-    expect(screen.getByText(/Known annual premium in that subset:/)).toBeInTheDocument();
+    const campaignTable = screen.getByRole("region", { name: "Campaign performance table" }).querySelector("table")!;
+    const subset = cellsByHeader(campaignTable, /^Attribution unavailable/); // the known premium of that subset is a tfoot cell
+    expect([subset["Known annual premium"], subset["Known / total policies"]]).toEqual(["$0.00", "3/3"]);
     const quality = within(openDataBasis()).getByRole("region", { name: "Data quality in this summary" });
     expect(within(quality).getByText("Known annual premium $1,481.40; 4/5 policies known, 1 unknown (0 invalid, 0 ambiguous legacy zero); 0 missing stable identities.")).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
