@@ -21,7 +21,7 @@ Chris asked to prioritize Google verification and authorized starting the work n
 6. src/components/marketing/MarketingFooter.tsx — real privacy/terms links.
 7. src/components/marketing/GoogleIntegrationSummary.tsx — brief public explanation of optional Gmail/Calendar use.
 8. src/pages/LandingPage.tsx — mount the summary before the footer.
-9. docs/plans/2026-10-09-google-verification/ — this plan, submission packet and verification record.
+9. docs/plans/2026-10-09-google-verification/ — this plan, submission packet, readable policy review and verification record.
 10. implementation_plan.md — append a scoped pointer without overwriting other plans.
 11. WORK_LOG.md — newest-first preparation/verification entry.
 

@@ -29,7 +29,7 @@ The last screenshot showed the right application and callback domains entered, b
 
 ## 2. Public website release
 
-This branch adds public `/privacy` and `/terms` routes, real footer links, and a homepage explanation of Gmail and Calendar. The exact proposed copy is `src/content/legal.ts`. Review pages explicitly show **Pending publication approval** until Chris approves the copy.
+This branch adds public `/privacy` and `/terms` routes, real footer links, and a homepage explanation of Gmail and Calendar. The exact proposed copy is `src/content/legal.ts`, also rendered as readable Markdown in [policy-review.md](policy-review.md). Review pages explicitly show **Pending publication approval** until Chris approves the copy.
 
 The copy reuses previously approved operator and retention decisions. It accurately discloses background Gmail import, unmatched messages, agency visibility, retained history after disconnect, and a support deletion channel. It does not claim deployed AES token encryption, automated erasure, a security assessment, or Google approval.
 
