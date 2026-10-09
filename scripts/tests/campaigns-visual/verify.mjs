@@ -34,7 +34,7 @@ async function noOverflow(page, label) {
   assert.ok(scrollWidth <= clientWidth, `${label}: page overflows horizontally (${scrollWidth} > ${clientWidth})`);
 }
 
-// Radix popovers/menus fade in; capture them only once the open animation has finished.
+// Popovers, menus and chevrons animate; capture them only once every animation has finished.
 const settled = (page) => page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
 
 async function check(name, fn) {
@@ -82,6 +82,7 @@ await check('desktop expanded row, columns editor, overflow menu', async () => {
   await chevron.click();
   assert.equal(await page.getByRole('button', { name: /Hide details for Final Expense/ }).getAttribute('aria-expanded'), 'true');
   assert.equal(new URL(page.url()).search.includes('persona=admin'), true, 'expanding does not navigate');
+  await settled(page);
   await page.screenshot({ path: `${output}/desktop-expanded.png`, fullPage: true });
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('checkbox', { name: 'Show Contacted' }).waitFor();
@@ -122,6 +123,7 @@ await check('mobile stacked expanded', async () => {
   const { context, page, errors } = await open('persona=admin', 390, 844);
   await page.getByRole('button', { name: /Show details for Final Expense/ }).click();
   await noOverflow(page, 'mobile expanded');
+  await settled(page);
   await page.screenshot({ path: `${output}/mobile-expanded.png`, fullPage: true });
   assert.deepEqual(errors, []);
   await context.close();

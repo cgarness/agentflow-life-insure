@@ -1,6 +1,8 @@
-## 2026-10-09 — PLAN (rev 2), AWAITING CHRIS'S APPROVAL: Campaigns page table redesign, Phase 1
+## 2026-10-09 — APPROVED and BUILT LOCALLY (not pushed): Campaigns page table redesign, Phase 1
 
-**Status:** Phase 0 is complete. No application file has been edited, no backend command has been run, and nothing has been pushed. The only repository change is this section of `implementation_plan.md`.
+**Current status:** Chris approved rev 2 with D1-B and D2–D9 as recommended. Phase 1 is built and verified locally on `feature/campaigns-table-phase1-20261009`. Nothing is pushed, merged or deployed, and production was only read (the §9 preflight). §14 records what was built and where it differs from this plan. The text below §14's heading is the approved plan, kept as written.
+
+**Status when submitted for approval:** Phase 0 is complete. No application file has been edited, no backend command has been run, and nothing has been pushed. The only repository change is this section of `implementation_plan.md`.
 
 **Base and branch:** base is `main` at `8d53531`. The proposed branch is `feature/campaigns-table-phase1-20261009`. Push, PR, merge and deploy each need separate approval.
 
@@ -489,6 +491,37 @@ There is no schema change.
 6. Profiles whose role string is "Super Admin" never pass `PageGuard` (`DB_ROLE_TO_KEY` has no entry, so permissions never load).
 7. `get_campaign_card_stats` and `get_campaign_last_dialed` grant `anon` EXECUTE in the baseline. Hardening was deferred by Chris.
 8. The recent-call-guard bullet of `AGENT_RULES` #15 says the queue metrics RPC "has not yet been adjusted", but `20261003043122` now mirrors it.
+
+### 14. As built (2026-10-09)
+
+**Preflight (read-only, production).** The live bodies of `get_campaign_card_stats` and `get_campaign_last_dialed` match the baseline. The `user_preferences` `set_updated_at` trigger exists. `authenticator` preloads `safeupdate`, and every update here filters on `user_id`. No custom `max_rows` is set. Nothing was written.
+
+**Differences from §7, kept lean per approval condition 3:**
+- Small single-use components were folded in:
+  - `CampaignsHeader` → `CampaignsPageContent`;
+  - `CampaignSortHeader` → `CampaignsTable`;
+  - `CampaignStackedRow` → `CampaignStackedList`;
+  - `CampaignBadges`, `CampaignLeadProgress`, `CampaignMetricValue` and `CampaignAgentsCell` → `CampaignCells.tsx`.
+- `useCampaignsTableState` was not needed; filter, sort and expansion state live in `CampaignsPageContent`.
+- `CampaignAvatarStack` crushed the initials at this row height, so `CampaignCells` has its own avatar stack.
+- `get_campaign_card_stats` is called through the typed client; no `any` cast.
+- The harness aliases `usePermissions` instead of stubbing `role_permissions`.
+- Added `src/hooks/__tests__/useCampaignsTablePrefs.test.tsx`.
+
+**Fixes from the adversarial review, each covered by a regression test or browser check:**
+- Revisits refetch the list (`refetchOnMount: "always"`) and paint the owner's last confirmed column layout from the query cache.
+- Last dialed failures show a Retry notice.
+- An unsaved Columns draft is discarded below 1280px.
+- The Campaign column truncates, so the default columns fit at 1280px without hiding Converted under the sticky Actions column. Optional columns scroll inside the table.
+- Stacked progress text wraps instead of running under Open.
+- Focus returns after Duplicate, Columns Retry and keyboard reordering.
+- The no-org state never sends an unscoped read.
+
+**Visual reference.** The previously approved dark table mockup was not found in the repository, docs or artifacts. The build follows the closest approved precedent, the dark Dialer campaign table. Chris should confirm the result against the mockup he has.
+
+**AGENT_RULES.** Planned as a #17 amendment only. It also gained a short "Campaigns table invariant — October 9, 2026" section, because the `campaigns_table` preference key and its write rules are a new invariant (§9 of AGENT_RULES).
+
+**Verification.** Results are in the newest WORK_LOG entry.
 
 ---
 

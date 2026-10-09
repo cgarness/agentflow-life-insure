@@ -1,3 +1,51 @@
+## 2026-10-09 — Campaigns table Phase 1 built and verified locally (not pushed)
+
+**Status:** Chris approved the rev 2 plan with D1-B and D2–D9 at their recommendations. Phase 1 is built on `feature/campaigns-table-phase1-20261009`, base `main` `8d53531`. It is committed locally only: no push, PR, merge or deploy. Push and release each need Chris's separate approval.
+
+**What changed.** The card grid at `/campaigns` is replaced by a dark, full-width management table.
+- **Rows:** compact, with a lead progress bar (called / total), type and status pills, and agent avatars for leadership; other roles see counts. Open Pool rows read "Open to agency".
+- **Expandable details:** stored totals, trusted metrics, Last dialed, dialer settings, assignees, description and tags.
+- **Toolbar:** search, type, status, sort with direction, and Reset.
+- **Columns menu:** show/hide and up/down reorder, saved only on Save.
+- **Layout:** a sticky Actions column (Open, plus Duplicate in the overflow menu). Exactly one layout is mounted: the table at 1280px and wider, stacked rows below.
+- **States:** loading, error, empty and filtered-empty are separate. Missing metrics show "—" with a reason, never 0.
+- **Preserved:** permissions, Create (`PermissionGate`, Create Campaign modal unchanged), the agency lock (now also on Duplicate and the empty-state button) and the Duplicate payload.
+- **Not touched:** queue behavior, telemetry and telephony.
+
+**Data.**
+- Campaigns are read by `organization_id` under RLS in pages of 500, with a visible error above 10,000 rows. Management scope is applied at render.
+- `get_campaign_card_stats` is read in chunks of 200 ids and fails as a whole. Rows it omits use stored `total_leads`/`leads_called` (D1-B).
+- `get_campaign_last_dialed` drives an optional column.
+- Column layout lives in `user_preferences.settings.campaigns_table`, namespaced by org, with compare-and-set writes. Loading never writes.
+- Query keys are scoped to org and user. Placeholder data is same-owner only, and requests are cancelled on identity change.
+
+**Files.**
+- Modified: `src/pages/Campaigns.tsx` (now a 17-line identity shell), `src/lib/campaign-card-stats.ts`, `implementation_plan.md` (§14 as built), `AGENT_RULES.md` (#17 amendment pointer plus the "Campaigns table invariant — October 9, 2026" section).
+- New components in `src/components/campaigns/`: `CampaignsPageContent`, `CampaignsToolbar`, `CampaignsTable`, `CampaignTableRow`, `CampaignStackedList`, `CampaignRowDetails`, `CampaignCells`, `CampaignRowActions`, `CampaignColumnsMenu`, `CampaignsListStates`, `DuplicateCampaignDialog`.
+- New logic: `src/lib/campaigns-table/{model,columns,prefs,queries}.ts`; `src/hooks/useCampaignsTableData.ts`, `useCampaignsTablePrefs.ts`, `useMinWidth.ts`.
+- New tests: 4 in `src/lib/__tests__/`, 4 in `src/components/campaigns/__tests__/`, `src/hooks/__tests__/useCampaignsTablePrefs.test.tsx` and `src/pages/__tests__/campaignsPage.test.tsx`.
+- Harness: `scripts/tests/campaigns-visual/` (synthetic data, isolated Vite entry, never in the production build).
+
+**Verification (local).**
+- **New suites:** 10 files, 484 tests, all passing.
+- **Full suite** (dummy env, TZ=UTC): 4,888 pass / 1 fail / 34 skipped, against the base's 4,404 / 1 / 34. The one failure is the same pre-existing `recordingRetentionVoicemail` byte-identity test (its git object `0707038` is missing in this clone). That is +484 tests and 0 regressions.
+- **Type check:** `tsc -p tsconfig.app.json` reports 85 diagnostics, equal to the base, none in touched files. Root `tsc --noEmit` exits 0.
+- **Lint and build:** ESLint `--max-warnings 0` is clean on every touched TS/TSX file. `npm run build` passes (its chunk-size warning is pre-existing). `git diff --check` is clean.
+- **Browser** (Chromium, real components over the synthetic transport): 27/27 checks pass.
+  - Layout at 1440/1280/1024/768/390/360/320, with expanded and collapsed sidebars, in dark and light: no page overflow, default columns fit at 1280, no stacked overlap.
+  - Expanded row, Columns editor, overflow menu.
+  - Preferences persist across reload, with only a read on load.
+  - Agent persona; empty, error, stats-error and loading states; agency lock.
+  - No external requests.
+- **Scope audit:** no change to Dialer, telephony, queue, SQL, Edge, `App.tsx`, `CampaignDetail` or `CreateCampaignModal`. Stored `leads_contacted`/`leads_converted` are never read.
+
+**Migrations/deploys:** none. Production was only read for the approved preflight (function bodies, the `user_preferences` trigger, `safeupdate`, `max_rows`).
+
+**Blockers and limits.**
+- The previously approved dark table mockup was not found in the repo, docs or artifacts. The build follows the dark Dialer campaign table; Chris should compare it with his mockup.
+- No authenticated production or preview walkthrough was possible. Screenshots come from the isolated harness with synthetic data.
+- The pre-existing findings in plan §13 remain out of scope.
+
 ## 2026-10-08 — Incoming forwarding fix deployed as inbound v48
 
 Chris authorized continuation at 13:39 PDT after confirming Alexa found the forwarding save control. Deployed the complete reviewed ten-file `twilio-voice-inbound` bundle to production at 2026-10-08T20:56:08.733Z; version **48**, **ACTIVE**, `verify_jwt=false`, bundle fingerprint `a0a459768b340096c36f119baeff08de7028fa3e7f5e218daddd5a19c79b6b62`. Immediate readback matched all ten candidate source files byte-for-byte. Nine files are identical to pre-release v47; only `stages.ts` changes runtime behavior. The existing voicemail callback repair remains intact.
