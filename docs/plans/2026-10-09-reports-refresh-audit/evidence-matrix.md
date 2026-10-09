@@ -22,6 +22,8 @@
 
 ## Metric families
 
+**Rev 2 additions:** R-5 is in row 26. Appendix D has the completeness checks G01–G12.
+
 Representative values are W1, agency scope, no agent filter, unless noted. Every family was also checked in W2–W5 (Appendix B).
 
 | # | UI metric (surfaces) | RPC → payload | Source tables / fields | Formula | Date field · zone | Attribution | Exclusions · unknowns | Expected | Actual | Status |
@@ -33,7 +35,7 @@ Representative values are W1, agency scope, no agent filter, unless noted. Every
 | 5 | Talk time; avg talk per dial; talk share of session | `talk_time_seconds`, `inbound_talk_seconds` | `calls.duration` (sole writer twilio-voice-status) | SUM(duration), outbound | same | agent | NULL counted as 0 (no NULL rows in production) | 39,893 s / 21.8 | 39,893 s / 21.8 | **Verified** |
 | 6 | Duration buckets and provenance (Call duration panel, Data basis) | `quality.duration`, histogram | `calls.duration, duration_source, duration_conflict` | half-open buckets 0–30 s / 30–60 / 1–2 m / 2–5 m / 5 m+; counts of unknown / conflict / estimate | same | — | legacy unknown disclosed, not excluded | 1,548/196/56/19/14; 1,263 unknown, 484 conflict, 0 estimate | same | **Verified**; estimate path **Unverified** (0 rows) |
 | 7 | Dialer session time | `session_seconds`, `by_agent[].session_seconds` | `dialer_sessions.started_at, last_heartbeat_at, ended_at, status` | per agent: union of spans clipped to [window ∩ ≤ now]; stale active spans capped at heartbeat after 3 min; floor seconds | span overlap with window | session agent | ended sessions trusted through `ended_at` (D-1) | 95,862 s | 95,862 s | **Verified** under the contract text; D-1 owner decision (6,753 s after last heartbeat in W1) |
-| 8 | Session quality note ("N overlapping rows; S duplicate seconds removed") | `quality.sessions.overlapping_rows, overlap_seconds_removed` | same | floor(sum raw spans) − Σ per-agent floor(union) | same | — | — | 0 overlapping, 0 s | 0 overlapping, **3 s** | **Incorrect** (R-3; W2 4, W3 2, W4 1, W5 5) |
+| 8 | Session quality note ("N overlapping rows; S duplicate seconds removed") | `quality.sessions.overlapping_rows, overlap_seconds_removed` | same | floor(sum raw spans) − Σ per-agent floor(union) | same | — | — | 0 overlapping, 0 s | 0 overlapping, **3 s** | **Incorrect** (R-3; W2 4, W3 2, W4 1, W5 5). The proposed server expression gives 0 in W1–W5 (read-only SELECT on production). |
 | 9 | Session-matched / unmatched calls; calls per session hour | `session_matched_calls`, `session_unmatched_calls`, `session_matched_*` | calls + clipped session spans | matched = outbound call inside a same-agent AND same-campaign session span (half-open); unmatched = remainder, still in Calls made | call `created_at` | agent + campaign | calls without campaign or session stay unmatched | 1,118 / 715 | 1,118 / 715 | **Verified** |
 | 10 | Bookings created (all types): strip, Period totals, agent rows | `appointments_set`, `quality.bookings` | `appointments.created_at, created_by, user_id, booking_kind` | count by `created_at`; credit `COALESCE(created_by,user_id)`; no status filter | `appointments.created_at` · agency | setter (not the assignee) | reviewed duplicate map only (0 rows) | 25 (5 appt / 5 callback / 15 unknown kind) | 25 | **Verified**; cancellation-survival **Unverified live** (no cancelled rows; no status filter in SQL [Static]) |
 | 11 | Callback dispositions; DNC dispositions per 100 calls | `callback_calls`, `dnc_calls` | calls + disposition flags | outbound calls whose disposition is a callback / DNC scheduler | call `created_at` | agent | separate from bookings | 6 / 17 | 6 / 17 | **Verified** |
@@ -46,10 +48,11 @@ Representative values are W1, agency scope, no agent filter, unless noted. Every
 | 18 | Disposition breakdown and Deep Dive | disposition_v2 | calls + dispositions | count per disposition (by id, else name), "(No disposition)" | call `created_at` | agent / campaign (visible only) | Other grouping is browser-side | W1 sum 1,833 | same | **Verified** |
 | 19 | Hourly / day-of-week / heatmap / weekly / monthly regrouping | volume `by_date`, `by_hour`, `by_day_of_week`, `heatmap`; browser Monday weeks | — | server buckets in the agency zone; browser groups daily rows into ISO Monday weeks and months | agency zone | — | — | W3 weekly 295/109/1,014/2,148/570 | same | **Verified** (equal to `date_trunc('week')` in 3 browser zones) |
 | 20 | Dials per policy sold; talk minutes per policy | browser | — | calls ÷ policies; organization scope with no filter only | — | — | null at 0 | — | — | **Verified** [Static] |
-| 21 | Dials per appointment | browser `ratio(calls_made, appointments_set)` | — | calls ÷ **all** bookings | — | — | — | label should say bookings | 73.3 (W1) | **Incorrect label** (R-1) |
+| 21 | Dials per appointment → **Dials per booking** (approved) | browser `ratio(calls_made, appointments_set)` | — | calls ÷ **all** bookings | — | — | — | label should say bookings | 73.3 (W1) | **Incorrect label** (R-1; fix approved) |
 | 22 | Campaign CSV "Known / total policies" | CSV text `k/n` | — | — | — | — | — | numeric or unambiguous text | `4/4` (date-coerced in spreadsheets) | **Incorrect format** (R-2) |
 | 23 | Scope, agent filter, exports permission | scope_v2 | `profiles`, `role_permissions`, `resolve_downline_ids` | Admin home org; TL personal/team; Agent personal; filter only narrows | — | — | 42501 outside scope; 55000 without zone; 22023 range | per contract | per contract | **Verified** (25 access cases) |
 | 24 | Period window and "today" | `window.*`, scope `today` | `company_settings.timezone` | half-open local days; DST 23/25 h; 366-day maximum | — | — | — | 2026-03-08 23 h; 2026-11-01 25 h; today 2026-10-08 | same | **Verified**; DST-day calls **Unverified** (none exist) |
+| 26 | Call Duration average per disposition (bar label, tooltip, insight); Avg talk time per dial | disposition_v2 `by_disposition[].avg_duration_seconds`; summary `avg_talk_per_dial_seconds` | calls.duration | server `round(avg,1)`; browser `Math.round` again | call `created_at` | — | — | exact mean 152.487 s → "2:32" | "2:33" (TL team, Last 30) | **Incorrect display** (R-5) |
 | 25 | Freshness | each payload `as_of` | — | independent per panel | — | — | not a cross-panel snapshot | — | — | **Verified** [Static]; plan labels it "Summary as of" |
 
 ### Cross-panel and CSV
@@ -515,3 +518,307 @@ Note: the View As row above was later **refuted** by two adversarial verifiers. 
 | Client range validation matches server | reversed/invalid/over-366 blocked before request | validateRange order/too_long; inclusive dayCount matches the server | **pass** | static + local synthetic |
 | Today stays current across agency midnight | presets and stats roll to the new agency day | scope today fixed until Refresh | **fail** | static |
 | View As sends no Reports request | no RPC while impersonating | viewerId null makes the key null, so no fetch | **pass** | static |
+
+## Appendix D — Completeness checks (critics and gap closers, 2026-10-09)
+
+Two completeness critics compared the Phase 1 evidence with the owner's checklist. Every closable gap was then closed with read-only production evidence ([DB-sim] or [Indep]) and/or local synthetic PostgreSQL 16 fixtures. Summary:
+
+| Gap | Question | Outcome |
+|---|---|---|
+| G01 | Historical duplicate candidates | all 277 calls and 12 bookings still present and counted; row hashes unchanged since the 2026-10-04 freeze; 0 new candidates after it; 0 mismatches vs RPC in 4 windows × agency/agent/campaign. Disclosed only generically (no count). |
+| G02 | Open-day presets (Today, Yesterday, Last 7, This Month, Last 30) | expected = actual for Admin, Agent and Team Leader; stale-heartbeat cap exercised on 3 live stale sessions; the as-of clip was proven locally. |
+| G03 | Browser-derived metrics and all CSVs on live payloads | 1,332/1,333 values matched; 140/140 CSV files byte-identical to an independent build. The 1 mismatch is R-5 (Call Duration double rounding). |
+| G06 | Dialer header vs Reports | every campaign × agent-local-day cell matches exactly; per-agent totals decompose; differences are attributed to zone, campaign scope, stale cap and policy basis. Found X-1 (Dialer header ticker across midnight; Dialer only). |
+| G07 | Agent and Team Leader campaign/lead-source/volume partitions | every row matches an independent visibility predicate; a live restricted case (Agent d396d777) withholds the hidden campaign everywhere. |
+| G08 | Reports vs Leaderboard for reassignment, premium edit after snapshot, removal, deletion, additional policies, legacy events and month-crossing dates | 16/16 stages expected = actual on local synthetic data, using the production writers and readers (34/35 bodies md5-identical to production). |
+| G09 | Booking rules (setter credit, status independence, user_id fallback, reviewed mapping, callbacks vs dispositions) | 29/29 local checks; production live counts match. |
+| G10 | DST, Havana and duration edge cases | 104/104 local checks; all 6 production midnight-crossing sessions clip correctly (2 one-second differences come from flooring each window separately). |
+| G11 | Contradictory rows reclassified; campaign lead identity quantified (W2 183 calls, W3 and Last 30 20 calls); owner decision, recommend keeping the guard. |  |
+| G12 | Sessions with no campaign | 0 s in W1, 49 s in Last 30, 144,599 s (17.9%) in W5; owner decision, recommend keeping the denominator and stating it. |
+
+Not closable from this environment: the hosted signed-in walkthrough (G04; see plan §9.4). D-1, late-ended sessions, was decided by Chris: preserve the current calculation.
+
+
+### D.G01 rows
+
+| metric | window | scope | expected | actual | status | method |
+|---|---|---|---|---|---|---|
+| Manifest call candidates present | frozen 2026-10-04T06:23:07Z | agency | 277 | 277 | Verified: 277 present, in org, outbound; 0 mapped in performance_duplicate_rows | read-only SELECT keyed by manifest UUIDs (paste fp 873b44c8... local=server) |
+| Manifest call row_hash unchanged | frozen 2026-10-04T06:23:07Z | agency | 009babebb9a494ed0ac17f5dc7fe7600 | 009babebb9a494ed0ac17f5dc7fe7600 | Verified 277/277 unchanged over the pre-freeze column set; 7 columns added by 20261005161632 hold defaults only | md5 fingerprint of id:md5(to_jsonb(c) minus post-freeze cols), TimeZone=UTC, vs Python over manifest |
+| Manifest booking candidates row_hash/payload_hash unchanged | frozen 2026-10-04T06:23:07Z | agency | 12 | 12 | Verified 12/12 present; 12/12 row_hash and payload_hash equal after removing 3 post-freeze columns; booking_kind NULL on all 12 | read-only SELECT keyed by manifest UUIDs |
+| Independent re-derivation of the candidate set | created_at < freeze | agency | 277; reasons 260/234/10/1; 9 exact booking copies | 277 (same fp); 260/234/10/1 (same per-reason md5); 9 (same fp) | Verified identical | reconcile.sql predicates re-run read-only |
+| New suspect rows after the freeze | 2026-10-04T06:23Z..2026-10-09T05:52Z | agency | unknown | 0 of 805 outbound calls; 0 exact copies among 13 bookings | Verified: the manifest is complete for all reviewed windows | same predicates, created_at >= freeze |
+| Payload disclosure of unreviewed candidates | W1, W3, Last 30, W5 | agency (summary_v2, campaign_v2) | candidate count | quality.duplicates excluded 0/0, basis reviewed_mappings_only; no candidate field | Not disclosed quantitatively | database-role simulation (Chris) |
+| UI/CSV disclosure of unreviewed candidates | all | Reports page + every CSV | explicit marking | Generic sentence 'Unreviewed historical candidates remain included.' in the collapsed data-quality section and as a CSV Note row; no N or % | Partially disclosed (qualitative, per the approved design); the gap text claiming no note is inaccurate | code read at 8d53531 (reports-integrity-text.ts:10, ReportDataQuality.tsx, Reports.tsx:86,159) + dist bundle grep |
+| Calls made | W1 2026-10-01..10-07 | agency | 1833 | 1833 | exp=act; Included per contract; uncertified (20 candidates, 1.1%) | database-role sim (Chris) vs source SELECT keyed by manifest UUIDs |
+| Contacted (full CASE) | W1 2026-10-01..10-07 | agency | 135 | 135 | exp=act; Included per contract; uncertified (0 candidates, 0.0%) | database-role sim (Chris) vs source SELECT |
+| Talk seconds | W1 2026-10-01..10-07 | agency | 39893 | 39893 | exp=act; Included per contract; uncertified (20 candidate calls contribute 4 s, 0.010%) | database-role sim (Chris) vs source SELECT |
+| Bookings created | W1 2026-10-01..10-07 | agency | 25 | 25 | exp=act; Included per contract; uncertified (4 candidates, 16.0%; 2 exact excess copies) | database-role sim (Chris) vs source SELECT |
+| Calls made | W3 2026-09-08..10-07 | agency | 4136 | 4136 | exp=act; Included per contract; uncertified (112 candidates, 2.7%) | database-role sim (Chris) vs source SELECT |
+| Contacted (full CASE) | W3 2026-09-08..10-07 | agency | 310 | 310 | exp=act; Included per contract; uncertified (8 candidates, 2.6%) | database-role sim (Chris) vs source SELECT |
+| Bookings created | W3 2026-09-08..10-07 | agency | 60 | 60 | exp=act; Included per contract; uncertified (6 candidates, 10.0%; 3 exact excess) | database-role sim (Chris) vs source SELECT |
+| Calls made | Last 30 2026-09-09..10-08 | agency | 4364 | 4364 | exp=act; Included per contract; uncertified (112 candidates, 2.6%; missing_provider_id 95, negative_elapsed 84, duplicate_provider_id 10 (5 excess), old_ringing 1) | database-role sim (Chris) vs source SELECT |
+| Contacted (full CASE) | Last 30 2026-09-09..10-08 | agency | 323 | 323 | exp=act; Included per contract; uncertified (8 candidates, 2.5%) | database-role sim (Chris) vs source SELECT |
+| Talk seconds | Last 30 2026-09-09..10-08 | agency | 101043 | 101043 | exp=act; Included per contract; uncertified (112 candidate calls contribute 4 s, 0.004%) | database-role sim (Chris) vs source SELECT |
+| Bookings created | Last 30 2026-09-09..10-08 | agency | 63 | 63 | exp=act; Included per contract; uncertified (6 candidates, 9.5%; 3 exact excess) | database-role sim (Chris) vs source SELECT |
+| Calls made | W5 2025-10-08..2026-10-07 | agency | 5639 | 5639 | exp=act; Included per contract; uncertified (277 candidates, 4.9%) | database-role sim (Chris) vs source SELECT |
+| Contacted (full CASE) | W5 2025-10-08..2026-10-07 | agency | 452 | 452 | exp=act; Included per contract; uncertified (60 candidates, 13.3%); contact rate 8.0% would read 7.3% without candidates (sensitivity only) | database-role sim (Chris) vs source SELECT |
+| Bookings created | W5 2025-10-08..2026-10-07 | agency | 99 | 99 | exp=act; Included per contract; uncertified (12 candidates, 12.1%; 5 exact excess) | database-role sim (Chris) vs source SELECT |
+| Dials per appointment (client-derived) | Last 30 2026-09-09..10-08 | agency | 69.3 | 69.3 | Included per contract; uncertified (bookings 6 candidates, 9.5%; calls 112, 2.6%); 72.7 without the 3 exact excess copies (sensitivity only) | derived calls_made/appointments_set |
+| Dials per appointment (client-derived) | W1 2026-10-01..10-07 | agency | 73.3 | 73.3 | Included per contract; uncertified (bookings 4 candidates, 16.0%); 79.7 without the 2 exact excess copies (sensitivity only) | derived calls_made/appointments_set |
+| Bookings created | W1 2026-10-01..10-07 | agent e5c4ee04-a792-47ce-ad18-953777f6d1d9 (Will) | 9 | 9 | exp=act; Included per contract; uncertified (4 candidates, 44.4%; 2 exact excess); Dials per appointment 76.8, or 98.7 without the excess copies | database-role sim (Chris) vs source SELECT |
+| Calls made / Contacted / Bookings | Last 30 2026-09-09..10-08 | agent 7c692e64-fbbc-4c7a-bcbf-149a6476c520 (Alexa) | 818 / 51 / 40 | 818 / 51 / 40 | exp=act; Included per contract; uncertified (calls 63, 7.7%; contacted 7, 13.7%; bookings 2, 5.0%) | database-role sim (Chris) vs source SELECT |
+| Contacted (full CASE) | W5 2025-10-08..2026-10-07 | agent 7c692e64 (Alexa) / ecf2bb91 (Chris) / 5f952f0d / 86ca95f2 | 118 / 30 / 3 / 5 | 118 / 30 / 3 / 5 | exp=act; Included per contract; uncertified (34, 28.8% / 17, 56.7% / 3, 100% / 5, 100%) | database-role sim (Chris) vs source SELECT |
+| Calls made | W1 2026-10-01..10-07 | agent d396d777-12a1-4434-bca9-df2f97cf77af | 102 | 102 | exp=act; Included per contract; uncertified (14 candidates, 13.7%; includes 2 duplicate-SID rows (1 excess) and the old_ringing row) | database-role sim (Chris) vs source SELECT |
+| Calls made | W1 2026-10-01..10-07 | agent 4ef505e0-7520-4a7a-a622-095914ba40c1 | 867 | 867 | exp=act; Included per contract; uncertified (6 candidates, 0.7%) | database-role sim (Chris) vs source SELECT |
+| Campaign calls made | W1 2026-10-01..10-07 | campaigns 03bef150 / e6d957a3 / acb108ab / cb37794e | 526 / 20 / 298 / 162 | 526 / 20 / 298 / 162 | exp=act; Included per contract; uncertified (8, 1.5% / 5, 25.0% / 5, 1.7% / 2, 1.2%); 0 in attribution-unavailable | database-role sim campaign_v2 vs source SELECT |
+| Campaign calls made / contacted | Last 30 2026-09-09..10-08 | campaigns 8bbb5370 / 2718e001 / 3a39462e / 03bef150 | 186/5, 67/4, 48/5, 1093/71 | 186/5, 67/4, 48/5, 1093/71 | exp=act; Included per contract; uncertified (calls 36 19.4%, 16 23.9%, 8 16.7%, 25 2.3%; contacted 3, 1, 2, 0) | database-role sim campaign_v2 vs source SELECT |
+| Partition check | W1, W3, Last 30, W5 | Σ agents and Σ campaigns + unavailable vs agency | equal | equal for calls, contacted, talk, candidates, bookings | Verified | q_main.result.json arithmetic |
+
+### D.G02 rows
+
+| metric | window | scope | expected | actual | status | method |
+|---|---|---|---|---|---|---|
+| session_seconds (total + every by_agent row) | Today 2026-10-08 | agency (Chris) | 19757 (4ef505e0 17857, 7c692e64 586, ecf2bb91 1314, others 0) | 19757 (same per agent) | Verified | database-role simulation vs source-table gaps-and-islands, as_of pinned |
+| session_seconds | Yesterday 2026-10-07 | agency (Chris) | 5465 (4ef505e0 5130, 7c692e64 335) | 5465 (same) | Verified | database-role simulation vs source tables |
+| session_seconds | Last 7 2026-10-02..10-08 | agency (Chris) | 71569 | 71569 (per agent equal) | Verified | database-role simulation vs source tables |
+| session_seconds | This Month 2026-10-01..10-08 | agency (Chris) | 115620 | 115620 (per agent equal) | Verified | database-role simulation vs source tables |
+| session_seconds | Last 30 2026-09-09..10-08 | agency (Chris) | 412671 (7 agents 142543/124371/71/5479/137206/2776/225) | 412671 (same per agent) | Verified | database-role simulation vs source tables (no longer only Σ by_agent) |
+| session matched/unmatched; matched contacted/talk | Today | agency (Chris) | 38/197; 2/227 | 38/197; 2/227 | Verified | database-role simulation vs source tables |
+| session matched/unmatched; matched contacted/talk | Yesterday | agency (Chris) | 72/213; 3/871 | 72/213; 3/871 | Verified | database-role simulation vs source tables |
+| session matched/unmatched; matched contacted/talk | Last 7 | agency (Chris) | 598/709; 45/8146 | 598/709; 45/8146 | Verified | database-role simulation vs source tables |
+| session matched/unmatched; matched contacted/talk | This Month | agency (Chris) | 1156/912; 75/13523 | 1156/912; 75/13523 | Verified | database-role simulation vs source tables |
+| session matched/unmatched; matched contacted/talk | Last 30 | agency (Chris) | 2451/1913; 132/26437 | 2451/1913; 132/26437 | Verified | database-role simulation vs source tables |
+| summary totals calls/contacted/inbound/talk/bookings | Today | agency (Chris) | 235/13/6/7862/3 | 235/13/6/7862/3 | Verified | database-role simulation vs source tables |
+| summary totals calls/contacted/inbound/talk/bookings | Yesterday | agency (Chris) | 285/15/5/12009/3 | 285/15/5/12009/3 | Verified | database-role simulation vs source tables |
+| summary totals calls/contacted/inbound/talk/bookings | Last 7 | agency (Chris) | 1307/94/34/36305/18 | 1307/94/34/36305/18 | Verified | database-role simulation vs source tables |
+| summary totals calls/contacted/inbound/talk/bookings | This Month | agency (Chris) | 2068/148/55/47755/28 | 2068/148/55/47755/28 | Verified | database-role simulation vs source tables |
+| summary totals calls/contacted/inbound/talk/bookings | Last 30 | agency (Chris) | 4364/323/121/101043/63 | 4364/323/121/101043/63 | Verified | database-role simulation vs source tables |
+| volume_v2 by_date[2026-10-08] calls/contacted/inbound/talk | Today, Last 7, This Month, Last 30 | agency (Chris) | 235/13/6/7862 | 235/13/6/7862 in all four payloads; Σ by_date = summary totals in all 5 windows | Verified | database-role simulation vs source tables |
+| quality.sessions.stale_capped (assessed / with in-window seconds) | Today / Last 7 / This Month / Last 30 | agency (Chris) | assessed 5/5/5/5 (in-window 3/3/3/4) | 5/5/5/5 | Explained (designed 'assessed' count) | database-role simulation vs source tables |
+| quality.sessions.stale_capped | Yesterday | agency (Chris) | assessed 2 (9e58d2ea, 21393721; 0 in-window seconds) | 2 | Explained (designed) | database-role simulation vs source tables |
+| quality.sessions.missing_evidence / overlapping_rows | all 5 windows | agency, personal, team | 0 / 0 | 0 / 0 | Verified | database-role simulation vs source tables |
+| quality.sessions.overlap_seconds_removed | Today / Yesterday / Last 7 / This Month / Last 30 | agency (Chris) | 0 true overlap (floor residue 0/1/1/3/4) | 0/1/1/3/4 | Incorrect (known recon R1 disclosure defect, not new) | database-role simulation vs source tables |
+| stale heartbeat cap applied | Today | agency (Chris) | spans of 4ef9b883, dfe47bf2, 79656b39 end at their heartbeat; cap removes 262171 s (about 97,493 s from the 10-08 sessions) | session_seconds equals the capped expectation 19757 (uncapped would be about 117k) | Verified | source tables + database-role simulation |
+| stale cap vs dialing evidence | Today | agency | no same-campaign outbound calls after heartbeat+3m for capped 10-08 sessions | 0 / 0 / 0 (34 and 5 later calls by Teo and Alexa were in other campaigns or had none) | Verified | source-table aggregate counts |
+| Alexa summary calls/contacted/inbound/talk/bookings; session s; matched/unmatched; m_contacted/m_talk; stale_capped | Today | personal (own) | 36/1/0/1226/3; 586; 12/24; 0/27; 1 | 36/1/0/1226/3; 586; 12/24; 0/27; 1 | Verified | database-role simulation vs source tables |
+| Alexa same set | Yesterday | personal (own) | 25/1/1/3253/3; 335; 1/24; 0/0; 0 | 25/1/1/3253/3; 335; 1/24; 0/0; 0 | Verified | database-role simulation vs source tables |
+| Alexa same set | Last 7 | personal (own) | 144/8/1/6073/11; 2523; 23/121; 1/178; 1 | 144/8/1/6073/11; 2523; 23/121; 1/178; 1 | Verified | database-role simulation vs source tables |
+| Alexa same set | This Month | personal (own) | 168/12/1/6443/13; 2873; 32/136; 2/268; 1 | 168/12/1/6443/13; 2873; 32/136; 2/268; 1 | Verified | database-role simulation vs source tables |
+| Alexa same set | Last 30 | personal (own) | 818/51/5/26116/40; 124371; 318/500; 16/4590; 1 | 818/51/5/26116/40; 124371; 318/500; 16/4590; 1 | Verified | database-role simulation vs source tables |
+| Alexa volume by_date[10-08] | Today, Last 7, This Month, Last 30 | personal (own) | 36/1/0/1226 | 36/1/0/1226 | Verified | database-role simulation vs source tables |
+| TL team summary calls/contacted/inbound/talk/bookings; session s; matched/unmatched; stale_capped | Today | team (f809493e + 89f2e994) | 6/2/0/521/0; 0; 0/6; 1 assessed (0 in-window) | 6/2/0/521/0; 0; 0/6; 1 | Verified (stale_capped Explained) | database-role simulation vs source tables |
+| TL team same set | Yesterday | team | 4/0/0/33/0; 0; 0/4; 1 assessed | 4/0/0/33/0; 0; 0/4; 1 | Verified (stale_capped Explained) | database-role simulation vs source tables |
+| TL team same set | Last 7 | team | 31/6/0/2697/0; 0; 0/31; 1 assessed | 31/6/0/2697/0; 0; 0/31; 1 | Verified (stale_capped Explained) | database-role simulation vs source tables |
+| TL team same set | This Month | team | 32/6/0/2718/0; 0; 0/32; 1 assessed | 32/6/0/2718/0; 0; 0/32; 1 | Verified (stale_capped Explained) | database-role simulation vs source tables |
+| TL team same set | Last 30 | team | 86/21/1/12006/3; 225; 0/86; 1 (in-window 1) | 86/21/1/12006/3; 225; 0/86; 1 | Verified | database-role simulation vs source tables |
+| TL team volume by_date[10-08] | Today, Last 7, This Month, Last 30 | team | 6/2/0/521 | 6/2/0/521 | Verified | database-role simulation vs source tables |
+| cross-panel: calls = Σ by_hour = heatmap = by_dow = disposition total = Σ by_disposition = Σ histogram; campaigns Σ + unavailable; sources Σ + unattributed | Today / Yesterday / Last 7 / This Month / Last 30 | agency (Chris) | 235 / 285 / 1307 / 2068 / 4364 | all equal; campaigns 39+196, 72+213, 600+707, 1185+883, 2600+1764; sources 76+159, 97+188, 746+561, 1353+715, 3100+1264; quality.sessions identical across the 4 panels | Verified | database-role simulation |
+| as-of clip least(p_end, now()) on live data | Today / Last 7 / This Month / Last 30 | all | no live span can exceed as_of (no fresh heartbeat; every ended_at < now) | actual = expected with as_of pinned; the clip is not binding on current data | Verified (does not bind on live data) | database-role simulation vs source tables |
+| as-of clip and fresh heartbeat (synthetic) | open window [now-10h, now+5h) | synthetic org | fresh session (heartbeat 1 min old) runs to now(), 7200 s, not stale; 4 min old capped at heartbeat 6960 s, stale; exactly 3 min live; no heartbeat 0 s stale+missing; future start excluded; overlap union 7200 with removed 3600 | exactly as expected; quality.sessions {stale_capped 3, missing_evidence 1, overlapping_rows 2, overlap_seconds_removed 3600} | Verified | local synthetic test, scratchpad PG16, production function bodies md5-identical |
+| p_end clip for a completed window (synthetic) | [now-10h, now-90min) | synthetic org | every span ends at p_end (1800 s; closed S5 5400 s) | same | Verified | local synthetic test |
+| matched-call half-open containment with a fresh span (synthetic, verbatim CTE) | open window | synthetic org | 3 of 4 matched (call 30 s ago in fresh span; call before stale heartbeat; call in second campaign); call after stale heartbeat unmatched | 3 of 4 matched, same rows | Verified | local synthetic test |
+| data drift between RPC and expected runs | 05:52:19Z to 05:56:47Z | org | 0 new calls, appointments or session changes | 0 / 0 / 0 | Verified | source-table aggregate counts |
+
+### D.G03 rows
+
+| metric | window | scope | expected | actual | status | method |
+|---|---|---|---|---|---|---|
+| Call Duration bar label (No disposition) vs exact seconds | L30 2026-09-09..10-08 | team (TL f809493e) | 2:32 (11894 s / 78 calls = 152.487 s) | 2:33 (payload 152.5 -> Math.round -> 153); tooltip '2:33 across 78 calls' | Mismatch | independent SQL sum/count vs rendered label (jsdom harness, live payload) |
+| Call Duration bar labels vs exact seconds (all other scenarios) | L30, W1, FUT | agency, team W1, personal | m:ss of exact sum/calls | identical in 8 of 8 other scenarios | Verified | independent SQL + Python formula |
+| Calls per day | L30 | agency | 145.5 (4364/30), 'over 30 days' | 145.5, 'over 30 days' | Verified | independent SQL + formula vs rendered card |
+| Calls per day (future-day dilution) | FUT custom 2026-10-01..10-31 | agency | 66.7 (2068/31), 'over 31 days' | 66.7, 'over 31 days' | Verified | independent SQL + formula vs rendered card |
+| Calls per session hour | L30 | agency | 21.4 (2451 matched / 412671 s) | 21.4 | Verified | independent SQL (session union + matched) + formula |
+| Calls per session hour | W1 | agency | 42.0 (1118 / 95862 s) | 42.0 | Verified | independent SQL + formula |
+| Talk time share of session | L30 / W1 | agency | 6.4% / 13.9% | 6.4% / 13.9% | Verified | independent SQL + formula |
+| DNC per 100 dials | L30 / W1 | agency | 0.7 (32/4364) / 0.9 (17/1833) | 0.7 / 0.9 | Verified | independent SQL + formula |
+| Dials per policy sold / Talk min per policy | L30 / W1 | agency | 1091.0, 421.0 / 1833.0, 664.9 | 1091.0, 421.0 / 1833.0, 664.9 | Verified | independent SQL (policies by sold_date) + formula |
+| Dials per policy sold (non-org scope) | L30, W1 | team, team+89f2, personal | unavailable, policy-ratio scope reason | unavailable, same reason | Verified | rendered card vs rule |
+| Dials per contacted call / Dials per appointment | L30 | agency | 13.5 / 69.3 (D-1 basis = all bookings) | 13.5 / 69.3 | Verified | independent SQL + formula |
+| Avg calls per dialing agent / Agents dialing | L30 / W1 | agency | 623.4 (7) / 305.5 (6) | 623.4 (7) / 305.5 (6) | Verified | independent SQL per-agent calls + formula |
+| Leader picks (most policies, top dialer, best contact rate) | L30 | agency | Agent 7c692e64 (2) / Agent e5c4ee04 (1,669) / Agent f809493e (24.4%); no ties | same | Verified | independent SQL per agent + leader rule (redacted names) |
+| Calls today / Calls this week | L30 | agency | 235 / 805 (10-05..10-08) | 235 / 805 | Verified | independent SQL per LA date |
+| Calls today / Calls this week | W1 | agency, team, personal | unavailable (today and week outside period) | unavailable, same reasons | Verified | rule vs rendered card |
+| Calls today / Calls this week | L30 | team / personal | 6, 16 / 36, 107 | 6, 16 / 36, 107 | Verified | independent SQL per LA date |
+| Avg talk time per dial vs exact seconds | L30, W1, FUT | all 7 non-empty scenarios | exact talk/calls rounded (e.g. 23s agency L30, 2:20 TL L30) | same (no double-rounding hit live) | Verified | exact-seconds check |
+| Zero-denominator display (all ratio cards) | L30 and W1 | team filtered to zero-call agent 89f2e994 | '—' for calls/session h, talk share, DNC/100, dials/contact, dials/appt, contact rate, avg talk; Calls per day 0.0; Agents dialing 0 | same | Verified | rendered cards vs independent SQL (all zeros) |
+| Agent Efficiency row for 89f2e994 | L30 | agency and team | 0 / 0h 0m 0s / — / — / 0h 0m 0s / 0; CSV empty cells for rate fields | same | Verified | rendered table + CSV vs independent SQL |
+| Agent Efficiency calls per session hour (every agent) | L30, W1, FUT | agency, team | round1(matched/(session/3600)), e.g. 25.3, 26.5, 9.2, 71.6, 0.0 (TL 225 s, 0 matched), 13.0, 0.0, — | same, plus scatter points and tooltips | Verified | independent SQL per agent + formula |
+| Calling trend weekly buckets + rate | L30 | agency | 5 buckets 'Sep 09 – Sep 13' .. 'Oct 05 – Oct 08'; rate = 100*Σcontacted/Σcalls (e.g. 5.208333333333333) | identical chart rows, header '4,364 outbound calls · 7.4% call contact rate · 121 inbound', all tooltips | Verified | independent SQL per LA date + Python regrouping |
+| Calling trend monthly | L30 | agency | 'Sep 09 – Sep 30' 2296 calls 7.621951219512195%; 'Oct 01 – Oct 08' 2068 calls 7.156673114119923% | same | Verified | independent SQL + regrouping |
+| Calling trend with future buckets | FUT | agency | 'Oct 01 – Oct 04' 1263, 'Week of Oct 05' 805, 'Week of Oct 12'/'Week of Oct 19'/'Oct 26 – Oct 31' 0 calls with null rate | same; tooltip 'No outbound calls; rate unavailable.' | Verified | independent SQL + regrouping |
+| Calling trend daily/weekly/monthly (all scenarios) | L30, W1, FUT | agency, team, team+89f2, personal | bucket keys, labels, sums, per-bucket rate, header, tooltips | all 75 trend checks identical | Verified | independent SQL + Python regrouping |
+| Production trend cent sums + coverage | L30 monthly | agency | Sep: 3 policies $2,550.12 cov 100; Oct: 1 policy $1,281.60 cov 100 | same; weekly 'Week of Sep 14' $1,349.04 etc. | Verified | independent SQL (clients.sold_date, premium x12) + bucket sum |
+| Production trend tiles (total, top current assignment, peak) | L30 weekly | agency | 4 / Agent 7c692e64 '2 policies currently assigned' / 'Week of Sep 28' '2 policies' | same | Verified | independent SQL + rule |
+| Production trend (all scenarios, 3 groupings) | L30, W1, FUT | all | policies, premium, coverage, tooltips, tiles, coverage summary | all 93 checks identical | Verified | independent SQL + Python |
+| Heatmap cells (calls tab, rate tab integer %, tooltips 1 dp) | L30 | agency | 112 cells x 3 views from SQL per dow/hour; hours 6a–9p | identical (e.g. Mon 11 AM 10 calls, 3 contacted, '30%', '30.0%') | Verified | independent SQL per dow/hour + formula |
+| Heatmap (all scenarios) | L30, W1, FUT | all | labels, tooltips, hours, caption, empty state | all 36 checks identical | Verified | independent SQL + formula |
+| Call Flow by hour / by day rows and rates | L30, W1, FUT | all | Math.round(1000*c/n)/10 per bucket, hours 6–21, Sun..Sat | identical chart data and tooltip formatter output | Verified | independent SQL + formula |
+| Disposition share + list (top 8 + Other) | L30 | agency | (No disposition) 2,921 66.9%, No Answer 1,394 31.9%, Not Interested 25 0.6%, Call Back 14 0.3%, DNC 7 0.2%, Appointment Set 3 0.1%; no Other (6 dispositions) | same, plus pie tooltips and donut 4,364 | Verified | independent SQL per disposition key |
+| Deep Dive by agent / by campaign, count and % (Other = total − top 8) | L30, W1, FUT | agency, team, personal | per-series counts and count/total*100 from SQL agent×disposition and campaign×disposition | identical chart data in all 4 views; campaign-unavailable sentence (e.g. 1,764) | Verified | independent SQL |
+| Call Duration insight (weighted average) | all | all | hidden (no outbound call has a converting disposition) | hidden; latent formula on live non-converting group equals exact seconds (e.g. 0:23 agency L30) | Verified | independent SQL sum_dur/calls vs weightedAvg of 0.1-s averages |
+| Unattributed row and campaign/source partitions | L30 | agency | unattributed 0 calls / 107 inbound; 2,600 + 1,764 = 4,364; Σsources + 1,264 = 4,364 | same | Verified | independent SQL total − Σ agents / Σ visible campaigns |
+| Report Summary CSV (16 rows + 10 Note rows + Response as of) | L30 | agency | Calls 4364, Contacted 323, Rate 7.4, Talk 101043, Policies 4, Bookings 63, Session 412671, Monthly 319.31, Annual 3831.72, Avg 957.93, Matched 2451, Unmatched 1913; 'Response as of','2026-10-09T06:06:32.701128+00:00' | every line identical | Verified | independent SQL + rebuilt CSV, line diff |
+| All CSV exports (13 report types, 20 variants incl. tabs and groupings) | L30, W1, FUT | agency (3 windows), team (L30, W1), team+89f2 (L30, W1) | complete CSV text rebuilt independently (metadata, policy and integrity Note rows, Response as of = panel as_of, header, rows, file name) | 140/140 files identical line-for-line; file names match | Verified | independent SQL + Python CSV builder, line diff |
+| Call Volume CSV unrounded rate cell | L30 weekly | agency | "2026-09-09 to 2026-09-13",288,15,10,5.208333333333333 | identical | Verified | line diff |
+| Agent Performance CSV Unattributed row (D-3 on live data) | L30 | agency | "Unattributed","",0,"","",0,0,"",0,"",0,0,0 (107 inbound not exported) | identical; screen shows '107 inbound calls' | Verified | line diff (existing defect D-3 confirmed on live data) |
+| Campaign CSV Attribution unavailable row (D-2 on live data) | L30 | agency | "Attribution unavailable","",1764,"","","","","",4,3831.72,"4/4" | identical | Verified | line diff (existing defect D-2 confirmed on live data) |
+| Empty-panel exports (Call Flow, Call Duration) | L30, W1 | team+filter 89f2e994 | no tabs rendered; only By hour (16 zero rows, empty rate) and By disposition (header only) | same | Verified | rendered DOM + line diff |
+| Export availability | L30, W1 | personal (Alexa, can_export false) | no toolbar Export and no section CSV buttons | none rendered | Verified | rendered DOM |
+| Every RPC served from captured payload with exact args | all | all 9 scenarios | every request accepted (dates, agent filter, requested scope match) | all accepted; no stale-export toast | Verified | harness transport log |
+| Negative control (planted errors in a copy of output) | L30 | agency | 3 mismatches detected | 3 detected (CSV rate cell, Calls per session hour card, heatmap rate label) | Verified | verifier self-test |
+
+### D.G06 rows
+
+| metric | window | scope | expected | actual | status | method |
+|---|---|---|---|---|---|---|
+| calls_made / contacted / talk (per campaign) | LA 2026-10-07 | Teo 4ef505e0, campaigns 03bef150 and acb108ab | source: 64/3/844 and 7/0/27 | Dialer RPC 64/3/844 and 7/0/27; campaign_performance_v2 rows 64/3 and 7/0 | verified_equal | database-role simulation as Teo + independent source-table query |
+| calls_made / contacted / talk (per campaign) | LA 2026-10-08 | Teo, campaigns 03bef150, acb108ab, cb37794e | source: 2/1/2, 13/0/124, 1/0/8 | Dialer 2/1/2, 13/0/124, 1/0/8; campaign rows 2/1, 13/0, 1/0 | verified_equal | database-role simulation as Teo + source-table query |
+| calls_made / contacted / talk (per campaign) | LA 2026-10-07 and 2026-10-08 | Alexa 7c692e64, campaigns 3a39462e (10-07), ee7ba764 and 8bbb5370 (10-08) | source: 1/0/0; 8/0/12; 5/0/15 | Dialer 1/0/0; 8/0/12; 5/0/15; campaign rows 1/0, 8/0, 5/0 | verified_equal | database-role simulation as Alexa + source-table query |
+| calls / contacted / talk / policies (per campaign) | LA 2026-08-13 | Alexa, campaign 36cc1f1b (the only campaign-linked win ever) | source 23/5/198, wins 1 | Dialer 23/5/198, policies 1; campaign row 23/5, attributed_policies 1; Reports agent policies_sold 1 | verified_equal | database-role simulation as Alexa + source-table query |
+| agent calls / contacted / talk: Reports Today vs Σ Dialer campaigns | LA 2026-10-07 and 2026-10-08 | Teo, agent = self | Reports = Σ Dialer + outbound with no campaign: 71+54=125, 3+0=3, 871+4708=5579; 16+62=78, 1+3=4, 134+848=982 | Reports 125/3/5579 and 78/4/982; unattributed_calls 54 and 62 | explained_difference (campaign scope) | database-role simulation + source-table query (grouping sets) |
+| agent calls / contacted / talk: Reports Today vs Σ Dialer campaigns | LA 2026-10-07, 2026-10-08, 2026-08-13 | Alexa, agent = self | 1+24=25, 0+1=1, 0+3253=3253; 13+23=36, 0+1=1, 27+1199=1226; 23+2=25, 5, 198 | Reports 25/1/3253, 36/1/1226, 25/5/198 | explained_difference (campaign scope) | database-role simulation + source-table query |
+| session seconds | LA 2026-10-07 | Teo | Reports = union of spans clipped to the day and rounded down once: exact Σ 5130.47 → 5130; Dialer rounds each session: 1221+1950+854+697+405 | Reports 5130; Dialer closed 2772 (03bef150) + 405 (acb108ab) + 1950 (cb37794e) = 5127 | explained_difference (3 s rounding) | database-role simulation + per-session source rows |
+| session seconds | LA 2026-10-08 | Teo | Reports caps stale active 79656b39 at its heartbeat (5512.7 s); the Dialer excludes it from the closed base | Reports 17857 (stale_capped 1); Dialer closed 7751+4593+0 = 12344; RPC session_duration_seconds for cb37794e 33161 (uncapped to now(), not displayed) | explained_difference (stale cap) | database-role simulation + per-session source rows + code (DialerPage.tsx:1118) |
+| session seconds | LA 2026-10-07 and 2026-10-08 | Alexa | 10-07: 335 = 335. 10-08: Reports adds stale dfe47bf2 capped at heartbeat (450.1 s) | 10-07: 335 vs 335. 10-08: Reports 586 vs Dialer closed 111+24+0 = 135; RPC uncapped 30029 (not displayed) | verified_equal (10-07) / explained_difference (10-08 stale cap) | database-role simulation + per-session source rows |
+| session seconds | LA 2026-08-13 | Alexa | Reports includes a 38.7 s session with no campaign (35372349) plus rounding | Reports 5532; Dialer 36cc1f1b 5492 | explained_difference (session with no campaign + rounding) | database-role simulation + per-session source rows |
+| session seconds (session crossing midnight) | LA 2026-09-15 / 2026-09-16 | Alexa, campaign 2718e001, session 8b1e6b54 | 09-15: both clip at LA midnight (20622). 09-16: Reports clips the session in (40287.5 s); the Dialer excludes it because started_at < p_start | 09-15: Dialer 20622 = Reports 20622. 09-16: Dialer 3917 vs Reports 47358 (40287 + 3917 + 3150 in another campaign + rounding) | explained_difference (start rule); see new_defect for the live ticker | database-role simulation + per-session source rows |
+| policies sold | LA 2026-10-07 and 2026-10-08 | Alexa and Teo, every campaign | 0 wins and 0 stored policies sold on these days | Dialer 0; Reports policies_sold 0; campaign attributed 0 | verified_equal (no sales) | database-role simulation + wins/report_policy_value_facts counts |
+| policy basis (wins created_at vs stored sold_date) | 2026-09-28 / 2026-09-29 | Will e5c4ee04, win ba14c0a1 (repair) | Dialer basis counts by wins.created_at; Reports by sold_date | created_at on LA 09-29; sold_date 09-28; no campaign, so 0 in every header. Only 1 of 9 org wins carries a campaign; 6 wins without a campaign had no active dialer session at sale | explained_difference (policy basis) | source-table query + insert_policy_sale body (md5 38b21a28…) |
+| duplicate map | all | org a0000000…0001 | both readers exclude only reviewed kind='call' mappings; wins cannot be mapped | performance_duplicate_rows 0 rows; check constraint allows only call and appointment | verified_equal (no live effect) | catalog + source count |
+| campaign attribution fallback / talk clamp | all-time outbound | org | Reports coalesce(calls.campaign_id, campaign_leads.campaign_id) and greatest(duration,0) differ from the Dialer only if such rows exist | 0 calls with NULL campaign but a campaign on the campaign lead; 271 mismatches both use calls.campaign_id; 0 negative durations | verified_equal (no live effect) | source-table query |
+| browser zone ≠ America/Los_Angeles: day bounds | audit instant 2026-10-09T06:08Z (LA 10-08 23:08) | production userLocalDayBounds (8d53531), run locally | LA day 10-08T07:00Z..10-09T07:00Z | LA 07:00Z..07:00Z; Denver/Chicago/NY/UTC already on 10-09 (06:00Z/05:00Z/04:00Z/00:00Z); Manila 10-08T16:00Z..10-09T16:00Z | explained_difference (zone) | local synthetic test: bounds-probe.mjs |
+| browser zone ≠ LA: header values | NY and UTC days 10-07/10-08/10-09 | Teo and Alexa | same as LA only when the offset hours hold no activity | NY identical to LA in every cell. UTC 10-08: Teo 03bef150 11/2/78 (LA 2/1/2), acb108ab 20/0/151, session 4998 (LA 13/0/124, 4593). UTC 10-09 at LA 23:10: all campaigns 0, while Reports Today shows 78 / 36 calls | explained_difference (zone) | database-role simulation with NY/UTC bounds |
+| session crossing midnight under a non-LA zone | UTC 2026-10-07 / 2026-10-08; UTC 2026-08-14 | Teo session b9500dd5 (03bef150); Alexa 36cc1f1b | Dialer clips the end at p_end and drops sessions that start before p_start | Teo UTC 10-07 2322 = 1221+854+247 (end-clipped); UTC 10-08 7751 (450 s after midnight counted on neither day). Alexa UTC 08-14: 9/3/87, policies 1, session 0 | explained_difference (start rule + zone) | database-role simulation |
+| header Session Duration display | any local day crossing midnight | DialerPage + useDialerSession at 8d53531 | per contract #14: cumulative per campaign and agent-local day | display = closed base (started_at >= midnight) + now − own started_at with no clip; start_dialer_session resumes a live pre-midnight session → shows previous-day seconds, then drops them at session end | defect (low), see new_defect | code reading + live session 8b1e6b54 numbers |
+
+### D.G07 rows
+
+| metric | window | scope | expected | actual | status | method |
+|---|---|---|---|---|---|---|
+| campaign_v2 Σcalls_made + calls_attribution_unavailable = summary calls_made | W3 2026-09-08..10-07 | Agent Alexa 7c692e64 personal (null and 'personal') | 354 + 435 = 789 (independent SQL) | 354 + 435 = 789; unattributed_calls 435; rows exact (md5 2042adeb…) | Verified | DB-ROLE-SIM vs independent source-table SQL, same snapshot |
+| campaign_v2 Σcalls_made + calls_attribution_unavailable = summary calls_made | L30 2026-09-09..10-08 | Agent Alexa personal | 360 + 458 = 818 | 360 + 458 = 818; rows exact (md5 082b423a…) | Verified | DB-ROLE-SIM vs independent SQL |
+| campaign ids returned within caller-visible set | W3, L30 | Agent Alexa personal | subset of 11 visible ids (Open Pool, 9 own Personal, member Team e6d957a3); 0 restricted calls | 7 ids, all her own Personal; 0 outside visible set (campaign_v2 and disposition by_campaign) | Verified (restricted path vacuous for Alexa) | DB-ROLE-SIM vs independent predicate |
+| restricted campaign calls go to calls_attribution_unavailable; restricted id absent | W3 and L30 | Agent d396d777 personal (only live restricted case) | 111 = 47 + 64 (62 restricted on Team 03bef150 + 2 null); 03bef150 absent | 111 = 47 + 64; ids acb108ab, e6d957a3 only; 0 hits for 03bef150 in campaign, disposition, lead-source, volume and summary payload texts | Verified | DB-ROLE-SIM vs independent SQL plus payload text scan |
+| campaign_v2 partition and rows | W3 / L30 | Team Leader f809493e team (= f809493e + 89f2e994; null and 'team') | 0 + 80 = 80 / 0 + 86 = 86 (all team calls have no campaign) | 0 + 80 = 80 / 0 + 86 = 86; campaigns [] | Verified (degenerate live data) | DB-ROLE-SIM vs independent SQL |
+| campaign_v2 partition | W3 / L30 | Team Leader personal | 80 / 86 (downline 89f2e994 has 0 calls) | 80 / 86, same as team | Verified | DB-ROLE-SIM vs independent SQL |
+| disposition_v2 Σby_campaign + campaign_attribution_unavailable_calls = total_calls; ids equal campaign_v2 | W3, L30 | Alexa personal; d396d777 personal; TL team and personal | 354+435=789, 360+458=818; 47+64=111; 0+80=80, 0+86=86 | identical; disp ids = campaign ids in every case | Verified | DB-ROLE-SIM |
+| lead_source_v2 per-source rows (md5), Σcalls + unattributed_calls = outbound, new_leads | W3 / L30 | Alexa personal | 7 sources, 777 + 12 = 789, new 98 / 8 sources, 806 + 12 = 818, new 59 | same; md5 equal | Verified | DB-ROLE-SIM vs independent SQL |
+| lead_source_v2 totals | W3 / L30 | TL team | 2 sources, 3 + 77 = 80, new 1 / 4 + 82 = 86, new 1 | same; md5 equal | Verified | DB-ROLE-SIM vs independent SQL |
+| lead_source_v2 totals | W3 = L30 | d396d777 personal | 11 sources, 109 + 2 = 111, new 4 | same; md5 equal | Verified | DB-ROLE-SIM vs independent SQL |
+| volume_v2 heatmap (168 cells md5), by_hour, by_day_of_week, by_date calls/contacted/inbound/talk | W3 / L30 | Alexa personal | 50 / 51 non-zero cells; Σ789 / 818; contacted 50 / 51; inbound 5; talk 24946 / 26116 | identical; heat md5, by_hour and by_dow equal | Verified | DB-ROLE-SIM vs independent SQL (LA local dow/hour) |
+| volume_v2 heatmap / by_hour / by_dow / by_date | W3 / L30 | TL team and personal | 29 / 31 non-zero cells; Σ80 / 86; contacted 19 / 21; inbound 1; talk 11485 / 12006 | identical | Verified | DB-ROLE-SIM vs independent SQL |
+| volume_v2 heatmap / by_hour / by_dow | W3 = L30 | d396d777 personal | 4 non-zero cells, Σ111 | identical | Verified | DB-ROLE-SIM vs independent SQL |
+| Reports visible-campaign set = campaigns RLS (campaigns_select) set | n/a | Alexa (Agent), d396d777 (Agent), TL (Team Leader), real JWT role | 11 / 2 / 14 ids | 11 / 2 / 14 ids, identical sets | Verified | DB-ROLE-SIM SELECT campaigns under RLS vs predicate |
+| restricted shapes (other Personal with agent listed, non-member Team, object/string/[123] ids, empty or Custom type, NULL-owner Personal, foreign-org campaign, campaign_lead-only attribution) go to unavailable | W3 synthetic | local Agent X personal | rows 01:3/1/0/0/0, 02:1/1/0/0/0, 03:3/2/1/1/1 (p1), 05:6/2/1/1/0, 06:1/0/0/0/0; 14 + 14 = 28; unattributed 3; policies 2 / unavailable 1; 0 restricted UUIDs or names in 5 payloads | exactly as expected; 0 hits | Verified | local synthetic test, production bodies (md5-matched), hand-computed plus harness |
+| Team Leader sees all campaigns; Deleted downline excluded | W3 synthetic | local TL team | 13 campaigns, 27 + 4 = 31; Deleted d1 absent | same | Verified | local synthetic test |
+| harness sensitivity (mutation: visible = all campaigns) | W3 synthetic | local Agent X personal | leak detected | 13 rows instead of 5; restricted 07 present; partition still 25 + 3 = 28, so only the row and id checks catch it | Verified (partition-only check insufficient) | local mutation in a rolled-back transaction |
+| scope escalation refusals | W3 synthetic | local Agent X: team, agency, filter = other agent | 42501 | 42501 x3 | Verified | local synthetic test |
+
+### D.G08 rows
+
+| case | policy | mutation | reports_expected | reports_actual | leaderboard_expected | leaderboard_actual | ok | method |
+|---|---|---|---|---|---|---|---|---|
+| 1 reassignment after sale | P:0c1a | M1 assignee Seller->Reassignee via update_client_with_policy_sale | Reassignee / sold 2026-10-02 / 1200 known | Reassignee / 2026-10-02 / 1200 known | original Seller / event 2026-10 / 1200 snapshot | Seller / 2026-10 / 1200 snapshot | True | local synthetic, production writers |
+| 2 premium edit after snapshot | P:0c2a | M2a 100->150; M2b ->0; M2c ->NULL | 1800 known; then unknown ambiguous_zero; then unknown missing | 1800 known; ambiguous_zero (annual NULL); missing | 1200 (snapshot) at every step | 1200 at every step | True | local synthetic |
+| 3a primary removed from current book | P:0c3a | M3a clear carrier/number/premium/face/sold_date; M3a2 re-enter with 120 | absent; then back as the same policy_id, 1440 | absent; 2026-10-04 / 1440 known | 1320 kept; still 1 event after re-entry | 1320 kept; identity events=1 | True | local synthetic |
+| 3b client deleted after sale | P:0c3b | M3b DELETE client (the effect of delete_contact) | absent | absent | 1440 kept, client_exists=false, identity kept; recreating the id refused | 1440 kept; P4 refused 23514 | True | local synthetic |
+| 3c additional removed from book | A:0c3c | M3c additional_policies = [] | additional absent; primary 360 unchanged | absent; P 360 | additional 540 kept; primary 360 | 540 kept; 360 | True | local synthetic |
+| 4 additional policy with its own policyId and event | A:0c4a, B:0c4a, P:0c4a | M4a additional A 65->90; M4b primary 40->55 | A 780->1080; B missing (never 480/660); P 480->660 | A 1080; B missing; P 660 | A 780; B unknown NULL (no borrowing); P 480 | A 780; B NULL; P 480 | True | local synthetic |
+| 5a legacy non-snapshot, NULL amount (0d9a147d pattern) | P:0c5a | M5a premium 75->95 and reassign | Reassignee / 1140 | Reassignee / 1140 | original Seller / 1140 (falls back to current client premium) | Seller / 1140 | True | local synthetic; seeded in pre-guard state |
+| 5b legacy non-snapshot, amount = client premium | P:0c5b | M5b 50->70 | 840 | 840 | 600 (stored win amount) | 600 | True | local synthetic |
+| 5c legacy primary + legacy additional (ordinal key, amount 0) | P:0c5c, A:0c5c | M5c primary 60->80 | P 960; A missing | P 960; A missing | P 720; A unknown (never borrows 60/80) | P 720; A NULL | True | local synthetic |
+| 6a sold_date in September, event in October | P:0c6a | none (sold 09-28, record_client_policy event 10-09) | September | September (Sep summary n=3 incl. this one) | October | October snapshot | True | local synthetic |
+| 6b sold_date edited across the month boundary | P:0c6b | M6b sold_date 10-01->09-30 | October -> September | 2026-09-30 | stays October; wins.sold_date stays 10-01 | October; unchanged | True | local synthetic |
+| 6c historical sale (event = sold-date midnight PT) | P:0c6c | M6c sold_date 09-30->10-01 | September -> October | 2026-10-01 | stays September (sold_date_proxy) | September | True | local synthetic |
+| 6d event at 2026-09-30 18:30 PT = 2026-10-01 01:30Z | P:0c6d | none | September | September | September in agency zone (would be October in UTC) | Sep agency-zone performance_rows includes it; Sep-UTC excludes it | True | local synthetic; event inserted as postgres with triggers on |
+
+### D.G09 rows
+
+| check | method | expected | actual | status |
+|---|---|---|---|---|
+| Admin agency D=2026-10-01 | local synthetic, database role | appts 9, excl 1, kinds 6/2/1, callback_calls 1, calls_made 4, unattributed 1, by_agent S6 A2, ADM/TL/X 0 | identical | Verified |
+| Admin agency p_agent_id=setter S / =assignee A | local synthetic, database role | S: 6 excl 1 kinds 4/1/1 cb 1; A: 2 excl 0 kinds 1/1/0 cb 0 | identical | Verified |
+| Personal: setter S (Agent), default scope too | local synthetic, database role | scope own, 6, excl 1 | identical | Verified |
+| Personal: assignee A (Agent) | local synthetic, database role | 2 (setter's bookings assigned to A not credited; 7 under a user_id-first rule) | 2 | Verified |
+| Team Leader team / personal; Admin personal | local synthetic, database role | team 8 (unattributed excluded), excl 1; personal 0 | identical | Verified |
+| Date basis created_at, agency-local half-open window | local synthetic, database role | 2026-09-30 window has 1 (23:59:59 local); 2026-10-02 window has 1 (00:00 local); D excludes both | identical | Verified |
+| Status independence (all Cancelled / Completed / No Show) | local synthetic, rolled back | agency 9, S6 A2, unattributed 1; S personal 6 | unchanged in all three | Verified (local); Unverified live: 0 cancelled/completed rows in production |
+| Callback disposition count vs callback bookings | local synthetic, rolled back | delete callback bookings: callback_calls 1, callback_kind 0; remove disposition: callback_calls 0, callback_kind 2; inbound callback excluded | identical | Verified |
+| Only reviewed mapping excluded | local synthetic | identical unmapped look-alike counted; excluded_bookings 1; mapping deleted gives 10/0; second mapping gives 8/2 | identical | Verified (local); live map has 0 rows |
+| Guard: cross-org, chained, wrong-kind mapping | local synthetic | 23514 refused | 23514 refused x3 | Verified |
+| Mutation survival vs current v2 suite | local synthetic mutation probes |  | credit flip, lost fallback, inbound-counting callbacks and bookings-derived callbacks survive the totals-only assertions (reports_integrity.sql:64,79); all 7 mutations caught by G09 checks | Test gap (low) |
+| Proposed 6 suite assertions + 7th negative control | local synthetic | baseline PASS; fail under credit flip, lost fallback, status filter, ignored map, bookings-derived callbacks | as expected; summary body md5 unchanged after rollback | Verified, not applied (needs approval) |
+| Production appointments by status | read-only catalog |  | Scheduled 100, Confirmed 2 (total 102, one org, 0 NULL created_at) | Verified |
+| Production created_by vs user_id | read-only catalog |  | equal 75, created_by NULL with user_id fallback 27, different 0, user_id NULL 0, both NULL 0 | Verified |
+| Production kinds / maps / credited profile | read-only catalog |  | kind NULL 89, appointment 7, callback 6; performance_duplicate_rows 0; credited to Deleted profiles 2; start_time on a later local day than created_at 72/102 | Verified |
+| Production Chris agency 2025-10-10..2026-10-09 | database-role simulation | 102, excl 0, kinds 7/6/89, unattributed 0, 8 agents, by_agent md5 a484c75e2d0b7697191a023277370f7b | identical; 2 bookings on Deleted-status rows | Verified |
+| Production Alexa (filter and personal), Team Leader team/personal | database-role simulation | 68 / 68 / 5 / 5 | 68 / 68 / 5 / 5 | Verified |
+| Production callback_calls vs callback_kind (same window) | database-role simulation + independent SQL | 23 outbound callback-disposition calls; 6 callback bookings | 23; 6 | Verified (independent) |
+
+### D.G10 rows
+
+| check | method | result | status |
+|---|---|---|---|
+| Production midnight-crossing sessions found | catalog (read-only) | 6 of 530, all agency org, all ended: 67d538c2/5f952f0d, 53aecabe/7c692e64, 547c7cd2/7c692e64, 8b1e6b54/7c692e64, ff0283b7/4ef505e0, 2aa50ebf/e5c4ee04 | Verified |
+| Per-day and 2-day session_seconds equal the independently clipped union (Chris, agency, agent filter) | database-role simulation | 18/18 equal for totals and the agent's row; overlaps 0, stale 0, missing 0 | Verified |
+| day1 + day2 = 2-day window | database-role simulation | 4/6 equal; 8b1e6b54 67980 vs 67981 and 2aa50ebf 62147 vs 62148 (each window floored separately; unrounded values add up exactly) | Verified, artifact (low, informational) |
+| Merging overlapping sessions in production | database-role simulation | No overlaps in any of the 18 windows, so the merge is not exercised; covered locally | Unverified in production (no data) |
+| What the end clip protects in production | database-role simulation (shadow calculation) | Without the end clip, day 1 would gain +32,548 / +35,026 / +33,835 / +40,287 / +34,641 / +35,815 s | Verified |
+| Late-ended sessions (kept by owner decision) | database-role simulation | ff0283b7: 34,641 s of day 2 after the last heartbeat; 2aa50ebf: 35,815 s | Kept, no change |
+| Function body parity, 13 functions | catalog + local | md5 identical in production and locally, before and after the mutation runs | Verified |
+| LA 2026-03-08 hour, day-of-week, heatmap, daily buckets | local synthetic | 23 h window 08:00Z..07:00Z; hours 1/3/23 = 1 each, hour 2 = 0; Sunday 3; 1 date row | Verified |
+| LA 2026-11-01, both 01:30 instants | local synthetic | 25 h window 07:00Z..08:00Z; hour 1 = 2; Sunday 5; heatmap Sun 01h = 2; inbound call in daily bucket only | Verified |
+| Estimate disclosure | local synthetic + shipped TS | estimated_calls 1 of 5 (summary = volume); the 47 s estimate still counts as contacted and as talk time; note renders '1 estimates' | Verified (copy nit) |
+| Havana double midnight 2026-11-01 | local synthetic | Nov 1 window starts 04:00Z; calls at both midnights on Nov 1, hour 0; Oct 31 ends 04:00Z and holds only 23:59:59 | Verified |
+| Session clipping on DST and Havana days | local synthetic | 23 h day 82,800; 25 h day 90,000; 2-hour real spans count 7,200 across the DST shift; Havana 1,800/5,400; future session 0 | Verified |
+| Fixed checks in my local run | local synthetic | 104/104 pass | Verified |
+| Mutations caught by the existing v2 SQL suite | local mutation probe | UTC bucketing, no end clip, elapsed-hour, UTC daily bucket SURVIVE; window start/end mutations caught only by v1 T9; estimate-key and start-clip mutations caught | Test gap confirmed (T-1/T-2) |
+| Proposed v2 suite snippet | local synthetic + mutation probe | Passes on current code; catches 8/8 mutations | Ready for plan |
+| Frontend schema parse of the 8 synthetic payloads | local synthetic + shipped Zod schemas | 8/8 accepted; hours and days shown from server values with an agency-zone caption | Verified |
+
+### D.G11 rows
+
+| kind | window | scope | campaign | campaign_calls | contacted | noid_calls | noid_cross | noid_null_link |
+|---|---|---|---|---|---|---|---|---|
+| lead_identity | W2 2026-09-01..09-30 | agency (Chris) | ALL | 1876 | 96 | 183 | 161 | 22 |
+| lead_identity | W2 |  | e6d957a3-e0e2-4bdf-ad9f-579f8c9bf6de (Team) |  |  | 163 |  |  |
+| lead_identity | W2 |  | 03bef150-2a8a-4bf9-8970-fcaca67a58ab (Team) |  |  | 20 |  |  |
+| lead_identity | W3 2026-09-08..10-07 |  | ALL | 2568 | 144 | 20 |  |  |
+| lead_identity | Last 30 2026-09-09..10-08 |  | ALL | 2600 | 146 | 20 |  |  |
+| lead_identity | since 2026-10-03 |  | ALL | 244 |  | 0 |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+| classification |  |  |  |  |  |  |  |  |
+
+### D.G12 rows
+
+| window | scope | rpc_session_seconds | decomp_sum_floor_union | per_agent_equal | null_only_seconds | share_pct | overlap_seconds | denominator_excl_null |
+|---|---|---|---|---|---|---|---|---|
+| W1 2026-10-01..10-07 | agency (Chris, DB-ROLE-SIM) | 95862 | 95862 | 8/8 | 0 | 0 | 0 | 95862 |
+| L30 2026-09-09..10-08 | agency (Chris, DB-ROLE-SIM) | 412671 | 412671 | 8/8 | 48.524 | 0.012 | 0 | 412623 |
+| W5 2025-10-08..2026-10-07 | agency (Chris, DB-ROLE-SIM) | 809767 | 809767 | 11/11 | 144599.027 | 17.857 | 0 | 665169 |
+| L30 |  |  |  |  | 43.937 | 0.035 |  |  |
+| L30 |  |  |  |  | 4.586 | 0.084 |  |  |
+| L30 |  |  |  |  | 0 |  |  |  |
+| W5 |  |  |  |  | 28698.238 | 7.096 |  |  |
+| W5 |  |  |  |  | 590.785 | 2.262 |  |  |
+| W5 |  |  |  |  | 18977.753 | 91.783 |  |  |
+| W5 |  |  |  |  | 97.85 | 57.672 |  |  |
+| W5 |  |  |  |  | 81339.694 | 100 |  |  |
+| W5 |  |  |  |  | 14032.849 | 100 |  |  |
+| W5 |  |  |  |  | 861.858 | 100 |  |  |
+| W5 |  |  |  |  | 0 |  |  |  |
+| monthly (agency, PROD-RO + DB-ROLE-SIM check) |  |  |  |  |  |  |  |  |

@@ -1,141 +1,157 @@
-# Reports visual refresh and reporting accuracy audit — implementation plan
+# Reports visual refresh and reporting accuracy audit — implementation plan (rev 2, final for approval)
 
-**Status: Phase 1 complete. Awaiting Chris's approval.** Prepared 2026-10-09 (UTC). No implementation file, migration, RLS policy, Edge Function, Vercel deployment or production row was changed. Production access was read-only throughout.
+**Status: Phase 1 complete. Awaiting Chris's approval to implement.** Revision 2 was prepared 2026-10-09 (UTC). It replaces rev 1 (commit `17378ef`). It adds Chris's design direction, the completeness-critic findings, the closed audit gaps, the locally proven session-rounding SQL fix, the traced Data basis wording and exact per-file budgets.
 
-Companion files in this directory:
-- `evidence-matrix.md`: the metric evidence matrix, reconciliation rows, Reports vs Leaderboard by policy identity, and deployed formulas.
-- `screenshots/before/`: current page from the isolated synthetic fixture (not production numbers).
+**Nothing has been changed:** no application code, migration, RLS policy, Edge Function, Vercel deployment or production row. Production access was read-only throughout.
+
+| Companion file | Contents |
+|---|---|
+| `evidence-matrix.md` | Metric evidence matrix: 134 reachable metrics, reconciliation rows, Reports vs Leaderboard by policy identity, deployed formulas, completeness addendum |
+| `data-basis-wording.md` | Every Data basis sentence and new caption, each traced to a constant, a deployed SQL line or an AGENT_RULES clause |
+| `security-tasks.md` | S-1 (Team Leader can change the agency time zone) and S-3 (agents can write their own session timestamps): separate tasks, nothing changed |
+| `screenshots/before/` | The current page from the isolated synthetic fixture (not production numbers) |
 
 ---
 
-## 1. Baseline and source review
+## 0. Chris's direction (2026-10-09)
 
-| Item | Finding |
+**Approved design direction for planning:**
+- premium, compact Reports interface
+- dramatically reduce mobile filter height
+- improve the visibility of important columns
+- preserve existing customization and reporting contracts
+- rename "Dials per appointment" to **"Dials per booking"**
+- correct the duplicate-session-seconds rounding artifact
+- add regression coverage for bucket values, session-end clipping and additional-policy premium isolation
+
+**Separate decisions:**
+- **Preserve the current late-ended session calculation.** This is D-1, now closed.
+- **Document the Team Leader timezone RLS vulnerability as a separate security task.** Done in `security-tasks.md`. No RLS change without explicit approval.
+
+---
+
+## 1. Baseline and conflict check
+
+| Item | Finding (rechecked 2026-10-09 14:35 UTC) |
 |---|---|
-| Documents read | `AGENT_RULES.md` in full (incl. #8, #12–#14, #23, #38–#41 and the Reports personal layout invariant), `VISION.md`, newest `WORK_LOG.md` entries, the 2026-09-28, 10-04, 10-05 and 10-06 Reports plans, release records and verification files. There is no `AGENTS.md` in the repository. |
-| Repository | `main` @ `8d53531` (Oct 8 inbound forwarding fix). Working tree clean. |
-| Production frontend | Vercel `agentflow` production deployment `dpl_28cKkn6bUSTKXTCoRgZ39iSCKTkP` = `8d53531`, READY, aliased to `www.fflagent.com`. The last Reports frontend change is Phase 2 (PR #421, Oct 6). |
-| Production database | Newest Reports migrations applied: `20261006043725` → `20261006043731` → `20261006043738` → `20261006044003`. Nothing Reports-related since. Later migrations are SMS only. |
-| Deployed SQL | `md5(prosrc)` of every Reports function and helper (30+ bodies) equals the newest repository migration body. The 15 bodies pinned by `20261006044003` match. No drift. |
-| Grants | Only the six v2 RPCs grant `authenticated`/`service_role`. All v1 `get_report_*` and legacy `rpc_report_*` deny `authenticated` and `anon`. Private helpers are `postgres`-only. |
-| Open work | 8 open PRs. None touches Reports, Leaderboard, policy, appointment or call reporting code (SMS START, Twilio balance, underwriting, old leaderboard drafts, Google OAuth, OpenAI realtime). |
-| Saved layouts | `report_layouts` has **0 rows** in production. Every user sees `DEFAULT_LAYOUT`. Changing default order or visibility would change everyone's page. |
+| Documents | `AGENT_RULES.md` (incl. #8, #12–#14, #23, #38–#41, the Reports personal layout invariant, §7 component standards: components under 200 lines, Zod on forms, Tailwind only), `VISION.md`, newest `WORK_LOG.md` entries, all earlier Reports plans and release records. There is no `AGENTS.md` in the repository. |
+| Repository | `origin/main` = `8d53531`; no newer commits. This branch = `8d53531` + plan docs only. |
+| Production frontend | Vercel `agentflow` production `dpl_28cKkn6bUSTKXTCoRgZ39iSCKTkP` = `8d53531`, READY, aliased to `www.fflagent.com`. |
+| Production database | Newest Reports migrations `20261006043725` → `…31` → `…38` → `20261006044003`. After them come only six SMS migrations (newest `20261008151523`). |
+| Deployed SQL | `md5(prosrc)` of every Reports function and helper equals the repository migration body (30+ bodies). The 15 bodies pinned by the guarded enable match. |
+| Grants | Only the six v2 RPCs grant `authenticated`/`service_role`. v1 and legacy `rpc_report_*` are sealed. Private helpers are `postgres`-only. |
+| Open PRs | 8 open; none touches Reports, Leaderboard, policy, appointment or call reporting code. **No conflicts.** |
+| Saved layouts | `report_layouts` has **0 rows**, so every user sees `DEFAULT_LAYOUT`. Default ids, order and visibility therefore stay unchanged. |
 
-### Verification baseline at `8d53531` (recorded before any change)
+**Verification baseline at `8d53531` (before any change):**
+- Root `tsc --noEmit` passes, but checks nothing (`files: []`).
+- `tsc -p tsconfig.app.json`: **85** diagnostics, none in Reports.
+- Reports vitest: 218/218 (with SQL payloads).
+- ESLint on 61 Reports files: 0 problems.
+- `vite build`: passes.
+- Full vitest: 4,321 passed, 1 failed, 34 skipped. The 10 failing files are exactly the pre-existing list, and none is a Reports file.
+- Native SQL suites (local PostgreSQL 16, loopback) pass: `run_reports_rpc_tests`, `run_reports_integrity_tests`, `run_profile_rpc_tests`, `run_reporting_integrity_tests`.
+- Chromium fixture gate `verify.mjs`: PASS 6/6.
+- A golden CSV baseline was captured at the base for byte comparison: 74 deterministic downloads covering all 13 export controls, every view toggle and grouping, in Agency, Team and Personal. A second capture matched 74/74.
 
-| Check | Result |
+**Evidence labels used throughout:**
+
+| Label | Meaning |
 |---|---|
-| `npx tsc --noEmit` (root) | exit 0. The root project has `files: []`, so it checks nothing on its own. |
-| `npx tsc --noEmit -p tsconfig.app.json` | 85 diagnostics, none in a Reports file. Earlier records say 87. |
-| Reports vitest (19 files) | 217 passed, 1 skipped. 218/218 with `REPORTS_SQL_PAYLOADS`. Also 218/218 under five browser time zones. |
-| ESLint, 61 Reports files | 0 problems |
-| `npx vite build` | exit 0 |
-| Full vitest | 4,321 passed, 1 failed, 34 skipped. The 10 failing files are exactly the pre-existing list, and none is a Reports file. |
-| Native SQL (local PostgreSQL 16, loopback) | `run_reports_rpc_tests`, `run_reports_integrity_tests`, `run_profile_rpc_tests` and `run_reporting_integrity_tests` all PASS. CI uses 17.6. |
-| Real Chromium fixture gate (`scripts/tests/reports-visual/verify.mjs`) | PASS (6/6) against the native SQL payloads |
-
-### Evidence methods and their limits
-
-- **Database-role simulation (live production):** Reports RPCs called inside `begin read only … rollback` as real profiles: Admin, Team Leader, Agent, another organization's Admin, Deleted profiles, and `anon`. This is not a signed-in browser or HTTP test.
-- **Independent source queries:** expected values were computed from `calls`, `dispositions`, `pipeline_stages`, `dialer_sessions`, `appointments`, `campaign_leads`, `leads`, `clients`, `wins` and `profiles` without calling the `private.report_*` helpers.
-- **Static inspection:** code and deployed SQL bodies.
-- **Local synthetic:** vitest, native PG16 SQL suites, and real Chromium against the isolated fixture.
-- **Hosted browser: BLOCKED, Unverified.** This environment's egress proxy refuses `www.fflagent.com` (CONNECT 403), and there are no credentials. The live CSV download, filter and refresh walkthrough left open by the Oct 5–6 releases therefore remains **unverified**. See §9 step 7.
+| **[DB-sim]** | v2 RPC called as a real profile inside `begin read only … rollback`. Not a signed-in browser. |
+| **[Indep]** | Expected value recomputed from source tables without `private.report_*` helpers. |
+| **[Static]** | Code or deployed SQL inspection. |
+| **[Synth]** | Local native PG16 suites, local synthetic SQL fixtures, real Chromium on the isolated fixture. |
+| **Hosted browser** | **BLOCKED.** The egress proxy denies `www.fflagent.com` (CONNECT 403) and there are no credentials. The live CSV download, filter and refresh walkthrough stays **Unverified**; see §9.4. |
 
 ---
 
 ## 2. Findings about the current design
 
-Sources: the before screenshots, measured geometry from the synthetic fixture, and live magnitudes from the database-role simulation (Agency, Last 30 days).
+All measured on the synthetic fixture with the app chrome emulated.
 
-1. **Header and filters cost too much space.** About 298px on desktop and about 490px on a 390px phone. Seven preset buttons wrap onto three rows on mobile. With the app TopBar, Known Annual Premium starts **below the first phone screen**.
-2. **Too much always-visible explanation.** About 45 explanatory strings. The methodology repeats inline: `PREMIUM_BASIS` ×3, `CURRENT_ASSIGNMENT_NOTE` ×4, `POLICY_SOURCE_NOTE` ×2. The only disclosure is at the very bottom, and it shows the as-of time as raw ISO UTC.
-3. **Heroes are tall (about 297px each) and inconsistent.** Different accents and icons. A partial premium prints at full emphasis, with coverage only as a sentence below it. (Good, and kept: exact cents, `tabular-nums`, "Unavailable" never $0.00.)
-4. **The six-metric strip** shows grey filler tiles when fewer than 6 metrics are visible. Its subtitles are formula jargon. Durations use three formats side by side ("3:21", "2h 0m 0s", "0h 3m 21s").
+1. **Header and filters:**
+   - **427 px** (preset) to **479–483 px** (Custom) at 390 px wide.
+   - 223 / 275 px at 1440.
+   - Seven preset buttons wrap onto three rows on mobile.
+   - On a phone, Known Annual Premium starts below the first screen (value bottom ≈ y983 for the Custom fixture).
+2. **About 45 always-visible explanation strings.** The methodology is repeated inline: `PREMIUM_BASIS` ×3, `CURRENT_ASSIGNMENT_NOTE` ×4, `POLICY_SOURCE_NOTE` ×2. The only disclosure is at the bottom, and it shows the as-of time as raw ISO UTC.
+3. **Heroes** are about 297 px tall each, with mismatched accents. A partial premium prints at full emphasis, with coverage only in a sentence below.
+4. **Six-metric strip:**
+   - grey filler tiles when fewer than 6 metrics are visible
+   - formula-jargon subtitles
+   - three duration formats ("3:21", "2h 0m 0s", "0h 3m 21s")
 5. **Trends:**
-   - Both trend charts use two y-axes.
-   - The Daily/Weekly/Monthly control sits inside the Calling card but also regroups Production.
-   - Series use status colours (success, warning).
-   - The call contact rate is drawn on a 0–100% axis, so a live 7.4% lies almost flat.
-   - Gridlines are dashed, and the legends say "left axis / right axis".
-6. **The activity strip draws `ArrowRight` between independent totals** (Calls → Contacted → Bookings → Converted → Policies). It needs a 70-word disclaimer to undo what the arrows imply. Four of its five values repeat the strip and heroes.
-7. **Tables:**
-   - Four different header and padding styles.
-   - Wide tables silently hide columns inside horizontal scrollers. Campaign Performance shows 5 of 12 columns at 1440px, so its policy and premium columns are hidden. Agent Performance shows only Agent and Policies at 390px.
-   - Lead Source has an always-"Not available" Converted column (23 live rows).
-8. **Diagnostics** carry equal visual weight to performance. Captions use `text-[9–10px] font-black uppercase tracking-widest`.
+   - dual y-axes
+   - the grouping control sits inside the Calling card but also regroups Production
+   - status colours used as series colours
+   - the call contact rate on a 0–100% axis, so 7.4% looks flat
+   - dashed grids and "left axis / right axis" legends
+6. **The activity strip draws arrows between independent totals.** It then needs a 70-word disclaimer.
+7. **Tables hide important columns in horizontal scrollers with no cue:**
+   - Campaign Performance shows 5 of 12 columns at 1440; policy and premium are hidden.
+   - Agent Performance shows only Agent and Policies at 390.
+   - The heatmap scroller isn't focusable.
+   - Lead Source shows an always-"Not available" Converted column.
+8. **Diagnostics** carry the same weight as performance. Captions are 9–10 px uppercase `font-black`.
 9. **Accessibility:**
-   - Dispositions are identified by colour only, and two live dispositions share `#EF4444`.
-   - Campaign rows use `<tr role="link">`.
-   - Toggles have no `aria-pressed`.
-   - Heatmap values exist only in mouse-hover tooltips.
-   - StatCard error text measures 1.81:1 contrast on the dark card.
-   - Scope tabs have a dangling `aria-controls`.
-10. **Dead code:** `GoalTracking.tsx` (built, never rendered) and `DraggableSection.tsx` (no importers).
+   - disposition identity is colour-only, and two live dispositions share `#EF4444`
+   - campaign rows are `tr role=link`
+   - toggles have no `aria-pressed`
+   - heatmap values exist only in hover tooltips
+   - error text is 1.81:1 on the dark card
+   - `aria-controls` dangles
+   - a customizer move to the first or last position drops focus
+10. **Dead code:** `GoalTracking.tsx`, `DraggableSection.tsx`.
 
 ---
 
 ## 3. Accuracy audit — results
 
-**Headline.** For the audited metrics, windows and scopes, every Reports number on screen and in CSV matched an independent recalculation from source tables under the approved contracts. The only exceptions are the confirmed issues in §4. This is **not** an all-history certification; see §3.4.
+**Headline.** For every audited metric, window, scope and export, the Reports numbers match an independent recalculation from source tables under the approved contracts. The exceptions are the confirmed issues in §4. **No all-history certification is claimed** (§3.5).
 
 ### 3.1 Coverage
 
-**Windows** (agency calendar dates, America/Los_Angeles):
+| Area | Evidence | Result |
+|---|---|---|
+| Six v2 payloads: every total, agent row, daily/hourly/day-of-week/heatmap series, disposition and duration bucket, campaign and lead-source row | [Indep] vs [DB-sim]: W1 Oct 1–7, W2 Sep, W3 Sep 8–Oct 7, W4 Oct 6, W5 366 days | Verified (except R-3) |
+| Presets touching the open day: Today, Yesterday, Last 7, This Month, Last 30 (default) | [Indep] vs [DB-sim] for Admin, Agent and Team Leader in one snapshot each; the stale-heartbeat cap exercised on 3 live stale sessions | Verified |
+| Browser-derived metrics and **every CSV** | Live payloads ([DB-sim]) rendered through the real page in a test harness and diffed against an independent re-implementation | **1,332 / 1,333 values matched; 140 / 140 CSV files byte-identical.** The one mismatch is R-5. |
+| Scopes and access | Admin personal/team/agency/narrowed; Team Leader personal/team (agency refused); Agent personal; other-org Admin; Deleted actors; `anon` | Verified (25+ cases) |
+| Campaign visibility for Agent and Team Leader callers | [DB-sim] + [Indep] visibility predicate; a live restricted case (Agent `d396d777`, 64 calls unavailable); local restricted shapes | Verified; hidden campaigns never appear |
+| Dates | DST 23 h / 25 h days, Havana double midnight, month boundaries, Monday weeks, 366-day limit | Verified ([DB-sim] window math; [Synth] calls on DST days) |
+| Session clipping | All 6 production sessions that cross local midnight, per day and 2-day window, plus local synthetic edges | Verified. Two 1 s differences come from flooring each window separately; no screen sums per-day seconds. |
+| Bookings | Live; local synthetic setter-vs-assignee, cancelled, completed, no-show, `created_by` NULL, callback vs disposition, reviewed duplicate mapping | Verified (29/29 local checks) |
+| Reports vs Leaderboard by policy identity | Live: 9 policies, 9 identities, 9 events. Local synthetic: reassignment, premium edit after snapshot, removal, client deletion, additional policies, legacy events, month-crossing dates (16 stages) | Verified; each basis behaves as specified |
+| Dialer header vs Reports | `get_trusted_today_dialer_stats` per campaign and agent-local day vs Reports for the same agent and day | Every difference is attributable to zone, campaign scope, stale cap or policy basis |
+| Deployed SQL parity | `md5(prosrc)` = repository; 15 guard pins match | Verified |
 
-| Window | Dates |
+### 3.2 Representative values (W1 = Oct 1–7, agency; independent = RPC)
+
+| Metric | Value |
 |---|---|
-| W1 | 2026-10-01..10-07 |
-| W2 | 2026-09-01..09-30 |
-| W3 | 2026-09-08..10-07 |
-| W4 | 2026-10-06 |
-| W5 | 2025-10-08..2026-10-07 (366-day maximum) |
+| Calls made | 1,833 (49 inbound separate) |
+| Contacted calls / call contact rate | 135 / 7.4%. 45 s → not contacted; 46 s → contacted unless No Answer. A ≥45 s rule would give 140. |
+| Talk time | 39,893 s |
+| Duration buckets | 1,548 / 196 / 56 / 19 / 14 |
+| Bookings created (all types) | 25 (5 appointment, 5 callback, 15 unknown kind) |
+| Callback dispositions | 6, separate from bookings |
+| Dialer session time | 95,862 s |
+| Matched / unmatched calls | 1,118 / 715 |
+| Policies sold / known annual premium | 1 / $1,281.60 (1 of 1 known) |
 
-Also checked: a month boundary, a single day, and the DST days.
+Other windows: W3 4 / $3,831.72 (average $957.93); W5 9 / $10,655.52.
 
-**Scopes simulated:**
-- Admin: personal, team, agency, and agency narrowed to Alexa and to Will
-- Team Leader: personal and team; agency is refused
-- Agent: personal; team and agency are refused
-- Another organization's Admin
-- Deleted actors
-- `anon`
-
-**Panels:** all six v2 payloads. Every summary total, agent row, daily/hourly/day-of-week/heatmap series, disposition bucket, duration bucket, campaign row and lead-source row. Completed windows returned identical values on every rerun (as-of 03:40–03:53 UTC).
-
-### 3.2 Representative results (W1 = Oct 1–7, agency)
-
-| Metric | Expected (independent) | Actual (RPC) | Status |
-|---|---|---|---|
-| Calls made (outbound) | 1,833 | 1,833 | Verified (also W2 2,946; W3 4,136; W4 177; W5 5,639) |
-| Inbound calls | 49 (5 attributed + 44 unattributed) | 49 | Verified |
-| Contacted / call contact rate | 135 / 7.4% | 135 / 7.4% | Verified. 45 s → not contacted; 46 s → contacted unless No Answer. A ≥45 s rule would give 140. |
-| Talk time | 39,893 s | 39,893 s | Verified |
-| Duration buckets | 1,548 / 196 / 56 / 19 / 14 | same | Verified (sum = 1,833) |
-| Duration provenance | 1,263 unknown, 484 conflict, 0 estimated | same | Verified (disclosed) |
-| Bookings created (all types) | 25 (5 appointment / 5 callback / 15 unknown kind) | 25 | Verified |
-| Callback dispositions / DNC dispositions | 6 / 17 | 6 / 17 | Verified (separate from bookings) |
-| Converted leads/clients | 0 (W5: 2) | 0 (W5: 2) | Verified |
-| Dialer session time | 95,862 s | 95,862 s | Verified (see D-1 for the ended-session rule) |
-| Session-matched / unmatched calls | 1,118 / 715 | 1,118 / 715 | Verified (sum = 1,833) |
-| Policies sold | 1 | 1 | Verified (W2 4; W3 4; W5 9) |
-| Known annual premium | $1,281.60 (1/1 known) | $1,281.60 | Verified (W3 $3,831.72, average $957.93; W5 $10,655.52) |
-| Campaign split | 1,146 attributed + 687 unavailable | same | Verified |
-| `quality.sessions.overlap_seconds_removed` | 0 (no overlapping rows) | **3** | **Incorrect** (R-3) |
-
-**Additive reconciliations** passed in every window:
-- daily, hourly, day-of-week and heatmap totals = summary totals
+**Additive reconciliations** pass in every window:
+- daily, hourly, day-of-week and heatmap totals = summary
 - agent rows + unattributed = summary
-- disposition buckets = duration buckets = matched + unmatched = calls made
-- campaigns + unavailable = calls made
-- lead sources + unlinked = calls made
-- known + unknown premium count = policy count
+- disposition and duration buckets = matched + unmatched = calls made
+- campaigns + unavailable = lead sources + unlinked = calls made
+- known + unknown = policy count
 
-### 3.3 Reports vs Leaderboard (stable policy identity)
+### 3.3 Reports vs Leaderboard
 
-Production holds **9 stored policies with 9 policy identities and exactly one original sale event each**. There are no identity gaps, removals or duplicate events. AGENT_RULES #40 records 8 policies / $9,373.92 as of Oct 5. One genuine new sale on Oct 5 (`e171ccaf`) makes 9 / $10,655.52.
-
-Month totals are **equal** on both bases:
+Production has 9 stored policies, 9 identities and exactly one original sale event each. The monthly totals are equal on both bases:
 
 | Month | Policies | Premium |
 |---|---|---|
@@ -143,394 +159,607 @@ Month totals are **equal** on both bases:
 | September | 4 | $3,205.32 |
 | October | 1 | $1,281.60 |
 
-The live `get_leaderboard_snapshot` month value agrees. Day and week buckets differ for four policies. This is expected, because the two bases use different dates:
-- Three legacy events are 1, 5 and 12 days after the backdated `sold_date`.
-- One repaired event uses the approved client-creation proxy, one day after the sale date.
+Day and week buckets differ for four policies, because the event times differ from the backdated sold dates (+12, +5 and +1 days, and one approved creation-time proxy +1). One legacy event (`0d9a147d`) has no premium snapshot, so its Leaderboard premium follows the current client premium (an approved fallback). No ownership differences exist today. Per-policy table: `evidence-matrix.md` B.3. **Neither basis changes.**
 
-No ownership differences exist today: every original seller is still the current assignee. Per-policy detail is in `evidence-matrix.md` Appendix B.3. **No change to either basis is proposed.**
+### 3.4 Owner-decided or explained behaviours (no defect)
 
-### 3.4 Not certified, with the reason for each
+- **Late-ended sessions (D-1, decided: preserve).**
+  - Ended sessions count until their recorded end.
+  - Oct 1–7: 6,754 s fall after the last heartbeat (89,829 s if capped at heartbeat + 3 min).
+  - Two of the midnight-crossing sessions add about 35 k s each of next-day time after their last heartbeat.
+  - The Data basis wording describes this rule (B8.3).
+- **Campaign lead identity (G11, recommend keep).**
+  - 294 legacy calls (110 in August, 161 + 22 in September) count in a campaign's `calls_made` but have no same-campaign lead, so they are not in `leads_dialed`.
+  - Cause: Team `e6d957a3` leads were moved to Open Pool `acb108ab` on 2026-09-25, plus 22 unlinked calls.
+  - The default Last 30 is affected by only 20 calls.
+  - The approved guard is intended. No change is proposed. AGENT_RULES line 130's "identical coverage" wording should be corrected in docs (§12).
+- **Sessions with no campaign (G12, recommend keep).**
+  - 0 s in W1, 49 s in Last 30, 144,599 s (17.9%) in W5, all from May to September.
+  - They count in the session-rate denominators but can never match a call.
+  - The Data basis states the denominator (B8.5).
+- **Team scope excludes Deleted downline history** (approved, tested). Agency shows Deleted agents as labelled rows.
+- **Agency "today" refreshes on Refresh**, not automatically at midnight (approved no-polling contract).
 
-- 277 historical call and 12 booking duplicate candidates remain unreviewed. `private.performance_duplicate_rows` has 0 rows, so nothing is excluded, as the contract requires. Example: five legacy pairs that share a provider call ID add +3 calls to W1.
-- 3,559 of 4,364 last-30-day calls have legacy unknown duration provenance, and 690 are flagged duration conflicts (parent/child leg differences of at most 4 s; none changes Contacted).
-- Not exercisable in production data (covered by synthetic SQL tests only):
-  - bookings cancelled or completed after creation (every appointment is Scheduled or Confirmed)
-  - estimated-duration provenance
-  - additional policies, unknown, invalid or zero premiums (every live policy is primary with a known premium)
-  - calls on a DST transition day
-  - the America/Havana double-midnight case (sweep and code-checked: 596 zones × every day of 2026, 0 failures)
-- Hosted browser behaviour (see §1).
+### 3.5 Not certified, and why
+
+- **Historical duplicate candidates** (277 calls, 12 bookings) are still present and counted, as the contract requires. Their row hashes are unchanged since the 2026-10-04 freeze, and 0 new candidates exist after it.
+
+  | Window | Calls | Contacted (via the disposition flag) | Bookings |
+  |---|---|---|---|
+  | W1 | 20 of 1,833 (1.1%) | 0 | 4 of 25 (16%) |
+  | Last 30 | 112 of 4,364 (2.6%) | 8 of 323 | 6 of 63 (9.5%) |
+  | W5 | 277 of 5,639 (4.9%) | 60 of 452 (13.3%) | 12 of 99 |
+
+  The page and CSV disclose this only as "Unreviewed historical candidates remain included", with no count. A numeric disclosure would be a future backend item (X-3). Resolving candidates needs provider evidence and separate approval.
+- **Legacy duration provenance:** 3,559 of 4,364 last-30-day calls have unknown provenance and 690 have duration conflicts (at most 4 s; none changes Contacted).
+- **Not exercisable with production data:** cancelled or completed bookings, estimated durations, additional policies, unknown or zero premiums, calls on DST days. Each is covered by local synthetic tests only.
+- **Hosted signed-in browser behaviour:** blocked here (§9.4).
 
 ---
 
-## 4. Confirmed issues and proposed fixes
+## 4. Issues and what this plan does with each
 
-Every item below survived independent adversarial verification. "Disputed" means one verifier confirmed the facts while another judged the behaviour to be approved; those items are listed as owner decisions, not bugs.
+Every item survived independent two-lens adversarial verification unless marked.
 
-### 4.1 In scope for this branch (frontend and tests only)
+### 4.1 Fix in this branch — frontend
 
-| ID | Severity | Issue | Root cause | Proposed fix |
+| ID | Sev. | Issue | Root cause | Fix |
 |---|---|---|---|---|
-| R-1 | low | The optional "Dials per appointment" tile divides calls by **Bookings created (all types)**. Live W1: 73.3 shown. With appointment and unknown-kind bookings only it would be about 91.7. | Oct 5 renamed the count but not this ratio (`stat-computations.ts:127,261-262`). | Relabel to "Dials per booking created (all types)". The id is unchanged; labels are not persisted. |
-| R-2 | low | Campaign CSV "Known / total policies" is written as `4/4`, which spreadsheets turn into dates (4-Apr). | `CampaignPerformance.tsx:58-59` text template | **Decision C-1**: either split it into two numeric columns (changes CSV headers) or write "4 of 4". |
-| R-3 | low | Data quality says "0 overlapping rows; 3 duplicate seconds removed" when nothing overlapped (1–5 s per window). | Server floors each agent's union separately and subtracts the sum from one floored grand total (`20261006043731:29-38, 348-349`). | **Decision C-2**: frontend omits the seconds clause when `overlapping_rows = 0` (recommended now), and/or a later approved SQL correction (B-3). Session totals are correct either way. |
-| R-4 | low | Refresh and scope Retry re-paint the **previous** panel payloads for about one frame (12 ms in 5/5 real-browser runs) before loading. No wrong CSV is possible, because the export identity is already cleared. | `useReportPanels` returns early on a null key without clearing stored panels (`useReportsData.ts:196,226`). | `if (!key \|\| !request) { setStored(null); return; }` plus hook and page frame-probe tests. |
-| U-1 | — (Chris's request) | Activity arrows imply a funnel. | `ReportsActivityFlow.tsx:38` | Remove the arrows; use equal independent tiles (§5.6). |
-| U-2 | low a11y | Disposition series are identified by colour only; two live dispositions share `#EF4444`. | `DispositionsPieChart.tsx:109`, `DispositionDeepDive.tsx` | Ranked list with text identity; duplicate colour gets opacity and a ring (§5.8). |
-| U-3 | low a11y | `<tr role="link" tabIndex>` campaign rows. | `CampaignPerformance.tsx:118-131` | `<th scope=row>` containing a real `<Link>` with a visible focus ring. |
-| U-4 | low a11y | Deep Dive toggles expose no selected state. | `DispositionDeepDive.tsx:48-53,109-124` | Shared segmented control with `role=group` and `aria-pressed`. |
-| U-5 | low | Strip shows grey filler tiles with fewer than 6 metrics. | `SectionRenderer.tsx:41-43` (`gap-px bg-border`) | Flex-wrap tiles with borders; no filler. |
-| U-6 | low | Customize enters an invisible edit mode while the Custom range is incomplete. | `Reports.tsx:105,144-147` | Disable entry while there are no sections; render the customizer outside the `sections` block. |
-| U-7 | low a11y | Heatmap values are reachable only by mouse hover. | `CallingHeatmap.tsx:118-133` | Semantic table with `th` headers and sr-only cell text. |
-| U-8 | low a11y | Scope tabs point `aria-controls` at a panel that doesn't exist yet. | `ReportScopeTabs.tsx:27` | Emit it only when the panel renders. |
-| U-9 | low a11y | Moving an item to the end of a group drops keyboard focus. | `ReportCustomizer.tsx:35,84-89` | Restore focus to the moved item's button. |
-| U-10 | low a11y | Error text is 1.81:1 on the dark card; amber validation text is 3.19:1; small `text-primary` text is 3.63:1. | `StatCard.tsx:27-28`, `ReportsToolbar.tsx:106-107` | Foreground text plus a coloured icon. |
-| U-11 | low | Wide tables hide policy and premium columns in scrollers with no cue. | `CampaignPerformance.tsx:99`, `AgentPerformanceCards.tsx:61` | Full-width performance tables, a sticky first column, a focusable labelled region and an edge fade (§5.7). |
-| T-1 | test gap | v2 hourly, daily and day-of-week buckets, Converted, disposition fallback and inbound have no SQL value assertions. A UTC-bucketing mutation passes CI. | `supabase/tests/reports_integrity.sql` | Add value assertions and negative controls (§8). |
-| T-2 | test gap | Session end-of-window clip is untested (a mutation survives). Production has 6 sessions that cross local midnight. | same | Add fixtures for crossing the end and the start, plus a negative control. |
-| T-3 | test gap | Nothing detects an additional policy borrowing the primary premium. | same | Add a fixture with a primary premium and a premium-less additional policy, plus a negative control. |
-| T-4 | test gap | No frozen registry contract test, and page tests only use `DEFAULT_LAYOUT`. | layout tests | Add a frozen ids/groups/teamOnly/cap snapshot and a saved-layout page test. |
+| **R-1** | low | The optional "Dials per appointment" tile divides calls by **all** bookings | Oct 5 renamed the count but not this ratio (`stat-computations.ts:127,261-262`) | **Approved:** label "Dials per booking", subtitle "all booking types" (C13). The id and value are unchanged; labels are not persisted. |
+| **R-4** | low | Refresh and scope Retry re-paint the **previous** payloads for about one frame (12 ms, 5/5 real-browser runs) | `useReportPanels` returns early on a null key without clearing stored panels (`useReportsData.ts:196,226`) | `if (!key \|\| !request) { setStored(null); return; }` plus hook and browser frame-probe tests. This is directly the brief's "old payloads must not reappear". |
+| **R-5** | low | Call Duration double-rounds seconds: the server returns `round(avg,1)` and the browser rounds again. Live: exact mean 152.487 s → payload 152.5 → shown "2:33" instead of 2:32. | `CallDurationAnalysis.tsx:52,105,113,121`, `reports-format.ts:196-200`; same latent path for "Avg talk time per dial" | Display the payload's 0.1 s exactly: "2m 32.5s", "38.9s". No server change; CSV unchanged. |
+| **U-1** | Chris's request | Activity arrows imply a funnel | `ReportsActivityFlow.tsx:38` | Equal independent "Period totals" tiles, no arrows, no percentages |
+| **U-2** | low a11y | Disposition identity is colour-only; duplicate `#EF4444` | `DispositionsPieChart.tsx:109`, `DispositionDeepDive.tsx` | Ranked list with text identity; Deep Dive duplicate colour gets opacity + ring; configured colours never recoloured |
+| **U-3** | low a11y | `<tr role="link">` campaign rows | `CampaignPerformance.tsx:118-131` | `<th scope=row>` containing a real `<Link>` with a visible focus ring |
+| **U-4** | low a11y | Toggles expose no selected state | `DispositionDeepDive.tsx:48-53,109-124`, heatmap | Shared `ReportSegmented` (`role=group`, `aria-pressed`) |
+| **U-5** | low | Grey filler tiles in the strip | `SectionRenderer.tsx:41-43` | Flex-wrap bordered tiles |
+| **U-6** | low | Invisible edit mode while the Custom range is incomplete | `Reports.tsx:105,144-147` | Entry disabled with no sections; editor rendered outside the tabpanel **only** for a pending Custom range (scope ready, same owner, not withheld) (§5.10) |
+| **U-7** | low a11y | Heatmap values only in hover tooltips | `CallingHeatmap.tsx:118-133` | Semantic table, `th` headers, sr-only cell text, focusable region |
+| **U-8** | low a11y | `aria-controls` points at a panel that may not exist | `ReportScopeTabs.tsx:27` | Emit only when the panel renders |
+| **U-9** | low a11y | Focus lost when an item moves to the first or last position | `ReportCustomizer.tsx:35,84-89` | Restore focus to the moved item's enabled button |
+| **U-10** | low a11y | Low-contrast error, amber and small primary text (1.81 / 3.19 / 3.63:1) | `StatCard.tsx:27-28`, `ReportsToolbar.tsx:106-107` | Foreground text + coloured icon |
+| **U-11** | low | Important columns hidden without a cue | `CampaignPerformance.tsx:99`, `AgentPerformanceCards.tsx:61`, `CallingHeatmap.tsx` | **Approved direction:** see §5.7 |
+| **F-1** | test | Browser-gate assertion `verify.mjs:76` can never fail (case-sensitive label regex) | `verify.mjs:76` | Correct the regex and add a positive control |
+| **R-6** | low copy | Data-quality note reads "1 estimates" / "1 conflicts" | `reports-integrity-text.ts` | Singular when 1. Changes that CSV note text only when a count is 1 (optional; **recommended**). |
 
-### 4.2 Backend or security findings — separate, NOT part of this branch
+### 4.2 Fix in this branch — duplicate-session-seconds rounding (R-3, approved)
 
-Each needs its own exact approval.
+`quality.sessions.overlap_seconds_removed` shows 1–5 s when no sessions overlap: W1 3, W2 4, W3 2, W4 1, W5 5, Last 30 4, with `overlapping_rows` 0. The page and every CSV print "0 overlapping rows; 3 duplicate seconds removed."
 
-| ID | Severity | Finding | Recommendation |
+**Root cause:** `20261006043731…:348-349` subtracts per-agent floored unions from one floored grand total. Session totals are correct and do not change.
+
+**Two-part correction:**
+
+1. **Server (the exact fix).** Replace only the `overlap_seconds_removed` expression in `private.report_integrity_quality`: sum the exact per-agent raw-minus-union difference, then floor once (diff in §8).
+   - Locally proven:
+     - all four SQL suites pass
+     - 60 payloads are identical apart from the corrected field
+     - zero, exact, sub-second and multi-day fixtures behave
+     - three negative controls trip
+     - rollback restores the byte-identical preimage
+     - a 4,000-trial randomized oracle shows 0 mismatches
+   - A production read-only SELECT of the new expression gives **0** for W1–W5, with session seconds unchanged.
+   - Adding the migration files is covered by plan approval. **Applying them to production needs a separate exact approval**, using the #41 Reports-only disabled window (about 1–2 minutes).
+2. **Frontend guard (recommended, ships with the UI).** `qualityNotes` prints `0` duplicate seconds whenever `overlapping_rows = 0`. The sentence shape is unchanged, so the synthetic golden CSVs (0/0 and 2/1800) stay byte-identical. This is correct by construction, matches the server fix, keeps screen and CSV identical, and fixes the display even before the SQL window. With the server fix applied, it is redundant but harmless.
+
+**CSV effect:** the "Sessions assessed …" note changes "3" → "0" in affected windows. That is the only intended CSV byte change besides R-6.
+
+### 4.3 Regression coverage (approved: buckets, session-end clipping, additional-policy isolation)
+
+All synthetic SQL fixtures use a **separate synthetic organization**. The browser payload JSON is generated from the same database run, and `verify.mjs` pins the Oct 1 values. Each item gets an `rt.reject_mutation` negative control.
+
+| ID | Test | Catches (proven by local mutation probes) |
+|---|---|---|
+| **T-1** | v2 bucket values: `by_hour`, `by_date`, `by_day_of_week`, heatmap; DST 23 h / 25 h days; Havana first midnight; inbound vs outbound; disposition name fallback; Converted identity | UTC bucketing, elapsed-hours-since-midnight bucketing, UTC daily buckets, call-id converted key (all currently survive the suite) |
+| **T-2** | Session crossing the window **end** and the **start** (agency midnight), per day and 2-day union; overlap fixture with exact removed seconds | Removing the end clip (currently survives) |
+| **T-3** | Primary premium beside a premium-less additional policy, and an explicit additional zero | Additional policy borrowing the primary premium (currently survives) |
+| **T-4** | Frozen registry snapshot (ids, groups, teamOnly, `DEFAULT_LAYOUT`, `MAX_VISIBLE_STATS`) + saved-layout page test | Silent loss or reset of saved layouts |
+| **T-5** (recommended) | v2 booking credit per agent, status independence, user_id fallback, reviewed-mapping exclusion, `callback_calls` independent of bookings | 4 booking mutations that currently survive |
+| **T-6** (recommended) | v2 Agent-caller campaign visibility: no restricted ids or names in any payload | A visibility leak (the partition check alone cannot detect one) |
+
+### 4.4 Separate tasks — NOT in this branch
+
+| ID | Severity | Item | Status |
 |---|---|---|---|
-| S-1 | **medium, security** | RLS policy `company_settings_team_leader_update`, written for the TV banner, lets any Team Leader `UPDATE` the whole `company_settings` row, **including `timezone`**, through PostgREST. `validate_iana_timezone` also accepts `NULL` and `'Factory'`. A Team Leader could shift every agency Reports, Leaderboard and Dashboard window, or force an org-wide 55000 outage. Verified read-only (policy, grants, trigger, role-simulation `USING` match, `EXPLAIN`); no update was executed. | Separate security task under `#APPROVE_RLS_CHANGE`: restrict Team Leader writes to the banner column (column grant or a guard trigger), and reject NULL / `Factory` / `localtime` / `posixrules` on update. I'll prepare the migration and tests only if you ask. |
-| S-2 | low (disputed) | `report_layouts` org-default rows are writable by Team Leaders (original 2026-05-13 design), with no status check and no size CHECK. The Reports UI never writes them, and the normalizer sanitizes them, so numbers are unaffected. | Record only. Reconsider when an admin-only default editor is built. Not changed here (the brief excludes org-wide layout writes). |
-| B-3 | low | The server-side form of R-3. | Fold into the next approved Reports SQL migration (guarded disable → fix → enable, #41). Not proposed as its own release. |
+| **S-1** | medium, security | Team Leaders can `UPDATE company_settings.timezone` (RLS meant for the TV banner); the validator accepts `NULL` and `Factory` | Documented in `security-tasks.md`. Needs `#APPROVE_RLS_CHANGE` and its own plan. |
+| **S-3** | medium, security | Agents can directly `INSERT`/`UPDATE` their own `dialer_sessions` timestamps; "server-timestamped" is not enforced | Documented in `security-tasks.md`; its own plan |
+| S-2 | low | Team Leaders can write org-default `report_layouts` (original design) | Recorded only |
+| X-1 | low, Dialer | Header session ticker spans local midnight | Recorded; Dialer scope |
+| X-2 | docs | AGENT_RULES line 130 "identical coverage" is contradicted by 294 legacy calls | Wording correction proposed (§12) |
+| X-3 | future | Numeric disclosure of unreviewed duplicate candidates | Backend; not proposed now |
 
-### 4.3 Owner decisions (no defect claimed)
+### 4.5 Decisions requested (defaults in bold)
 
-| ID | Question | Evidence | Options |
-|---|---|---|---|
-| D-1 | **Ended sessions count the whole gap after the last heartbeat.** The contract caps only stale *active* sessions. `end_dialer_session` sets `ended_at = now()` with no liveness check. | 11 sessions, 100,255 s all-time; Oct 1–7: 6,753 s of 95,862 s (7.0%). One 13.9 h gap has 0 calls, but another gap contains 30 calls, so a gap does not prove idleness. | (a) Keep and describe it in Data basis (frontend text only; **recommended for this branch**). (b) Later Reports SQL: disclose a count and seconds in `quality.sessions`. (c) Cap ended spans unless same-campaign calls prove activity (changes the basis). Changing `end_dialer_session` is Dialer telemetry and out of scope. |
-| D-2 | Team scope silently excludes Deleted downline history; agency shows it as labelled rows. | W5 Admin team: 28 calls and 2 bookings excluded. | Keep (approved, tested), or add a disclosure later (SQL). |
-| D-3 | Period presets: seven buttons → one "Report period" select. | Saves about 100px on phones and calms desktop; costs one extra tap. | Recommended: yes. |
-| D-4 | Disposition donut → ranked share list; Call summary collapsed by default; donut-only chrome removed. | 98.9% of live calls sit in two grey slices. | Recommended: yes. |
-| D-5 | Ties for "Most policies — current assignments". | Today an alphabetical tie-break silently names one agent. | Show "N agents tied · X policies each", or keep today's behaviour. |
-| D-6 | Screen-only columns: "Contacted calls" (Agent performance) and "Session-matched calls" (Agent efficiency) added; Lead-source "Converted" hidden on screen (always "Not available"). | CSV headers unchanged. | Recommended: yes. |
-| C-1 | CSV fix for R-2 | — | Two numeric columns (header change) **or** "k of n" text (no header change, recommended). |
-| C-2 | Fix for R-3 | — | Frontend guard now (recommended); server fix only with a future Reports migration. |
+| ID | Question | Default if you approve without comment |
+|---|---|---|
+| D-3 | Period presets become one "Report period" select. This is the main lever for the mobile filter height. | **Yes** |
+| D-4 | Disposition donut → ranked share list; Call summary collapsed by default | **Yes** |
+| D-5 | Ties for "Most policies — current assignments" | **Show "N agents tied · X policies each"** |
+| D-6 | Screen-only columns: Agent "Contacted calls", Efficiency "Session-matched calls"; Lead-source "Converted" hidden on screen (CSV unchanged) | **Yes** |
+| C-1 | Campaign CSV "Known / total policies" is written as `4/4`, which spreadsheets turn into dates | **No change in this branch** (CSV values preserved); fix later if wanted |
+| R-3b | Frontend guard in addition to the server fix | **Yes** |
+| R-6 | Singular "1 estimate" / "1 conflict" | **Yes** |
+| W | New Data basis sentences marked N/O in `data-basis-wording.md` (B1.5, B2.4, B2.5, B8.4, B9.3, C13 subtitle) | **Include N rows; omit O rows (B1.5, B8.4)** |
 
 ---
 
 ## 5. Proposed page layout
 
-The direction came from a judged comparison of three independent proposals: executive hierarchy, analyst density and mobile-first. The winner is the executive-hierarchy direction, with the best table and accessibility ideas from the analyst proposal and the first-screen economy of the mobile proposal.
+The direction came from a judged comparison of three independent proposals. The executive-hierarchy direction won; it absorbed the best table and accessibility ideas of the analyst proposal and the first-screen economy of the mobile proposal.
 
 **Principles:**
-- **Production first.**
-- **Numbers over prose.** About 45 → about 12 always-visible strings.
-- **One accent** (`--primary`; status colours never act as series colours).
-- **One table style, one duration format, sentence case.**
-- **No number, payload, export guard, registry id, group, cap or default changes.**
+- production first
+- numbers over prose (about 45 → about 12 always-visible strings)
+- one accent (`--primary`; status colours never act as series colours)
+- one table style, one duration format, sentence case
+- **no number, payload, export guard, registry id, group, cap or default changes**
 
-### 5.1 Wireframes (estimates; Playwright will assert the budgets)
+### 5.1 Wireframes
 
 ```
-DESKTOP 1440
+DESKTOP 1440 (header ≤ 150 px; today 223/275)
 Reports                                                    [⚙ Customize] [⤓ Export] [↻]
 [Personal | Team | Agency]  [📅 Last 30 days ▾]  [👥 All agents ▾]
 Sep 9 – Oct 8, 2026 · America/Los_Angeles · Summary as of 8:44 PM PDT        ⓘ Data basis
 ┌ Policies sold ───────────────┬ Known annual premium ───────────────────── (● Partial)* ┐
-│ 4                    (56px)  │ $3,831.72                                    (56px)     │
-│ Primary + additional policies│ ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰  4 of 4 policies known                  │
+│ 4                            │ $3,831.72                                               │
+│ Primary + additional policies│ ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰  4 of 4 premiums known                 │
 │ Most policies — current      │ Known monthly $319.31 · Avg per known policy $957.93    │
 │ assignments: <agent> · N     │                                                         │
 ├──────────────────────────────┴─────────────────────────────────────────────────────────┤
 │ Current book · stored policies by sale date · monthly premium ×12 · client's current agent ⓘ │
 └────────────────────────────────────────────────────────────────────────────────────────┘
-┌Calls made┬Contacted calls┬Call contact rate┬Bookings created (all types)┬Talk time┬Dialer session time┐
-│ 4,364    │ 323           │ 7.4%            │ 63                         │28h 4m 3s│ 114h 37m 51s      │
-│          │               │                 │                            │● 3,559 unknown · 690 conflicting │
-└──────────┴───────────────┴─────────────────┴────────────────────────────┴─────────┴───────────────────┘
+[Calls made][Contacted calls][Call contact rate][Bookings created (all types)][Talk time][Dialer session time]
 Trends                                                         [ Daily | Weekly | Monthly ]
-┌ Production trend                ⤓ ┐  ┌ Calling trend   121 inbound (not in rate)   ⤓ ┐
-│ Policies sold (bars)        220px │  │ Outbound calls (bars)                    220px │
-│ Known annual premium (line) 112px │  │ Call contact rate (line, 0–nice max)     112px │
-└───────────────────────────────────┘  └────────────────────────────────────────────────┘
-Period totals · Independent period totals, not one cohort.
-[Calls made · by call date][Contacted calls][Bookings created (all types)][Converted leads/clients][Policies sold · by sale date]
-Performance          Agent performance (full width, sticky first column, tfoot Unattributed)
-                     Agent efficiency (collapsed) · Campaign performance (full width, tfoot Attribution unavailable)
-                     Lead sources (full width, tfoot Not linked to a current lead)
-Dialer intelligence  Disposition breakdown (ranked list) | Calling heatmap (semantic table)
-                     Call summary · Call flow · Call duration · Disposition deep dive (collapsed)
+[Production trend: Policies sold bars / Known annual premium line] [Calling trend: Outbound calls bars / Call contact rate line]
+Period totals · Independent period totals, not one cohort.   (5 equal tiles, no arrows)
+Performance: Agent performance · Agent efficiency (collapsed) · Campaign performance · Lead sources (all full width)
+Dialer intelligence: Disposition breakdown (ranked list) | Calling heatmap (semantic table); others collapsed
 
-MOBILE 390 (first screen ≈ 844px including the app TopBar)
-Reports                               [⚙] [⤓] [↻]       40px targets, names kept for SR
-[  Personal  |   Team   |  Agency  ]                    one tap, full width
+MOBILE 390×844 (filter block ≤ 216 px; today 427 preset / 479 custom)
+Reports                               [⚙] [⤓] [↻]       40 px targets, sr-only names
+[  Personal  |   Team   |  Agency  ]
 [📅 Last 30 days ▾] [👥 All agents ▾]
 Sep 9 – Oct 8, 2026 · America/Los_Angeles
 Summary as of 8:44 PM PDT              ⓘ Data basis
-┌Policies sold │ Known annual premium ┐  side by side; both values end ≈ y340
+┌Policies sold │ Known annual premium ┐  both values end ≤ y380 (today ≈ y710–983)
 │4             │ $3,831.72            │
-│              │ ▰▰▰▰ 4 of 4 known    │
 └──────────────┴──────────────────────┘
-Six metrics, 2 × 3                                      all six end ≈ y730
+Six metrics in a 2 × 3 grid, complete ≤ y844 (today ≈ y1,723)
 ```
 
-\* "Partial" appears only when `0 < known < policy count`. All-unknown shows "Unavailable" with no meter. The empty cohort shows $0.00 with "Avg per known policy —".
+\* "Partial" appears only when `0 < known < count`. All-unknown shows "Unavailable" with no meter. The empty cohort shows $0.00 and "Avg per known policy —".
+
+A prototype built with the repository's own Tailwind measured the new mobile header at **205 px** (preset) and **253 px** (Custom), −52% and −47%.
 
 ### 5.2 Header and filters
 
-- "Reports" stays the heading. The subtitle is removed.
-- Customize, Export and Refresh keep their order and accessible names. Below `sm` they become 40px icon buttons with sr-only labels.
-- Scope tabs still come from server `available_scopes`. Every selection still clears the agent drilldown. A skeleton (not `null`) shows while the scope loads.
-- **Period**: one select (Today, Yesterday, Last 7 days, Last 30 days, This month, Last month, Custom range), still computed from the server agency `today`. Custom shows the existing Start and End date pickers. Validation uses foreground text with an icon.
-- **Agent**: a select with `aria-label="Agent filter"`, listing only `get_report_scope().agents`.
-- **Context line**: period · zone · "Summary as of h:mm TZ" (only for a ready, current summary; never cached) · Data basis trigger. "Summary as of" is deliberate: panels are independent responses (#41).
+- "Reports" heading, no subtitle. Customize, Export and Refresh keep their order and accessible names; below `sm` they are 40 px icon buttons with sr-only labels.
+- **Scope tabs:** server `available_scopes`; every selection still clears the agent drilldown; skeleton while loading.
+- **Period:** one Radix Select, `aria-label="Report period"`. Options in this exact order: Today, Yesterday, Last 7 days, Last 30 days, This month, Last month, Custom range.
+  - Still computed from the server agency `today`.
+  - Custom shows the existing Start and End date pickers.
+- **Agent:** Select with `aria-label="Agent filter"`; options only from `get_report_scope().agents`.
+- **Context line:**
+  - period
+  - zone
+  - `data-testid="report-as-of"` "Summary as of h:mm TZ", with `<time dateTime>`, only for a ready, current summary and never cached
+  - Data basis trigger: 20 px visual, 40 px hit area
+- **Structure:** the toolbar root stays `<header>`, a direct child of `[data-reports-workspace]`.
 
 ### 5.3 Production band (fixed; unregistered)
 
-- One card with Policies sold (2fr) and Known annual premium (3fr). Values use `tabular-nums` at up to 56px. A long premium (>12 characters) stacks instead of shrinking.
-- Premium state logic is unchanged. Exact cents. **Coverage is visible**: a meter, "3 of 8 policies known · 5 unknown excluded", and a Partial chip. No percentage. The average shows "—" at zero known.
-- The "Most policies — current assignments" row (team and agency) now comes from the **same summary payload**. This removes today's cross-panel join and its guard.
-- Basis bar: "Current book · stored policies by sale date · monthly premium ×12 · client's current agent · ⓘ Data basis".
-- The policy-quality note still appears verbatim when non-zero.
+- **Layout:** one card. Policies sold (2fr) | Known annual premium (3fr), values `data-report-value="hero"`, `tabular-nums`. A long premium (>12 characters) stacks instead of shrinking.
+- **Premium logic:** unchanged. Exact cents.
+- **Coverage:**
+  - shadcn `Progress` meter (no new inline styles)
+  - "3 of 8 premiums known · 5 unknown excluded"
+  - Partial chip
+  - no percentage
+  - average "—" at zero known
+- **"Most policies — current assignments":** now from the **same summary payload**. This removes today's cross-panel join and its guard.
+- **Basis bar:** "Current book · stored policies by sale date · monthly premium ×12 · client's current agent · ⓘ Data basis".
+- **Policy-quality note:** still shown verbatim when non-zero.
 
 ### 5.4 Six-metric strip
 
-- Same `SectionRenderer`, saved order and visibility, 6-cap, team-only filter, ids and `DEFAULT_LAYOUT`.
-- No filler tiles. Compact tiles (68–84px).
-- Subtitles only where they change the reading:
-  - duration quality: "3,559 unknown · 690 conflicting durations", with a caution dot
-  - session quality: "N stale capped", when greater than 0
-- "Contacted" → "Contacted calls". R-1 relabel.
-- One exact duration format: "28h 4m 3s / 3m 21s / 45s", the same as the Leaderboard. CSV keeps raw seconds.
+- **Unchanged:** `SectionRenderer`, saved order and visibility, 6-cap, team-only filter, ids and `DEFAULT_LAYOUT`.
+- **Tiles:** flex-wrap with no filler; compact (68–84 px).
+- **Subtitles** only where they change how a number reads:
+  - duration caution "Durations: 1,263 unknown source or amount · 484 conflicting" (caution dot)
+  - "2 stale, capped at last heartbeat"
+  - "Dials per booking — all booking types"
+- **Label:** "Contacted" → "Contacted calls".
+- **One duration format, `formatElapsed`:** "28h 4m 3s / 3m 21s / 45s", matching the Leaderboard. 0.1 s precision is used only for the two fractional payload fields (R-5). CSVs keep raw seconds.
 
-### 5.5 Trends (fixed; unregistered; more prominent)
+### 5.5 Trends (fixed; unregistered)
 
-- A "Trends" heading with **one** Daily/Weekly/Monthly control that visibly governs both charts. Weeks still start Monday.
-- Each card stacks two single-axis panels sharing a hover sync, which removes the dual axes. Captions name the metric, so counts, currency and percent are never on the same axis.
-- Solid subtle grid, 11px ticks, aligned 48px y-axes, `accessibilityLayer`.
-- **Gaps stay gaps** (`connectNulls={false}`). A partial premium bucket gets a hollow dot plus a legend line that appears only when a partial bucket exists.
-- The rate axis is zero-based with a "nice" maximum, so 7.4% is readable. Zero-call buckets stay "rate unavailable".
-- Touch tooltips pin to the top.
-- No comparisons, sparklines, growth percentages or goals.
+- "Trends" heading (`h2#report-trends-title`) with **one** Daily/Weekly/Monthly control for both charts; Monday weeks.
+- **Stacked single-axis panels per card**, sharing one series array and a hover sync, so the dual axes go away.
+- **Chart chrome:** solid subtle grid, 11 px ticks, aligned 48 px y-axes, `accessibilityLayer`, and CSS height classes (not JS breakpoints).
+- **Data rules:**
+  - **gaps stay gaps** (`connectNulls={false}`)
+  - partial premium bucket = hollow dot plus a legend line shown only when one exists
+  - rate axis zero-based with a nice maximum
+  - zero-call buckets read "rate unavailable"
+- **Touch:** tooltips pin to the top.
+- **No comparisons, sparklines, growth percentages or goals.**
 
 ### 5.6 Period totals (replaces "Activity and production")
 
-- Five equal tiles: Calls made, Contacted calls, Bookings created (all types), Converted leads/clients, Policies sold. Each has a basis caption ("by call date", "by booking date", "distinct people · by call date", "by sale date").
-- **No arrows, no ordering geometry, no percentages.**
-- One line on the page: "Independent period totals, not one cohort." The full 70-word cohort statement moves verbatim to Data basis.
+- `section[aria-labelledby="report-totals-title"]`: five equal `dt`/`dd` tiles.
+- **Captions:**
 
-### 5.7 Tables (Agent, Efficiency, Campaign, Lead source)
+  | Tile | Caption |
+  |---|---|
+  | Calls made | by call date |
+  | Contacted calls | by call date |
+  | Bookings created (all types) | **by date created** |
+  | Converted leads/clients | distinct people · by call date |
+  | Policies sold | by sale date |
 
-- One shared frame and class set: focusable labelled scroll region, sticky first column with opaque cells, right-edge fade on mobile, sentence-case headers, right-aligned `tabular-nums`, `py-2.5` density, restrained hover.
-- `tfoot` rows replace paragraphs: Unattributed; "Attribution unavailable" (calls, policies, known premium, coverage, so the partition reconciles on screen); "Not linked to a current lead".
-- All performance tables go full width.
-- Campaign names become real links (U-3). The campaign chart is hidden below `sm`.
-- The Agent drilldown keeps `aria-pressed` and uses server ids only.
-- `CAMPAIGN_ATTRIBUTION_NOTE` is split into two constants whose concatenation stays **byte-identical**, so CSV notes don't change.
+- **No arrows or percentages.**
+- One line: "Independent period totals, not one cohort." The full cohort statement moves verbatim to Data basis.
+
+### 5.7 Tables — visibility of important columns (approved direction)
+
+1. **One shared frame:** `ReportTableFrame` is a focusable labelled region (`role="region"`, `aria-label`, `tabIndex=0`) with a sticky first column. Every `tr > :first-child` is sticky with opaque `bg-card`, `tfoot` included. A right-edge fade is a sibling of the scroller.
+2. **Table style:** sentence-case headers; right-aligned `tabular-nums`; `py-2.5`. Below `sm`, `th` wraps with a max width, so "Policies (current assignment)" is visible at scroll position 0.
+3. **All performance tables go full width.**
+4. **Campaign performance screen order:** Campaign | Policies (campaign-attributed) | Known annual premium | Known / total policies | Calls made | Contacted calls | Call contact rate | Leads dialed | Contacted leads | Converted leads | Type.
+   - A separate `EXPORT_HEADERS` keeps today's CSV order.
+   - Campaign names become real links (U-3).
+   - The campaign chart is hidden below `sm`.
+5. **`tfoot` rows replace paragraphs,** with one cell per column (no colSpan):
+   - "Unattributed"
+   - "Attribution unavailable" (calls, policies, known premium, coverage, so the partition reconciles on screen)
+   - "Not linked to a current lead": **still rendered when there are 0 sources and some unlinked calls**, so that disclosure never disappears
+6. **Heatmap:** uses the same frame with a sticky day column (U-7).
+7. **Agent table drilldown:** keeps `aria-pressed`; server ids only.
+8. **CSV notes:** `CAMPAIGN_ATTRIBUTION_NOTE` is split into two constants whose concatenation stays byte-identical.
 
 ### 5.8 Dialer intelligence (secondary)
 
 - Smaller heading weight.
-- Disposition breakdown and Heatmap open by default; Call summary, Call flow, Call duration and Deep dive collapsed. This is a local default, not persisted.
-- Ranked disposition list with text identity (U-2).
-- Semantic heatmap table with sr-only values (U-7).
-- Deep Dive: segmented control (U-4) and a duplicate-colour treatment that never recolours configured colours.
-- No `font-black` uppercase captions anywhere.
+- **Open by default:** Disposition breakdown, Heatmap. **Collapsed:** Call summary, Call flow, Call duration, Disposition deep dive. Not persisted.
+- Ranked disposition list (U-2), semantic heatmap (U-7), segmented toggles (U-4).
+- No `font-black` uppercase captions.
 
 ### 5.9 Data basis disclosure
 
-- A shadcn `Sheet`: bottom sheet below 768px (85dvh, safe-area padding), right sheet above.
-- Two triggers, each owning its `SheetTrigger`, so focus returns to the one that opened it. Esc closes it; keyboard and touch both work.
-- Sections:
+- shadcn `Sheet`: bottom sheet below 768 px, right sheet above.
+- **Two triggers**, each owning its own `SheetTrigger`, so focus returns to the one that opened it. Enter and Space open it; Esc closes it.
+- **Content:** final traced wording in `data-basis-wording.md`. Sections:
   - policies sold
-  - known annual premium
+  - premium
   - agent credit (incl. why the Leaderboard differs)
-  - calls / contacted
+  - calls
   - bookings
   - converted
-  - period totals (verbatim cohort sentence)
-  - talk time and sessions (incl. the D-1 sentence)
+  - period totals
+  - talk time and sessions (incl. the preserved late-ended rule and the session-rate denominator)
   - attribution
-  - live data quality (only for a ready, current summary; never zeros)
-  - time zone and freshness ("Summary as of Oct 8, 2026, 8:44:11 PM PDT", ISO in `<time>`)
-- The wording is composed from the existing constants, so screen and CSV cannot diverge. **CSV `Note` rows are unchanged.**
+  - live data quality (only for a ready, current summary; screen = CSV sentences; never zeros)
+  - time zone and freshness
+- **Placement of the wording:**
+  - new policy sentences → constants in `reports-policy-text.ts`
+  - other sentences → `src/lib/reports-basis-text.ts`
+  - neither is referenced by the CSV note builders
 
 ### 5.10 Customization: preserved exactly
 
-- 38 registered ids and groups, `DEFAULT_LAYOUT`, `MAX_VISIBLE_STATS = 6`, the v4 normalizer, owner/epoch binding, no write-on-read, Save/Cancel/Reset semantics, failed-draft retention, truthful save errors, View As gating, and no org-default writes.
+- **Unchanged:**
+  - 38 registered ids and groups, `DEFAULT_LAYOUT`, `MAX_VISIBLE_STATS = 6`, the v4 normalizer
+  - owner/epoch binding, no write-on-read, Save/Cancel/Reset, failed-draft retention, truthful save errors
+  - View As gating, no org-default writes
+  - the toolbar Customize button cancels in edit mode (today's behaviour, kept)
 - The band, trends, period totals, Data basis and toolbar stay fixed and unregistered.
-- Only changes:
-  - one intro line
-  - mobile ergonomics (larger move targets, sticky Save/Cancel bar below `sm`)
-  - U-6 and U-9
-- The toolbar Customize button keeps today's behaviour in edit mode (it cancels, like the Cancel button). A verifier ruled that behaviour intended, so it is not changed.
+- **Only changes:** one intro line, mobile ergonomics (larger move targets, sticky Save/Cancel bar below `sm`), U-6 and U-9.
+- **U-6 guard:**
+  - `customRangePending = scopeData && !withheld && preset === "custom" && (range === null || rangeProblem !== null)`
+  - `customizationReady` requires sections, except while already editing
+  - the editor renders outside the tabpanel **only** when `customRangePending`
+  - owner masking and View As (`viewerId = null`) keep it disabled
 
-### 5.11 Copy cleanup (main items; full table in the design notes)
+### 5.11 Copy cleanup (main items)
 
 | Current | Proposed |
 |---|---|
 | "Production and the activity behind it." | removed |
 | 7 preset buttons | "Report period" select |
 | "Your agency · America/Los_Angeles" | "· America/Los_Angeles · Summary as of …" (the tab shows scope) |
-| "Stored policies sold in this period." + POLICY_SOURCE_NOTE block | "Primary + additional policies" (zero case unchanged) + Data basis |
-| PREMIUM_BASIS + CURRENT_ASSIGNMENT_NOTE paragraphs | one basis bar + Data basis |
-| "3 of 8 policies have a known premium." / "Unknown premium · 5 policies · excluded from amount" | "3 of 8 policies known · 5 unknown excluded" + meter + Partial chip |
-| strip subtitles ("contacted calls ÷ calls made", "outbound, stored canonical duration", …) | none, or a data-quality caution |
-| "· left axis / · right axis" legends, three trend footnotes, Peak/Total tiles | metric captions; conditional partial/gap legend |
+| Policy and premium methodology paragraphs (×9 repeats) | basis bar + Data basis |
+| "3 of 8 policies have a known premium." + "excluded from amount" | "3 of 8 premiums known · 5 unknown excluded" + meter + Partial chip |
+| Strip formula subtitles | none, or a data-quality caution |
+| Axis legends, trend footnotes, Peak/Total tiles | metric captions; conditional partial/gap legend |
 | "Activity and production" + 70-word disclaimer | "Period totals · Independent period totals, not one cohort." |
-| Section subtitles, campaign paragraphs, lead-source paragraphs | removed / `tfoot` rows / Data basis |
-| "Report basis and data quality" (bottom `<details>`, raw ISO) | "Data basis" sheet (top), localized as-of |
+| Section subtitles and table paragraphs | removed / `tfoot` rows / Data basis |
+| Bottom "Report basis and data quality" (raw ISO) | top "Data basis" sheet, localized as-of |
+| "Dials per appointment" | **"Dials per booking"** |
 
-**Kept verbatim** (contract- or test-bound):
+**Kept verbatim:**
 - "Call contact rate", "Policies (current assignment)", "Most policies — current assignments", "Policies (campaign-attributed)", "Bookings created (all types)", "Callback dispositions", "Dials per policy sold"
-- "No policies sold in this period.", "Known premium unavailable for this period.", "No outbound calls; rate unavailable."
+- "No policies sold in this period.", "No outbound calls; rate unavailable."
 - "This is not a zero — …", the time-zone configuration message, "You don't have access to Reports.", "Use default report scope"
 - the 6-cap copy and the Reset line
 
 ---
 
-## 6. Reporting inventory and audit approach
+## 6. Data basis wording
 
-- **Inventory**: 134 reachable metrics (heroes, all 28 registrable strip metrics, trend series and tooltips, period totals, every table column and total row, data-quality numbers, drilldowns, and all 13 CSV exports with their Note rows). See `evidence-matrix.md` Appendix A.
-- **Method (Phase 1, done):**
-  1. Deployed-SQL hash parity.
-  2. Formula extraction against the approved contracts.
-  3. Independent source-table recomputation vs RPC actuals over W1–W5 and every simulated scope.
-  4. Additive cross-panel reconciliation.
-  5. Reports vs Leaderboard by policy identity.
-  6. Two-lens adversarial verification of every claimed defect.
-- **Phase 4 re-verification after implementation:**
-  - Rerun the W1–W5 reconciliation queries against production (read-only) to confirm the backend is unchanged.
-  - Prove that every rendered value and CSV cell comes from the same ready payload. Use the synthetic fixture with real CSV downloads, plus new tests for each moved number (band leader row, premium average, `tfoot` partitions, Data basis live list).
-  - Keep these unchanged: "errors never zero", export payload identity, stale-scope withholding, partial failure and retry.
+See `data-basis-wording.md`. Rule scans pass on all 72 strings:
+- "call contact rate" only
+- no conversion rate except negations
+- no "%" in the band
 
 ---
 
 ## 7. Exact files
 
-**Modify (frontend):**
-- `src/pages/Reports.tsx`
-- `src/hooks/useReportsData.ts` (R-4 one-line fix only)
-- `src/components/reports/`:
-  - `ReportsToolbar.tsx`, `ReportScopeTabs.tsx`
-  - `ReportsOverview.tsx`
-  - `SectionRenderer.tsx`, `StatCard.tsx`, `StatsGrid.tsx`, `ReportSection.tsx`
-  - `PoliciesSoldChart.tsx`, `CallVolumeChart.tsx`, `ReportsActivityFlow.tsx`
-  - `AgentPerformanceCards.tsx`, `AgentEfficiency.tsx`, `CampaignPerformance.tsx`, `LeadSourceTable.tsx`
-  - `CommunicationsStats.tsx`, `CallingHeatmap.tsx`, `DispositionsPieChart.tsx`, `DispositionDeepDive.tsx`
-  - `CallFlowAnalysis.tsx`, `CallDurationAnalysis.tsx`
-  - `ReportPanelState.tsx`, `ReportCustomizer.tsx`
-  - `reportSectionMap.tsx`, `ReportDataQuality.tsx`
-- `src/lib/stat-computations.ts`
-- `src/lib/reports-format.ts` (`formatElapsed`, `formatAsOf`, sentence-case preset labels)
-- `src/lib/reports-policy-text.ts` (byte-identical split)
-- `src/lib/reports-integrity-text.ts` (only if C-2 frontend guard is approved)
+### 7.1 Frontend — modify (current → projected lines; every component stays under 200)
 
-**Create (frontend):**
-- `src/components/reports/`:
-  - `ReportsNotices.tsx` (existing notices moved verbatim)
-  - `ReportPeriodControl.tsx`, `ReportContextLine.tsx`
-  - `PremiumCoverage.tsx`
-  - `ReportTrends.tsx`, `ReportSegmented.tsx`, `reportChartTheme.tsx`
-  - `ReportTableFrame.tsx`, `reportTableStyles.ts`
-  - `ReportDataBasis.tsx`
-- `src/lib/reports-basis-text.ts`
+| File | Now | Proj. | Change |
+|---|---:|---:|---|
+| `src/pages/Reports.tsx` | 165 | ~160 | compose band, trends, notices; U-6 guard; as-of; remove bottom data-quality block |
+| `src/hooks/useReportsData.ts` | 228 | 228 | R-4 only (one line) |
+| `src/components/reports/ReportsToolbar.tsx` | 134 | ~85 | three compact rows; period and context extracted |
+| `src/components/reports/ReportScopeTabs.tsx` | 35 | ~42 | skeleton; U-8 |
+| `src/components/reports/ReportsOverview.tsx` | 89 | ~130 | production band, leader row, basis bar |
+| `src/components/reports/SectionRenderer.tsx` | 57 | ~60 | U-5 strip; headings; performance full width |
+| `src/components/reports/StatCard.tsx` | 32 | ~42 | `noteTone`; U-10 |
+| `src/components/reports/StatsGrid.tsx` | 14 | ~16 | pass `noteTone` |
+| `src/components/reports/ReportSection.tsx` | 46 | ~48 | `meta` slot replaces `badge` |
+| `src/components/reports/PoliciesSoldChart.tsx` | 186 | ~125 | stacked single-axis panels; tiles and join removed |
+| `src/components/reports/CallVolumeChart.tsx` | 148 | ~120 | stacked panels; grouping control moved; nice rate max |
+| `src/components/reports/ReportsActivityFlow.tsx` | 51 | ~45 | Period totals (U-1) |
+| `src/components/reports/AgentPerformanceCards.tsx` | 120 | ~118 | table frame; Contacted calls; `tfoot` |
+| `src/components/reports/AgentEfficiency.tsx` | 191 | ~135 | table frame; Session-matched calls; scatter extracted |
+| `src/components/reports/CampaignPerformance.tsx` | 173 | ~130 | Link (U-3); screen column order; separate export headers; `tfoot` extracted |
+| `src/components/reports/LeadSourceTable.tsx` | 135 | ~115 | Converted hidden on screen; `tfoot` always shown when unlinked > 0 |
+| `src/components/reports/CommunicationsStats.tsx` | 128 | ~125 | screen/export arrays split; `formatElapsed`; R-5 |
+| `src/components/reports/CallingHeatmap.tsx` | 171 | ~110 | grid extracted; segmented toggle |
+| `src/components/reports/DispositionsPieChart.tsx` | 174 | ~130 | ranked share list (U-2) |
+| `src/components/reports/DispositionDeepDive.tsx` | 185 | ~172 | segmented (U-4); duplicate-colour treatment |
+| `src/components/reports/CallFlowAnalysis.tsx` | 145 | ~138 | chart theme; captions |
+| `src/components/reports/CallDurationAnalysis.tsx` | 160 | ~150 | chart theme; R-5 |
+| `src/components/reports/ReportPanelState.tsx` | 91 | 91 | weight/icon only; copy verbatim |
+| `src/components/reports/ReportCustomizer.tsx` | 119 | ~135 | U-9; intro line; sticky mobile bar |
+| `src/components/reports/reportSectionMap.tsx` | 99 | ~92 | drop `summary`/`onGroupingChange`/`goal_tracking`; sentence-case titles |
+| `src/components/reports/ReportDataQuality.tsx` | 13 | ~32 | live list inside Data basis |
+| `src/lib/stat-computations.ts` (lib) | 307 | ~318 | R-1; "Contacted calls"; `formatElapsed`; quality notes |
+| `src/lib/reports-format.ts` (lib) | 227 | ~262 | `formatElapsed`, `formatAsOf`, sentence-case presets |
+| `src/lib/reports-policy-text.ts` | 58 | ~62 | byte-identical campaign-note split; new policy basis constants |
+| `src/lib/reports-integrity-text.ts` | 29 | ~31 | R-3 guard; R-6 singulars |
 
-**Optional delete (separate commit):** `GoalTracking.tsx`, `DraggableSection.tsx`. Not `CustomReportBuilder.tsx` or `ScheduledReportsModal.tsx`, which are still referenced by `reports-queries.ts` and a contract test.
+### 7.2 Frontend — create
 
-**Tests (update or add):**
-- `src/components/reports/__tests__/`: `ReportsOverview`, `reportTrendCharts`, `reportsControls`, `agentPerformanceTable`, `reportPresentation`, `reportCustomizer`, `useReportsData`
-- `src/pages/__tests__/reportsPage.test.tsx`
-- `src/lib/__tests__/`: `reportsContracts.test.ts` (extend the "call contact rate" scan to new `.ts` text modules; add a 200-line rule), new registry snapshot test
-- `supabase/tests/reports_integrity.sql` (+ `reports_integrity_negative.sql`, `scripts/reports_integrity_fixture.py` if needed) for T-1..T-3 (synthetic SQL tests only)
-- `scripts/tests/reports-visual/verify.mjs`: first-screen budgets, no hidden-column cue regression, Data basis keyboard flow
+| File | Proj. | Purpose |
+|---|---:|---|
+| `src/components/reports/ReportsNotices.tsx` | ~48 | existing notices moved verbatim |
+| `src/components/reports/ReportPeriodControl.tsx` | ~95 | period select, date pickers, validation |
+| `src/components/reports/ReportContextLine.tsx` | ~40 | period · zone · as-of · Data basis |
+| `src/components/reports/PremiumCoverage.tsx` | ~45 | meter, coverage text, Partial chip |
+| `src/components/reports/ReportTrends.tsx` | ~45 | Trends heading + one grouping control |
+| `src/components/reports/ReportSegmented.tsx` | ~35 | `role=group` + `aria-pressed` |
+| `src/components/reports/reportChartTheme.tsx` | ~55 | grid, tick and margin constants, `PartialDot` |
+| `src/components/reports/ReportTableFrame.tsx` | ~30 | focusable labelled region, caption, fade |
+| `src/components/reports/reportTableStyles.ts` | ~20 | shared table classes |
+| `src/components/reports/ReportDataBasis.tsx` | ~75 | trigger + Sheet shell |
+| `src/components/reports/DataBasisSections.tsx` | ~85 | static + live sections |
+| `src/components/reports/AgentEfficiencyScatter.tsx` | ~60 | extraction |
+| `src/components/reports/HeatmapGrid.tsx` | ~80 | extraction (semantic table) |
+| `src/components/reports/CampaignTotalsFoot.tsx` | ~35 | extraction |
+| `src/lib/reports-basis-text.ts` | ~75 | basis text composed from existing constants |
 
-**Docs:** this plan, `verification.md` (new), `WORK_LOG.md` (newest-first), and an `AGENT_RULES.md` amendment to the Reports personal layout invariant (fixed band, trends, period totals, Data basis; screen/CSV text from shared constants).
+**Optional:** `CampaignCallsChart.tsx` (~50); `src/lib/reports-page-state.ts` (~30, pure U-6 predicate). Delete `GoalTracking.tsx` and `DraggableSection.tsx` in a separate commit (unreachable). Do not delete `CustomReportBuilder.tsx` or `ScheduledReportsModal.tsx`; they are still referenced.
 
-**Do not touch:**
-- `report-layout-constants.ts`, `report-layout.ts`, `useReportLayout.ts`
-- `reports-queries.ts`, `reports-schemas.ts`, `reports-export.ts`
-- `index.css`, `tailwind.config.ts`
-- any migration, RPC, RLS policy or Edge Function
+### 7.3 SQL (R-3 server correction; production apply separately approved)
+
+| File | New / modified | Purpose |
+|---|---|---|
+| `supabase/migrations/2026100917xxxx_reports_overlap_release_disable.sql` | new | exact bytes of `supabase/ops/reports_disable.sql` |
+| `supabase/migrations/2026100917xxxx_reports_integrity_quality_overlap_seconds.sql` | new | guarded replacement of `private.report_integrity_quality`: refuses replay, preimage/dependency/ACL drift, and any client-executable Reports function; postcondition checks md5, metadata and ACL |
+| `supabase/migrations/2026100917xxxx_reports_overlap_release_enable.sql` | new | exact bytes of the updated ops enable |
+| `supabase/migrations/rollback/…_reports_integrity_quality_overlap_seconds.rollback.sql` | new | restores the byte-identical preimage only while disabled |
+| `supabase/ops/reports_integrity_enable.sql` | modified | line 11 pin only: `d330c5be…` → `c1355d55…` |
+| `scripts/reports_integrity_fixture.py` | modified | historical steps use the applied `20261006044003` enable; finds migrations by suffix; asserts release copies equal the ops sources; adds the release and regression steps |
+
+Final version numbers are assigned at commit. After a production apply, the files are renamed to the recorded versions, per the established practice.
+
+### 7.4 Tests
+
+**Update** (exact per-line changes recorded in the review notes):
+- **Strict Reports set** (must pass in CI): `ReportsOverview.test.tsx`, `reportsControls.test.tsx`, `reportStatComputations.test.ts`, `reportsPage.test.tsx`, `reportsContracts.test.ts` (extend the "call contact rate" scan to the new `.ts` text modules; add the under-200-lines rule)
+- **Non-strict:** `reportTrendCharts.test.tsx`, `agentPerformanceTable.test.tsx`, `reportPresentation.test.tsx`, `reportCustomizer.test.tsx`
+
+**New** (named into the strict set):
+- `src/lib/__tests__/`: `reportsFormatElapsed.test.ts`, `reportsRegistrySnapshot.test.ts` (T-4), `reportsBasisText.test.ts` (golden constants and CSV notes)
+- `src/components/reports/__tests__/`: `reportsCallDuration.test.tsx` (R-5), `reportsDataBasis.test.tsx`, `reportsTables.test.tsx`, `reportsTrends.test.tsx`
+- extended: `reportsIntegrity.test.ts` (R-3, R-6), `reportsPolicySource.test.ts` (byte-identical split), `useReportsData.test.tsx` (R-4 key → null → same key)
+
+**SQL:** `supabase/tests/reports_integrity.sql`, `reports_integrity_negative.sql` (T-1, T-2, T-3, and T-5/T-6 if approved), plus `supabase/tests/reports_integrity_overlap_fixture.sql` and `reports_integrity_overlap.sql` (R-3).
+
+**Browser gate:**
+- `scripts/tests/reports-visual/verify.mjs`:
+  - every protective assertion kept
+  - about 25% of selectors replaced (period combobox, Data basis instead of `<details>`, ranked list instead of pie sectors, sentence-case CSV button names; filenames unchanged)
+  - F-1 fixed
+  - new first-screen budgets, table cues, Data basis keyboard and focus, R-4 frame probe, R-1/U-6/U-8/U-9
+- `scripts/tests/reports-visual/entry.tsx`: geometry-only app-chrome stand-ins
+- `scripts/tests/reports-visual/README.md`
+- **Unchanged:** `stubs.ts`, `vite.config.ts`, workflow files.
+
+### 7.5 Docs
+
+This plan and its companions; `verification.md` (new, at implementation); `WORK_LOG.md` (newest-first); `AGENT_RULES.md` amendments (§12).
+
+### 7.6 Do not touch
+
+- `src/lib/report-layout-constants.ts`, `src/lib/report-layout.ts`, `src/hooks/useReportLayout.ts`
+- `src/lib/reports-queries.ts`, `src/lib/reports-schemas.ts`, `src/lib/reports-export.ts`
+- `src/index.css`, `tailwind.config.ts`
+- any RLS policy, grant, Edge Function
 - `TwilioContext.tsx` and the Dialer
-
-Every component stays under 200 lines; current maximum targets are about 195. `stat-computations.ts` and `reports-format.ts` are library modules (307 and 227 lines today) and are not components.
-
----
-
-## 8. Backend changes (separately identified)
-
-**None are required for this refresh.** The proposed branch is frontend plus synthetic SQL test files. If approved separately:
-- **S-1 security (recommended soon):** one new migration narrowing `company_settings_team_leader_update` and hardening `validate_iana_timezone`. Requires `#APPROVE_RLS_CHANGE` and exact approval to apply. Includes native SQL tests, a read-only preflight and a rollback.
-- **B-3 / D-1(b):** a small Reports SQL change using the guarded disable → apply → enable window, only when there is another reason to touch Reports SQL.
-
-SQL test additions (T-1..T-3) run only on disposable loopback databases and CI. They do not change production.
+- any SQL other than §7.3 and tests
 
 ---
 
-## 9. Verification and release steps
+## 8. Backend release for R-3 (separate exact approval to apply)
 
-1. Work on branch `claude/reports-refresh-audit-20261009` from fresh `main`. Commit in reviewable slices:
-   1. defect fixes R-1..R-4 with tests
-   2. shell (toolbar, context line, notices, Data basis)
-   3. production band and strip
-   4. trends
-   5. period totals
-   6. table system
-   7. dispositions (own commit)
-   8. heatmap (own commit)
-   9. customizer fixes
-   10. SQL tests
-   11. docs
-2. `npx tsc --noEmit` and `npx tsc --noEmit -p tsconfig.app.json`. The second must stay at 85 diagnostics with no new signatures.
-3. Reports vitest (all 19+ files, with `REPORTS_SQL_PAYLOADS`), the full vitest comparison against the base (same 10 pre-existing failing files, no new failures), ESLint on changed files, and the production build.
-4. Native SQL suites on local PG16 (and CI 17.6). The new T-1..T-3 assertions must pass, and their negative controls must reject the mutations.
-5. Real Chromium (fixture) at 390×844, 390×664, 768, 1024 and 1440, light and dark, Personal/Team/Agency:
-   - first-screen budgets (both production values ≤ y360 and six metrics ≤ y760 at 390)
-   - no page overflow, no clipped money, hero values never wrap
-   - Data basis keyboard and touch flow
-   - customization save/cancel/reset/failed-save
-   - stale-export withholding, partial failure and retry
-   - real CSV downloads byte-compared against base CSVs (only the approved R-2 change may differ)
-   - axe pass
-   - before/after screenshots
-6. Independent code review; read-only rerun of the W1–W5 production reconciliation.
-7. **Release (needs your approval):**
-   1. Publish the branch and a draft PR; the exact-head CI gates (Reports frontend, Reports backend incl. browser, Reporting integrity, Dialer DNC) must pass.
-   2. On approval, merge; Vercel deploys.
-   3. Verify the deployment state and served-asset markers from the Vercel API (direct HTTPS to `www.fflagent.com` is blocked here).
-   4. **A hosted signed-in walkthrough (filters, Refresh, Data basis, CSV download, customization) must be done by you or in an environment that can reach the site.** It cannot be claimed from here.
-   5. Rollback: revert the merge. No data or schema migration is involved, and layout JSON is unchanged.
+**Body change** (only this expression in `private.report_integrity_quality`; body md5 `d330c5be…` → `c1355d55…`):
+
+```diff
+-    'overlap_seconds_removed',greatest(0,(SELECT coalesce(floor(sum(extract(epoch FROM span_end-span_start))),0) FROM s WHERE span_end>span_start)
+-      -(SELECT coalesce(sum(session_seconds),0) FROM private.report_session_seconds(p_org,p_start,p_end,p_agents)))));
++    'overlap_seconds_removed',greatest(0,(SELECT coalesce(floor(sum(u.raw_seconds-u.union_seconds)),0) FROM (
++      SELECT g.raw_seconds,(SELECT sum(extract(epoch FROM upper(r)-lower(r))) FROM unnest(g.spans) r) union_seconds
++      FROM (SELECT sum(extract(epoch FROM s.span_end-s.span_start)) raw_seconds,range_agg(tstzrange(s.span_start,s.span_end,'[)')) spans
++            FROM s WHERE s.span_end>s.span_start GROUP BY s.agent_id) g) u))));
+```
+
+**Unchanged:** signature, `jsonb`, `sql`, `STABLE`, security invoker, owner `postgres`, pinned `search_path`, ACL `{postgres=X/postgres}`, session facts, session seconds, the late-ended rule.
+
+| Fixture | Exact | Current | Proposed |
+|---|---|---|---|
+| No overlap, 3 agents | 0 | 2 | **0** |
+| Overlap | 1,810.75 | 1,811 | **1,810** |
+| Sub-second overlap | 0.4 | 1 | **0** |
+| Four days | 1,811.15 | 1,813 | **1,811** |
+
+**Release order** (AGENT_RULES #41 pattern; each step read back):
+
+| Step | Action | Expect |
+|---|---|---|
+| 0 | Exact-head CI green (reports-backend native PG 17.6 + browser, reports-frontend, reporting-integrity, sms-consent, dialer-dnc-backend); read-only preflight of 34 functions, pins and grants | — |
+| 1 | Disable | 0 client-executable Reports functions; Reports shows "temporarily unavailable" for about 1–2 minutes |
+| 2 | Correction | new md5, unchanged ACL |
+| 3 | Guarded enable | fifteen pins; grants only on the six v2 functions; anon denied on all 34 |
+| 4 | Read-back | W1–W5 role simulation shows 0 removed seconds and unchanged session seconds |
+
+**If a step fails:**
+- If step 2 refuses: re-enable with the `20261006044003` bytes as a new migration.
+- If step 3 refuses: investigate; if the cause is the reader pin, run the rollback while disabled, then the historical enable. Reports stays disabled (fail closed) until resolved.
+
+**Approvals:** adding the files is covered by plan approval. **Applying them, and any rollback, needs Chris's separate exact approval** (#28/#41). No RLS change, data write or Edge change is involved.
+
+**Unverified:**
+- DDL and guards ran on PostgreSQL 16 only; CI's 17.6 job will run them. (The new expression itself ran on production 17.6 as a read-only SELECT.)
+- The hosted apply and rollback have not been executed.
+
+---
+
+## 9. Verification strategy
+
+### 9.1 Implementation (after approval)
+
+- **Branch:** `claude/reports-refresh-audit-20261009`.
+- **Reviewable commits, each independently revertible:**
+  1. defect fixes R-1, R-4, R-5, R-6, R-3 guard, with tests
+  2. shell (toolbar, period, context line, notices, Data basis)
+  3. production band and strip
+  4. trends
+  5. period totals
+  6. table system (U-11, U-3)
+  7. dispositions
+  8. heatmap
+  9. customizer (U-6, U-9)
+  10. SQL tests T-1..T-6
+  11. R-3 SQL migration set
+  12. browser gate (`verify.mjs`/`entry.tsx`)
+  13. docs
+- **Rule:** tests that pass removed props are updated in the same commit; `tsconfig.app.json` type-checks tests.
+
+### 9.2 Gates before requesting release
+
+1. `npx tsc --noEmit`; `npx tsc --noEmit -p tsconfig.app.json`: still 85, no new signatures.
+2. Reports vitest (strict set + all Reports files, with `REPORTS_SQL_PAYLOADS`). Full-suite base comparison: same 10 pre-existing failing files, no new failures or runtime errors. ESLint on changed files. `vite build`.
+3. **Assertion diff review:** every removed or changed `expect`, with its reason. A grep confirms the protected guards remain ("This is not a zero", "Unavailable", "—" for zero denominators, export identity).
+4. **Native SQL** on local PG16 (and CI 17.6): all Reports suites, new T-* assertions, negative controls, the R-3 release, drift refusals and rollback proof.
+5. **Real Chromium on the fixture:**
+   - Viewports: 390×844, 390×664, 768, 1024, 1440×900. Light and dark. Personal, Team and Agency.
+   - **390×844 gates:** filter block ≤ 216 px; both production values ≤ y380; six tiles complete ≤ y844; header targets ≥ 40 px; hero values on one line.
+   - **1440 gate:** header ≤ 150 px; strip and Trends heading on the first screen.
+   - No page overflow; no clipped money; table cues and important columns; Data basis keyboard and focus return.
+   - Customization save/cancel/reset/failed save; stale-export withholding; partial failure and retry; R-4 frame probe; axe.
+   - Before and after screenshots.
+6. **CSV byte comparison** against the golden base: 74 deterministic downloads covering all 13 export controls, every view toggle and grouping, in Agency, Team and Personal.
+   - The clock is pinned and downloads are paced.
+   - The synthetic set is expected to be **byte-identical**. Neither the R-3 guard nor R-6 changes those fixtures' text.
+   - On live data, only the R-3 digit (and R-6 when a count is 1) may differ in the "Sessions assessed …" note.
+7. **Read-only production re-check:** rerun the W1–W5 reconciliation and catalog parity.
+8. Independent code review of the diff.
+
+### 9.3 Release (separate approval)
+
+1. Publish the branch and a draft PR; all exact-head CI gates must pass.
+2. On approval, merge (no direct push to `main`). Vercel deploys.
+3. Verify through the Vercel API:
+   - deployment READY
+   - `githubCommitSha` = merge SHA
+   - `www.fflagent.com` alias moved
+   - the served entry contains the new strings
+
+   Direct HTTPS to the site is blocked here.
+4. The R-3 SQL window (§8) runs only on its own exact approval. The frontend guard keeps the display correct either way.
+5. **Rollback:** revert the merge. No layout or data migration is involved.
+
+### 9.4 Hosted checklist for Chris (cannot be run from this environment)
+
+Run on a desktop and a real iPhone, as Admin and, where available, as Team Leader and Agent:
+- first screen shows both production values
+- period select, scope tabs, agent filter
+- Refresh
+- Data basis open and close
+- Customize → save, cancel, reset
+- download the Summary, Agent and Campaign CSVs and open them in a spreadsheet
+- an A→B→A filter switch
+
+Until this is done, hosted behaviour is recorded as **Unverified**.
 
 ---
 
 ## 10. Risks
 
-- **Test churn** (about 30 assertions in 7 files). The guards for "never zero", unknown, Unavailable and export identity are rewritten, never loosened.
-- **Synced stacked charts** rely on the same series array; render cost rises a little (four chart containers instead of two).
-- **Sticky table cells inside overflow regions** on iOS Safari are unverified until device testing.
-- **Changing defaults affects everyone**, because there are 0 saved layouts. Default ids, order and visibility are therefore unchanged.
-- **The CSV byte-identity of notes** depends on the constant split; a test pins it.
-- **The heatmap and disposition rewrites** are the largest component changes, so each is its own commit and can be reverted alone.
+- **Test churn:** about 30 assertions in 9 files. The guards for zero, unknown, Unavailable and export identity are rewritten, never loosened.
+- **Sticky cells inside overflow regions** on iOS Safari are unverified until the hosted checklist.
+- **Stacked charts** render four chart containers instead of two.
+- **The CSV notes' byte identity** depends on the constant split; a test pins it.
+- **The heatmap and disposition rewrites** are the largest UI changes, each in its own commit.
+- **The R-3 SQL window** briefly disables Reports. It fails closed, and the rollback is proven locally.
 
 ---
 
 ## 11. Approval requested
 
-Please approve or adjust:
-1. The visual direction and file list (§5, §7) for implementation on an isolated branch.
-2. Fixes R-1..R-4 and U-1..U-11, plus tests T-1..T-4.
-3. Decisions D-1 (a recommended), D-2 (keep), D-3, D-4, D-5, D-6, C-1 (recommended "k of n"), C-2 (recommended frontend guard).
-4. Whether to prepare S-1 (security RLS fix) as a separate task.
+1. Implement §5–§7 on the isolated branch, including:
+   - R-1 (the approved "Dials per booking")
+   - R-4, R-5, R-6
+   - U-1..U-11, F-1
+   - the R-3 frontend guard
+   - the R-3 SQL migration **files**
+   - T-1..T-4, plus T-5/T-6 if you accept them
+2. Accept or change the defaults in §4.5.
+3. Confirm the separate security tasks S-1 and S-3 stay out of this branch.
 
-No production migration, RLS change, Edge deploy, data change, push to `main` or deployment will happen without a separate exact approval.
+**What happens after approval:**
+- I implement, run every §9.2 gate, update `WORK_LOG.md`, and provide before/after screenshots and a context snapshot.
+- I don't push to `main`, deploy, apply migrations, change RLS or write production data without your separate exact approval.
 
 ---
 
 ## 12. Context snapshot
 
-- **State:** Phase 1 only. Main/production `8d53531`. Reports SQL as deployed Oct 6, with no drift. 0 saved layouts.
-- **Accuracy:** all audited Reports numbers are verified in W1–W5 across the simulated scopes. One low data-quality disclosure is incorrect (R-3). The ended-session rule is an owner decision (D-1). Leaderboard and Reports agree by month on 9/9 policy identities.
-- **New finding outside Reports:** S-1, Team Leader write access to the agency time zone (medium, security).
-- **Migrations/deployments:** none.
-- **Blockers:** hosted signed-in browser verification is not possible from this environment (proxy denies `www.fflagent.com`; no credentials).
-- **Next:** on approval, implement §9 steps 1–6, then request release approval.
-- **Proposed `AGENT_RULES.md` update** (at implementation): amend the Reports personal layout invariant to name the fixed production band, trends, period totals and Data basis, and to require that screen basis text be composed from the same constants as CSV notes. If S-1 is approved, add a rule that `company_settings.timezone` is Admin-only authority for agency reporting.
+- **State:** Phase 1 complete. Main and production `8d53531`. Reports SQL as deployed Oct 6, with no drift. 0 saved layouts.
+- **Accuracy:**
+  - Verified across W1–W5, open-day presets, every simulated scope, every browser-derived metric and every CSV (1,332/1,333 values; 140/140 CSVs).
+  - Confirmed issues: R-3 (disclosure rounding), R-5 (display double rounding), R-1 (label), R-4 (one-frame repaint).
+  - Reports and Leaderboard agree by month on 9/9 policy identities.
+- **Decisions recorded:** late-ended sessions preserved; S-1 separate.
+- **New separate security finding:** S-3 (session timestamps writable by agents).
+- **Migrations and deployments:** none.
+- **Blockers:** hosted signed-in verification is impossible from this environment.
+- **Proposed `AGENT_RULES.md` updates at implementation:**
+  - Amend the Reports personal layout invariant to name the fixed production band, trends, period totals and Data basis, and to require that screen basis text and CSV notes come from shared constants.
+  - Amend #41 when R-3 is applied (new `report_integrity_quality` pin; still fifteen pins).
+  - Correct line 130 "identical coverage" (294 legacy calls differ).
+  - After S-3 is decided, qualify "server-timestamped" in #12 and #38.
