@@ -1,6 +1,6 @@
-## 2026-10-09 — APPROVED and BUILT LOCALLY (not pushed): Campaigns page table redesign, Phase 1
+## 2026-10-09 — RELEASED (PR #433, merge `d88982d`): Campaigns page table redesign, Phase 1
 
-**Current status:** Chris approved rev 2 with D1-B and D2–D9 as recommended. Phase 1 is built and verified locally on `feature/campaigns-table-phase1-20261009`. Chris then approved publishing: the branch is pushed and open as draft PR #433 for his visual review. It is not merged or deployed, and production was only read (the §9 preflight). §14 records what was built and where it differs from this plan. The text below §14's heading is the approved plan, kept as written.
+**Current status:** Released 2026-10-09. PR #433 was squash-merged as `d88982d`, whose tree is identical to the verified head `67d638a`, and Vercel deployed it to production on both projects. Authenticated hosted checks remain NOT VERIFIED; see §15 Release. §14 records what was built; the text below §14's heading is the approved plan, kept as written.
 
 **Status when submitted for approval:** Phase 0 is complete. No application file has been edited, no backend command has been run, and nothing has been pushed. The only repository change is this section of `implementation_plan.md`.
 
@@ -567,6 +567,22 @@ The diff against updated `main` must still contain only the approved Campaigns r
 - **Conflict:** only `WORK_LOG.md` conflicted, and it was resolved exactly as described above. Removing the Campaigns entries reproduces `main`'s file byte for byte; removing the Google entries reproduces the branch's file.
 - **Google OAuth files:** all 12 are identical to `main`. The branch's diff against `be2690d` is the same 39 files and patches as before.
 - **Verification on `7fae879`:** every check above passed against a `be2690d` worktree. The 85 app diagnostics and the single failing test (`recordingRetentionVoicemail` v29) are identical by identity on both sides. Details are in the newest WORK_LOG entry; CI and preview evidence for the published head is on PR #433.
+
+**Release (2026-10-09).**
+- **CI on head `67d638a`:**
+  - Reports frontend verification passed.
+  - Dialer DNC integrity passed on attempt 4: PostgreSQL suites, plus 39 files / 498 tests. Attempts 1–3 never ran their tests because the database image couldn't be downloaded from Docker Hub.
+  - Reporting integrity passed on attempt 3, run on GitHub's PR merge ref, whose tree is identical to `67d638a`.
+  - Vercel passed; Supabase Preview was skipped (no `supabase/` changes).
+- **Merge:** PR #433 was squash-merged as `d88982d` on top of `be2690d`. Its tree equals `67d638a`.
+- **Production:**
+  - `agentflow` `dpl_CqwX4UyW9q7NesqYu2bua3i9EWN1` is READY, aliased to `www.fflagent.com`, `fflagent.com` and `agentflow-eta.vercel.app`.
+  - `agentflow-life-insure` `dpl_FqK77YQTfLbGXrqYASaREnLeFXfy` is READY, aliased to `agentflow-life-insure.vercel.app`.
+  - Neither has an alias error.
+- **No** migrations, data, Edge, permission, telephony or credential changes.
+- **Not verified:**
+  - Served-asset fetches of the production domains: this environment's egress policy denies them, and the only alternative tool creates an authentication-bypass link.
+  - All authenticated hosted checks.
 
 ---
 
