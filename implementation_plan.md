@@ -523,6 +523,46 @@ There is no schema change.
 
 **Verification.** Results are in the newest WORK_LOG entry.
 
+### 15. Branch synchronization with main (2026-10-09)
+
+**Approval.** Chris approved merging the latest `origin/main` into this feature branch, resolving the `WORK_LOG.md` conflict with both branches' entries kept, narrow status and verification updates to this file and `WORK_LOG.md`, local verification, pushing the branch, updating draft PR #433, and the normal non-production Vercel previews and checks. This does not approve merging PR #433 into `main`, promotion, rebasing or force-pushing, application-code changes, or any production, schema, RLS, Edge Function, credential, deployment-setting or workflow change.
+
+**Starting point.**
+- Feature head `a593b7dc22673832bb70dd16da000ba29c13e7a2`, as published on PR #433.
+- `origin/main` `be2690d8d9621eb047844a4662bb3416427cf4f1`: PR #432 (Google OAuth privacy and terms pages), merged 2026-10-09 20:01 UTC.
+- Merge base `8d53531d0edc509cc97fdc49a06c4873438ca67d`.
+
+**Expected manual edits.** Only `WORK_LOG.md`, where both sides prepend entries at the top. `implementation_plan.md` also changed on both sides, but it merges automatically: #432 appends at the end and this branch prepends at the top. No application file changed on both sides. If the merge conflicts anywhere else, stop and report before resolving it.
+
+**Resolution rule.** Use a normal merge commit with no rebase or force-push. Keep every entry from both sides, newest first by the commit time of each entry:
+1. Google, publication approved (20:00 UTC).
+2. Google, preview checks completed (19:56 UTC).
+3. Campaigns, published as draft PR #433 (19:53 UTC).
+4. Google, verification website preparation (19:44, extended 19:46 UTC).
+5. Campaigns, built and verified locally (16:15 UTC).
+
+Remove only conflict markers and accidental duplicates. Leave entry text untouched, and take every non-conflicting change from `main` exactly as it is, including the Google OAuth implementation.
+
+**Verification on the merged tree.** Updated `main` `be2690d` is the baseline, with identical dependencies, environment and timezone on both sides. Diagnostics and failures are compared by identity, not count. The checks are:
+- Root and app TypeScript.
+- The ten Campaigns suites.
+- The full suite on base and branch under the same placeholder environment and timezone.
+- The Reports frontend CI comparison run locally against a `be2690d` worktree.
+- ESLint on the changed TS/TSX files.
+- `npm run build`.
+- `git diff --check`.
+- The Campaigns visual verifier.
+
+The diff against updated `main` must still contain only the approved Campaigns redesign. Any new regression blocks publication and goes to Chris before any application-code fix.
+
+**Publication.**
+- Push without force and keep PR #433 a draft.
+- Report CI only for the exact published head. If workflows don't trigger, report the run evidence; use a permitted dispatch only when it tests that head, otherwise mark exact-head CI BLOCKED.
+- For the previews, check READY, preview target and no production domain.
+- Treat previews as production-connected until isolation is proven; no authenticated or write checks without a safe, authorized scope.
+
+**Separate.** The `WORKFLOW_INTERNAL_SECRET` exposure in `WORK_LOG.md` history gets read-only triage and its own remediation plan for separate approval. It is not part of this branch.
+
 ---
 
 ## 2026-10-08 UTC — SHIPPED: Super Admin live master Twilio balance
