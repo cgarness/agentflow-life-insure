@@ -183,6 +183,16 @@ describe("frontend data-path contract", () => {
     expect(seen).toBeGreaterThanOrEqual(2); // the scan reaches the Data basis and Period totals wording
   });
 
+  it("keeps every Reports component under 200 lines (AGENT_RULES §7)", () => {
+    const components = readdirSync(join(ROOT, "src/components/reports")).filter((f) => f.endsWith(".tsx"));
+    expect(components.length).toBeGreaterThan(20); // the scan reaches the Reports components
+    for (const f of components) {
+      const lines = read(`src/components/reports/${f}`).split("\n");
+      if (lines.at(-1) === "") lines.pop(); // the trailing newline is not a line
+      expect(lines.length, `src/components/reports/${f}`).toBeLessThan(200);
+    }
+  });
+
   it("Reports does not mount the non-functional saved/scheduled report features", () => {
     const page = read("src/pages/Reports.tsx");
     expect(page).not.toMatch(/CustomReportBuilder|ScheduledReportsModal/);

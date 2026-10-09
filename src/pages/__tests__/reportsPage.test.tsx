@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
   refresh: vi.fn(),
   downloads: [] as { name: string; csv: string }[],
   toastError: vi.fn(),
+  /** The viewer's stored `report_layouts` JSON; null means no saved row (the default layout). */
+  savedLayout: null as unknown,
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
@@ -34,11 +36,12 @@ vi.mock("@/hooks/useReportsData", () => ({
     !req ? { status: "loading" } : state.status === "ready" && !h.mismatchDate ? { ...state, data: { ...(state.data as object), window: { ...(state.data as { window: object }).window, start_date: req.startDate, end_date: req.endDate } } } : state])), retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
 }));
 vi.mock("@/lib/report-layout", async () => {
-  const { DEFAULT_LAYOUT } = await vi.importActual<typeof import("@/lib/report-layout-constants")>("@/lib/report-layout-constants");
+  const { DEFAULT_LAYOUT, normalizeReportLayout } = await vi.importActual<typeof import("@/lib/report-layout-constants")>("@/lib/report-layout-constants");
   const copy = () => JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
   return {
     getDefaultLayout: copy,
-    fetchUserLayout: () => Promise.resolve(copy()),
+    // Like the real read: the stored JSON is normalized, never written back.
+    fetchUserLayout: () => Promise.resolve(h.savedLayout === null ? copy() : normalizeReportLayout(h.savedLayout)),
     saveUserLayout: vi.fn(), resetUserLayout: vi.fn(), saveOrgDefaultLayout: vi.fn(),
   };
 });
@@ -54,6 +57,7 @@ vi.mock("recharts", async () => {
 
 import Reports from "@/pages/Reports";
 import { ReportsQueryError } from "@/lib/reports-queries";
+import { resetUserLayout, saveUserLayout } from "@/lib/report-layout";
 import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
 
 installJsdomPolyfills(); // Radix Select (the Report period) probes pointer capture and scrollIntoView on open
@@ -98,7 +102,7 @@ beforeEach(() => {
   h.scopeState = ready(reportScope());
   h.panels = allReady();
   h.current = true; h.mismatchDate = false;
-  h.downloads = [];
+  h.downloads = []; h.savedLayout = null;
   h.retryScope.mockReset(); h.retryPanel.mockReset(); h.refresh.mockReset(); h.toastError.mockReset();
 });
 
@@ -339,6 +343,49 @@ describe("the layout editor and an incomplete Custom range (U-6, U-8)", () => {
     expect(screen.getByText("Your report access changed while this page was open.")).toBeInTheDocument();
     expect(editorRegion()).not.toBeInTheDocument();
     expect(customizeButton()).toBeDisabled();
+  });
+});
+
+describe("a saved personal layout (T-4)", () => {
+  const groupIds = (root: ParentNode, attr: "report" | "customizer", group: string) => Array.from(
+    root.querySelectorAll(`[data-${attr}-group="${group}"] [data-${attr}-section]`), (node) => node.getAttribute(`data-${attr}-section`));
+
+  it("renders a non-default saved layout in its saved order and visibility, without writing it back", async () => {
+    vi.mocked(saveUserLayout).mockClear(); vi.mocked(resetUserLayout).mockClear();
+    h.savedLayout = { version: 4, sections: [
+      { id: "stat_inbound", visible: true }, { id: "stat_dials_per_appt", visible: true }, { id: "stat_total_dials", visible: true },
+      { id: "stat_total_contacted", visible: false },
+      { id: "lead_source_roi", visible: true }, { id: "campaign_performance", visible: true },
+      { id: "agent_efficiency", visible: false }, { id: "agent_performance_cards", visible: true },
+      { id: "calling_heatmap", visible: true }, { id: "conversion_funnel", visible: false }, { id: "disposition_deep_dive", visible: true },
+    ] };
+    const { container } = renderPage();
+    // Not the default six: the saved metrics, in saved order (the default would start with Calls made).
+    await waitFor(() => expect(groupIds(container, "report", "stats")).toEqual(["stat_inbound", "stat_dials_per_appt", "stat_total_dials"]));
+    expect(groupIds(container, "report", "performance")).toEqual(["lead_source_roi", "campaign_performance", "agent_performance_cards"]);
+    // Panels missing from the saved row keep their registry order after the saved ones and stay visible.
+    expect(groupIds(container, "report", "diagnostics")).toEqual([
+      "calling_heatmap", "disposition_deep_dive", "communications_stats", "call_flow_analysis", "call_duration_analysis",
+    ]);
+    // Fixed content is not part of the layout: the band, both trends and Period totals still render.
+    expect(band()).toBeInTheDocument();
+    expect(groupIds(container, "report", "trends")).toEqual(["policies_sold", "call_volume"]);
+    expect(screen.getByRole("heading", { name: "Period totals" })).toBeInTheDocument();
+
+    await layoutReady();
+    fireEvent.click(customizeButton());
+    const editor = editorRegion()!;
+    expect(within(editor).getByText(/3 of 6 metrics selected/)).toBeInTheDocument();
+    expect(within(editor).getByRole("checkbox", { name: "Show Inbound calls" })).toBeChecked();
+    expect(within(editor).getByRole("checkbox", { name: "Show Dials per booking" })).toBeChecked();
+    expect(within(editor).getByRole("checkbox", { name: "Show Contacted calls" })).not.toBeChecked();
+    expect(within(editor).getByRole("checkbox", { name: "Show Agent efficiency" })).not.toBeChecked();
+    expect(groupIds(editor, "customizer", "performance")).toEqual(["lead_source_roi", "campaign_performance", "agent_efficiency", "agent_performance_cards"]);
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    expect(editorRegion()).not.toBeInTheDocument();
+    expect(groupIds(container, "report", "stats")).toEqual(["stat_inbound", "stat_dials_per_appt", "stat_total_dials"]);
+    expect(saveUserLayout).not.toHaveBeenCalled();
+    expect(resetUserLayout).not.toHaveBeenCalled();
   });
 });
 
