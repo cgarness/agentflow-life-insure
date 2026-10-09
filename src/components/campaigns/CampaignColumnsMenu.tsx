@@ -33,7 +33,16 @@ function Locked({ label }: { label: string }) {
 export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs }) {
   const [open, setOpen] = useState(false);
   const retryPending = useRef(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const pendingFocus = useRef<string | null>(null);
   const draft = prefs.draft;
+  // Keep keyboard focus on the moved column; at an edge the pressed arrow disables, so use the other one.
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+    const target = listRef.current?.querySelector<HTMLButtonElement>(`[data-move="${pendingFocus.current}"]`);
+    pendingFocus.current = null;
+    target?.focus();
+  }, [draft]);
   // After a Retry from the error view, start editing as soon as the reload succeeds.
   const { canEdit, beginEdit } = prefs;
   useEffect(() => {
@@ -64,12 +73,16 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
     if (!draft) return;
     const to = index + delta;
     if (to < 0 || to >= draft.order.length) return;
+    const atEdge = to === 0 || to === draft.order.length - 1;
+    const forward = delta < 0 ? "up" : "down";
+    pendingFocus.current = `${draft.order[index]}:${atEdge ? (delta < 0 ? "down" : "up") : forward}`;
     const order = [...draft.order];
     [order[index], order[to]] = [order[to], order[index]];
     prefs.setDraft({ order, hidden: draft.hidden });
   };
-  const finish = async (action: () => Promise<boolean>) => {
+  const finish = async (action: () => Promise<boolean>, button: HTMLButtonElement | null) => {
     if (await action()) setOpen(false);
+    else setTimeout(() => button?.focus(), 0); // the busy fieldset disabled it; restore focus for a retry
   };
 
   return (
@@ -96,7 +109,7 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
         ) : draft ? (
           <fieldset disabled={prefs.busy} aria-busy={prefs.busy} className="min-w-0">
             <legend className="sr-only">Visible columns and order</legend>
-            <ul className="max-h-[26rem] overflow-y-auto px-2 py-2">
+            <ul ref={listRef} className="max-h-[26rem] overflow-y-auto px-2 py-2">
               <Locked label="Campaign" />
               {draft.order.map((id, index) => {
                 const label = COLUMN_DEFS[id].label;
@@ -105,11 +118,11 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
                   <li key={id} data-column-option={id} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/50">
                     <Checkbox id={inputId} checked={!hidden.has(id)} onCheckedChange={() => toggle(id)} aria-label={`Show ${label}`} />
                     <label htmlFor={inputId} className="flex-1 cursor-pointer text-sm text-foreground">{label}</label>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={`Move ${label} up`}
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={`Move ${label} up`} data-move={`${id}:up`}
                       disabled={index === 0} onClick={() => move(index, -1)}>
                       <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={`Move ${label} down`}
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={`Move ${label} down`} data-move={`${id}:down`}
                       disabled={index === draft.order.length - 1} onClick={() => move(index, 1)}>
                       <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
@@ -120,12 +133,12 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
             </ul>
             {prefs.error && <p role="alert" className="px-4 pb-2 text-xs text-destructive">{prefs.error}</p>}
             <div className="flex items-center gap-2 border-t border-border/60 px-3 py-3">
-              <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground" onClick={() => void finish(prefs.reset)}>
+              <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 text-muted-foreground" onClick={(e) => void finish(prefs.reset, e.currentTarget)}>
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Reset
               </Button>
               <div className="ml-auto flex gap-2">
                 <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button type="button" size="sm" className="h-8" onClick={() => void finish(prefs.save)}>
+                <Button type="button" size="sm" className="h-8" onClick={(e) => void finish(prefs.save, e.currentTarget)}>
                   {prefs.busy ? "Saving…" : "Save"}
                 </Button>
               </div>

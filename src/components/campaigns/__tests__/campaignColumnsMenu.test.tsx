@@ -397,3 +397,19 @@ describe("CampaignColumnsMenu — load error", () => {
     expect(within(editor()).getByRole("checkbox", { name: "Show Status" })).toBeInTheDocument();
   });
 });
+
+describe("CampaignColumnsMenu — keyboard focus (review regression)", () => {
+  it("keeps focus on the moved column; at the first position focus moves to its other arrow", () => {
+    render(<Harness initial={{ status: "ready" }} />);
+    openMenu();
+    const up = within(editor()).getByRole("button", { name: "Move Lead progress up" });
+    up.focus();
+    fireEvent.click(up); // Lead progress moves to index 0, so its Up arrow is now disabled
+    expect(within(editor()).getByRole("button", { name: "Move Lead progress up" })).toBeDisabled();
+    expect(document.activeElement).toBe(within(editor()).getByRole("button", { name: "Move Lead progress down" }));
+    const down = within(editor()).getByRole("button", { name: "Move Agents down" });
+    down.focus();
+    fireEvent.click(down); // not at an edge: focus stays on the same control
+    expect(document.activeElement).toBe(within(editor()).getByRole("button", { name: "Move Agents down" }));
+  });
+});

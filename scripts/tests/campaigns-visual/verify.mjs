@@ -34,13 +34,16 @@ async function noOverflow(page, label) {
   assert.ok(scrollWidth <= clientWidth, `${label}: page overflows horizontally (${scrollWidth} > ${clientWidth})`);
 }
 
+// Radix popovers/menus fade in; capture them only once the open animation has finished.
+const settled = (page) => page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+
 async function check(name, fn) {
   try { await fn(); results.push(`PASS ${name}`); } catch (error) { results.push(`FAIL ${name}: ${error.message}`); }
 }
 
 // 1. Layout matrix inside the reproduced app shell (sidebar offset + AppLayout padding).
 for (const theme of ['dark', 'light']) {
-  for (const [width, sidebar] of [[1440, 'expanded'], [1280, 'expanded'], [1280, 'collapsed'], [1024, 'expanded'], [1024, 'collapsed'], [768, 'expanded'], [390, 'expanded']]) {
+  for (const [width, sidebar] of [[1440, 'expanded'], [1280, 'expanded'], [1280, 'collapsed'], [1024, 'expanded'], [1024, 'collapsed'], [768, 'expanded'], [390, 'expanded'], [360, 'expanded'], [320, 'expanded']]) {
     const label = `${theme}-${width}-${sidebar}`;
     await check(`layout ${label}`, async () => {
       const { context, page, errors } = await open(`persona=admin&theme=${theme}&sidebar=${sidebar}`, width, width <= 390 ? 844 : 900);
@@ -48,6 +51,19 @@ for (const theme of ['dark', 'light']) {
       const desktop = width >= 1280;
       assert.equal(await page.locator('table').count() > 0, desktop, `${label}: desktop table iff viewport >= 1280`);
       assert.equal(await page.getByRole('list', { name: 'Campaigns' }).count() > 0, !desktop, `${label}: stacked list below 1280`);
+      if (desktop) {
+        // The default columns fit the real content width: no hidden column under the sticky Actions.
+        const t = await page.evaluate(() => { const s = document.querySelector('table').parentElement; return { sw: s.scrollWidth, cw: s.clientWidth }; });
+        assert.ok(t.sw <= t.cw, `${label}: default columns overflow the table (${t.sw} > ${t.cw})`);
+      } else {
+        // Stacked rows: the called/total text never runs under the row's actions.
+        const overlaps = await page.evaluate(() => [...document.querySelectorAll('li[data-testid^="campaign-row-"]')].filter((li) => {
+          const text = li.querySelector('[data-testid="lead-progress"] span')?.getBoundingClientRect();
+          const open = [...li.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Open')?.getBoundingClientRect();
+          return text && open && text.right > open.left && text.bottom > open.top && text.top < open.bottom;
+        }).length);
+        assert.equal(overlaps, 0, `${label}: lead progress text overlaps Open in ${overlaps} rows`);
+      }
       // Essentials visible without horizontal scrolling: every row's Open action is inside the viewport.
       const opens = page.getByRole('button', { name: /^Open / });
       const box = await opens.first().boundingBox();
@@ -69,10 +85,12 @@ await check('desktop expanded row, columns editor, overflow menu', async () => {
   await page.screenshot({ path: `${output}/desktop-expanded.png`, fullPage: true });
   await page.getByRole('button', { name: 'Columns' }).click();
   await page.getByRole('checkbox', { name: 'Show Contacted' }).waitFor();
+  await settled(page);
   await page.screenshot({ path: `${output}/desktop-columns-editor.png` });
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: /More actions for Final Expense/ }).click();
   await page.getByRole('menuitem', { name: /Duplicate/ }).waitFor();
+  await settled(page);
   await page.screenshot({ path: `${output}/desktop-overflow-menu.png` });
   assert.deepEqual(errors, []);
   await context.close();

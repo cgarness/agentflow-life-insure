@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { normalizeColumnLayout, type ColumnLayout } from "@/lib/campaigns-table/columns";
 import {
   CampaignsPrefsError,
@@ -20,8 +21,13 @@ interface PrefsState {
   busy: boolean;
 }
 
-function initial(ownerKey: string | null, epoch: number, status: PrefsStatus): PrefsState {
-  return { ownerKey, epoch, saved: normalizeColumnLayout(null), draft: null, status, error: null, busy: false };
+function initial(ownerKey: string | null, epoch: number, status: PrefsStatus, cached?: ColumnLayout): PrefsState {
+  return { ownerKey, epoch, saved: normalizeColumnLayout(cached ?? null), draft: null, status, error: null, busy: false };
+}
+
+/** Last confirmed layout per owner, in the TanStack cache (never another owner's key). */
+function prefsCacheKey(userId: string | null, orgId: string | null) {
+  return ["campaignsTable", "prefs", orgId, userId] as const;
 }
 function message(error: unknown): string {
   return error instanceof CampaignsPrefsError ? error.message : "Couldn't save columns. Try again.";
@@ -39,8 +45,11 @@ export function useCampaignsTablePrefs(userId: string | null, orgId: string | nu
   if (identity.current.ownerKey !== ownerKey) identity.current = { ownerKey, epoch: identity.current.epoch + 1, enabled };
   else identity.current.enabled = enabled;
   const epoch = identity.current.epoch;
+  const queryClient = useQueryClient();
+  // Paint this owner's last confirmed layout immediately on a revisit; the read still re-confirms it.
+  const cached = enabled && ownerKey ? queryClient.getQueryData<ColumnLayout>(prefsCacheKey(userId, orgId)) : undefined;
 
-  const [state, setState] = useState<PrefsState>(() => initial(ownerKey, epoch, "idle"));
+  const [state, setState] = useState<PrefsState>(() => initial(ownerKey, epoch, "idle", cached));
   const stateRef = useRef(state);
   stateRef.current = state;
   const mounted = useRef(true);
@@ -58,17 +67,19 @@ export function useCampaignsTablePrefs(userId: string | null, orgId: string | nu
   const load = useCallback((signal?: AbortSignal) => {
     if (!userId || !orgId || !isCurrent()) return;
     const token = ++loadToken.current;
-    setState(initial(ownerKey, epoch, "loading"));
+    setState(initial(ownerKey, epoch, "loading", queryClient.getQueryData<ColumnLayout>(prefsCacheKey(userId, orgId))));
     readPrefsRow(userId, signal)
       .then((row) => {
         if (!isCurrent() || token !== loadToken.current) return;
-        setState({ ...initial(ownerKey, epoch, "ready"), saved: layoutFromSettings(row.settings, orgId) });
+        const saved = layoutFromSettings(row.settings, orgId);
+        queryClient.setQueryData(prefsCacheKey(userId, orgId), saved);
+        setState({ ...initial(ownerKey, epoch, "ready"), saved });
       })
       .catch((error) => {
         if (signal?.aborted || !isCurrent() || token !== loadToken.current) return;
-        setState({ ...initial(ownerKey, epoch, "error"), error: message(error instanceof CampaignsPrefsError ? error : new CampaignsPrefsError("read", error)) });
+        setState({ ...initial(ownerKey, epoch, "error", queryClient.getQueryData<ColumnLayout>(prefsCacheKey(userId, orgId))), error: message(error instanceof CampaignsPrefsError ? error : new CampaignsPrefsError("read", error)) });
       });
-  }, [userId, orgId, ownerKey, epoch, isCurrent]);
+  }, [userId, orgId, ownerKey, epoch, isCurrent, queryClient]);
 
   useEffect(() => {
     if (!enabled || !ownerKey) return;
@@ -79,7 +90,7 @@ export function useCampaignsTablePrefs(userId: string | null, orgId: string | nu
 
   // Another owner's state is masked on the very first render after a switch.
   const current = state.ownerKey === ownerKey && state.epoch === epoch
-    ? state : initial(ownerKey, epoch, enabled && ownerKey ? "loading" : "idle");
+    ? state : initial(ownerKey, epoch, enabled && ownerKey ? "loading" : "idle", cached);
   const canEdit = enabled && !!ownerKey && current.status === "ready" && !current.busy;
 
   const editable = () => isCurrent() && stateRef.current.ownerKey === ownerKey && stateRef.current.epoch === epoch
@@ -105,6 +116,7 @@ export function useCampaignsTablePrefs(userId: string | null, orgId: string | nu
     try {
       const saved = await writeColumnLayout({ userId, orgId, layout: reset ? null : normalizeColumnLayout(draft), isCurrent });
       if (!isCurrent()) return false;
+      queryClient.setQueryData(prefsCacheKey(userId, orgId), saved);
       setState((p) => ({ ...p, saved, draft: null, busy: false, error: null }));
       return true;
     } catch (error) {

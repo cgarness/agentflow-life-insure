@@ -26,7 +26,8 @@ export interface CampaignRowRenderProps {
   nowMs: number;
   formatDate: (date: string | null | undefined) => string;
   onOpen: (id: string) => void;
-  onDuplicate: (row: CampaignRow) => void;
+  /** `returnFocusTo` is the control focus returns to when the dialog closes. */
+  onDuplicate: (row: CampaignRow, returnFocusTo: HTMLElement | null) => void;
 }
 
 /** Opaque cell background with the row hover drawn as a layered tint (keeps the sticky column clean). */
@@ -58,10 +59,10 @@ export default function CampaignTableRow(p: CampaignRowRenderProps) {
             <ChevronRight aria-hidden="true" className={cn("h-4 w-4 transition-transform duration-200", expanded && "rotate-90")} />
           </button>
         </TableCell>
-        <TableCell className={cn(CELL, "min-w-[16rem]")}>
+        <TableCell className={cn(CELL, "w-full min-w-[13rem] max-w-0")}>
           <div className="flex min-w-0 items-center gap-2">
             <Link to={`/campaigns/${row.id}`} title={row.name}
-              className="max-w-[24rem] truncate rounded text-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              className="min-w-0 max-w-[22rem] truncate rounded text-sm font-medium text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {row.name}
             </Link>
             <TypeBadge type={row.type} />
@@ -72,7 +73,7 @@ export default function CampaignTableRow(p: CampaignRowRenderProps) {
             {columnCell(id, p)}
           </TableCell>
         ))}
-        <TableCell className={cn(CELL, "sticky right-0 z-10 w-36 shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
+        <TableCell className={cn(CELL, "sticky right-0 z-10 w-32 shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
           <CampaignRowActions row={row} duplicate={p.duplicate} orgLocked={p.orgLocked} onOpen={p.onOpen} onDuplicate={p.onDuplicate} />
         </TableCell>
       </TableRow>

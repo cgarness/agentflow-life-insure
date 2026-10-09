@@ -50,16 +50,16 @@ interface Props extends Omit<CampaignRowRenderProps, "row" | "metrics" | "expand
 export default function CampaignsTable({ rows, metricsById, duplicateFor, sort, onSort, expandedId, onToggle, columns, ...rest }: Props) {
   return (
     <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm [container-type:inline-size]">
-      <Table className="min-w-max border-separate border-spacing-0" aria-label="Campaigns">
+      <Table className="border-separate border-spacing-0" aria-label="Campaigns">
         <TableHeader className="[&_tr]:border-0">
           <TableRow className="border-0 hover:bg-transparent">
             <TableHead scope="col" className={cn(HEAD_CLASS, "w-10 pl-3 pr-0")}><span className="sr-only">Details</span></TableHead>
-            <SortHead label="Campaign" sortKey="name" sort={sort} onSort={onSort} className="min-w-[16rem]" />
+            <SortHead label="Campaign" sortKey="name" sort={sort} onSort={onSort} className="w-full min-w-[13rem]" />
             {columns.map((id: ColumnId) => {
               const def = COLUMN_DEFS[id];
               return <SortHead key={id} label={def.label} sortKey={def.sortKey} sort={sort} onSort={onSort} align={def.align} className={def.widthClass} />;
             })}
-            <TableHead scope="col" className={cn(HEAD_CLASS, "sticky right-0 z-20 w-36 text-right shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
+            <TableHead scope="col" className={cn(HEAD_CLASS, "sticky right-0 z-20 w-32 text-right shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
               <span className="sr-only">Actions</span>
             </TableHead>
           </TableRow>

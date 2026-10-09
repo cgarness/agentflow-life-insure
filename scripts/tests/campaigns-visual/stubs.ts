@@ -42,6 +42,8 @@ const SEEDS: Seed[] = [
   ["Spanish FE Leads", "Team", "Active", [A[0], A[4], A[5]], ADMIN, ["spanish", "final expense"], 780, 214, 59, 4, 11, "600"],
   ["Annuity Rollover Prospects", "Team", "Archived", [A[2]], ADMIN, ["annuity"], 330, 330, 120, 15, 120, "60000"],
   ["Recycled Leads 2025", "Open Pool", "Paused", [A[0], A[3]], ADMIN, ["recycled"], 5400, 1260, 210, 9, 70, "20000"],
+  // Five- and six-digit totals stress the narrow stacked layout.
+  ["Aged Mortgage Protection 2024", "Open Pool", "Active", [A[1], A[4]], ADMIN, ["aged", "mortgage"], 120400, 48210, 9120, 211, 95, "45"],
 ];
 
 const campaigns = SEEDS.map((s, i) => ({

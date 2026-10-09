@@ -16,11 +16,13 @@ import { buildDuplicatePayload, DuplicatePayloadSchema, type CampaignRow } from 
 interface Props {
   campaign: CampaignRow | null;
   orgLocked: boolean;
+  /** Focus returns here on close (the dialog has no Radix trigger of its own). */
+  returnFocusTo?: HTMLElement | null;
   onClose: () => void;
   onDuplicated: () => void;
 }
 
-export default function DuplicateCampaignDialog({ campaign, orgLocked, onClose, onDuplicated }: Props) {
+export default function DuplicateCampaignDialog({ campaign, orgLocked, returnFocusTo, onClose, onDuplicated }: Props) {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const [saving, setSaving] = useState(false);
@@ -67,7 +69,8 @@ export default function DuplicateCampaignDialog({ campaign, orgLocked, onClose, 
 
   return (
     <AlertDialog open={!!campaign} onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <AlertDialogContent className="max-w-md" onEscapeKeyDown={(e) => { if (saving) e.preventDefault(); }}>
+      <AlertDialogContent className="max-w-md" onEscapeKeyDown={(e) => { if (saving) e.preventDefault(); }}
+        onCloseAutoFocus={(e) => { e.preventDefault(); if (returnFocusTo?.isConnected) returnFocusTo.focus(); }}>
         <AlertDialogHeader>
           <AlertDialogTitle>Duplicate campaign</AlertDialogTitle>
           <AlertDialogDescription>

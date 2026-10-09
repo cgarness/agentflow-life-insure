@@ -24,9 +24,14 @@ export class CampaignsQueryError extends Error {
   }
 }
 
-/** Shared TanStack options: no focus refetch storms, one retry, never retry a hard cap. */
+/**
+ * Shared TanStack options: refetch whenever the page mounts (cached rows stay on screen, so a
+ * return from the detail page shows its edits/deletes without a skeleton), no focus refetch
+ * storms, one retry, never retry a hard cap.
+ */
 export const CAMPAIGNS_TABLE_QUERY_OPTIONS = {
   staleTime: 30_000,
+  refetchOnMount: "always" as const,
   refetchOnWindowFocus: false,
   retry: (failureCount: number, error: unknown) =>
     !(error instanceof CampaignsQueryError && error.kind === "too_large") && failureCount < 1,

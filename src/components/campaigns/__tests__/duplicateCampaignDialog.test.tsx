@@ -279,3 +279,18 @@ describe("DuplicateCampaignDialog — guards", () => {
     expect(h.tables).toEqual([]);
   });
 });
+
+describe("DuplicateCampaignDialog — focus return (review regression)", () => {
+  it("returns focus to the row's overflow trigger when the dialog closes", async () => {
+    const trigger = document.createElement("button");
+    trigger.textContent = "More actions";
+    document.body.appendChild(trigger);
+    const view = renderDialog({ returnFocusTo: trigger });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.rerender(<DuplicateCampaignDialog campaign={null} orgLocked={false} returnFocusTo={trigger} onClose={onClose} onDuplicated={onDuplicated} />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+});

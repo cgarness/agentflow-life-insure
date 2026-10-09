@@ -584,7 +584,7 @@ describe("navigation and row actions", () => {
     expect(within(item).queryByText("Only the campaign owner can duplicate")).not.toBeInTheDocument();
     fireEvent.click(item);
     expect(handlers.onDuplicate).toHaveBeenCalledTimes(1);
-    expect(handlers.onDuplicate).toHaveBeenCalledWith(TEAM);
+    expect(handlers.onDuplicate).toHaveBeenCalledWith(TEAM, expect.any(HTMLElement)); // trigger receives focus back on close
     expect(handlers.onOpen).not.toHaveBeenCalled();
   });
 

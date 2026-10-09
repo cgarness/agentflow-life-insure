@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { Copy, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,13 +12,14 @@ interface Props {
   duplicate: DuplicateEligibility;
   orgLocked: boolean;
   onOpen: (id: string) => void;
-  onDuplicate: (row: CampaignRow) => void;
+  onDuplicate: (row: CampaignRow, returnFocusTo: HTMLElement | null) => void;
   /** Larger touch targets for the stacked layout. */
   touch?: boolean;
 }
 
 /** Open + a permission-gated overflow. No dialing action lives here (management ≠ Dialer). */
 export default function CampaignRowActions({ row, duplicate, orgLocked, onOpen, onDuplicate, touch = false }: Props) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const reason = duplicate === "owner_only" ? "Only the campaign owner can duplicate"
     : orgLocked ? "Unavailable while the agency is suspended or archived" : null;
   return (
@@ -31,13 +32,13 @@ export default function CampaignRowActions({ row, duplicate, orgLocked, onOpen, 
       {duplicate !== "hidden" && (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" aria-label={`More actions for ${row.name}`}
+            <Button ref={triggerRef} type="button" variant="ghost" size="icon" aria-label={`More actions for ${row.name}`}
               className={cn("rounded-lg text-muted-foreground hover:text-foreground", touch ? "h-10 w-10" : "h-8 w-8")}>
               <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuItem disabled={reason !== null} onSelect={() => onDuplicate(row)} className="items-start gap-2">
+            <DropdownMenuItem disabled={reason !== null} onSelect={() => onDuplicate(row, triggerRef.current)} className="items-start gap-2">
               <Copy className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="flex flex-col">
                 <span>Duplicate</span>

@@ -12,7 +12,9 @@
  * Transport is mocked at the prefs I/O boundary (readPrefsRow / writeColumnLayout); the error
  * classes and layoutFromSettings are the real production exports.
  */
+import React from "react";
 import { act, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeColumnLayout, type ColumnLayout } from "@/lib/campaigns-table/columns";
 import type { PrefsRow } from "@/lib/campaigns-table/prefs";
@@ -126,8 +128,13 @@ function setup(initialProps: Props = PROPS) {
       renders.push({ ...p, layout: r.layout, draft: r.draft, status: r.status, canEdit: r.canEdit });
       return r;
     },
-    { initialProps },
+    { initialProps, wrapper: queryWrapper() },
   );
+}
+/** Fresh TanStack cache per hook instance (the hook caches each owner's last confirmed layout). */
+function queryWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 async function setupReady(layout: ColumnLayout = A_LAYOUT, props: Props = PROPS) {
   const hook = setup(props);

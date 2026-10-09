@@ -39,11 +39,11 @@ export default function CampaignStackedList({ rows, metricsById, duplicateFor, e
               </div>
               <StatusPill status={row.status} />
             </div>
-            <div className="mt-2.5 flex items-center gap-3">
-              <div className="min-w-0 flex-1">
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="min-w-[8.5rem] flex-1">
                 <LeadProgress metrics={metrics} compact />
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="ml-auto flex shrink-0 items-center gap-1">
                 <CampaignRowActions row={row} duplicate={duplicateFor(row)} orgLocked={rest.orgLocked}
                   onOpen={rest.onOpen} onDuplicate={rest.onDuplicate} touch />
                 <button type="button" onClick={() => onToggle(row.id)} aria-expanded={expanded}

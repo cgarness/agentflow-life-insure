@@ -557,8 +557,9 @@ describe("fetchOrgStatus", () => {
 describe("CAMPAIGNS_TABLE_QUERY_OPTIONS", () => {
   const { retry } = CAMPAIGNS_TABLE_QUERY_OPTIONS;
 
-  it("30 s stale time and no window-focus refetch", () => {
+  it("30 s stale time, always refetch on mount (returning from detail shows edits), no window-focus refetch", () => {
     expect(CAMPAIGNS_TABLE_QUERY_OPTIONS.staleTime).toBe(30_000);
+    expect(CAMPAIGNS_TABLE_QUERY_OPTIONS.refetchOnMount).toBe("always");
     expect(CAMPAIGNS_TABLE_QUERY_OPTIONS.refetchOnWindowFocus).toBe(false);
   });
 

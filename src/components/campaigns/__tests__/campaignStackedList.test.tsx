@@ -384,6 +384,6 @@ describe("actions", () => {
     const item = await screen.findByRole("menuitem", { name: /duplicate/i });
     expect(item).not.toHaveAttribute("aria-disabled");
     fireEvent.click(item);
-    expect(handlers.onDuplicate).toHaveBeenCalledWith(TEAM);
+    expect(handlers.onDuplicate).toHaveBeenCalledWith(TEAM, expect.any(HTMLElement)); // trigger receives focus back on close
   });
 });

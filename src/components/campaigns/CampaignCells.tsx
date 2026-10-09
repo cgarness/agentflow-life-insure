@@ -75,13 +75,15 @@ export function LeadProgress({ metrics, compact = false }: { metrics: CampaignMe
   const called = metricNumber(metrics.called);
   const total = metricNumber(metrics.total);
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1.5", compact ? "w-full" : "w-44")} data-testid="lead-progress">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", compact ? "w-full" : "w-40")} data-testid="lead-progress">
       <div className="flex items-baseline justify-between gap-2 text-sm">
-        <span className="whitespace-nowrap">
-          <MetricValue metric={metrics.called} className="font-medium" />
-          <span className="text-muted-foreground"> / </span>
-          <MetricValue metric={metrics.total} className="text-muted-foreground" />
-          {compact && called !== null && <span className="text-xs text-muted-foreground"> called</span>}
+        <span className={cn(compact ? "flex flex-wrap items-baseline gap-x-1" : "whitespace-nowrap")}>
+          <span className="whitespace-nowrap">
+            <MetricValue metric={metrics.called} className="font-medium" />
+            <span className="text-muted-foreground"> / </span>
+            <MetricValue metric={metrics.total} className="text-muted-foreground" />
+          </span>
+          {compact && called !== null && <>{" "}<span className="text-xs text-muted-foreground">called</span></>}
         </span>
         {!compact && pct !== null && total !== null && total > 0 && (
           <span className="text-xs tabular-nums text-muted-foreground">{Math.round(pct)}%</span>

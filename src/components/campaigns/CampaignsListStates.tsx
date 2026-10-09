@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 /** Loading placeholder; renders the same shell as the list so nothing jumps when rows arrive. */
 export function CampaignsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div data-testid="campaigns-skeleton" aria-busy="true" aria-label="Loading campaigns"
+    <div data-testid="campaigns-skeleton" role="status" aria-busy="true" aria-label="Loading campaigns"
       className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
       <div className="flex h-10 items-center gap-6 border-b border-border/60 bg-muted/40 px-4">
         <Skeleton className="h-3 w-24" /><Skeleton className="hidden h-3 w-16 sm:block" /><Skeleton className="hidden h-3 w-28 sm:block" />

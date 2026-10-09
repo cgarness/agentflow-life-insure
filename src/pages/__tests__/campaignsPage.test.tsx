@@ -572,7 +572,7 @@ describe.each([
       renderPage();
       await settle();
       expect(rowIds().sort()).toEqual(sortedIds([C.open, C.agentPersonal, C.teamAssigned]));
-      expect(screen.getByLabelText("3 campaigns")).toBeInTheDocument();
+      expect(screen.getByText("3 campaigns")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "New Campaign" })).toBeNull();
       expect(screen.queryByRole("button", { name: /^More actions for/ })).toBeNull();
       // Metrics come from the RPC (40 / 10), never the stored trigger columns (41 / 11).
@@ -660,7 +660,7 @@ describe.each([
       renderPage();
       await settle();
       expect(rowIds().sort()).toEqual(sortedIds(ORG1_CAMPAIGNS));
-      expect(screen.getByLabelText("7 campaigns")).toBeInTheDocument();
+      expect(screen.getByText("7 campaigns")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "New Campaign" })).toBeEnabled();
       expect([...new Set(requestedStatsIds())].sort()).toEqual(sortedIds(ORG1_CAMPAIGNS));
       expect(returnedStatsIds()).not.toContain(C.otherPersonal.id);
@@ -715,7 +715,7 @@ describe.each([
       expect(screen.getByTestId("campaigns-skeleton")).toBeInTheDocument();
       expect(screen.queryByText("0")).toBeNull();
       expect(screen.queryByText("No campaigns yet")).toBeNull();
-      expect(screen.queryByLabelText(/^\d+ campaigns$/)).toBeNull();
+      expect(screen.queryByText(/^\d+ campaigns$/)).toBeNull();
     });
 
     it("metrics still loading render skeletons for every row, never 0", async () => {
@@ -765,7 +765,7 @@ describe.each([
       fireEvent.change(screen.getByRole("textbox", { name: "Search campaigns" }), { target: { value: "zzz-no-match" } });
       expect(await screen.findByText("No campaigns match")).toBeInTheDocument();
       expect(screen.queryByText("No campaigns yet")).toBeNull();
-      expect(screen.getByLabelText("7 campaigns")).toBeInTheDocument();
+      expect(screen.getByText("7 campaigns")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
       await waitFor(() => expect(rowIds()).toHaveLength(ORG1_CAMPAIGNS.length));
       expect(screen.getByRole("textbox", { name: "Search campaigns" })).toHaveValue("");
@@ -863,7 +863,12 @@ describe.each([
       renderPage();
       await settle();
       await waitFor(() => expect(screen.getByRole("button", { name: "New Campaign" })).toBeDisabled());
-      expect(screen.getByRole("button", { name: "New Campaign" })).toHaveAttribute("title", expect.stringMatching(/suspended\/archived/));
+      // A disabled button gets no pointer events, so the lock reason sits on a focusable wrapper's tooltip.
+      const wrapper = screen.getByRole("button", { name: "New Campaign" }).parentElement!;
+      expect(wrapper).toHaveAttribute("tabindex", "0");
+      fireEvent.focus(wrapper);
+      expect((await screen.findAllByText(/suspended\/archived\. Reactivate to create campaigns\./)).length).toBeGreaterThan(0);
+      fireEvent.blur(wrapper);
       const item = await openRowMenu(C.open);
       expect(item).toHaveAttribute("aria-disabled", "true");
       expect(item).toHaveTextContent("Unavailable while the agency is suspended or archived");
@@ -1119,7 +1124,7 @@ describe("Campaigns page — identity switch", () => {
     expect(after.length).toBeGreaterThan(1);
     for (const text of after) for (const name of aNames) expect(text).not.toContain(name);
     expect(rowIds()).toEqual([C.beta.id]);
-    expect(screen.getByLabelText("1 campaigns")).toBeInTheDocument();
+    expect(screen.getByText("1 campaigns")).toBeInTheDocument();
     // B's requests were made as B, scoped to B's organization.
     const bList = opsFor("campaigns").filter((o) => o.uid === U.beta);
     expect(bList.length).toBeGreaterThan(0);
@@ -1195,7 +1200,7 @@ describe("Campaigns page — server render (renderToString)", () => {
     expect(host.querySelector("table")).toBeNull();
     expect(within(host).getByRole("list", { name: "Campaigns" })).toBeInTheDocument();
     for (const c of ORG1_CAMPAIGNS) expect(within(host).getByText(c.name as string)).toBeInTheDocument();
-    expect(within(host).getByLabelText("7 campaigns")).toBeInTheDocument();
+    expect(within(host).getByText("7 campaigns")).toBeInTheDocument();
     expect(within(host).getByTestId(`campaign-row-${C.open.id}`)).toHaveTextContent("50 / 100");
     expect(within(host).getByTestId(`campaign-row-${C.otherPersonal.id}`)).toHaveTextContent("20 / 80");
     expect(within(host).queryAllByTestId("metric-loading")).toHaveLength(0);
@@ -1270,5 +1275,94 @@ describe("Campaigns page — server render (renderToString)", () => {
     const details = within(host).getByTestId(`campaign-details-${C.otherPersonal.id}`);
     expect(detail(details, "Converted")).toHaveTextContent("Not available for this campaign");
     expect(detail(details, "Total leads")).toHaveTextContent("80");
+  });
+});
+
+/* ─── Review regressions (independent code review, 2026-10-09) ─── */
+
+describe("Campaigns page — review regressions", () => {
+  function mountWith(client: QueryClient, extra?: React.ReactNode) {
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/campaigns"]}>
+          <TooltipProvider>
+            <PageGuard pageName="Campaigns"><Campaigns /></PageGuard>
+            {extra}
+          </TooltipProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  /** matchMedia whose `change` listeners can be fired, so a live breakpoint crossing can be simulated. */
+  function controllableViewport(initial: boolean) {
+    let matches = initial;
+    const listeners = new Set<() => void>();
+    window.matchMedia = ((query: string) => ({
+      get matches() { return matches; },
+      media: query, onchange: null, dispatchEvent: () => false, addListener: () => {}, removeListener: () => {},
+      addEventListener: (_: string, l: () => void) => listeners.add(l),
+      removeEventListener: (_: string, l: () => void) => listeners.delete(l),
+    })) as unknown as typeof window.matchMedia;
+    return { set: (next: boolean) => act(() => { matches = next; listeners.forEach((l) => l()); }) };
+  }
+
+  it("returning to the page refetches the list: a campaign deleted elsewhere disappears", async () => {
+    const client = makeClient();
+    const first = mountWith(client);
+    await settle();
+    expect(rowIds()).toContain(C.teamOther.id);
+    first.unmount();
+    h.db.campaigns = h.db.campaigns.filter((c) => c.id !== C.teamOther.id); // e.g. deleted on the detail page
+    const readsBefore = opsFor("campaigns").length;
+    mountWith(client);
+    await waitFor(() => expect(rowIds()).not.toContain(C.teamOther.id));
+    expect(opsFor("campaigns").length).toBeGreaterThan(readsBefore);
+  });
+
+  it("a failed Last dialed read shows a Retry notice that recovers", async () => {
+    h.control.lastDialed = "error";
+    renderPage();
+    const notice = await screen.findByText("Last dialed unavailable.");
+    h.control.lastDialed = "ok";
+    fireEvent.click(within(notice.closest("[role=status]") as HTMLElement).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText("Last dialed unavailable.")).toBeNull());
+  });
+
+  it("an unsaved Columns draft is discarded when the viewport drops below desktop", async () => {
+    const viewport = controllableViewport(true);
+    renderPage();
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Show Agents" }));
+    await waitFor(() => expect(screen.queryByRole("columnheader", { name: /Agents/i })).toBeNull()); // live preview
+    viewport.set(false);
+    await waitFor(() => expect(screen.queryByRole("table")).toBeNull());
+    viewport.set(true);
+    expect(await screen.findByRole("columnheader", { name: /Agents/i })).toBeInTheDocument();
+    expect(prefsWrites()).toEqual([]);
+  });
+
+  it("a saved column layout paints on the first committed table of a revisit (no default-columns frame)", async () => {
+    setViewport(true);
+    h.db.prefs[U.admin] = {
+      settings: { campaigns_table: { v: 1, orgs: { [ORG1]: { order: [...DEFAULT_COLUMN_LAYOUT.order], hidden: ["agents", "contacted", "created", "tags", "last_dialed"] } } } },
+      updated_at: "2026-10-09T08:00:00.000001+00:00",
+    };
+    const client = makeClient();
+    const first = mountWith(client);
+    await settle();
+    expect(screen.queryByRole("columnheader", { name: /Agents/i })).toBeNull();
+    first.unmount();
+    const frames: boolean[] = [];
+    const record = () => {
+      if (document.querySelector("table")) frames.push([...document.querySelectorAll("th")].some((th) => /agents/i.test(th.textContent ?? "")));
+    };
+    mountWith(client, <Profiler id="revisit" onRender={record}><span /></Profiler>);
+    render(<Profiler id="probe" onRender={record}><span /></Profiler>);
+    await settle();
+    record();
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain(true); // the hidden Agents column never flashes back in
   });
 });

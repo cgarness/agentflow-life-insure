@@ -19,10 +19,10 @@ export interface ColumnDef {
 
 export const COLUMN_DEFS: Record<ColumnId, ColumnDef> = {
   status: { id: "status", label: "Status", defaultVisible: true, sortKey: "status", align: "left", widthClass: "w-32" },
-  progress: { id: "progress", label: "Lead progress", defaultVisible: true, sortKey: "progress", align: "left", widthClass: "w-52 min-w-[13rem]" },
+  progress: { id: "progress", label: "Lead progress", defaultVisible: true, sortKey: "progress", align: "left", widthClass: "w-48" },
   agents: { id: "agents", label: "Agents", defaultVisible: true, sortKey: null, align: "left", widthClass: "w-36" },
-  converted: { id: "converted", label: "Converted", defaultVisible: true, sortKey: "converted", align: "right", widthClass: "w-28" },
-  contacted: { id: "contacted", label: "Contacted", defaultVisible: false, sortKey: "contacted", align: "right", widthClass: "w-28" },
+  converted: { id: "converted", label: "Converted", defaultVisible: true, sortKey: "converted", align: "right", widthClass: "w-24" },
+  contacted: { id: "contacted", label: "Contacted", defaultVisible: false, sortKey: "contacted", align: "right", widthClass: "w-24" },
   created: { id: "created", label: "Created", defaultVisible: false, sortKey: "created", align: "left", widthClass: "w-32" },
   tags: { id: "tags", label: "Tags", defaultVisible: false, sortKey: null, align: "left", widthClass: "w-44" },
   last_dialed: { id: "last_dialed", label: "Last dialed", defaultVisible: false, sortKey: "last_dialed", align: "left", widthClass: "w-32" },

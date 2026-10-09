@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,6 +10,7 @@ import { useCampaignsTableData } from "@/hooks/useCampaignsTableData";
 import { useCampaignsTablePrefs } from "@/hooks/useCampaignsTablePrefs";
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/PermissionGate";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCampaignModal } from "@/components/campaigns/CreateCampaignModal";
 import { visibleColumns } from "@/lib/campaigns-table/columns";
 import {
@@ -60,6 +61,13 @@ export default function CampaignsPageContent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [duplicateTarget, setDuplicateTarget] = useState<CampaignRow | null>(null);
   const nowMs = data.lastDialedAsOf;
+  const duplicateReturnFocus = useRef<HTMLElement | null>(null);
+
+  // The Columns editor exists only on desktop; an unsaved draft must not outlive it.
+  const { draft: columnsDraft, busy: columnsBusy, cancel: cancelColumns } = prefs;
+  useEffect(() => {
+    if (!desktop && columnsDraft && !columnsBusy) cancelColumns();
+  }, [desktop, columnsDraft, columnsBusy, cancelColumns]);
 
   const rows = data.list.rows;
   const metricsById = useMemo(() => {
@@ -78,12 +86,20 @@ export default function CampaignsPageContent() {
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: defaultDirFor(key) }));
   const resetView = () => { setFilters(DEFAULT_FILTERS); setSort(DEFAULT_SORT); setLimit(RENDER_STEP); };
   const openCreate = () => { if (!data.orgLocked) setCreateOpen(true); };
+  const createButton = (
+    <Button type="button" onClick={openCreate} disabled={data.orgLocked} className="h-9 gap-2 rounded-lg">
+      <Plus className="h-4 w-4" aria-hidden="true" />New Campaign
+    </Button>
+  );
+  // A disabled button receives no pointer events, so the lock reason lives on a wrapper.
   const newCampaignButton = (
     <PermissionGate feature="Create Campaigns">
-      <Button type="button" onClick={openCreate} disabled={data.orgLocked} className="h-9 gap-2 rounded-lg"
-        title={data.orgLocked ? "This agency is suspended/archived. Reactivate to create campaigns." : undefined}>
-        <Plus className="h-4 w-4" aria-hidden="true" />New Campaign
-      </Button>
+      {data.orgLocked ? (
+        <Tooltip>
+          <TooltipTrigger asChild><span tabIndex={0} className="inline-flex rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{createButton}</span></TooltipTrigger>
+          <TooltipContent><p className="text-xs">This agency is suspended/archived. Reactivate to create campaigns.</p></TooltipContent>
+        </Tooltip>
+      ) : createButton}
     </PermissionGate>
   );
 
@@ -91,7 +107,8 @@ export default function CampaignsPageContent() {
     rows: shown, metricsById, expandedId, onToggle: (id: string) => setExpandedId((cur) => (cur === id ? null : id)),
     duplicateFor: (r: CampaignRow) => duplicateEligibility(profile?.role, r, userId),
     orgLocked: data.orgLocked, lastDialed: data.lastDialed, assignees: data.assignees, nowMs, formatDate,
-    onOpen: (id: string) => navigate(`/campaigns/${id}`), onDuplicate: (r: CampaignRow) => setDuplicateTarget(r),
+    onOpen: (id: string) => navigate(`/campaigns/${id}`),
+    onDuplicate: (r: CampaignRow, returnFocusTo: HTMLElement | null) => { duplicateReturnFocus.current = returnFocusTo; setDuplicateTarget(r); },
   };
 
   return (
@@ -100,7 +117,9 @@ export default function CampaignsPageContent() {
         <div className="flex items-baseline gap-2">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Campaigns</h1>
           {data.list.status === "ready" && (
-            <span className="text-sm tabular-nums text-muted-foreground" aria-label={`${rows.length} campaigns`}>{rows.length}</span>
+            <span className="text-sm tabular-nums text-muted-foreground">
+              <span aria-hidden="true">{rows.length}</span><span className="sr-only">{rows.length} campaigns</span>
+            </span>
           )}
         </div>
         {newCampaignButton}
@@ -115,6 +134,7 @@ export default function CampaignsPageContent() {
       {data.list.refreshFailed && <CampaignsNotice onRetry={data.list.retry}>Couldn't refresh campaigns.</CampaignsNotice>}
       {data.stats.status === "error" && <CampaignsNotice onRetry={data.retryStats}>Metrics unavailable.</CampaignsNotice>}
       {data.statsRefreshFailed && <CampaignsNotice onRetry={data.retryStats}>Couldn't refresh metrics.</CampaignsNotice>}
+      {data.lastDialed.status === "error" && <CampaignsNotice onRetry={data.lastDialed.retry}>Last dialed unavailable.</CampaignsNotice>}
 
       {data.list.status === "loading" ? (
         <CampaignsSkeleton />
@@ -141,7 +161,7 @@ export default function CampaignsPageContent() {
 
       <CreateCampaignModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={data.refreshAfterMutation}
         agents={data.createAgents.agents} agentsLoading={data.createAgents.loading} />
-      <DuplicateCampaignDialog campaign={duplicateTarget} orgLocked={data.orgLocked}
+      <DuplicateCampaignDialog campaign={duplicateTarget} orgLocked={data.orgLocked} returnFocusTo={duplicateReturnFocus.current}
         onClose={() => setDuplicateTarget(null)} onDuplicated={data.refreshAfterMutation} />
     </div>
   );
