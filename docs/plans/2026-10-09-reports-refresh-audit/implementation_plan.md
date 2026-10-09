@@ -219,7 +219,7 @@ Every item survived independent two-lens adversarial verification unless marked.
 | **U-9** | low a11y | Focus lost when an item moves to the first or last position | `ReportCustomizer.tsx:35,84-89` | Restore focus to the moved item's enabled button |
 | **U-10** | low a11y | Low-contrast error, amber and small primary text (1.81 / 3.19 / 3.63:1) | `StatCard.tsx:27-28`, `ReportsToolbar.tsx:106-107` | Foreground text + coloured icon |
 | **U-11** | low | Important columns hidden without a cue | `CampaignPerformance.tsx:99`, `AgentPerformanceCards.tsx:61`, `CallingHeatmap.tsx` | **Approved direction:** see §5.7 |
-| **F-1** | test | Browser-gate assertion `verify.mjs:76` can never fail (case-sensitive label regex) | `verify.mjs:76` | Correct the regex and add a positive control |
+| **F-1** | test | Browser-gate assertion `verify.mjs:76` can never fail (case-sensitive label regex). Unit tests still cover the rule, but they are outside the strict CI set. | `verify.mjs:76` | Anchored case-insensitive regex, a positive control ("Show Calls made" = 1), and a label-independent check (`[data-customizer-section="stat_policies_sold"],[…stat_annual_premium]` count 0). Also widen the money-clipping scan to `dd`/`span`/`td`, measured on a block ancestor. |
 | **R-6** | low copy | Data-quality note reads "1 estimates" / "1 conflicts" | `reports-integrity-text.ts` | Singular when 1. Changes that CSV note text only when a count is 1 (optional; **recommended**). |
 
 ### 4.2 Fix in this branch — duplicate-session-seconds rounding (R-3, approved)
@@ -239,7 +239,8 @@ Every item survived independent two-lens adversarial verification unless marked.
      - rollback restores the byte-identical preimage
      - a 4,000-trial randomized oracle shows 0 mismatches
    - A production read-only SELECT of the new expression gives **0** for W1–W5, with session seconds unchanged.
-   - Adding the migration files is covered by plan approval. **Applying them to production needs a separate exact approval**, using the #41 Reports-only disabled window (about 1–2 minutes).
+   - Adding the migration files (as PR-B, §7.3) is covered by plan approval. **Applying them to production needs a separate exact approval**, using the #41 Reports-only disabled window (about 1–2 minutes). PR-B merges in that same window.
+   - A second independent verifier confirmed the correction. It also caught five release-plan gaps, now fixed in §7.3 and §8: the failure path when the final enable step refuses, the full CI gate list, a security-advisor comparison, renaming the rollback file, and reverting the repo side on rollback.
 2. **Frontend guard (recommended, ships with the UI).** `qualityNotes` prints `0` duplicate seconds whenever `overlapping_rows = 0`. The sentence shape is unchanged, so the synthetic golden CSVs (0/0 and 2/1800) stay byte-identical. This is correct by construction, matches the server fix, keeps screen and CSV identical, and fixes the display even before the SQL window. With the server fix applied, it is redundant but harmless.
 
 **CSV effect:** the "Sessions assessed …" note changes "3" → "0" in affected windows. That is the only intended CSV byte change besides R-6.
@@ -553,7 +554,10 @@ See `data-basis-wording.md`. Rule scans pass on all 72 strings:
 
 **Optional:** `CampaignCallsChart.tsx` (~50); `src/lib/reports-page-state.ts` (~30, pure U-6 predicate). Delete `GoalTracking.tsx` and `DraggableSection.tsx` in a separate commit (unreachable). Do not delete `CustomReportBuilder.tsx` or `ScheduledReportsModal.tsx`; they are still referenced.
 
-### 7.3 SQL (R-3 server correction; production apply separately approved)
+### 7.3 SQL (R-3 server correction; its own PR; production apply separately approved)
+
+These files go in a **separate PR (PR-B)**, merged only in the same approved window as the production apply (§8). Reason: `supabase/ops/reports_integrity_enable.sql` is the documented #41 recovery source. If its new pin reached `main` before production had the new body, an emergency re-enable from `main` would refuse and leave Reports disabled. The frontend PR (PR-A) carries the R-3 frontend guard and every other change, including the T-* SQL tests, which don't touch the ops sources.
+
 
 | File | New / modified | Purpose |
 |---|---|---|
@@ -564,7 +568,7 @@ See `data-basis-wording.md`. Rule scans pass on all 72 strings:
 | `supabase/ops/reports_integrity_enable.sql` | modified | line 11 pin only: `d330c5be…` → `c1355d55…` |
 | `scripts/reports_integrity_fixture.py` | modified | historical steps use the applied `20261006044003` enable; finds migrations by suffix; asserts release copies equal the ops sources; adds the release and regression steps |
 
-Final version numbers are assigned at commit. After a production apply, the files are renamed to the recorded versions, per the established practice.
+Final version numbers are assigned at commit. After the production apply, all four files are renamed to the recorded forward versions, **including the rollback file**, per the established practice. The fixture finds migrations by suffix, so the rename needs no other edit. Leave `docs/plans/2026-10-05-reports-integrity/source_manifest.json` unchanged: it is the historical record of the shipped release.
 
 ### 7.4 Tests
 
@@ -630,15 +634,23 @@ This plan and its companions; `verification.md` (new, at implementation); `WORK_
 
 | Step | Action | Expect |
 |---|---|---|
-| 0 | Exact-head CI green (reports-backend native PG 17.6 + browser, reports-frontend, reporting-integrity, sms-consent, dialer-dnc-backend); read-only preflight of 34 functions, pins and grants | — |
+| 0 | Exact-head CI green on PR-B: reports-backend (native PG 17.6 + browser), reports-frontend, reporting-integrity, **dialer-dnc-backend** and **sms-consent** (both triggered by `supabase/**` paths). Read-only preflight of the 34 functions, the 15 pins, effective grants (incl. inheritance) and the replay check. **Security advisor category counts recorded** (as in the Oct 6 release). | all gates pass; preflight shows only the quality pin pending |
 | 1 | Disable | 0 client-executable Reports functions; Reports shows "temporarily unavailable" for about 1–2 minutes |
 | 2 | Correction | new md5, unchanged ACL |
 | 3 | Guarded enable | fifteen pins; grants only on the six v2 functions; anon denied on all 34 |
-| 4 | Read-back | W1–W5 role simulation shows 0 removed seconds and unchanged session seconds |
+| 4 | Read-back; merge PR-B in the same window | W1–W5 role simulation shows 0 removed seconds and unchanged session seconds; advisor counts unchanged; the merged ops enable equals the live pins |
 
 **If a step fails:**
-- If step 2 refuses: re-enable with the `20261006044003` bytes as a new migration.
-- If step 3 refuses: investigate; if the cause is the reader pin, run the rollback while disabled, then the historical enable. Reports stays disabled (fail closed) until resolved.
+- **Step 2 refuses** (nothing changed): re-enable with the exact `20261006044003` bytes as a new migration. Do not merge PR-B.
+- **Step 3 refuses:** Reports stays disabled, which fails closed.
+  - A lock timeout: re-run step 3.
+  - Otherwise, investigate the cause: one of the 14 shared pins or inherited grants. Step 2's postcondition has already proven the corrected body, so **rolling it back is not a remedy for a step-3 refusal**. The historical enable shares those 14 pins and the same grant loop, so it would refuse for the same reasons.
+  - Rollback is only for an owner-decided reversal of the fix.
+- **Reversal (separate exact approval):**
+  1. Disable.
+  2. Apply the rollback (restores preimage `d330c5…` while disabled).
+  3. Re-enable with the `20261006044003` bytes.
+  4. **Revert the repo side in the same change:** the ops pin line 11 and the fixture's corrected-state steps, so `main`'s recovery source again matches production.
 
 **Approvals:** adding the files is covered by plan approval. **Applying them, and any rollback, needs Chris's separate exact approval** (#28/#41). No RLS change, data write or Edge change is involved.
 
@@ -664,9 +676,9 @@ This plan and its companions; `verification.md` (new, at implementation); `WORK_
   8. heatmap
   9. customizer (U-6, U-9)
   10. SQL tests T-1..T-6
-  11. R-3 SQL migration set
-  12. browser gate (`verify.mjs`/`entry.tsx`)
-  13. docs
+  11. browser gate (`verify.mjs`/`entry.tsx`)
+  12. docs
+- **PR-B** (R-3 SQL set, §7.3) is prepared on its own branch. It is merged only in its approved apply window.
 - **Rule:** tests that pass removed props are updated in the same commit; `tsconfig.app.json` type-checks tests.
 
 ### 9.2 Gates before requesting release
@@ -700,7 +712,7 @@ This plan and its companions; `verification.md` (new, at implementation); `WORK_
    - the served entry contains the new strings
 
    Direct HTTPS to the site is blocked here.
-4. The R-3 SQL window (§8) runs only on its own exact approval. The frontend guard keeps the display correct either way.
+4. The R-3 SQL window (§8, PR-B) runs only on its own exact approval, and PR-B merges in that same window. The frontend guard keeps the display correct either way.
 5. **Rollback:** revert the merge. No layout or data migration is involved.
 
 ### 9.4 Hosted checklist for Chris (cannot be run from this environment)
@@ -736,7 +748,7 @@ Until this is done, hosted behaviour is recorded as **Unverified**.
    - R-4, R-5, R-6
    - U-1..U-11, F-1
    - the R-3 frontend guard
-   - the R-3 SQL migration **files**
+   - the R-3 SQL migration **files**, prepared as PR-B; not merged until its apply window
    - T-1..T-4, plus T-5/T-6 if you accept them
 2. Accept or change the defaults in §4.5.
 3. Confirm the separate security tasks S-1 and S-3 stay out of this branch.
