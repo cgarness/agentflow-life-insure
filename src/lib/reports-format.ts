@@ -16,14 +16,15 @@ export interface CalendarRange {
   endDate: string;
 }
 
+/** "Report period" option labels, sentence case, in display order. */
 export const PRESET_LABELS: Record<ReportPreset, string> = {
   today: "Today",
   yesterday: "Yesterday",
-  "7d": "Last 7 Days",
-  "30d": "Last 30 Days",
-  month: "This Month",
-  lastMonth: "Last Month",
-  custom: "Custom",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  month: "This month",
+  lastMonth: "Last month",
+  custom: "Custom range",
 };
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;

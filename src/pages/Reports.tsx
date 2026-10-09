@@ -9,14 +9,15 @@ import {
   type CalendarRange, type Grouping, type ReportPreset,
 } from "@/lib/reports-format";
 import { buildReportCsv, csvFileName, downloadCsv, type ReportExportFn } from "@/lib/reports-export";
-import { DataBasisButton } from "@/components/reports/ReportDataBasis";
 import type { LiveSummary } from "@/components/reports/ReportDataQuality";
 import { integrityExportNotes } from "@/lib/reports-integrity-text";
 import { policyExportNotes } from "@/lib/reports-policy-text";
+import { customizerState } from "@/lib/reports-page-state";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
+import ReportsNotices from "@/components/reports/ReportsNotices";
 import ReportCustomizer from "@/components/reports/ReportCustomizer";
 import SectionRenderer from "@/components/reports/SectionRenderer";
-import { ReportNotice, ReportPanelSkeleton } from "@/components/reports/ReportPanelState";
+import { ReportNotice } from "@/components/reports/ReportPanelState";
 import { buildReportSections } from "@/components/reports/reportSectionMap";
 import ReportsOverview from "@/components/reports/ReportsOverview";
 import ReportsActivityFlow from "@/components/reports/ReportsActivityFlow";
@@ -107,6 +108,7 @@ const Reports: React.FC = () => {
   const summaryPanel = reports.panels.summary;
   const liveSummary: LiveSummary = withheld || summaryPanel.status === "error" ? { status: "unavailable" }
     : summaryPanel.status === "ready" && reports.isCurrent(reports.key, "summary", summaryPanel.data) ? summaryPanel : { status: "loading" };
+  const asOf = liveSummary.status === "ready" ? liveSummary.data.as_of : null; // never cached across filters
   const leadSources = reports.panels.leadSources;
   const convertedReason = !withheld && leadSources.status === "ready" && reports.isCurrent(reports.key, "leadSources", leadSources.data)
     ? leadSources.data.converted_unavailable_reason : null;
@@ -117,45 +119,36 @@ const Reports: React.FC = () => {
         onSelectAgent: onAgent, currentUserId: viewerId,
       })
     : null;
+  // U-6: Customize needs sections to edit; an open edit session survives an incomplete Custom range.
+  const editor = customizerState({
+    scopeReady: !!scopeData, withheld, preset, rangeSet: range !== null, rangeProblem, sectionsReady: sections !== null,
+    editMode: preferences.editMode, layoutReady: preferences.status === "ready", busy: preferences.busy,
+  });
+  const customizer = editor.placement && (
+    <ReportCustomizer editMode={preferences.editMode} sections={preferences.draft.sections} onSectionsChange={preferences.setSections}
+      showTeamSections={scopeData?.scope !== "own"} busy={preferences.busy} error={preferences.error}
+      onSave={preferences.save} onCancel={preferences.cancel} onReset={preferences.reset} />
+  );
+  const defaultScope = () => { setScopeSelection({ key: viewerKey, value: null }); setAgentSel({ key: null, id: null }); };
   return (
-    <div className="max-w-[1600px] min-w-0 mx-auto space-y-8 pb-10" data-reports-workspace>
+    <div className="max-w-[1600px] min-w-0 mx-auto space-y-6 pb-10" data-reports-workspace>
       <ReportsToolbar
-        scope={scopeData} scopeStatusText={scopeStatusText} preset={preset} onPreset={setPreset}
+        scope={scopeData} scopeLoading={scope.state.status === "loading"} scopeStatusText={scopeStatusText} preset={preset} onPreset={setPreset}
         customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
-        range={range} rangeProblem={rangeProblem} agentId={agentId} onAgent={onAgent}
-        onScope={onScope} editMode={preferences.editMode} customizationReady={preferences.status === "ready" && !preferences.busy && !withheld}
+        range={range} rangeProblem={rangeProblem} agentId={agentId} onAgent={onAgent} onScope={onScope} panelRendered={sections !== null}
+        editMode={preferences.editMode} customizationReady={editor.customizationReady}
         onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={scope.reload}
         canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !withheld} onExport={exportSummary}
-        dataBasis={scopeData && <DataBasisButton summary={liveSummary} timeZone={scopeData.time_zone} today={scopeData.today} convertedReason={convertedReason} />}
+        asOf={asOf} dataBasis={scopeData ? { summary: liveSummary, timeZone: scopeData.time_zone, today: scopeData.today, convertedReason } : undefined}
       />
-      {scope.state.status === "loading" && <ReportPanelSkeleton title="Loading your reports" />}
-      {scopeError === "denied" && (
-        <ReportNotice title="Reports" tone="denied" message="You don't have access to Reports."
-          detail="Your role's report permissions don't allow viewing reports. Ask an admin if you need access." />
-      )}
-      {zoneRequired && (
-        <ReportNotice title="Reports" tone="unavailable" message="The agency time zone must be configured before official Reports can be calculated."
-          detail="An admin must choose and save the agency time zone in Settings → Company Branding. Report periods, day and hour buckets, the heatmap and exports are never calculated in a guessed time zone."
-          onRetry={scope.reload} />
-      )}
-      {scopeError !== null && scopeError !== "denied" && scopeError !== "configuration" && (
-        <ReportNotice title="Reports" tone="error" message="Reports are temporarily unavailable."
-          detail="Nothing is shown rather than numbers we can't stand behind." onRetry={scope.reload} />
-      )}
-      {scopeError && requestedScope && <button type="button" className="text-sm text-primary underline underline-offset-4" onClick={() => { setScopeSelection({ key: viewerKey, value: null }); setAgentSel({ key: null, id: null }); }}>Use default report scope</button>}
-      {scopeDrift && !panelZoneMissing && (
-        <ReportNotice title="Reports" tone="unavailable" message="Your report access changed while this page was open."
-          detail="Reload to see reports for your current access." onRetry={scope.reload} />
-      )}
-      {scopeData && !range && preset === "custom" && (
-        <ReportNotice title="Custom range" tone="unavailable" message="Pick a start and end date to run the report." />
-      )}
+      <ReportsNotices scopeLoading={scope.state.status === "loading"} scopeError={scopeError} zoneRequired={zoneRequired} onRetryScope={scope.reload}
+        onDefaultScope={scopeError && requestedScope ? defaultScope : undefined} scopeDrift={scopeDrift && !panelZoneMissing}
+        customRangeIncomplete={!!scopeData && !range && preset === "custom"} />
+      {editor.placement === "standalone" && customizer}
       {sections && (
-        <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData?.requested_scope}`} className="min-w-0 space-y-8">
+        <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData?.requested_scope}`} className="min-w-0 space-y-6">
           {preferences.status === "error" && <ReportNotice title="Your layout" tone="error" message="Your saved layout couldn't be loaded." detail="Reports are using the standard layout. Retry before customizing." onRetry={preferences.reload} />}
-          <ReportCustomizer editMode={preferences.editMode} sections={preferences.draft.sections} onSectionsChange={preferences.setSections}
-            showTeamSections={scopeData?.scope !== "own"} busy={preferences.busy} error={preferences.error}
-            onSave={preferences.save} onCancel={preferences.cancel} onReset={preferences.reset} />
+          {editor.placement === "panel" && customizer}
           <ReportsOverview summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
           <SectionRenderer group="stats" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2" data-report-group="trends">

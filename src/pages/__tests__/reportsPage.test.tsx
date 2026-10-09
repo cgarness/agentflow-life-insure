@@ -29,8 +29,9 @@ vi.mock("@/contexts/AuthContext", () => ({
 }));
 vi.mock("@/hooks/useReportsData", () => ({
   useReportScope: () => ({ key: "u|o", state: h.scopeState, reload: h.retryScope }),
-  useReportPanels: (_scope: string, req: { startDate: string; endDate: string } | null) => ({ key: "u|o|k", panels: Object.fromEntries(Object.entries(h.panels).map(([key, state]) => [key,
-    state.status === "ready" && req && !h.mismatchDate ? { ...state, data: { ...(state.data as object), window: { ...(state.data as { window: object }).window, start_date: req.startDate, end_date: req.endDate } } } : state])), retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
+  // Like the real hook: with nothing to request (an incomplete Custom range) the key is null and every panel loads.
+  useReportPanels: (_scope: string, req: { startDate: string; endDate: string } | null) => ({ key: req ? "u|o|k" : null, panels: Object.fromEntries(Object.entries(h.panels).map(([key, state]) => [key,
+    !req ? { status: "loading" } : state.status === "ready" && !h.mismatchDate ? { ...state, data: { ...(state.data as object), window: { ...(state.data as { window: object }).window, start_date: req.startDate, end_date: req.endDate } } } : state])), retryPanel: h.retryPanel, refresh: h.refresh, isCurrent: () => h.current }),
 }));
 vi.mock("@/lib/report-layout", async () => {
   const { DEFAULT_LAYOUT } = await vi.importActual<typeof import("@/lib/report-layout-constants")>("@/lib/report-layout-constants");
@@ -53,6 +54,9 @@ vi.mock("recharts", async () => {
 
 import Reports from "@/pages/Reports";
 import { ReportsQueryError } from "@/lib/reports-queries";
+import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
+
+installJsdomPolyfills(); // Radix Select (the Report period) probes pointer capture and scrollIntoView on open
 
 const ready = (data: unknown) => ({ status: "ready", data });
 const failed = (kind: "unavailable" | "denied" | "configuration" = "unavailable") => ({ status: "error", error: new ReportsQueryError(kind) });
@@ -67,6 +71,15 @@ const openDataBasis = () => {
   fireEvent.click(screen.getByRole("button", { name: "Data basis" }));
   return screen.getByRole("dialog", { name: "Data basis" });
 };
+const choosePeriod = async (label: string) => {
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Report period" }), { key: "Enter" });
+  fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: label }));
+  await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+};
+const customizeButton = () => screen.getByRole("button", { name: "Customize layout" });
+const editorRegion = () => screen.queryByRole("region", { name: "Customize your report" });
+/** The viewer's saved layout resolves asynchronously; Customize enables once it has and sections exist. */
+const layoutReady = () => waitFor(() => expect(customizeButton()).toBeEnabled());
 
 beforeEach(() => {
   h.scopeState = ready(reportScope());
@@ -79,9 +92,13 @@ beforeEach(() => {
 describe("scope states", () => {
   it("scope loading shows a loading state and no numbers", () => {
     h.scopeState = { status: "loading" };
-    renderPage();
+    const { container } = renderPage();
     expect(screen.getByText("Loading your reports")).toBeInTheDocument();
     expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(container.querySelector("[data-reports-workspace] > header [data-report-scope-skeleton]")).not.toBeNull();
+    expect(screen.getByText("Loading your report scope…")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Report period" })).toBeDisabled();
   });
 
   it("a denied scope shows the permission state and renders no report at all", () => {
@@ -242,10 +259,103 @@ describe("filters follow the server scope", () => {
     expect(screen.queryByText(/default/i)).not.toBeInTheDocument();
   });
 
-  it("presets use the agency today (July 2026 in the fixture)", () => {
+  it("presets use the agency today (July 2026 in the fixture)", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "This Month" }));
+    expect(screen.getByRole("combobox", { name: "Report period" })).toHaveTextContent("Last 30 days");
+    expect(screen.getByTestId("report-period").textContent).toBe("Jun 21, 2026 – Jul 20, 2026");
+    await choosePeriod("This month");
     expect(screen.getByTestId("report-period").textContent).toBe("Jul 1, 2026 – Jul 20, 2026");
+    await choosePeriod("Last month");
+    expect(screen.getByTestId("report-period").textContent).toBe("Jun 1, 2026 – Jun 30, 2026");
+  });
+
+  it("Custom range shows the date pickers and the page notice until both dates are picked", async () => {
+    renderPage();
+    await choosePeriod("Custom range");
+    expect(screen.getByRole("button", { name: "Start Date" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "End Date" })).toBeEnabled();
+    expect(screen.getByText("Pick a start and end date to run the report.")).toBeInTheDocument();
+    expect(screen.queryByText(/Pick both dates/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("report-period")).not.toBeInTheDocument();
+    expect(screen.queryByText("Calls made")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your report access changed while this page was open.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("report-as-of")).not.toBeInTheDocument();
+  });
+});
+
+describe("the layout editor and an incomplete Custom range (U-6, U-8)", () => {
+  it("disables Customize while a Custom range cannot run; the tabs stop pointing at a missing panel", async () => {
+    renderPage();
+    await layoutReady(); // non-vacuous: Customize starts enabled
+    expect(screen.getByRole("tab", { name: "Team" })).toHaveAttribute("aria-controls", "reports-scope-panel");
+    await choosePeriod("Custom range");
+    expect(screen.getByText("Pick a start and end date to run the report.")).toBeInTheDocument();
+    expect(customizeButton()).toBeDisabled();
+    expect(editorRegion()).not.toBeInTheDocument();
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Team" })).not.toHaveAttribute("aria-controls");
+  });
+
+  it("keeps an open edit session visible and usable on an incomplete Custom range; Customize still cancels", async () => {
+    renderPage();
+    await layoutReady();
+    fireEvent.click(customizeButton());
+    expect(within(screen.getByRole("tabpanel")).getByRole("region", { name: "Customize your report" })).toBeInTheDocument();
+    await choosePeriod("Custom range");
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+    expect(editorRegion()).toBeInTheDocument();
+    const calls = screen.getByRole("checkbox", { name: "Show Calls made" });
+    expect(calls).toBeChecked();
+    fireEvent.click(calls);
+    expect(screen.getByRole("checkbox", { name: "Show Calls made" })).not.toBeChecked();
+    expect(customizeButton()).toBeEnabled();
+    expect(customizeButton()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(customizeButton());
+    expect(editorRegion()).not.toBeInTheDocument();
+    expect(customizeButton()).toHaveAttribute("aria-pressed", "false");
+    expect(customizeButton()).toBeDisabled(); // nothing to edit until the range can run
+  }, 20_000); // two full report renders plus a Radix Select round trip
+
+  it("hides the editor and disables Customize when the report is withheld mid-edit", async () => {
+    const { rerender } = renderPage();
+    await layoutReady();
+    fireEvent.click(customizeButton());
+    expect(editorRegion()).toBeInTheDocument();
+    h.mismatchDate = true;
+    rerender(<MemoryRouter><Reports /></MemoryRouter>);
+    expect(screen.getByText("Your report access changed while this page was open.")).toBeInTheDocument();
+    expect(editorRegion()).not.toBeInTheDocument();
+    expect(customizeButton()).toBeDisabled();
+  });
+});
+
+describe("Summary as of in the context line", () => {
+  it("shows the current summary's time in the agency zone, inside the header", () => {
+    const { container } = renderPage();
+    const header = container.querySelector("[data-reports-workspace] > header") as HTMLElement;
+    const asOf = within(header).getByTestId("report-as-of");
+    expect(asOf).toHaveTextContent("Summary as of 11:00 AM PDT");
+    expect(asOf.querySelector("time")).toHaveAttribute("datetime", "2026-07-20T18:00:00Z");
+  });
+
+  it.each([
+    ["a loading summary", () => { h.panels = { ...allReady(), summary: { status: "loading" } }; }],
+    ["a failed summary", () => { h.panels = { ...allReady(), summary: failed() }; }],
+    ["a summary that is no longer current", () => { h.current = false; }],
+    ["a withheld report (scope drift)", () => { h.mismatchDate = true; }],
+  ])("is absent for %s, never a cached time", (_label, arrange) => {
+    arrange();
+    renderPage();
+    expect(screen.queryByTestId("report-as-of")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Summary as of/)).not.toBeInTheDocument();
+  });
+
+  it("disappears as soon as the summary reloads", () => {
+    const { rerender } = renderPage();
+    expect(screen.getByTestId("report-as-of")).toBeInTheDocument();
+    h.panels = { ...allReady(), summary: { status: "loading" } };
+    rerender(<MemoryRouter><Reports /></MemoryRouter>);
+    expect(screen.queryByTestId("report-as-of")).not.toBeInTheDocument();
   });
 });
 
