@@ -15,7 +15,7 @@ import {
 } from "@/lib/reports-policy-text";
 import { PREMIUM_BASIS, integrityExportNotes, premiumNote, qualityNotes } from "@/lib/reports-integrity-text";
 import * as basis from "@/lib/reports-basis-text";
-import { emptySummary, policyQuality, quality, reportCampaigns, reportDispositions, reportLeadSources, reportSummary, reportVolume } from "./reportsFixtures";
+import { emptySummary, policyQuality, premium, quality, reportCampaigns, reportDispositions, reportLeadSources, reportSummary, reportVolume } from "./reportsFixtures";
 
 const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
@@ -166,5 +166,38 @@ describe("live data quality = the summary CSV's own sentences", () => {
 
   it("has no policy line when there is nothing to report", () => {
     expect(basis.liveQualityNotes(reportSummary())).toEqual([...QUALITY, SUMMARY_PREMIUM, COHORT]);
+  });
+});
+
+describe("production band and Period totals captions (C2, C3, C6, C7, C10, C29)", () => {
+  it("are the approved wording", () => {
+    expect(basis.PRODUCTION_BASIS_BAR).toBe("Current book · stored policies by sale date · monthly premium ×12 · client's current agent");
+    expect(basis.PRODUCTION_BASIS_BAR_SHORT).toBe("Current book · sale date · monthly ×12 · current agent");
+    expect(basis.PERIOD_TOTALS_LINE).toBe("Independent period totals, not one cohort.");
+    expect(basis.PERIOD_TOTALS_NOTE.startsWith("These are independent period totals, not one cohort")).toBe(true);
+  });
+
+  it.each([
+    [premium(4, 4, 10), "4 of 4 premiums known", false],
+    [premium(8, 3, 10), "3 of 8 premiums known · 5 unknown excluded", true],
+    [premium(5, 0), "0 of 5 premiums known · 5 unknown excluded", false],
+    [premium(1, 1, 0), "1 of 1 premium known", false],
+    [premium(1, 0), "0 of 1 premium known · 1 unknown excluded", false],
+    [premium(1200, 1199, 10), "1,199 of 1,200 premiums known · 1 unknown excluded", true],
+  ])("coverage %#: %s", (p, text, partial) => {
+    expect(basis.premiumCoverageText(p)).toBe(text);
+    expect(basis.premiumCoverageText(p)).not.toMatch(/%/);
+    expect(basis.isPartialPremium(p)).toBe(partial);
+  });
+
+  it("names the policy leader by current assignment, or the tie, or nobody", () => {
+    const row = reportSummary().by_agent[0];
+    const rows = (...counts: [string, number][]) => counts.map(([name, policies_sold]) => ({ ...row, name, policies_sold }));
+    expect(basis.policyLeaderText(reportSummary().by_agent)).toBe("Bob Agent · 2 policies");
+    expect(basis.policyLeaderText(rows(["Zed", 1], ["Amy", 0]))).toBe("Zed · 1 policy");
+    expect(basis.policyLeaderText(rows(["Zed", 3], ["Amy", 3], ["Bo", 1]))).toBe("2 agents tied · 3 policies each");
+    expect(basis.policyLeaderText(rows(["Zed", 1], ["Amy", 1], ["Bo", 1]))).toBe("3 agents tied · 1 policy each");
+    expect(basis.policyLeaderText(rows(["Zed", 0], ["Amy", 0]))).toBeNull();
+    expect(basis.policyLeaderText([])).toBeNull();
   });
 });

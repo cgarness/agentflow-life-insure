@@ -17,7 +17,7 @@
  * organization with no agent filter (period activity ÷ dated stored policies) — never as an agent or
  * team efficiency figure.
  */
-import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
+import type { ReportQuality, ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import type { LoadState } from "@/hooks/useReportsData";
 import { addDays, formatCount, formatElapsed, formatRate, formatPremium, ratio } from "@/lib/reports-format";
 
@@ -51,6 +51,8 @@ export interface StatResult {
   subtitle?: string;
   /** When true, render the value smaller (used for agent names). */
   smallValue?: boolean;
+  /** "caution": the subtitle is a data-quality note about this value (rendered with a caution dot). */
+  noteTone?: "caution";
 }
 
 const NO_DEFINITION = "No approved definition yet";
@@ -71,7 +73,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_new_leads_dialed", label: "New leads dialed", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_followup_calls", label: "Follow-up calls", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_voicemails_left", label: "Voicemails left", category: "activity", unavailable: NOT_TRACKED },
-  { id: "stat_total_contacted", label: "Contacted", category: "activity" },
+  { id: "stat_total_contacted", label: "Contacted calls", category: "activity" },
   { id: "stat_contact_rate", label: "Call contact rate", category: "activity" },
   { id: "stat_first_dial_contact", label: "First dial contact rate", category: "activity", unavailable: NOT_TRACKED },
   { id: "stat_followup_contact_rate", label: "Follow-up contact rate", category: "activity", unavailable: NOT_TRACKED },
@@ -164,7 +166,24 @@ export interface StatInputs {
   agencyToday: string;
 }
 
-type Computed = { value: string; subtitle?: string; smallValue?: boolean } | { unknown: string };
+type Computed = { value: string; subtitle?: string; smallValue?: boolean; noteTone?: "caution" } | { unknown: string };
+type Caution = Pick<StatResult, "subtitle" | "noteTone">;
+
+/** Only the non-zero parts, so a caution never lists a zero; nothing at all when every part is zero. */
+function caution(parts: [number, string][], prefix = ""): Caution {
+  const shown = parts.filter(([n]) => n > 0).map(([n, text]) => `${formatCount(n)} ${text}`);
+  return shown.length ? { subtitle: `${prefix}${shown.join(" · ")}`, noteTone: "caution" } : {};
+}
+
+/** Duration provenance of the calls behind talk time (data-basis C14); never on session-matched talk. */
+const durationCaution = (d: ReportQuality["duration"]) => caution([
+  [d.estimated_calls, "estimated"], [d.unknown_calls, "unknown source or amount"], [d.conflicting_calls, "conflicting"],
+], "Durations: ");
+
+/** Session evidence behind dialer session time (data-basis C15). */
+const sessionCaution = (q: ReportQuality["sessions"]) => caution([
+  [q.stale_capped, "stale, capped at last heartbeat"], [q.missing_evidence, "missing/invalid end evidence"],
+]);
 
 function leader<T>(rows: T[], score: (r: T) => number | null, name: (r: T) => string): { name: string; score: number } | null {
   let best: { name: string; score: number } | null = null;
@@ -186,27 +205,27 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
   switch (id) {
     case "stat_total_dials":
     case "stat_outbound":
-      return { value: formatCount(t.calls_made), subtitle: "outbound" };
+      return { value: formatCount(t.calls_made) };
     case "stat_inbound":
       return { value: formatCount(t.inbound_calls) };
     case "stat_calls_per_day":
       return { value: num(ratio(t.calls_made, inputs.dayCount)), subtitle: `over ${inputs.dayCount} day${inputs.dayCount === 1 ? "" : "s"}` };
     case "stat_calls_per_hour":
-      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "calls inside same-agent/campaign sessions" };
+      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "session-matched calls ÷ all session hours" };
     case "stat_session_time":
-      return { value: formatElapsed(t.session_seconds), subtitle: "server-timestamped sessions" };
+      return { value: formatElapsed(t.session_seconds), ...sessionCaution(s.quality.sessions) };
     case "stat_total_contacted":
       return { value: formatCount(t.contacted) };
     case "stat_contact_rate":
-      return { value: formatRate(t.contact_rate_pct), subtitle: "contacted calls ÷ calls made" };
+      return { value: formatRate(t.contact_rate_pct) };
     case "stat_total_talk_time":
-      return { value: formatElapsed(t.talk_time_seconds), subtitle: "outbound, stored canonical duration" };
+      return { value: formatElapsed(t.talk_time_seconds), ...durationCaution(s.quality.duration) };
     case "stat_avg_duration_all":
       // The server already rounds this average to 0.1 s; show it as sent, never rounded again.
-      return { value: formatElapsed(t.avg_talk_per_dial_seconds, 1), subtitle: "talk time ÷ calls made" };
+      return { value: formatElapsed(t.avg_talk_per_dial_seconds, 1), ...durationCaution(s.quality.duration) };
     case "stat_talk_time_ratio": {
       const r = ratio(sessionPop.talk, sessionPop.secs);
-      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "matched-call talk ÷ non-overlapping session time" };
+      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "session-matched talk ÷ all session time" };
     }
     case "stat_dnc_count":
       return { value: formatCount(t.dnc_calls) };
@@ -226,7 +245,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_appointments_set":
       return { value: formatCount(t.appointments_set) };
     case "stat_leads_converted":
-      return { value: formatCount(t.converted), subtitle: "unique contacts" };
+      return { value: formatCount(t.converted), subtitle: "distinct people" };
     case "stat_callback_rate":
       return { value: formatCount(t.callback_calls), subtitle: "callback dispositions" };
     case "stat_top_performer": {
@@ -249,7 +268,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_agents_active":
       return { value: formatCount(dialers.length), subtitle: "with at least one call" };
     case "stat_dials_per_contact":
-      return { value: num(ratio(t.calls_made, t.contacted)), subtitle: "calls made ÷ contacted calls" };
+      return { value: num(ratio(t.calls_made, t.contacted)) };
     case "stat_dials_per_appt":
       // Calls made ÷ Bookings created (all types): every booking kind, not appointments only.
       return { value: num(ratio(t.calls_made, t.appointments_set)), subtitle: "all booking types" };

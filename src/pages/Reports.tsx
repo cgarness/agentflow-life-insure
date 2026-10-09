@@ -112,6 +112,7 @@ const Reports: React.FC = () => {
   const leadSources = reports.panels.leadSources;
   const convertedReason = !withheld && leadSources.status === "ready" && reports.isCurrent(reports.key, "leadSources", leadSources.data)
     ? leadSources.data.converted_unavailable_reason : null;
+  const dataBasis = scopeData ? { summary: liveSummary, timeZone: scopeData.time_zone, today: scopeData.today, convertedReason } : undefined;
   const sections = scopeData && range && !rangeProblem && !withheld
     ? buildReportSections({
         panels: reports.panels, retry: reports.retryPanel, exportFor, grouping, onGroupingChange: setGroupingSel,
@@ -131,7 +132,7 @@ const Reports: React.FC = () => {
   );
   const defaultScope = () => { setScopeSelection({ key: viewerKey, value: null }); setAgentSel({ key: null, id: null }); };
   return (
-    <div className="max-w-[1600px] min-w-0 mx-auto space-y-6 pb-10" data-reports-workspace>
+    <div className="max-w-[1600px] min-w-0 mx-auto space-y-4 pb-10 md:space-y-6" data-reports-workspace>
       <ReportsToolbar
         scope={scopeData} scopeLoading={scope.state.status === "loading"} scopeStatusText={scopeStatusText} preset={preset} onPreset={setPreset}
         customStart={customStart} customEnd={customEnd} onCustomStart={setCustomStart} onCustomEnd={setCustomEnd}
@@ -139,17 +140,17 @@ const Reports: React.FC = () => {
         editMode={preferences.editMode} customizationReady={editor.customizationReady}
         onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={scope.reload}
         canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !withheld} onExport={exportSummary}
-        asOf={asOf} dataBasis={scopeData ? { summary: liveSummary, timeZone: scopeData.time_zone, today: scopeData.today, convertedReason } : undefined}
+        asOf={asOf} dataBasis={dataBasis}
       />
       <ReportsNotices scopeLoading={scope.state.status === "loading"} scopeError={scopeError} zoneRequired={zoneRequired} onRetryScope={scope.reload}
         onDefaultScope={scopeError && requestedScope ? defaultScope : undefined} scopeDrift={scopeDrift && !panelZoneMissing}
         customRangeIncomplete={!!scopeData && !range && preset === "custom"} />
       {editor.placement === "standalone" && customizer}
       {sections && (
-        <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData?.requested_scope}`} className="min-w-0 space-y-6">
+        <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData?.requested_scope}`} className="min-w-0 space-y-4 md:space-y-6">
           {preferences.status === "error" && <ReportNotice title="Your layout" tone="error" message="Your saved layout couldn't be loaded." detail="Reports are using the standard layout. Retry before customizing." onRetry={preferences.reload} />}
           {editor.placement === "panel" && customizer}
-          <ReportsOverview summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
+          <ReportsOverview summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} dataBasis={dataBasis} />
           <SectionRenderer group="stats" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2" data-report-group="trends">
             <div className="min-w-0" data-report-section="policies_sold">{sections.policies_sold}</div>

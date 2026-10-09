@@ -4,7 +4,8 @@
  * and the CSV notes can never describe different rules. policyExportNotes and integrityExportNotes never
  * read anything defined here, so the CSV Note rows are unchanged.
  */
-import type { ReportSummary } from "@/lib/reports-schemas";
+import type { ReportPremium, ReportSummary } from "@/lib/reports-schemas";
+import { formatCount } from "@/lib/reports-format";
 import { PREMIUM_BASIS, integrityExportNotes } from "@/lib/reports-integrity-text";
 import {
   CAMPAIGN_ATTRIBUTION_NOTE, CURRENT_ASSIGNMENT_NOTE, LEADERBOARD_CREDIT_NOTE, POLICY_ISSUE_DATE_NOTE,
@@ -32,6 +33,38 @@ export const DIALS_PER_BOOKING_NOTE = "Dials per booking = calls made ÷ booking
 
 export const CONVERTED_NOTE = "Converted leads/clients counts distinct people given an outbound call with a converting disposition (one whose pipeline stage converts the lead to a client).";
 export const NOT_A_POLICY_COUNT_NOTE = "It is not a policy count, and Reports has no conversion rate.";
+
+/** The production band's basis bar (data-basis C2; C3 is the phone form). The full rules are in the sheet. */
+export const PRODUCTION_BASIS_BAR = "Current book · stored policies by sale date · monthly premium ×12 · client's current agent";
+export const PRODUCTION_BASIS_BAR_SHORT = "Current book · sale date · monthly ×12 · current agent";
+
+/** Some, but not all, premiums are known: the amount is real but covers only part of the cohort (C7 "Partial"). */
+export const isPartialPremium = (p: ReportPremium) => p.known_count > 0 && p.known_count < p.policy_count;
+
+/** "3 of 8 premiums known · 5 unknown excluded" (C6): coverage in words, never a percentage. */
+export function premiumCoverageText(p: ReportPremium): string {
+  const known = `${formatCount(p.known_count)} of ${formatCount(p.policy_count)} ${p.policy_count === 1 ? "premium" : "premiums"} known`;
+  return p.unknown_count > 0 ? `${known} · ${formatCount(p.unknown_count)} unknown excluded` : known;
+}
+
+const policyCount = (n: number) => `${formatCount(n)} ${n === 1 ? "policy" : "policies"}`;
+
+/**
+ * The "Most policies — current assignments" value (C10) from the summary's own agent rows, ranked by policies
+ * then name (current assignment, never seller credit). A shared top count names no one (D-5):
+ * "2 agents tied · 3 policies each". Null when no agent has a policy.
+ */
+export function policyLeaderText(byAgent: ReportSummary["by_agent"]): string | null {
+  const ranked = byAgent.filter((a) => a.policies_sold > 0)
+    .sort((a, b) => b.policies_sold - a.policies_sold || a.name.localeCompare(b.name));
+  const top = ranked[0];
+  if (!top) return null;
+  const tied = ranked.filter((a) => a.policies_sold === top.policies_sold).length;
+  return tied > 1 ? `${formatCount(tied)} agents tied · ${policyCount(top.policies_sold)} each` : `${top.name} · ${policyCount(top.policies_sold)}`;
+}
+
+/** The one line Period totals keeps on screen (data-basis C29: the first sentence of PERIOD_TOTALS_NOTE). */
+export const PERIOD_TOTALS_LINE = "Independent period totals, not one cohort.";
 
 /** Moved verbatim from the Period totals (formerly "Activity and production") card. */
 export const PERIOD_TOTALS_NOTE = "These are independent period totals, not one cohort moving through a funnel. Calls and conversions use call creation dates; bookings use booking creation dates; policies use their sale dates. Conversions count distinct identities on converting outbound calls, with campaign-lead or call identity used when a contact identity is missing. No stage-to-stage conversion rate is implied.";

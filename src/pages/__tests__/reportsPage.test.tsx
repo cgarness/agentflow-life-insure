@@ -67,9 +67,17 @@ const allReady = () => ({
 const allLoading = () => Object.fromEntries(["summary", "volume", "dispositions", "campaigns", "leadSources"].map((k) => [k, { status: "loading" }]));
 
 const renderPage = () => render(<MemoryRouter><Reports /></MemoryRouter>);
+/** The context-line trigger; the production band has its own (each owns its Sheet). */
 const openDataBasis = () => {
-  fireEvent.click(screen.getByRole("button", { name: "Data basis" }));
+  fireEvent.click(within(document.querySelector("[data-reports-workspace] > header") as HTMLElement).getByRole("button", { name: "Data basis" }));
   return screen.getByRole("dialog", { name: "Data basis" });
+};
+const band = () => screen.getByRole("region", { name: "Production overview" });
+const leaderRow = () => within(band()).getByText("Most policies — current assignments").parentElement!;
+/** Every panel answered for the viewer's own (Personal) scope, so nothing is withheld as scope drift. */
+const personal = () => {
+  h.scopeState = ready(reportScope({ scope: "own", requested_scope: "personal", available_scopes: ["personal"], agents: [{ id: "11000000-0000-0000-0000-0000000000c1", name: "Alice Agent", status: "Active" }] }));
+  h.panels = Object.fromEntries(Object.entries(allReady()).map(([key, state]) => [key, ready({ ...(state.data as object), scope: "own", requested_scope: "personal" })]));
 };
 const choosePeriod = async (label: string) => {
   fireEvent.keyDown(screen.getByRole("combobox", { name: "Report period" }), { key: "Enter" });
@@ -403,11 +411,13 @@ describe("exports", () => {
 });
 
 describe("Policies Sold: stored policies, current assignment, lineage-only campaigns (plan §20)", () => {
-  it("the chart counts stored policies and ranks by CURRENT assignment, never as seller credit", () => {
+  it("the band ranks by CURRENT assignment from the summary itself, never as seller credit", () => {
     renderPage();
-    expect(screen.getAllByText("Most policies — current assignments").length).toBe(1); // chart support metric; the default six-metric strip omits this ranking
+    expect(within(band()).getAllByText("Most policies — current assignments")).toHaveLength(1);
+    expect(leaderRow()).toHaveTextContent("Bob Agent · 2 policies");
+    // The default six-metric strip omits the ranking tile.
+    expect(within(screen.getByRole("group", { name: "Key metrics" })).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
     expect(screen.queryByText("Top performer")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/2 policies currently assigned/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/counted from wins/)).not.toBeInTheDocument();
     const sheet = openDataBasis();
     expect(within(sheet).getByText("Policies are stored client policies (primary and additional), counted on each policy's sale date.")).toBeInTheDocument();
@@ -415,13 +425,40 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(within(sheet).queryByText(/counted from wins/)).not.toBeInTheDocument();
   });
 
-  it("shows the scope-wide, all-dates data-quality note only when there is something to report", () => {
-    const { unmount } = renderPage();
-    expect(screen.queryByText(/Data quality across this scope/)).not.toBeInTheDocument();
-    unmount();
-    h.panels = { ...allReady(), volume: ready({ ...reportVolume(), policy_quality: policyQuality(2, 1) }) };
+  it("names a tie on the top count instead of picking one agent, from the same summary", () => {
+    const rows = reportSummary().by_agent.map((a) => ({ ...a, policies_sold: 2 }));
+    h.panels = { ...allReady(), summary: ready(reportSummary({}, rows)) };
     renderPage();
-    expect(screen.getByText(/Data quality across this scope, all dates \(not only this period\): 2 policies have no usable sale date/)).toBeInTheDocument();
+    expect(leaderRow()).toHaveTextContent("2 agents tied · 2 policies each");
+    expect(within(band()).queryByText(/Alice Agent|Bob Agent/)).not.toBeInTheDocument();
+  });
+
+  it("has no leader row in Personal scope, or when no agent has a policy", () => {
+    personal();
+    const { unmount } = renderPage();
+    expect(screen.queryByText("Your report access changed while this page was open.")).not.toBeInTheDocument(); // non-vacuous: the band rendered
+    expect(within(band()).getByText("Known annual premium")).toBeInTheDocument();
+    expect(within(band()).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    unmount();
+    h.scopeState = ready(reportScope());
+    h.panels = { ...allReady(), summary: ready(reportSummary({}, reportSummary().by_agent.map((a) => ({ ...a, policies_sold: 0 })))) };
+    renderPage();
+    expect(within(band()).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+  });
+
+  it("shows the scope-wide, all-dates data-quality note in the band only when there is something to report", () => {
+    const { unmount } = renderPage();
+    expect(within(band()).queryByText(/Data quality across this scope/)).not.toBeInTheDocument();
+    unmount();
+    h.panels = { ...allReady(), summary: ready({ ...reportSummary(), policy_quality: policyQuality(2, 1) }) };
+    renderPage();
+    expect(within(band()).getByText(/^Data quality across this scope, all dates \(not only this period\): 2 policies have no usable sale date/)).toBeInTheDocument();
+  });
+
+  it("the band has its own Data basis trigger", () => {
+    renderPage();
+    fireEvent.click(within(band()).getByRole("button", { name: "Data basis" }));
+    expect(within(screen.getByRole("dialog", { name: "Data basis" })).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
   });
 
   it("Campaign Performance shows campaign-attributed policies and the policies with no provable campaign", () => {
