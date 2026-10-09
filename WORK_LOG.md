@@ -1,3 +1,36 @@
+## 2026-10-09 — Campaigns branch synchronized with main `be2690d` (draft PR #433, not merged)
+
+**Status:** Chris approved merging the latest `origin/main` into `feature/campaigns-table-phase1-20261009`, resolving the WORK_LOG conflict with both branches' entries kept, narrow plan/log updates, local verification, pushing the branch and updating draft PR #433. Merging PR #433 into `main`, promotion and production changes stay separately gated.
+
+**Merge.**
+- **Commits:** plan §15 is `d76b6ed`. The merge commit is `7fae879`, a normal merge with parents `d76b6ed` and `be2690d` (PR #432, Google OAuth privacy and terms pages). No rebase or force-push.
+- **Conflict:** only this file.
+  - All five 2026-10-09 entries are kept, newest first by commit time: Google publication approved (20:00 UTC), Google preview checks (19:56), Campaigns PR #433 publication (19:53), Google preparation (19:44), Campaigns local build (16:15). No entry text changed.
+  - Check: removing the Campaigns entries reproduces `main`'s file exactly, and removing the Google entries reproduces the branch's.
+- **Other files:** `implementation_plan.md` merged automatically. All 12 Google OAuth files are identical to `main`. The branch's diff against `be2690d` is unchanged: the same 39 files and patches.
+
+**Verification on `7fae879`**, against a `be2690d` worktree with the same dependencies, environment and timezone:
+- **Reports frontend CI comparison** (local, no env): passed. Base 4,321 vs branch 4,805 tests passing. Failing tests and files are identical by identity, and there are 0 unhandled errors.
+- **App tsc:** 85 diagnostics, an identical multiset on both sides. Root tsc compiles no files, so it is not counted.
+- **Full suite, placeholder env:**
+  - UTC: base 4,404 passed / 1 failed / 34 skipped vs branch 4,888 / 1 / 34.
+  - America/Los_Angeles: base 4,434 / 1 / 4 vs branch 4,918 / 1 / 4.
+  - The only failure, on both sides, is the pre-existing `recordingRetentionVoicemail` v29 test.
+  - The ten Campaigns suites: 484 passed, 0 failed, 0 skipped, in both timezones.
+- **Other checks:** ESLint `--max-warnings 0` (33 files), build and `git diff --check` are clean. The Campaigns visual verifier passed 27/27. Converted was measured beside the pinned Actions column at 1280px with the sidebar expanded and collapsed, in dark and light: fully visible, no scroll.
+
+**Preview safety.** The only Supabase project is production `jncvvsvckxhqgqvkppmj`, and no Supabase branch exists for this PR, so the preview is treated as production-connected. A read-only code audit found that a signed-in session is not read-only even without clicking anything:
+- Twilio device registration plus a presence heartbeat every 45 s, so real inbound calls can ring in the tab.
+- On mount, the newest ringing or connected outbound call of the signed-in agent may be marked ended.
+- A first welcome email is sent if one was never sent.
+- Runtime errors are logged, and sign-in updates `last_login_at`.
+
+The Campaigns page itself only reads. No authenticated preview check was run.
+
+**Separate security finding.** The repository is public, and two historical docs contain a plain-text `WORKFLOW_INTERNAL_SECRET` value. The value was not reproduced. Read-only triage and a rotation plan were prepared for Chris's separate approval; nothing was rotated, changed or probed.
+
+**Migrations/deploys:** none. CI and preview evidence for the published head is recorded on PR #433.
+
 ## 2026-10-09 — Google verification website publication approved
 
 Chris approved the exact reviewed Privacy Policy/Terms and publication on fflagent.com at 12:58 PDT. Finalize PR #432 by setting the publication flag and October 9, 2026 effective date; approved policy paragraphs are unchanged. Fresh main and Vercel production remain `8d53531d`. The scoped website release and live readback are in progress. This approval does not certify Google compliance or authorize the separate backend, assessment-purchase or Google-submission actions.

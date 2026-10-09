@@ -563,6 +563,11 @@ The diff against updated `main` must still contain only the approved Campaigns r
 
 **Separate.** The `WORKFLOW_INTERNAL_SECRET` exposure in `WORK_LOG.md` history gets read-only triage and its own remediation plan for separate approval. It is not part of this branch.
 
+**Result (2026-10-09).** Merge commit `7fae879` (parents `d76b6ed`, `be2690d`).
+- **Conflict:** only `WORK_LOG.md` conflicted, and it was resolved exactly as described above. Removing the Campaigns entries reproduces `main`'s file byte for byte; removing the Google entries reproduces the branch's file.
+- **Google OAuth files:** all 12 are identical to `main`. The branch's diff against `be2690d` is the same 39 files and patches as before.
+- **Verification on `7fae879`:** every check above passed against a `be2690d` worktree. The 85 app diagnostics and the single failing test (`recordingRetentionVoicemail` v29) are identical by identity on both sides. Details are in the newest WORK_LOG entry; CI and preview evidence for the published head is on PR #433.
+
 ---
 
 ## 2026-10-08 UTC — SHIPPED: Super Admin live master Twilio balance
