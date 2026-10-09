@@ -18,7 +18,36 @@ PLAYWRIGHT_MODULE=/absolute/path/to/node_modules/playwright node scripts/tests/r
 
 The workflow pins Playwright 1.56.1 and agent-browser 0.38.2. Optional `CHROMIUM_PATH` selects an installed Chromium. `REPORTS_VISUAL_OUTPUT` selects the evidence directory. The verifier blocks external HTTP data requests and records screenshots, actual CSV downloads and RPC request arguments. The preference stub accepts only the synthetic owner, stores a personal v4 layout in this isolated origin's local storage, and can explicitly fail a save. It does not replace the real layout hook or UI.
 
-Checks cover desktop (1440px), mobile (390px), page overflow, fixed executive hierarchy, premium coverage and unknown values, exact seconds, labels and data-quality disclosure, unavailable campaign/source attribution, interval-matched efficiency, summary/agent/campaign CSV downloads, formula protection using a separate explicitly synthetic export example, one-panel failure/retry, and stale-window export withholding. Phase 2 adds mobile and keyboard visibility/reordering, save/remount persistence, cancel, reset and failed-save recovery; genuine Personal / Team / Agency transitions, agent-filter clearing, and an intentionally held request that proves stale exports remain withheld. The real calendar is navigated to October 2026; browser time and SQL payload metadata remain untouched.
+The entry renders the page inside geometry-only stand-ins for the app chrome: a fixed 64px top bar, a 240px sidebar from `md` up, and the layout's `p-4 lg:p-6` padding. They carry no text and no heading, and they ignore the pointer. First-screen budgets and table widths are therefore measured in the production frame.
+
+Checks cover:
+
+- **Viewports.** 1440×900, 1024×768, 768×1024, 390×844 and 390×664: no page overflow (light and dark), settled nonblank charts (two single-axis panels per trend card, a positive bar in each), the ranked disposition share list, and the executive order: production overview, metric strip, Trends, Period totals, performance, diagnostics.
+- **First-screen budgets.** At 390×844, measured below the 64px top bar after subtracting the fixture's Custom date row (one row, at most 56px):
+  - the filter block is at most 216px, on the default preset as well;
+  - both `data-report-value="hero"` values end by y380;
+  - the six strip tiles end within 844px;
+  - header targets are at least 40px (tabs: 32px triggers in a 40px list).
+
+  At 390×664 both production values stay on the first screen. At 1440×900 the header is at most 150px, and the strip and the Trends heading are on the first screen. Hero values never wrap.
+- **Money.** Every leaf money node is measured on its nearest block-level box for clipped cents, with a minimum number of checked nodes.
+- **Tables.** Every overflowing table is a named, focusable (`tabIndex` 0) region with the table as its direct child and an opaque sticky first column, plus a right-edge fade below 640px. From 1024px, "Policies (current assignment)", "Policies (campaign-attributed)" and "Known annual premium" are fully visible without scrolling. Below that, arrow keys scroll the focused table and each of those columns can be brought into view beside the pinned label.
+- **Report content.** Exact values, wording and data-quality disclosure:
+  - production band: exact cents, "3 of 8 premiums known · 5 unknown excluded", a Partial chip only when the premium is partly known, no percentage, and the "Most policies — current assignments" row per scope (none in Personal);
+  - strip tiles, with one exact duration format and their cautions in place;
+  - Period totals `dt`/`dd`;
+  - campaign and lead-source `tfoot` disclosures, including unlinked calls when there are no sources;
+  - unknown premiums never shown as $0.00;
+  - interval-matched efficiency.
+- **Data basis.** It opens from the context line (Enter) and the band (Space). Focus moves in, and the sheet is a bottom sheet of at most 85% height below 768px and a right sheet of at most 28rem from 768px. Escape or Close returns focus to the trigger that opened it. The sheet shows the summary CSV's own Note sentences and the current summary's as-of. After a failed summary it says so in words, with no stale digits and no as-of.
+- **Period select.** One "Report period" select with the options, in order: Today, Yesterday, Last 7 days, Last 30 days, This month, Last month, Custom range. The default is Last 30 days. Custom range reveals the date pickers. Keyboard selection (Enter, Home, ArrowDown) works, focus returns to the select, and the date pickers leave.
+- **CSV.** All 13 exports are downloaded with at least 400 ms between clicks, because back-to-back downloads stall in Chromium. Filenames are pinned, and `csv/manifest.json` records each file's sha256 with the client-clock "Generated" row removed. Export buttons use sentence-case names ("Export Campaign performance CSV"). The summary, agent and campaign rows and the formula protection (a separate, explicitly synthetic export example) are checked exactly.
+- **Customizer.** Production anchors cannot be hidden: an anchored, case-insensitive name check, a label-independent `data-customizer-section` check, and a "Show Calls made" positive control. "Show Dials per booking" is present and "Dials per appointment" is absent. Customize is disabled while a Custom range is incomplete (U-6). Scope tabs carry `aria-controls` only once the panel exists (U-8). Focus stays on a moved item at the group edge (U-9). Move targets are at least 40px and the mobile Save bar stays reachable. Save/remount persistence, cancel, reset and failed-save recovery are also covered.
+- **Scopes and freshness.** Genuine Personal / Team / Agency transitions, agent-filter clearing, and an intentionally held request that proves stale exports and the as-of stamp are withheld.
+- **Refresh (R-4).** A MutationObserver with the summary held proves Refresh never re-paints the previous summary.
+- **Failures.** One-panel failure ("This is not a zero") and retry, and stale-window export withholding on an unsupported window.
+
+The real calendar is navigated to October 2026; browser time and SQL payload metadata remain untouched.
 
 For a local environment without native PostgreSQL, `scripts/tests/reports-integrity-embedded.mjs` can export the same SQL fixture format through `REPORTS_SQL_PAYLOADS`. Evidence from that path must be labeled **embedded SQL + real browser**, not native PostgreSQL. CI continues to generate these bundles with the disposable native PostgreSQL runner.
 

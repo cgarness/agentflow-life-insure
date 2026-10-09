@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useLayoutEffect } from "react";
+import { flushSync } from "react-dom";
 import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { reportCampaigns, reportDispositions, reportLeadSources, reportScope, reportSummary, reportVolume } from "@/lib/__tests__/reportsFixtures";
 
@@ -263,6 +264,32 @@ describe("useReportPanels", () => {
     await act(async () => fresh.resolve(reportSummary({ calls_made: 902 })));
     expect(frames[frames.length - 1]).toBe(902);
     expect(frames).not.toContain(901);
+  });
+
+  it("a key that returns in a discrete render before deferred work runs still never re-commits the previous payload", async () => {
+    // The browser order behind Refresh: a click commits the null key, and the scope answer arrives with
+    // discrete priority, so its render can run before work scheduled at default priority.
+    const K = "u1|o1|team|America/Los_Angeles|2026-07-20";
+    const frames: Array<number | string> = [];
+    let setKey: (key: string | null) => void = () => {};
+    const Probe: React.FC = () => {
+      const [scopeKey, set] = React.useState<string | null>(K);
+      setKey = set;
+      const { panels } = useReportPanels(scopeKey, scopeKey ? REQ_JULY : null);
+      const s = panels.summary;
+      useLayoutEffect(() => { frames.push(s.status === "ready" ? s.data.totals.calls_made : s.status); });
+      return null;
+    };
+    render(<Probe />);
+    await act(async () => settle("summary", 0, "ok", reportSummary({ calls_made: 903 })));
+    expect(frames[frames.length - 1]).toBe(903);
+    frames.length = 0;
+    act(() => {
+      flushSync(() => setKey(null));
+      flushSync(() => setKey(K));
+    });
+    expect(frames).not.toContain(903);
+    expect(frames.every((f) => f === "loading")).toBe(true);
   });
 
   it("refresh re-runs every panel for the same key; nothing runs on its own afterwards (no polling)", async () => {
