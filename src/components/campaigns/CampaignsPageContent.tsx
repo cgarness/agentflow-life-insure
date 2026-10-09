@@ -119,7 +119,7 @@ export default function CampaignsPageContent() {
       {data.list.status === "loading" ? (
         <CampaignsSkeleton />
       ) : data.list.status === "error" ? (
-        <CampaignsLoadError tooLarge={data.list.tooLarge} onRetry={data.list.retry} />
+        <CampaignsLoadError tooLarge={data.list.tooLarge} retryable={data.list.retryable} onRetry={data.list.retry} />
       ) : rows.length === 0 ? (
         <CampaignsEmpty action={newCampaignButton} />
       ) : sorted.length === 0 ? (

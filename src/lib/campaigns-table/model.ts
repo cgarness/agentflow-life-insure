@@ -165,7 +165,7 @@ export function defaultDirFor(key: SortKey): SortDir {
 }
 
 const STATUS_RANK: Record<string, number> = { Active: 0, Paused: 1, Draft: 2, Completed: 3, Archived: 4 };
-const TYPE_LABEL: Record<CampaignTypeKey, string> = { open: "Open Pool", personal: "Personal", team: "Team", other: "~" };
+const TYPE_LABEL: Record<CampaignTypeKey, string | null> = { open: "Open Pool", personal: "Personal", team: "Team", other: null };
 
 function timeOf(iso: string | null | undefined): number | null {
   if (!iso) return null;
@@ -183,7 +183,7 @@ function sortValue(row: CampaignRow, key: SortKey, ctx: SortContext): number | s
   switch (key) {
     case "created": return timeOf(row.created_at);
     case "name": return (row.name ?? "").toLowerCase();
-    case "status": return STATUS_RANK[row.status] ?? 99;
+    case "status": return STATUS_RANK[row.status] ?? null;
     case "type": return TYPE_LABEL[campaignTypeKey(row.type)];
     case "progress": return m ? progressPercent(m) : null;
     case "total": return m ? metricNumber(m.total) : null;

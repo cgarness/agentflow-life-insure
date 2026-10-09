@@ -43,7 +43,10 @@ export function useCampaignsTableData({ orgId, userId, ready, management, leader
   const listQ = useQuery({
     queryKey: [CAMPAIGNS_TABLE_QUERY_ROOT, "list", orgId, userId],
     enabled,
-    queryFn: ({ signal }) => fetchCampaignRows(orgId!, signal),
+    queryFn: ({ signal }) => {
+      if (!orgId) throw new CampaignsQueryError("failed");
+      return fetchCampaignRows(orgId, signal);
+    },
     ...CAMPAIGNS_TABLE_QUERY_OPTIONS,
   });
 
@@ -131,7 +134,9 @@ export function useCampaignsTableData({ orgId, userId, ready, management, leader
       rows: visibleRows,
       tooLarge: listTooLarge,
       refreshFailed: listQ.isRefetchError,
-      retry: () => void listQ.refetch(),
+      /** False when the identity has no organization: nothing to retry. */
+      retryable: enabled,
+      retry: () => { if (enabled) void listQ.refetch(); },
     },
     stats,
     statsRefreshFailed: statsQ.isRefetchError,

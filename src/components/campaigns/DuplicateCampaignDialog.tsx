@@ -25,7 +25,10 @@ export default function DuplicateCampaignDialog({ campaign, orgLocked, onClose, 
   const { organizationId } = useOrganization();
   const [saving, setSaving] = useState(false);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => { if (campaign) setSaving(false); }, [campaign]);
 
   const handleDuplicate = async () => {

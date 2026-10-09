@@ -24,14 +24,14 @@ export function CampaignsSkeleton({ rows = 6 }: { rows?: number }) {
   );
 }
 
-export function CampaignsLoadError({ tooLarge, onRetry }: { tooLarge: boolean; onRetry: () => void }) {
+export function CampaignsLoadError({ tooLarge, retryable = true, onRetry }: { tooLarge: boolean; retryable?: boolean; onRetry: () => void }) {
   return (
     <div role="alert" className="flex flex-col items-center justify-center rounded-xl border border-border/60 bg-card px-6 py-16 text-center">
       <AlertCircle className="mb-3 h-8 w-8 text-destructive" aria-hidden="true" />
       <p className="text-sm font-medium text-foreground">
         {tooLarge ? "There are too many campaigns to display." : "Couldn't load campaigns."}
       </p>
-      {!tooLarge && (
+      {!tooLarge && retryable && (
         <Button type="button" variant="outline" size="sm" onClick={onRetry} className="mt-4 h-9 gap-2 rounded-lg">
           <RotateCcw className="h-4 w-4" aria-hidden="true" />Retry
         </Button>

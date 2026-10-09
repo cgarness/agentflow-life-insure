@@ -20,11 +20,11 @@ interface SortHeadProps {
 }
 
 function SortHead({ label, sortKey, sort, onSort, align = "left", className }: SortHeadProps) {
-  if (!sortKey) return <TableHead className={cn(HEAD_CLASS, align === "right" && "text-right", className)}>{label}</TableHead>;
+  if (!sortKey) return <TableHead scope="col" className={cn(HEAD_CLASS, align === "right" && "text-right", className)}>{label}</TableHead>;
   const active = sort.key === sortKey;
   const Icon = !active ? ArrowUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <TableHead aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    <TableHead scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
       className={cn(HEAD_CLASS, align === "right" && "text-right", className)}>
       <button type="button" onClick={() => onSort(sortKey)}
         className={cn("group/sort inline-flex items-center gap-1 rounded uppercase tracking-wider transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -53,13 +53,13 @@ export default function CampaignsTable({ rows, metricsById, duplicateFor, sort, 
       <Table className="min-w-max border-separate border-spacing-0" aria-label="Campaigns">
         <TableHeader className="[&_tr]:border-0">
           <TableRow className="border-0 hover:bg-transparent">
-            <TableHead className={cn(HEAD_CLASS, "w-10 pl-3 pr-0")}><span className="sr-only">Details</span></TableHead>
+            <TableHead scope="col" className={cn(HEAD_CLASS, "w-10 pl-3 pr-0")}><span className="sr-only">Details</span></TableHead>
             <SortHead label="Campaign" sortKey="name" sort={sort} onSort={onSort} className="min-w-[16rem]" />
             {columns.map((id: ColumnId) => {
               const def = COLUMN_DEFS[id];
               return <SortHead key={id} label={def.label} sortKey={def.sortKey} sort={sort} onSort={onSort} align={def.align} className={def.widthClass} />;
             })}
-            <TableHead className={cn(HEAD_CLASS, "sticky right-0 z-20 w-36 text-right shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
+            <TableHead scope="col" className={cn(HEAD_CLASS, "sticky right-0 z-20 w-36 text-right shadow-[-1px_0_0_hsl(var(--border)_/_0.6)]")}>
               <span className="sr-only">Actions</span>
             </TableHead>
           </TableRow>

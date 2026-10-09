@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Columns3, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,7 +32,16 @@ function Locked({ label }: { label: string }) {
 /** Show/hide and reorder the middle columns. Writes only on Save/Reset; previews live. */
 export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs }) {
   const [open, setOpen] = useState(false);
+  const retryPending = useRef(false);
   const draft = prefs.draft;
+  // After a Retry from the error view, start editing as soon as the reload succeeds.
+  const { canEdit, beginEdit } = prefs;
+  useEffect(() => {
+    if (open && retryPending.current && canEdit && !draft) {
+      retryPending.current = false;
+      beginEdit();
+    }
+  }, [open, canEdit, draft, beginEdit]);
   const hidden = new Set(draft?.hidden ?? []);
 
   const onOpenChange = (next: boolean) => {
@@ -42,6 +51,7 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
       return;
     }
     if (prefs.busy) return;
+    retryPending.current = false;
     prefs.cancel();
     setOpen(false);
   };
@@ -79,7 +89,7 @@ export default function CampaignColumnsMenu({ prefs }: { prefs: ColumnsMenuPrefs
         {prefs.status === "error" && !draft ? (
           <div className="space-y-3 px-4 py-4">
             <p role="alert" className="text-sm text-muted-foreground">{prefs.error ?? "Couldn't load saved columns."}</p>
-            <Button type="button" variant="outline" size="sm" className="h-8 gap-2" onClick={prefs.reload}>
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-2" onClick={() => { retryPending.current = true; prefs.reload(); }}>
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Retry
             </Button>
           </div>

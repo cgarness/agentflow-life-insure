@@ -52,7 +52,7 @@ function Dash({ label }: { label: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span tabIndex={0} className="cursor-default text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="cursor-default text-muted-foreground">
           <span aria-hidden="true">—</span>
           <span className="sr-only">{label}</span>
         </span>
@@ -90,7 +90,7 @@ export function LeadProgress({ metrics, compact = false }: { metrics: CampaignMe
       <Tooltip>
         <TooltipTrigger asChild>
           <div>
-            <Progress value={pct ?? 0} aria-label="Leads called at least once"
+            <Progress value={pct ?? 0} aria-hidden="true"
               className={cn("h-1 bg-muted", pct === null && "opacity-40")} />
           </div>
         </TooltipTrigger>
@@ -111,8 +111,7 @@ function AgentAvatars({ list, max = 4 }: { list: AssigneeProfile[]; max?: number
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span tabIndex={0} data-testid="agents-stack"
-          className="inline-flex items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span data-testid="agents-stack" className="inline-flex items-center rounded-full">
           <span className="flex -space-x-1.5" aria-hidden="true">
             {shown.map((p) => (
               <Avatar key={p.id} className="h-7 w-7 ring-2 ring-card">
@@ -168,7 +167,7 @@ export function LastDialedValue({ id, lastDialed, nowMs }: { id: string; lastDia
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span tabIndex={0} className="cursor-default whitespace-nowrap text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="cursor-default whitespace-nowrap text-sm text-foreground">
           {formatLastDialedRelative(iso, nowMs)}
           <span className="sr-only"> ({exact})</span>
         </span>
