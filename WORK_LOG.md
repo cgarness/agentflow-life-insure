@@ -1,3 +1,36 @@
+## 2026-10-09 — Campaigns branch synchronized with main `be2690d` (draft PR #433, not merged)
+
+**Status:** Chris approved merging the latest `origin/main` into `feature/campaigns-table-phase1-20261009`, resolving the WORK_LOG conflict with both branches' entries kept, narrow plan/log updates, local verification, pushing the branch and updating draft PR #433. Merging PR #433 into `main`, promotion and production changes stay separately gated.
+
+**Merge.**
+- **Commits:** plan §15 is `d76b6ed`. The merge commit is `7fae879`, a normal merge with parents `d76b6ed` and `be2690d` (PR #432, Google OAuth privacy and terms pages). No rebase or force-push.
+- **Conflict:** only this file.
+  - All five 2026-10-09 entries are kept, newest first by commit time: Google publication approved (20:00 UTC), Google preview checks (19:56), Campaigns PR #433 publication (19:53), Google preparation (19:44), Campaigns local build (16:15). No entry text changed.
+  - Check: removing the Campaigns entries reproduces `main`'s file exactly, and removing the Google entries reproduces the branch's.
+- **Other files:** `implementation_plan.md` merged automatically. All 12 Google OAuth files are identical to `main`. The branch's diff against `be2690d` is unchanged: the same 39 files and patches.
+
+**Verification on `7fae879`**, against a `be2690d` worktree with the same dependencies, environment and timezone:
+- **Reports frontend CI comparison** (local, no env): passed. Base 4,321 vs branch 4,805 tests passing. Failing tests and files are identical by identity, and there are 0 unhandled errors.
+- **App tsc:** 85 diagnostics, an identical multiset on both sides. Root tsc compiles no files, so it is not counted.
+- **Full suite, placeholder env:**
+  - UTC: base 4,404 passed / 1 failed / 34 skipped vs branch 4,888 / 1 / 34.
+  - America/Los_Angeles: base 4,434 / 1 / 4 vs branch 4,918 / 1 / 4.
+  - The only failure, on both sides, is the pre-existing `recordingRetentionVoicemail` v29 test.
+  - The ten Campaigns suites: 484 passed, 0 failed, 0 skipped, in both timezones.
+- **Other checks:** ESLint `--max-warnings 0` (33 files), build and `git diff --check` are clean. The Campaigns visual verifier passed 27/27. Converted was measured beside the pinned Actions column at 1280px with the sidebar expanded and collapsed, in dark and light: fully visible, no scroll.
+
+**Preview safety.** The only Supabase project is production `jncvvsvckxhqgqvkppmj`, and no Supabase branch exists for this PR, so the preview is treated as production-connected. A read-only code audit found that a signed-in session is not read-only even without clicking anything:
+- Twilio device registration plus a presence heartbeat every 45 s, so real inbound calls can ring in the tab.
+- On mount, the newest ringing or connected outbound call of the signed-in agent may be marked ended.
+- A first welcome email is sent if one was never sent.
+- Runtime errors are logged, and sign-in updates `last_login_at`.
+
+The Campaigns page itself only reads. No authenticated preview check was run.
+
+**Separate security finding.** The repository is public, and two historical docs contain a plain-text `WORKFLOW_INTERNAL_SECRET` value. The value was not reproduced. Read-only triage and a rotation plan were prepared for Chris's separate approval; nothing was rotated, changed or probed.
+
+**Migrations/deploys:** none. CI and preview evidence for the published head is recorded on PR #433.
+
 ## 2026-10-09 — Google verification website publication approved
 
 Chris approved the exact reviewed Privacy Policy/Terms and publication on fflagent.com at 12:58 PDT. Finalize PR #432 by setting the publication flag and October 9, 2026 effective date; approved policy paragraphs are unchanged. Fresh main and Vercel production remain `8d53531d`. The scoped website release and live readback are in progress. This approval does not certify Google compliance or authorize the separate backend, assessment-purchase or Google-submission actions.
@@ -5,6 +38,32 @@ Chris approved the exact reviewed Privacy Policy/Terms and publication on fflage
 ## 2026-10-09 — Google verification preview checks completed
 
 Chris explicitly approved temporary Vercel preview access at 12:52 PDT. Created a link for the PR #432 preview only (expires October 10 at 18:52:27 UTC; token not committed). Preview `dpl_EgTvCN81nLUPmg8fhzstudUaUc7p`, source `4688d399d560d56ea82e8ec28ffc2a0aacdee521`, is READY. Browser checks passed for direct Privacy/Terms access without AgentFlow sign-in, legal navigation, both homepage footer links, and the new Google disclosure/Privacy link. Inspected desktop rendering and saved a review screenshot; no application fixes were needed. Local build/lint and unchanged app-typecheck baseline remain applicable. Exact policy/publication approval is still required. Production, Google configuration and backend are unchanged; this does not resolve the submission packet's domain, scope, security/assessment and real-demo gates.
+
+## 2026-10-09 — Campaigns table Phase 1 published as draft PR #433 (not merged, not deployed)
+
+**Status:** Chris approved pushing the feature branch and opening a PR to `main`. He did not approve a merge, a production deploy or any database change. The branch `feature/campaigns-table-phase1-20261009` was pushed at `0210a3c`, the reviewed local head, and opened as draft PR #433: https://github.com/cgarness/agentflow-life-insure/pull/433. This docs-only commit follows the push, per the work-log-after-push rule. The entry below this one still reads "(not pushed)"; that was its status when written.
+
+**Pre-publish checks**, run fresh at `0210a3c`:
+- **Campaigns suites:** 484/484.
+- **Full suite:** TZ=America/Los_Angeles 4,918 passed / 1 failed / 4 skipped. The failure is the pre-existing `recordingRetentionVoicemail` v29 test.
+- **Reports frontend CI comparison** (run locally against a base worktree): no new test, type or runtime failures; base 4,321 vs branch 4,805 tests passing.
+- **App tsc:** 85 diagnostics, the same multiset as base. Root tsc compiles no files, so it is not counted.
+- **ESLint, build, `git diff --check`:** clean.
+
+A complete read of AGENT_RULES, VISION and WORK_LOG, a scope audit and an open-PR overlap check found no blockers. No open PR touches Campaigns code. Docs prepends overlap with drafts #432, #429, #425, #398 and #378.
+
+**Docs corrected in this commit:**
+- The Campaigns table invariant now says the RPC can omit both another user's Personal campaign (shown only to Admin/Super Admin) and an unassigned Team campaign seen through configurable View All.
+- The unknown-version rule now applies to a `v` that is present and not 1.
+- The plan's status line now records the PR.
+
+No code changed.
+
+**Screenshots:** published as a private page for Chris, https://claude.ai/artifact/65iXqXc2fPGuMJReZNMTYX. These are synthetic harness renders, and no images were committed. CI and Vercel preview results are recorded on PR #433.
+
+**Migrations/deploys:** none. Nothing was merged or promoted, and no production data was written.
+
+**Not verified:** any authenticated walkthrough, on the preview or in production. Preview isolation from production Supabase has never been established, so on the preview, Columns Save/Reset, Duplicate and New Campaign would write to production.
 
 ## 2026-10-09 — Google OAuth verification website and submission preparation
 
@@ -15,6 +74,54 @@ Prepared exact branding fields, current live scope inventory, Gmail justificatio
 Root TypeScript, scoped lint, diff checks and production build pass. Meaningful application comparison has 85 baseline/85 candidate diagnostics with byte-identical output and zero new errors. Hosted checks are recorded in the task verification record as they complete. No backend, schema, dependency, production configuration, user data, message, appointment or OAuth client changed. No Google submission, assessment purchase or production release occurred. See `docs/plans/2026-10-09-google-verification/{implementation_plan,submission-packet,verification}.md`.
 
 Published draft PR #432 with source `67d69c557bd3c00fdafc57744158e0fda77c16da`; its Vercel preview is READY. Browser review reaches Vercel login. Automatic approval rejected a temporary share link as an access expansion without explicit permission; no link was created, no protection setting changed, and rendered checks remain unverified. Added `policy-review.md`, generated from the exact app text, for direct owner review. Final legal approval/publication, scope/security evidence and Google submission remain outstanding.
+
+## 2026-10-09 — Campaigns table Phase 1 built and verified locally (not pushed)
+
+**Status:** Chris approved the rev 2 plan with D1-B and D2–D9 at their recommendations. Phase 1 is built on `feature/campaigns-table-phase1-20261009`, base `main` `8d53531`. It is committed locally only: no push, PR, merge or deploy. Push and release each need Chris's separate approval.
+
+**What changed.** The card grid at `/campaigns` is replaced by a dark, full-width management table.
+- **Rows:** compact, with a lead progress bar (called / total), type and status pills, and agent avatars for leadership; other roles see counts. Open Pool rows read "Open to agency".
+- **Expandable details:** stored totals, trusted metrics, Last dialed, dialer settings, assignees, description and tags.
+- **Toolbar:** search, type, status, sort with direction, and Reset.
+- **Columns menu:** show/hide and up/down reorder, saved only on Save.
+- **Layout:** a sticky Actions column (Open, plus Duplicate in the overflow menu). Exactly one layout is mounted: the table at 1280px and wider, stacked rows below.
+- **States:** loading, error, empty and filtered-empty are separate. Missing metrics show "—" with a reason, never 0.
+- **Preserved:** permissions, Create (`PermissionGate`, Create Campaign modal unchanged), the agency lock (now also on Duplicate and the empty-state button) and the Duplicate payload.
+- **Not touched:** queue behavior, telemetry and telephony.
+
+**Data.**
+- Campaigns are read by `organization_id` under RLS in pages of 500, with a visible error above 10,000 rows. Management scope is applied at render.
+- `get_campaign_card_stats` is read in chunks of 200 ids and fails as a whole. Rows it omits use stored `total_leads`/`leads_called` (D1-B).
+- `get_campaign_last_dialed` drives an optional column.
+- Column layout lives in `user_preferences.settings.campaigns_table`, namespaced by org, with compare-and-set writes. Loading never writes.
+- Query keys are scoped to org and user. Placeholder data is same-owner only, and requests are cancelled on identity change.
+
+**Files.**
+- Modified: `src/pages/Campaigns.tsx` (now a 17-line identity shell), `src/lib/campaign-card-stats.ts`, `implementation_plan.md` (§14 as built), `AGENT_RULES.md` (#17 amendment pointer plus the "Campaigns table invariant — October 9, 2026" section).
+- New components in `src/components/campaigns/`: `CampaignsPageContent`, `CampaignsToolbar`, `CampaignsTable`, `CampaignTableRow`, `CampaignStackedList`, `CampaignRowDetails`, `CampaignCells`, `CampaignRowActions`, `CampaignColumnsMenu`, `CampaignsListStates`, `DuplicateCampaignDialog`.
+- New logic: `src/lib/campaigns-table/{model,columns,prefs,queries}.ts`; `src/hooks/useCampaignsTableData.ts`, `useCampaignsTablePrefs.ts`, `useMinWidth.ts`.
+- New tests: 4 in `src/lib/__tests__/`, 4 in `src/components/campaigns/__tests__/`, `src/hooks/__tests__/useCampaignsTablePrefs.test.tsx` and `src/pages/__tests__/campaignsPage.test.tsx`.
+- Harness: `scripts/tests/campaigns-visual/` (synthetic data, isolated Vite entry, never in the production build).
+
+**Verification (local).**
+- **New suites:** 10 files, 484 tests, all passing.
+- **Full suite** (dummy env, TZ=UTC): 4,888 pass / 1 fail / 34 skipped, against the base's 4,404 / 1 / 34. The one failure is the same pre-existing `recordingRetentionVoicemail` byte-identity test (its git object `0707038` is missing in this clone). That is +484 tests and 0 regressions.
+- **Type check:** `tsc -p tsconfig.app.json` reports 85 diagnostics, equal to the base, none in touched files. Root `tsc --noEmit` exits 0.
+- **Lint and build:** ESLint `--max-warnings 0` is clean on every touched TS/TSX file. `npm run build` passes (its chunk-size warning is pre-existing). `git diff --check` is clean.
+- **Browser** (Chromium, real components over the synthetic transport): 27/27 checks pass.
+  - Layout at 1440/1280/1024/768/390/360/320, with expanded and collapsed sidebars, in dark and light: no page overflow, default columns fit at 1280, no stacked overlap.
+  - Expanded row, Columns editor, overflow menu.
+  - Preferences persist across reload, with only a read on load.
+  - Agent persona; empty, error, stats-error and loading states; agency lock.
+  - No external requests.
+- **Scope audit:** no change to Dialer, telephony, queue, SQL, Edge, `App.tsx`, `CampaignDetail` or `CreateCampaignModal`. Stored `leads_contacted`/`leads_converted` are never read.
+
+**Migrations/deploys:** none. Production was only read for the approved preflight (function bodies, the `user_preferences` trigger, `safeupdate`, `max_rows`).
+
+**Blockers and limits.**
+- The previously approved dark table mockup was not found in the repo, docs or artifacts. The build follows the dark Dialer campaign table; Chris should compare it with his mockup.
+- No authenticated production or preview walkthrough was possible. Screenshots come from the isolated harness with synthetic data.
+- The pre-existing findings in plan §13 remain out of scope.
 
 ## 2026-10-08 — Incoming forwarding fix deployed as inbound v48
 
