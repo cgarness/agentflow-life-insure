@@ -206,6 +206,46 @@ export function formatHours(seconds: number | null | undefined): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${s % 60}s`;
 }
 
+/**
+ * Exact elapsed time: "28h 4m 3s", "3m 21s", "45s" (the Leaderboard's format). `fractionDigits` 1
+ * keeps a payload's 0.1 s instead of rounding it a second time: "2m 32.5s", "40.2s". "—" when unknown.
+ */
+export function formatElapsed(seconds: number | null | undefined, fractionDigits: 0 | 1 = 0): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const scale = fractionDigits === 1 ? 10 : 1;
+  // Whole seconds (schema counts are integers) or tenths (the payload is already 0.1 s precise):
+  // this only removes float noise (152.3 × 10 = 1523.0000000000002), it never re-rounds a value.
+  const units = Math.round(seconds * scale);
+  const whole = Math.floor(units / scale);
+  const h = Math.floor(whole / 3600);
+  const m = Math.floor((whole % 3600) / 60);
+  const s = whole % 60;
+  const sec = fractionDigits === 1 ? `${s}.${units % 10}s` : `${s}s`;
+  return h > 0 ? `${h}h ${m}m ${sec}` : m > 0 ? `${m}m ${sec}` : sec;
+}
+
+/**
+ * A server instant (for example the summary's `as_of`) as agency wall-clock time: "8:44 PM PDT", or
+ * "Oct 8, 8:44 PM PDT" when its agency calendar date is not the agency `today`. It only formats the
+ * instant; there is no window arithmetic. "—" when the instant or the zone cannot be read.
+ */
+export function formatAsOf(iso: string, timeZone: string, today: string): string {
+  const instant = new Date(iso);
+  if (!Number.isFinite(instant.getTime())) return "—";
+  try {
+    const time = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" })
+      .format(instant)
+      .replace(/[\u00a0\u202f]/g, " ");
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(instant);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+    const month = Number(part("month"));
+    const agencyDate = `${part("year")}-${part("month")}-${part("day")}`;
+    return agencyDate === today ? time : `${MONTHS[month - 1]} ${Number(part("day"))}, ${time}`;
+  } catch {
+    return "—";
+  }
+}
+
 /** A server rate (null when its denominator is zero) → "57.9%" or "—". Never a fabricated "0%". */
 export function formatRate(rate: number | null | undefined): string {
   if (rate === null || rate === undefined || !Number.isFinite(rate)) return "—";

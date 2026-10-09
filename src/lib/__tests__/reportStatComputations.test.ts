@@ -27,7 +27,7 @@ describe("canonical stat values", () => {
     expect(v("stat_total_dials").value).toBe("19");
     expect(v("stat_total_contacted").value).toBe("11");
     expect(v("stat_contact_rate").value).toBe("57.9%");
-    expect(v("stat_total_talk_time").value).toBe("12:20");
+    expect(v("stat_total_talk_time").value).toBe("12m 20s"); // elapsed format, never the m:ss clock form
     expect(v("stat_policies_sold").value).toBe("5");
     expect(v("stat_leads_converted").value).toBe("2");
     expect(v("stat_appointments_set").value).toBe("4");
@@ -40,6 +40,23 @@ describe("canonical stat values", () => {
     expect(v("stat_best_contact_agent").subtitle).toBe("100.0% call contact rate");
     expect(v("stat_dials_per_contact").label).toBe("Dials per contacted call");
     expect(v("stat_dials_per_contact").subtitle).toBe("calls made ÷ contacted calls");
+  });
+
+  it("Dials per booking divides calls made by every booking type (R-1); the id and value are unchanged", () => {
+    expect(v("stat_dials_per_appt").label).toBe("Dials per booking");
+    expect(v("stat_dials_per_appt").subtitle).toBe("all booking types");
+    expect(v("stat_dials_per_appt").value).toBe("4.8"); // 19 calls ÷ 4 bookings created (all types)
+    expect(STAT_DEFINITIONS.some((d) => d.label === "Dials per appointment")).toBe(false);
+  });
+
+  it("durations use the elapsed format; the 0.1 s per-dial average is shown as sent (R-5)", () => {
+    expect(v("stat_avg_duration_all").value).toBe("38.9s"); // payload 38.9, not "39s"
+    expect(v("stat_session_time").value).toBe("2h 40m 0s");
+    const fractional = computeAllStats(inputs({ summary: ready(reportSummary({ avg_talk_per_dial_seconds: 81.4, talk_time_seconds: 45 })) }));
+    expect(fractional.get("stat_avg_duration_all")!.value).toBe("1m 21.4s");
+    expect(fractional.get("stat_total_talk_time")!.value).toBe("45s");
+    const unknown = computeAllStats(inputs({ summary: ready(reportSummary({ avg_talk_per_dial_seconds: null })) }));
+    expect(unknown.get("stat_avg_duration_all")!.value).toBe("—");
   });
 
   it("session-based ratios use the server interval-matched cohort", () => {

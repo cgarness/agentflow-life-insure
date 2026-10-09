@@ -19,7 +19,7 @@
  */
 import type { ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import type { LoadState } from "@/hooks/useReportsData";
-import { addDays, formatCount, formatRate, formatHours, formatPremium, ratio } from "@/lib/reports-format";
+import { addDays, formatCount, formatElapsed, formatRate, formatPremium, ratio } from "@/lib/reports-format";
 
 export type StatCategory = "activity" | "results" | "pipeline" | "team";
 
@@ -124,7 +124,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_avg_sales_agent", label: "Avg sales/agent", category: "team", unavailable: NO_DEFINITION },
   { id: "stat_agents_active", label: "Agents dialing", category: "team" },
   { id: "stat_dials_per_contact", label: "Dials per contacted call", category: "team", invertTrend: true },
-  { id: "stat_dials_per_appt", label: "Dials per appointment", category: "team", invertTrend: true },
+  { id: "stat_dials_per_appt", label: "Dials per booking", category: "team", invertTrend: true },
   { id: "stat_talk_mins_per_sale", label: "Talk minutes per policy sold", category: "team", invertTrend: true },
   { id: "stat_sessions_per_sale", label: "Sessions per sale", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
   { id: "stat_cost_per_lead", label: "Cost per lead", category: "team", unavailable: NOT_TRACKED, invertTrend: true },
@@ -142,15 +142,6 @@ export function isStatAvailable(id: string): boolean {
 // ─── Formatting ──────────────────────────────────────────────────────────────────────────────────
 
 const DASH = "—";
-const dur = (seconds: number | null): string => {
-  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return DASH;
-  const s = Math.round(seconds);
-  if (s < 60) return `${s}s`;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (h >= 1) return formatHours(s);
-  return `${m}:${String(s % 60).padStart(2, "0")}`;
-};
 const num = (n: number | null, digits = 1): string => (n === null || !Number.isFinite(n) ? DASH : n.toFixed(digits));
 
 /** Why the per-policy ratios are withheld outside an unfiltered organization view. */
@@ -203,15 +194,16 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_calls_per_hour":
       return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "calls inside same-agent/campaign sessions" };
     case "stat_session_time":
-      return { value: dur(t.session_seconds), subtitle: "server-timestamped sessions" };
+      return { value: formatElapsed(t.session_seconds), subtitle: "server-timestamped sessions" };
     case "stat_total_contacted":
       return { value: formatCount(t.contacted) };
     case "stat_contact_rate":
       return { value: formatRate(t.contact_rate_pct), subtitle: "contacted calls ÷ calls made" };
     case "stat_total_talk_time":
-      return { value: dur(t.talk_time_seconds), subtitle: "outbound, stored canonical duration" };
+      return { value: formatElapsed(t.talk_time_seconds), subtitle: "outbound, stored canonical duration" };
     case "stat_avg_duration_all":
-      return { value: dur(t.avg_talk_per_dial_seconds), subtitle: "talk time ÷ calls made" };
+      // The server already rounds this average to 0.1 s; show it as sent, never rounded again.
+      return { value: formatElapsed(t.avg_talk_per_dial_seconds, 1), subtitle: "talk time ÷ calls made" };
     case "stat_talk_time_ratio": {
       const r = ratio(sessionPop.talk, sessionPop.secs);
       return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "matched-call talk ÷ non-overlapping session time" };
@@ -259,7 +251,8 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_dials_per_contact":
       return { value: num(ratio(t.calls_made, t.contacted)), subtitle: "calls made ÷ contacted calls" };
     case "stat_dials_per_appt":
-      return { value: num(ratio(t.calls_made, t.appointments_set)) };
+      // Calls made ÷ Bookings created (all types): every booking kind, not appointments only.
+      return { value: num(ratio(t.calls_made, t.appointments_set)), subtitle: "all booking types" };
     case "stat_talk_mins_per_sale":
       if (!orgWidePolicyRatio(s)) return { unknown: POLICY_RATIO_SCOPE_REASON };
       return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)), subtitle: "talk minutes in period ÷ dated stored policies in period" };

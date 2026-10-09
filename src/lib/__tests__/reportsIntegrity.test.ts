@@ -4,8 +4,9 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { reportCampaignsSchema, reportDispositionsSchema, reportLeadSourcesSchema, reportScopeSchema, reportSummarySchema, reportVolumeSchema } from "@/lib/reports-schemas";
 import { computeAllStats } from "@/lib/stat-computations";
 import { formatHours, formatPremium, groupDailySeries } from "@/lib/reports-format";
-import { integrityExportNotes } from "@/lib/reports-integrity-text";
-import { premium, reportCampaigns, reportLeadSources, reportSummary, reportVolume } from "./reportsFixtures";
+import { integrityExportNotes, qualityNotes } from "@/lib/reports-integrity-text";
+import type { ReportQuality } from "@/lib/reports-schemas";
+import { premium, quality, reportCampaigns, reportLeadSources, reportSummary, reportVolume } from "./reportsFixtures";
 
 const schemas = { scope: reportScopeSchema, summary: reportSummarySchema, volume: reportVolumeSchema, dispositions: reportDispositionsSchema, campaigns: reportCampaignsSchema, leadSources: reportLeadSourcesSchema };
 const payloadPath = process.env.REPORTS_SQL_PAYLOADS;
@@ -48,5 +49,68 @@ describe("Reports v2 integrity", () => {
     expect(notes).toContain("6 unmatched calls retained");
     expect(integrityExportNotes(reportCampaigns()).join(" ")).toContain("Campaign attribution unavailable");
     expect(integrityExportNotes(reportLeadSources()).join(" ")).toContain("Source policies, premium and conversions are unavailable");
+  });
+});
+
+const withQuality = (over: { duration?: Partial<ReportQuality["duration"]>; sessions?: Partial<ReportQuality["sessions"]>; duplicates?: Partial<ReportQuality["duplicates"]>; bookings?: Partial<ReportQuality["bookings"]> }): ReportQuality => {
+  const q = quality();
+  return { ...q, duration: { ...q.duration, ...over.duration }, sessions: { ...q.sessions, ...over.sessions }, duplicates: { ...q.duplicates, ...over.duplicates }, bookings: { ...q.bookings, ...over.bookings } };
+};
+const SESSIONS = (rows: string) => `Sessions assessed for this window: 2 stale open sessions capped at heartbeat, 0 with missing/invalid end evidence, ${rows}`;
+
+describe("session duplicate seconds (R-3 frontend guard)", () => {
+  it("prints 0 duplicate seconds when no session rows overlap; the sentence shape is unchanged", () => {
+    const q = withQuality({ sessions: { stale_capped: 2, overlapping_rows: 0, overlap_seconds_removed: 3 } });
+    expect(qualityNotes(q)[3]).toBe(SESSIONS("0 overlapping rows; 0 duplicate seconds removed."));
+  });
+
+  it("keeps real overlaps exactly as reported", () => {
+    const q = withQuality({ sessions: { stale_capped: 2, overlapping_rows: 2, overlap_seconds_removed: 1800 } });
+    expect(qualityNotes(q)[3]).toBe(SESSIONS("2 overlapping rows; 1800 duplicate seconds removed."));
+  });
+
+  it("the CSV notes carry the same corrected sentence as the screen", () => {
+    const notes = integrityExportNotes({ ...reportSummary(), quality: withQuality({ sessions: { stale_capped: 2, overlapping_rows: 0, overlap_seconds_removed: 3 } }) });
+    expect(notes).toContain(SESSIONS("0 overlapping rows; 0 duplicate seconds removed."));
+    expect(notes.join(" ")).not.toContain("3 duplicate seconds");
+  });
+});
+
+describe("data-quality nouns (R-6)", () => {
+  it("uses the singular when a count is exactly 1", () => {
+    const q = withQuality({ duration: { estimated_calls: 1, conflicting_calls: 1, outbound_calls: 1, unknown_calls: 0 }, sessions: { stale_capped: 2, overlapping_rows: 1, overlap_seconds_removed: 1 } });
+    const [duration, , , sessions] = qualityNotes(q);
+    expect(duration).toBe("Stored outbound duration: 1 estimate, 0 unknown provenance or amount, 1 conflict across 1 call. Counts can overlap.");
+    expect(sessions).toBe(SESSIONS("1 overlapping row; 1 duplicate second removed."));
+  });
+
+  it("keeps the plural for 0 and for more than 1", () => {
+    const q = withQuality({ duration: { estimated_calls: 2, conflicting_calls: 0 } });
+    expect(qualityNotes(q)[0]).toBe("Stored outbound duration: 2 estimates, 19 unknown provenance or amount, 0 conflicts across 19 calls. Counts can overlap.");
+  });
+
+  it("leaves the synthetic browser-fixture notes byte-identical (agency 2 rows / 1800 s; team and personal all zero)", () => {
+    const agency = withQuality({
+      duration: { outbound_calls: 5, estimated_calls: 0, unknown_calls: 5, conflicting_calls: 0 },
+      duplicates: { excluded_outbound_calls: 1, excluded_bookings: 1 },
+      bookings: { all_types: 2, appointment_kind: 1, callback_kind: 1, unknown_kind: 0 },
+      sessions: { stale_capped: 1, missing_evidence: 0, overlapping_rows: 2, overlap_seconds_removed: 1800 },
+    });
+    expect(qualityNotes(agency)).toEqual([
+      "Stored outbound duration: 0 estimates, 5 unknown provenance or amount, 0 conflicts across 5 calls. Counts can overlap.",
+      "Only reviewed mappings excluded: 1 outbound calls and 1 bookings. Unreviewed historical candidates remain included.",
+      "Bookings created (all types): 2; recorded kind: 1 appointment, 1 callback, 0 unknown. Callback dispositions count calls, not callback bookings.",
+      "Sessions assessed for this window: 1 stale open sessions capped at heartbeat, 0 with missing/invalid end evidence, 2 overlapping rows; 1800 duplicate seconds removed.",
+    ]);
+    const zero = withQuality({
+      duration: { outbound_calls: 0, estimated_calls: 0, unknown_calls: 0, conflicting_calls: 0 },
+      bookings: { all_types: 0, appointment_kind: 0, callback_kind: 0, unknown_kind: 0 },
+    });
+    expect(qualityNotes(zero)).toEqual([
+      "Stored outbound duration: 0 estimates, 0 unknown provenance or amount, 0 conflicts across 0 calls. Counts can overlap.",
+      "Only reviewed mappings excluded: 0 outbound calls and 0 bookings. Unreviewed historical candidates remain included.",
+      "Bookings created (all types): 0; recorded kind: 0 appointment, 0 callback, 0 unknown. Callback dispositions count calls, not callback bookings.",
+      "Sessions assessed for this window: 0 stale open sessions capped at heartbeat, 0 with missing/invalid end evidence, 0 overlapping rows; 0 duplicate seconds removed.",
+    ]);
   });
 });

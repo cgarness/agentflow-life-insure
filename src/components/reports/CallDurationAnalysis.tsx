@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { formatCount, formatDuration } from "@/lib/reports-format";
+import { formatCount, formatElapsed } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportDispositions } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
@@ -49,7 +49,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
       truncated: rows.length > TOP_N,
       insight:
         convertAvg !== null && otherAvg !== null
-          ? `Calls with a converting disposition averaged ${formatDuration(convertAvg)}, versus ${formatDuration(otherAvg)} for all other dispositions.`
+          ? `Calls with a converting disposition averaged ${formatElapsed(convertAvg, 1)}, versus ${formatElapsed(otherAvg, 1)} for all other dispositions.`
           : null,
     };
   }, [dispositions]);
@@ -102,7 +102,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
               <ResponsiveContainer width="100%" height={Math.max(200, top.length * 34)}>
                 <BarChart data={top} layout="vertical" margin={{ left: 8, right: 48 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                  <XAxis type="number" tick={tick} tickFormatter={(v: number) => formatDuration(v)} allowDecimals={false} />
+                  <XAxis type="number" tick={tick} tickFormatter={(v: number) => formatElapsed(v)} allowDecimals={false} />
                   <YAxis type="category" dataKey="name" width={130} tick={tick} />
                   <Tooltip
                     contentStyle={tooltipStyle}
@@ -110,7 +110,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
                     itemStyle={textStyle}
                     cursor={{ fill: "hsl(var(--muted))" }}
                     formatter={(v: number, _n: string, item: { payload?: DispositionRow }) => [
-                      `${formatDuration(v)} across ${formatCount(item.payload?.calls ?? 0)} calls`,
+                      `${formatElapsed(v, 1)} across ${formatCount(item.payload?.calls ?? 0)} calls`,
                       "Avg duration",
                     ]}
                   />
@@ -118,7 +118,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
                     <LabelList
                       dataKey="avg_duration_seconds"
                       position="right"
-                      formatter={(v: number) => formatDuration(v)}
+                      formatter={(v: number) => formatElapsed(v, 1)}
                       fill="hsl(var(--foreground))"
                       fontSize={11}
                     />

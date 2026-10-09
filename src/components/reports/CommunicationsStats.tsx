@@ -1,7 +1,7 @@
 import React from "react";
 import { Clock, Headphones, Percent, Phone, PhoneIncoming, Timer, TrendingUp, UserCheck, type LucideIcon } from "lucide-react";
 import type { ReportSummary } from "@/lib/reports-schemas";
-import { formatCount, formatDuration, formatHours, formatRate, formatPremium, ratio } from "@/lib/reports-format";
+import { formatCount, formatElapsed, formatRate, formatPremium, ratio } from "@/lib/reports-format";
 import type { ReportExportFn, CsvCell } from "@/lib/reports-export";
 import ReportSection from "./ReportSection";
 
@@ -81,7 +81,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     {
       icon: Clock,
       label: "Talk time",
-      value: formatHours(t.talk_time_seconds),
+      value: formatElapsed(t.talk_time_seconds),
       subtitle: "On calls made",
       exportLabel: "Talk time (seconds)",
       raw: t.talk_time_seconds,
@@ -89,7 +89,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     {
       icon: Timer,
       label: "Avg talk time per dial",
-      value: formatDuration(t.avg_talk_per_dial_seconds),
+      value: formatElapsed(t.avg_talk_per_dial_seconds, 1),
       exportLabel: "Avg talk time per dial (seconds)",
       raw: t.avg_talk_per_dial_seconds,
     },
@@ -104,7 +104,7 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
     {
       icon: Headphones,
       label: "Inbound talk time",
-      value: formatHours(t.inbound_talk_seconds),
+      value: formatElapsed(t.inbound_talk_seconds),
       exportLabel: "Inbound talk time (seconds)",
       raw: t.inbound_talk_seconds,
     },

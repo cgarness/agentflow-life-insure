@@ -240,6 +240,31 @@ describe("useReportPanels", () => {
     expect(frames).toContain(19);
   });
 
+  it("a key that passes through null (page Refresh, scope Retry) never re-commits the previous payload", async () => {
+    const K = "u1|o1|team|America/Los_Angeles|2026-07-20";
+    const frames: Array<number | string> = [];
+    const Probe: React.FC<{ scopeKey: string | null }> = ({ scopeKey }) => {
+      const { panels } = useReportPanels(scopeKey, scopeKey ? REQ_JULY : null);
+      const s = panels.summary;
+      // Layout effects record the COMMITTED frame, i.e. what the browser is about to paint.
+      useLayoutEffect(() => { frames.push(s.status === "ready" ? s.data.totals.calls_made : s.status); });
+      return null;
+    };
+    const { rerender } = render(<Probe scopeKey={K} />);
+    await act(async () => settle("summary", 0, "ok", reportSummary({ calls_made: 901 })));
+    expect(frames[frames.length - 1]).toBe(901);
+    frames.length = 0;
+    rerender(<Probe scopeKey={null} />);
+    rerender(<Probe scopeKey={K} />);
+    expect(frames).not.toContain(901);
+    expect(frames.every((f) => f === "loading")).toBe(true);
+    // The same key reloads: a fresh request, and only its answer is ever shown.
+    const fresh = h.pending.filter((p) => p.fn === "summary").slice(-1)[0]!;
+    await act(async () => fresh.resolve(reportSummary({ calls_made: 902 })));
+    expect(frames[frames.length - 1]).toBe(902);
+    expect(frames).not.toContain(901);
+  });
+
   it("refresh re-runs every panel for the same key; nothing runs on its own afterwards (no polling)", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { result } = renderHook(() => useReportPanels("u1|o1", REQ_JULY));

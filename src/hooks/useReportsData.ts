@@ -193,7 +193,9 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
   );
 
   useEffect(() => {
-    if (!key || !request) return;
+    // Nothing to request: drop the stored panels, so a key that returns (Refresh, scope Retry) can
+    // never re-commit the previous generation's payloads for a frame before it reloads.
+    if (!key || !request) { setStored(null); return; }
     // A stale START is refused too: only the key this render committed may begin requests.
     if (keyRef.current !== key) return;
     setStored({ key, nonce, panels: ALL_LOADING });
