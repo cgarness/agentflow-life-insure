@@ -21,6 +21,7 @@ import { ReportNotice } from "@/components/reports/ReportPanelState";
 import { buildReportSections } from "@/components/reports/reportSectionMap";
 import ReportsOverview from "@/components/reports/ReportsOverview";
 import ReportsActivityFlow from "@/components/reports/ReportsActivityFlow";
+import ReportTrends from "@/components/reports/ReportTrends";
 const Reports: React.FC = () => {
   const { profile, isImpersonating } = useAuth();
   const viewerId = isImpersonating ? null : profile?.id ?? null;
@@ -115,7 +116,7 @@ const Reports: React.FC = () => {
   const dataBasis = scopeData ? { summary: liveSummary, timeZone: scopeData.time_zone, today: scopeData.today, convertedReason } : undefined;
   const sections = scopeData && range && !rangeProblem && !withheld
     ? buildReportSections({
-        panels: reports.panels, retry: reports.retryPanel, exportFor, grouping, onGroupingChange: setGroupingSel,
+        panels: reports.panels, retry: reports.retryPanel, exportFor, grouping,
         dayCount: dayCount(range), agencyToday: scopeData.today, selectedAgentId: agentId, selectableAgentIds,
         onSelectAgent: onAgent, currentUserId: viewerId,
       })
@@ -152,10 +153,7 @@ const Reports: React.FC = () => {
           {editor.placement === "panel" && customizer}
           <ReportsOverview summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} dataBasis={dataBasis} />
           <SectionRenderer group="stats" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
-          <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2" data-report-group="trends">
-            <div className="min-w-0" data-report-section="policies_sold">{sections.policies_sold}</div>
-            <div className="min-w-0" data-report-section="call_volume">{sections.call_volume}</div>
-          </div>
+          <ReportTrends sections={sections} grouping={grouping} onGroupingChange={setGroupingSel} />
           <ReportsActivityFlow summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
           <SectionRenderer group="performance" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
           <SectionRenderer group="diagnostics" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />

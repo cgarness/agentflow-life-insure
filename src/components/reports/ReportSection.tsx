@@ -1,6 +1,7 @@
 import React from "react";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface Props {
   title: string;
@@ -9,9 +10,11 @@ interface Props {
   onExport?: () => void;
   children: React.ReactNode;
   badge?: string;
+  /** One short line about how the numbers read (coverage, inbound); beside the title, below it on phones. */
+  meta?: React.ReactNode;
 }
 
-const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, children, badge }) => {
+const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, children, badge, meta }) => {
   const [open, setOpen] = React.useState(defaultOpen);
   const id = React.useId();
   const titleId = `${id}-title`;
@@ -20,14 +23,17 @@ const ReportSection: React.FC<Props> = ({ title, defaultOpen = true, onExport, c
   return (
     <section className="rounded-xl border border-border/60 bg-card">
       <div className="flex items-center gap-2 px-4 py-3 sm:px-5">
-        <h3 className="min-w-0 flex-1 text-base font-semibold tracking-tight">
-          <button type="button" id={titleId} aria-expanded={open} aria-controls={contentId}
-            onClick={() => setOpen((value) => !value)}
-            className="flex w-full items-center gap-2 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-            {open ? <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />}
-            <span className="break-words">{title}</span>
-          </button>
-        </h3>
+        <div className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
+          <h3 className={cn("min-w-0 text-base font-semibold tracking-tight", meta ? "sm:flex-[1_0_auto]" : "sm:flex-1")}>
+            <button type="button" id={titleId} aria-expanded={open} aria-controls={contentId}
+              onClick={() => setOpen((value) => !value)}
+              className="flex w-full items-center gap-2 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+              {open ? <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              <span className="break-words">{title}</span>
+            </button>
+          </h3>
+          {meta && <div className="pl-6 text-xs tabular-nums text-muted-foreground sm:pl-0 sm:text-right">{meta}</div>}
+        </div>
         {badge && <span className="rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">{badge}</span>}
         {onExport && (
           <Button type="button" variant="ghost" size="sm" aria-label={`Export ${title} CSV`}

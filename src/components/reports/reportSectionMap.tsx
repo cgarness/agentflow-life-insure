@@ -32,7 +32,6 @@ export interface ReportSectionContext {
   /** Export callback for a panel, or undefined when the viewer may not export. */
   exportFor: (panel: PanelKey) => ReportExportFn | undefined;
   grouping: Grouping;
-  onGroupingChange: (g: Grouping) => void;
   dayCount: number;
   agencyToday: string;
   selectedAgentId: string | null;
@@ -52,12 +51,11 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
       {render}
     </ReportPanelState>
   );
-  const summaryData = panels.summary.status === "ready" ? panels.summary.data : null;
 
   return {
     ...buildStatComponents({ summary: panels.summary, volume: panels.volume, dayCount: ctx.dayCount, agencyToday: ctx.agencyToday }),
     call_volume: panel("Calling trend", "volume", (v) => (
-      <CallVolumeChart volume={v} grouping={ctx.grouping} onGroupingChange={ctx.onGroupingChange} onExport={ctx.exportFor("volume")} />
+      <CallVolumeChart volume={v} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
     )),
     conversion_funnel: panel("Disposition Breakdown", "dispositions", (d) => (
       <DispositionsPieChart dispositions={d} onExport={ctx.exportFor("dispositions")} />
@@ -74,7 +72,7 @@ export function buildReportSections(ctx: ReportSectionContext): Record<string, R
       <DispositionDeepDive dispositions={d} onExport={ctx.exportFor("dispositions")} />
     )),
     policies_sold: panel("Production trend", "volume", (v) => (
-      <PoliciesSoldChart volume={v} summary={summaryData} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
+      <PoliciesSoldChart volume={v} grouping={ctx.grouping} onExport={ctx.exportFor("volume")} />
     )),
     campaign_performance: panel("Campaign Performance", "campaigns", (c) => (
       <CampaignPerformance campaigns={c} onExport={ctx.exportFor("campaigns")} />

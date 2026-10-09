@@ -492,11 +492,32 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(h.downloads[0].csv).toMatch(/"Note","Policies are stored client policies/);
   });
 
+  it("Trends sits between the metric strip and Period totals with one grouping control for both charts", () => {
+    renderPage();
+    const trends = screen.getByRole("region", { name: "Trends" });
+    const strip = document.querySelector('[data-report-group="stats"]')!;
+    const totals = screen.getByRole("region", { name: "Period totals" });
+    expect(strip.compareDocumentPosition(trends) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(trends.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Array.from(trends.querySelectorAll("[data-report-section]")).map((n) => n.getAttribute("data-report-section"))).toEqual(["policies_sold", "call_volume"]);
+    expect(screen.getAllByRole("group", { name: /group/i })).toHaveLength(1);
+    const control = within(trends).getByRole("group", { name: "Group trends by" });
+    const isPressed = (name: string) => within(control).getByRole("button", { name }).getAttribute("aria-pressed");
+    expect(isPressed("Weekly")).toBe("true"); // Last 30 days groups by week until the viewer chooses
+    fireEvent.click(within(control).getByRole("button", { name: "Monthly" }));
+    expect([isPressed("Daily"), isPressed("Weekly"), isPressed("Monthly")]).toEqual(["false", "false", "true"]);
+  });
+
   it("a policy panel that failed validation (e.g. a win-based payload) is unavailable, never a number", () => {
     h.panels = { ...allReady(), volume: failed("unavailable"), campaigns: failed("unavailable") };
     renderPage();
-    expect(screen.queryByText("Total policies sold")).not.toBeInTheDocument(); // the chart is withheld
-    expect(screen.queryByText("Peak period")).not.toBeInTheDocument();
+    const trends = screen.getByRole("region", { name: "Trends" }); // the chart is withheld: each card is its error state
+    for (const id of ["policies_sold", "call_volume"]) {
+      expect(trends.querySelector(`[data-report-section="${id}"] [data-report-state="error"]`), id).not.toBeNull();
+    }
+    expect(within(trends).getByText("Couldn't load production trend.")).toBeInTheDocument();
+    expect(within(trends).queryByText("Policies sold")).not.toBeInTheDocument();
+    expect(within(trends).queryByText(/premiums? known|inbound calls?/)).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Policies (campaign-attributed)" })).not.toBeInTheDocument();
     const errors = Array.from(document.querySelectorAll('[data-report-state="error"]'));
     expect(errors.length).toBeGreaterThanOrEqual(2);
