@@ -1,3 +1,497 @@
+## 2026-10-09 — PLAN (rev 2), AWAITING CHRIS'S APPROVAL: Campaigns page table redesign, Phase 1
+
+**Status:** Phase 0 is complete. No application file has been edited, no backend command has been run, and nothing has been pushed. The only repository change is this section of `implementation_plan.md`.
+
+**Base and branch:** base is `main` at `8d53531`. The proposed branch is `feature/campaigns-table-phase1-20261009`. Push, PR, merge and deploy each need separate approval.
+
+**Revision history:**
+- Rev 1 was drafted after the review.
+- Rev 2 addresses an independent three-reviewer pass (requirements, safety/invariants, feasibility). That pass found no blockers. Its corrections are folded in below; the main ones are D1, the result caps, the harness widths, compare-and-set detection, placeholder states, sticky-column mechanics and query options.
+- A separate verifier then re-checked rev 2 against the installed packages and the repository. It confirmed the new mechanisms and found five minor corrections, all applied here:
+  - the unreachable View All case was removed from D1;
+  - Open Pool assignee ids are now collected;
+  - `role_permissions` was added to the harness stubs;
+  - a desktop test pass was added;
+  - the expanded row is now sized with container query units.
+
+### 1. What was reviewed
+
+**Documents.** I read `AGENT_RULES.md` (all 620 lines) and `VISION.md`, and all 13,017 lines of `WORK_LOG.md` in eight chunks reviewed in parallel.
+
+**Code.**
+- `Campaigns.tsx`, `CampaignDetail.tsx`, `CreateCampaignModal.tsx`, `CampaignHeatmap.tsx`
+- `campaign-card-stats.ts`, `campaign-assignee-scope.ts`, `campaign-settings-permissions.ts`
+- The Dialer `CampaignSelection*` table family
+- `usePermissions`, `PermissionGate`, `PageGuard`, `useOrganization`, `AuthContext`, View As surfaces
+- Every `user_preferences` writer, plus `report_layouts`
+- The shadcn primitives
+- The test and visual-harness infrastructure
+
+**SQL**, read from the repository migrations only (no database was queried):
+- `get_campaign_card_stats`, `get_queue_metrics`, `get_campaign_last_dialed`, `get_dialer_campaign_presence`
+- `campaigns` and its RLS policies
+- `user_preferences` and its policies and trigger
+
+**Open PRs checked for overlap:** #429, #425, #398, #383, #382, #381, #378, #294. None touches campaign files, `src/components/ui/*`, permissions or `user_preferences`. #378 touches `src/App.tsx`, which this plan does not edit.
+
+**Baselines on `8d53531`.**
+- `npx tsc --noEmit` exits 0 but checks zero files.
+- `npx tsc -p tsconfig.app.json --noEmit` reports **85 errors**, none of them in campaign files.
+- Installed versions: `@tanstack/react-query` 5.83.0, `supabase-js`/`postgrest-js` 2.98.0, Playwright 1.56.1 (global, under `/opt/node22/lib/node_modules`), Chromium at `/opt/pw-browsers`.
+
+### 2. Current page defects (confirmed in code)
+
+1. **Fabricated zeros.**
+   - While stats load, after a stats error, or when the RPC omits a campaign, Contacted and Converted show 0 (`Campaigns.tsx:347`).
+   - `getCampaignCardStats` swallows errors and returns `{}`.
+   - On the same fallback path, Total and Called come from `campaigns.total_leads`/`leads_called`. Those columns are trigger-maintained and **accurate** (invariant #17), so those two values are true today.
+2. **The RPC and the list disagree on visibility.**
+   - `get_campaign_card_stats` returns Personal campaigns to their owner only. Its `view_all` (JWT Admin, Team Leader or Team Lead, or `is_super_admin()`) widens Team only (baseline `:2211-2236`).
+   - The list shows agents' Personal campaigns to Admins and Super Admins, so the RPC omits exactly those rows.
+   - No other row is omitted. `campaigns_select` RLS uses the same JWT role list as the RPC's `view_all` (baseline `:11687`). A non-leadership role granted View All Campaigns therefore never receives unassigned Team rows in the first place.
+3. **A failed list load looks empty.** It renders "No campaigns yet" with a Create button. There is no error state at all.
+4. **No request safety.** There is no abort and no stale-response guard. Every refetch flashes the skeleton.
+5. **Hidden row cap.** The list uses `select("*")` with no paging, so PostgREST `max_rows` (default 1000) would silently truncate it.
+6. **Incomplete agency lock.** The suspended/archived lock covers only the header Create button. The empty-state Create button and Duplicate bypass it. It fails open if the status read errors; that part is left as is.
+7. **Duplicate is not a real dialog.** It is a custom overlay with no focus trap, no Escape handling and no dialog role.
+8. **Rule violations.** The page is 435 lines and uses inline `style` widths, against the 200-line and Tailwind-only rules.
+
+### 3. Scope
+
+**This build is frontend only.**
+- No migration, RLS, RPC or Edge change.
+- No edit to `TwilioContext`, Voice.js, queue RPCs, call telemetry, dispositions, `DialerPage` or any Dialer component.
+- No change to `CampaignDetail.tsx`, `CreateCampaignModal.tsx`, `campaign-assignee-scope.ts` or `App.tsx`.
+- I run no production reads or writes. Live checks happen only on a preview, after approval, and Chris performs them.
+
+**Runtime reads and writes the shipped page will make.** Each one goes through the signed-in user's RLS.
+
+| Kind | What |
+|---|---|
+| Read | `campaigns` (org rows) |
+| Read | `get_campaign_card_stats` |
+| Read | `get_campaign_last_dialed`, only if D3 is approved |
+| Read | `profiles` (leadership assignee identities; the Create-modal agent list, as today) |
+| Read | `organizations.status`, as today |
+| Read | `user_preferences` (own row) |
+| Write | `user_preferences`, own row only, on an explicit Save or Reset |
+| Write | `campaigns` insert from Duplicate (unchanged payload) and from the existing Create modal |
+
+**Visibility is unchanged.** The page reads org-scoped rows (RLS still applies) and then runs the existing `filterCampaignsForManagement(rows, user.id, { isAdmin, isSuperAdmin, viewAll })` with today's inputs. Management access never grants Dialer access, and no dialing action is added.
+
+### 4. UX design
+
+**Visual direction.** The target is AgentFlow's dark command-center look, built only from theme tokens so the light theme is correct as well. The app defaults to light; dark is the `.dark` class. Approval screenshots lead with dark and include light. **No mockup of the approved direction exists in the repository. Chris, please share the reference if there is one** (question Q1).
+
+**Header**
+- Title "Campaigns" with a muted count.
+- **New Campaign** primary button:
+  - gated by `PermissionGate "Create Campaigns"`, as today;
+  - disabled while the agency is locked, with the existing toast;
+  - opens the existing `CreateCampaignModal`, unchanged.
+- No subtitle or descriptive copy.
+
+**Toolbar** (one row on desktop, wrapping on narrow screens)
+- Name search.
+- **Type** select: All / Personal / Team / Open Pool. Legacy `OPEN` counts as Open Pool.
+- **Status** select: All / Draft / Active / Paused / Completed / Archived.
+- **Sort** select. Sortable header buttons drive the same sort state, and sorted headers carry `aria-sort`.
+- **Reset**, shown only when something differs from the defaults.
+- **Columns** popover, on the desktop table only.
+- Radix/shadcn primitives throughout.
+
+**Desktop table** (`xl` and up: a viewport of at least 1280px gives about 990px of content next to the 240px sidebar)
+- Shell: `rounded-xl border border-border/60 bg-card`.
+- The header band and rows use **opaque** layering, so the sticky column stays clean. Each cell sits on `bg-card`, with the muted tint and hover drawn as an overlay (`group` / `group-hover:`).
+- Rows are about 48px tall, with thin dividers drawn on the cells (`border-separate border-spacing-0`).
+- Numbers are right-aligned and use `tabular-nums`.
+- The table uses `min-w-max`/explicit column minimums, so it scrolls inside its wrapper instead of squeezing columns.
+- The Actions column is `sticky right-0 z-10 bg-card` with a left divider shadow.
+- Expanded-row content is `sticky left-0`, sized to the visible width without measuring or inline styles. The table sits in a wrapper with `[container-type:inline-size]`, and the content uses `w-[100cqw]` (Tailwind 3.4.17 arbitrary values).
+
+| Column | Default | Rule | Content |
+|---|---|---|---|
+| Expand chevron | yes | fixed first | A `<button>` with `aria-expanded`/`aria-controls`. It expands inline and never navigates. |
+| Campaign | yes | locked | The name links to `/campaigns/:id`, with a compact Personal / Team / Open Pool badge (existing `campaignTypeBadgeClass`). |
+| Status | yes | | Restrained pill with a dot: Active → success, Paused → warning, Draft → muted, Completed → primary, Archived → faded muted. |
+| Lead progress | yes | | `called / total` plus a 4px bar (the existing shadcn `Progress` with `h-1`; its internal transform is the accepted primitive exception, so there is no page inline style). The tooltip says "Called at least once". The words "Untouched" and "Completed" are never used. |
+| Agents | yes | | Personal → owner. Team → avatar stack with `+N`. Open Pool → "Open to agency" (D9). Identities follow D5. |
+| Converted | yes | | Distinct converted campaign leads (RPC `converted_leads`). Never policies sold. |
+| Actions | yes | locked, last, sticky | **Open** plus an overflow menu. |
+| Contacted | optional | | RPC `contacted_leads`. |
+| Created | optional | | Branding `formatDate(created_at)`. |
+| Tags | optional | | Up to two chips, then `+N`. |
+| Last dialed | optional (D3) | | Relative time, with a tooltip and `sr-only` exact time. |
+
+There is **no Ready Now column** (D2).
+
+**Metric states.** These apply to the RPC values Total, Called, Contacted and Converted. Each state renders differently and has a test.
+
+| State | Rendering |
+|---|---|
+| Loading, including a placeholder map that lacks this id | Skeleton |
+| Request failed, with no usable data | "—", plus one compact "Metrics unavailable · Retry" notice |
+| Settled response from the current key with no row for this campaign | Depends on D1 |
+| Loaded | The value. A genuine 0 renders as 0. |
+
+**Last dialed states** (if D3 is approved): loading shows a skeleton; an error shows "—" with Retry; a loaded response with no row shows **"Never"**. The RPC is organization-wide, so a missing row means never dialed.
+
+**Expanded row** (desktop and mobile)
+- One row open at a time, matching the Dialer table's single-open accordion.
+- A compact definition grid:
+  - Total, Called, Contacted, Converted, using the states above;
+  - Created;
+  - Retry interval, Max attempts, Calling window and Ring timeout, from the existing `campaignSelectionModel.ts` helpers;
+  - Last dialed (D3);
+  - Owner or assigned agents (D5/D9).
+- Description and tags appear only when they have a value.
+- No charts, nested cards, presence or activity feed. There is no reliable feed source; Last dialed is the only candidate (D3).
+
+**Actions**
+- **Open** navigates to the existing detail route.
+- The overflow menu holds **Duplicate**. Its eligibility is copied unchanged from today's role logic:
+  - Agent: no item.
+  - `role` "Admin" (case-insensitive): allowed.
+  - Team Leader: allowed only if they created the campaign or are assigned to it.
+  - Any other role string: disabled, with "Only the campaign owner can duplicate".
+- With D4, Duplicate is also disabled while the agency is locked.
+- When a viewer has no items, the overflow trigger is not rendered at all.
+- The menu uses `DropdownMenu modal={false}`. The dialog state lives at page level and opens from `onSelect`.
+
+**Duplicate dialog**
+- Built on Radix `AlertDialog`. Confirm is a plain `Button` and the dialog closes only on success. Escape and outside-close are blocked while saving.
+- The payload is validated with Zod.
+- It inserts **exactly today's payload**: `"<name> (Copy)"`, the type, description, `assigned_agent_ids` and tags, status Draft, zeroed counters, `created_by`, `organization_id`.
+- It never copies leads.
+- The toast and activity-log entry are the same as today. Afterwards the list refreshes in the background.
+
+**Below `xl`: stacked rows** (tablet and mobile)
+- One bordered list, one row per campaign:
+  - line 1: name and type badge, with the status pill on the right;
+  - line 2: lead progress bar and `x / y called`;
+  - line 3: **Open**, the overflow menu and the chevron, each a touch target of at least 40px.
+- Expanding shows the same detail grid, which covers every optional column.
+- No horizontal scrolling is needed for any essential action.
+- Desktop and stacked are chosen by a `useMinWidth(1280)` hook based on `matchMedia`/`useSyncExternalStore`. Only one tree is mounted, so ids are not duplicated and the DOM is not doubled. Column preferences apply to the desktop table only.
+
+**Page states**
+- Skeleton table while loading.
+- A **load-error panel** with Retry, shown only when there is an error and no data. A failed background refresh keeps the rows and shows "Couldn't refresh · Retry".
+- "No campaigns yet" plus New Campaign (gated and lock-aware).
+- "No campaigns match" plus Reset filters.
+
+**Scale.** Filters and sorting always run on the full authorized set. Rows render 100 at a time, with a visible "Showing N of M · Show more". This is not a hidden cap, because the total is always shown.
+
+### 5. Data layer
+
+TanStack Query, with stable identity-scoped keys and explicit per-query options.
+
+**Shared options** (`CAMPAIGNS_TABLE_QUERY_OPTIONS`, pinned by a source-contract test; `App.tsx` stays untouched):
+- `staleTime: 30_000`
+- `refetchOnWindowFocus: false`
+- `retry`: at most once, and never for the list-too-large error
+
+| Key | Query |
+|---|---|
+| `["campaignsTable","list",orgId,userId]` | **Raw org rows**. The management filter runs at render in a `useMemo` with the current role inputs, so a role change can never paint a wider cached set. Columns are explicit, not `*`: id, name, type, status, description, assigned_agent_ids, tags, user_id, created_by, created_at, organization_id, retry_interval_minutes, retry_interval_hours, max_attempts, calling_hours_start, calling_hours_end, ring_timeout_seconds, plus total_leads and leads_called only if D1-B is chosen. `.eq("organization_id")`, ordered `created_at desc nullsFirst:false` then `id`. **Paging:** the first page requests `count: "exact"`; later pages use the raw rows received as the offset; rows are deduplicated by id; paging stops at the count or on an empty page; filtering happens after paging. This avoids the 1000-row cap and does not depend on `max_rows`. Above 10,000 rows it raises a visible error. `leads_contacted`/`leads_converted` are never read. |
+| `["campaignsTable","stats",orgId,userId,idsHash]` | `get_campaign_card_stats` on the **post-filter** visible ids, sent in chunks of 200 and merged. Any failed chunk fails the whole query, so partial maps are never shown. `campaign-card-stats.ts` will throw a typed error and accept a signal. `idsHash` is the length plus a fast hash of the sorted ids, so the key stays small; the full ids are passed to the function through a closure. The placeholder map is reused only if the previous key has the same org and user. While `isPlaceholderData` is true, a missing id renders as Loading. |
+| `["campaignsTable","lastDialed",orgId,userId]` | D3 only. `get_campaign_last_dialed()` paged with `.order("campaign_id").range()` and a count, then filtered to visible ids on the client. |
+| `["campaignsTable","assignees",orgId,userId,idsHash]` | Leadership viewers only (D5). The ids come from a new leadership-only collector in `model.ts`: Personal owners, Team participants and, for D9, Open Pool `assigned_agent_ids`. The existing `collectAssigneeIds` skips Open Pool, so it is not reused here. `profiles id, first_name, last_name, avatar_url`, explicit `.eq("organization_id")`, `.in("id", ≤100-id chunks)`, with a signal. Rendering is also gated on the **current** viewer being leadership, so cached names are never shown to an Agent after an identity switch. Loading shows avatar skeletons; an error shows count-only. |
+| `["campaignsTable","createAgents",orgId,userId]` | Fetched only when the viewer has Create Campaigns. Today's Active-profiles list for the unchanged modal, with an explicit `organization_id` filter and a signal. |
+| `["campaignsTable","orgStatus",orgId]` | `organizations.status` via `.abortSignal(signal).maybeSingle()`. It fails open to active, as today. |
+| `["campaignsTable","prefs",orgId,userId]` | See §6. |
+
+**Rules for every query:**
+- each passes `signal` through `.abortSignal()`, placed before `.maybeSingle()`;
+- none runs before organization, user and permissions are known (PageGuard already enforces this; the check is kept as defense in depth);
+- after a create or duplicate, rows stay on screen while the background refetch runs.
+
+`Campaigns.tsx` is an identity shell that renders `<CampaignsPageContent key={`${userId}:${orgId}`}>`. Filters, the expanded row, the column draft and pending saves therefore reset during render when the identity changes. There is no realtime subscription, the same as today.
+
+**Sorting and filtering** apply to the full loaded set.
+- Sorts:
+  - Newest (default, today's order)
+  - Oldest
+  - Name A–Z / Z–A
+  - Status
+  - Type
+  - Lead progress (percent called)
+  - Total leads
+  - Converted
+  - Contacted
+  - Last dialed (D3)
+- Unknown values sort last in either direction.
+- Ties fall back to `created_at desc`, then `id`.
+- While stats are loading, metric sorts keep that fallback order.
+- Search and both filters combine.
+- **Reset** restores the defaults.
+
+### 6. Column preferences
+
+There is no schema change.
+
+**Storage**
+- Path: `user_preferences.settings.campaigns_table = { v: 1, orgs: { [orgId]: { order: string[], hidden: string[] } } }`.
+- `user_preferences` holds one row per user (`UNIQUE(user_id)`, RLS `auth.uid() = user_id`) and has no organization column. The organization namespace is therefore enforced by the app inside the JSON.
+- RLS makes it impossible to write another user's row.
+
+**Owner and View As**
+- The owner is the real `user.id` plus the current `organizationId`.
+- Under View As nothing is read or written; the route does not mount under View As anyway.
+- Every async completion re-checks the owner/epoch, and an impersonation ref, before it commits.
+
+**Parsing.** A Zod schema parses `campaigns_table`. A pure normalizer then:
+- drops unknown and duplicate ids;
+- appends newly added columns at their default positions;
+- pins locked columns.
+
+**Load**
+- Read `settings, updated_at` with `.maybeSingle()`.
+- **Never write on load.**
+- The Columns editor and Save stay disabled until the read has settled successfully for the current owner.
+- If the read fails, the table uses the defaults and the editor shows "Couldn't load saved columns · Retry".
+
+**Editing.** The Columns popover edits a draft that previews live:
+- checkboxes show or hide optional columns;
+- up/down buttons reorder the reorderable columns;
+- Campaign, Actions and the chevron cannot be hidden.
+
+**Save**
+1. Re-read the row with `.maybeSingle()`. Abort if the read fails.
+2. Merge only `campaigns_table.orgs[orgId]` into the freshly read settings.
+3. Run `update({ settings }).eq("user_id", uid)` with `.eq("updated_at", observedString)`, or `.is("updated_at", null)` when it was null, followed by `.select("updated_at")`. The observed timestamp string is passed back exactly as read, never through `Date`.
+4. **An empty result means a conflict.** Re-read, re-merge and try once more.
+5. If no row exists, `insert`. On a 23505 error, re-read and take the same merge plus compare-and-set path. Never write a merge built on an empty base over an existing row.
+6. Check the Supabase error. Close the popover only after success. On failure, keep the draft and show a concise error.
+
+**Reset** removes only this organization's entry, using the same path. **Cancel** discards the draft.
+
+**Limitation (documented, not fixed).** Compare-and-set protects only this page's own saves. Five existing writers do unguarded read-merge-write on the same blob: Contacts, `useContactScope`, ContactManagement, and CalendarSettings (×2). Contacts also writes automatically about 2 seconds after loading a saved sort. If one of their reads fails, or races with another write, the `campaigns_table` key can be erased, and the page falls back to the default columns. Compare-and-set relies on the `set_updated_at` trigger. That trigger is in the baseline, but **live presence is unverified** (preflight R1). Without it the save behaves like the existing writers: still own-row and key-scoped, with no conflict detection. No cross-tab compare-and-set guarantee is claimed.
+
+### 7. Files
+
+**Modified**
+
+| File | Change |
+|---|---|
+| `src/pages/Campaigns.tsx` | Rewritten as the identity shell, under 200 lines |
+| `src/lib/campaign-card-stats.ts` | Throws a typed error, accepts a signal, chunks ids, updated comment. Its only importer is `Campaigns.tsx`. |
+| `implementation_plan.md` | This section |
+| `WORK_LOG.md` | Completion entry |
+| `AGENT_RULES.md` | Invariant #17 only: a one-paragraph amendment on the list's states and D1 rule |
+
+**New components** (`src/components/campaigns/`, each under 200 lines, exporting only components)
+- `CampaignsPageContent.tsx`
+- `CampaignsHeader.tsx`
+- `CampaignsToolbar.tsx`
+- `CampaignsTable.tsx`
+- `CampaignSortHeader.tsx`
+- `CampaignTableRow.tsx`
+- `CampaignRowDetails.tsx`
+- `CampaignStackedList.tsx`
+- `CampaignStackedRow.tsx`
+- `CampaignRowActions.tsx`
+- `CampaignColumnsMenu.tsx`
+- `CampaignBadges.tsx`
+- `CampaignLeadProgress.tsx`
+- `CampaignMetricValue.tsx`
+- `CampaignAgentsCell.tsx`
+- `CampaignsListStates.tsx` (skeleton, error, empty, filtered-empty)
+- `DuplicateCampaignDialog.tsx`
+
+**New logic.** All non-component exports live in `.ts` files, to satisfy `react-refresh/only-export-components` under `--max-warnings 0`.
+- `src/lib/campaigns-table/model.ts`: types, filters, search, sorts, metric-state resolver, duplicate eligibility, leadership predicate.
+- `src/lib/campaigns-table/columns.ts`: the column registry.
+- `src/lib/campaigns-table/prefs.ts`: Zod schema, normalizer, read/merge/compare-and-set.
+- `src/lib/campaigns-table/queries.ts`: paged list, chunked stats wrapper, last dialed, assignee profiles, create-modal agents, org status, query options.
+- `src/hooks/useCampaignsTableData.ts`
+- `src/hooks/useCampaignsTablePrefs.ts`
+- `src/hooks/useCampaignsTableState.ts`
+- `src/hooks/useMinWidth.ts`
+
+**New tests.** Radix tests copy the shim block from `notificationsDrawer.test.tsx`.
+- `src/lib/__tests__/campaignsTableModel.test.ts`
+- `src/lib/__tests__/campaignsTablePrefs.test.ts`
+- `src/lib/__tests__/campaignsTableQueries.test.ts`
+- `src/lib/__tests__/campaignCardStats.test.ts`
+- `src/components/campaigns/__tests__/campaignsTable.test.tsx`
+- `src/components/campaigns/__tests__/campaignStackedList.test.tsx`
+- `src/components/campaigns/__tests__/campaignColumnsMenu.test.tsx`
+- `src/components/campaigns/__tests__/duplicateCampaignDialog.test.tsx`
+- `src/pages/__tests__/campaignsPage.test.tsx`, which covers:
+  - `renderToString` smoke tests for the seeded, empty and error states, with the QueryClient seeded through `setQueryData`. Server rendering always takes the stacked layout, so a second `renderToString` renders `CampaignsTable` directly with seeded rows.
+  - The page-level role, state and identity-switch tests, run twice: once with the default `matchMedia` stub (stacked) and once with `matchMedia` overridden to `matches: true` (desktop table, sort headers and Columns menu).
+
+**Visual harness (D8):** `scripts/tests/campaigns-visual/{README.md,index.html,vite.config.ts,entry.tsx,stubs.ts,verify.mjs}`.
+- `stubs.ts` is a recording fake query builder that allows only the tables and RPCs above, plus `role_permissions` (`usePermissions` queries it even for Admin), and serves synthetic fixtures for each persona.
+- AuthContext and Branding are stubbed.
+- `entry.tsx` wraps the page in QueryClientProvider (retry off) and TooltipProvider, inside a **shell that reproduces the app's 240px sidebar offset and `p-4 lg:p-6` padding**. A collapsed 64px variant is also run.
+
+**Imported unchanged:**
+- the helpers in `campaignSelectionModel.ts` (a pure `.ts` module, with no cycle and no react-refresh issue);
+- `CampaignAvatarStack`, `filterCampaignsForManagement`, `CreateCampaignModal`, `PermissionGate`;
+- the shadcn primitives.
+
+**Not touched:** Dialer, telephony, queue, disposition, RPC, migration, RLS, Edge, `App.tsx`, `Sidebar`, `CampaignDetail`, `CreateCampaignModal`, and `useDialerCampaignPresence` (deliberately not reused).
+
+### 8. Dependencies
+
+- **No new npm packages.**
+- The harness uses the environment's global Playwright 1.56.1 via `PLAYWRIGHT_MODULE` and the Chromium already in `/opt/pw-browsers`, following the `reports-visual` pattern. Nothing is downloaded and TLS is never bypassed.
+- Tests need dummy `VITE_SUPABASE_*` variables in the shell only, never committed. The timezone is recorded.
+
+### 9. Verification after approval
+
+1. **Type checks.** Run `npx tsc --noEmit` (reported, but it checks nothing) and `npx tsc -p tsconfig.app.json --noEmit`. Compare the second against the 85-error baseline as a line-insensitive multiset. **No new diagnostic is allowed.**
+2. **Lint and build.** `npx eslint` on every touched file with `--max-warnings 0`, then `npm run build` and `git diff --check`.
+3. **Unit and component tests.**
+   - The new suites.
+   - The existing suites: `campaignAccessScope`, `campaignSelection*`, `viewAsSurfaces`, `viewAsRouteAllowlist`, `viewAsSidebarNav`, `campaignDetailImportRetry`.
+   - Then a full-suite comparison of candidate against base.
+4. **Role matrix.**
+   - Roles:
+     - Agent;
+     - Agent with View All Campaigns granted (asserts that visibility matches RLS — assigned Team, Open Pool and own Personal campaigns only — and that the RPC omits no rows);
+     - Team Leader with View All on, and with it off;
+     - Admin;
+     - Super Admin with role "Admin" and `is_super_admin`.
+   - For each role, check:
+     - visibility;
+     - New Campaign gating;
+     - Duplicate eligibility (today's rule);
+     - lock behavior;
+     - the D1 rendering for rows the RPC omits;
+     - D5 identity gating, including the switch from a leadership user to an Agent;
+     - D9 Open Pool assignees: names for leadership in the expanded row, a count for Agents.
+   - The role string "Super Admin" is checked **through PageGuard as the documented pre-existing spinner** (it never mounts today), and its Duplicate eligibility as a pure function only.
+5. **States.**
+   - Loading shows no zeros.
+   - A placeholder map renders new rows as Loading, never as "not available".
+   - A stats error shows Retry.
+   - A list error never renders as empty; a refetch error keeps the rows.
+   - Genuinely empty, and filtered-empty with Reset.
+   - Last dialed: Never versus error.
+6. **Behavior.**
+   - Filters, search and sort combine across the full set, with unknown values last.
+   - Incremental rendering shows "Showing N of M".
+   - Expansion is one row at a time, has the right ARIA, and never navigates.
+   - Open navigates.
+   - Create and Duplicate trigger the background refresh; the Duplicate payload is exactly today's.
+   - The lock (D4).
+7. **Preferences.**
+   - No write on load.
+   - Editing is disabled until the read settles.
+   - Save merges only its key and leaves other keys and other orgs alone.
+   - A compare-and-set result of zero rows triggers re-read and retry, and is never treated as success.
+   - 23505 goes through re-read, merge and compare-and-set.
+   - A failed read blocks the write.
+   - Reset and Cancel.
+   - Nothing happens under View As.
+8. **Identity switches (org and user).** Previous rows, stats, assignees, preferences, drafts and pending saves are never committed or painted. This is asserted by capturing the DOM from a layout effect.
+9. **Query safety.**
+   - Paging: the count is honored, rows are deduplicated, and the cap error is visible.
+   - Stats are chunked and fail as a whole.
+   - Profile lookups are chunked.
+   - Every query uses the signal.
+   - The source-contract test pins the shared query options.
+10. **Browser harness**, synthetic data only, no auth bypass, no production.
+    - Viewports 1440, 1280, 1024, 768 and 390, inside the real shell offset, with the sidebar expanded and collapsed, in dark and light.
+    - Checks: the table container width matches the real content width, no page overflow, the sticky Actions column renders cleanly, no console errors.
+    - Screenshots: default table, wide optional columns, expanded row, Columns popover, stacked list, stacked expanded, and the empty, error and loading states. They are sent to Chris.
+11. **Scope audit.** The diff touches no telephony, queue, disposition, Dialer, SQL or Edge path, and no new code reads `leads_contacted`/`leads_converted`.
+12. **Live authenticated checks** happen on a Vercel preview, after push approval. Chris runs the sign-in smoke test; this environment has no authenticated session.
+
+**R1: read-only backend preflight.** Requested separately; optional but recommended.
+- Run `list_migrations`.
+- Compare the live definitions of `get_campaign_card_stats` and `get_campaign_last_dialed` with the baseline.
+- Confirm the live `user_preferences.set_updated_at` trigger.
+- Read the PostgREST `max_rows` setting, if it is exposed.
+
+### 10. Decisions for Chris (recommendation first)
+
+**D1: rows that `get_campaign_card_stats` leaves out**
+- Which rows: other agents' Personal campaigns seen by an Admin or Super Admin. This is the only reachable case, because RLS and the RPC read the same JWT role list.
+- **The trade-off.** The spec says both "Phase 1 = existing trusted information" and "use the RPC for Total, Called, Contacted, Converted". For these rows, the RPC returns nothing, while the stored `total_leads`/`leads_called` (trigger-maintained and accurate) are what Admins see today.
+- **Recommended: D1-B.** For these rows only, once the RPC has settled, Lead progress and Total use the stored `total_leads`/`leads_called`, and Contacted and Converted show "—" ("Not available for this campaign"). This keeps the true numbers Admins have today and never shows invented zeros. It departs from "RPC only" for Total and Called on these rows.
+- **Alternative: D1-A.** Show "—" for all four values on these rows. This follows "RPC only" literally, but it is a **regression**: Admins lose accurate Total/Called and Lead progress on every agent-owned Personal campaign.
+- Fixing these rows properly needs an approved RPC change in Phase 2.
+
+**D2: Ready Now**
+- **Recommended:** defer it to Phase 2, with no column and no placeholder.
+- `get_queue_metrics` would need one call per campaign, each O(leads).
+- It enforces Dialer scope (`can_dial_campaign`), so it would return 42501 for rows that are visible only through management scope.
+- It does not use the Personal-queue definition, and it can overstate (invalid phones).
+- A trustworthy column needs a new, approved batched RPC.
+
+**D3: Last dialed**
+- **Recommended:** include it as an optional column (off by default) and in the expanded row.
+- Source: the existing `get_campaign_last_dialed`, which is already used by the Dialer selection screen. It returns the same org-wide `MAX(calls.created_at)` for every role, and it is labeled "Last dialed", not "activity".
+- **Alternative:** omit it.
+
+**D4: agency lock coverage**
+- **Recommended:** apply the existing suspended/archived lock to the empty-state New Campaign button and to Duplicate as well. This is frontend-only and only tightens behavior.
+- **Alternative:** keep today's header-only coverage.
+
+**D5: Agents identities**
+- **Recommended:** follow the Dialer's established ruling.
+  - Leadership sees names and initials/avatars. Leadership means role 'Team Leader', 'Admin' or 'Super Admin', or `is_super_admin`; legacy 'Team Lead' is excluded.
+  - The Agent role sees an assigned-agent count only.
+- The Create modal's Active-profiles list is still fetched, as today, for viewers who have Create Campaigns. That includes an Agent who was granted it.
+- **Alternative:** show identities to every role.
+
+**D6: preference storage**
+- **Recommended:** the org-namespaced `user_preferences` key with explicit Save (§6). It works across devices; the limitation is documented in §6.
+- **Alternative:** localStorage keyed `af:campaigns:table:v1:<org>:<user>`, with try/catch. Nothing can clobber it, but it stays on one device.
+
+**D7: reordering**
+- **Recommended:** up/down buttons. This is accessible and matches Reports Phase 2.
+- **Alternative:** drag and drop with dnd-kit.
+
+**D8: visual harness**
+- **Recommended:** commit `scripts/tests/campaigns-visual/` with no CI workflow.
+- **Alternative:** scratchpad only.
+
+**D9: Open Pool assignees**
+- Open Pool campaigns store at least one `assigned_agent_ids` at creation, but anyone in the agency can dial them.
+- **Recommended:** the Agents cell shows "Open to agency", which matches the Dialer and is accurate about dialing access. For leadership, the expanded row also lists them under "Assigned agents".
+- **Alternative:** an avatar stack in the cell as well.
+
+**Q1:** please share the approved visual reference, if there is one.
+
+### 11. Risks and rollback
+
+**Risks**
+- With D1-A, Admins lose Total/Called on agents' Personal rows. With D1-B, those rows mix two documented-accurate sources.
+- Other writers can erase the saved column key (§6). The page then falls back to the default columns.
+- The sticky column and opaque layering need visual checks in both themes. These are covered by the shell-accurate harness.
+- Switching the desktop/stacked layout by JavaScript means one tree is mounted. In server rendering and jsdom it falls back to stacked, which the tests account for.
+
+**Rollback**
+- Revert the single feature merge commit.
+- No schema or data is involved.
+- The orphaned `campaigns_table` preference key is ignored by older code.
+
+### 12. Completion deliverables
+
+1. A newest-first `WORK_LOG.md` entry with date and status, changes, the exact files, tests and results, migrations/deploys (none), and blockers.
+2. The exact list of files touched, and the verification results, including the multiset type-check comparison.
+3. Screenshots sent to Chris for approval.
+4. No push, PR, merge or deploy without explicit approval.
+5. A closing context snapshot: changes, decisions, migrations/deploys, blockers, next steps.
+
+### 13. Pre-existing findings outside Phase 1 (each needs its own approval)
+
+1. When an Admin duplicates an agent's Personal campaign, the copy is stamped `user_id = Admin` while `assigned_agent_ids` still lists the agent.
+2. Duplicate's ownership check uses `created_by` and assignees instead of `user_id`. It excludes the role string "Super Admin" and copies no dialer settings.
+3. The detail route has no management check, so a Team Leader can open agents' Personal campaigns by URL. Its status buttons are ungated and can report false success. Delete ignores errors. It reads unmaintained counters.
+4. The agency lock has no server enforcement. The detail page, Dialer, inline create and import paths ignore it.
+5. `AddToCampaignModal`'s scope filter reads camelCase fields, so its filtering is broken.
+6. Profiles whose role string is "Super Admin" never pass `PageGuard` (`DB_ROLE_TO_KEY` has no entry, so permissions never load).
+7. `get_campaign_card_stats` and `get_campaign_last_dialed` grant `anon` EXECUTE in the baseline. Hardening was deferred by Chris.
+8. The recent-call-guard bullet of `AGENT_RULES` #15 says the queue metrics RPC "has not yet been adjusted", but `20261003043122` now mirrors it.
+
+---
+
 ## 2026-10-08 UTC — SHIPPED: Super Admin live master Twilio balance
 
 Chris approved the production release sequence. PR #426 merged to `main` as `158601c90e748d901197a103f4b570c367b454cd` after all five fresh-head gates passed: Twilio account balance, Dialer DNC integrity, Reporting integrity, A2P registration, and Reports frontend exact candidate-vs-base verification.
