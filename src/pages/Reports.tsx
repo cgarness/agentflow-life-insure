@@ -9,7 +9,8 @@ import {
   type CalendarRange, type Grouping, type ReportPreset,
 } from "@/lib/reports-format";
 import { buildReportCsv, csvFileName, downloadCsv, type ReportExportFn } from "@/lib/reports-export";
-import ReportDataQuality from "@/components/reports/ReportDataQuality";
+import { DataBasisButton } from "@/components/reports/ReportDataBasis";
+import type { LiveSummary } from "@/components/reports/ReportDataQuality";
 import { integrityExportNotes } from "@/lib/reports-integrity-text";
 import { policyExportNotes } from "@/lib/reports-policy-text";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
@@ -102,6 +103,13 @@ const Reports: React.FC = () => {
       ["Policies with known premium", t.premium.known_count], ["Policies with unknown premium", t.premium.unknown_count], ["Session matched calls", t.session_matched_calls], ["Session unmatched calls", t.session_unmatched_calls],
     ]);
   }, [reports.panels.summary, exportFor]);
+  // The Data basis may describe only the current, non-withheld summary; anything else is words, never digits.
+  const summaryPanel = reports.panels.summary;
+  const liveSummary: LiveSummary = withheld || summaryPanel.status === "error" ? { status: "unavailable" }
+    : summaryPanel.status === "ready" && reports.isCurrent(reports.key, "summary", summaryPanel.data) ? summaryPanel : { status: "loading" };
+  const leadSources = reports.panels.leadSources;
+  const convertedReason = !withheld && leadSources.status === "ready" && reports.isCurrent(reports.key, "leadSources", leadSources.data)
+    ? leadSources.data.converted_unavailable_reason : null;
   const sections = scopeData && range && !rangeProblem && !withheld
     ? buildReportSections({
         panels: reports.panels, retry: reports.retryPanel, exportFor, grouping, onGroupingChange: setGroupingSel,
@@ -118,6 +126,7 @@ const Reports: React.FC = () => {
         onScope={onScope} editMode={preferences.editMode} customizationReady={preferences.status === "ready" && !preferences.busy && !withheld}
         onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={scope.reload}
         canExport={!!scopeData?.can_export} exportReady={reports.panels.summary.status === "ready" && !withheld} onExport={exportSummary}
+        dataBasis={scopeData && <DataBasisButton summary={liveSummary} timeZone={scopeData.time_zone} today={scopeData.today} convertedReason={convertedReason} />}
       />
       {scope.state.status === "loading" && <ReportPanelSkeleton title="Loading your reports" />}
       {scopeError === "denied" && (
@@ -156,7 +165,6 @@ const Reports: React.FC = () => {
           <ReportsActivityFlow summary={reports.panels.summary} onRetry={() => reports.retryPanel("summary")} />
           <SectionRenderer group="performance" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
           <SectionRenderer group="diagnostics" sections={layout.sections} showTeamSections={scopeData?.scope !== "own"} components={sections} />
-          {reports.panels.summary.status === "ready" && <ReportDataQuality summary={reports.panels.summary.data} />}
         </div>
       )}
     </div>

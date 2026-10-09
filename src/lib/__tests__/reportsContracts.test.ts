@@ -145,9 +145,15 @@ describe("frontend data-path contract", () => {
     }
   });
 
+  /** Every Reports surface plus the shared text modules behind the screen, the Data basis and the CSV notes. */
+  const surfaceFiles = () => [
+    "src/pages/Reports.tsx", "src/lib/stat-computations.ts",
+    "src/lib/reports-basis-text.ts", "src/lib/reports-policy-text.ts", "src/lib/reports-integrity-text.ts",
+    ...readdirSync(join(ROOT, "src/components/reports")).filter((f) => /\.tsx?$/.test(f)).map((f) => `src/components/reports/${f}`),
+  ];
+
   it("the call-level rate is labelled 'Call contact rate' on every Reports surface (never a bare 'Contact rate')", () => {
-    const files = ["src/pages/Reports.tsx", "src/lib/stat-computations.ts", ...readdirSync(join(ROOT, "src/components/reports"))
-      .filter((f) => f.endsWith(".tsx")).map((f) => `src/components/reports/${f}`)];
+    const files = surfaceFiles();
     // The only other "contact rate" strings are two explicitly UNAVAILABLE lead-level placeholder stats.
     const placeholders = ["First dial contact rate", "Follow-up contact rate"];
     for (const f of files) {
@@ -159,6 +165,22 @@ describe("frontend data-path contract", () => {
         expect(code.slice(Math.max(0, at - 5), at).toLowerCase(), `${f}: …${code.slice(Math.max(0, at - 24), at + 12)}…`).toBe("call ");
       }
     }
+  });
+
+  it("names a conversion rate only to deny one (Reports has no conversion rate of any kind)", () => {
+    // Allowed: "Reports has no conversion rate.", "No stage-to-stage conversion rate is implied." and the
+    // unavailable-stat reason "No approved conversion-rate definition". Anything else is a new rate.
+    const negations = ["no ", "no stage-to-stage ", "no approved "];
+    let seen = 0;
+    for (const f of surfaceFiles()) {
+      const code = stripTsComments(read(f));
+      for (const m of code.matchAll(/conversion[\s-]+rate/gi)) {
+        const before = code.slice(Math.max(0, (m.index ?? 0) - 24), m.index).toLowerCase();
+        expect(negations.some((n) => before.endsWith(n)), `${f}: …${before}${m[0]}…`).toBe(true);
+        seen += 1;
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(2); // the scan reaches the Data basis and Period totals wording
   });
 
   it("Reports does not mount the non-functional saved/scheduled report features", () => {

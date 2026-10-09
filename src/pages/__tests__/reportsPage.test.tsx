@@ -63,6 +63,10 @@ const allReady = () => ({
 const allLoading = () => Object.fromEntries(["summary", "volume", "dispositions", "campaigns", "leadSources"].map((k) => [k, { status: "loading" }]));
 
 const renderPage = () => render(<MemoryRouter><Reports /></MemoryRouter>);
+const openDataBasis = () => {
+  fireEvent.click(screen.getByRole("button", { name: "Data basis" }));
+  return screen.getByRole("dialog", { name: "Data basis" });
+};
 
 beforeEach(() => {
   h.scopeState = ready(reportScope());
@@ -294,9 +298,11 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(screen.getAllByText("Most policies — current assignments").length).toBe(1); // chart support metric; the default six-metric strip omits this ranking
     expect(screen.queryByText("Top performer")).not.toBeInTheDocument();
     expect(screen.getAllByText(/2 policies currently assigned/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Policies are stored client policies \(primary and additional\), counted on each policy's sale date/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/counted from wins/)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/not the original seller/).length).toBeGreaterThan(0);
+    const sheet = openDataBasis();
+    expect(within(sheet).getByText("Policies are stored client policies (primary and additional), counted on each policy's sale date.")).toBeInTheDocument();
+    expect(within(sheet).getByText(/^Agent policy counts and premiums use the client's current assigned agent, not the original seller/)).toBeInTheDocument();
+    expect(within(sheet).queryByText(/counted from wins/)).not.toBeInTheDocument();
   });
 
   it("shows the scope-wide, all-dates data-quality note only when there is something to report", () => {
@@ -362,12 +368,51 @@ describe("v2 quality and response integrity", () => {
   });
   it("shows known premium and preserves unknown coverage in CSV", async () => {
     renderPage();
-    expect(screen.getByText("Report basis and data quality")).toBeInTheDocument();
     expect(screen.getByText(/Known annual premium in that subset:/)).toBeInTheDocument();
+    const quality = within(openDataBasis()).getByRole("region", { name: "Data quality in this summary" });
+    expect(within(quality).getByText("Known annual premium $1,481.40; 4/5 policies known, 1 unknown (0 invalid, 0 ambiguous legacy zero); 0 missing stable identities.")).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /^export$/i }));
     await waitFor(() => expect(h.downloads).toHaveLength(1));
     expect(h.downloads[0].csv).toContain('"Known annual premium",1481.4');
     expect(h.downloads[0].csv).toContain('"Policies with unknown premium",1');
     expect(h.downloads[0].csv).toContain('"Response as of","2026-07-20T18:00:00Z"');
+  });
+});
+
+describe("Data basis replaces the bottom data-quality block", () => {
+  const quality = () => within(screen.getByRole("dialog", { name: "Data basis" })).getByRole("region", { name: "Data quality in this summary" });
+
+  it("lives in the toolbar once the scope resolves; there is no bottom <details> any more", () => {
+    const { container } = renderPage();
+    expect(within(container.querySelector("header")!).getByRole("button", { name: "Data basis" })).toBeInTheDocument();
+    expect(screen.queryByText("Report basis and data quality")).not.toBeInTheDocument();
+    expect(container.querySelector("details")).toBeNull();
+    openDataBasis();
+    expect(within(quality()).getByText(/^Session rate cohort: 13 matched calls, 6 unmatched calls retained in Calls Made/)).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText(`Converted by source isn't available: ${reportLeadSources().converted_unavailable_reason}`)).toBeInTheDocument();
+    expect(screen.getByRole("dialog").querySelector("time")!.getAttribute("datetime")).toBe("2026-07-20T18:00:00Z");
+  });
+
+  it("is absent until a scope resolves", () => {
+    h.scopeState = { status: "loading" };
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Data basis" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["a failed summary", () => { h.panels = { ...allReady(), summary: failed() }; }, "Live data-quality counts are unavailable because the summary didn't load."],
+    ["a loading summary", () => { h.panels = { ...allReady(), summary: { status: "loading" } }; }, "Data-quality counts appear when the summary has loaded."],
+    ["a summary that is no longer current", () => { h.current = false; }, "Data-quality counts appear when the summary has loaded."],
+    ["a withheld report (scope drift)", () => { h.mismatchDate = true; }, "Live data-quality counts are unavailable because the summary didn't load."],
+  ])("%s shows words, never digits or a stale as-of", (_label, arrange, message) => {
+    arrange();
+    renderPage();
+    const sheet = openDataBasis();
+    expect(within(quality()).getByText(message)).toBeInTheDocument();
+    expect(quality().textContent).not.toMatch(/\d/);
+    expect(sheet.querySelector("time")).toBeNull();
+    expect(sheet.textContent).not.toMatch(/Session rate cohort|\$1,481\.40/);
   });
 });

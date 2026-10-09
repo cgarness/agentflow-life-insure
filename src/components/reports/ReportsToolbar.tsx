@@ -38,6 +38,8 @@ interface Props {
   canExport: boolean;
   exportReady: boolean;
   onExport: () => void;
+  /** The Data basis trigger, shown in the status line once the scope has resolved. */
+  dataBasis?: React.ReactNode;
 }
 
 const DatePick: React.FC<{ label: string; value: string | null; disabled: boolean; onChange: (d: string | null) => void }> = ({ label, value, disabled, onChange }) => (
@@ -112,6 +114,7 @@ const ReportsToolbar: React.FC<Props> = (p) => {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {p.range && <span className="font-medium text-foreground" data-testid="report-period">{longDateLabel(p.range.startDate)} – {longDateLabel(p.range.endDate)}</span>}
             <span>{p.scope ? SCOPE_LABELS[p.scope.scope] + " · " + p.scope.time_zone : p.scopeStatusText}</span>
+            {p.scope && p.dataBasis}
           </div>
           {multiAgent && p.scope && (
             <div className="flex items-center gap-2">

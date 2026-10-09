@@ -14,8 +14,21 @@ export const POLICY_SOURCE_NOTE =
 export const CURRENT_ASSIGNMENT_NOTE =
   "Agent policy counts and premiums use the client's current assigned agent, not the original seller; a reassigned client moves its policies.";
 
-export const CAMPAIGN_ATTRIBUTION_NOTE =
-  "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale. Campaign breakdowns include only campaigns this viewer may read; unavailable attribution is non-identifying.";
+export const CAMPAIGN_LINEAGE_NOTE =
+  "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale.";
+
+export const CAMPAIGN_VISIBILITY_NOTE =
+  "Campaign breakdowns include only campaigns this viewer may read; unavailable attribution is non-identifying.";
+
+/** The CSV note: exactly the two sentences above joined by one space (byte-identical to the original). */
+export const CAMPAIGN_ATTRIBUTION_NOTE = `${CAMPAIGN_LINEAGE_NOTE} ${CAMPAIGN_VISIBILITY_NOTE}`;
+
+// Data basis sentences (screen only; the CSV note builders below never use them).
+export const POLICY_SEVERAL_PER_CLIENT_NOTE = "One client can hold several policies.";
+export const POLICY_ISSUE_DATE_NOTE = "Older additional policies with no sold-date field are dated by their issue date.";
+export const POLICY_UNDATED_NOTE = "A policy without a readable sale date is not counted in any period.";
+export const LEADERBOARD_CREDIT_NOTE =
+  "The Leaderboard instead credits each original sale event to its original seller on the event date, so its totals can differ.";
 
 function plural(n: number, one: string, many: string): string {
   return `${formatCount(n)} ${n === 1 ? one : many}`;
