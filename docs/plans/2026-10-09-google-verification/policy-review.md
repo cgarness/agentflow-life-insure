@@ -1,8 +1,8 @@
 # AgentFlow policy review — October 9, 2026
 
-**Proposed text for owner approval; not published and not effective.** This is the same text rendered by the preview. The final release will set its actual effective date.
+**Approved by Chris for publication on October 9, 2026 at 12:58 PDT. Effective date: October 9, 2026.** This is the exact approved application text. Production release/readback is recorded in verification.md.
 
-Operator and retention targets reuse Chris’s earlier approvals. Review the full language below before authorizing publication.
+Operator and retention targets reuse Chris’s earlier approvals. Approval covers publication of the full language below; it is not Google verification or evidence of completed security work.
 
 ## Privacy Policy
 

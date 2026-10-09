@@ -2,6 +2,10 @@
 
 Date: October 9, 2026. Base/main/production source: `8d53531d0edc509cc97fdc49a06c4873438ca67d`. Branch: `codex/google-verification-pages-20261009`.
 
+## Approved publication release
+
+Chris approved the exact policies and their publication at 12:58 PDT. The release sets `approved: true` and the effective date to October 9, 2026; all policy paragraphs are unchanged from the browser-reviewed text. Fresh main and production still match the recorded base. Final root TypeScript, scoped legal-content lint, diff checks and production build pass (21.18 seconds). Only the approval flag/date and documentation changed since the successful preview check. Production readback will be added after execution. The preparation-only statuses below describe the earlier checkpoints.
+
 ## Scope and review
 
 - Two public legal routes, shared static legal copy/layout, homepage Google explanation, working footer links and submission documentation only.

@@ -1,3 +1,7 @@
+## 2026-10-09 — Google verification website publication approved
+
+Chris approved the exact reviewed Privacy Policy/Terms and publication on fflagent.com at 12:58 PDT. Finalize PR #432 by setting the publication flag and October 9, 2026 effective date; approved policy paragraphs are unchanged. Fresh main and Vercel production remain `8d53531d`. The scoped website release and live readback are in progress. This approval does not certify Google compliance or authorize the separate backend, assessment-purchase or Google-submission actions.
+
 ## 2026-10-09 — Google verification preview checks completed
 
 Chris explicitly approved temporary Vercel preview access at 12:52 PDT. Created a link for the PR #432 preview only (expires October 10 at 18:52:27 UTC; token not committed). Preview `dpl_EgTvCN81nLUPmg8fhzstudUaUc7p`, source `4688d399d560d56ea82e8ec28ffc2a0aacdee521`, is READY. Browser checks passed for direct Privacy/Terms access without AgentFlow sign-in, legal navigation, both homepage footer links, and the new Google disclosure/Privacy link. Inspected desktop rendering and saved a review screenshot; no application fixes were needed. Local build/lint and unchanged app-typecheck baseline remain applicable. Exact policy/publication approval is still required. Production, Google configuration and backend are unchanged; this does not resolve the submission packet's domain, scope, security/assessment and real-demo gates.

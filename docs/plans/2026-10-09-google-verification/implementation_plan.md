@@ -2,6 +2,8 @@
 
 Chris asked to prioritize Google verification and authorized starting the work needed for submission at 12:33 PDT. Prepare the smallest reviewable website/submission change. Broader integration usability is deferred. This authorizes implementation and a draft review PR; it does not certify Google compliance, approve the final legal copy, commission an assessor, submit to Google, or authorize production backend changes.
 
+**Publication approval, 12:58 PDT:** After inspecting the exact policy copy and verified preview, Chris approved these policies and their publication on fflagent.com. This supersedes the earlier website publication gate only. Set the approval flag and effective date to October 9, 2026; update the review/submission records; merge PR #432 and verify the production homepage/privacy/terms. No policy paragraphs will change. Google submission, assessment purchases and backend scope/security work are not included in this release.
+
 ## Source and evidence
 
 - Current main and Vercel production: `8d53531d0edc509cc97fdc49a06c4873438ca67d`; production `agentflow`, deployment `dpl_28cKkn6bUSTKXTCoRgZ39iSCKTkP`, READY.

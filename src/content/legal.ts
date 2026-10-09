@@ -1,10 +1,10 @@
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
-// Final publication requires Chris's approval of this exact copy and a release date.
+// Chris approved this exact copy and publication on October 9, 2026.
 // A public policy is not evidence of Google verification or completed security work.
 export const legalPublication = {
-  approved: false,
-  effectiveDate: null as string | null,
+  approved: true,
+  effectiveDate: "October 9, 2026" as string | null,
   reviewedOn: "October 9, 2026",
   operator: "Christopher Garness",
   supportEmail: "cgarness.ffl@gmail.com",

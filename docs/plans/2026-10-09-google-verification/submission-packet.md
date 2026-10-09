@@ -2,6 +2,8 @@
 
 Prepared October 9, 2026. **Preparation only: not submitted, not verified, and not yet ready to certify.** This packet uses production source readback and Chris's Google Console screenshots. It does not treat draft PR #378 as deployed software.
 
+**Website update, 12:58 PDT:** Chris approved the exact policies and their publication with an October 9, 2026 effective date. Publication is being executed through PR #432; consult verification.md for completed production readback. This resolves the owner-approval step below, not the separate Google submission gates.
+
 ## 1. Brand fields
 
 Open [Google Auth Platform](https://console.cloud.google.com/auth/overview?project=87346168200), select **My First Project** (`project-b7e9b5b4-d066-48c9-b36`), and use the **AgentFlow Web** OAuth client. Preserve the older AgentFlow client.
