@@ -22,9 +22,9 @@ The same approval excluded these actions, and none was taken:
 | Item | Value |
 |---|---|
 | PR-A (frontend refresh) | [#436](https://github.com/cgarness/agentflow-life-insure/pull/436), merged 2026-10-10T04:19Z as **`b00bfedcc236f1a346236499ea71ef45a1af504e`** (merge commit; parents `a41ed8ea`, `3441d2de`). The merge tree `36c5e136e31eaa78c044d3a68e1b1220fa73b697` equals the verified head tree. |
-| PR-A production deploy | Vercel `agentflow` **`dpl_Ai4dmqDT8KqMmDstJC5Bsw4Xinxb`**: READY at 04:20Z, aliases `www.fflagent.com` and `fflagent.com`. The build compiled 4,758 modules; entry asset `index-D1qdqzQ0.js`. |
+| PR-A production deploy | Vercel `agentflow` **`dpl_Ai4dmqDT8KqMmDstJC5Bsw4Xinxb`**: READY at 04:20Z. It served `www.fflagent.com` and `fflagent.com` from about 04:20:27Z to 04:50:23Z. The build compiled 4,758 modules; entry asset `index-D1qdqzQ0.js`. |
 | PR-B (R-3 SQL) | [#435](https://github.com/cgarness/agentflow-life-insure/pull/435), merged 2026-10-10T04:49Z as **`462fa12b7382f63a28f2f8a620897cd93b465e58`** (merge commit; parents `b00bfedc`, `aff4c3e4`). The merge tree `7e89db7a63a8088bff5cdad09cab8a7992ccefcf` equals the renamed head tree. |
-| PR-B production deploy | Vercel `agentflow` **`dpl_DAYBGK7CTed17C924F1o9cqCE4HH`**: READY at 04:50Z, same aliases. No frontend source changed. The entry asset is `index-5WIJfU-d.js`, 0.18 kB larger than PR-A's: the merge commit messages differ by exactly 181 characters, consistent with Vercel's system variables being inlined into the bundle. |
+| PR-B production deploy (currently serving) | Vercel `agentflow` **`dpl_DAYBGK7CTed17C924F1o9cqCE4HH`**: READY at 04:50Z. It has served `www.fflagent.com` and `fflagent.com` since 04:50:23Z. No frontend source changed. The entry asset is `index-5WIJfU-d.js`, 0.18 kB larger than PR-A's: the merge commit messages differ by exactly 181 characters, consistent with Vercel's system variables being inlined into the bundle. |
 | Rollback candidate (frontend) | `dpl_CPrZT6CHyWNudUhXjU9dkiXWPutP` (`a41ed8ea`). The plan's rollback is a revert of the merge. No rollback was needed or performed. |
 | Supabase GitHub integration | The "Supabase Preview" check on both merge commits is *skipped: not associated with any Supabase Branch*, so deploy-to-production stays off. No migration was replayed by either merge. [GitHub] [CATALOG] |
 
@@ -113,7 +113,23 @@ PR-A's earlier run 38017618975 failed on a browser-gate focus check that raced R
 
 ## 7. Production verification after release
 
-PHASE4_PLACEHOLDER
+Read-only verification ran after the release, 04:38–05:25Z. Each statement ran inside `begin read only … rollback`, using repeatable read where two sides had to share one snapshot. Evidence files are kept outside the repository. No live CSV or payload is committed; only hashes and counts are recorded.
+
+| Area | Result | Evidence |
+|---|---|---|
+| Calls and Contacted | **Pass** | [DB-sim] vs [independent SQL] in one snapshot. Agency: W1 1,833 / 135, W3 4,136 / 310, open day 2026-10-09 175 / 3. The No Answer over 45 s exclusion was applied (42 calls in W1, 61 in W3). Team (Team Leader), personal (two Agents) and the restricted Agent also match in 12 more cases. |
+| Talk time and session time | **Pass** | Agency: W1 39,893 s / 95,862 s, W3 93,237 / 396,827, today 2,680 / 2,164. The independent gaps-and-islands union equals the RPC, and so does the per-agent session map. `overlap_seconds_removed` is 0 wherever `overlapping_rows` is 0. Session seconds equal the pre-window and post-window values. |
+| Bookings and dispositions | **Pass** | W1 25 bookings (appointment 5 / callback 5 / unknown 15), W3 60. Disposition buckets and the histogram sum to calls made and equal the Phase 1 values. Σby_date, Σby_hour, Σby_day_of_week and Σheatmap all equal calls made. |
+| Policies Sold and Known Annual Premium | **Pass** (69/69 checks) | W1 1 / $1,281.60, W2 4 / $3,205.32, W3 4 / $3,831.72, W5 9 / $10,655.52. Monthly ×12 holds, known + unknown equals the policy count, and by_agent + unattributed equals the totals. For September 2026, Reports equals the Leaderboard (`performance_rows`) equals the independent recompute: 4 / $3,205.32, over the same 4 policy identities. |
+| Campaign and lead-source reporting | **Pass** | Calls: campaign + attribution-unavailable = summary calls (W1 1,146 + 687 = 1,833 … W5 3,475 + 2,164 = 5,639), and lead source + unattributed = summary calls. Policies and premium partition likewise. The restricted Agent sees no hidden campaign: 0 occurrences, and those calls are in the unavailable bucket. |
+| Personal / Team / Agency authorization | **Pass**, one pre-existing deviation | 31/32 checks pass: the scope matrix, NULL resolving to the maximum scope, `p_agent_id` narrowing, 42501 for out-of-scope agents, a forged organization and an unknown sub, and grants (anon 0; authenticated exactly the six v2 RPCs). The Team Leader's downline set equals an independent recursive upline query. **Deviation 3k:** with `request.jwt.claims = ''` in a direct SQL session, the RPCs return SQLSTATE 22P02 instead of 42501, from the shared `public.get_org_id()` (unchanged since the baseline). Access is still denied, PostgREST cannot produce this state, and it predates this release. Follow-up task. |
+| Date ranges and time zone | **Pass** | The agency time zone is America/Los_Angeles, and W1 is [10-01T07:00Z, 10-08T07:00Z). 2026-03-08 is a 23 h day and 2026-11-01 a 25 h day. by_date is complete; single-day and today windows are correct; reversed or over-366-day ranges are refused. The real `presetRange` code gives identical ranges in 8 browser time zones. Live calls cannot show DST bucketing, since there are none before 2026-05-20. |
+| CSV export consistency | **Pass** | [local, real export code] The real Reports page and export code from `main` (src tree `61553436`, identical at `b00bfedc` and `462fa12b`) ran in jsdom on live agency W1 payloads.<br>• 29 CSV kinds, the same set as the golden baseline; headers equal the golden ones.<br>• 538 data rows equal the payload, with 40 money cells exact.<br>• 65 null values export blank.<br>• The Sessions Note reads "0 overlapping rows; 0 duplicate seconds removed".<br>• C-1's `k/n` format is unchanged, and the formula guard is active.<br>• A 7-mutation negative control was caught. |
+| Database, deployment and console errors | **Pass / partial** | [logs] postgres has 0 ERROR from app traffic since the deploy; the only two ERRORs came from the verifiers' own catalog SQL. Edge shows 0 Reports requests at 400 or above. Vercel shows 0 runtime errors in both projects. The migration list is unchanged after both merges. Browser console errors need a signed-in session: **unverified** (§8). |
+
+**Other notes:**
+- The Team Leader's team now resolves to 4 agents. Phase 1 recorded 2. The change traces to Chris's in-app profile edits on 2026-10-09 at 15:47Z, which is ordinary data and unrelated to this release.
+- Agency today (175) = Team Leader team (172) + Alexa (3).
 
 ## 8. Not verified, and why
 

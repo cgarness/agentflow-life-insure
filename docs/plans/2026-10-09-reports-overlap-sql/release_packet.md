@@ -293,6 +293,8 @@ The applied migration files stay as the historical record; applied migrations ar
 
 ## 9. Unverified (exact reason)
 
+*Release outcome (2026-10-10):* the hosted apply, readbacks and merge are complete. See `docs/plans/2026-10-09-reports-refresh-audit/production-release.md`. The items below record the pre-release state.
+
 - **DDL and guard execution on PostgreSQL 17.6:** only PostgreSQL 16 binaries exist locally. CI's `postgres:17.6` job passed on head `646bb7fd` (Reports backend verification run 38014466408). The corrected expression also ran on production 17.6 as a read-only SELECT.
 - **Hosted apply, readback and rollback:** not executed. Each needs Chris's separate exact approval; production was only read.
 - **Browser gate:** not re-run for this change. Its input payload JSON is unchanged (§4.1).
