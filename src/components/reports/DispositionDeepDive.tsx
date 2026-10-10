@@ -1,23 +1,21 @@
 import React, { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatRate } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportDispositions } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
+import { BAR_GRID, CHART_TICK, DIAGNOSTIC_TOOLTIP } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
+import ReportSegmented from "./ReportSegmented";
 
 type Tab = "agent" | "campaign";
 type Mode = "count" | "pct";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "agent", label: "By agent" },
-  { key: "campaign", label: "By campaign" },
-];
-const MODES: { key: Mode; label: string }[] = [
-  { key: "count", label: "Count" },
-  { key: "pct", label: "% of row total" },
-];
+const TABS: ReadonlyArray<readonly [Tab, string]> = [["agent", "By agent"], ["campaign", "By campaign"]];
+const MODES: ReadonlyArray<readonly [Mode, string]> = [["count", "Count"], ["pct", "% of row total"]];
 const TOP_N = 8;
 const OTHER_COLOR = "hsl(var(--muted-foreground))";
+/** A later series whose configured colour repeats an earlier one is drawn lighter, never recoloured. */
+const REPEAT_OPACITY = 0.55;
 
 interface Series {
   /** Synthetic chart key (disposition keys may contain dots, which recharts reads as paths). */
@@ -26,6 +24,8 @@ interface Series {
   color: string;
   /** Disposition key in the payload's `counts` map; null for the grouped "Other" series. */
   key: string | null;
+  /** True when an earlier series has the same configured colour (Disposition Settings allow repeats). */
+  repeat: boolean;
 }
 
 type ChartRow = { name: string; total: number } & Record<string, number | string>;
@@ -35,20 +35,23 @@ interface Props {
   onExport?: ReportExportFn;
 }
 
-const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--foreground))",
-};
-const textStyle = { color: "hsl(var(--foreground))" };
 const truncate = (s: string) => (s.length > 18 ? `${s.slice(0, 18)}…` : s);
+const sameColor = (a: string) => a.trim().toLowerCase();
 
-function toggleClass(active: boolean) {
-  return cn(
-    "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
-    active ? "bg-card text-primary shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+/** Every series is named in text; a repeated colour's swatch is lighter and ringed, as its bars are lighter. */
+function SeriesLegend({ series }: { series: Series[] }) {
+  return (
+    <ul aria-label="Dispositions" className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+      {series.map((s) => (
+        <li key={s.id} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" data-repeat-color={s.repeat || undefined}>
+          <span aria-hidden="true" className={cn("flex h-2.5 w-2.5 shrink-0 rounded-full", s.repeat && "ring-1 ring-foreground/40")}>
+            {/* The configured disposition colour (data-driven). */}
+            <span className={cn("h-full w-full rounded-full", s.repeat && "opacity-[0.55]")} style={{ backgroundColor: s.color }} />
+          </span>
+          <span className="break-words">{s.name}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -59,8 +62,11 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
   const series = useMemo<Series[]>(() => {
     // Server order is calls DESC, so the first N rows are the top N by calls.
     const all = dispositions.by_disposition;
-    const top: Series[] = all.slice(0, TOP_N).map((d, i) => ({ id: `s${i}`, name: d.name, color: d.color, key: d.key }));
-    if (all.length > TOP_N) top.push({ id: "other", name: "Other", color: OTHER_COLOR, key: null });
+    const top: Series[] = all.slice(0, TOP_N).map((d, i, shown) => ({
+      id: `s${i}`, name: d.name, color: d.color, key: d.key,
+      repeat: shown.slice(0, i).some((earlier) => sameColor(earlier.color) === sameColor(d.color)),
+    }));
+    if (all.length > TOP_N) top.push({ id: "other", name: "Other", color: OTHER_COLOR, key: null, repeat: false });
     return top;
   }, [dispositions]);
 
@@ -105,22 +111,10 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Disposition Deep Dive" defaultOpen={false} onExport={handleExport}>
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl w-fit">
-          {TABS.map((t) => (
-            <button key={t.key} type="button" onClick={() => setTab(t.key)} className={toggleClass(t.key === tab)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl w-fit">
-          {MODES.map((m) => (
-            <button key={m.key} type="button" onClick={() => setMode(m.key)} className={toggleClass(m.key === mode)}>
-              {m.label}
-            </button>
-          ))}
-        </div>
+    <ReportSection title="Disposition deep dive" defaultOpen={false} onExport={handleExport}>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <ReportSegmented ariaLabel="Break down by" value={tab} onChange={(next) => setTab(next)} options={TABS} />
+        <ReportSegmented ariaLabel="Show values as" value={mode} onChange={(next) => setMode(next)} options={MODES} />
       </div>
 
       {tab === "campaign" && dispositions.campaign_attribution_unavailable_calls > 0 && (
@@ -129,7 +123,7 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         </p>
       )}
       {chartData.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">
+        <p className="py-12 text-center text-sm text-muted-foreground">
           {dispositions.total_calls === 0
             ? "No outbound calls in this period."
             : tab === "campaign"
@@ -140,39 +134,34 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         <>
           <ResponsiveContainer width="100%" height={Math.max(240, chartData.length * 40 + 60)}>
             <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+              <CartesianGrid {...BAR_GRID} />
               <XAxis
                 type="number"
-                tick={tick}
+                tick={CHART_TICK}
+                tickLine={false}
+                axisLine={{ stroke: "hsl(var(--border))" }}
                 allowDecimals={false}
                 domain={mode === "pct" ? [0, 100] : [0, "auto"]}
                 // Float shares can stack to 100.00000000000001, which would stretch the axis to 120%.
                 allowDataOverflow={mode === "pct"}
                 tickFormatter={(v: number) => (mode === "pct" ? `${v}%` : formatCount(v))}
               />
-              <YAxis type="category" dataKey="name" width={130} tick={tick} tickFormatter={truncate} />
+              <YAxis type="category" dataKey="name" width={130} tick={CHART_TICK} tickLine={false} axisLine={false} tickFormatter={truncate} />
               <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={textStyle}
-                itemStyle={textStyle}
-                cursor={{ fill: "hsl(var(--muted))" }}
+                {...DIAGNOSTIC_TOOLTIP}
                 formatter={(v: number, name: string, item: { dataKey?: string | number; payload?: ChartRow }) => {
                   const raw = item.payload?.[`raw_${String(item.dataKey)}`];
                   const suffix = typeof raw === "number" ? ` (${formatCount(raw)})` : "";
                   return [mode === "pct" ? `${formatRate(v)}${suffix}` : formatCount(v), name];
                 }}
               />
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                formatter={(value: string) => <span className="text-[11px] text-muted-foreground">{value}</span>}
-              />
               {series.map((s) => (
-                <Bar key={s.id} dataKey={s.id} name={s.name} stackId="d" fill={s.color} />
+                <Bar key={s.id} dataKey={s.id} name={s.name} stackId="d" fill={s.color} fillOpacity={s.repeat ? REPEAT_OPACITY : 1} isAnimationActive={false} />
               ))}
             </BarChart>
           </ResponsiveContainer>
-          <p className="text-[11px] text-muted-foreground mt-3">
+          <SeriesLegend series={series} />
+          <p className="mt-3 text-xs text-muted-foreground">
             Outbound calls{tab === "campaign" ? " with a campaign" : " with an assigned agent"}.
             {series.some((s) => s.key === null) ? ` Top ${TOP_N} dispositions by calls; the rest are grouped as Other.` : ""}
           </p>

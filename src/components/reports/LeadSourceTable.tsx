@@ -1,15 +1,18 @@
 import React from "react";
-import { Info } from "lucide-react";
+import { convertedBySourceNote } from "@/lib/reports-basis-text";
 import { formatCount, formatRate } from "@/lib/reports-format";
 import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
 import type { ReportLeadSources } from "@/lib/reports-schemas";
 import ReportSection from "./ReportSection";
+import ReportTableFrame from "./ReportTableFrame";
+import { ROW_LABEL, TD, TD_FIRST, TF, TF_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./reportTableStyles";
 
 interface Props {
   leadSources: ReportLeadSources;
   onExport?: ReportExportFn;
 }
 
+/** Screen columns. Converted is CSV-only: the server pins it unavailable, so on screen it would only say so. */
 const HEADERS = [
   "Source",
   "New leads",
@@ -18,7 +21,6 @@ const HEADERS = [
   "Call contact rate",
   "Leads dialed",
   "Contacted leads",
-  "Converted",
 ];
 
 const EXPORT_HEADERS = [
@@ -32,13 +34,11 @@ const EXPORT_HEADERS = [
   "Converted",
 ];
 
-const th = "py-3 px-4 text-muted-foreground font-bold uppercase tracking-wider text-[11px] whitespace-nowrap";
-const td = "py-3 px-4 text-right text-muted-foreground font-medium tabular-nums";
-
 /**
  * Lead Source Performance — per-source activity from the secured lead-source RPC, in server order.
- * Converted-by-source is not measurable (conversion removes the source lead), so the column says so
- * instead of showing a number. There is no cost / ROI data and no conversion rate.
+ * Converted-by-source is not measurable (conversion removes the source lead): one line says so and the
+ * CSV keeps the empty column. Calls with no current lead stay visible as the "Not linked to a current
+ * lead" row, even when no source has activity. There is no cost / ROI data and no conversion rate.
  */
 const LeadSourceTable: React.FC<Props> = ({ leadSources, onExport }) => {
   const { sources, converted_unavailable_reason: convertedReason, unattributed_calls: unattributed } = leadSources;
@@ -62,71 +62,46 @@ const LeadSourceTable: React.FC<Props> = ({ leadSources, onExport }) => {
     : undefined;
 
   return (
-    <ReportSection title="Lead Source Performance" onExport={handleExport}>
-      <p className="flex items-center gap-2 text-xs text-muted-foreground mb-4">
-        <Info className="w-3.5 h-3.5 text-primary shrink-0" />
-        Cost and ROI tracking are not available yet.
-      </p>
-      {sources.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No lead-source activity in this period.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-border/60">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="border-b border-border/60">
-                {HEADERS.map((h, i) => (
-                  <th key={h} className={`${th} ${i === 0 ? "text-left" : "text-right"}`}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {sources.map((s) => (
-                <tr key={s.lead_source} className="hover:bg-muted/40 transition-colors">
-                  <td className="py-3 px-4 font-bold text-foreground">{s.lead_source}</td>
-                  <td className={td}>{formatCount(s.new_leads)}</td>
-                  <td className={td}>{formatCount(s.calls_made)}</td>
-                  <td className={td}>{formatCount(s.contacted_calls)}</td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {s.contact_rate_pct !== null && (
-                        <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${Math.min(Math.max(s.contact_rate_pct, 0), 100)}%` }}
-                          />
-                        </div>
-                      )}
-                      <span className="font-bold text-foreground tabular-nums w-14 text-right">
-                        {formatRate(s.contact_rate_pct)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className={td}>{formatCount(s.leads_dialed)}</td>
-                  <td className={td}>{formatCount(s.contacted_leads)}</td>
-                  <td className="py-3 px-4 text-right">
-                    <span
-                      className="text-[11px] font-medium text-muted-foreground cursor-help underline decoration-dotted underline-offset-2 whitespace-nowrap"
-                      title={convertedReason}
-                    >
-                      Not available
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {sources.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-3">Converted by source is not available: {convertedReason}</p>
-      )}
-      {unattributed > 0 && (
-        <p className="text-xs text-muted-foreground mt-3">
-          {formatCount(unattributed)} outbound calls are not linked to a current lead (for example, leads that were
-          converted), so they are not attributed to a source.
+    <ReportSection title="Lead sources" onExport={handleExport}>
+      {sources.length > 0 && <p className="mb-3 text-xs text-muted-foreground">{convertedBySourceNote(convertedReason)}</p>}
+      {sources.length === 0 && (
+        <p className={unattributed > 0 ? "mb-3 text-sm text-muted-foreground" : "py-12 text-center text-sm text-muted-foreground"}>
+          No lead-source activity in this period.
         </p>
+      )}
+      {(sources.length > 0 || unattributed > 0) && (
+        <ReportTableFrame label="Lead sources table" tableClassName="min-w-[720px]"
+          caption="Outbound call activity by the current lead's source for the selected report.">
+          <thead>
+            <tr>
+              {HEADERS.map((h, i) => (
+                <th key={h} scope="col" className={i === 0 ? TH_FIRST : TH}><span className={TH_LABEL}>{h}</span></th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sources.map((s) => (
+              <tr key={s.lead_source} className={TR}>
+                <th scope="row" className={TD_FIRST}><span className={ROW_LABEL}>{s.lead_source}</span></th>
+                <td className={TD}>{formatCount(s.new_leads)}</td>
+                <td className={TD}>{formatCount(s.calls_made)}</td>
+                <td className={TD}>{formatCount(s.contacted_calls)}</td>
+                <td className={TD}>{formatRate(s.contact_rate_pct)}</td>
+                <td className={TD}>{formatCount(s.leads_dialed)}</td>
+                <td className={TD}>{formatCount(s.contacted_leads)}</td>
+              </tr>
+            ))}
+          </tbody>
+          {unattributed > 0 && (
+            <tfoot>
+              {/* One cell per column: only calls can be counted without a current lead. */}
+              <tr>
+                <th scope="row" className={TF_FIRST}><span className={ROW_LABEL}>Not linked to a current lead</span></th>
+                {HEADERS.slice(1).map((h) => <td key={h} className={TF}>{h === "Calls made" ? formatCount(unattributed) : null}</td>)}
+              </tr>
+            </tfoot>
+          )}
+        </ReportTableFrame>
       )}
     </ReportSection>
   );

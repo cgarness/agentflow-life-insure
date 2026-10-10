@@ -11,6 +11,12 @@ interface Props {
 
 const SECTION_META = new Map(REPORT_LAYOUT_SECTIONS.map((section) => [section.id, section]));
 
+/**
+ * Metric strip tile: two per row on phones, three from md, one equal row from xl. Tiles grow to fill
+ * their row, so 1–6 visible metrics never leave a grey filler cell; the -1px offset hides the outer edges.
+ */
+const STRIP_TILE = "min-w-[50%] flex-1 border-l border-t border-border/60 md:min-w-[33.333%] xl:min-w-0";
+
 /** Preferences control only registered sections; fixed production content is rendered by Reports. */
 const SectionRenderer: React.FC<Props> = ({ sections, components, showTeamSections, group }) => (
   <>
@@ -22,30 +28,26 @@ const SectionRenderer: React.FC<Props> = ({ sections, components, showTeamSectio
       });
       if (!visible.length) return null;
 
-      return (
-        <div
-          key={item.id}
-          role="group"
-          aria-label={item.label}
-          data-report-group={item.id}
-          className="min-w-0"
-        >
-          {item.id !== "stats" && (
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold tracking-tight">{item.label}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {item.id === "performance" ? "People, campaigns, and lead sources." : "Call patterns and dialer activity."}
-              </p>
+      if (item.id === "stats") {
+        return (
+          <div key={item.id} role="group" aria-label={item.label} data-report-group={item.id}
+            className="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card">
+            <div className="-ml-px -mt-px flex flex-wrap">
+              {visible.map((section) => (
+                <div key={section.id} data-report-section={section.id} className={STRIP_TILE}>{components[section.id]}</div>
+              ))}
             </div>
-          )}
-          <div className={item.id === "stats"
-            ? "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 md:grid-cols-3 xl:grid-cols-6"
-            : "grid grid-cols-1 gap-4 lg:grid-cols-2"}>
+          </div>
+        );
+      }
+
+      return (
+        <div key={item.id} role="group" aria-label={item.label} data-report-group={item.id} className="min-w-0 space-y-3">
+          <h2 className="text-base font-semibold tracking-tight">{item.label}</h2>
+          {/* Performance tables are all full width so their important columns stay visible. */}
+          <div className={item.id === "performance" ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 lg:grid-cols-2"}>
             {visible.map((section) => (
-              <div key={section.id} data-report-section={section.id}
-                className={section.id === "agent_performance_cards" || section.id === "agent_efficiency" ? "min-w-0 lg:col-span-2" : "min-w-0"}>
-                {components[section.id]}
-              </div>
+              <div key={section.id} data-report-section={section.id} className="min-w-0">{components[section.id]}</div>
             ))}
           </div>
         </div>

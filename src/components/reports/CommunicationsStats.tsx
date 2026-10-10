@@ -1,7 +1,6 @@
 import React from "react";
-import { Clock, Headphones, Percent, Phone, PhoneIncoming, Timer, TrendingUp, UserCheck, type LucideIcon } from "lucide-react";
 import type { ReportSummary } from "@/lib/reports-schemas";
-import { formatCount, formatDuration, formatHours, formatRate, formatPremium, ratio } from "@/lib/reports-format";
+import { formatCount, formatElapsed, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn, CsvCell } from "@/lib/reports-export";
 import ReportSection from "./ReportSection";
 
@@ -13,88 +12,58 @@ interface Props {
 }
 
 interface Metric {
-  icon: LucideIcon;
   label: string;
   value: string;
   subtitle?: string;
-  wide?: boolean;
   /** Export label and raw value (numbers stay numbers; an undefined value is null, never 0). */
   exportLabel: string;
   raw: CsvCell;
 }
 
-const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
+type ExportRow = [string, CsvCell];
 
-const StatTile: React.FC<Omit<Metric, "exportLabel" | "raw">> = ({ icon: Icon, label, value, subtitle, wide }) => (
-  <div className={`min-w-0 rounded-xl border border-border/50 bg-muted/40 p-4${wide ? " col-span-2" : ""}`}>
-    <div className="flex items-center gap-2 mb-2">
-      <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground break-words">{label}</p>
-    </div>
-    <p className="text-xl font-bold text-foreground tracking-tight [overflow-wrap:anywhere]" title={value}>{value}</p>
-    {subtitle && <p className="text-[11px] text-muted-foreground break-words mt-0.5">{subtitle}</p>}
-  </div>
-);
+const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
 
 /**
  * Call Summary — totals straight from the secured summary RPC. Rates come from the server
  * (`null` → "—"); the only client-side figure is calls made per agency day, from two canonical counts.
+ * The two premium rows stay in the CSV only: the production band shows those amounts on screen.
  */
 const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) => {
   const t = summary.totals;
   const callsPerDay = round1(ratio(t.calls_made, dayCount));
 
+  /** CSV-only rows, first as before, so the export rows are unchanged. */
+  const premiumRows: ExportRow[] = [
+    ["Known annual premium (current monthly ×12)", t.premium.annual_premium],
+    ["Average annual premium per known policy", t.premium.average_annual_premium],
+  ];
+
   const metrics: Metric[] = [
-    { icon: TrendingUp, label: "Known annual premium", value: formatPremium(t.premium.annual_premium), subtitle: `${t.premium.known_count}/${t.premium.policy_count} policies known · current book`, wide: true, exportLabel: "Known annual premium (current monthly ×12)", raw: t.premium.annual_premium },
-    { icon: TrendingUp, label: "Avg annual premium / known policy", value: formatPremium(t.premium.average_annual_premium), subtitle: `${t.premium.unknown_count} unknown premiums excluded`, wide: true, exportLabel: "Average annual premium per known policy", raw: t.premium.average_annual_premium },
+    { label: "Calls made", value: formatCount(t.calls_made), subtitle: "Outbound dials", exportLabel: "Calls made (outbound)", raw: t.calls_made },
+    { label: "Inbound calls", value: formatCount(t.inbound_calls), exportLabel: "Inbound calls", raw: t.inbound_calls },
     {
-      icon: Phone,
-      label: "Calls made",
-      value: formatCount(t.calls_made),
-      subtitle: "Outbound dials",
-      exportLabel: "Calls made (outbound)",
-      raw: t.calls_made,
-    },
-    {
-      icon: PhoneIncoming,
-      label: "Inbound calls",
-      value: formatCount(t.inbound_calls),
-      exportLabel: "Inbound calls",
-      raw: t.inbound_calls,
-    },
-    {
-      icon: UserCheck,
-      label: "Contacted",
+      label: "Contacted calls",
       value: formatCount(t.contacted),
       subtitle: "Outbound calls that reached a contact",
       exportLabel: "Contacted",
       raw: t.contacted,
     },
     {
-      icon: Percent,
       label: "Call contact rate",
       value: formatRate(t.contact_rate_pct),
       subtitle: "Contacted calls ÷ calls made",
       exportLabel: "Call contact rate (%)",
       raw: t.contact_rate_pct,
     },
+    { label: "Talk time", value: formatElapsed(t.talk_time_seconds), subtitle: "On calls made", exportLabel: "Talk time (seconds)", raw: t.talk_time_seconds },
     {
-      icon: Clock,
-      label: "Talk time",
-      value: formatHours(t.talk_time_seconds),
-      subtitle: "On calls made",
-      exportLabel: "Talk time (seconds)",
-      raw: t.talk_time_seconds,
-    },
-    {
-      icon: Timer,
       label: "Avg talk time per dial",
-      value: formatDuration(t.avg_talk_per_dial_seconds),
+      value: formatElapsed(t.avg_talk_per_dial_seconds, 1),
       exportLabel: "Avg talk time per dial (seconds)",
       raw: t.avg_talk_per_dial_seconds,
     },
     {
-      icon: TrendingUp,
       label: "Calls made per day",
       value: callsPerDay === null ? "—" : callsPerDay.toFixed(1),
       subtitle: `Over ${formatCount(dayCount)} ${dayCount === 1 ? "day" : "days"}`,
@@ -102,25 +71,28 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
       raw: callsPerDay,
     },
     {
-      icon: Headphones,
       label: "Inbound talk time",
-      value: formatHours(t.inbound_talk_seconds),
+      value: formatElapsed(t.inbound_talk_seconds),
       exportLabel: "Inbound talk time (seconds)",
       raw: t.inbound_talk_seconds,
     },
   ];
 
   const handleExport = onExport
-    ? () => onExport("Call Summary", ["Metric", "Value"], metrics.map((m) => [m.exportLabel, m.raw]))
+    ? () => onExport("Call Summary", ["Metric", "Value"], [...premiumRows, ...metrics.map((m): ExportRow => [m.exportLabel, m.raw])])
     : undefined;
 
   return (
-    <ReportSection title="Call Summary" onExport={handleExport}>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <ReportSection title="Call summary" defaultOpen={false} onExport={handleExport}>
+      <dl className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {metrics.map((m) => (
-          <StatTile key={m.label} icon={m.icon} label={m.label} value={m.value} subtitle={m.subtitle} wide={m.wide} />
+          <div key={m.label} className="min-w-0 rounded-lg border border-border/50 bg-muted/30 p-3">
+            <dt className="text-xs font-medium leading-4 text-muted-foreground [overflow-wrap:anywhere]">{m.label}</dt>
+            <dd className="mt-1 text-lg font-semibold leading-6 tracking-tight tabular-nums text-foreground [overflow-wrap:anywhere]">{m.value}</dd>
+            {m.subtitle && <dd className="mt-0.5 text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">{m.subtitle}</dd>}
+          </div>
         ))}
-      </div>
+      </dl>
     </ReportSection>
   );
 };

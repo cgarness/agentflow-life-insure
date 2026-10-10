@@ -1,41 +1,34 @@
 import React, { useMemo, useState } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCount, formatRate, ratio } from "@/lib/reports-format";
+import { ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportVolume } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
+import HeatmapGrid, { type HeatmapCell, type HeatmapMetric, type HeatmapRow } from "./HeatmapGrid";
 import ReportSection from "./ReportSection";
+import ReportSegmented from "./ReportSegmented";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DEFAULT_HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 const ALL_HOURS = Array.from({ length: 24 }, (_, i) => i);
 const LEGEND_STEPS = ["bg-primary/20", "bg-primary/40", "bg-primary/60", "bg-primary/80", "bg-primary"];
-
-type Tab = "calls" | "rate";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "calls", label: "Calls made" },
-  { key: "rate", label: "Call contact rate" },
-];
+const TABS: ReadonlyArray<readonly [HeatmapMetric, string]> = [["calls", "Calls made"], ["rate", "Call contact rate"]];
 
 interface Props {
   volume: ReportVolume;
   onExport?: ReportExportFn;
 }
 
-interface Cell {
-  calls: number;
-  contacted: number;
-  rate: number | null;
-}
-
 const fmtHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
-const fmtHourShort = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "a" : "p"}`;
 
+/**
+ * Calling heatmap — outbound calls by weekday and agency hour (06:00–21:59 unless calls fall outside it),
+ * shaded by calls made or by call contact rate. The grid is a semantic table (HeatmapGrid).
+ */
 const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
-  const [tab, setTab] = useState<Tab>("calls");
+  const [tab, setTab] = useState<HeatmapMetric>("calls");
 
   const { grid, hours, maxCalls, maxRate, empty } = useMemo(() => {
-    const cells: Cell[][] = Array.from({ length: 7 }, () =>
+    const cells: Omit<HeatmapCell, "hour">[][] = Array.from({ length: 7 }, () =>
       Array.from({ length: 24 }, () => ({ calls: 0, contacted: 0, rate: null })),
     );
     let outside = false;
@@ -57,6 +50,11 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
     return { grid: cells, hours: shown, maxCalls: mc, maxRate: mr, empty: total === 0 };
   }, [volume]);
 
+  const rows = useMemo<HeatmapRow[]>(
+    () => DAYS.map((day, di) => ({ day, cells: hours.map((hour) => ({ hour, ...grid[di][hour] })) })),
+    [grid, hours],
+  );
+
   const handleExport = onExport
     ? () =>
         onExport(
@@ -66,98 +64,20 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
         )
     : undefined;
 
-  const intensity = (cell: Cell): number | null => {
-    if (cell.calls === 0) return null;
-    if (tab === "calls") return maxCalls > 0 ? cell.calls / maxCalls : null;
-    return maxRate > 0 && cell.rate !== null ? cell.rate / maxRate : 0;
-  };
-
-  const tzCaption = `Hours are in the agency time zone: ${volume.window.time_zone}.`;
-
   return (
-    <ReportSection title="Calling Heatmap" badge="Activity" onExport={handleExport}>
+    <ReportSection title="Calling heatmap" onExport={handleExport}>
       {empty ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
+        <p className="py-12 text-center text-sm text-muted-foreground">No outbound calls in this period.</p>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 mb-5 p-1 bg-muted/60 rounded-xl w-fit" role="group" aria-label="Heatmap metric">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                aria-pressed={t.key === tab}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  "px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all",
-                  t.key === tab ? "bg-card text-primary shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <TooltipProvider>
-            <div className="overflow-x-auto pb-2">
-              <div className={hours.length > 16 ? "min-w-[760px]" : "min-w-[520px]"}>
-                <div className="flex mb-2 ml-10 gap-1">
-                  {hours.map((h) => (
-                    <div key={h} className="flex-1 text-center text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">
-                      {fmtHourShort(h)}
-                    </div>
-                  ))}
-                </div>
-                {DAYS.map((day, di) => (
-                  <div key={day} className="flex items-center mb-1">
-                    <span className="w-10 text-[11px] font-bold text-muted-foreground uppercase shrink-0">{day}</span>
-                    <div className="flex flex-1 gap-1">
-                      {hours.map((h) => {
-                        const cell = grid[di][h];
-                        const level = intensity(cell);
-                        const label = tab === "calls" ? formatCount(cell.calls) : cell.rate === null ? "" : `${Math.round(cell.rate * 100)}%`;
-                        return (
-                          <Tooltip key={h}>
-                            <TooltipTrigger asChild>
-                              <div
-                                className={cn(
-                                  "flex-1 aspect-square rounded-[3px] flex items-center justify-center cursor-default transition-transform hover:scale-110 hover:z-10",
-                                  level === null && "bg-muted",
-                                )}
-                                style={level === null ? undefined : { backgroundColor: `hsl(var(--primary) / ${(0.12 + 0.88 * level).toFixed(3)})` }}
-                              >
-                                {cell.calls > 0 && (
-                                  <span className={cn("text-[9px] font-black", level !== null && level > 0.55 ? "text-primary-foreground" : "text-foreground/70")}>
-                                    {label}
-                                  </span>
-                                )}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="text-xs font-bold bg-card text-foreground border-border">
-                              <p>
-                                {day} {fmtHour(h)}
-                              </p>
-                              <div className="mt-1 space-y-0.5 text-muted-foreground">
-                                <p>Calls made: <span className="text-foreground">{formatCount(cell.calls)}</span></p>
-                                <p>Contacted: <span className="text-foreground">{formatCount(cell.contacted)}</span></p>
-                                <p>
-                                  Call contact rate: <span className="text-foreground">{formatRate(cell.rate === null ? null : cell.rate * 100)}</span>
-                                </p>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </TooltipProvider>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[11px] text-muted-foreground">{tzCaption}</p>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <ReportSegmented ariaLabel="Heatmap metric" value={tab} onChange={(next) => setTab(next)} options={TABS} className="mb-4" />
+          <HeatmapGrid rows={rows} hours={hours} metric={tab} maxCalls={maxCalls} maxRate={maxRate} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <p className="text-xs text-muted-foreground">Agency time ({volume.window.time_zone})</p>
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <span>{tab === "calls" ? "Fewer calls" : "Lower rate"}</span>
               {LEGEND_STEPS.map((cls) => (
-                <span key={cls} className={cn("w-3.5 h-3.5 rounded-[3px]", cls)} />
+                <span key={cls} aria-hidden="true" className={cn("h-3.5 w-3.5 rounded-[3px]", cls)} />
               ))}
               <span>{tab === "calls" ? "More calls" : "Higher rate"}</span>
             </div>

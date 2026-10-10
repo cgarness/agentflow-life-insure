@@ -1,3 +1,53 @@
+## 2026-10-10 — Reports visual refresh and accuracy audit implemented (PR-A); R-3 SQL prepared (PR-B); nothing released
+
+**Approval.** Chris approved the final plan on 2026-10-09 (`docs/plans/2026-10-09-reports-refresh-audit/implementation_plan.md`, rev 2, all six §4.5 defaults). It is implemented on `claude/reports-refresh-audit-20261009` (PR-A) and verified at head `6138978d` against `main` `a41ed8ea`.
+
+**Accuracy fixes:**
+- **R-1:** "Dials per booking", all booking types.
+- **R-3:** frontend guard. With 0 overlapping rows, the page shows 0 duplicate seconds.
+- **R-4:** Refresh and Retry no longer repaint the previous payload for a frame. The fix needed `useLayoutEffect`, found by the browser frame probe.
+- **R-5:** call durations show the payload's 0.1 s exactly, with no double rounding.
+- **R-6:** "1 estimate" and "1 conflict".
+
+**Design.**
+- Header: a compact period select and context line.
+- Production band: Policies sold and Known annual premium, with exact cents and a coverage bar, plus a tie-aware leader row.
+- A six-tile strip, then one Trends section with stacked single-axis charts.
+- "Period totals" with no funnel.
+- Framed tables with the important columns first, a pinned row label and a scroll cue.
+- Ranked dispositions, a semantic heatmap, and a Data basis sheet whose text comes from the same constants as the CSV notes.
+
+**Unchanged:** the customization registry, saved layouts, RPC calls, CSV file names and CSV bytes.
+
+**SQL coverage.** T-1..T-6 add bucket values (DST and the Havana midnight), session start/end clipping, additional-policy premium isolation, booking credit and campaign visibility. Reports integrity negative controls go from 6 to 17.
+
+**Verification** (`verification.md`):
+- App TypeScript: 85 diagnostics, unchanged.
+- Reports tests: 358/358 strict and 436/436 for all Reports files.
+- Full suite: the same 10 pre-existing failing files, no new failure.
+- ESLint, build and the CI-equivalent script pass.
+- All four native SQL runners pass.
+- The browser gate passes: 22 PASS lines, axe 0 violations in light and dark, all first-screen budgets met.
+- CSVs: 74/74 byte-identical.
+- Read-only production recheck: 38/38 function bodies and the W1/W2/W3/W5 values are identical to Phase 1.
+- Before/after at 390 px: header and filters 427 → 205 px; Known annual premium 982 → 366 px, now on the first screen.
+- A three-lens review confirmed 6 findings, fixed in `134a6360`.
+
+**Deviations, listed in plan §13:**
+- a lint guard in `scripts/verify_reports_frontend.py`
+- Inter served by the fixture
+- `axe-core@4.10.2` added to the pinned `reports-backend.yml` browser install
+- two new helpers
+
+**PR-B** (#435, draft, `claude/reports-overlap-sql-20261009`) is prepared and **not merged or applied**. It holds the R-3 server correction of `private.report_integrity_quality`, `overlap_seconds_removed` only (md5 `d330c5be…` → `c1355d55…`), plus the disable, correction and guarded enable migrations, the rollback, tests and the release packet. Exact-head CI passes all five workflows, including PostgreSQL 17.6.
+
+**Not done:** no merge, deployment, production SQL, RLS change or production write. The hosted signed-in walkthrough is still **Unverified**: the proxy denies the site and there are no credentials. S-1 (Team Leader can change the agency time zone) and S-3 (agents can write their own session timestamps) stay separate tasks in `security-tasks.md`.
+
+**Still needs Chris's exact approval:**
+1. Merging PR-A and the Vercel production deploy.
+2. The PR-B window: disable → correction → enable → read-back → merge.
+3. Any S-1 or S-3 change.
+
 ## 2026-10-09 — Campaigns table Phase 1 released (PR #433, merge `d88982d`)
 
 **Status:** Chris approved one more Dialer DNC re-run, then merging PR #433 and releasing the existing Phase 1 frontend once the checks passed.
