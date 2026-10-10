@@ -8,8 +8,8 @@
 // failure can never affect account or agency creation.
 //
 // Security: the recipient comes from server configuration only
-// (PLATFORM_ADMIN_NOTIFY_RECIPIENT, default chris@fflagent.com); nothing is
-// read from the request. Templates receive display strings only — never
+// (PLATFORM_ADMIN_NOTIFY_RECIPIENT, default chris@fflagent.com when unset; a
+// set-but-invalid value fails closed); nothing is read from the request. Templates receive display strings only — never
 // passwords, tokens, invitation tokens, auth links, JWT/app_metadata or
 // phone numbers. Logs carry row ids, event types and outcomes, never bodies.
 
@@ -31,17 +31,32 @@ const RESEND_TIMEOUT_MS = 15_000;
 
 const SIMPLE_EMAIL = /^[^\s@,;<>"'()]+@[^\s@,;<>"'()]+\.[^\s@,;<>"'()]+$/;
 
-/** Server-configured recipient; an empty or malformed value falls back to the default. */
-export function resolvePlatformAdminRecipient(
-  configured: string | undefined = Deno.env.get("PLATFORM_ADMIN_NOTIFY_RECIPIENT"),
-): string {
-  const value = (configured ?? "").trim();
-  if (!value) return DEFAULT_PLATFORM_ADMIN_RECIPIENT;
-  if (value.length > 254 || !SIMPLE_EMAIL.test(value)) {
-    console.warn("platform-admin-notify: PLATFORM_ADMIN_NOTIFY_RECIPIENT is malformed; using the default recipient");
-    return DEFAULT_PLATFORM_ADMIN_RECIPIENT;
+export type RecipientResolution =
+  | { ok: true; recipient: string; source: "default" | "configured" }
+  | { ok: false; error: string };
+
+/**
+ * Resolves the notification recipient from server configuration. FAILS CLOSED:
+ *   - unset (`undefined`)           -> the default, chris@fflagent.com
+ *   - set to exactly one valid address -> that address
+ *   - set to anything else (blank, whitespace, malformed, several addresses)
+ *                                   -> an error; the caller must not send or claim
+ * The error never contains the configured value (only its length), so it is
+ * safe to log. Pass the raw env value: `Deno.env.get("PLATFORM_ADMIN_NOTIFY_RECIPIENT")`.
+ */
+export function resolvePlatformAdminRecipient(configured: string | undefined): RecipientResolution {
+  if (configured === undefined) {
+    return { ok: true, recipient: DEFAULT_PLATFORM_ADMIN_RECIPIENT, source: "default" };
   }
-  return value;
+  const value = configured.trim();
+  if (!value || value.length > 254 || !SIMPLE_EMAIL.test(value)) {
+    return {
+      ok: false,
+      error: `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid (length ${configured.length}); ` +
+        "expected exactly one email address",
+    };
+  }
+  return { ok: true, recipient: value, source: "configured" };
 }
 
 /** Constant-time string comparison for the worker Bearer token. */

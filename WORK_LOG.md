@@ -1,3 +1,45 @@
+## 2026-10-10 — Super Admin registration emails: §A10 corrections implemented and verified (not deployed)
+
+**Approval.** Chris approved the two `implementation_plan.md` §A10 corrections. The scope was code, documentation and local testing only. Built on `claude/super-admin-registration-emails-20261010`.
+- No production change of any kind: no migration applied, no function deployed, no secret created or changed, no user created.
+- `create-user` was not touched.
+
+**Correction 1, fail-closed recipient:**
+- `PLATFORM_ADMIN_NOTIFY_RECIPIENT` **unset** → `chris@fflagent.com`.
+- **Set** → it must be exactly one valid address. Blank, whitespace-only, malformed and multi-address values now fail closed:
+  - the worker returns `503 Recipient configuration invalid` **before creating a client or claiming any row**;
+  - it logs `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid (length N)… queue left untouched`, never the value;
+  - it never falls back to another address.
+- Rows keep `attempts = 0` and their retry eligibility.
+
+**Correction 2, delivery window** (edit to the unapplied migration `20261010200000`):
+- New nullable `first_attempted_at`, stamped only by the first claim (`coalesce`, never overwritten), with `CHECK ((attempts = 0) = (first_attempted_at IS NULL))`.
+- The 23 h Resend idempotency window is now measured from the first attempt, in both the claim sweep and `complete(retry)`. A never-attempted row no longer expires while delivery is blocked by configuration.
+- Unchanged: backoff, the 6-attempt cap, lease reclaim, the per-row idempotency key, and the terminal `failed` outcome for non-retryable provider errors (Resend 409 `invalid_idempotent_request`).
+
+**Verification (all local; isolated PostgreSQL 16.15 with synthetic data, localhost proved):**
+- **SQL:** 20 behaviour tests PASS (new T12, T12a, T12d, T12e), plus:
+  - the replay guard;
+  - the two-session SKIP LOCKED proof (3 + 3, overlap 0);
+  - negative control 1 (a broken trigger fails T1);
+  - **new negative control 2** (the migration rebuilt with the old `created_at` window fails T12);
+  - the rollback proof (removed; signup works; replay refused; re-apply clean with no backfill).
+- **Deno 2.9.6:** `deno check` clean; `deno test` over `_shared/` + `platform-admin-notify/`: **161 passed, 0 failed**. The recipient tests cover unset, valid, and 11 invalid shapes with no echo; the handler tests cover 503 before any claim and an unset recipient passing the gate. The scratchpad import map for the denied `deno.land` host is as before.
+- **`npx tsc --noEmit`:** exit 0. **ESLint (changed files):** clean.
+- **Vitest:** 304 passed / 10 failed files, and 5025 passed / 1 failed / 32 skipped tests. This is **identical to clean `main` `e21728e`**, with the same 10 pre-existing failing files diffed by name. The skipped count differs from the earlier run (34) on both trees alike.
+- All earlier registration-notification behaviour is preserved: T0–T11, T12b, T13–T15 and all 26 earlier Deno cases are unchanged and passing.
+
+**New artifact hashes** (`deployment.md` §7):
+- migration `f33f84cf…acce9e`
+- `index.ts` `4c0ab59a…feb6f`
+- `platformAdminNotifications.ts` `33e098aa…0cdcd`
+
+The rollback, templates and renderer are unchanged.
+
+**Docs:** AGENT_RULES #21 (fail-closed recipient; the window starts at the first attempt); plan §A10 marked approved and §A11 as built; runbook recipient note, column read-back and hashes.
+
+**Next:** Chris's approval of production step 1: set the Edge secret `PLATFORM_ADMIN_NOTIFY_TOKEN` and the identical Vault secret `platform_admin_notify_token`. Leave `PLATFORM_ADMIN_NOTIFY_RECIPIENT` unset to use the default.
+
 ## 2026-10-10 — Super Admin registration emails built and verified locally (not deployed)
 
 **Approval.** Chris approved Phase 3 on 2026-10-10 with D1–D6 (`implementation_plan.md`, top section). It is built on `claude/super-admin-registration-emails-20261010`, rebased onto `main` `e21728e`.

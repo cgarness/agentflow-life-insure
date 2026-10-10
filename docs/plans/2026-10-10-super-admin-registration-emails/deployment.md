@@ -32,7 +32,7 @@ Branch: `claude/super-admin-registration-emails-20261010`. File hashes are recor
 1. Generate one value locally, for example `openssl rand -hex 32` (64 characters; at least 32 are required).
 2. **Edge Functions → Secrets**:
    - `PLATFORM_ADMIN_NOTIFY_TOKEN` = that value.
-   - *(Optional)* `PLATFORM_ADMIN_NOTIFY_RECIPIENT`. Leave unset for the default, `chris@fflagent.com`. A malformed value also falls back to the default.
+   - *(Optional)* `PLATFORM_ADMIN_NOTIFY_RECIPIENT`. **Leave unset** for the default, `chris@fflagent.com`. If set, it must be exactly one valid address. Blank, malformed or multiple addresses **fail closed**: the worker returns 503, logs `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid (length N)` without the value, and claims nothing. Queued notifications keep their retry eligibility and send once the secret is fixed.
    - `RESEND_API_KEY` already exists (it is used by the system-email functions). Do not change it.
 3. **Vault** (SQL editor, run by Chris):
    ```sql
@@ -68,6 +68,9 @@ Branch: `claude/super-admin-registration-emails-20261010`. File hashes are recor
   SELECT relrowsecurity, relacl FROM pg_class WHERE oid = 'public.platform_admin_notifications'::regclass;
   -- expect RLS on; ACL holds postgres + service_role only
   SELECT count(*) FROM public.platform_admin_notifications;                          -- expect 0 (no backfill)
+  SELECT column_name FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'platform_admin_notifications' AND column_name = 'first_attempted_at';
+  -- expect 1 row (the 23 h delivery window starts at the first attempt)
   SELECT tgname, tgrelid::regclass FROM pg_trigger WHERE tgname LIKE 'trg_zz_platform_admin_notify_%';
   -- expect 2: profiles, organizations
   SELECT p.oid::regprocedure, p.proacl FROM pg_proc p
@@ -87,6 +90,7 @@ SELECT event_type, status, attempts, created_at, sent_at, last_error
   FROM public.platform_admin_notifications ORDER BY created_at DESC LIMIT 20;
 ```
 Edge logs: `platform-admin-notify: row=… outcome=… status=…`. The logs never contain the email body or any secret.
+A `503 Recipient configuration invalid` or `503 Email provider not configured` in the Edge logs means a secret needs fixing. Rows stay `pending` with `attempts = 0` and never expire until they have been attempted.
 
 ## 5. Live end-to-end test — needs a SEPARATE approval (D5)
 
@@ -105,9 +109,9 @@ Recompute with `sha256sum` before every step. Any mismatch stops the release; if
 
 | File | sha256 |
 |---|---|
-| `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql` | `9e1dff0554ac39fa547fef630c8f12c95af04332dd71434b00fafca298d3b636` |
+| `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql` | `f33f84cf6baa53d5b2e5a08fae36056ce8d840369f5e43613dc11c5b38acce9e` |
 | `supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql` | `1c21c4aa3b0d4f3ce567d9dfa79d003490f474f7d65ee877a1105cde09a65ad8` |
-| `supabase/functions/platform-admin-notify/index.ts` | `e3e6b81268da6ecd6a80a36afa43e8e1283b49c96ba4466b3d68820f6778cdde` |
-| `supabase/functions/_shared/platformAdminNotifications.ts` | `d6ba0a0edf5743a29cb6b0e2c80a4a377a82d076655220945704fce1ff320b59` |
+| `supabase/functions/platform-admin-notify/index.ts` | `4c0ab59ad62ec5a7b925cf2926b5d45c9886866028c7f5b8328038ca5b6feb6f` |
+| `supabase/functions/_shared/platformAdminNotifications.ts` | `33e098aa79684727dc3d1fa5589413250514fc73afbfe26d8a625b056c00cdcd` |
 | `supabase/functions/_shared/systemEmailTemplates.ts` | `68fb076996b10eddef74a354ae51290d06aa09fb68bc77796cfcf241aa0d4aac` |
 | `supabase/functions/_shared/systemEmail.ts` | `095cbd75237081f8611ec8cfd8c0105d6c1376bb505174b70e01af55f45743c7` |

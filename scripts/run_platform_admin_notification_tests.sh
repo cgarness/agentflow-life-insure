@@ -8,7 +8,8 @@
 # Builds throwaway databases over a synthetic harness, applies the migration under test, then runs:
 #   1. the behaviour suite (supabase/tests/platform_admin_notifications.sql)
 #   2. a two-session concurrency proof (SKIP LOCKED: overlapping workers never claim the same row)
-#   3. a NEGATIVE CONTROL (a broken trigger must make the suite fail)
+#   3. two NEGATIVE CONTROLS (a broken trigger, and the old created_at-based 23 h window, must each
+#      make the suite fail)
 #   4. a ROLLBACK proof (objects removed, signup still works, migration re-applies cleanly)
 # Migration and rollback run with --single-transaction, as apply_migration does.
 # Every database is dropped on exit. Nothing here touches a hosted project.
@@ -34,9 +35,9 @@ SUITE="$ROOT/supabase/tests/platform_admin_notifications.sql"
 MIG="$ROOT/supabase/migrations/20261010200000_platform_admin_registration_notifications.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql"
 
-DB="pan_test_$$"; DB_CC="pan_cc_$$"; DB_NEG="pan_neg_$$"; DB_RB="pan_rb_$$"
+DB="pan_test_$$"; DB_CC="pan_cc_$$"; DB_NEG="pan_neg_$$"; DB_NEG2="pan_neg2_$$"; DB_RB="pan_rb_$$"
 drop_all() {
-  for d in "$DB" "$DB_CC" "$DB_NEG" "$DB_RB"; do
+  for d in "$DB" "$DB_CC" "$DB_NEG" "$DB_NEG2" "$DB_RB"; do
     psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $d WITH (FORCE);" >/dev/null 2>&1 || true
   done
 }
@@ -101,6 +102,25 @@ if [ $NEG_RC -eq 0 ] || ! printf '%s' "$NEG_OUT" | grep -q 'T1: user_registered 
   echo "   FAIL: suite did not detect the broken trigger"; printf '%s\n' "$NEG_OUT" | tail -5; exit 1
 fi
 echo "   OK (suite failed on T1 as expected)"
+
+echo; echo "== negative control 2 (delivery window must start at the first attempt) =="
+# Rebuild the migration with the pre-correction predicate (window measured from created_at) and prove
+# T12 catches it. The mutated copy lives in a temp file and is never committed.
+MIG_OLD=$(mktemp)
+sed "s/first_attempted_at < now() - interval '23 hours'/created_at < now() - interval '23 hours'/g" "$MIG" > "$MIG_OLD"
+if cmp -s "$MIG" "$MIG_OLD"; then echo "   FAIL: mutation did not apply"; rm -f "$MIG_OLD"; exit 1; fi
+psql "$PGURL/postgres" -qc "CREATE DATABASE $DB_NEG2;"
+psql "$PGURL/$DB_NEG2" -v ON_ERROR_STOP=1 -q -f "$HARNESS"
+psql "$PGURL/$DB_NEG2" -1 -v ON_ERROR_STOP=1 -q -f "$MIG_OLD" >/dev/null 2>&1
+rm -f "$MIG_OLD"
+set +e
+NEG2_OUT=$(psql "$PGURL/$DB_NEG2" -v ON_ERROR_STOP=1 -q -f "$SUITE" 2>&1)
+NEG2_RC=$?
+set -e
+if [ $NEG2_RC -eq 0 ] || ! printf '%s' "$NEG2_OUT" | grep -q 'T12: a never-attempted row must not expire'; then
+  echo "   FAIL: suite did not detect the created_at-based window"; printf '%s\n' "$NEG2_OUT" | tail -5; exit 1
+fi
+echo "   OK (suite failed on T12 as expected)"
 
 echo; echo "== rollback proof =="
 build "$DB_RB"

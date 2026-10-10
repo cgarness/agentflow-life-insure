@@ -50,12 +50,17 @@ CREATE TABLE public.platform_admin_notifications (
   available_at        timestamptz NOT NULL DEFAULT (now() + interval '60 seconds'),
   locked_until        timestamptz,
   last_attempt_at     timestamptz,
+  -- Set once, by the first claim (coalesce), and never overwritten. The 23-hour delivery window is
+  -- measured from here because Resend's Idempotency-Key lasts 24 h from the first send; a row that was
+  -- never attempted carries no duplicate risk and must not expire while delivery is blocked.
+  first_attempted_at  timestamptz,
   sent_at             timestamptz,
   provider_message_id text        CHECK (provider_message_id IS NULL OR char_length(provider_message_id) <= 200),
   last_error          text        CHECK (last_error IS NULL OR char_length(last_error) <= 500),
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT platform_admin_notifications_event_subject_key UNIQUE (event_type, subject_id)
+  CONSTRAINT platform_admin_notifications_event_subject_key UNIQUE (event_type, subject_id),
+  CONSTRAINT platform_admin_notifications_first_attempt_check CHECK ((attempts = 0) = (first_attempted_at IS NULL))
 );
 
 COMMENT ON TABLE public.platform_admin_notifications IS
@@ -120,8 +125,9 @@ CREATE TRIGGER trg_zz_platform_admin_notify_agency_created
 
 -- ── Worker RPCs (service_role only) ────────────────────────────────────────────────────────────
 -- Claims due rows atomically. A row stuck in 'sending' past its lease is reclaimed (the worker's Resend
--- Idempotency-Key makes the re-send safe); one that already used its final attempt, or any row past the
--- 23-hour Resend idempotency window, is closed as 'failed' for review instead.
+-- Idempotency-Key makes the re-send safe); one that already used its final attempt, or an ATTEMPTED row
+-- whose first attempt is more than 23 hours old (the Resend idempotency window), is closed as 'failed'
+-- for review instead. A never-attempted row never expires: it waits until delivery is possible.
 CREATE FUNCTION public.claim_platform_admin_notifications(p_limit integer DEFAULT 10)
 RETURNS SETOF public.platform_admin_notifications
 LANGUAGE plpgsql
@@ -138,11 +144,11 @@ BEGIN
          locked_until = NULL,
          updated_at = now(),
          last_error = left(coalesce(last_error || ' | ', '') ||
-                      CASE WHEN created_at < now() - interval '23 hours'
+                      CASE WHEN first_attempted_at < now() - interval '23 hours'
                            THEN 'Delivery window expired; review required.'
                            ELSE 'Delivery lease expired after final attempt; review required.' END, 500)
    WHERE (status = 'sending' AND locked_until < now() AND attempts >= 6)
-      OR (status IN ('pending', 'sending') AND created_at < now() - interval '23 hours'
+      OR (status IN ('pending', 'sending') AND first_attempted_at < now() - interval '23 hours'
           AND (status = 'pending' OR locked_until < now()));
 
   RETURN QUERY
@@ -151,6 +157,7 @@ BEGIN
          attempts = n.attempts + 1,
          locked_until = now() + interval '5 minutes',
          last_attempt_at = now(),
+         first_attempted_at = coalesce(n.first_attempted_at, now()),
          updated_at = now()
    WHERE n.id IN (
            SELECT c.id
@@ -169,6 +176,7 @@ $$;
 --   p_outcome 'sent'    -> sent (provider message id kept)
 --   p_outcome 'skipped' -> skipped (subject gone / nothing to send)
 --   p_outcome 'retry'   -> pending with backoff 1/2/5/15/30 min, or failed after 6 attempts or 23 h
+--                          after the FIRST attempt
 --   p_outcome 'failed'  -> failed now (a non-retryable error, e.g. a Resend idempotency conflict)
 CREATE FUNCTION public.complete_platform_admin_notification(
   p_id uuid,
@@ -207,7 +215,7 @@ BEGIN
     UPDATE public.platform_admin_notifications
        SET status = 'skipped', locked_until = NULL, last_error = v_error, updated_at = now()
      WHERE id = p_id;
-  ELSIF p_outcome = 'failed' OR v_row.attempts >= 6 OR v_row.created_at < now() - interval '23 hours' THEN
+  ELSIF p_outcome = 'failed' OR v_row.attempts >= 6 OR v_row.first_attempted_at < now() - interval '23 hours' THEN
     v_next := 'failed';
     UPDATE public.platform_admin_notifications
        SET status = 'failed', locked_until = NULL,

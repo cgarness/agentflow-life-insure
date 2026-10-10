@@ -66,19 +66,47 @@ const AGENCY: AgencyNotificationData = {
 
 // ── Recipient / auth ──────────────────────────────────────────────────────────
 
-Deno.test("recipient defaults to chris@fflagent.com", () => {
+Deno.test("recipient: unset defaults to chris@fflagent.com", () => {
   assertEquals(DEFAULT_PLATFORM_ADMIN_RECIPIENT, "chris@fflagent.com");
-  assertEquals(resolvePlatformAdminRecipient(undefined), "chris@fflagent.com");
-  assertEquals(resolvePlatformAdminRecipient("   "), "chris@fflagent.com");
+  assertEquals(resolvePlatformAdminRecipient(undefined), {
+    ok: true,
+    recipient: "chris@fflagent.com",
+    source: "default",
+  });
 });
 
-Deno.test("recipient honours a valid configured address", () => {
-  assertEquals(resolvePlatformAdminRecipient("  ops@fflagent.com "), "ops@fflagent.com");
+Deno.test("recipient: one valid configured address is used (trimmed)", () => {
+  assertEquals(resolvePlatformAdminRecipient("  ops@fflagent.com "), {
+    ok: true,
+    recipient: "ops@fflagent.com",
+    source: "configured",
+  });
 });
 
-Deno.test("malformed or multi-address recipient falls back to the default", () => {
-  for (const bad of ["not-an-email", "a@b.com, c@d.com", "a@b.com\r\nBcc: x@y.com", "<a@b.com>", "a b@c.com"]) {
-    assertEquals(resolvePlatformAdminRecipient(bad), DEFAULT_PLATFORM_ADMIN_RECIPIENT, bad);
+Deno.test("recipient: set-but-invalid fails closed and never echoes the value", () => {
+  const bad = [
+    "",
+    "   ",
+    "not-an-email",
+    "ops@fflagent",
+    "a@b.com, c@d.com",
+    "a@b.com;c@d.com",
+    "a@b.com c@d.com",
+    "a@b.com\r\nBcc: x@y.com",
+    "<a@b.com>",
+    "Chris <chris@fflagent.com>",
+    `${"a".repeat(250)}@b.com`,
+  ];
+  for (const value of bad) {
+    const r = resolvePlatformAdminRecipient(value);
+    assertEquals(r.ok, false, JSON.stringify(value));
+    if (!r.ok) {
+      assertStringIncludes(r.error, "PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid");
+      assertStringIncludes(r.error, `length ${value.length}`);
+      if (value.trim()) assert(!r.error.includes(value.trim()), "configured value must not be echoed");
+      assert(!r.error.includes("@"), "no address fragment in the error");
+      assert(!r.error.includes(DEFAULT_PLATFORM_ADMIN_RECIPIENT), "must not fall back to the default");
+    }
   }
 });
 

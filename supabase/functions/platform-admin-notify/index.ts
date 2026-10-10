@@ -7,7 +7,8 @@
 // verify_jwt=false (AGENT_RULES invariant #2); authorization is enforced here
 // by a constant-time comparison against PLATFORM_ADMIN_NOTIFY_TOKEN (>= 32
 // chars). The request body is ignored: no recipient, HTML, ids or URLs are
-// ever accepted from a caller.
+// ever accepted from a caller. Missing provider key or an invalid recipient
+// configuration returns 503 BEFORE any row is claimed.
 //
 // Rows are enqueued by AFTER INSERT triggers (migration 20261010200000), so
 // this function never runs inside a signup request and cannot block one.
@@ -42,6 +43,15 @@ export async function handle(req: Request): Promise<Response> {
     return json({ error: "Email provider not configured" }, 503);
   }
 
+  // A set-but-invalid recipient fails closed: nothing is claimed or sent, so
+  // every row keeps its retry eligibility until the secret is corrected. The
+  // logged message never contains the configured value.
+  const recipient = resolvePlatformAdminRecipient(Deno.env.get("PLATFORM_ADMIN_NOTIFY_RECIPIENT"));
+  if (!recipient.ok) {
+    console.error(`platform-admin-notify: ${recipient.error}; queue left untouched`);
+    return json({ error: "Recipient configuration invalid" }, 503);
+  }
+
   try {
     const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -49,7 +59,7 @@ export async function handle(req: Request): Promise<Response> {
     const summary = await processQueue(
       createSupabaseStore(db),
       createResendMailer(resendApiKey),
-      resolvePlatformAdminRecipient(),
+      recipient.recipient,
       CLAIM_BATCH_SIZE,
     );
     if (summary.claimed > 0) console.log(`platform-admin-notify: run summary ${JSON.stringify(summary)}`);

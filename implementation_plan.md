@@ -1,6 +1,6 @@
 ## 2026-10-10 — BUILT, release preparation in review (not deployed): Super Admin registration emails (new user / new agency)
 
-**Release-prep status (latest):** the read-only preflight passed. A recipient fail-closed adjustment plus a retry-window fix are proposed in §A10 and await Chris's approval before any edit. No production change has been made.
+**Release-prep status (latest):** the read-only preflight passed. Chris approved the two §A10 corrections (code, docs and local testing only), and both are implemented and verified (§A11). No production change has been made. Awaiting approval for production step 1 in `deployment.md`.
 
 **Current status:** Chris approved Phase 3 on 2026-10-10. It is implemented and verified locally on `claude/super-admin-registration-emails-20261010` (rebased onto `main` `e21728e`). Nothing is merged, deployed, applied or pushed, and no production write was made. The exact production sequence is in `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`. §A9 (As built) records what was built; the text from §A1 to §A8 is the plan as approved, kept as written.
 
@@ -170,7 +170,7 @@ Additional requirements: preserve the self-service restriction; never redeploy `
 - **Risk: cron cost.** One HTTP call per minute, which returns immediately when the queue is empty, the same cost as the two existing per-minute workers. Option: a 2-minute schedule.
 - **Observation (out of scope, not changed):** `create-organization` is publicly callable without authentication, and `accept-invite` still creates users. Once this feature ships, any use of either produces an admin email, which is useful detection. Their hardening remains the deferred item.
 
-### A10. Release preparation review (2026-10-10) — PROPOSED ADJUSTMENT, awaiting Chris's approval
+### A10. Release preparation review (2026-10-10) — APPROVED by Chris (code, docs, local tests only); implemented in §A11
 
 **Read-only preflight (production `jncvvsvckxhqgqvkppmj`):** all checks PASS.
 - The newest recorded migration is `20261010043517`, and the notification migration is not recorded.
@@ -228,6 +228,47 @@ The expected post-release delta is exactly **+1 `rls_enabled_no_policy` (INFO)**
 - Duplicate prevention, worker auth, server-only queue, non-blocking triggers, delivery logging, tenant isolation, rendering and rollback all hold as built.
 - A trigger function in `private` runs for a direct `service_role` insert without schema USAGE. This was proven locally, and production already has 10 `public` tables with `private` trigger functions.
 - *Optional least-privilege nit:* `service_role` holds DELETE on the queue, which the worker never uses. It can stay for operator cleanup or be dropped; the default is to leave it.
+
+### A11. §A10 corrections as built (2026-10-10) — NOT merged, NOT deployed
+
+**Pre-edit checks:** the branch was clean at `49371bb0` (equal to the pushed head), `main` was unchanged at `e21728e`, and no PR had been updated since the preflight, so there was no conflict.
+
+**Correction 1, fail-closed recipient:**
+- `resolvePlatformAdminRecipient(configured)` now takes the raw env value explicitly and returns `{ok:true, recipient, source}` or `{ok:false, error}`:
+  - unset → `chris@fflagent.com`;
+  - set to one valid address (trimmed, ≤ 254 chars, no whitespace / `,` / `;` / `<>` / quotes / parentheses) → that address;
+  - set to anything else, including blank or whitespace-only → an error. The error carries only the value's **length**; no address fragment, no `@`, and never the default.
+- `platform-admin-notify` checks it after auth and after the `RESEND_API_KEY` gate, **before creating a client or claiming**: `console.error("…set but invalid (length N)…; queue left untouched")` → `503 {"error":"Recipient configuration invalid"}`.
+- Rows keep `attempts = 0` and their eligibility.
+
+**Correction 2, delivery window (migration edited; it is unapplied in production):**
+- New nullable `first_attempted_at`, set only by the claim, as `coalesce(first_attempted_at, now())`, so it is never overwritten.
+- New `CHECK ((attempts = 0) = (first_attempted_at IS NULL))`.
+- The claim sweep and `complete_platform_admin_notification(retry)` measure 23 h from `first_attempted_at` instead of `created_at`. A never-attempted row (NULL) therefore never matches and never expires.
+- Unchanged: retry/backoff (1/2/5/15/30 min), the 6-attempt cap, lease reclaim, the per-row Resend idempotency key, and the terminal `failed` outcome for non-retryable provider errors.
+
+**Files modified (this pass):**
+- `supabase/functions/_shared/platformAdminNotifications.ts`
+- `supabase/functions/platform-admin-notify/index.ts`
+- `supabase/functions/_shared/platformAdminNotifications.test.ts`
+- `supabase/functions/platform-admin-notify/index.test.ts`
+- `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`
+- `supabase/tests/platform_admin_notifications.sql`
+- `scripts/run_platform_admin_notification_tests.sh` (a second negative control)
+- `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md` (hashes, recipient note, column read-back)
+- `AGENT_RULES.md` (#21 wording), `WORK_LOG.md`, this plan
+
+**Unchanged:** the rollback file (it drops the table, so it covers the new column), templates, renderer, triggers, grants/RLS, `create-user` and all signup code.
+
+**Verification:**
+- **Local PG16:** 20 behaviour tests PASS. New:
+  - T12: a row queued 48 h but never attempted is still claimed, stamped, and retries normally.
+  - T12a: `first_attempted_at` is immutable across claims.
+  - T12d: an attempted row whose first attempt is more than 23 h old fails, both via retry and via the claim sweep.
+  - T12e: the CHECK.
+- Replay guard, two-session SKIP LOCKED (3 + 3, overlap 0), the original negative control (T1), **new negative control 2** (the migration rebuilt with the old `created_at` window makes T12 fail), and the rollback proof all PASS.
+- **Deno:** 161 passed / 0 failed. The recipient tests cover unset, valid, and 11 invalid shapes with no echo. The handler tests prove 503 before any claim, one sanitized log line, and that an unset recipient passes the gate.
+- **`npx tsc --noEmit`:** exit 0. **ESLint:** changed files clean. **Vitest:** see WORK_LOG.
 
 ### A9. As built (2026-10-10) — NOT merged, NOT deployed
 

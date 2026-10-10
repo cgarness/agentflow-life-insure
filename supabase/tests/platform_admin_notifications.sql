@@ -192,18 +192,83 @@ BEGIN
   RAISE NOTICE 'T11 pass: lease expiry handling';
 END $$;
 
--- T12 23-hour window: an old pending row is closed as failed instead of being sent.
+-- T12 Delivery window starts at the FIRST attempt. A row queued for more than 23 hours but never
+--     attempted (delivery blocked by configuration) is still claimable and is stamped on that claim.
 DO $$
-DECLARE v_id uuid;
+DECLARE v_id uuid; v_first timestamptz; v_last timestamptz;
 BEGIN
   INSERT INTO auth.users (id, email) VALUES ('00000000-0000-0000-0000-0000000000c5', 'old@example.test');
   SELECT id INTO v_id FROM public.platform_admin_notifications WHERE subject_id = '00000000-0000-0000-0000-0000000000c5';
+  ASSERT (SELECT first_attempted_at IS NULL AND attempts = 0 FROM public.platform_admin_notifications WHERE id = v_id),
+         'T12: a new row has no first attempt';
   UPDATE public.platform_admin_notifications
-     SET created_at = now() - interval '24 hours', available_at = now() - interval '1 second' WHERE id = v_id;
-  ASSERT (SELECT count(*) FROM public.claim_platform_admin_notifications(50) c WHERE c.id = v_id) = 0, 'T12: not claimed';
+     SET created_at = now() - interval '48 hours', available_at = now() - interval '1 second' WHERE id = v_id;
+  ASSERT (SELECT count(*) FROM public.claim_platform_admin_notifications(50) c WHERE c.id = v_id) = 1,
+         'T12: a never-attempted row must not expire because it was queued > 23 h';
+  SELECT first_attempted_at, last_attempt_at INTO v_first, v_last FROM public.platform_admin_notifications WHERE id = v_id;
+  ASSERT v_first IS NOT NULL AND v_first = v_last, 'T12: first claim stamps first_attempted_at';
+  ASSERT public.complete_platform_admin_notification(v_id, 'retry', NULL, 'Resend HTTP 500') = 'pending',
+         'T12: a retry within 23 h of the first attempt stays pending despite an old created_at';
+  RAISE NOTICE 'T12 pass: never-attempted rows do not expire; first claim stamps first_attempted_at';
+END $$;
+
+-- T12a first_attempted_at is set once and never overwritten by later claims.
+DO $$
+DECLARE v_id uuid; v_first timestamptz; v_after timestamptz; v_last timestamptz;
+BEGIN
+  SELECT id, first_attempted_at INTO v_id, v_first FROM public.platform_admin_notifications
+   WHERE subject_id = '00000000-0000-0000-0000-0000000000c5';
+  PERFORM pg_sleep(0.05);
+  UPDATE public.platform_admin_notifications SET available_at = now() - interval '1 second' WHERE id = v_id;
+  ASSERT (SELECT count(*) FROM public.claim_platform_admin_notifications(50) c WHERE c.id = v_id AND c.attempts = 2) = 1,
+         'T12a: reclaimed';
+  SELECT first_attempted_at, last_attempt_at INTO v_after, v_last FROM public.platform_admin_notifications WHERE id = v_id;
+  ASSERT v_after = v_first, 'T12a: first_attempted_at must never be overwritten';
+  ASSERT v_last > v_first, 'T12a: last_attempt_at advances';
+  RAISE NOTICE 'T12a pass: first_attempted_at is immutable across claims';
+END $$;
+
+-- T12d An ATTEMPTED row whose first attempt is more than 23 h old is closed instead of re-sent
+--      (Resend idempotency window), both by complete(retry) and by the claim sweep.
+DO $$
+DECLARE v_id uuid; v_id2 uuid;
+BEGIN
+  SELECT id INTO v_id FROM public.platform_admin_notifications WHERE subject_id = '00000000-0000-0000-0000-0000000000c5';
+  UPDATE public.platform_admin_notifications SET first_attempted_at = now() - interval '24 hours' WHERE id = v_id;
+  ASSERT public.complete_platform_admin_notification(v_id, 'retry', NULL, 'Resend HTTP 500') = 'failed',
+         'T12d: retry past the window from the first attempt fails';
+
+  INSERT INTO auth.users (id, email) VALUES ('00000000-0000-0000-0000-0000000000c7', 'window@example.test');
+  SELECT id INTO v_id2 FROM public.platform_admin_notifications WHERE subject_id = '00000000-0000-0000-0000-0000000000c7';
+  UPDATE public.platform_admin_notifications SET available_at = now() - interval '1 second' WHERE id = v_id2;
+  ASSERT (SELECT count(*) FROM public.claim_platform_admin_notifications(50) c WHERE c.id = v_id2) = 1, 'T12d: claimed';
+  ASSERT public.complete_platform_admin_notification(v_id2, 'retry', NULL, 'Resend HTTP 500') = 'pending', 'T12d: pending';
+  UPDATE public.platform_admin_notifications
+     SET first_attempted_at = now() - interval '24 hours', available_at = now() - interval '1 second' WHERE id = v_id2;
+  ASSERT (SELECT count(*) FROM public.claim_platform_admin_notifications(50) c WHERE c.id = v_id2) = 0, 'T12d: not re-sent';
   ASSERT (SELECT status = 'failed' AND last_error LIKE '%window expired%'
-            FROM public.platform_admin_notifications WHERE id = v_id), 'T12: closed as failed';
-  RAISE NOTICE 'T12 pass: 23-hour window';
+            FROM public.platform_admin_notifications WHERE id = v_id2), 'T12d: closed by the claim sweep';
+  RAISE NOTICE 'T12d pass: the 23 h window starts at the first attempt';
+END $$;
+
+-- T12e attempts and first_attempted_at stay consistent (CHECK).
+DO $$
+DECLARE ok boolean := false;
+BEGIN
+  BEGIN
+    INSERT INTO public.platform_admin_notifications (event_type, subject_id, first_attempted_at)
+    VALUES ('agency_created', gen_random_uuid(), now());
+  EXCEPTION WHEN check_violation THEN ok := true;
+  END;
+  ASSERT ok, 'T12e: first_attempted_at without an attempt must be rejected';
+  ok := false;
+  BEGIN
+    INSERT INTO public.platform_admin_notifications (event_type, subject_id, attempts)
+    VALUES ('agency_created', gen_random_uuid(), 1);
+  EXCEPTION WHEN check_violation THEN ok := true;
+  END;
+  ASSERT ok, 'T12e: an attempt without first_attempted_at must be rejected';
+  RAISE NOTICE 'T12e pass: attempts/first_attempted_at consistency';
 END $$;
 
 -- T12b A non-retryable failure closes the row immediately.
