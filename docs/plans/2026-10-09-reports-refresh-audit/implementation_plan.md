@@ -1,6 +1,6 @@
 # Reports visual refresh and reporting accuracy audit — implementation plan (rev 2, final for approval)
 
-**Status: Phase 1 complete. Awaiting Chris's approval to implement.** Revision 2 was prepared 2026-10-09 (UTC). It replaces rev 1 (commit `17378ef`). It adds Chris's design direction, the completeness-critic findings, the closed audit gaps, the locally proven session-rounding SQL fix, the traced Data basis wording and exact per-file budgets.
+**Status (2026-10-10): approved by Chris on 2026-10-09 and implemented on branch `claude/reports-refresh-audit-20261009` (PR-A). The R-3 SQL correction is prepared separately as PR-B on `claude/reports-overlap-sql-20261009` and is not merged or applied. Nothing is merged to `main`, deployed, or applied to production. See §13 and `verification.md`.** The original Phase 1 status follows for the record. ~~Phase 1 complete. Awaiting Chris's approval to implement.~~ Revision 2 was prepared 2026-10-09 (UTC). It replaces rev 1 (commit `17378ef`). It adds Chris's design direction, the completeness-critic findings, the closed audit gaps, the locally proven session-rounding SQL fix, the traced Data basis wording and exact per-file budgets.
 
 **Nothing has been changed:** no application code, migration, RLS policy, Edge Function, Vercel deployment or production row. Production access was read-only throughout.
 
@@ -9,7 +9,9 @@
 | `evidence-matrix.md` | Metric evidence matrix: 134 reachable metrics, reconciliation rows, Reports vs Leaderboard by policy identity, deployed formulas, completeness addendum |
 | `data-basis-wording.md` | Every Data basis sentence and new caption, each traced to a constant, a deployed SQL line or an AGENT_RULES clause |
 | `security-tasks.md` | S-1 (Team Leader can change the agency time zone) and S-3 (agents can write their own session timestamps): separate tasks, nothing changed |
-| `screenshots/before/` | The current page from the isolated synthetic fixture (not production numbers) |
+| `screenshots/before/`, `after/`, `compare/` | Same-frame before (`main`) and after (branch) captures from the isolated synthetic fixture (not production numbers). The before set was recaptured on 2026-10-10 inside the fixture's app-chrome frame. |
+| `verification.md` | Implementation gate results (added 2026-10-10) |
+| `assertion-diff.md` | Every removed or changed test assertion and its replacement (added 2026-10-10) |
 
 ---
 
@@ -775,3 +777,31 @@ Until this is done, hosted behaviour is recorded as **Unverified**.
   - Amend #41 when R-3 is applied (new `report_integrity_quality` pin; still fifteen pins).
   - Correct line 130 "identical coverage" (294 legacy calls differ).
   - After S-3 is decided, qualify "server-timestamped" in #12 and #38.
+
+---
+
+## 13. Implementation status and deviations (2026-10-10)
+
+**Implemented as approved:** R-1, R-3 frontend guard, R-4, R-5, R-6 (estimate/conflict only), U-1..U-11, F-1, T-1..T-6, and the six §4.5 defaults (D-3, D-4, D-5, D-6, C-1 unchanged, W with B1.5/B8.4 omitted). S-1 and S-3 are untouched. No do-not-touch file in §7.6 changed. `verification.md` has the gate results.
+
+**Deviations from the file list or the letter of the plan.** Each was needed to meet a §9.2 gate or came out of review, and each is in the PR for review:
+
+| # | Change | Why |
+|---|---|---|
+| 1 | `scripts/verify_reports_frontend.py`: skips ESLint when no TypeScript changed | A bare `eslint` call lints the whole repository, which has pre-existing errors on `main`. Without the skip, SQL-only PR-B could never pass `reports-frontend`. |
+| 2 | `scripts/tests/reports-visual/fonts/` (Inter woff2, `inter.css`, OFL licence); the fixture stops if Inter does not render | The first-screen budgets otherwise depended on the runner's system fonts |
+| 3 | `.github/workflows/reports-backend.yml`: adds `axe-core@4.10.2` to the existing pinned browser-tooling install | §9.2.5 lists axe as a browser-gate check, but §7.4 said workflow files stay unchanged. Without axe-core installed, the gate cannot run in CI. |
+| 4 | New `src/lib/reports-hero-size.ts` and `src/components/reports/useChartReadout.ts` | Length-based production value sizes, so values stay on one line; a polite live readout for the keyboard charts |
+| 5 | R-4 fix uses `useLayoutEffect` as well as `setStored(null)` | The browser frame probe showed that a passive effect still painted one stale frame |
+| 6 | Pre-existing axe violations fixed: unselected scope tabs and segmented buttons (4.45:1 → `text-foreground/70`); the efficiency scatter is `aria-hidden` with an sr-only pointer to its table | The new axe gate fails on any violation and accepts none |
+| 7 | Production band stacks to one column below 360 px | At 320 px, "$14,406.00" overflowed its box by 14 px. Geometry from 360 to 1440 px is unchanged. |
+| 8 | Heatmap cell numbers stay visible at every width, as at base | U-7 adds table semantics and sr-only text. Hiding numbers on phones would have removed values from sighted touch users. |
+| 9 | Table right-edge fade shows at every width while columns remain, not only below 640 px | Review found columns clipped at 768–1440 px with no cue (U-11) |
+| 10 | The strip's "Most policies" tile uses the band's tie rule (D-5) | Otherwise the same label showed a tie in one place and one agent in another |
+| 11 | `main` (`a41ed8ea`, #432–#434) merged into the branch | No file overlap. Verification ran on the merged head. |
+
+**Separate approvals still required** (none is covered by the implementation approval):
+1. Merging PR-A to `main` and the resulting Vercel production deployment.
+2. The PR-B production window (§8): disable → correction → guarded enable → read-back, merging PR-B in the same window after rebasing it on `main`.
+3. Any change for S-1 or S-3.
+4. Amending AGENT_RULES #41 with the new `report_integrity_quality` pin, which happens only when PR-B is applied.
