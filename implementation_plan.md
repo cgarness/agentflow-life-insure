@@ -1,4 +1,6 @@
-## 2026-10-10 — BUILT, release preparation in review (not deployed): Super Admin registration emails (new user / new agency)
+## 2026-10-10 — RELEASED (record reconciled 2026-10-10): Super Admin registration emails (new user / new agency)
+
+**Release record (2026-10-10, reconciliation PR):** production carries migration `20261010172702` (authored `20261010200000`, identical bytes), Edge `platform-admin-notify` v1 (bundle byte-identical to `3a6fce2`) and the active cron job. The repository file was renamed to the recorded version. Evidence and limits: `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md` §8. The status lines below are the pre-release history, kept as written.
 
 **Release-prep status (latest):** the read-only preflight passed. Chris approved the two §A10 corrections (code, docs and local testing only), and both are implemented and verified (§A11). No production change has been made. Awaiting approval for production step 1 in `deployment.md`.
 

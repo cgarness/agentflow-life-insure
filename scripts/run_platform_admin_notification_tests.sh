@@ -32,8 +32,8 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/supabase/tests/platform_admin_notifications_harness.sql"
 SUITE="$ROOT/supabase/tests/platform_admin_notifications.sql"
-MIG="$ROOT/supabase/migrations/20261010200000_platform_admin_registration_notifications.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql"
+MIG="$ROOT/supabase/migrations/20261010172702_platform_admin_registration_notifications.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20261010172702_platform_admin_registration_notifications.rollback.sql"
 
 DB="pan_test_$$"; DB_CC="pan_cc_$$"; DB_NEG="pan_neg_$$"; DB_NEG2="pan_neg2_$$"; DB_RB="pan_rb_$$"
 drop_all() {

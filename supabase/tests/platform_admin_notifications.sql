@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- Behaviour suite for 20261010200000_platform_admin_registration_notifications.sql.
+-- Behaviour suite for 20261010172702_platform_admin_registration_notifications.sql (authored as 20261010200000).
 -- LOCAL synthetic database only (run via scripts/run_platform_admin_notification_tests.sh).
 -- Every block raises on failure; ON_ERROR_STOP aborts the run.
 -- =====================================================================================================

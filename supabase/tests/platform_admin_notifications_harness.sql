@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- Synthetic LOCAL harness for 20261010200000_platform_admin_registration_notifications.sql.
+-- Synthetic LOCAL harness for 20261010172702_platform_admin_registration_notifications.sql (authored as 20261010200000).
 -- Mirrors only the production shapes the feature touches: Supabase roles, auth.users + the
 -- handle_new_user profile trigger (simplified, same INSERT), organizations with its CHECKs,
 -- profiles with ON DELETE CASCADE from auth.users, dispositions, and provision_organization

@@ -99,7 +99,7 @@ This requires one real invite signup to an address Chris controls, in an organiz
 ## 6. Rollback (each is a NEW migration or action, approval-gated)
 
 - **Stop delivery only:** a new migration with `SELECT cron.unschedule('platform-admin-notify-every-minute');`. Rows keep queueing harmlessly.
-- **Full rollback:** a new migration with the exact bytes of `supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql`. It removes the job, the triggers, the functions and the table. Signup and organization creation are then identical to before the feature. To keep the delivery history, export the queue first (invariant #29).
+- **Full rollback:** a new migration with the exact bytes of `supabase/migrations/rollback/20261010172702_platform_admin_registration_notifications.rollback.sql`. It removes the job, the triggers, the functions and the table. Signup and organization creation are then identical to before the feature. To keep the delivery history, export the queue first (invariant #29).
 - **Function:** delete `platform-admin-notify`, or leave it in place: without the queue and the cron job it does nothing.
 - **Secrets:** remove `PLATFORM_ADMIN_NOTIFY_TOKEN` (and the optional recipient) plus Vault `platform_admin_notify_token`.
 
@@ -109,9 +109,25 @@ Recompute with `sha256sum` before every step. Any mismatch stops the release; if
 
 | File | sha256 |
 |---|---|
-| `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql` | `f33f84cf6baa53d5b2e5a08fae36056ce8d840369f5e43613dc11c5b38acce9e` |
-| `supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql` | `1c21c4aa3b0d4f3ce567d9dfa79d003490f474f7d65ee877a1105cde09a65ad8` |
+| `supabase/migrations/20261010172702_platform_admin_registration_notifications.sql` (authored as `20261010200000`) | `f33f84cf6baa53d5b2e5a08fae36056ce8d840369f5e43613dc11c5b38acce9e` |
+| `supabase/migrations/rollback/20261010172702_platform_admin_registration_notifications.rollback.sql` | `1c21c4aa3b0d4f3ce567d9dfa79d003490f474f7d65ee877a1105cde09a65ad8` |
 | `supabase/functions/platform-admin-notify/index.ts` | `4c0ab59ad62ec5a7b925cf2926b5d45c9886866028c7f5b8328038ca5b6feb6f` |
 | `supabase/functions/_shared/platformAdminNotifications.ts` | `33e098aa79684727dc3d1fa5589413250514fc73afbfe26d8a625b056c00cdcd` |
 | `supabase/functions/_shared/systemEmailTemplates.ts` | `68fb076996b10eddef74a354ae51290d06aa09fb68bc77796cfcf241aa0d4aac` |
 | `supabase/functions/_shared/systemEmail.ts` | `095cbd75237081f8611ec8cfd8c0105d6c1376bb505174b70e01af55f45743c7` |
+
+## 8. Release outcome (recorded 2026-10-10 from read-only production evidence)
+
+The release ran before this record existed, so the repository is reconciled to production here; nothing was redeployed, re-applied or modified.
+
+| Item | Production evidence (read-only) | Repository |
+|---|---|---|
+| Migration | `20261010172702 / platform_admin_registration_notifications`; one stored statement, md5 `7962639fda44dca24a05ffd7845a3009` | `supabase/migrations/20261010172702_platform_admin_registration_notifications.sql`, renamed from `20261010200000` with identical bytes (same md5; sha256 `f33f84cf…` as in §7) |
+| Rollback | not applied (never is, unless approved) | renamed to `rollback/20261010172702_…rollback.sql`; bytes unchanged, so its header still names the authored filename |
+| Edge `platform-admin-notify` | v1, ACTIVE, `verify_jwt=false`, ezbr `bf8c8704213ba39d136ed9972813c830011d19689f1b6a700ac7fcb3a22ebb26` | the four bundled files (`index.ts`, `_shared/platformAdminNotifications.ts`, `_shared/systemEmail.ts`, `_shared/systemEmailTemplates.ts`) are byte-identical to branch head `3a6fce2` and match the §7 hashes. Their comments still name the authored migration `20261010200000`; they are deliberately not edited, so the repository stays equal to the deployed bytes |
+| Schedule | `platform-admin-notify-every-minute`, `* * * * *`, active | created by the migration's guarded schedule block |
+| Triggers | `trg_zz_platform_admin_notify_user_registered` (profiles), `trg_zz_platform_admin_notify_agency_created` (organizations) | as in the migration |
+| Vault | `platform_admin_notify_token` present (name only checked) | never in git |
+| Queue | two rows, both `sent` (one `user_registered`, one `agency_created`); first queued 2026-10-10 17:31:21 UTC | row contents, recipients and bodies were not read |
+
+**Not established by this record:** who performed each production step and when Chris approved it (no approval transcript is in the repository); the content of the two delivered emails; real-client rendering. Do not describe the §5 live end-to-end test as passed on the strength of the two `sent` rows alone.

@@ -1,3 +1,34 @@
+## 2026-10-10 — Super Admin registration emails: production release record reconciled (repository only)
+
+**Why.** The feature is live in production, but the repository still said "not deployed" and the migration file carried its authored version. Chris asked for the release to be reconciled with the repository in a separately reviewed PR before the onboarding email series is built. This entry and its PR change **no production state**: nothing was deployed, re-applied, redeployed or modified, and `create-user`, `platform-admin-notify`, the triggers and the cron job were not touched.
+
+**Production evidence (read-only, 2026-10-10):**
+- **Migration:** `20261010172702 / platform_admin_registration_notifications` is recorded. It has one stored statement, md5 `7962639fda44dca24a05ffd7845a3009`, equal to the branch file `20261010200000_…sql`. The newest recorded version is still `20261010172702`.
+- **Edge `platform-admin-notify`:** v1, ACTIVE, `verify_jwt=false`, ezbr `bf8c8704…`. All four bundled files are byte-identical to branch head `3a6fce2`: `index.ts`, `_shared/platformAdminNotifications.ts`, `_shared/systemEmail.ts`, `_shared/systemEmailTemplates.ts`.
+- **Database objects:**
+  - cron `platform-admin-notify-every-minute` is active;
+  - both `trg_zz_platform_admin_notify_*` triggers are present;
+  - the Vault secret `platform_admin_notify_token` is present (name only checked).
+- **Queue:** two `sent` rows, one `user_registered` and one `agency_created`, first queued 17:31:21 UTC. Row contents and bodies were not read.
+- **Unchanged:** `create-user` is still v57, ezbr `2dc286da…`, the same bundle as the documented v56.
+
+**Repository reconciliation (invariants #25 and #35, same pattern as the 2026-10-10 Reports rename):**
+- `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql` is renamed to `20261010172702_…` with **identical bytes**; the md5 still equals production.
+- The rollback is renamed to match, bytes unchanged.
+- `scripts/run_platform_admin_notification_tests.sh` paths and the two SQL suite headers are updated.
+- AGENT_RULES #21 now reads RELEASED.
+- `deployment.md` gains §8, "Release outcome", and its §6/§7 paths are updated.
+- The admin section of `implementation_plan.md` gains a release-record line.
+- **Not edited, deliberately:** the deployed Edge sources. Their comments still name the authored version, so the repository stays byte-equal to the deployed bundle.
+
+**Verification (local only; isolated PostgreSQL 16.15, localhost proved, synthetic data):**
+- `scripts/run_platform_admin_notification_tests.sh` against the renamed files: ALL PASSED. That covers the behaviour suite, the replay guard, two-session SKIP LOCKED (3 + 3, overlap 0), both negative controls, and the rollback proof.
+- Deno `platform-admin-notify` / `systemEmail` / `systemEmailTemplates` tests: 90 passed, 0 failed. `deno.land` is denied here, so a scratch import map pointed its assert module at `jsr:@std/assert`.
+
+**Not established:** who ran each production step, when Chris approved it, and what the two delivered emails contained. The deployment plan's live end-to-end test (§5) is **not** recorded as passed.
+
+**Next:** Chris reviews and merges this PR. Then the onboarding email branch `claude/onboarding-email-series-20261010` brings in `main` (D11).
+
 ## 2026-10-10 — Super Admin registration emails: §A10 corrections implemented and verified (not deployed)
 
 **Approval.** Chris approved the two `implementation_plan.md` §A10 corrections. The scope was code, documentation and local testing only. Built on `claude/super-admin-registration-emails-20261010`.
