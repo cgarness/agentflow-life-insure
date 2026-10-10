@@ -1,6 +1,6 @@
 # Reports overlap-seconds correction (R-3) — PR-B release packet
 
-**Status: files approved; NOT merged and NOT applied.** Chris's plan approval covers adding these files on branch `claude/reports-overlap-sql-20261009` (authored on `main` `8d53531d0edc509cc97fdc49a06c4873438ca67d`; on 2026-10-10 `main` `b00bfedc` was merged in after PR-A #436 shipped, with no conflicts). Applying the three production migrations, and any rollback, each needs Chris's separate exact approval (AGENT_RULES #28/#41).
+**Status (2026-10-10): APPLIED to production; this PR merges in the same window.** Recorded versions: `20261010043358` disable, `20261010043449` correction, `20261010043517` enable. The four files are renamed to these versions with identical bytes; §6's mapping keeps the authored `20261009170000/100/200` names as the historical record. ~~Status: files approved; NOT merged and NOT applied.~~ Chris's plan approval covers adding these files on branch `claude/reports-overlap-sql-20261009` (authored on `main` `8d53531d0edc509cc97fdc49a06c4873438ca67d`; on 2026-10-10 `main` `b00bfedc` was merged in after PR-A #436 shipped, with no conflicts). Applying the three production migrations, and any rollback, each needs Chris's separate exact approval (AGENT_RULES #28/#41).
 
 **Merge rule: this PR merges only in the same approved window as the production apply, never before it.** `supabase/ops/reports_integrity_enable.sql` is the documented #41 recovery source. If its corrected pin reached `main` while production still runs the old body, an emergency re-enable from `main` would refuse and leave Reports disabled. If the apply is not approved, or it refuses at step 2, this PR stays unmerged.
 
@@ -71,10 +71,10 @@ The full diff is in the commit (`git diff origin/main -- scripts/reports_integri
 
 | # | File | New / modified | Bytes | SHA-256 |
 |---|---|---|---|---|
-| 1 | `supabase/migrations/20261009170000_reports_overlap_release_disable.sql` | new | 3,883 | `17141977ba6480f8e99153665e185385e3f6ef203b122efdf67947a62d5079b2` |
-| 2 | `supabase/migrations/20261009170100_reports_integrity_quality_overlap_seconds.sql` | new | 7,295 | `23288ee886e0cf6c487c54e47ce8783ec3a043f62d4fc99ed0c4c6aad57b726f` |
-| 3 | `supabase/migrations/20261009170200_reports_overlap_release_enable.sql` | new | 4,503 | `d1698e45ecd7e068893f40841428c6fcc1fce7a1c57aa0abf796acfdde61a653` |
-| 4 | `supabase/migrations/rollback/20261009170100_reports_integrity_quality_overlap_seconds.rollback.sql` | new | 6,717 | `0f066b8fbca71b783d713b5fbf332e951f9ad999fbdc7bd185500973f98de470` |
+| 1 | `supabase/migrations/20261010043358_reports_overlap_release_disable.sql` | new | 3,883 | `17141977ba6480f8e99153665e185385e3f6ef203b122efdf67947a62d5079b2` |
+| 2 | `supabase/migrations/20261010043449_reports_integrity_quality_overlap_seconds.sql` | new | 7,295 | `23288ee886e0cf6c487c54e47ce8783ec3a043f62d4fc99ed0c4c6aad57b726f` |
+| 3 | `supabase/migrations/20261010043517_reports_overlap_release_enable.sql` | new | 4,503 | `d1698e45ecd7e068893f40841428c6fcc1fce7a1c57aa0abf796acfdde61a653` |
+| 4 | `supabase/migrations/rollback/20261010043449_reports_integrity_quality_overlap_seconds.rollback.sql` | new | 6,717 | `0f066b8fbca71b783d713b5fbf332e951f9ad999fbdc7bd185500973f98de470` |
 | 5 | `supabase/tests/reports_integrity_overlap_fixture.sql` | new | 6,156 | `7eec2b4fdb5ce21eaddf4ed14eea695a06094ffd7e33206fb0051eed563284f5` |
 | 6 | `supabase/tests/reports_integrity_overlap.sql` | new | 5,108 | `bc5dd082b296b9d3561b3596abdbb9455d346b7a71d760726714f8489d0eabea` |
 | 7 | `supabase/ops/reports_integrity_enable.sql` | modified (line 11) | 4,503 | `d1698e45ecd7e068893f40841428c6fcc1fce7a1c57aa0abf796acfdde61a653` (was `a5433ce838eec87b338c9b3a79cfc939e2fdfb30ac232a4d948227522ae98a32`) |
