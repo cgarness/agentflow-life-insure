@@ -77,11 +77,27 @@ describe("session duplicate seconds (R-3 frontend guard)", () => {
 });
 
 describe("data-quality nouns (R-6)", () => {
-  it("uses the singular when a count is exactly 1", () => {
+  it("uses the singular only for exactly 1 estimate or 1 conflict, the approved R-6 change", () => {
     const q = withQuality({ duration: { estimated_calls: 1, conflicting_calls: 1, outbound_calls: 1, unknown_calls: 0 }, sessions: { stale_capped: 2, overlapping_rows: 1, overlap_seconds_removed: 1 } });
     const [duration, , , sessions] = qualityNotes(q);
-    expect(duration).toBe("Stored outbound duration: 1 estimate, 0 unknown provenance or amount, 1 conflict across 1 call. Counts can overlap.");
-    expect(sessions).toBe(SESSIONS("1 overlapping row; 1 duplicate second removed."));
+    expect(duration).toBe("Stored outbound duration: 1 estimate, 0 unknown provenance or amount, 1 conflict across 1 calls. Counts can overlap.");
+    expect(sessions).toBe(SESSIONS("1 overlapping rows; 1 duplicate seconds removed."));
+  });
+
+  it("every other count noun keeps its base CSV bytes at 1 (data-basis-wording: only R-3 and R-6 may change a Note)", () => {
+    // Base (8d53531) sentences with every count at 1, except that R-6 makes "estimates"/"conflicts" singular.
+    const q = withQuality({
+      duration: { outbound_calls: 1, estimated_calls: 1, unknown_calls: 1, conflicting_calls: 1 },
+      duplicates: { excluded_outbound_calls: 1, excluded_bookings: 1 },
+      bookings: { all_types: 1, appointment_kind: 1, callback_kind: 1, unknown_kind: 1 },
+      sessions: { stale_capped: 1, missing_evidence: 1, overlapping_rows: 1, overlap_seconds_removed: 1 },
+    });
+    expect(qualityNotes(q)).toEqual([
+      "Stored outbound duration: 1 estimate, 1 unknown provenance or amount, 1 conflict across 1 calls. Counts can overlap.",
+      "Only reviewed mappings excluded: 1 outbound calls and 1 bookings. Unreviewed historical candidates remain included.",
+      "Bookings created (all types): 1; recorded kind: 1 appointment, 1 callback, 1 unknown. Callback dispositions count calls, not callback bookings.",
+      "Sessions assessed for this window: 1 stale open sessions capped at heartbeat, 1 with missing/invalid end evidence, 1 overlapping rows; 1 duplicate seconds removed.",
+    ]);
   });
 
   it("keeps the plural for 0 and for more than 1", () => {

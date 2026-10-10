@@ -3,8 +3,20 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+// axe-core is installed beside Playwright (the workflow pins axe-core@4.10.2 with it); AXE_CORE_PATH may name
+// axe.min.js directly. A missing axe stops the run here, by name, instead of skipping the accessibility pass.
+function axeCorePath() {
+  if (process.env.AXE_CORE_PATH) return process.env.AXE_CORE_PATH;
+  const bases = [process.env.PLAYWRIGHT_MODULE && join(process.env.PLAYWRIGHT_MODULE, 'package.json'), import.meta.url].filter(Boolean);
+  for (const base of bases) {
+    try { return createRequire(base).resolve('axe-core/axe.min.js'); } catch { /* try the next base */ }
+  }
+  throw new Error('axe precondition: axe-core is not installed beside Playwright (see README "Accessibility")');
+}
+const axeSource = await readFile(axeCorePath(), 'utf8');
 const url = process.env.REPORTS_VISUAL_URL || 'http://127.0.0.1:4180';
 const target = new URL(url);
 assert.equal(target.origin, 'http://127.0.0.1:4180', 'Only the isolated Reports fixture is allowed');
@@ -40,6 +52,11 @@ const IMPORTANT_COLUMNS = {
   agent_performance_cards: ['Policies (current assignment)', 'Known annual premium'],
   campaign_performance: ['Policies (campaign-attributed)', 'Known annual premium'],
 };
+// axe findings this gate accepts, each with its reason; every other violation fails the run. Empty: the
+// base's color-contrast (unselected tabs and segmented buttons, 4.45:1) and svg-img-alt (recharts scatter
+// points) findings were fixed, not accepted.
+const AXE_BASELINE = [];
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'];
 const SQL_WINDOW = '2026-10-01-to-2026-10-01';
 // Every export control on the SQL window; file names come from the unchanged report names.
 const EXPORT_FILES = ['report-summary', 'policies-sold', 'call-volume', 'agent-performance', 'agent-efficiency', 'campaign-performance',
@@ -381,7 +398,9 @@ async function tableCues(label) {
     const labelledBy = scroller?.getAttribute('aria-labelledby');
     return {
       id, overflow: !!scroller && scroller.scrollWidth > scroller.clientWidth + 1,
-      scrollWidth: scroller?.scrollWidth ?? null, clientWidth: scroller?.clientWidth ?? null,
+      scrollWidth: scroller?.scrollWidth ?? null, clientWidth: scroller?.clientWidth ?? null, scrollLeft: scroller?.scrollLeft ?? null,
+      // Columns remain beyond the right edge at the current scroll position.
+      moreRight: !!scroller && scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1,
       role: scroller?.getAttribute('role') ?? null,
       name: scroller?.getAttribute('aria-label') || (labelledBy && document.getElementById(labelledBy)?.textContent.trim()) || null,
       tabIndex: scroller?.tabIndex ?? null,
@@ -400,16 +419,51 @@ async function tableCues(label) {
   await writeFile(`${output}/${label}-tables.json`, JSON.stringify(tables, null, 2));
   for (const id of Object.keys(IMPORTANT_COLUMNS)) assert.ok(tables.some(t => t.id === id), `${label}: ${id} table rendered`);
   for (const t of tables) {
+    // At every width the right-edge cue is shown exactly while columns remain to the right (U-11).
+    assert.equal(t.fade, t.moreRight, `${label}/${t.id}: right-edge cue shown exactly while columns remain to the right ${JSON.stringify([t.scrollLeft, t.clientWidth, t.scrollWidth])}`);
     if (t.overflow) {
       assert.equal(t.role, 'region', `${label}/${t.id}: scrolling table is a labelled region`);
       assert.ok(t.name, `${label}/${t.id}: region name`);
       assert.equal(t.tabIndex, 0, `${label}/${t.id}: region is keyboard-focusable`);
       assert.ok(t.direct, `${label}/${t.id}: the table is the region's direct child`);
       assert.ok(t.sticky && t.opaque, `${label}/${t.id}: opaque sticky first column`);
-      if (width < 640) assert.ok(t.fade, `${label}/${t.id}: mobile right-edge cue`);
+      assert.ok(t.fade, `${label}/${t.id}: right-edge cue at scroll 0 while the table overflows`);
     }
     if (width >= 1024) assert.deepEqual(t.hiddenImportant, [], `${label}/${t.id}: important columns visible without scrolling`);
   }
+  // The cue follows the scroll position: gone once the last column is in view, back at the start.
+  const scrollers = page.locator('[data-reports-workspace] [role="region"][tabindex="0"]:has(> table)');
+  for (const region of await scrollers.all()) {
+    if (!await region.evaluate(el => el.scrollWidth > el.clientWidth + 1)) continue;
+    const name = await region.getAttribute('aria-label');
+    for (const [where, expected] of [['end', false], ['start', true]]) {
+      const shown = await region.evaluate((el, [where, expected]) => new Promise(resolve => {
+        el.scrollLeft = where === 'end' ? el.scrollWidth : 0;
+        const fade = el.parentElement.querySelector(':scope > [data-scroll-fade]');
+        const started = performance.now();
+        const poll = () => {
+          const visible = !!fade && getComputedStyle(fade).display !== 'none';
+          if (visible === expected || performance.now() - started > 2000) resolve(visible); else requestAnimationFrame(poll);
+        };
+        requestAnimationFrame(poll);
+      }), [where, expected]);
+      assert.equal(shown, expected, `${label}/${name}: right-edge cue ${expected ? 'returns at the start' : 'leaves at the end'} of the scroll`);
+    }
+  }
+  // U-7: every non-empty heatmap cell shows its number on screen at this width (no tooltip on touch).
+  const heat = await section('calling_heatmap').evaluate(root => [...root.querySelectorAll('tbody td')].map(td => {
+    const said = td.querySelector('.sr-only')?.textContent ?? '';
+    const shown = td.querySelector('[aria-hidden="true"]');
+    const r = shown?.getBoundingClientRect();
+    return {
+      said, calls: said.match(/: ([\d,]+) calls? made/)?.[1] ?? null, text: shown?.textContent ?? null,
+      visible: !!shown && getComputedStyle(shown).display !== 'none' && r.width > 0 && r.height > 0,
+      fits: !!shown && r.width <= td.clientWidth + 0.5,
+    };
+  }));
+  const busy = heat.filter(cell => cell.calls !== null && cell.calls !== '0');
+  assert.ok(busy.length >= 1, `${label}: the heatmap has non-empty cells`);
+  for (const cell of busy) assert.ok(cell.visible && cell.text === cell.calls && cell.fits, `${label}: heatmap cell shows its value ${JSON.stringify(cell)}`);
   if (width < 1024) for (const id of Object.keys(IMPORTANT_COLUMNS)) {
     const region = section(id).locator('[role="region"][tabindex="0"]:has(> table)');
     if (!await region.count() || !await region.evaluate(el => el.scrollWidth > el.clientWidth + 1)) continue;
@@ -434,10 +488,10 @@ async function tableCues(label) {
     await region.evaluate(el => { el.scrollLeft = 0; });
   }
   await page.evaluate(() => window.scrollTo(0, 0));
-  console.log('PASS', `${label} table cues`, JSON.stringify(tables.map(t => [t.id, t.overflow, t.hiddenImportant.length])));
+  console.log('PASS', `${label} table cues`, JSON.stringify(tables.map(t => [t.id, t.overflow, t.fade, t.hiddenImportant.length])), `heatmap values ${busy.length}`);
 }
-async function measure(label) {
-  // Recharts animates on initial mount and resize. Capture settled, nonblank chart geometry.
+async function settleCharts() {
+  // Recharts animates on initial mount and resize. Wait for settled, nonblank chart geometry.
   await page.evaluate(async () => {
     const started = performance.now();
     let previous = '', stableSince = started;
@@ -450,6 +504,66 @@ async function measure(label) {
     }
     throw new Error('Report chart geometry did not settle');
   });
+}
+async function transitionsSettled() {
+  // The theme switch animates colours (transition-colors); measure only finished, settled colours.
+  await page.evaluate(async () => {
+    await Promise.all(document.getAnimations().filter(a => a instanceof CSSTransition).map(a => a.finished.catch(() => null)));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+async function chartNames(label) {
+  // Every focusable chart (recharts' accessibilityLayer: role="application", tabindex 0) is named; each card has
+  // one such tab stop (its main panel), and every trend panel svg is named.
+  const charts = await page.evaluate(() => [...document.querySelectorAll('[data-reports-workspace] svg.recharts-surface')].map(svg => ({
+    section: svg.closest('[data-report-section]')?.getAttribute('data-report-section') ?? null,
+    role: svg.getAttribute('role'), tabIndex: svg.getAttribute('tabindex'),
+    name: (svg.getAttribute('aria-label') || svg.querySelector(':scope > title')?.textContent || '').trim(),
+  })));
+  const focusable = charts.filter(chart => chart.tabIndex !== null && Number(chart.tabIndex) >= 0);
+  for (const chart of focusable) assert.ok(chart.name, `${label}: focusable chart in ${chart.section} has a name ${JSON.stringify(chart)}`);
+  for (const id of ['policies_sold', 'call_volume', 'call_flow_analysis']) {
+    assert.equal(focusable.filter(chart => chart.section === id).length, 1, `${label}: one chart tab stop in ${id} ${JSON.stringify(charts)}`);
+  }
+  for (const chart of charts.filter(chart => ['policies_sold', 'call_volume', 'call_flow_analysis'].includes(chart.section))) {
+    assert.ok(chart.name, `${label}: every trend panel is named ${JSON.stringify(chart)}`);
+  }
+  return focusable.map(chart => [chart.section, chart.role, chart.name]);
+}
+async function axeAudit(label) {
+  // axe on the fully expanded page in light and dark, after charts and colour transitions settle (plan §9.2.5).
+  const toggles = await page.locator('[data-reports-workspace] section h3 > button[aria-expanded="false"]').evaluateAll(nodes => nodes.map(node => node.id));
+  for (const id of toggles) await page.locator(`[id="${id}"]`).click();
+  await settleCharts();
+  const named = await chartNames(label);
+  const results = {};
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), theme === 'dark');
+    await transitionsSettled();
+    if (!await page.evaluate(() => !!window.axe)) await page.evaluate(axeSource);
+    results[theme] = await page.evaluate(async tags => {
+      const run = await window.axe.run(document.querySelector('[data-reports-workspace]'), { runOnly: { type: 'tag', values: tags }, resultTypes: ['violations', 'incomplete'] });
+      const nodes = rule => rule.nodes.map(node => ({ target: node.target.join(' '), html: node.html.slice(0, 200), summary: (node.failureSummary || '').slice(0, 300) }));
+      return {
+        version: window.axe.version, passes: run.passes.length,
+        violations: run.violations.map(rule => ({ id: rule.id, impact: rule.impact, nodes: nodes(rule) })),
+        // "Needs review" results (not failures), recorded with their first targets.
+        incomplete: run.incomplete.map(rule => ({ id: rule.id, impact: rule.impact, count: rule.nodes.length, targets: rule.nodes.slice(0, 8).map(node => node.target.join(' ')) })),
+      };
+    }, AXE_TAGS);
+    const unexpected = results[theme].violations.flatMap(rule => rule.nodes.map(node => ({ id: rule.id, impact: rule.impact, target: node.target })))
+      .filter(found => !AXE_BASELINE.some(accepted => accepted.id === found.id && accepted.target === found.target));
+    assert.deepEqual(unexpected, [], `${label}/${theme}: axe violations ${JSON.stringify(results[theme].violations)}`);
+  }
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+  await transitionsSettled();
+  await writeFile(`${output}/${label}-axe.json`, JSON.stringify({ tags: AXE_TAGS, baseline: AXE_BASELINE, expanded: toggles.length, charts: named, results }, null, 2));
+  for (const id of toggles) await page.locator(`[id="${id}"]`).click(); // restore the default open/closed state
+  console.log('PASS', `${label} axe ${results.light.version}`, JSON.stringify(Object.fromEntries(Object.entries(results).map(([theme, r]) => [theme,
+    { violations: r.violations.length, incomplete: r.incomplete.map(rule => `${rule.id}x${rule.count}`).join(',') }]))), `charts ${JSON.stringify(named)}`);
+}
+async function measure(label) {
+  await settleCharts();
   const measurements = await page.evaluate(() => {
     const nonblank = node => { const box = node.getBBox(); return box.width > 1 && box.height > 1; };
     // Rendered line count: [overflow-wrap:anywhere] wraps a long number instead of clipping it.
@@ -503,10 +617,12 @@ async function measure(label) {
   await page.screenshot({ path: `${output}/${label}-top.png` });
   // Tailwind's class-based theme is applied only to the isolated synthetic page.
   await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await transitionsSettled();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${label}: dark theme has no horizontal overflow`);
   await page.screenshot({ path: `${output}/${label}-dark-top.png` });
   await band().screenshot({ path: `${output}/${label}-dark-production-overview.png` });
   await page.evaluate(() => document.documentElement.classList.remove('dark'));
+  await transitionsSettled();
   await writeFile(`${output}/${label}.json`, JSON.stringify(measurements, null, 2));
   console.log('PASS', label, JSON.stringify({ ...measurements, headings: undefined, hierarchy: undefined }));
 }
@@ -601,6 +717,17 @@ try {
   assert.match(await unknownRow.innerText(), /—[\s\S]*0\/1 known/);
   assert.ok(!(await unknownRow.innerText()).includes('$0.00'), 'all-unknown premium never presented as zero');
   assert.match(await section('agent_efficiency').innerText(), /1\.5/, '3 interval-matched calls / 2 hours');
+  // A chart's keyboard readout is spoken, not only drawn: focus the named Production panel, press ArrowRight.
+  const productionChart = page.getByRole('application', { name: 'Policies sold by day', exact: true });
+  assert.equal(await productionChart.count(), 1, 'the Production trend main panel is a named keyboard chart');
+  assert.equal(await page.getByRole('application', { name: 'Outbound calls by day', exact: true }).count(), 1, 'the Calling trend main panel is a named keyboard chart');
+  await productionChart.focus();
+  await page.keyboard.press('ArrowRight');
+  const readout = section('policies_sold').locator('[data-chart-readout]');
+  assert.deepEqual([await readout.getAttribute('role'), await readout.getAttribute('aria-live')], ['status', 'polite']);
+  await page.waitForFunction(() => !!document.querySelector('[data-report-section="policies_sold"] [data-chart-readout]')?.textContent);
+  assert.equal(await readout.textContent(), '2026-10-01: 8 policies sold; known annual premium $14,406.00; 3 of 8 policies known, 5 unknown.', 'keyboard readout says the period values');
+  await productionChart.evaluate(node => node.blur());
   assert.equal((await sectionOrder('stats')).length, 6, 'six grouped default metrics');
   assert.deepEqual(await sectionOrder('trends'), ['policies_sold', 'call_volume'], 'fixed production and calling trends');
   for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
@@ -612,6 +739,10 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 664 });
   await firstScreen('reports-390x664');
+  for (const [width, height] of [[390, 844], [1440, 900]]) {
+    await page.setViewportSize({ width, height });
+    await axeAudit(`reports-${width}`);
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   const summaryCsv = await exportFile(page.getByRole('button', { name: 'Export', exact: true }), `report-summary-${SQL_WINDOW}.csv`);
   for (const text of ['"Talk time (seconds)",201', '"Dialer session time (seconds)",7200', '"Known annual premium",14406', '"Policies with unknown premium",5', 'reports_integrity_v2', payloads.summary.as_of,

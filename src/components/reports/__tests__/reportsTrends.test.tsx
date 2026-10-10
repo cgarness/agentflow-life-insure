@@ -10,10 +10,19 @@ import CallVolumeChart from "../CallVolumeChart";
 
 // Each chart exposes the bucket labels it was given and its sync id, so the test can see that one control
 // regroups every trend panel (SVG geometry belongs to the browser fixture).
+// It also exposes the svg's name, focusability and desc, and forwards a mouse move as recharts reports an
+// active index (the keyboard layer reports arrow keys the same way).
+type ChartProps = {
+  data: Array<{ label: string }>; syncId?: string; children: React.ReactNode; accessibilityLayer?: boolean; desc?: string;
+  "aria-label"?: string; onMouseMove?: (state: { activeTooltipIndex?: number }) => void; onMouseLeave?: () => void;
+};
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  ComposedChart: ({ data, syncId, children }: { data: Array<{ label: string }>; syncId?: string; children: React.ReactNode }) => (
-    <div data-testid="trend-chart" data-sync={syncId} data-labels={data.map((row) => row.label).join("|")}>{children}</div>
+  ComposedChart: ({ data, syncId, children, accessibilityLayer, desc, onMouseMove, onMouseLeave, ...rest }: ChartProps) => (
+    <div data-testid="trend-chart" data-sync={syncId} data-labels={data.map((row) => row.label).join("|")}
+      data-name={rest["aria-label"]} data-focusable={String(!!accessibilityLayer)} data-desc={desc}
+      onMouseMove={(event) => onMouseMove?.({ activeTooltipIndex: Number((event.target as HTMLElement).dataset.index ?? 0) })}
+      onMouseLeave={() => onMouseLeave?.()}>{children}</div>
   ),
   CartesianGrid: () => null,
   XAxis: () => null,
@@ -76,6 +85,35 @@ describe("Trends", () => {
     const [production, calling] = Array.from(trends().querySelectorAll<HTMLElement>("[data-report-section]"));
     expect(within(production).getAllByTestId(/^axis-/).map((a) => a.dataset.testid)).toEqual(["axis-policies", "axis-premium"]);
     expect(within(calling).getAllByTestId(/^axis-/).map((a) => a.dataset.testid)).toEqual(["axis-calls", "axis-rate"]);
+  });
+
+  it("names every panel; only each card's main panel is a tab stop, and it speaks the active period", () => {
+    render(<Harness volume={reportVolume()} />);
+    const charts = screen.getAllByTestId("trend-chart");
+    expect(charts.map((c) => [c.dataset.name, c.dataset.focusable])).toEqual([
+      ["Policies sold by day", "true"], ["Known annual premium by day", "false"],
+      ["Outbound calls by day", "true"], ["Call contact rate by day", "false"],
+    ]);
+    for (const chart of charts.filter((c) => c.dataset.focusable === "true")) expect(chart.dataset.desc).toBe("Use the left and right arrow keys to move between periods.");
+    const [production, calling] = Array.from(trends().querySelectorAll<HTMLElement>("[data-report-section]"));
+    const readout = (card: HTMLElement) => within(card).getByRole("status");
+    for (const card of [production, calling]) {
+      expect(readout(card)).toHaveAttribute("aria-live", "polite");
+      expect(readout(card)).toHaveClass("sr-only");
+      expect(readout(card).textContent).toBe(""); // nothing active yet
+    }
+    const point = (chart: HTMLElement, index: number) => { chart.dataset.index = String(index); fireEvent.mouseMove(chart); };
+    point(charts[0], 14);
+    expect(readout(production).textContent).toBe("2026-07-15: 2 policies sold; known annual premium $0.00; 2 of 2 policies known, 0 unknown.");
+    point(charts[2], 9);
+    expect(readout(calling).textContent).toBe("2026-07-10: 2 outbound calls, 1 contacted, call contact rate 50.0%; 0 inbound.");
+    point(charts[2], 0);
+    expect(readout(calling).textContent).toBe("2026-07-01: 0 outbound calls, 0 contacted, call contact rate unavailable; 0 inbound.");
+    fireEvent.mouseLeave(charts[2]);
+    expect(readout(calling).textContent).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
+    expect(screen.getAllByTestId("trend-chart").map((c) => c.dataset.name)).toEqual(["Policies sold by week", "Known annual premium by week", "Outbound calls by week", "Call contact rate by week"]);
   });
 
   it("renders the production card alone when no calling section was built", () => {

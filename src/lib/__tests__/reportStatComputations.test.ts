@@ -7,6 +7,7 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { computeAllStats, STAT_DEFINITIONS, isStatAvailable, POLICY_RATIO_SCOPE_REASON } from "@/lib/stat-computations";
 import { DEFAULT_LAYOUT, DEFAULT_VISIBLE_STATS, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
 import { ReportsQueryError } from "@/lib/reports-queries";
+import { policyLeaderText } from "@/lib/reports-basis-text";
 import { AGENT_A, emptySummary, quality, reportSummary, reportVolume } from "./reportsFixtures";
 import type { ReportSummary } from "@/lib/reports-schemas";
 
@@ -87,6 +88,23 @@ describe("canonical stat values", () => {
     expect(v("stat_top_performer").subtitle).toBe("2 policies currently assigned");
     expect(v("stat_top_dialer").value).toBe("Alice Agent"); // 10 calls
     expect(v("stat_agents_active").value).toBe("2");
+  });
+
+  it("a shared top policy count names no one, exactly as the band's leader row (D-5)", () => {
+    const tile = (byAgent: ReportSummary["by_agent"]) => computeAllStats(inputs({ summary: ready(reportSummary({}, byAgent)) })).get("stat_top_performer")!;
+    const base = reportSummary().by_agent;
+    const tied = base.map((a) => ({ ...a, policies_sold: 2 }));
+    expect(policyLeaderText(tied)).toBe("2 agents tied · 2 policies each");
+    const shared = tile(tied);
+    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies — current assignments", "2 agents tied", "2 policies each"]);
+    expect(`${shared.value} · ${shared.subtitle}`).toBe(policyLeaderText(tied));
+    expect(shared.value).not.toMatch(/Alice|Bob/); // never an alphabetical pick among the tied agents
+    const ones = tile(base.map((a) => ({ ...a, policies_sold: 1 })));
+    expect([ones.value, ones.subtitle]).toEqual(["2 agents tied", "1 policy each"]);
+    // A clear leader is still named, with the unchanged subtitle; a lower shared count is not a tie at the top.
+    const clear = tile([...base, { ...base[0], agent_id: "c3", name: "Cara Agent", policies_sold: 1 }]);
+    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies currently assigned"]);
+    expect(policyLeaderText(reportSummary().by_agent)).toBe("Bob Agent · 2 policies");
   });
 
   it("reads 'calls today' from the AGENCY calendar day", () => {

@@ -47,20 +47,30 @@ export function premiumCoverageText(p: ReportPremium): string {
   return p.unknown_count > 0 ? `${known} · ${formatCount(p.unknown_count)} unknown excluded` : known;
 }
 
-const policyCount = (n: number) => `${formatCount(n)} ${n === 1 ? "policy" : "policies"}`;
+export const policyCount = (n: number) => `${formatCount(n)} ${n === 1 ? "policy" : "policies"}`;
+
+/** The top of the "Most policies — current assignments" ranking; `tied` agents share its policy count. */
+export interface PolicyLeader { name: string; policies: number; tied: number }
 
 /**
- * The "Most policies — current assignments" value (C10) from the summary's own agent rows, ranked by policies
- * then name (current assignment, never seller credit). A shared top count names no one (D-5):
- * "2 agents tied · 3 policies each". Null when no agent has a policy.
+ * The one "Most policies — current assignments" ranking (C10, D-5), used by the production band's leader row
+ * and the stat_top_performer tile alike: the summary's own agent rows by policies, then name (current
+ * assignment, never seller credit). When `tied` > 1 the top count is shared and no one may be named.
+ * Null when no agent has a policy.
  */
-export function policyLeaderText(byAgent: ReportSummary["by_agent"]): string | null {
+export function policyLeader(byAgent: ReportSummary["by_agent"]): PolicyLeader | null {
   const ranked = byAgent.filter((a) => a.policies_sold > 0)
     .sort((a, b) => b.policies_sold - a.policies_sold || a.name.localeCompare(b.name));
   const top = ranked[0];
   if (!top) return null;
-  const tied = ranked.filter((a) => a.policies_sold === top.policies_sold).length;
-  return tied > 1 ? `${formatCount(tied)} agents tied · ${policyCount(top.policies_sold)} each` : `${top.name} · ${policyCount(top.policies_sold)}`;
+  return { name: top.name, policies: top.policies_sold, tied: ranked.filter((a) => a.policies_sold === top.policies_sold).length };
+}
+
+/** The band's leader row: "Bob Agent · 2 policies", or for a shared top count "2 agents tied · 3 policies each". */
+export function policyLeaderText(byAgent: ReportSummary["by_agent"]): string | null {
+  const top = policyLeader(byAgent);
+  if (!top) return null;
+  return top.tied > 1 ? `${formatCount(top.tied)} agents tied · ${policyCount(top.policies)} each` : `${top.name} · ${policyCount(top.policies)}`;
 }
 
 /** The one line Period totals keeps on screen (data-basis C29: the first sentence of PERIOD_TOTALS_NOTE). */

@@ -4,16 +4,19 @@ export const PREMIUM_BASIS = "Current stored monthly premiums ×12 on the same s
 export function premiumNote(p: ReportPremium): string {
   return `Known annual premium ${formatPremium(p.annual_premium)}; ${p.known_count}/${p.policy_count} policies known, ${p.unknown_count} unknown (${p.invalid_count} invalid, ${p.ambiguous_zero_count} ambiguous legacy zero); ${p.missing_identity_count} missing stable identities.`;
 }
-/** "1 estimate" / "2 estimates": the singular noun when the count is exactly 1. */
-const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/**
+ * R-6, as approved: only "estimate" and "conflict" take the singular at exactly 1. Every other count noun in
+ * these CSV Note sentences ("calls", "overlapping rows", "duplicate seconds", …) keeps its base wording.
+ */
+const counted = (n: number, noun: "estimate" | "conflict") => `${n} ${n === 1 ? noun : `${noun}s`}`;
 export function qualityNotes(q: ReportQuality): string[] {
   // With no overlapping rows nothing can be a duplicate; a non-zero figure there is rounding residue.
   const duplicateSeconds = q.sessions.overlapping_rows === 0 ? 0 : q.sessions.overlap_seconds_removed;
   return [
-    `Stored outbound duration: ${counted(q.duration.estimated_calls, "estimate", "estimates")}, ${q.duration.unknown_calls} unknown provenance or amount, ${counted(q.duration.conflicting_calls, "conflict", "conflicts")} across ${counted(q.duration.outbound_calls, "call", "calls")}. Counts can overlap.`,
+    `Stored outbound duration: ${counted(q.duration.estimated_calls, "estimate")}, ${q.duration.unknown_calls} unknown provenance or amount, ${counted(q.duration.conflicting_calls, "conflict")} across ${q.duration.outbound_calls} calls. Counts can overlap.`,
     `Only reviewed mappings excluded: ${q.duplicates.excluded_outbound_calls} outbound calls and ${q.duplicates.excluded_bookings} bookings. Unreviewed historical candidates remain included.`,
     `Bookings created (all types): ${q.bookings.all_types}; recorded kind: ${q.bookings.appointment_kind} appointment, ${q.bookings.callback_kind} callback, ${q.bookings.unknown_kind} unknown. Callback dispositions count calls, not callback bookings.`,
-    `Sessions assessed for this window: ${q.sessions.stale_capped} stale open sessions capped at heartbeat, ${q.sessions.missing_evidence} with missing/invalid end evidence, ${counted(q.sessions.overlapping_rows, "overlapping row", "overlapping rows")}; ${counted(duplicateSeconds, "duplicate second", "duplicate seconds")} removed.`,
+    `Sessions assessed for this window: ${q.sessions.stale_capped} stale open sessions capped at heartbeat, ${q.sessions.missing_evidence} with missing/invalid end evidence, ${q.sessions.overlapping_rows} overlapping rows; ${duplicateSeconds} duplicate seconds removed.`,
   ];
 }
 export function integrityExportNotes(data: Pick<import("@/lib/reports-schemas").ReportSummary, "as_of" | "quality"> & object): string[] {

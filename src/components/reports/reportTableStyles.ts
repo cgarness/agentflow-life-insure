@@ -11,8 +11,11 @@ const PIN = "sticky left-0 z-10 shadow-[inset_-1px_0_0_hsl(var(--border))]";
 export const TH = `${HEAD} text-right`;
 /** Header of the pinned first column. */
 export const TH_FIRST = `${HEAD} ${PIN} text-left`;
-/** Header text: wraps within 7.5rem below sm so the first important column fits beside the pinned label. */
-export const TH_LABEL = "block max-w-[7.5rem] whitespace-normal sm:max-w-none sm:whitespace-nowrap";
+/**
+ * Header text: wraps within 7.5rem below lg so the first important column fits beside the pinned label, on
+ * phones and on tablets alike (from md the 240px app sidebar takes width); one line from lg.
+ */
+export const TH_LABEL = "block max-w-[7.5rem] whitespace-normal lg:max-w-none lg:whitespace-nowrap";
 
 const CELL = "border-b border-border/50 px-3 py-2.5 align-top";
 /** Body cell; the row hover tints only these, never the opaque pinned cell. */

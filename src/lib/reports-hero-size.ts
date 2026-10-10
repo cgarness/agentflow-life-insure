@@ -3,7 +3,8 @@
  * comes from the formatted length and must fit the narrowest cell it can get. Widths measured in the browser fixture
  * (Inter 600, tracking-tight, tabular-nums), with the 240px app sidebar from md:
  * - split 2fr | 3fr: count 98px, premium 163px at 360px; 150px / 247px at 768px; 348px / 545px at 1280px (xl);
- * - stacked: each value gets the full width (294px at 360px, 446px at 768px).
+ * - stacked: each value gets the full width (294px at 360px, 446px at 768px). Below 360px (320px phones) the
+ *   split band also stacks (ReportsOverview), so these split tiers never meet a cell narrower than at 360px.
  * Each tier keeps at least 5% to spare at its narrowest width. Today's sizes are kept wherever they fit.
  */
 

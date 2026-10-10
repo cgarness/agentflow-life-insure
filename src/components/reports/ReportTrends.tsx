@@ -39,14 +39,17 @@ const PANEL_HEIGHT = { main: "h-[176px] md:h-[220px]", companion: "h-24 md:h-28"
 /**
  * One single-axis trend panel with its metric caption, sized by CSS rather than a JS breakpoint: main
  * 176px (220px from md), companion 96px (112px from md). The caption names the metric, so no axis legend.
+ * A focusable (main) panel passes `readout` (useChartReadout): the active period's values, spoken from a
+ * polite live region that exists before it changes.
  */
-export function TrendPanel({ caption, size, children }: { caption: string; size: keyof typeof PANEL_HEIGHT; children: ReactElement }) {
+export function TrendPanel({ caption, size, readout, children }: { caption: string; size: keyof typeof PANEL_HEIGHT; readout?: string; children: ReactElement }) {
   return (
     <div className={size === "companion" ? "mt-3" : undefined}>
       <p className="mb-1 text-xs font-medium text-muted-foreground">{caption}</p>
       <div className={PANEL_HEIGHT[size]}>
         <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
       </div>
+      {readout !== undefined && <p role="status" aria-live="polite" aria-atomic="true" data-chart-readout="" className="sr-only">{readout}</p>}
     </div>
   );
 }

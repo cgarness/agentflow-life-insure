@@ -11,6 +11,7 @@ import AgentEfficiency from "../AgentEfficiency";
 import AgentPerformanceCards from "../AgentPerformanceCards";
 import CampaignPerformance from "../CampaignPerformance";
 import LeadSourceTable from "../LeadSourceTable";
+import ReportTableFrame from "../ReportTableFrame";
 import { AGENT_A, CAMPAIGN_1, premium, reportCampaigns, reportLeadSources, reportSummary } from "@/lib/__tests__/reportsFixtures";
 import { CAMPAIGN_LINEAGE_NOTE, CAMPAIGN_VISIBILITY_NOTE, CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
 import type { ReportCampaigns, ReportLeadSources } from "@/lib/reports-schemas";
@@ -233,5 +234,37 @@ describe("Agent efficiency", () => {
     open();
     const { table } = tableIn("Agent efficiency table");
     expect(cellsByHeader(table, within(table).getByRole("row", { name: /^Bob Agent/ }))).toMatchObject({ "Session time": "0s", "Calls per session hour": "—" });
+  });
+});
+
+describe("Table frame right-edge cue (U-11)", () => {
+  /** jsdom has no layout: give the scroller the geometry Chromium would report. */
+  const geometry = (el: HTMLElement, g: { scrollWidth: number; clientWidth: number; scrollLeft: number }) => {
+    for (const [key, value] of Object.entries(g)) Object.defineProperty(el, key, { configurable: true, writable: true, value });
+  };
+
+  it("shows the fade at any width while columns remain to the right, and only then", () => {
+    render(<ReportTableFrame label="Probe table"><tbody><tr><th scope="row">A</th><td>1</td></tr></tbody></ReportTableFrame>);
+    const region = screen.getByRole("region", { name: "Probe table" });
+    const fade = region.parentElement!.querySelector<HTMLElement>(":scope > [data-scroll-fade]")!;
+    expect(fade).toHaveAttribute("aria-hidden", "true");
+    // No breakpoint decides the cue (it was sm:hidden, so tablets and laptops got none).
+    expect(fade.className).not.toMatch(/(^|\s)[a-z0-9-]+:(hidden|block|flex)(\s|$)/);
+    expect(fade).toHaveClass("hidden"); // nothing to scroll yet
+    geometry(region, { scrollWidth: 960, clientWidth: 456, scrollLeft: 0 }); // e.g. Campaign performance at 768px
+    fireEvent.scroll(region);
+    expect(fade).not.toHaveClass("hidden");
+    geometry(region, { scrollWidth: 960, clientWidth: 456, scrollLeft: 200 });
+    fireEvent.scroll(region);
+    expect(fade).not.toHaveClass("hidden");
+    geometry(region, { scrollWidth: 960, clientWidth: 456, scrollLeft: 504 }); // the last column is in view
+    fireEvent.scroll(region);
+    expect(fade).toHaveClass("hidden");
+    geometry(region, { scrollWidth: 960, clientWidth: 456, scrollLeft: 0 });
+    fireEvent.scroll(region);
+    expect(fade).not.toHaveClass("hidden");
+    geometry(region, { scrollWidth: 1100, clientWidth: 1100, scrollLeft: 0 }); // a wider layout with no overflow
+    fireEvent(window, new Event("resize"));
+    expect(fade).toHaveClass("hidden");
   });
 });

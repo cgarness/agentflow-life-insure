@@ -133,8 +133,9 @@ describe("Calling heatmap: a semantic table (U-7)", () => {
     expect(busyCell).not.toHaveClass("bg-muted"); // shaded by its data-driven primary intensity instead
     const shown = busyCell.querySelector('[aria-hidden="true"]')!;
     expect(shown.textContent).toBe("5");
-    expect(shown.className).toMatch(/(^|\s)hidden(\s|$)/);
-    expect(shown.className).toMatch(/md:inline/);
+    // Visible at every width, phones included: no display utility hides it at any breakpoint.
+    expect(shown.className).not.toMatch(/(^|\s)([a-z0-9-]+:)?(hidden|sr-only|invisible)(\s|$)/);
+    expect(shown.className).not.toMatch(/(^|\s)[a-z0-9-]+:(inline|block|flex)(\s|$)/);
     expect(shown.className).toMatch(/text-\[11px\] font-medium/);
 
     const quiet = screen.getByText("Mon 9 AM: 0 calls made, 0 contacted, no call contact rate").closest("td")!;

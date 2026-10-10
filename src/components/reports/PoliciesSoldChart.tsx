@@ -3,9 +3,10 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "
 import type { ReportVolume } from "@/lib/reports-schemas";
 import { formatCount, formatPremium, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import { CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot } from "./reportChartTheme";
+import { CHART_KEYS_DESC, CHART_THEME, PERIOD_UNIT, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
 import { NoTooltip, TrendPanel } from "./ReportTrends";
+import { useChartReadout } from "./useChartReadout";
 
 interface Props {
   volume: ReportVolume;
@@ -56,6 +57,12 @@ function periodCell(first: string, last: string): string {
   return first === last ? first : `${first} to ${last}`;
 }
 
+/** The spoken form of ProductionTooltip, for the focusable panel's live readout. */
+function productionReadout(p: ProductionPeriod): string {
+  const amount = p.annual_premium === null ? "unavailable" : formatPremium(p.annual_premium);
+  return `${periodCell(p.first, p.last)}: ${formatCount(p.policies_sold)} ${p.policies_sold === 1 ? "policy" : "policies"} sold; known annual premium ${amount}; ${formatCount(p.known_count)} of ${formatCount(p.premium_policy_count)} policies known, ${formatCount(p.unknown_count)} unknown.`;
+}
+
 /**
  * Production trend — normalized STORED policies (primary + additional) per AGENCY-calendar period, on each
  * policy's sale date (never wins), above the known annual premium of those policies. Two single-axis panels
@@ -64,6 +71,8 @@ function periodCell(first: string, last: string): string {
  */
 const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
   const series = useMemo(() => productionSeries(volume, grouping), [volume, grouping]);
+  const { handlers, readout } = useChartReadout(series, productionReadout);
+  const unit = PERIOD_UNIT[grouping];
   const totals = useMemo(() => series.reduce((sum, b) => ({
     policies_sold: sum.policies_sold + b.policies_sold, known: sum.known + b.known_count,
     policies: sum.policies + b.premium_policy_count, unknown: sum.unknown + b.unknown_count,
@@ -89,8 +98,9 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
         <p className="py-12 text-center text-sm text-muted-foreground">No policies sold in this period.</p>
       ) : (
         <>
-          <TrendPanel caption="Policies sold" size="main">
-            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%" accessibilityLayer>
+          <TrendPanel caption="Policies sold" size="main" readout={readout}>
+            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%"
+              accessibilityLayer aria-label={`Policies sold by ${unit}`} desc={CHART_KEYS_DESC} {...handlers}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis dataKey="label" hide />
               <YAxis yAxisId="policies" {...CHART_THEME.yAxis} allowDecimals={false} />
@@ -99,7 +109,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
             </ComposedChart>
           </TrendPanel>
           <TrendPanel caption="Known annual premium" size="companion">
-            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} accessibilityLayer>
+            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} aria-label={`Known annual premium by ${unit}`}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis {...CHART_THEME.xAxis} />
               <YAxis yAxisId="premium" {...CHART_THEME.yAxis} tickFormatter={(value: number) => PREMIUM_AXIS.format(value)} />

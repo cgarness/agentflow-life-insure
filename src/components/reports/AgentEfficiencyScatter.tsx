@@ -26,7 +26,11 @@ const PointTooltip: React.FC<{ active?: boolean; payload?: Array<{ payload?: Eff
   );
 };
 
-/** Agents with both a session rate and a call contact rate; an undefined rate is never plotted as 0. */
+/**
+ * Agents with both a session rate and a call contact rate; an undefined rate is never plotted as 0. The plot is
+ * a picture of the Agent efficiency table above it (the same two values per agent), so its svg is hidden from
+ * assistive technology, which reads the table instead; recharts' unnamed role="img" points never reach it.
+ */
 const AgentEfficiencyScatter: React.FC<{ points: EfficiencyPoint[] }> = ({ points }) => (
   <div className="mt-5">
     <h4 className="mb-2 text-xs font-medium text-muted-foreground">Calls per session hour vs call contact rate</h4>
@@ -34,7 +38,7 @@ const AgentEfficiencyScatter: React.FC<{ points: EfficiencyPoint[] }> = ({ point
       <p className="py-8 text-center text-sm text-muted-foreground">No agents with both session time and calls made in this period.</p>
     ) : (
       <ResponsiveContainer width="100%" height={280}>
-        <ScatterChart margin={{ top: 16, right: 16, bottom: 20, left: 8 }}>
+        <ScatterChart margin={{ top: 16, right: 16, bottom: 20, left: 8 }} aria-hidden="true">
           <CartesianGrid stroke="hsl(var(--border))" />
           <XAxis type="number" dataKey="x" name="Calls per session hour" tick={tick} tickLine={false}
             axisLine={{ stroke: "hsl(var(--border))" }}
@@ -46,6 +50,7 @@ const AgentEfficiencyScatter: React.FC<{ points: EfficiencyPoint[] }> = ({ point
         </ScatterChart>
       </ResponsiveContainer>
     )}
+    {points.length > 0 && <p className="sr-only">One point per agent; each agent's values are in the Agent efficiency table above.</p>}
   </div>
 );
 

@@ -58,8 +58,10 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
 
           return (
             <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+              {/* The split needs 360px: narrower (320px phones), the two values stack, so a 10-character premium
+                  never overflows its 3fr cell. From 360px every split measurement is unchanged. */}
               <div data-hero-layout={stacked ? "stacked" : "split"}
-                className={cn("grid min-w-0", stacked ? "grid-cols-1" : "grid-cols-[minmax(0,2fr)_minmax(0,3fr)]")}>
+                className={cn("grid min-w-0 grid-cols-1", !stacked && "min-[360px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]")}>
                 <article aria-label="Policies sold" className="min-w-0 p-4 md:p-6">
                   <h2 className={LABEL}>Policies sold</h2>
                   <p data-report-value="hero" className={cn("mt-1 text-foreground md:mt-2", heroValueSize("count", count, stacked), HERO)}>
@@ -71,7 +73,8 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                 </article>
                 {stacked && leaderRow}
                 <article aria-label="Known annual premium"
-                  className={cn("min-w-0 border-border/60 p-4 md:p-6", stacked ? "border-t" : "border-l", !stacked && leader && "row-span-2")}>
+                  className={cn("min-w-0 border-t border-border/60 p-4 md:p-6", !stacked && "min-[360px]:border-l min-[360px]:border-t-0",
+                    !stacked && leader && "min-[360px]:row-span-2")}>
                   <h2 className={LABEL}>Known annual premium</h2>
                   <p data-report-value="hero" className={cn("mt-1 md:mt-2", annual === "Unavailable"
                     ? "text-2xl text-muted-foreground md:text-3xl"

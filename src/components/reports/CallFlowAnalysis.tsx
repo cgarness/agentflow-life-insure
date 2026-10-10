@@ -3,10 +3,11 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } 
 import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportVolume } from "@/lib/reports-schemas";
-import { CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, rateAxisMax } from "./reportChartTheme";
+import { CHART_KEYS_DESC, CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, rateAxisMax } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
 import ReportSegmented from "./ReportSegmented";
 import { NoTooltip, TrendPanel } from "./ReportTrends";
+import { useChartReadout } from "./useChartReadout";
 
 type Tab = "hour" | "day";
 const TABS: ReadonlyArray<readonly [Tab, string]> = [["hour", "By hour"], ["day", "By day"]];
@@ -48,6 +49,12 @@ function FlowTooltip({ active, payload }: { active?: boolean; payload?: Array<{ 
   );
 }
 
+/** The spoken form of FlowTooltip, for the focusable panel's live readout. */
+function flowReadout(row: Row): string {
+  const rate = row.calls === 0 ? "unavailable" : formatRate(row.rate);
+  return `${row.label}: ${formatCount(row.calls)} ${row.calls === 1 ? "call" : "calls"} made, ${formatCount(row.contacted)} contacted, call contact rate ${rate}.`;
+}
+
 /**
  * Call flow — outbound calls by agency hour or weekday above the call contact rate for the same buckets:
  * two single-axis panels on one series, styled like Trends. A bucket with no calls has no rate (a gap).
@@ -68,6 +75,8 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
   }, [volume]);
 
   const rows = tab === "hour" ? hourly : daily;
+  const { handlers, readout } = useChartReadout(rows, flowReadout);
+  const unit = tab === "hour" ? "agency hour" : "weekday";
   const rateMax = rateAxisMax(rows.reduce((max, r) => Math.max(max, r.rate ?? 0), 0));
 
   const handleExport = onExport
@@ -86,8 +95,9 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
       ) : (
         <>
           <ReportSegmented ariaLabel="Call flow view" value={tab} onChange={(next) => setTab(next)} options={TABS} className="mb-4" />
-          <TrendPanel caption="Calls made" size="main">
-            <BarChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%" accessibilityLayer>
+          <TrendPanel caption="Calls made" size="main" readout={readout}>
+            <BarChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%"
+              accessibilityLayer aria-label={`Calls made by ${unit}`} desc={CHART_KEYS_DESC} {...handlers}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis dataKey="label" hide />
               <YAxis {...CHART_THEME.yAxis} allowDecimals={false} />
@@ -96,7 +106,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
             </BarChart>
           </TrendPanel>
           <TrendPanel caption="Call contact rate" size="companion">
-            <LineChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.margin} accessibilityLayer>
+            <LineChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.margin} aria-label={`Call contact rate by ${unit}`}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis {...CHART_THEME.xAxis} />
               <YAxis {...CHART_THEME.yAxis} domain={[0, rateMax]} ticks={[0, rateMax / 2, rateMax]} tickFormatter={(value: number) => `${value}%`} />

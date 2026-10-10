@@ -20,6 +20,7 @@
 import type { ReportQuality, ReportSummary, ReportVolume } from "@/lib/reports-schemas";
 import type { LoadState } from "@/hooks/useReportsData";
 import { addDays, formatCount, formatElapsed, formatRate, formatPremium, ratio } from "@/lib/reports-format";
+import { policyCount, policyLeader } from "@/lib/reports-basis-text";
 
 export type StatCategory = "activity" | "results" | "pipeline" | "team";
 
@@ -249,11 +250,13 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_callback_rate":
       return { value: formatCount(t.callback_calls), subtitle: "callback dispositions" };
     case "stat_top_performer": {
-      // A ranking by CURRENT assignment — not original sales credit (clients can be reassigned).
-      const best = leader(s.by_agent, (a) => a.policies_sold, (a) => a.name);
-      return best
-        ? { value: best.name, subtitle: `${best.score} polic${best.score === 1 ? "y" : "ies"} currently assigned`, smallValue: true }
-        : { value: DASH, subtitle: "no policies in this period" };
+      // A ranking by CURRENT assignment — not original sales credit (clients can be reassigned). The same
+      // ranking and tie rule as the band's leader row (D-5): a shared top count names no one.
+      const top = policyLeader(s.by_agent);
+      if (!top) return { value: DASH, subtitle: "no policies in this period" };
+      return top.tied > 1
+        ? { value: `${formatCount(top.tied)} agents tied`, subtitle: `${policyCount(top.policies)} each`, smallValue: true }
+        : { value: top.name, subtitle: `${top.policies} polic${top.policies === 1 ? "y" : "ies"} currently assigned`, smallValue: true };
     }
     case "stat_top_dialer": {
       const best = leader(s.by_agent, (a) => a.calls_made, (a) => a.name);

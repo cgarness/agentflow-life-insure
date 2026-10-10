@@ -3,9 +3,10 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "
 import type { ReportVolume } from "@/lib/reports-schemas";
 import { formatCount, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import { CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot, rateAxisMax } from "./reportChartTheme";
+import { CHART_KEYS_DESC, CHART_THEME, PERIOD_UNIT, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot, rateAxisMax } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
 import { NoTooltip, TrendPanel } from "./ReportTrends";
+import { useChartReadout } from "./useChartReadout";
 
 interface Props {
   volume: ReportVolume;
@@ -44,6 +45,12 @@ function periodCell(first: string, last: string): string {
   return first === last ? first : `${first} to ${last}`;
 }
 
+/** The spoken form of CallingTooltip, for the focusable panel's live readout. */
+function callingReadout(p: CallingPeriod): string {
+  const rate = p.calls_made === 0 ? "unavailable" : formatRate(p.contact_rate_pct);
+  return `${periodCell(p.first, p.last)}: ${formatCount(p.calls_made)} outbound ${p.calls_made === 1 ? "call" : "calls"}, ${formatCount(p.contacted)} contacted, call contact rate ${rate}; ${formatCount(p.inbound_calls)} inbound.`;
+}
+
 /**
  * Calling trend — outbound calls above the call contact rate, two single-axis panels sharing one series
  * and one hover. Rates use grouped counts, never an average of daily rates; a bucket with no outbound
@@ -70,6 +77,8 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
     [volume.by_date, grouping],
   );
 
+  const { handlers, readout } = useChartReadout(series, callingReadout);
+  const unit = PERIOD_UNIT[grouping];
   const totals = useMemo(
     () => series.reduce((acc, b) => ({ calls: acc.calls + b.calls_made, inbound: acc.inbound + b.inbound_calls }), { calls: 0, inbound: 0 }),
     [series],
@@ -95,8 +104,9 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
         <p className="py-12 text-center text-sm text-muted-foreground">No calls in this period.</p>
       ) : (
         <>
-          <TrendPanel caption="Outbound calls" size="main">
-            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%" accessibilityLayer>
+          <TrendPanel caption="Outbound calls" size="main" readout={readout}>
+            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%"
+              accessibilityLayer aria-label={`Outbound calls by ${unit}`} desc={CHART_KEYS_DESC} {...handlers}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis dataKey="label" hide />
               <YAxis yAxisId="calls" {...CHART_THEME.yAxis} allowDecimals={false} />
@@ -105,7 +115,7 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
             </ComposedChart>
           </TrendPanel>
           <TrendPanel caption="Call contact rate" size="companion">
-            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} accessibilityLayer>
+            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} aria-label={`Call contact rate by ${unit}`}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis {...CHART_THEME.xAxis} />
               <YAxis yAxisId="rate" {...CHART_THEME.yAxis} domain={[0, rateMax]} ticks={[0, rateMax / 2, rateMax]} tickFormatter={(value: number) => `${value}%`} />

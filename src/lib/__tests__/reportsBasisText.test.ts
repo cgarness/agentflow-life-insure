@@ -199,5 +199,9 @@ describe("production band and Period totals captions (C2, C3, C6, C7, C10, C29)"
     expect(basis.policyLeaderText(rows(["Zed", 1], ["Amy", 1], ["Bo", 1]))).toBe("3 agents tied · 1 policy each");
     expect(basis.policyLeaderText(rows(["Zed", 0], ["Amy", 0]))).toBeNull();
     expect(basis.policyLeaderText([])).toBeNull();
+    // The shared ranking behind both the band and the stat_top_performer tile.
+    expect(basis.policyLeader(rows(["Zed", 3], ["Amy", 3], ["Bo", 1]))).toEqual({ name: "Amy", policies: 3, tied: 2 });
+    expect(basis.policyLeader(rows(["Zed", 1], ["Amy", 0]))).toEqual({ name: "Zed", policies: 1, tied: 1 });
+    expect(basis.policyLeader(rows(["Zed", 0]))).toBeNull();
   });
 });

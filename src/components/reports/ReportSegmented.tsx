@@ -23,7 +23,8 @@ export default function ReportSegmented<T extends string>({ ariaLabel, value, on
           <button key={option} type="button" aria-pressed={on} onClick={() => onChange(option)}
             className={cn(
               "h-8 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              on ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+              // Unselected text at 70% foreground: muted-foreground on the bg-muted/60 track is 4.45:1 (axe, light).
+              on ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-foreground/70 hover:text-foreground",
             )}>
             {label}
           </button>

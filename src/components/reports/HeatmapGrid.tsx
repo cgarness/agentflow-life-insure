@@ -40,7 +40,8 @@ function cellText(day: string, cell: HeatmapCell): string {
 /**
  * HeatmapGrid — the calling heatmap as a real table (U-7): hours are column headers, days are pinned row
  * headers, and every cell carries its values as text for assistive technology, so the shade (the selected
- * metric relative to the busiest cell) is never the only way to read it. Numbers show in the cells from md.
+ * metric relative to the busiest cell) is never the only way to read it. Every non-empty cell also shows its
+ * number at every width (a tooltip never opens on touch), so a phone reads the values, not only the shade.
  * Cells holding sr-only text are `relative`, so that text stays inside the scroller instead of widening the page.
  */
 const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }) => {
@@ -80,7 +81,7 @@ const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }
                         // Shade = the selected metric relative to the busiest cell (data-driven).
                         style={level === null ? undefined : { backgroundColor: `hsl(var(--primary) / ${(0.12 + 0.88 * level).toFixed(3)})` }}>
                         <span className="sr-only">{cellText(row.day, cell)}</span>
-                        {cell.calls > 0 && <span aria-hidden="true" className="hidden text-[11px] font-medium tabular-nums md:inline">{shown}</span>}
+                        {cell.calls > 0 && <span aria-hidden="true" className="text-[11px] font-medium tabular-nums">{shown}</span>}
                       </td>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="border-border bg-card text-xs text-foreground">

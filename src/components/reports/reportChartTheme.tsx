@@ -4,11 +4,20 @@
  * of the panel and the partial-bucket dot. One measure per panel; never a second y-axis.
  */
 import type { ReactElement } from "react";
+import type { Grouping } from "@/lib/reports-format";
 
 /** Every trend series uses the one accent; the panel caption, not a colour, names the metric. */
 export const SERIES_COLOR = "hsl(var(--primary))";
 /** All trend panels render the same grouped series, so recharts syncs their hover by index. */
 export const TREND_SYNC_ID = "report-trends";
+
+/**
+ * Every trend-style panel svg is named (aria-label), e.g. "Policies sold by day". Only a card's main panel is focusable
+ * (accessibilityLayer): its readout already covers the companion, which is synced to it, so a companion is
+ * named but is no extra tab stop. The focusable panel's desc says how to move through it.
+ */
+export const PERIOD_UNIT: Record<Grouping, string> = { daily: "day", weekly: "week", monthly: "month" };
+export const CHART_KEYS_DESC = "Use the left and right arrow keys to move between periods.";
 
 const TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
 

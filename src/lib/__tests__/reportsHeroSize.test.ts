@@ -31,13 +31,15 @@ describe("Production band value sizes", () => {
     }
   });
 
+  // Object rows with explicit names: vitest reads "$1" inside a printf-formatted title as a placeholder, so a
+  // "%s" title showed "$1,481.40" as "false,481.40".
   it.each([
-    ["$1,481.40", false, "text-3xl md:text-4xl xl:text-[3.5rem]"],
-    ["$14,406.00", false, "text-[1.75rem] md:text-4xl xl:text-[3.5rem]"],
-    ["$140,406.00", false, "text-2xl md:text-4xl xl:text-[3.5rem]"],
-    ["$1,234,567,890.12", true, "text-3xl md:text-4xl xl:text-[3.5rem]"],
-    ["$12,345,678,901.23", true, "text-2xl md:text-4xl xl:text-[3.5rem]"],
-  ])("sizes a premium of %s (stacked: %s)", (text, stacked, classes) => {
+    { name: "9 characters, split", text: "$1,481.40", stacked: false, classes: "text-3xl md:text-4xl xl:text-[3.5rem]" },
+    { name: "10 characters, split", text: "$14,406.00", stacked: false, classes: "text-[1.75rem] md:text-4xl xl:text-[3.5rem]" },
+    { name: "11 characters, split", text: "$140,406.00", stacked: false, classes: "text-2xl md:text-4xl xl:text-[3.5rem]" },
+    { name: "17 characters, stacked", text: "$1,234,567,890.12", stacked: true, classes: "text-3xl md:text-4xl xl:text-[3.5rem]" },
+    { name: "18 characters, stacked", text: "$12,345,678,901.23", stacked: true, classes: "text-2xl md:text-4xl xl:text-[3.5rem]" },
+  ])("sizes a premium of $text ($name)", ({ text, stacked, classes }) => {
     expect(isLongPremium(text)).toBe(stacked);
     expect(heroValueSize("premium", text, stacked)).toBe(classes);
   });
