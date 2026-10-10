@@ -1,6 +1,6 @@
 # Reports visual refresh and reporting accuracy audit — implementation plan (rev 2, final for approval)
 
-**Status (2026-10-10): approved by Chris on 2026-10-09 and implemented on branch `claude/reports-refresh-audit-20261009` (PR-A). The R-3 SQL correction is prepared separately as PR-B on `claude/reports-overlap-sql-20261009` and is not merged or applied. Nothing is merged to `main`, deployed, or applied to production. See §13 and `verification.md`.** The original Phase 1 status follows for the record. ~~Phase 1 complete. Awaiting Chris's approval to implement.~~ Revision 2 was prepared 2026-10-09 (UTC). It replaces rev 1 (commit `17378ef`). It adds Chris's design direction, the completeness-critic findings, the closed audit gaps, the locally proven session-rounding SQL fix, the traced Data basis wording and exact per-file budgets.
+**Status (2026-10-10): SHIPPED.** PR-A #436 merged as `b00bfedc` and deployed to production (Vercel `dpl_Ai4dmqDT8KqMmDstJC5Bsw4Xinxb`). PR-B #435 (R-3 SQL) was applied as recorded migrations `20261010043358`/`20261010043449`/`20261010043517` and merged as `462fa12b`. See `production-release.md`, §13 and `verification.md`. The implementation-time status follows for the record: approved by Chris on 2026-10-09 and implemented on branch `claude/reports-refresh-audit-20261009`. The original Phase 1 status follows for the record. ~~Phase 1 complete. Awaiting Chris's approval to implement.~~ Revision 2 was prepared 2026-10-09 (UTC). It replaces rev 1 (commit `17378ef`). It adds Chris's design direction, the completeness-critic findings, the closed audit gaps, the locally proven session-rounding SQL fix, the traced Data basis wording and exact per-file budgets.
 
 **Nothing has been changed:** no application code, migration, RLS policy, Edge Function, Vercel deployment or production row. Production access was read-only throughout.
 
@@ -799,8 +799,9 @@ Until this is done, hosted behaviour is recorded as **Unverified**.
 | 9 | Table right-edge fade shows at every width while columns remain, not only below 640 px | Review found columns clipped at 768–1440 px with no cue (U-11) |
 | 10 | The strip's "Most policies" tile uses the band's tie rule (D-5) | Otherwise the same label showed a tie in one place and one agent in another |
 | 11 | `main` (`a41ed8ea`, #432–#434) merged into the branch | No file overlap. Verification ran on the merged head. |
+| 12 | Four additive test files not named in §7.4: `reportsDialerIntelligence.test.tsx`, `reportsHeroSize.test.ts`, `reportsPageState.test.ts`, `reportsScopeIntegration.test.tsx` | They cover the planned helpers and components (recorded at the release closeout) |
 
-**Separate approvals still required** (none is covered by the implementation approval):
+**Separate approvals still required** (none is covered by the implementation approval). *Update 2026-10-10: Chris approved the coordinated release. Items 1, 2 and 4 are done (see `production-release.md`). Item 3 remains open.*
 1. Merging PR-A to `main` and the resulting Vercel production deployment.
 2. The PR-B production window (§8): disable → correction → guarded enable → read-back, merging PR-B in the same window after rebasing it on `main`.
 3. Any change for S-1 or S-3.
