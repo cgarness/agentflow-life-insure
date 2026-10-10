@@ -1,3 +1,320 @@
+## 2026-10-10 — RELEASED (record reconciled 2026-10-10): Super Admin registration emails (new user / new agency)
+
+**Release record (2026-10-10, reconciliation PR):** production carries migration `20261010172702` (authored `20261010200000`, identical bytes), Edge `platform-admin-notify` v1 (bundle byte-identical to `3a6fce2`) and the active cron job. The repository file was renamed to the recorded version. Evidence and limits: `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md` §8. The status lines below are the pre-release history, kept as written.
+
+**Release-prep status (latest):** the read-only preflight passed. Chris approved the two §A10 corrections (code, docs and local testing only), and both are implemented and verified (§A11). No production change has been made. Awaiting approval for production step 1 in `deployment.md`.
+
+**Current status:** Chris approved Phase 3 on 2026-10-10. It is implemented and verified locally on `claude/super-admin-registration-emails-20261010` (rebased onto `main` `e21728e`). Nothing is merged, deployed, applied or pushed, and no production write was made. The exact production sequence is in `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`. §A9 (As built) records what was built; the text from §A1 to §A8 is the plan as approved, kept as written.
+
+**Chris's decisions (2026-10-10):**
+- D1: Option A, DB enqueue + Edge worker.
+- D2: notify on successful account creation.
+- D3: a **server-side configurable recipient secret** `PLATFORM_ADMIN_NOTIFY_RECIPIENT`, default `chris@fflagent.com`. This differs from my recommendation.
+- D4: private Edge secrets + Vault authentication.
+- D5: implement the test plan, but create no live production user without a separate approval.
+- D6: document the live `create-user` v56 mismatch now and reconcile it in a separate PR.
+
+Additional requirements: preserve the self-service restriction; never redeploy `create-user`; keep every failure non-blocking; keep the queue server-only; distinguish active, pending and suspended agencies; keep the shared renderer; change no customer-facing email; track the `create-organization` / `accept-invite` concerns separately.
+
+**Original status line (plan stage):** Phases 1–2 only. The only repository change is this section of `implementation_plan.md`, on local branch `claude/super-admin-registration-emails-20261010` (base `main` `462fa12`). No application file edited, no migration applied, no Edge Function deployed, no secret created, nothing pushed. Production was only read (Edge Function list/source, catalog and count queries).
+
+**Goal.** Email `chris@fflagent.com` once per real event:
+- `[AGENTFLOW ADMIN] New User Registered`
+- `[AGENTFLOW ADMIN] New Agency Created`
+
+### A1. What was reviewed
+
+- `AGENT_RULES.md` (all sections; relevant: §3, invariants #2, #4, #5, #10, #20, #21, #25, #28, #30, §8–§10), `VISION.md`, and `WORK_LOG.md`, the newest entries in full (2026-10-10 Reports PR-A/PR-B back to 2026-10-06) and every signup, system-email and welcome-email entry.
+- **Work Log conflicts: none.** The open work (Reports PR-A/PR-B) touches no auth, email or organization code. Production's newest migration, `20261010043517`, matches the repository head.
+- Code: `create-user`, `create-organization`, `accept-invite`, `invite-user`, `send-welcome-email`, `_shared/systemEmail.ts`, `_shared/systemEmailTemplates.ts`, `_shared/a2p/notifications.ts` (existing Resend outbox), `sms-consent-worker` (existing pg_cron + Vault worker auth), `AuthContext.signup`, `SignupPage`, `AcceptInvitePage`, `SuperAdminDashboard`, `supabase/config.toml`.
+- Production (read-only): triggers on `auth.users` / `profiles` / `organizations`, `handle_new_user`, `provision_organization`, the FKs on `profiles`, `cron.job` (secrets masked), migration history, organization/profile counts.
+
+### A2. Findings
+
+**Registration and agency creation paths (traced):**
+
+| Path | Creates | Called by the frontend? | Live state |
+|---|---|---|---|
+| `create-user`, invite mode | auth user → `handle_new_user` inserts `profiles` | Yes (`AuthContext.signup`) | v56, `verify_jwt=true`, live |
+| `create-user`, self-serve mode | auth user + profile, then `provision_organization` (org + dispositions + founder attach in one transaction); compensating `deleteUser` on failure | Yes | **Disabled in production** (see drift below) |
+| `accept-invite` `action:"accept"` | auth user + profile | No (legacy) | v45, deployed and callable with the anon key |
+| `create-organization` | `organizations` row (direct insert) | No | v55, `verify_jwt=false`, **no auth check**; deferred item per invariant #20 |
+| SQL / dashboard | either | n/a | possible |
+
+**Authoritative success events.** Every user registration, whatever the path, ends in exactly one `INSERT INTO public.profiles` (PK = `auth.users.id`; `handle_new_user` trigger). Every agency creation ends in exactly one `INSERT INTO public.organizations`. Logins (`sync_last_login_at`), profile edits and onboarding-wizard saves are UPDATEs and never INSERT a second row. A row-level `AFTER INSERT` on those two tables is therefore the single authoritative, duplicate-free signal, and it covers paths the Edge layer cannot see.
+
+**Rollback behaviour.**
+- `provision_organization` is transactional, so a failed self-serve org rolls back the `organizations` INSERT and anything its trigger enqueued.
+- A failed self-serve signup deletes the auth user, and `profiles_id_fkey` is `ON DELETE CASCADE`. The profile disappears, but a profile-level enqueue would already be committed, so the sender must re-check that the subject still exists after a settle delay.
+
+**Live/repo drift (important).** Live `create-user` v56 (deployed 2026-10-02 22:55 UTC) returns `403 "Self-service signup is temporarily disabled…"` for non-invite signups. The repository copy does not have this guard, and no Work Log entry records it. **Redeploying `create-user` from the repo would silently re-enable self-serve signup.** This is a strong reason not to touch `create-user` in this feature.
+
+**Production shape:** 4 organizations (3 self-serve agencies, all `suspended`), 16 profiles, last profile 2026-10-01. No existing admin-notification mechanism.
+
+**Reusable infrastructure:**
+- `_shared/systemEmail.ts` `renderSystemEmail` + `SYSTEM_EMAIL_FROM = "AgentFlow <team@fflagent.com>"` (verified sender). Invariant #21 requires every AgentFlow-owned email to use this renderer.
+- `a2p_email_outbox` + `deliverEmails()`: an outbox table with `unique(user_id,event_key)`, an attempts counter, `last_error`, a Resend `Idempotency-Key` and a 23-hour stop.
+- `sms-consent-worker`: pg_cron every minute → `net.http_post` with a **dedicated** Vault token (never the service-role key) → constant-time Bearer check in Deno.
+
+### A3. Proposed design (Option A, recommended)
+
+**Database enqueues, Edge sends.** No signup or onboarding code changes.
+
+1. **Outbox table `public.platform_admin_notifications`**, platform-global like the Control Center tables.
+   - RLS enabled; all privileges revoked from `PUBLIC`/`anon`/`authenticated`; `service_role` only. It is never readable by any tenant.
+   - Columns: `id`, `event_type` (`user_registered` | `agency_created`), `subject_id`, `organization_id` (informational, nullable), `status` (`pending` | `sending` | `sent` | `skipped` | `failed`), `attempts`, `available_at`, `locked_until`, `last_attempt_at`, `sent_at`, `provider_message_id`, `last_error` (sanitized, ≤ 500 chars), `created_at`.
+   - **`UNIQUE (event_type, subject_id)`.**
+   - It stores ids only, never a PII snapshot. Details are read at send time.
+2. **Two `AFTER INSERT` row triggers**, functions in `private`, `SECURITY DEFINER`, `search_path = pg_catalog, public, pg_temp`:
+   - on `public.profiles`, which enqueues `user_registered`;
+   - on `public.organizations`, which enqueues `agency_created`.
+   - Each runs `INSERT … ON CONFLICT DO NOTHING` wrapped in `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING`, so an enqueue failure **can never abort a signup or an org creation** (invariant #10 pattern). There is no network I/O in the trigger.
+   - **No backfill:** existing rows never notify.
+3. **Claim RPC `public.claim_platform_admin_notifications(p_limit int)`**, `service_role` EXECUTE only. It is an atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` that claims due rows:
+   - `pending`, past the **60 s settle delay**, `available_at <= now()`; or
+   - `sending` with an expired lease.
+
+   Each claim sets `status='sending'`, a 5-minute lease and `attempts+1`. Overlapping cron runs can never both send.
+4. **New Edge Function `platform-admin-notify`** (`verify_jwt=false`, invariant #2). Authorization is enforced in code: a constant-time `Bearer` comparison against the new secret `PLATFORM_ADMIN_NOTIFY_TOKEN` (≥ 32 chars). It accepts no body input (no recipient, no HTML, no ids). For each claimed row it:
+   - re-reads the subject. If it is gone (for example a compensated self-serve failure), it marks the row `skipped`, `subject_deleted`, and sends nothing;
+   - renders through the shared renderer;
+   - POSTs to Resend with `Idempotency-Key: platform-admin-<row id>`;
+   - on success marks the row `sent` and stores the Resend message id;
+   - on failure returns the row to `pending` with backoff (1, 2, 5, 15, 30 min). After 6 attempts, or 23 h (Resend's idempotency window), it marks the row `failed`.
+   - Every attempt is `console.log`/`console.error`'d with row id, event type and outcome, never the email body or secrets.
+5. **pg_cron job `platform-admin-notify-every-minute`**: `net.http_post` to the function with `Bearer <vault 'platform_admin_notify_token'>`, filtered `WHERE length(decrypted_secret) >= 32`, the same shape as `sms-consent-recovery-every-minute`. It is a **no-op until the Vault secret exists**, so the migration is inert until secrets are provisioned. A notification normally arrives about 1–2 minutes after the event.
+6. **Templates** in `_shared/systemEmailTemplates.ts`: `renderAdminUserRegisteredEmail`, `renderAdminAgencyCreatedEmail`.
+   - **ADMIN ONLY** identifier: badge `ADMIN ONLY · INTERNAL NOTIFICATION`, plus an opening line "This notification is sent only to the AgentFlow platform administrator."
+   - One additive helper `detailTable(rows)` in `_shared/systemEmail.ts`: table-based, inline CSS, every value `escapeHtml`'d.
+   - Subjects are fixed strings, as specified.
+   - CTA: `${siteUrl}/super-admin/organizations/<org id>`, or `/super-admin` when there is no org.
+   - A plain-text part is included.
+7. **Recipient:** a server constant `PLATFORM_ADMIN_NOTIFICATION_RECIPIENT = "chris@fflagent.com"` in the shared module. It is never taken from a request or a row.
+
+**Email contents (no secrets, no auth data):**
+- **New User:** full name, email, role, organization name + id (or "No organization yet"), signup source (`invite` / `self_serve` / `other`, from `user_metadata.signup_source`), invited by (inviter name, when an Accepted invitation matches), profile status, email confirmed (Yes / Pending), registered at (UTC and America/Los_Angeles), user id. **Never** passwords, tokens, invitation tokens, confirmation links, JWT/app_metadata or phone numbers.
+- **New Agency:** agency name, slug, organization id, platform status, Twilio provisioning status, founder (name, email, role) when attached, member count, created at (UTC + PT).
+
+**Duplicate prevention (five layers):**
+1. INSERT-only trigger, one per primary key.
+2. `UNIQUE(event_type, subject_id)` + `ON CONFLICT DO NOTHING`.
+3. `SKIP LOCKED` claim with a lease.
+4. A Resend idempotency key per row, which covers a crash after the send but before the update.
+5. A terminal `sent` / `skipped` / `failed` status.
+
+**Failure isolation:** the trigger swallows its own errors. Delivery is asynchronous in a separate function. No signup or onboarding request waits on it or can observe it.
+
+**Tenant isolation:** the outbox is service-role only. Templates read one subject by id with the service role. Nothing is exposed to any tenant session, and no RLS policy on any existing table changes.
+
+**Invariant #21 note:** the welcome-email rule forbids *DB-triggered delivery* and service-role keys in DB settings. Here the database only enqueues. Delivery stays in an Edge Function, authenticated by a dedicated Vault token, the approved `sms-consent-worker` pattern. I will amend invariant #21 to record this.
+
+**Option B (not recommended):** send inline from `create-user` after success. It would need `create-user` rebuilt from the **live v56** source (drift risk above). It misses `accept-invite`, `create-organization` and SQL paths, and it adds latency and a failure surface to signup.
+
+### A4. Files
+
+**New:**
+1. `supabase/migrations/<ts>_platform_admin_registration_notifications.sql`: table, grants/RLS, two trigger functions + triggers, claim RPC, guarded cron job.
+2. `supabase/migrations/rollback/<ts>_platform_admin_registration_notifications.rollback.sql`: unschedule the cron job, drop the triggers, functions and table.
+3. `supabase/functions/platform-admin-notify/index.ts`: thin handler (auth + loop).
+4. `supabase/functions/_shared/platformAdminNotifications.ts`: recipient constant, detail loaders, send/backoff logic (injectable fetch for tests).
+5. `supabase/functions/_shared/platformAdminNotifications.test.ts`: Deno tests.
+6. `supabase/tests/platform_admin_notifications.sql` + `scripts/run_platform_admin_notification_tests.sh`: native PostgreSQL runner, localhost-proved (invariant #28).
+
+**Edited (surgical):**
+
+7. `supabase/functions/_shared/systemEmailTemplates.ts`: two render functions, plus tests in `systemEmailTemplates.test.ts`.
+8. `supabase/functions/_shared/systemEmail.ts`: additive `detailTable()` (+ test).
+9. `supabase/config.toml`: `[functions.platform-admin-notify] verify_jwt = false`.
+10. `AGENT_RULES.md` (invariant #21 amendment), `WORK_LOG.md` (newest-first entry), this plan (as-built).
+
+**Not touched:** `create-user`, `create-organization`, `accept-invite`, `invite-user`, `send-*-email`, Gmail OAuth / `email-*` functions, `workflow-executor`, Auth templates, every frontend file, every existing RLS policy. No migration edits.
+
+### A5. Deployment (each step separately approval-gated; GitHub "Deploy to production" stays disabled per invariant #30, so changes go through MCP)
+
+1. `apply_migration` with the exact reviewed bytes, then `list_migrations` and a catalog read-back (triggers, ACLs, cron job present and inert).
+2. Secrets: Edge secret `PLATFORM_ADMIN_NOTIFY_TOKEN` and the identical Vault secret `platform_admin_notify_token`. See D4.
+3. `get_edge_function` (expect not found) → `deploy_edge_function platform-admin-notify` → read back source + `verify_jwt=false`.
+4. Smoke checks: an unauthenticated POST → 403; an authenticated POST with an empty queue → `{processed:0}`.
+
+### A6. Verification plan
+
+- **Local PostgreSQL 16 (isolated, synthetic data, localhost proved):**
+  - a profile INSERT enqueues exactly once; an UPDATE (login, profile edit, wizard) enqueues nothing;
+  - an org INSERT enqueues once; a rolled-back `provision_organization` leaves no row;
+  - duplicate INSERT attempts → one row;
+  - a trigger forced to fail still lets the profile/org commit (warning only);
+  - concurrent claims never return the same row;
+  - the settle delay and lease expiry behave as specified;
+  - `anon`/`authenticated` cannot select the table or execute the RPC.
+- **Deno tests (mocked Resend):**
+  - correct recipient, `from`, subjects and badge;
+  - all values escaped; no token/password/link fields present;
+  - a deleted subject → `skipped`, no send;
+  - Resend 500 / timeout / missing key → `pending` with backoff, then `failed` after 6 attempts; the idempotency key is stable per row;
+  - an unauthenticated request → 403;
+  - the handler never throws back to the caller.
+- `npx tsc --noEmit`, `npx vitest run` (no new failures against the known baseline), ESLint, plus `deno check` / `deno test` on the new files.
+- **Production (live data, invariant #28):** production self-serve signup is disabled, and creating a test user or agency is a production write. An end-to-end live test therefore needs your separate approval (D5); otherwise I mark it **BLOCKED**, not passed.
+
+### A7. Decisions for Chris (recommendation first)
+
+- **D1 Architecture:** **Option A, DB enqueue + Edge worker** (recommended), or Option B, inline in `create-user`.
+- **D2 Meaning of "registered":** **the account is created (profile row exists), and the email shows whether the address is confirmed yet** (recommended), or only after email confirmation (this needs an `auth.users` UPDATE trigger and adds complexity).
+- **D3 Recipient:** **hardcoded server constant** (recommended), or an Edge secret so it can change without a deploy.
+- **D4 Secret provisioning:** **you set the two matching secrets yourself in the dashboard** (Edge secret + Vault, ≥ 32 random chars, value never in git or chat; recommended), or you approve me to generate and set them through MCP. The value would then appear in this session's tool calls.
+- **D5 Live test:** you approve one real invite signup to an address you control (it creates one real user in an org you choose), or live verification is recorded as BLOCKED.
+- **D6 Drift:** **record the live `create-user` v56 self-serve disable in WORK_LOG/AGENT_RULES only, and sync the repo file in a separate small PR** (recommended), or sync it inside this PR.
+
+### A8. Risks and rollback
+
+- **Risk: a bug in the trigger on the signup path.** Mitigation: exception-swallowing, no network, and tested failure injection. Rollback: run the rollback migration (drop the triggers); signup behaviour is then byte-identical to today.
+- **Risk: duplicate or missing email.** Mitigated by the five layers above. A stuck row is visible in the outbox with `last_error`.
+- **Risk: cron cost.** One HTTP call per minute, which returns immediately when the queue is empty, the same cost as the two existing per-minute workers. Option: a 2-minute schedule.
+- **Observation (out of scope, not changed):** `create-organization` is publicly callable without authentication, and `accept-invite` still creates users. Once this feature ships, any use of either produces an admin email, which is useful detection. Their hardening remains the deferred item.
+
+### A10. Release preparation review (2026-10-10) — APPROVED by Chris (code, docs, local tests only); implemented in §A11
+
+**Read-only preflight (production `jncvvsvckxhqgqvkppmj`):** all checks PASS.
+- The newest recorded migration is `20261010043517`, and the notification migration is not recorded.
+- `platform-admin-notify` is not deployed.
+- None of the feature's objects exist: no queue, cron job, triggers, functions or Vault secret `platform_admin_notify_token`.
+- `create-user` is **v56**, `verify_jwt=true`, ezbr `2dc286da…`, and still returns 403 for self-service signup. This matches the documented production behaviour, so there is no stop condition.
+- `pg_cron` 1.6.4, `pg_net` 0.19.5 and `supabase_vault` 0.3.1 are present.
+- Existing `profiles` / `organizations` triggers and the 11 cron jobs do not collide with the new names.
+- Resend is evidenced as live: `a2p_email_outbox` shows 5/5 sent with no error, and the last welcome email went out 2026-10-01.
+- Branch `f549bd4` equals the pushed head, `main` is unchanged at `e21728e`, and all six artifact sha256 values match `deployment.md`.
+
+**Security advisor baseline (read-only, 2026-10-10):** 223 findings in 7 lints:
+- `authenticated_security_definer_function_executable` 113;
+- `anon_security_definer_function_executable` 58;
+- `rls_enabled_no_policy` 24;
+- `function_search_path_mutable` 22;
+- `extension_in_public` 3;
+- `rls_disabled_in_public` 2;
+- `auth_leaked_password_protection` 1.
+
+The expected post-release delta is exactly **+1 `rls_enabled_no_policy` (INFO)** on `platform_admin_notifications`. It is intentional: the queue is server-only, the same pattern as `a2p_email_outbox`. The trigger functions are not client-executable, and the RPCs are SECURITY INVOKER and service_role-only, so any other new finding stops the release.
+
+**Required adjustment: the recipient must fail closed.**
+- Today `resolvePlatformAdminRecipient` (`_shared/platformAdminNotifications.ts:35-45`) **silently falls back** to `chris@fflagent.com` when `PLATFORM_ADMIN_NOTIFY_RECIPIENT` is set but malformed, and also treats a set-but-blank value as unset.
+- Proposed:
+  1. **Unset** (`Deno.env.get` returns `undefined`) → default `chris@fflagent.com`.
+  2. **Set** to any value, including blank or whitespace-only → it must be exactly one valid address (the existing pattern, ≤ 254 chars). Otherwise the resolver returns a configuration error. The address is never echoed: the log says only `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid` and the value's length.
+  3. The handler checks the recipient **before claiming**, next to the existing `RESEND_API_KEY` gate: `console.error` with the sanitized message, then `503 {"error":"Recipient configuration invalid"}`. No row is claimed, no attempt is spent, and nothing is sent to any address.
+
+**Related fix needed for "preserve queued notifications for retry after the configuration is corrected".**
+- Today the 23-hour stop is measured from `created_at`. A misconfiguration (bad recipient, missing Resend key) lasting more than 23 hours would close never-attempted rows as `failed`, and they would be lost.
+- The 23 h limit exists only because Resend's idempotency key lasts 24 h, a risk that starts at the **first send attempt**.
+- Proposed migration change (the migration is unapplied in production, so editing it is allowed):
+  - add a nullable column `first_attempted_at`, set once by the claim with `coalesce(first_attempted_at, now())`;
+  - the 23 h checks in `claim_platform_admin_notifications` and `complete_platform_admin_notification` use `first_attempted_at` instead of `created_at`.
+- Never-attempted rows then wait safely until delivery is possible. The email already shows the original registration/creation time.
+
+**Files to modify (surgical):**
+1. `supabase/functions/_shared/platformAdminNotifications.ts`: the resolver returns `{ ok, recipient } | { ok: false, error }`.
+2. `supabase/functions/platform-admin-notify/index.ts`: the recipient gate before claiming.
+3. `supabase/functions/_shared/platformAdminNotifications.test.ts` and `supabase/functions/platform-admin-notify/index.test.ts`: tests for unset → default, set-valid → used, set-malformed or set-blank → fail closed with no claim, no echo of the value, and a 503.
+4. `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`: `first_attempted_at`, plus the two 23 h predicates.
+5. `supabase/tests/platform_admin_notifications.sql`: T12 rewritten (an old **never-attempted** row is still claimable; an attempted row whose `first_attempted_at` is older than 23 h fails), plus an assertion that the claim stamps `first_attempted_at` once.
+6. The rollback is unaffected: it drops the table.
+7. `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`: refreshed hashes; WORK_LOG; AGENT_RULES #21 wording (fail-closed recipient, the window starts at the first attempt); this plan.
+
+**Verification after editing:**
+- the local PG16 runner (suite, negative control, concurrency, rollback);
+- Deno check/test over `_shared/` + `platform-admin-notify/`;
+- `npx tsc --noEmit`;
+- vitest compared against `main`;
+- ESLint on the changed files.
+
+**Other review findings (no change proposed):**
+- Duplicate prevention, worker auth, server-only queue, non-blocking triggers, delivery logging, tenant isolation, rendering and rollback all hold as built.
+- A trigger function in `private` runs for a direct `service_role` insert without schema USAGE. This was proven locally, and production already has 10 `public` tables with `private` trigger functions.
+- *Optional least-privilege nit:* `service_role` holds DELETE on the queue, which the worker never uses. It can stay for operator cleanup or be dropped; the default is to leave it.
+
+### A11. §A10 corrections as built (2026-10-10) — NOT merged, NOT deployed
+
+**Pre-edit checks:** the branch was clean at `49371bb0` (equal to the pushed head), `main` was unchanged at `e21728e`, and no PR had been updated since the preflight, so there was no conflict.
+
+**Correction 1, fail-closed recipient:**
+- `resolvePlatformAdminRecipient(configured)` now takes the raw env value explicitly and returns `{ok:true, recipient, source}` or `{ok:false, error}`:
+  - unset → `chris@fflagent.com`;
+  - set to one valid address (trimmed, ≤ 254 chars, no whitespace / `,` / `;` / `<>` / quotes / parentheses) → that address;
+  - set to anything else, including blank or whitespace-only → an error. The error carries only the value's **length**; no address fragment, no `@`, and never the default.
+- `platform-admin-notify` checks it after auth and after the `RESEND_API_KEY` gate, **before creating a client or claiming**: `console.error("…set but invalid (length N)…; queue left untouched")` → `503 {"error":"Recipient configuration invalid"}`.
+- Rows keep `attempts = 0` and their eligibility.
+
+**Correction 2, delivery window (migration edited; it is unapplied in production):**
+- New nullable `first_attempted_at`, set only by the claim, as `coalesce(first_attempted_at, now())`, so it is never overwritten.
+- New `CHECK ((attempts = 0) = (first_attempted_at IS NULL))`.
+- The claim sweep and `complete_platform_admin_notification(retry)` measure 23 h from `first_attempted_at` instead of `created_at`. A never-attempted row (NULL) therefore never matches and never expires.
+- Unchanged: retry/backoff (1/2/5/15/30 min), the 6-attempt cap, lease reclaim, the per-row Resend idempotency key, and the terminal `failed` outcome for non-retryable provider errors.
+
+**Files modified (this pass):**
+- `supabase/functions/_shared/platformAdminNotifications.ts`
+- `supabase/functions/platform-admin-notify/index.ts`
+- `supabase/functions/_shared/platformAdminNotifications.test.ts`
+- `supabase/functions/platform-admin-notify/index.test.ts`
+- `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`
+- `supabase/tests/platform_admin_notifications.sql`
+- `scripts/run_platform_admin_notification_tests.sh` (a second negative control)
+- `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md` (hashes, recipient note, column read-back)
+- `AGENT_RULES.md` (#21 wording), `WORK_LOG.md`, this plan
+
+**Unchanged:** the rollback file (it drops the table, so it covers the new column), templates, renderer, triggers, grants/RLS, `create-user` and all signup code.
+
+**Verification:**
+- **Local PG16:** 20 behaviour tests PASS. New:
+  - T12: a row queued 48 h but never attempted is still claimed, stamped, and retries normally.
+  - T12a: `first_attempted_at` is immutable across claims.
+  - T12d: an attempted row whose first attempt is more than 23 h old fails, both via retry and via the claim sweep.
+  - T12e: the CHECK.
+- Replay guard, two-session SKIP LOCKED (3 + 3, overlap 0), the original negative control (T1), **new negative control 2** (the migration rebuilt with the old `created_at` window makes T12 fail), and the rollback proof all PASS.
+- **Deno:** 161 passed / 0 failed. The recipient tests cover unset, valid, and 11 invalid shapes with no echo. The handler tests prove 503 before any claim, one sanitized log line, and that an unset recipient passes the gate.
+- **`npx tsc --noEmit`:** exit 0. **ESLint:** changed files clean. **Vitest:** see WORK_LOG.
+
+### A9. As built (2026-10-10) — NOT merged, NOT deployed
+
+**Pre-edit checks:**
+- Re-read AGENT_RULES/VISION and the WORK_LOG head. `main` had moved to `e21728e`, adding Reports release docs only, and the branch was rebased onto it.
+- The 8 open PRs (#429, #425, #398, #383, #382, #381, #378, #294) touch no auth, email, organization or `_shared/systemEmail*` file, so there is no conflict.
+
+**Files (exact):**
+- **New:**
+  - `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`
+  - `supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql`
+  - `supabase/functions/platform-admin-notify/index.ts` + `index.test.ts`
+  - `supabase/functions/_shared/platformAdminNotifications.ts` + `.test.ts`
+  - `supabase/tests/platform_admin_notifications_harness.sql`, `supabase/tests/platform_admin_notifications.sql`
+  - `scripts/run_platform_admin_notification_tests.sh`
+  - `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`
+- **Edited:**
+  - `supabase/functions/_shared/systemEmail.ts`: additive `detailTable()`, `noticeBox()`, `DetailTone`, `DetailRow`; the existing renderer is unchanged.
+  - `supabase/functions/_shared/systemEmailTemplates.ts`: the two admin templates + `deriveAgencyStatus`; the existing templates are unchanged.
+  - `supabase/functions/_shared/systemEmail.test.ts`: 2 tests.
+  - `supabase/config.toml`: `[functions.platform-admin-notify] verify_jwt = false`.
+  - `AGENT_RULES.md` (#20 drift + tracked items, #21 notification rules), `WORK_LOG.md`, this plan.
+- **Not touched:** `create-user`, `create-organization`, `accept-invite`, `invite-user`, every `send-*` function, Gmail/`email-*`, `workflow-executor`, Auth templates, the frontend, existing RLS policies, applied migrations.
+
+**Deviations from §A3, each tightening the design:**
+1. `complete_platform_admin_notification` gained a terminal `failed` outcome. A Resend `409 invalid_idempotent_request` cannot succeed on retry, and a previous attempt may already have been delivered, so the row closes for review instead of burning six attempts.
+2. The cron command also requires that a due row exists, so the function is not invoked at all while the queue is idle.
+3. A missing `RESEND_API_KEY` returns 503 **before** claiming, so a misconfiguration spends no attempts.
+4. The agency lifecycle (D-additional) is `deriveAgencyStatus`:
+   - `suspended` → Suspended, `archived` → Archived;
+   - `active` (or NULL = column default) with `twilio_subaccount_status='active'` → Active;
+   - otherwise Pending, with the reason ("Phone system provisioning is pending", and so on).
+
+   The user email shows the same lifecycle for the user's agency.
+5. Invited-by is resolved from an Accepted invitation by exact normalized email equality in code (never `ilike`). Invitation tokens are never selected.
+
+**Verification:** see the WORK_LOG entry for exact counts. In short:
+- local PG16 SQL suite: 17 behaviour tests (T0–T15 + T12b) + replay guard + two-session SKIP LOCKED proof + negative control + rollback proof, all PASS;
+- Deno: 159 passed / 0 failed across `_shared/` + `platform-admin-notify/`;
+- `npx tsc --noEmit` clean;
+- vitest: no new failures against `main`.
+
+---
+
 ## 2026-10-09 — RELEASED (PR #433, merge `d88982d`): Campaigns page table redesign, Phase 1
 
 **Current status:** Released 2026-10-09. PR #433 was squash-merged as `d88982d`, whose tree is identical to the verified head `67d638a`, and Vercel deployed it to production on both projects. Authenticated hosted checks remain NOT VERIFIED; see §15 Release. §14 records what was built; the text below §14's heading is the approved plan, kept as written.

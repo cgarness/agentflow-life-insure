@@ -11,8 +11,10 @@ import {
 
 import {
   assertHttpsUrl,
+  detailTable,
   escapeHtml,
   featureRow,
+  noticeBox,
   paragraph,
   RenderedSystemEmail,
   renderSystemEmail,
@@ -437,4 +439,25 @@ Deno.test("renderSystemEmail is deterministic for identical input", () => {
   const b = renderFixture();
   assertEquals(a.html, b.html);
   assertEquals(a.text, b.text);
+});
+
+// ── detailTable / noticeBox (platform-admin notifications) ───────────────────
+
+Deno.test("detailTable escapes labels and values and renders tone pills", () => {
+  const html = detailTable([
+    { label: "<b>Label</b>", value: '<img src=x onerror="alert(1)">' },
+    { label: "Status", value: "Suspended", tone: "danger" },
+  ]);
+  assert(!html.includes("<img"), "raw value markup must be escaped");
+  assert(!html.includes("<b>Label</b>"), "raw label markup must be escaped");
+  assertStringIncludes(html, "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+  assertStringIncludes(html, "#B91C1C"); // danger tone
+  assertStringIncludes(html, 'role="presentation"');
+  assert(!html.includes("class="), "inline CSS only");
+});
+
+Deno.test("noticeBox escapes its text", () => {
+  const html = noticeBox("ADMIN ONLY <script>");
+  assertStringIncludes(html, "ADMIN ONLY &lt;script&gt;");
+  assert(!html.includes("<script>"));
 });

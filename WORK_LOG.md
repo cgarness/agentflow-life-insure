@@ -1,3 +1,157 @@
+## 2026-10-10 — Super Admin registration emails: production release record reconciled (repository only)
+
+**Why.** The feature is live in production, but the repository still said "not deployed" and the migration file carried its authored version. Chris asked for the release to be reconciled with the repository in a separately reviewed PR before the onboarding email series is built. This entry and its PR change **no production state**: nothing was deployed, re-applied, redeployed or modified, and `create-user`, `platform-admin-notify`, the triggers and the cron job were not touched.
+
+**Production evidence (read-only, 2026-10-10):**
+- **Migration:** `20261010172702 / platform_admin_registration_notifications` is recorded. It has one stored statement, md5 `7962639fda44dca24a05ffd7845a3009`, equal to the branch file `20261010200000_…sql`. The newest recorded version is still `20261010172702`.
+- **Edge `platform-admin-notify`:** v1, ACTIVE, `verify_jwt=false`, ezbr `bf8c8704…`. All four bundled files are byte-identical to branch head `3a6fce2`: `index.ts`, `_shared/platformAdminNotifications.ts`, `_shared/systemEmail.ts`, `_shared/systemEmailTemplates.ts`.
+- **Database objects:**
+  - cron `platform-admin-notify-every-minute` is active;
+  - both `trg_zz_platform_admin_notify_*` triggers are present;
+  - the Vault secret `platform_admin_notify_token` is present (name only checked).
+- **Queue:** two `sent` rows, one `user_registered` and one `agency_created`, first queued 17:31:21 UTC. Row contents and bodies were not read.
+- **Unchanged:** `create-user` is still v57, ezbr `2dc286da…`, the same bundle as the documented v56.
+
+**Repository reconciliation (invariants #25 and #35, same pattern as the 2026-10-10 Reports rename):**
+- `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql` is renamed to `20261010172702_…` with **identical bytes**; the md5 still equals production.
+- The rollback is renamed to match, bytes unchanged.
+- `scripts/run_platform_admin_notification_tests.sh` paths and the two SQL suite headers are updated.
+- AGENT_RULES #21 now reads RELEASED.
+- `deployment.md` gains §8, "Release outcome", and its §6/§7 paths are updated.
+- The admin section of `implementation_plan.md` gains a release-record line.
+- **Not edited, deliberately:** the deployed Edge sources. Their comments still name the authored version, so the repository stays byte-equal to the deployed bundle.
+
+**Verification (local only; isolated PostgreSQL 16.15, localhost proved, synthetic data):**
+- `scripts/run_platform_admin_notification_tests.sh` against the renamed files: ALL PASSED. That covers the behaviour suite, the replay guard, two-session SKIP LOCKED (3 + 3, overlap 0), both negative controls, and the rollback proof.
+- Deno `platform-admin-notify` / `systemEmail` / `systemEmailTemplates` tests: 90 passed, 0 failed. `deno.land` is denied here, so a scratch import map pointed its assert module at `jsr:@std/assert`.
+
+**Not established:** who ran each production step, when Chris approved it, and what the two delivered emails contained. The deployment plan's live end-to-end test (§5) is **not** recorded as passed.
+
+**Next:** Chris reviews and merges this PR. Then the onboarding email branch `claude/onboarding-email-series-20261010` brings in `main` (D11).
+
+## 2026-10-10 — Super Admin registration emails: §A10 corrections implemented and verified (not deployed)
+
+**Approval.** Chris approved the two `implementation_plan.md` §A10 corrections. The scope was code, documentation and local testing only. Built on `claude/super-admin-registration-emails-20261010`.
+- No production change of any kind: no migration applied, no function deployed, no secret created or changed, no user created.
+- `create-user` was not touched.
+
+**Correction 1, fail-closed recipient:**
+- `PLATFORM_ADMIN_NOTIFY_RECIPIENT` **unset** → `chris@fflagent.com`.
+- **Set** → it must be exactly one valid address. Blank, whitespace-only, malformed and multi-address values now fail closed:
+  - the worker returns `503 Recipient configuration invalid` **before creating a client or claiming any row**;
+  - it logs `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid (length N)… queue left untouched`, never the value;
+  - it never falls back to another address.
+- Rows keep `attempts = 0` and their retry eligibility.
+
+**Correction 2, delivery window** (edit to the unapplied migration `20261010200000`):
+- New nullable `first_attempted_at`, stamped only by the first claim (`coalesce`, never overwritten), with `CHECK ((attempts = 0) = (first_attempted_at IS NULL))`.
+- The 23 h Resend idempotency window is now measured from the first attempt, in both the claim sweep and `complete(retry)`. A never-attempted row no longer expires while delivery is blocked by configuration.
+- Unchanged: backoff, the 6-attempt cap, lease reclaim, the per-row idempotency key, and the terminal `failed` outcome for non-retryable provider errors (Resend 409 `invalid_idempotent_request`).
+
+**Verification (all local; isolated PostgreSQL 16.15 with synthetic data, localhost proved):**
+- **SQL:** 20 behaviour tests PASS (new T12, T12a, T12d, T12e), plus:
+  - the replay guard;
+  - the two-session SKIP LOCKED proof (3 + 3, overlap 0);
+  - negative control 1 (a broken trigger fails T1);
+  - **new negative control 2** (the migration rebuilt with the old `created_at` window fails T12);
+  - the rollback proof (removed; signup works; replay refused; re-apply clean with no backfill).
+- **Deno 2.9.6:** `deno check` clean; `deno test` over `_shared/` + `platform-admin-notify/`: **161 passed, 0 failed**. The recipient tests cover unset, valid, and 11 invalid shapes with no echo; the handler tests cover 503 before any claim and an unset recipient passing the gate. The scratchpad import map for the denied `deno.land` host is as before.
+- **`npx tsc --noEmit`:** exit 0. **ESLint (changed files):** clean.
+- **Vitest:** 304 passed / 10 failed files, and 5025 passed / 1 failed / 32 skipped tests. This is **identical to clean `main` `e21728e`**, with the same 10 pre-existing failing files diffed by name. The skipped count differs from the earlier run (34) on both trees alike.
+- All earlier registration-notification behaviour is preserved: T0–T11, T12b, T13–T15 and all 26 earlier Deno cases are unchanged and passing.
+
+**New artifact hashes** (`deployment.md` §7):
+- migration `f33f84cf…acce9e`
+- `index.ts` `4c0ab59a…feb6f`
+- `platformAdminNotifications.ts` `33e098aa…0cdcd`
+
+The rollback, templates and renderer are unchanged.
+
+**Docs:** AGENT_RULES #21 (fail-closed recipient; the window starts at the first attempt); plan §A10 marked approved and §A11 as built; runbook recipient note, column read-back and hashes.
+
+**Next:** Chris's approval of production step 1: set the Edge secret `PLATFORM_ADMIN_NOTIFY_TOKEN` and the identical Vault secret `platform_admin_notify_token`. Leave `PLATFORM_ADMIN_NOTIFY_RECIPIENT` unset to use the default.
+
+## 2026-10-10 — Super Admin registration emails built and verified locally (not deployed)
+
+**Approval.** Chris approved Phase 3 on 2026-10-10 with D1–D6 (`implementation_plan.md`, top section). It is built on `claude/super-admin-registration-emails-20261010`, rebased onto `main` `e21728e`.
+- Not merged or pushed to `main`.
+- No migration applied, no Edge Function deployed, no secret created, no production write.
+- Production reads only: the Edge Function list and source, catalog/count queries, and `information_schema`.
+
+**What it does.** `chris@fflagent.com` (or the server secret `PLATFORM_ADMIN_NOTIFY_RECIPIENT`) receives one email per real event:
+- `[AGENTFLOW ADMIN] New User Registered`
+- `[AGENTFLOW ADMIN] New Agency Created`
+
+**How it works:**
+- `AFTER INSERT` triggers on `profiles` / `organizations` write ids into the server-only queue `public.platform_admin_notifications`. They do no network I/O, swallow their own errors, and enforce `UNIQUE(event_type, subject_id)`.
+- pg_cron calls the new `platform-admin-notify` function only while a row is due. It authenticates with a dedicated Vault token, never the service-role key.
+- The worker claims rows with SKIP LOCKED and a lease, re-reads the subject (`skipped` if it is gone), and renders through the shared system-email renderer with an ADMIN ONLY badge and notice.
+- It sends via Resend with a per-row Idempotency-Key and records sent / retry (backoff 1/2/5/15/30 min, at most 6 attempts, a 23 h window) / failed with a sanitized `last_error`.
+- **Agency lifecycle:** Active / Pending / Suspended / Archived. Pending means the agency is active but its phone system is not provisioned yet.
+
+**Not touched:** `create-user` (not redeployed; the live v56 self-service restriction is preserved), `create-organization`, `accept-invite`, invitation, welcome and other customer-facing emails, Gmail OAuth, the frontend, existing RLS policies.
+
+**Verification:**
+- **SQL (local PostgreSQL 16.15, synthetic, localhost proved; `scripts/run_platform_admin_notification_tests.sh`):** ALL PASS.
+  - 17 behaviour tests:
+    - no backfill;
+    - one row per registration;
+    - logins, profile and org updates enqueue nothing;
+    - self-serve gives one user + one agency row;
+    - failed `provision_organization` leaves no row;
+    - a compensated signup leaves a row the worker skips;
+    - the unique key holds;
+    - an injected enqueue failure still commits the profile and org;
+    - settle delay, limit and lease;
+    - sent/skipped are terminal;
+    - backoff schedule and 6-attempt cap;
+    - lease expiry;
+    - the 23 h window;
+    - non-retryable failure;
+    - argument validation;
+    - anon/authenticated denied on the table and every function (catalog and live `SET ROLE`), service_role allowed;
+    - trigger shape.
+  - Replay guard.
+  - Two-session SKIP LOCKED proof: 3 + 3 disjoint claims, overlap 0.
+  - Negative control: a broken trigger fails T1.
+  - Rollback proof: objects removed, signup works, rollback refuses replay, re-apply clean with no backfill.
+- **Deno 2.9.6:** `deno check` clean. `deno test` over `supabase/functions/_shared/` + `platform-admin-notify/`: **159 passed, 0 failed**, including 28 new tests (26 notification/handler + 2 renderer).
+  - The egress policy denies `deno.land`. Local runs used a scratchpad-only import map pointing `std@0.190.0/testing/asserts.ts` at `jsr:@std/assert@1`; no repository file changed for this.
+- **`npx tsc --noEmit`:** exit 0, 0 errors. `tsc -p tsconfig.app.json` gives 85 diagnostics on both the branch and `main`.
+- **Vitest:** 304 passed / 10 failed files, and 5023 passed / 1 failed / 34 skipped tests. This is **identical to clean `main` `e21728e`**: the same 10 pre-existing failing files, diffed by name. No new failure.
+- **ESLint:** the new and changed files add no finding. The one error in `systemEmail.ts` (`no-control-regex` in `sanitizeHeaderText`) is pre-existing and identical on `main`.
+- **Rendered check:** both emails rendered in Chromium at 900 px and 375 px. No horizontal scroll; values escaped; plain-text part present.
+
+**Not verified:** live delivery, real email-client rendering, production cron/pg_net behaviour, and the live end-to-end test. The live test needs a separate approval (D5) and is **BLOCKED / NOT PASSED**.
+
+**Release:** the exact gated sequence is `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`: preflight → Chris sets the Edge secret + Vault token → deploy function → apply migration → read-back → observe.
+
+**Docs:** AGENT_RULES #20 (live `create-user` v56 drift + tracked `create-organization` / `accept-invite` items) and #21 (notification rules); the plan as-built (§A9).
+
+## 2026-10-10 — Live `create-user` v56 differs from the repository (recorded; reconcile in a separate PR)
+
+**Found** during the Super Admin registration-email investigation (read-only `get_edge_function`):
+- Production `create-user` **v56** was deployed 2026-10-02 22:55 UTC (`verify_jwt=true`, ezbr `2dc286da9fe29ef6a107e74cf05f4167ee520313e33be9bcd1a045489e086c44`).
+- It returns `403 "Self-service signup is temporarily disabled. Please use a valid invitation link."` for every non-invite signup.
+- The repository `supabase/functions/create-user/index.ts` has no such guard, and no earlier Work Log entry recorded the change.
+
+**Risk:** redeploying `create-user` from the repository silently re-enables self-service signup.
+
+**Decision (Chris, D6):**
+- The restriction stays in production.
+- `create-user` is not redeployed by the registration-email feature.
+- The repository will be reconciled with live v56 in a **separate PR**.
+
+**Also tracked separately (not fixed):**
+- `create-organization` (live v55, `verify_jwt=false`) has no authorization check.
+- Legacy `accept-invite` `action:"accept"` (live v45) still creates users outside `create-user`'s trust model.
+
+Neither is called by the frontend. Recorded in AGENT_RULES #20.
+
+**Production shape at discovery:**
+- 4 organizations: 1 active, 3 self-serve agencies `suspended`, the last created 2026-09-30.
+- 16 profiles, the last created 2026-10-01.
+
 ## 2026-10-10 — Reports refresh and R-3 correction shipped to production
 
 Chris approved the coordinated production release at about 03:40 UTC. Both parts are live. Release record: `docs/plans/2026-10-09-reports-refresh-audit/production-release.md`.

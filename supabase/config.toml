@@ -221,5 +221,10 @@ verify_jwt = false
 [functions.sms-consent-worker]
 verify_jwt = false
 
+# Invoked only by pg_cron with the dedicated Vault token platform_admin_notify_token;
+# authorization is enforced in code (PLATFORM_ADMIN_NOTIFY_TOKEN), never by this flag.
+[functions.platform-admin-notify]
+verify_jwt = false
+
 [functions.sms-consent-status]
 verify_jwt = false
