@@ -109,7 +109,28 @@ Node 22.22.0 locally; CI uses 22.16.0. tsc 5.8.3, vitest 3.2.4.
 | "not a zero" | 8 | 12 |
 | `'—'` | 1 | 1 |
 
-Each removed assertion is mapped to its replacement, or to the plan section that removed its UI, in `assertion-diff.md`.
+`assertion-diff.md` maps each removed assertion to its replacement, or to the plan section that removed its UI:
+
+| Class | Count |
+|---|---|
+| Equivalent | 25 |
+| Stronger | 18 |
+| UI removed by the plan, intent still covered | 6 |
+| **Weakened** | **0** |
+
+The six UI-removed assertions:
+- four trend-chart agent-ranking assertions. The cross-panel join is gone (§5.3) and the ranking now comes from the summary.
+- the strip formula subtitle (§5.4/§5.11). The value is now pinned instead.
+- the bottom "Report basis and data quality" block, which moved into the Data basis sheet (§5.9).
+
+**Export identity:**
+- the stale-export test is unchanged
+- `verify.mjs` keeps its 3 stale-export checks
+- assertions pinning CSV headers and rows grew from 5 to 17
+
+All 23 changed or added test files pass: 356 passed, 1 skipped (the SQL-payload `runIf` case).
+
+**Pre-existing gap**, at base and head: no unit test covers the page-level drift guard (`Reports.tsx:66`) for a `requested_scope`-only difference. The deleted chart test covered that scenario for a join that no longer exists.
 
 ## 5. CSV byte comparison [local synthetic, real Chromium]
 
