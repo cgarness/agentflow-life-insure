@@ -1,4 +1,4 @@
-# Onboarding Email Series — implementation plan (AWAITING CHRIS'S APPROVAL; inactive by design)
+# Onboarding Email Series — implementation plan (BUILT, INACTIVE; final review done 2026-10-10, see §16; not merged, not deployed, not applied)
 
 **Status (2026-10-10):** plan only. On local branch `claude/onboarding-email-series-20261010` (base `main` `e21728e`), the only changes are this folder and a pointer section in the root `implementation_plan.md`. Nothing else has changed:
 
@@ -520,7 +520,8 @@ The complete copy is in `email-copy.md`: subject, preheader, badge, heading, bod
 
 ## §11. Activation checklist (future; each step needs its own explicit approval)
 
-1. Merge the inactive implementation PR after green CI. Nothing is applied or deployed by the merge.
+0. **Blocker D12:** a confirmed platform mailing address for the footer, added under its own approval. Never an invented one.
+1. Merge the inactive implementation PR after green CI. Nothing is applied or deployed by the merge **while the Supabase GitHub integration's "Deploy to production" stays OFF** (invariant #30). Chris confirms that setting in the dashboard before merging (no tool can read it; §16.4).
 2. **Read-only preflight:**
    - `list_migrations`;
    - confirm the objects are absent;
@@ -711,3 +712,89 @@ Edited:
 - The worker returns `disabled:true` without creating a database client unless the env is exactly `true` (handler tests).
 - The Settings switch renders nothing while disabled (component test).
 - The unsubscribe page only responds to a link that already exists.
+
+---
+
+## §16. Final review and merge preparation (2026-10-10)
+
+Chris asked for a final review, PR closeout and merge preparation, with the series kept fully DISABLED through any merge and automatic Vercel deploy.
+
+### 16.1 PR #438 (admin registration release record)
+
+- **Verified read-only against production before merging:**
+  - Migration `20261010172702 / platform_admin_registration_notifications`: one stored statement, md5 `7962639fda44dca24a05ffd7845a3009`, equal to the file bytes.
+  - Both `trg_zz_platform_admin_notify_*` triggers are enabled, and `platform-admin-notify-every-minute` is active.
+  - The queue holds two `sent` rows, and the Vault token exists (name only).
+  - `platform-admin-notify` is still v1 with ezbr `bf8c8704…`, the bundle already compared byte-for-byte with `3a6fce2`.
+  - `create-user` is v57 and is not in the PR.
+  - The PR's only edit to existing template code is a comment line in `systemEmailTemplates.ts`, so the welcome, invitation and confirmation copy is unchanged.
+- **CI:** 7/7 green; no review comments.
+- **Merge:** marked ready, then merged with Chris's explicit approval as merge commit `02ad8380`.
+- **After the merge:** read-only checks found nothing changed in production. The newest migration is still `20261010172702` (324 rows). The integration's `main` branch row still has an empty `git_branch` and `updated_at 2026-08-25T19:24:20Z`. No onboarding object exists.
+
+### 16.2 Security review (all confirmed in code and tests)
+
+| Requirement | Where it is enforced | Proof |
+|---|---|---|
+| No duplicate emails | `UNIQUE(user_id)` enrollments; `UNIQUE(enrollment_id, step_key)` and `(user_id, step_key)` deliveries; SKIP LOCKED claims with a lease; `Idempotency-Key: onboarding-<id>`; deterministic body | T5, T6, T7; two-session concurrency 20/100/0 and 3+3 overlap 0 |
+| Agent/Admin sequences | `CASE WHEN role='Admin' THEN 'agency_admin' ELSE 'agent'` over Agent / Team Leader / Admin; `sequenceForRole` re-checked at send | T3; catalog and eligibility tests |
+| Super Admin excluded | `coalesce(is_super_admin,false)=false` at enrollment; `sequenceForRole(role, isSuperAdmin)` cancels at send | T3; eligibility tests |
+| No historical users | Watermark `enrollment_starts_at` (NULL today); both `welcome_email_sent_at` and `created_at` must be at or after it; no trigger | T3; `backfill_watermark` negative control |
+| Email confirmation | `email_confirmed_at IS NOT NULL` at enrollment; `email_unconfirmed` skip at send | T3; eligibility tests |
+| Inactive or deleted users | `status='Active'`, not deleted, not banned at enrollment; cancel or skip at send | T3, T10, T13 |
+| Suspended agencies | Agency status `active` at enrollment; `organization_inactive` skip at send | T3; eligibility tests |
+| Tenant isolation and RLS | RLS on all six tables; no client grants except `user_email_subscriptions` SELECT (own row AND own agency) | T2, T11; `rls_org` negative control |
+| Preference permissions | Writes only through `set_my_onboarding_email_opt_out` (Active, profile org = `get_org_id()`) and the service-role unsubscribe RPC | T11; frontend tests |
+| Unsubscribe without login | Public route `/email/unsubscribe` outside `ProtectedRoute`; `email-unsubscribe` uses `verify_jwt=false`; the signed token is the authorization | Handler and page tests |
+| Scanners cannot opt out | A GET answers 303 to the confirm page and never changes state; only a POST with a valid token records | Handler test "GET never changes state" |
+| Transactional email unaffected | Separate tables and opt-out; welcome, invitation, confirmation and admin senders never read it; no change to `systemEmail.ts` or `systemEmailTemplates.ts`; at most 5 sends per run, 600 ms apart | Diff: no shared-renderer or sender file in the branch |
+
+### 16.3 Required correction — error redaction (approved by Chris, 2026-10-10)
+
+**Finding.** `sanitizeError` only stripped control characters and truncated to 300 characters. Any provider or database error text was written verbatim to the worker logs and to `onboarding_email_deliveries.last_error` / `onboarding_email_delivery_attempts.error`. A concrete path: the shared renderer's `assertHttpsUrl` throws `refusing non-https email link: <url>`, and the footer URL carries the recipient's unsubscribe token. The worker handler validates the site URL first, so this is defense in depth, but nothing enforced the "never log addresses or tokens" rule.
+
+**Change (two files, `delivery.ts` and `delivery.test.ts`):**
+- `sanitizeError` now redacts, before truncation:
+  - email addresses, including `%40`-encoded ones;
+  - unsubscribe tokens (`v1.<payload>.<sig>`);
+  - `token=` / `access_token=` / `apikey=` / `key=` / `secret=` parameters;
+  - `Bearer` values;
+  - Resend `re_…` keys;
+  - JWTs.
+- Resend's error `name` is recorded only when it looks like a snake_case code.
+- Every logged or stored error already passes through `sanitizeError`; `email-unsubscribe` logs only the error class name.
+
+**Tests:** four new Deno tests:
+- the redaction table, including redaction before truncation;
+- the real `assertHttpsUrl` message, and an end-to-end run with a non-https site URL whose stored error and logs carry no token;
+- leaky provider and database errors kept out of stored errors and logs, including a failed bookkeeping call;
+- a non-code Resend name dropped, and a thrown fetch redacted.
+
+A negative control (the redaction loop disabled) fails all four; the file was restored byte-identical.
+
+No SQL, frontend or shared-renderer change.
+
+### 16.4 Disabled state through merge and deploy
+
+| Mechanism | What a merge to `main` does | Activation risk |
+|---|---|---|
+| GitHub Actions | No workflow deploys, applies or calls Supabase or Vercel. `onboarding-emails.yml` runs on PRs against an isolated `postgres:17.6` service. `sql-tests.yml` is `workflow_dispatch`-only and local. `s1-plan-verify.yml` (push to main) runs a static Python check | None |
+| Vercel (`agentflow`, `agentflow-life-insure`) | Auto-deploys `main` to production with the plain `vite build`; no Supabase step | Frontend only; see "production impact" below |
+| Supabase GitHub integration, Deploy to production | OFF since 2026-08-25 (invariant #30). Corroborated today: the integration's `main` row has `git_branch: ""` and an unchanged `updated_at`, and the #435/#436 merges and the #438 merge changed nothing | None while OFF. If it were re-enabled before activation, a merge would deploy the two functions. They would still be inert: the kill switch is unset, there is no worker token (403), no unsubscribe secret (503) and no tables. The migration would still not apply: `pending/` is outside the CLI glob, just as `rollback/` has never been replayed |
+| Supabase preview branching (ON) | Opening a PR may create an isolated, data-less preview project. It is often skipped at the concurrent-branch limit | Not production |
+
+**Production impact of merging (frontend only):**
+- `/email/unsubscribe` becomes reachable. No email links to it, and the function it calls is not deployed, so a manual visit ends in the page's error state.
+- Settings → Profile sends one `get_my_email_subscriptions` RPC per visit. PostgREST answers 404 because the function does not exist, and the switch silently renders nothing, with no toast. That is one harmless failed request per Settings visit until activation.
+
+### 16.5 Verification after rebasing onto `main` `02ad8380`
+
+- **Rebase:** the branch was rebased onto `main` `02ad8380` (after #438). Conflicts appeared only in `implementation_plan.md`, `WORK_LOG.md` and `AGENT_RULES.md`; both sides' entries were kept, newest first. `supabase/config.toml` auto-merged, with `platform-admin-notify` kept and the two onboarding entries appended. The branch still changes only the 42 onboarding files (all additions), now plus this correction.
+- **SQL:** ALL PASSED (locality, static checks, replay guard, T0–T14, concurrency 20/100/0 and 3+3 overlap 0, four negative controls, rollback proof).
+- **Deno:** 74/74 onboarding tests (70 + 4 new); `deno check` and `deno lint` clean; shared email plus admin tests 90/90.
+- **TypeScript:** root `tsc` exit 0; `tsc -p tsconfig.app.json` gives 85 diagnostics, an identical set to `main` `02ad8380`.
+- **ESLint:** clean.
+- **Vitest:** full run, 317 files, 5124 passed / 1 failed / 32 skipped, against `main`'s 314 / 5108 / 1 / 32. The one failure is the same pre-existing `recordingRetentionVoicemail` "byte-identical to deployed v29" test. #438 changed no `src/` file, so the baseline holds.
+- **Vite build:** exit 0, with no server-only secret names in `dist`.
+- **Whitespace:** a trailing blank line in `email-copy.md` would have failed the workflow's whitespace check; it is removed.
+- **Previews:** nine render locally.

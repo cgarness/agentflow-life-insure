@@ -1,3 +1,66 @@
+## 2026-10-10 — Onboarding email series: final review, PR #438 merged, redaction correction, rebased (still INACTIVE)
+
+**Request.** Chris asked for a final review, PR closeout and merge preparation, with the onboarding series kept fully DISABLED through any merge and automatic Vercel deploy. Detail: `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md` §16.
+
+**PR #438 (admin registration release record).**
+- Verified read-only against production:
+  - Migration `20261010172702`: stored md5 `7962639f…` equals the file.
+  - Both triggers are enabled and the cron job is active.
+  - `platform-admin-notify` is still v1, ezbr `bf8c8704…`.
+  - `create-user` is v57 and is not in the PR.
+  - Only a comment line changed in the existing template code.
+- CI 7/7 green.
+- Marked ready, then **merged with Chris's explicit approval** as merge commit `02ad8380`.
+- After the merge, production is unchanged: newest migration `20261010172702` (324 rows), the integration's `main` row unchanged, no onboarding objects.
+
+**Security review.** Every item passes (plan §16.2):
+- no duplicate emails;
+- Agent/Admin sequence mapping;
+- Super Admin exclusion;
+- no historical enrollment;
+- email confirmation required;
+- inactive, deleted and suspended exclusions;
+- RLS and tenant isolation;
+- preference permissions;
+- unsubscribe without login;
+- GET never opts out;
+- transactional email untouched.
+
+**Correction (approved by Chris).**
+- **Finding:** `sanitizeError` redacted nothing, so provider or database error text reached logs and the stored error columns verbatim. The shared renderer's `assertHttpsUrl` error quotes the footer link, unsubscribe token included.
+- **Change:**
+  - `delivery.ts`: `sanitizeError` masks addresses (including `%40`), unsubscribe tokens, token/key parameters, `Bearer` values, `re_` keys and JWTs, before truncation. Resend's error `name` is kept only when it is a code.
+  - `delivery.test.ts`: four tests. A negative control with redaction disabled fails all four.
+- No SQL, frontend or shared-renderer change.
+
+**Disabled state through merge (plan §16.4).**
+- **GitHub Actions:** no workflow deploys or touches Supabase or Vercel.
+- **Vercel:** deploys the frontend only. The Settings switch stays hidden: its RPC 404s and it renders nothing. `/email/unsubscribe` calls an undeployed function.
+- **Supabase "Deploy to production":** OFF (invariant #30), corroborated, not readable by any tool. Chris confirms it before merging.
+- **Migration:** in `pending/`, outside the CLI glob.
+
+**Rebase.** The branch is rebased onto `02ad8380`. Conflicts in the plan, WORK_LOG and AGENT_RULES were resolved by keeping both sides; `config.toml` auto-merged. Still only the onboarding files.
+
+**Verification (local, after rebase):**
+- **SQL:** ALL PASSED (T0–T14, concurrency 20/100/0 and 3+3 overlap 0, four negative controls, rollback proof).
+- **Deno:** 74/74 onboarding and 90/90 shared email plus admin; `deno check` and `deno lint` clean.
+- **TypeScript:** root `tsc` exit 0; app `tsc` gives 85, an identical set to `main`.
+- **ESLint:** clean.
+- **Vitest:** 5124 passed / 1 failed / 32 skipped against `main`'s 5108 / 1 / 32, the same pre-existing `recordingRetentionVoicemail` failure.
+- **Vite build:** OK, with no secret markers.
+- **Whitespace:** a trailing blank line in `email-copy.md`, which would have failed CI's whitespace check, is removed.
+
+**Docs.**
+- AGENT_RULES #21 onboarding bullet: added the redaction rule and the "merge only while Deploy to production is OFF" rule.
+- Plans: root status, detailed plan §11 (D12 as step 0, the Deploy-to-production confirmation) and the new §16.
+
+**Production.** Read only. No migration applied, no function deployed, no secret, cron job, enrollment or email.
+
+**Next.**
+- Draft onboarding PR and its CI.
+- Chris's explicit merge approval.
+- Activation stays separately gated (plan §11); D12 (mailing address) blocks it.
+
 ## 2026-10-10 — Onboarding email series BUILT, INACTIVE (not merged, not deployed, not applied)
 
 **Approval.** Chris approved the inactive build with the D1–D11 defaults and Corrections A–C. D12: no mailing address was invented; a confirmed platform mailing address blocks activation. Correction B was done first, as draft PR #438 (the admin-registration release record).

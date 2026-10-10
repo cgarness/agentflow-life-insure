@@ -47,11 +47,28 @@ export function isAuthorizedWorkerRequest(authorization: string | null, token: s
   return timingSafeEqual(authorization ?? "", `Bearer ${expected}`);
 }
 
-/** Single-line, bounded error text safe for last_error and logs. */
+// Credentials and personal data that must never reach a log line or a stored error, whatever
+// produced the message (provider responses, PostgREST errors, the shared renderer's URL check,
+// which quotes the whole link including its unsubscribe token). Applied before truncation so a
+// value cut at the length limit cannot slip past its pattern.
+const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/([?&#](?:[a-z_]*token|api_?key|key|secret)=)[^&\s"'<>]+/gi, "$1[redacted]"],
+  [/\bv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted-token]"],
+  [/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, "[redacted-jwt]"],
+  [/\bBearer\s+[^\s"',;]+/gi, "Bearer [redacted]"],
+  [/\bre_[A-Za-z0-9_]{6,}/g, "[redacted-key]"],
+  [/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/gi, "[redacted-email]"],
+];
+
+/** Single-line, bounded error text safe for last_error and logs, with credentials and addresses redacted. */
 export function sanitizeError(value: unknown): string {
-  const raw = value instanceof Error ? value.message : String(value ?? "");
-  return raw.replace(/\p{Cc}+/gu, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Unknown error";
+  let text = value instanceof Error ? value.message : String(value ?? "");
+  for (const [pattern, replacement] of REDACTIONS) text = text.replace(pattern, replacement);
+  return text.replace(/\p{Cc}+/gu, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Unknown error";
 }
+
+/** Resend error names are short snake_case codes; anything else is dropped rather than recorded. */
+const RESEND_ERROR_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 // ── Store (narrow interface so tests can inject a fake) ─────────────────────
 
@@ -166,7 +183,7 @@ export function createResendMailer(apiKey: string, fetchImpl: typeof fetch = fet
         body = null;
       }
       if (res.ok) return { ok: true, id: typeof body?.id === "string" ? body.id : null };
-      const name = typeof body?.name === "string" ? body.name : "";
+      const name = typeof body?.name === "string" && RESEND_ERROR_NAME.test(body.name) ? body.name : "";
       const permanent = (res.status === 409 && name === "invalid_idempotent_request") ||
         res.status === 400 || res.status === 422;
       return { ok: false, retryable: !permanent, error: sanitizeError(`Resend HTTP ${res.status}${name ? ` ${name}` : ""}`) };

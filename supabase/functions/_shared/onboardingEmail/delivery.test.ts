@@ -14,7 +14,8 @@ import {
   sanitizeError,
 } from "./delivery.ts";
 import type { DeliveryContext } from "./eligibility.ts";
-import { verifyUnsubscribeToken } from "./unsubscribeToken.ts";
+import { createUnsubscribeToken, verifyUnsubscribeToken } from "./unsubscribeToken.ts";
+import { assertHttpsUrl } from "../systemEmail.ts";
 
 const SECRET = "u".repeat(40);
 const NOW = new Date("2026-10-12T15:00:00Z");
@@ -198,4 +199,87 @@ Deno.test("delivery: unsubscribe URLs and error sanitizing", () => {
   assert.equal(sanitizeError(new Error("a\r\nb\tc")), "a b c");
   assert.equal(sanitizeError(""), "Unknown error");
   assert.equal(sanitizeError("x".repeat(400)).length, 300);
+});
+
+// Values that must never appear in a log line or a stored error.
+const LEAKS = ["jordan@example.test", "jordan%40example.test", "re_live_AbCdEf123456", "eyJhbGciOiJIUzI1NiJ9", "secret-value-1"];
+
+function assertNoLeak(text: string, extra: string[] = []) {
+  for (const leak of [...LEAKS, ...extra]) assert.ok(!text.includes(leak), `leaked ${leak} in: ${text}`);
+}
+
+Deno.test("delivery: sanitizeError redacts addresses, unsubscribe tokens, bearer values, keys and JWTs", async () => {
+  const token = await createUnsubscribeToken(SECRET, USER);
+  const cases: Array<[string, string]> = [
+    ["insert failed for jordan@example.test", "insert failed for [redacted-email]"],
+    // RFC 5322 allows "=" in a local part, so the whole run is masked: over-redaction is the safe side.
+    ["to=jordan%40example.test rejected", "[redacted-email] rejected"],
+    [`bad token ${token}`, "bad token [redacted-token]"],
+    ["Authorization: Bearer re_live_AbCdEf123456", "Authorization: Bearer [redacted]"],
+    ["invalid key re_live_AbCdEf123456", "invalid key [redacted-key]"],
+    ["jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln-x_y", "jwt [redacted-jwt]"],
+    ["https://x.test/cb?access_token=secret-value-1&type=signup", "https://x.test/cb?access_token=[redacted]&type=signup"],
+    ["https://x.test/cb?apikey=secret-value-1", "https://x.test/cb?apikey=[redacted]"],
+  ];
+  for (const [input, expected] of cases) assert.equal(sanitizeError(new Error(input)), expected);
+  // Ordinary operational text is unchanged.
+  assert.equal(sanitizeError("Resend HTTP 409 invalid_idempotent_request"), "Resend HTTP 409 invalid_idempotent_request");
+  assert.equal(sanitizeError("context: permission denied for function get_onboarding_email_context"),
+    "context: permission denied for function get_onboarding_email_context");
+  // Redaction runs before truncation, so an address cut at the limit cannot leak a fragment.
+  const cut = sanitizeError(`${"x".repeat(290)} jordan@example.test`);
+  assert.ok(cut.length <= 300 && !cut.includes("jordan"), cut);
+});
+
+Deno.test("delivery: the shared renderer's URL error never carries the unsubscribe token out", async () => {
+  const token = await createUnsubscribeToken(SECRET, USER);
+  const link = `http://www.fflagent.com/email/unsubscribe?token=${token}`;
+  let message = "";
+  try {
+    assertHttpsUrl(link);
+  } catch (err) {
+    message = sanitizeError(err);
+  }
+  assert.equal(message, "systemEmail: refusing non-https email link: http://www.fflagent.com/email/unsubscribe?token=[redacted]");
+
+  // End to end: a non-https site URL makes the renderer throw mid-send; the stored error and the log are clean.
+  const h = harness([row("d1")], { d1: context("d1") });
+  await processQueue(h.store, h.mailer, { ...h.options, siteUrl: "http://www.fflagent.com" });
+  assert.equal(h.sent.length, 0);
+  assert.equal(h.completed[0].outcome, "retry");
+  assert.ok(h.completed[0].error?.includes("token=[redacted]"), h.completed[0].error ?? "");
+  for (const text of [h.completed[0].error ?? "", h.logs.join("\n")]) assertNoLeak(text, [token, token.split(".")[2]]);
+});
+
+Deno.test("delivery: provider and database error text is redacted in the stored error and the logs", async () => {
+  const leaky = "context: lookup failed for jordan@example.test with Bearer re_live_AbCdEf123456 and eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln";
+  const h = harness([row("d1"), row("d2")], { d1: context("d1"), d2: context("d2") }, [
+    { ok: false, retryable: true, error: sanitizeError("Resend request failed: connect error for jordan@example.test") },
+  ]);
+  h.store.loadContext = (id) => id === "d2" ? Promise.reject(new Error(leaky)) : Promise.resolve(context(id));
+  await processQueue(h.store, h.mailer, h.options);
+  assert.deepEqual(h.completed.map((c) => `${c.id}:${c.outcome}`), ["d1:retry", "d2:retry"]);
+  for (const c of h.completed) assertNoLeak(c.error ?? "");
+  assertNoLeak(h.logs.join("\n"));
+  assert.ok(h.logs.join("\n").includes("[redacted-email]"), "the redacted error is still logged for diagnosis");
+
+  // A failed bookkeeping call is logged through the same redaction.
+  const b = harness([row("d3")], { d3: context("d3") });
+  b.store.complete = () => Promise.reject(new Error(`complete: duplicate key for jordan@example.test`));
+  await processQueue(b.store, b.mailer, b.options);
+  assertNoLeak(b.logs.join("\n"));
+});
+
+Deno.test("delivery: a Resend error name that is not an error code is dropped, and a thrown fetch is redacted", async () => {
+  const message: MailMessage = {
+    to: "jordan@example.test", subject: "S", html: "<p>h</p>", text: "t", idempotencyKey: "onboarding-d1",
+    headers: {}, tags: [],
+  };
+  const respond = (status: number, body: unknown) => () => Promise.resolve(new Response(JSON.stringify(body), { status }));
+  const odd = await createResendMailer("k", respond(422, { name: "jordan@example.test is not valid" }) as typeof fetch)(message);
+  assert.deepEqual(odd, { ok: false, retryable: false, error: "Resend HTTP 422" });
+  const thrown = await createResendMailer("k", (() =>
+    Promise.reject(new TypeError("error sending request to jordan@example.test with Bearer re_live_AbCdEf123456"))) as typeof fetch)(message);
+  assert.ok(!thrown.ok);
+  assertNoLeak((thrown as { error: string }).error);
 });

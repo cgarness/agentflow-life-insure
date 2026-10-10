@@ -1,4 +1,6 @@
-## 2026-10-10 — BUILT, INACTIVE (not merged, not deployed, not applied): role-based onboarding email series
+## 2026-10-10 — BUILT, INACTIVE, final review done (draft PR; not merged, not deployed, not applied): role-based onboarding email series
+
+**Final review (2026-10-10):** PR #438 was verified against production and merged with Chris's approval (`02ad8380`). The onboarding branch is rebased onto it, and only onboarding files change. The security review passed. One correction was approved and made: `sanitizeError` now redacts email addresses, unsubscribe tokens, `Bearer` values, Resend keys and JWTs from every logged or stored error. No merge or deploy mechanism activates the series while Supabase "Deploy to production" stays OFF. All local gates pass. Merge needs Chris's explicit approval; D12 still blocks activation. Details: detailed plan §16.
 
 **As built (2026-10-10):** the full series is implemented on `claude/onboarding-email-series-20261010` and switched off by four independent locks. All local SQL, Deno and frontend gates pass, with zero new TypeScript diagnostics. Evidence is in the detailed plan §15 and WORK_LOG. Merge, migration apply, deploys, secrets, scheduling and activation each need Chris's separate approval (detailed plan §11). D12, a confirmed mailing address, blocks activation.
 
@@ -23,7 +25,7 @@
 - **Opt-out.** A signed one-click unsubscribe, plus a Settings switch shown only when the program is enabled. It covers onboarding tips only.
 - **Untouched:** `create-user`, `send-welcome-email`, the invitation emails, `send-email-previews`, the admin-notification system, `_shared/systemEmail.ts` and `_shared/systemEmailTemplates.ts`.
 
-**Conflict noted:** the platform-admin registration emails are live in production (migration `20261010172702`, `platform-admin-notify` v1, cron active), but `main` has no record of that release. See the detailed plan, §1 and D11.
+**Conflict noted (resolved 2026-10-10 by PR #438, merge `02ad8380`):** the platform-admin registration emails are live in production (migration `20261010172702`, `platform-admin-notify` v1, cron active), but `main` had no record of that release. See the detailed plan, §1 and D11.
 
 **Awaiting:** Chris's approval of the plan and the exact file list (detailed plan §7), plus decisions D1–D12 (§10).
 

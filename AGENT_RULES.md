@@ -196,6 +196,8 @@ Non-negotiables from production:
     - the service-role `record_onboarding_email_opt_out`, called by `email-unsubscribe`.
   - **Unsubscribe links.** Each email carries a signed HMAC token (`EMAIL_UNSUBSCRIBE_SECRET`) in RFC 8058 `List-Unsubscribe` headers plus a footer link to the public `/email/unsubscribe` confirm page. **A GET never unsubscribes**, so link scanners cannot opt anyone out.
   - **The admin-notification worker is a separate live system.** The onboarding modules mirror its patterns without importing or changing it.
+  - **Error text is redacted before it is logged or stored.** Every worker log line and `last_error` / attempt error goes through `sanitizeError`, which masks email addresses (including `%40`), unsubscribe tokens, `token=`/`apikey=`-style parameters, `Bearer` values, Resend `re_` keys and JWTs before truncating. Resend's error `name` is kept only when it is a snake_case code. The shared renderer's `assertHttpsUrl` quotes the whole link in its error, so a raw error would carry the unsubscribe token. Never log or store a provider or database error without `sanitizeError`.
+  - **Merging the inactive code is safe only while Supabase "Deploy to production" stays OFF (#30).** With it ON, a merge would deploy both functions; they would still be inert (no secrets, kill switch unset, no tables), but undeployed is the approved state. Confirm the setting before merging.
 
 22. **The Dashboard callback feed is DUAL-SOURCE; canonical-only is unsafe today (Dashboard Closeout Build 1 correction, 2026-08-03)** —
 - Two live writers persist callbacks to **different tables**, and neither may be dropped:
