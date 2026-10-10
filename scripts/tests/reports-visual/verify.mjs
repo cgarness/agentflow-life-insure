@@ -114,6 +114,14 @@ async function exportFile(button, expectedName, dir = output) {
   assert.equal(await download.failure(), null);
   return readFile(`${dir}/${expectedName}`, 'utf8');
 }
+// Radix FocusScope returns focus one macrotask after its content unmounts (setTimeout 0), so a check made the
+// moment the content hides can run first on a fast runner. Wait a bounded time for focus to land on exactly
+// this element; a different element, or no return within 2 s, still fails.
+async function assertFocusReturns(locator, message) {
+  const target = await locator.elementHandle();
+  const returned = await page.waitForFunction(el => el === document.activeElement, target, { timeout: 2000 }).then(() => true, () => false);
+  assert.ok(returned, message);
+}
 async function ready() {
   // "Summary as of" renders only for a ready, current, non-withheld summary.
   await asOf().waitFor();
@@ -177,7 +185,7 @@ async function dataBasisFlow(label, check) {
     if (where === 'context') await page.keyboard.press('Escape');
     else { await dataBasis().getByRole('button', { name: 'Close', exact: true }).focus(); await page.keyboard.press('Enter'); }
     await dataBasis().waitFor({ state: 'hidden' });
-    assert.ok(await trigger.evaluate(node => node === document.activeElement), `${label}/${where}: focus returns to the trigger that opened it`);
+    await assertFocusReturns(trigger, `${label}/${where}: focus returns to the trigger that opened it`);
     await trigger.evaluate(node => node.blur()); // keep later screenshots free of the focus ring
   }
   assert.ok(opened >= 1, `${label}: a Data basis trigger is reachable`);
@@ -810,7 +818,7 @@ try {
   await page.keyboard.press('Enter');
   await page.getByRole('listbox').waitFor({ state: 'hidden' });
   assert.ok((await periodSelect().innerText()).includes('Last 7 days'), 'keyboard selects Last 7 days');
-  assert.ok(await periodSelect().evaluate(el => el === document.activeElement), 'focus returns to the period select');
+  await assertFocusReturns(periodSelect(), 'focus returns to the period select');
   assert.equal(await page.getByRole('button', { name: 'Start Date', exact: true }).count(), 0, 'date pickers leave with Custom range');
   await page.waitForFunction(() => !!document.querySelector('[data-report-state="error"]') && !document.querySelector('[data-report-state="loading"]'));
   assert.equal(await page.getByRole('button', { name: 'Export', exact: true }).isEnabled(), false, 'unsupported window never exports stale data');
