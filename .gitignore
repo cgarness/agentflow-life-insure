@@ -35,3 +35,6 @@ supabase/.temp/
 supabase/functions/.env
 .supabase/
 .vercel
+
+# Local onboarding email previews (scripts/render-onboarding-email-previews.ts)
+tmp/onboarding-email-previews/

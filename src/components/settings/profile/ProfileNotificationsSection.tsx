@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { ProfileSettingsSection } from "./ProfileSettingsSection";
+import { OnboardingEmailPreference } from "./OnboardingEmailPreference";
 
 type PushPermissionState = NotificationPermission | "unsupported";
 
@@ -70,6 +71,7 @@ export const ProfileNotificationsSection: React.FC<{
         <p className="text-sm">SMS · Not yet connected</p>
         <Switch checked={smsNotifs} disabled aria-label="SMS notifications (not yet connected)" />
       </div>
+      <OnboardingEmailPreference />
     </ProfileSettingsSection>
   );
 };
