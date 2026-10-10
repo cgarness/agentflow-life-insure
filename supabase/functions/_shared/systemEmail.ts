@@ -92,6 +92,51 @@ export function featureRow(marker: string, title: string, description: string): 
 </table>`;
 }
 
+/** Visual tone for a status value inside a detail table. */
+export type DetailTone = "success" | "warning" | "danger" | "neutral";
+
+const DETAIL_TONE_STYLE: Record<DetailTone, { bg: string; fg: string; border: string }> = {
+  success: { bg: "#ECFDF5", fg: "#047857", border: "#A7F3D0" },
+  warning: { bg: "#FFFBEB", fg: "#B45309", border: "#FDE68A" },
+  danger: { bg: "#FEF2F2", fg: "#B91C1C", border: "#FECACA" },
+  neutral: { bg: "#F1F5F9", fg: "#334155", border: "#CBD5E1" },
+};
+
+export interface DetailRow {
+  /** Plain-text label (escaped here). */
+  label: string;
+  /** Plain-text value (escaped here). */
+  value: string;
+  /** When set, the value renders as a colored status pill. */
+  tone?: DetailTone;
+}
+
+/**
+ * Two-column label/value table for internal notifications. Every label and
+ * value is escaped here, so callers pass raw strings.
+ */
+export function detailTable(rows: DetailRow[]): string {
+  const body = rows.map((row) => {
+    const value = row.tone
+      ? `<span style="display: inline-block; background-color: ${DETAIL_TONE_STYLE[row.tone].bg}; color: ${DETAIL_TONE_STYLE[row.tone].fg}; border: 1px solid ${DETAIL_TONE_STYLE[row.tone].border}; border-radius: 999px; font-size: 12px; font-weight: 700; padding: 2px 10px;">${escapeHtml(row.value)}</span>`
+      : escapeHtml(row.value);
+    return `<tr>
+    <td valign="top" width="38%" style="padding: 9px 12px; border-bottom: 1px solid #E2E8F0; font-size: 13px; color: #64748B; font-weight: 600; width: 38%;">${escapeHtml(row.label)}</td>
+    <td valign="top" style="padding: 9px 12px; border-bottom: 1px solid #E2E8F0; font-size: 13px; color: #0F172A; word-break: break-word;">${value}</td>
+  </tr>`;
+  }).join("\n");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: separate; border: 1px solid #E2E8F0; border-radius: 8px; background-color: #FFFFFF; margin: 4px 0 14px; text-align: left;">
+${body}
+</table>`;
+}
+
+/** Amber boxed notice (plain text, escaped here) for internal/admin-only emails. */
+export function noticeBox(text: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: separate; background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; margin: 0 0 16px;">
+  <tr><td style="padding: 12px 16px; font-size: 13px; line-height: 1.6; color: #92400E; text-align: left;">${escapeHtml(text)}</td></tr>
+</table>`;
+}
+
 export interface SystemEmailCta {
   label: string;
   url: string;

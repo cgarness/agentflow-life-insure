@@ -1,6 +1,18 @@
-## 2026-10-10 — PLAN AWAITING APPROVAL: Super Admin registration emails (new user / new agency)
+## 2026-10-10 — APPROVED and BUILT (not deployed): Super Admin registration emails (new user / new agency)
 
-**Status:** Phases 1–2 only. The only repository change is this section of `implementation_plan.md`, on local branch `claude/super-admin-registration-emails-20261010` (base `main` `462fa12`). No application file edited, no migration applied, no Edge Function deployed, no secret created, nothing pushed. Production was only read (Edge Function list/source, catalog and count queries).
+**Current status:** Chris approved Phase 3 on 2026-10-10. It is implemented and verified locally on `claude/super-admin-registration-emails-20261010` (rebased onto `main` `e21728e`). Nothing is merged, deployed, applied or pushed, and no production write was made. The exact production sequence is in `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`. §A9 (As built) records what was built; the text from §A1 to §A8 is the plan as approved, kept as written.
+
+**Chris's decisions (2026-10-10):**
+- D1: Option A, DB enqueue + Edge worker.
+- D2: notify on successful account creation.
+- D3: a **server-side configurable recipient secret** `PLATFORM_ADMIN_NOTIFY_RECIPIENT`, default `chris@fflagent.com`. This differs from my recommendation.
+- D4: private Edge secrets + Vault authentication.
+- D5: implement the test plan, but create no live production user without a separate approval.
+- D6: document the live `create-user` v56 mismatch now and reconcile it in a separate PR.
+
+Additional requirements: preserve the self-service restriction; never redeploy `create-user`; keep every failure non-blocking; keep the queue server-only; distinguish active, pending and suspended agencies; keep the shared renderer; change no customer-facing email; track the `create-organization` / `accept-invite` concerns separately.
+
+**Original status line (plan stage):** Phases 1–2 only. The only repository change is this section of `implementation_plan.md`, on local branch `claude/super-admin-registration-emails-20261010` (base `main` `462fa12`). No application file edited, no migration applied, no Edge Function deployed, no secret created, nothing pushed. Production was only read (Edge Function list/source, catalog and count queries).
 
 **Goal.** Email `chris@fflagent.com` once per real event:
 - `[AGENTFLOW ADMIN] New User Registered`
@@ -155,6 +167,47 @@
 - **Risk: duplicate or missing email.** Mitigated by the five layers above. A stuck row is visible in the outbox with `last_error`.
 - **Risk: cron cost.** One HTTP call per minute, which returns immediately when the queue is empty, the same cost as the two existing per-minute workers. Option: a 2-minute schedule.
 - **Observation (out of scope, not changed):** `create-organization` is publicly callable without authentication, and `accept-invite` still creates users. Once this feature ships, any use of either produces an admin email, which is useful detection. Their hardening remains the deferred item.
+
+### A9. As built (2026-10-10) — NOT merged, NOT deployed
+
+**Pre-edit checks:**
+- Re-read AGENT_RULES/VISION and the WORK_LOG head. `main` had moved to `e21728e`, adding Reports release docs only, and the branch was rebased onto it.
+- The 8 open PRs (#429, #425, #398, #383, #382, #381, #378, #294) touch no auth, email, organization or `_shared/systemEmail*` file, so there is no conflict.
+
+**Files (exact):**
+- **New:**
+  - `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`
+  - `supabase/migrations/rollback/20261010200000_platform_admin_registration_notifications.rollback.sql`
+  - `supabase/functions/platform-admin-notify/index.ts` + `index.test.ts`
+  - `supabase/functions/_shared/platformAdminNotifications.ts` + `.test.ts`
+  - `supabase/tests/platform_admin_notifications_harness.sql`, `supabase/tests/platform_admin_notifications.sql`
+  - `scripts/run_platform_admin_notification_tests.sh`
+  - `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`
+- **Edited:**
+  - `supabase/functions/_shared/systemEmail.ts`: additive `detailTable()`, `noticeBox()`, `DetailTone`, `DetailRow`; the existing renderer is unchanged.
+  - `supabase/functions/_shared/systemEmailTemplates.ts`: the two admin templates + `deriveAgencyStatus`; the existing templates are unchanged.
+  - `supabase/functions/_shared/systemEmail.test.ts`: 2 tests.
+  - `supabase/config.toml`: `[functions.platform-admin-notify] verify_jwt = false`.
+  - `AGENT_RULES.md` (#20 drift + tracked items, #21 notification rules), `WORK_LOG.md`, this plan.
+- **Not touched:** `create-user`, `create-organization`, `accept-invite`, `invite-user`, every `send-*` function, Gmail/`email-*`, `workflow-executor`, Auth templates, the frontend, existing RLS policies, applied migrations.
+
+**Deviations from §A3, each tightening the design:**
+1. `complete_platform_admin_notification` gained a terminal `failed` outcome. A Resend `409 invalid_idempotent_request` cannot succeed on retry, and a previous attempt may already have been delivered, so the row closes for review instead of burning six attempts.
+2. The cron command also requires that a due row exists, so the function is not invoked at all while the queue is idle.
+3. A missing `RESEND_API_KEY` returns 503 **before** claiming, so a misconfiguration spends no attempts.
+4. The agency lifecycle (D-additional) is `deriveAgencyStatus`:
+   - `suspended` → Suspended, `archived` → Archived;
+   - `active` (or NULL = column default) with `twilio_subaccount_status='active'` → Active;
+   - otherwise Pending, with the reason ("Phone system provisioning is pending", and so on).
+
+   The user email shows the same lifecycle for the user's agency.
+5. Invited-by is resolved from an Accepted invitation by exact normalized email equality in code (never `ilike`). Invitation tokens are never selected.
+
+**Verification:** see the WORK_LOG entry for exact counts. In short:
+- local PG16 SQL suite: 17 behaviour tests (T0–T15 + T12b) + replay guard + two-session SKIP LOCKED proof + negative control + rollback proof, all PASS;
+- Deno: 159 passed / 0 failed across `_shared/` + `platform-admin-notify/`;
+- `npx tsc --noEmit` clean;
+- vitest: no new failures against `main`.
 
 ---
 

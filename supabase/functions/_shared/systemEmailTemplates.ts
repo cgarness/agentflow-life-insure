@@ -1,11 +1,16 @@
 // Canonical AgentFlow system email templates. Every AgentFlow-owned
 // transactional email — signup confirmation, team invitation (initial AND
-// resent), welcome, Agency Group invitation, and previews — renders through
-// these functions so subjects, sender, and visuals cannot diverge.
+// resent), welcome, Agency Group invitation, previews, and the internal
+// platform-admin registration notifications — renders through these functions
+// so subjects, sender, and visuals cannot diverge.
 
 import {
+  DetailRow,
+  detailTable,
+  DetailTone,
   escapeHtml,
   featureRow,
+  noticeBox,
   paragraph,
   RenderedSystemEmail,
   renderSystemEmail,
@@ -169,4 +174,167 @@ export function renderAgencyGroupInviteEmail(params: {
     html,
     text,
   };
+}
+
+// ── Internal platform-admin notifications (platform-admin-notify) ─────────────
+// Sent ONLY to the AgentFlow platform administrator, never to a customer.
+// Values are display strings derived server-side; every one is escaped by
+// detailTable(). Never pass passwords, tokens, invitation tokens, auth links,
+// JWT/app_metadata or phone numbers into these templates.
+
+export const ADMIN_USER_REGISTERED_SUBJECT = "[AGENTFLOW ADMIN] New User Registered";
+export const ADMIN_AGENCY_CREATED_SUBJECT = "[AGENTFLOW ADMIN] New Agency Created";
+const ADMIN_BADGE = "Admin Only · Internal Notification";
+const ADMIN_NOTICE =
+  "ADMIN ONLY — internal AgentFlow platform notification, sent only to the platform administrator. Do not forward to customers.";
+
+export interface AgencyStatusDisplay {
+  label: "Active" | "Pending" | "Suspended" | "Archived";
+  tone: DetailTone;
+  detail: string;
+}
+
+/**
+ * Agency lifecycle for admin notifications. `organizations.status` is the
+ * platform status (active | suspended | archived, NULL treated as the column
+ * default 'active'); an active agency whose phone system is not provisioned
+ * yet (`twilio_subaccount_status` other than 'active') is Pending.
+ */
+export function deriveAgencyStatus(
+  status: string | null | undefined,
+  twilioSubaccountStatus: string | null | undefined,
+): AgencyStatusDisplay {
+  const platform = (status ?? "active").trim().toLowerCase() || "active";
+  const phone = (twilioSubaccountStatus ?? "").trim().toLowerCase();
+  if (platform === "suspended") {
+    return { label: "Suspended", tone: "danger", detail: "Agency is suspended by the platform." };
+  }
+  if (platform === "archived") {
+    return { label: "Archived", tone: "neutral", detail: "Agency is archived." };
+  }
+  if (platform !== "active") {
+    return { label: "Pending", tone: "warning", detail: `Unrecognized platform status "${platform}".` };
+  }
+  if (phone === "active") {
+    return { label: "Active", tone: "success", detail: "Agency is active and its phone system is provisioned." };
+  }
+  const phoneDetail: Record<string, string> = {
+    pending: "Phone system provisioning is pending.",
+    pending_manual: "Phone system is awaiting manual provisioning.",
+    suspended: "Phone system account is suspended.",
+    closed: "Phone system account is closed.",
+  };
+  return {
+    label: "Pending",
+    tone: "warning",
+    detail: phoneDetail[phone] ?? "Phone system status is unknown.",
+  };
+}
+
+function adminCtaUrl(organizationId: string | null): string {
+  const base = resolveSiteUrl();
+  return organizationId
+    ? `${base}/super-admin/organizations/${encodeURIComponent(organizationId)}`
+    : `${base}/super-admin`;
+}
+
+function rowsToText(rows: DetailRow[]): string[] {
+  return rows.map((row) => `${row.label}: ${row.value}`);
+}
+
+export interface AdminUserRegisteredEmailParams {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: string;
+  accountStatus: string;
+  emailConfirmed: boolean;
+  signupSource: string;
+  invitedBy: string | null;
+  organizationId: string | null;
+  organizationName: string | null;
+  agencyStatus: AgencyStatusDisplay | null;
+  registeredAtUtc: string;
+  registeredAtPacific: string;
+}
+
+/** Internal: "[AGENTFLOW ADMIN] New User Registered". */
+export function renderAdminUserRegisteredEmail(
+  p: AdminUserRegisteredEmailParams,
+): RenderedSystemEmailWithSubject {
+  const name = p.fullName.trim() || "Unnamed user";
+  const orgLabel = p.organizationName?.trim() || (p.organizationId ? "Unnamed agency" : "No agency yet");
+  const rows: DetailRow[] = [
+    { label: "Name", value: name },
+    { label: "Email", value: p.email || "—" },
+    { label: "Role", value: p.role || "—" },
+    { label: "Account status", value: p.accountStatus || "—", tone: p.accountStatus === "Active" ? "success" : "warning" },
+    { label: "Email confirmed", value: p.emailConfirmed ? "Yes" : "Pending", tone: p.emailConfirmed ? "success" : "warning" },
+    { label: "Signup source", value: p.signupSource },
+    ...(p.invitedBy ? [{ label: "Invited by", value: p.invitedBy }] : []),
+    { label: "Agency", value: orgLabel },
+    ...(p.agencyStatus
+      ? [
+        { label: "Agency status", value: p.agencyStatus.label, tone: p.agencyStatus.tone },
+        { label: "Agency status detail", value: p.agencyStatus.detail },
+      ]
+      : []),
+    ...(p.organizationId ? [{ label: "Organization ID", value: p.organizationId }] : []),
+    { label: "Registered (UTC)", value: p.registeredAtUtc },
+    { label: "Registered (Pacific)", value: p.registeredAtPacific },
+    { label: "User ID", value: p.userId },
+  ];
+  const summary = p.organizationName?.trim()
+    ? `${name} registered an AgentFlow account in ${p.organizationName.trim()}.`
+    : `${name} registered an AgentFlow account.`;
+  const { html, text } = renderSystemEmail({
+    title: ADMIN_USER_REGISTERED_SUBJECT,
+    preheader: sanitizeHeaderText(`ADMIN ONLY — ${summary}`),
+    badge: ADMIN_BADGE,
+    heading: "New user registered",
+    bodyHtml: [noticeBox(ADMIN_NOTICE), paragraph(escapeHtml(summary)), detailTable(rows)].join("\n"),
+    bodyText: [ADMIN_NOTICE, "", summary, "", ...rowsToText(rows)],
+    cta: { label: "Open in Super Admin →", url: adminCtaUrl(p.organizationId) },
+  });
+  return { subject: ADMIN_USER_REGISTERED_SUBJECT, html, text };
+}
+
+export interface AdminAgencyCreatedEmailParams {
+  organizationId: string;
+  name: string;
+  slug: string | null;
+  status: AgencyStatusDisplay;
+  founder: string | null;
+  memberCount: number;
+  createdAtUtc: string;
+  createdAtPacific: string;
+}
+
+/** Internal: "[AGENTFLOW ADMIN] New Agency Created". */
+export function renderAdminAgencyCreatedEmail(
+  p: AdminAgencyCreatedEmailParams,
+): RenderedSystemEmailWithSubject {
+  const name = p.name.trim() || "Unnamed agency";
+  const rows: DetailRow[] = [
+    { label: "Agency", value: name },
+    { label: "Status", value: p.status.label, tone: p.status.tone },
+    { label: "Status detail", value: p.status.detail },
+    { label: "Founder", value: p.founder ?? "No member attached yet" },
+    { label: "Members", value: String(p.memberCount) },
+    ...(p.slug ? [{ label: "Slug", value: p.slug }] : []),
+    { label: "Created (UTC)", value: p.createdAtUtc },
+    { label: "Created (Pacific)", value: p.createdAtPacific },
+    { label: "Organization ID", value: p.organizationId },
+  ];
+  const summary = `${name} was created on AgentFlow (status: ${p.status.label}).`;
+  const { html, text } = renderSystemEmail({
+    title: ADMIN_AGENCY_CREATED_SUBJECT,
+    preheader: sanitizeHeaderText(`ADMIN ONLY — ${summary}`),
+    badge: ADMIN_BADGE,
+    heading: "New agency created",
+    bodyHtml: [noticeBox(ADMIN_NOTICE), paragraph(escapeHtml(summary)), detailTable(rows)].join("\n"),
+    bodyText: [ADMIN_NOTICE, "", summary, "", ...rowsToText(rows)],
+    cta: { label: "Open in Super Admin →", url: adminCtaUrl(p.organizationId) },
+  });
+  return { subject: ADMIN_AGENCY_CREATED_SUBJECT, html, text };
 }

@@ -1,3 +1,84 @@
+## 2026-10-10 — Super Admin registration emails built and verified locally (not deployed)
+
+**Approval.** Chris approved Phase 3 on 2026-10-10 with D1–D6 (`implementation_plan.md`, top section). It is built on `claude/super-admin-registration-emails-20261010`, rebased onto `main` `e21728e`.
+- Not merged or pushed to `main`.
+- No migration applied, no Edge Function deployed, no secret created, no production write.
+- Production reads only: the Edge Function list and source, catalog/count queries, and `information_schema`.
+
+**What it does.** `chris@fflagent.com` (or the server secret `PLATFORM_ADMIN_NOTIFY_RECIPIENT`) receives one email per real event:
+- `[AGENTFLOW ADMIN] New User Registered`
+- `[AGENTFLOW ADMIN] New Agency Created`
+
+**How it works:**
+- `AFTER INSERT` triggers on `profiles` / `organizations` write ids into the server-only queue `public.platform_admin_notifications`. They do no network I/O, swallow their own errors, and enforce `UNIQUE(event_type, subject_id)`.
+- pg_cron calls the new `platform-admin-notify` function only while a row is due. It authenticates with a dedicated Vault token, never the service-role key.
+- The worker claims rows with SKIP LOCKED and a lease, re-reads the subject (`skipped` if it is gone), and renders through the shared system-email renderer with an ADMIN ONLY badge and notice.
+- It sends via Resend with a per-row Idempotency-Key and records sent / retry (backoff 1/2/5/15/30 min, at most 6 attempts, a 23 h window) / failed with a sanitized `last_error`.
+- **Agency lifecycle:** Active / Pending / Suspended / Archived. Pending means the agency is active but its phone system is not provisioned yet.
+
+**Not touched:** `create-user` (not redeployed; the live v56 self-service restriction is preserved), `create-organization`, `accept-invite`, invitation, welcome and other customer-facing emails, Gmail OAuth, the frontend, existing RLS policies.
+
+**Verification:**
+- **SQL (local PostgreSQL 16.15, synthetic, localhost proved; `scripts/run_platform_admin_notification_tests.sh`):** ALL PASS.
+  - 17 behaviour tests:
+    - no backfill;
+    - one row per registration;
+    - logins, profile and org updates enqueue nothing;
+    - self-serve gives one user + one agency row;
+    - failed `provision_organization` leaves no row;
+    - a compensated signup leaves a row the worker skips;
+    - the unique key holds;
+    - an injected enqueue failure still commits the profile and org;
+    - settle delay, limit and lease;
+    - sent/skipped are terminal;
+    - backoff schedule and 6-attempt cap;
+    - lease expiry;
+    - the 23 h window;
+    - non-retryable failure;
+    - argument validation;
+    - anon/authenticated denied on the table and every function (catalog and live `SET ROLE`), service_role allowed;
+    - trigger shape.
+  - Replay guard.
+  - Two-session SKIP LOCKED proof: 3 + 3 disjoint claims, overlap 0.
+  - Negative control: a broken trigger fails T1.
+  - Rollback proof: objects removed, signup works, rollback refuses replay, re-apply clean with no backfill.
+- **Deno 2.9.6:** `deno check` clean. `deno test` over `supabase/functions/_shared/` + `platform-admin-notify/`: **159 passed, 0 failed**, including 28 new tests (26 notification/handler + 2 renderer).
+  - The egress policy denies `deno.land`. Local runs used a scratchpad-only import map pointing `std@0.190.0/testing/asserts.ts` at `jsr:@std/assert@1`; no repository file changed for this.
+- **`npx tsc --noEmit`:** exit 0, 0 errors. `tsc -p tsconfig.app.json` gives 85 diagnostics on both the branch and `main`.
+- **Vitest:** 304 passed / 10 failed files, and 5023 passed / 1 failed / 34 skipped tests. This is **identical to clean `main` `e21728e`**: the same 10 pre-existing failing files, diffed by name. No new failure.
+- **ESLint:** the new and changed files add no finding. The one error in `systemEmail.ts` (`no-control-regex` in `sanitizeHeaderText`) is pre-existing and identical on `main`.
+- **Rendered check:** both emails rendered in Chromium at 900 px and 375 px. No horizontal scroll; values escaped; plain-text part present.
+
+**Not verified:** live delivery, real email-client rendering, production cron/pg_net behaviour, and the live end-to-end test. The live test needs a separate approval (D5) and is **BLOCKED / NOT PASSED**.
+
+**Release:** the exact gated sequence is `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`: preflight → Chris sets the Edge secret + Vault token → deploy function → apply migration → read-back → observe.
+
+**Docs:** AGENT_RULES #20 (live `create-user` v56 drift + tracked `create-organization` / `accept-invite` items) and #21 (notification rules); the plan as-built (§A9).
+
+## 2026-10-10 — Live `create-user` v56 differs from the repository (recorded; reconcile in a separate PR)
+
+**Found** during the Super Admin registration-email investigation (read-only `get_edge_function`):
+- Production `create-user` **v56** was deployed 2026-10-02 22:55 UTC (`verify_jwt=true`, ezbr `2dc286da9fe29ef6a107e74cf05f4167ee520313e33be9bcd1a045489e086c44`).
+- It returns `403 "Self-service signup is temporarily disabled. Please use a valid invitation link."` for every non-invite signup.
+- The repository `supabase/functions/create-user/index.ts` has no such guard, and no earlier Work Log entry recorded the change.
+
+**Risk:** redeploying `create-user` from the repository silently re-enables self-service signup.
+
+**Decision (Chris, D6):**
+- The restriction stays in production.
+- `create-user` is not redeployed by the registration-email feature.
+- The repository will be reconciled with live v56 in a **separate PR**.
+
+**Also tracked separately (not fixed):**
+- `create-organization` (live v55, `verify_jwt=false`) has no authorization check.
+- Legacy `accept-invite` `action:"accept"` (live v45) still creates users outside `create-user`'s trust model.
+
+Neither is called by the frontend. Recorded in AGENT_RULES #20.
+
+**Production shape at discovery:**
+- 4 organizations: 1 active, 3 self-serve agencies `suspended`, the last created 2026-09-30.
+- 16 profiles, the last created 2026-10-01.
+
 ## 2026-10-10 — Reports refresh and R-3 correction shipped to production
 
 Chris approved the coordinated production release at about 03:40 UTC. Both parts are live. Release record: `docs/plans/2026-10-09-reports-refresh-audit/production-release.md`.
