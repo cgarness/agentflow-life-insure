@@ -1,4 +1,6 @@
-## 2026-10-10 — APPROVED and BUILT (not deployed): Super Admin registration emails (new user / new agency)
+## 2026-10-10 — BUILT, release preparation in review (not deployed): Super Admin registration emails (new user / new agency)
+
+**Release-prep status (latest):** the read-only preflight passed. A recipient fail-closed adjustment plus a retry-window fix are proposed in §A10 and await Chris's approval before any edit. No production change has been made.
 
 **Current status:** Chris approved Phase 3 on 2026-10-10. It is implemented and verified locally on `claude/super-admin-registration-emails-20261010` (rebased onto `main` `e21728e`). Nothing is merged, deployed, applied or pushed, and no production write was made. The exact production sequence is in `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`. §A9 (As built) records what was built; the text from §A1 to §A8 is the plan as approved, kept as written.
 
@@ -167,6 +169,65 @@ Additional requirements: preserve the self-service restriction; never redeploy `
 - **Risk: duplicate or missing email.** Mitigated by the five layers above. A stuck row is visible in the outbox with `last_error`.
 - **Risk: cron cost.** One HTTP call per minute, which returns immediately when the queue is empty, the same cost as the two existing per-minute workers. Option: a 2-minute schedule.
 - **Observation (out of scope, not changed):** `create-organization` is publicly callable without authentication, and `accept-invite` still creates users. Once this feature ships, any use of either produces an admin email, which is useful detection. Their hardening remains the deferred item.
+
+### A10. Release preparation review (2026-10-10) — PROPOSED ADJUSTMENT, awaiting Chris's approval
+
+**Read-only preflight (production `jncvvsvckxhqgqvkppmj`):** all checks PASS.
+- The newest recorded migration is `20261010043517`, and the notification migration is not recorded.
+- `platform-admin-notify` is not deployed.
+- None of the feature's objects exist: no queue, cron job, triggers, functions or Vault secret `platform_admin_notify_token`.
+- `create-user` is **v56**, `verify_jwt=true`, ezbr `2dc286da…`, and still returns 403 for self-service signup. This matches the documented production behaviour, so there is no stop condition.
+- `pg_cron` 1.6.4, `pg_net` 0.19.5 and `supabase_vault` 0.3.1 are present.
+- Existing `profiles` / `organizations` triggers and the 11 cron jobs do not collide with the new names.
+- Resend is evidenced as live: `a2p_email_outbox` shows 5/5 sent with no error, and the last welcome email went out 2026-10-01.
+- Branch `f549bd4` equals the pushed head, `main` is unchanged at `e21728e`, and all six artifact sha256 values match `deployment.md`.
+
+**Security advisor baseline (read-only, 2026-10-10):** 223 findings in 7 lints:
+- `authenticated_security_definer_function_executable` 113;
+- `anon_security_definer_function_executable` 58;
+- `rls_enabled_no_policy` 24;
+- `function_search_path_mutable` 22;
+- `extension_in_public` 3;
+- `rls_disabled_in_public` 2;
+- `auth_leaked_password_protection` 1.
+
+The expected post-release delta is exactly **+1 `rls_enabled_no_policy` (INFO)** on `platform_admin_notifications`. It is intentional: the queue is server-only, the same pattern as `a2p_email_outbox`. The trigger functions are not client-executable, and the RPCs are SECURITY INVOKER and service_role-only, so any other new finding stops the release.
+
+**Required adjustment: the recipient must fail closed.**
+- Today `resolvePlatformAdminRecipient` (`_shared/platformAdminNotifications.ts:35-45`) **silently falls back** to `chris@fflagent.com` when `PLATFORM_ADMIN_NOTIFY_RECIPIENT` is set but malformed, and also treats a set-but-blank value as unset.
+- Proposed:
+  1. **Unset** (`Deno.env.get` returns `undefined`) → default `chris@fflagent.com`.
+  2. **Set** to any value, including blank or whitespace-only → it must be exactly one valid address (the existing pattern, ≤ 254 chars). Otherwise the resolver returns a configuration error. The address is never echoed: the log says only `PLATFORM_ADMIN_NOTIFY_RECIPIENT is set but invalid` and the value's length.
+  3. The handler checks the recipient **before claiming**, next to the existing `RESEND_API_KEY` gate: `console.error` with the sanitized message, then `503 {"error":"Recipient configuration invalid"}`. No row is claimed, no attempt is spent, and nothing is sent to any address.
+
+**Related fix needed for "preserve queued notifications for retry after the configuration is corrected".**
+- Today the 23-hour stop is measured from `created_at`. A misconfiguration (bad recipient, missing Resend key) lasting more than 23 hours would close never-attempted rows as `failed`, and they would be lost.
+- The 23 h limit exists only because Resend's idempotency key lasts 24 h, a risk that starts at the **first send attempt**.
+- Proposed migration change (the migration is unapplied in production, so editing it is allowed):
+  - add a nullable column `first_attempted_at`, set once by the claim with `coalesce(first_attempted_at, now())`;
+  - the 23 h checks in `claim_platform_admin_notifications` and `complete_platform_admin_notification` use `first_attempted_at` instead of `created_at`.
+- Never-attempted rows then wait safely until delivery is possible. The email already shows the original registration/creation time.
+
+**Files to modify (surgical):**
+1. `supabase/functions/_shared/platformAdminNotifications.ts`: the resolver returns `{ ok, recipient } | { ok: false, error }`.
+2. `supabase/functions/platform-admin-notify/index.ts`: the recipient gate before claiming.
+3. `supabase/functions/_shared/platformAdminNotifications.test.ts` and `supabase/functions/platform-admin-notify/index.test.ts`: tests for unset → default, set-valid → used, set-malformed or set-blank → fail closed with no claim, no echo of the value, and a 503.
+4. `supabase/migrations/20261010200000_platform_admin_registration_notifications.sql`: `first_attempted_at`, plus the two 23 h predicates.
+5. `supabase/tests/platform_admin_notifications.sql`: T12 rewritten (an old **never-attempted** row is still claimable; an attempted row whose `first_attempted_at` is older than 23 h fails), plus an assertion that the claim stamps `first_attempted_at` once.
+6. The rollback is unaffected: it drops the table.
+7. `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md`: refreshed hashes; WORK_LOG; AGENT_RULES #21 wording (fail-closed recipient, the window starts at the first attempt); this plan.
+
+**Verification after editing:**
+- the local PG16 runner (suite, negative control, concurrency, rollback);
+- Deno check/test over `_shared/` + `platform-admin-notify/`;
+- `npx tsc --noEmit`;
+- vitest compared against `main`;
+- ESLint on the changed files.
+
+**Other review findings (no change proposed):**
+- Duplicate prevention, worker auth, server-only queue, non-blocking triggers, delivery logging, tenant isolation, rendering and rollback all hold as built.
+- A trigger function in `private` runs for a direct `service_role` insert without schema USAGE. This was proven locally, and production already has 10 `public` tables with `private` trigger functions.
+- *Optional least-privilege nit:* `service_role` holds DELETE on the queue, which the worker never uses. It can stay for operator cleanup or be dropped; the default is to leave it.
 
 ### A9. As built (2026-10-10) — NOT merged, NOT deployed
 
