@@ -1,4 +1,8 @@
-## 2026-10-10 — PLAN AWAITING APPROVAL: role-based onboarding email series (inactive by design)
+## 2026-10-10 — BUILT, INACTIVE (not merged, not deployed, not applied): role-based onboarding email series
+
+**As built (2026-10-10):** the full series is implemented on `claude/onboarding-email-series-20261010` and switched off by four independent locks. All local SQL, Deno and frontend gates pass, with zero new TypeScript diagnostics. Evidence is in the detailed plan §15 and WORK_LOG. Merge, migration apply, deploys, secrets, scheduling and activation each need Chris's separate approval (detailed plan §11). D12, a confirmed mailing address, blocks activation.
+
+**Approval (2026-10-10):** Chris approved the D1–D11 defaults and Corrections A–C. D12 means no invented address; one must be confirmed before activation. Correction B is done first, as draft PR #438. Decisions, corrections and the exact file list are in the detailed plan, §14. Activation stays separately gated.
 
 **Status:** plan only, on branch `claude/onboarding-email-series-20261010` (base `main` `e21728e`). No application file has been edited and no migration has been written or applied. No Edge Function, secret, cron job or trigger has been created, and no email has been sent. Production was only read.
 

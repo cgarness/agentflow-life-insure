@@ -589,3 +589,125 @@ Queued rows remain for review; nothing is deleted (invariant #28).
   - `WORK_LOG.md` contains a plaintext `WORKFLOW_INTERNAL_SECRET` in a 2026-05-15 entry. This is already known (rotation pending, per a newer entry).
   - `/contact` shows a success toast but sends nothing.
   - The welcome template comment says `/privacy` and `/terms` don't exist; they now do (template not changed).
+
+---
+
+## §14. Approved build (2026-10-10) — decisions, corrections, exact file list (recorded before any code)
+
+**Approval.** Chris approved the inactive build with required corrections.
+- D1–D11: the §10 recommended defaults are approved.
+- **D12:** no mailing address is invented. The platform mailing address must be confirmed before any future activation; it is an activation blocker in §11.
+- **Activation stays separately gated.** Activation, migration apply, deploys, secrets, scheduling, enrollment, sends, merges and pushes to `main` each still need their own approval.
+
+**Correction A — `user_email_subscriptions`:**
+- RLS on.
+- `REVOKE ALL FROM PUBLIC, anon, authenticated`, then `GRANT SELECT TO authenticated`.
+- One policy, `FOR SELECT TO authenticated USING (user_id = auth.uid() AND organization_id = get_org_id())`.
+- **No** INSERT/UPDATE/DELETE privilege or policy for `authenticated` or `anon`. Writes happen only through:
+  - `set_my_onboarding_email_opt_out` (actor from `profiles` for `auth.uid()`, must be Active, profile org must equal `get_org_id()`);
+  - the service-role-only `record_onboarding_email_opt_out`, used by the unsubscribe Edge function.
+- The frontend never holds a privileged key. It calls only those two authenticated RPCs and the token-gated unsubscribe endpoint.
+- SQL tests cover an Agent and an Admin in the same org, plus a user in another org: each reads only its own row; an Admin cannot read an agent's row; there is no cross-org read; direct INSERT/UPDATE/DELETE is denied.
+
+**Correction B — admin release record.** Done first, in separate draft PR #438 (`claude/admin-registration-release-record-20261010`). Production evidence:
+- migration `20261010172702` md5 equals the branch file;
+- the `platform-admin-notify` v1 bundle is byte-identical to `3a6fce2`.
+
+The repository file was renamed to the recorded version (bytes unchanged), with WORK_LOG, AGENT_RULES and the deployment record updated. Nothing in production was touched. This branch merges `main` after #438 lands (D11). Expected overlap: WORK_LOG, AGENT_RULES, the root plan, `config.toml`.
+
+**Correction C — activation safeguards (unchanged from §4, restated as build requirements):**
+- `enabled` defaults false.
+- `enrollment_starts_at` defaults NULL.
+- The Edge flag `ONBOARDING_EMAILS_SEND_ENABLED` is off unless exactly `true`.
+- No scheduler is installed (the schedule SQL lives in `supabase/ops/` and is not run).
+- No production migration, no secrets, no enrollment, no sends, no backfill.
+
+**Exact file list.** Only two things differ from §7, and neither changes the architecture:
+- Each Edge function is split into `handler.ts` (testable, no remote imports) and a thin `index.ts`. This is the `twilio-account-balance` precedent (`logic.ts` + `index.ts`), so tests run offline, where `deno.land` is unreachable.
+- Test file names follow that split.
+
+New (backend):
+1. `supabase/migrations/pending/20261011120000_onboarding_email_foundation.sql`
+2. `supabase/migrations/rollback/20261011120000_onboarding_email_foundation.rollback.sql`
+3. `supabase/ops/onboarding_emails_schedule.sql`
+4. `supabase/ops/onboarding_emails_unschedule.sql`
+5. `supabase/ops/onboarding_emails_enable.sql`
+6. `supabase/ops/onboarding_emails_disable.sql`
+7. `supabase/functions/_shared/onboardingEmail/catalog.ts` + `catalog.test.ts`
+8. `supabase/functions/_shared/onboardingEmail/templates.ts` + `templates.test.ts`
+9. `supabase/functions/_shared/onboardingEmail/eligibility.ts` + `eligibility.test.ts`
+10. `supabase/functions/_shared/onboardingEmail/unsubscribeToken.ts` + `unsubscribeToken.test.ts`
+11. `supabase/functions/_shared/onboardingEmail/delivery.ts` + `delivery.test.ts`
+12. `supabase/functions/onboarding-email-worker/handler.ts` + `handler.test.ts` + `index.ts`
+13. `supabase/functions/email-unsubscribe/handler.ts` + `handler.test.ts` + `index.ts`
+14. `supabase/tests/onboarding_emails_harness.sql`
+15. `supabase/tests/onboarding_emails.sql`
+16. `scripts/run_onboarding_email_tests.sh`
+17. `scripts/render-onboarding-email-previews.ts`
+18. `.github/workflows/onboarding-emails.yml`
+
+New (frontend):
+
+19. `src/lib/emailSubscriptions.ts` + `src/lib/__tests__/emailSubscriptions.test.ts`
+20. `src/pages/EmailUnsubscribePage.tsx` + `src/pages/__tests__/emailUnsubscribePage.test.tsx`
+21. `src/components/settings/profile/OnboardingEmailPreference.tsx` + `src/components/settings/profile/__tests__/onboardingEmailPreference.test.tsx`
+
+Edited:
+
+22. `src/App.tsx`: one public route plus its import.
+23. `src/components/settings/profile/ProfileNotificationsSection.tsx`: one line plus an import.
+24. `supabase/config.toml`: two `verify_jwt = false` blocks.
+25. `.gitignore`: `tmp/onboarding-email-previews/`.
+26. Docs: `AGENT_RULES.md` (invariant #21 amendment), `WORK_LOG.md`, root `implementation_plan.md`, this plan, `email-copy.md` (only if the copy changes).
+
+**Untouched:** the §7 "Not touched" list stands, including every admin-notification object and `create-user`.
+
+---
+
+## §15. As built (2026-10-10) — INACTIVE; not merged, not deployed, not applied
+
+**Pre-edit checks:** `main` was unchanged at `e21728e`; no open PR touches these files; the only concurrently active admin-email work was reconciled first (Correction B, draft PR #438).
+
+**Built exactly to the §14 file list.** Deviations, each tightening the design:
+
+1. `complete_onboarding_email_delivery` has no `p_cancel_remaining` flag. The outcome `cancelled` (which needs an enrollment-level reason) always cancels the remaining steps, and `skipped` (which needs a step-level reason) never does. Invalid combinations raise 22023.
+2. The unsubscribe token is deterministic per user, with no timestamp. A retried send is then byte-identical, so Resend's Idempotency-Key can never meet a different payload (no 409 after an unrecorded success).
+3. `service_role` holds SELECT only on every table; every write goes through the SECURITY DEFINER RPCs. Even a compromised worker cannot flip the program flag (tested, T2).
+4. `email-unsubscribe` answers a GET with a 303 to the confirm page and never changes state. The redirect carries the token only when it has the valid shape.
+5. The worker checks its gates in a fixed order: method, then token, then the kill switch (which returns `disabled:true` without creating a database client), then configuration (503). Only after all four does it run, so a misconfiguration spends no attempt.
+
+**Verification (local only; no production access beyond the read-only checks recorded in Correction B):**
+- **SQL** (`scripts/run_onboarding_email_tests.sh`, PostgreSQL 16.15 on 127.0.0.1, synthetic data): ALL PASSED.
+  - Static checks: no trigger, schedule, network call or Vault access, and the flag defaults false.
+  - The replay guard.
+  - 15 behaviour tests (T0–T14), including **disabled means zero** twice: before enabling (T1) and with live due rows and eligible users (T14).
+  - Two-session enrollment concurrency: 20 enrolled + 0, 20/100/0 duplicates.
+  - Two-session SKIP LOCKED claims: 3 + 3, overlap 0.
+  - **Four negative controls** each caught: the claim gate, the enrollment gate, the RLS agency check, and the no-backfill watermark.
+  - The rollback proof: refused while enabled; removed; profiles intact; replay refused; re-apply clean and disabled.
+- **Deno 2.5.2:** 70 passed, 0 failed (`_shared/onboardingEmail/`, `onboarding-email-worker/`, `email-unsubscribe/`).
+  - `deno check` passes on both entry points and the preview script.
+  - Existing `systemEmail` / `systemEmailTemplates` / `systemEmailAuth` tests: 83 passed, unchanged.
+  - `deno lint`: only the repo-wide `no-import-prefix` finding on the two `index.ts` files (every function imports `https://esm.sh`).
+- **Frontend:**
+  - targeted vitest 43/43, including the existing profile settings suites;
+  - ESLint clean on all changed files;
+  - `npx tsc --noEmit` exit 0 (vacuous, invariant #35);
+  - `npx tsc -p tsconfig.app.json --noEmit` gives 85 diagnostics on both `main` and the candidate, an identical set, so **zero new**;
+  - `vite build` exits 0, with no server-only secret names in the bundle;
+  - full vitest against `main` `e21728e`: 5124 passed / 1 failed versus 5108 / 1, the same pre-existing failure, so zero new failures (the 3 new files pass).
+- **Previews:** `scripts/render-onboarding-email-previews.ts` renders all nine emails locally (nothing sent). The same output is published at https://claude.ai/artifact/X18LPg9HJF4NVdaHGNxqWp (version 2).
+- **Hashes (sha256):**
+  - foundation migration `f220fc59073e3070dbe457dc9684af34dae4c6b0fb94da9ba1ffaf0cde22ad28`
+  - rollback `d336ffef12d6dc1cafda75d5e43905dfdd3315dfa8eeab1877df007833251841`
+
+**Proof the system is inactive:**
+- The migration is not applied: it lives in `pending/` and production `list_migrations` has no such version.
+- Neither function is deployed.
+- No secret exists.
+- No cron job exists.
+- `enabled=false` and `enrollment_starts_at=NULL` by default, both asserted by the migration's postconditions and T0.
+- The SQL RPCs return zero while disabled (T1, T14, negative controls).
+- The worker returns `disabled:true` without creating a database client unless the env is exactly `true` (handler tests).
+- The Settings switch renders nothing while disabled (component test).
+- The unsubscribe page only responds to a link that already exists.
