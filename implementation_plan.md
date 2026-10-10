@@ -1,3 +1,163 @@
+## 2026-10-10 — PLAN AWAITING APPROVAL: Super Admin registration emails (new user / new agency)
+
+**Status:** Phases 1–2 only. The only repository change is this section of `implementation_plan.md`, on local branch `claude/super-admin-registration-emails-20261010` (base `main` `462fa12`). No application file edited, no migration applied, no Edge Function deployed, no secret created, nothing pushed. Production was only read (Edge Function list/source, catalog and count queries).
+
+**Goal.** Email `chris@fflagent.com` once per real event:
+- `[AGENTFLOW ADMIN] New User Registered`
+- `[AGENTFLOW ADMIN] New Agency Created`
+
+### A1. What was reviewed
+
+- `AGENT_RULES.md` (all sections; relevant: §3, invariants #2, #4, #5, #10, #20, #21, #25, #28, #30, §8–§10), `VISION.md`, and `WORK_LOG.md`, the newest entries in full (2026-10-10 Reports PR-A/PR-B back to 2026-10-06) and every signup, system-email and welcome-email entry.
+- **Work Log conflicts: none.** The open work (Reports PR-A/PR-B) touches no auth, email or organization code. Production's newest migration, `20261010043517`, matches the repository head.
+- Code: `create-user`, `create-organization`, `accept-invite`, `invite-user`, `send-welcome-email`, `_shared/systemEmail.ts`, `_shared/systemEmailTemplates.ts`, `_shared/a2p/notifications.ts` (existing Resend outbox), `sms-consent-worker` (existing pg_cron + Vault worker auth), `AuthContext.signup`, `SignupPage`, `AcceptInvitePage`, `SuperAdminDashboard`, `supabase/config.toml`.
+- Production (read-only): triggers on `auth.users` / `profiles` / `organizations`, `handle_new_user`, `provision_organization`, the FKs on `profiles`, `cron.job` (secrets masked), migration history, organization/profile counts.
+
+### A2. Findings
+
+**Registration and agency creation paths (traced):**
+
+| Path | Creates | Called by the frontend? | Live state |
+|---|---|---|---|
+| `create-user`, invite mode | auth user → `handle_new_user` inserts `profiles` | Yes (`AuthContext.signup`) | v56, `verify_jwt=true`, live |
+| `create-user`, self-serve mode | auth user + profile, then `provision_organization` (org + dispositions + founder attach in one transaction); compensating `deleteUser` on failure | Yes | **Disabled in production** (see drift below) |
+| `accept-invite` `action:"accept"` | auth user + profile | No (legacy) | v45, deployed and callable with the anon key |
+| `create-organization` | `organizations` row (direct insert) | No | v55, `verify_jwt=false`, **no auth check**; deferred item per invariant #20 |
+| SQL / dashboard | either | n/a | possible |
+
+**Authoritative success events.** Every user registration, whatever the path, ends in exactly one `INSERT INTO public.profiles` (PK = `auth.users.id`; `handle_new_user` trigger). Every agency creation ends in exactly one `INSERT INTO public.organizations`. Logins (`sync_last_login_at`), profile edits and onboarding-wizard saves are UPDATEs and never INSERT a second row. A row-level `AFTER INSERT` on those two tables is therefore the single authoritative, duplicate-free signal, and it covers paths the Edge layer cannot see.
+
+**Rollback behaviour.**
+- `provision_organization` is transactional, so a failed self-serve org rolls back the `organizations` INSERT and anything its trigger enqueued.
+- A failed self-serve signup deletes the auth user, and `profiles_id_fkey` is `ON DELETE CASCADE`. The profile disappears, but a profile-level enqueue would already be committed, so the sender must re-check that the subject still exists after a settle delay.
+
+**Live/repo drift (important).** Live `create-user` v56 (deployed 2026-10-02 22:55 UTC) returns `403 "Self-service signup is temporarily disabled…"` for non-invite signups. The repository copy does not have this guard, and no Work Log entry records it. **Redeploying `create-user` from the repo would silently re-enable self-serve signup.** This is a strong reason not to touch `create-user` in this feature.
+
+**Production shape:** 4 organizations (3 self-serve agencies, all `suspended`), 16 profiles, last profile 2026-10-01. No existing admin-notification mechanism.
+
+**Reusable infrastructure:**
+- `_shared/systemEmail.ts` `renderSystemEmail` + `SYSTEM_EMAIL_FROM = "AgentFlow <team@fflagent.com>"` (verified sender). Invariant #21 requires every AgentFlow-owned email to use this renderer.
+- `a2p_email_outbox` + `deliverEmails()`: an outbox table with `unique(user_id,event_key)`, an attempts counter, `last_error`, a Resend `Idempotency-Key` and a 23-hour stop.
+- `sms-consent-worker`: pg_cron every minute → `net.http_post` with a **dedicated** Vault token (never the service-role key) → constant-time Bearer check in Deno.
+
+### A3. Proposed design (Option A, recommended)
+
+**Database enqueues, Edge sends.** No signup or onboarding code changes.
+
+1. **Outbox table `public.platform_admin_notifications`**, platform-global like the Control Center tables.
+   - RLS enabled; all privileges revoked from `PUBLIC`/`anon`/`authenticated`; `service_role` only. It is never readable by any tenant.
+   - Columns: `id`, `event_type` (`user_registered` | `agency_created`), `subject_id`, `organization_id` (informational, nullable), `status` (`pending` | `sending` | `sent` | `skipped` | `failed`), `attempts`, `available_at`, `locked_until`, `last_attempt_at`, `sent_at`, `provider_message_id`, `last_error` (sanitized, ≤ 500 chars), `created_at`.
+   - **`UNIQUE (event_type, subject_id)`.**
+   - It stores ids only, never a PII snapshot. Details are read at send time.
+2. **Two `AFTER INSERT` row triggers**, functions in `private`, `SECURITY DEFINER`, `search_path = pg_catalog, public, pg_temp`:
+   - on `public.profiles`, which enqueues `user_registered`;
+   - on `public.organizations`, which enqueues `agency_created`.
+   - Each runs `INSERT … ON CONFLICT DO NOTHING` wrapped in `BEGIN … EXCEPTION WHEN OTHERS THEN RAISE WARNING`, so an enqueue failure **can never abort a signup or an org creation** (invariant #10 pattern). There is no network I/O in the trigger.
+   - **No backfill:** existing rows never notify.
+3. **Claim RPC `public.claim_platform_admin_notifications(p_limit int)`**, `service_role` EXECUTE only. It is an atomic `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` that claims due rows:
+   - `pending`, past the **60 s settle delay**, `available_at <= now()`; or
+   - `sending` with an expired lease.
+
+   Each claim sets `status='sending'`, a 5-minute lease and `attempts+1`. Overlapping cron runs can never both send.
+4. **New Edge Function `platform-admin-notify`** (`verify_jwt=false`, invariant #2). Authorization is enforced in code: a constant-time `Bearer` comparison against the new secret `PLATFORM_ADMIN_NOTIFY_TOKEN` (≥ 32 chars). It accepts no body input (no recipient, no HTML, no ids). For each claimed row it:
+   - re-reads the subject. If it is gone (for example a compensated self-serve failure), it marks the row `skipped`, `subject_deleted`, and sends nothing;
+   - renders through the shared renderer;
+   - POSTs to Resend with `Idempotency-Key: platform-admin-<row id>`;
+   - on success marks the row `sent` and stores the Resend message id;
+   - on failure returns the row to `pending` with backoff (1, 2, 5, 15, 30 min). After 6 attempts, or 23 h (Resend's idempotency window), it marks the row `failed`.
+   - Every attempt is `console.log`/`console.error`'d with row id, event type and outcome, never the email body or secrets.
+5. **pg_cron job `platform-admin-notify-every-minute`**: `net.http_post` to the function with `Bearer <vault 'platform_admin_notify_token'>`, filtered `WHERE length(decrypted_secret) >= 32`, the same shape as `sms-consent-recovery-every-minute`. It is a **no-op until the Vault secret exists**, so the migration is inert until secrets are provisioned. A notification normally arrives about 1–2 minutes after the event.
+6. **Templates** in `_shared/systemEmailTemplates.ts`: `renderAdminUserRegisteredEmail`, `renderAdminAgencyCreatedEmail`.
+   - **ADMIN ONLY** identifier: badge `ADMIN ONLY · INTERNAL NOTIFICATION`, plus an opening line "This notification is sent only to the AgentFlow platform administrator."
+   - One additive helper `detailTable(rows)` in `_shared/systemEmail.ts`: table-based, inline CSS, every value `escapeHtml`'d.
+   - Subjects are fixed strings, as specified.
+   - CTA: `${siteUrl}/super-admin/organizations/<org id>`, or `/super-admin` when there is no org.
+   - A plain-text part is included.
+7. **Recipient:** a server constant `PLATFORM_ADMIN_NOTIFICATION_RECIPIENT = "chris@fflagent.com"` in the shared module. It is never taken from a request or a row.
+
+**Email contents (no secrets, no auth data):**
+- **New User:** full name, email, role, organization name + id (or "No organization yet"), signup source (`invite` / `self_serve` / `other`, from `user_metadata.signup_source`), invited by (inviter name, when an Accepted invitation matches), profile status, email confirmed (Yes / Pending), registered at (UTC and America/Los_Angeles), user id. **Never** passwords, tokens, invitation tokens, confirmation links, JWT/app_metadata or phone numbers.
+- **New Agency:** agency name, slug, organization id, platform status, Twilio provisioning status, founder (name, email, role) when attached, member count, created at (UTC + PT).
+
+**Duplicate prevention (five layers):**
+1. INSERT-only trigger, one per primary key.
+2. `UNIQUE(event_type, subject_id)` + `ON CONFLICT DO NOTHING`.
+3. `SKIP LOCKED` claim with a lease.
+4. A Resend idempotency key per row, which covers a crash after the send but before the update.
+5. A terminal `sent` / `skipped` / `failed` status.
+
+**Failure isolation:** the trigger swallows its own errors. Delivery is asynchronous in a separate function. No signup or onboarding request waits on it or can observe it.
+
+**Tenant isolation:** the outbox is service-role only. Templates read one subject by id with the service role. Nothing is exposed to any tenant session, and no RLS policy on any existing table changes.
+
+**Invariant #21 note:** the welcome-email rule forbids *DB-triggered delivery* and service-role keys in DB settings. Here the database only enqueues. Delivery stays in an Edge Function, authenticated by a dedicated Vault token, the approved `sms-consent-worker` pattern. I will amend invariant #21 to record this.
+
+**Option B (not recommended):** send inline from `create-user` after success. It would need `create-user` rebuilt from the **live v56** source (drift risk above). It misses `accept-invite`, `create-organization` and SQL paths, and it adds latency and a failure surface to signup.
+
+### A4. Files
+
+**New:**
+1. `supabase/migrations/<ts>_platform_admin_registration_notifications.sql`: table, grants/RLS, two trigger functions + triggers, claim RPC, guarded cron job.
+2. `supabase/migrations/rollback/<ts>_platform_admin_registration_notifications.rollback.sql`: unschedule the cron job, drop the triggers, functions and table.
+3. `supabase/functions/platform-admin-notify/index.ts`: thin handler (auth + loop).
+4. `supabase/functions/_shared/platformAdminNotifications.ts`: recipient constant, detail loaders, send/backoff logic (injectable fetch for tests).
+5. `supabase/functions/_shared/platformAdminNotifications.test.ts`: Deno tests.
+6. `supabase/tests/platform_admin_notifications.sql` + `scripts/run_platform_admin_notification_tests.sh`: native PostgreSQL runner, localhost-proved (invariant #28).
+
+**Edited (surgical):**
+
+7. `supabase/functions/_shared/systemEmailTemplates.ts`: two render functions, plus tests in `systemEmailTemplates.test.ts`.
+8. `supabase/functions/_shared/systemEmail.ts`: additive `detailTable()` (+ test).
+9. `supabase/config.toml`: `[functions.platform-admin-notify] verify_jwt = false`.
+10. `AGENT_RULES.md` (invariant #21 amendment), `WORK_LOG.md` (newest-first entry), this plan (as-built).
+
+**Not touched:** `create-user`, `create-organization`, `accept-invite`, `invite-user`, `send-*-email`, Gmail OAuth / `email-*` functions, `workflow-executor`, Auth templates, every frontend file, every existing RLS policy. No migration edits.
+
+### A5. Deployment (each step separately approval-gated; GitHub "Deploy to production" stays disabled per invariant #30, so changes go through MCP)
+
+1. `apply_migration` with the exact reviewed bytes, then `list_migrations` and a catalog read-back (triggers, ACLs, cron job present and inert).
+2. Secrets: Edge secret `PLATFORM_ADMIN_NOTIFY_TOKEN` and the identical Vault secret `platform_admin_notify_token`. See D4.
+3. `get_edge_function` (expect not found) → `deploy_edge_function platform-admin-notify` → read back source + `verify_jwt=false`.
+4. Smoke checks: an unauthenticated POST → 403; an authenticated POST with an empty queue → `{processed:0}`.
+
+### A6. Verification plan
+
+- **Local PostgreSQL 16 (isolated, synthetic data, localhost proved):**
+  - a profile INSERT enqueues exactly once; an UPDATE (login, profile edit, wizard) enqueues nothing;
+  - an org INSERT enqueues once; a rolled-back `provision_organization` leaves no row;
+  - duplicate INSERT attempts → one row;
+  - a trigger forced to fail still lets the profile/org commit (warning only);
+  - concurrent claims never return the same row;
+  - the settle delay and lease expiry behave as specified;
+  - `anon`/`authenticated` cannot select the table or execute the RPC.
+- **Deno tests (mocked Resend):**
+  - correct recipient, `from`, subjects and badge;
+  - all values escaped; no token/password/link fields present;
+  - a deleted subject → `skipped`, no send;
+  - Resend 500 / timeout / missing key → `pending` with backoff, then `failed` after 6 attempts; the idempotency key is stable per row;
+  - an unauthenticated request → 403;
+  - the handler never throws back to the caller.
+- `npx tsc --noEmit`, `npx vitest run` (no new failures against the known baseline), ESLint, plus `deno check` / `deno test` on the new files.
+- **Production (live data, invariant #28):** production self-serve signup is disabled, and creating a test user or agency is a production write. An end-to-end live test therefore needs your separate approval (D5); otherwise I mark it **BLOCKED**, not passed.
+
+### A7. Decisions for Chris (recommendation first)
+
+- **D1 Architecture:** **Option A, DB enqueue + Edge worker** (recommended), or Option B, inline in `create-user`.
+- **D2 Meaning of "registered":** **the account is created (profile row exists), and the email shows whether the address is confirmed yet** (recommended), or only after email confirmation (this needs an `auth.users` UPDATE trigger and adds complexity).
+- **D3 Recipient:** **hardcoded server constant** (recommended), or an Edge secret so it can change without a deploy.
+- **D4 Secret provisioning:** **you set the two matching secrets yourself in the dashboard** (Edge secret + Vault, ≥ 32 random chars, value never in git or chat; recommended), or you approve me to generate and set them through MCP. The value would then appear in this session's tool calls.
+- **D5 Live test:** you approve one real invite signup to an address you control (it creates one real user in an org you choose), or live verification is recorded as BLOCKED.
+- **D6 Drift:** **record the live `create-user` v56 self-serve disable in WORK_LOG/AGENT_RULES only, and sync the repo file in a separate small PR** (recommended), or sync it inside this PR.
+
+### A8. Risks and rollback
+
+- **Risk: a bug in the trigger on the signup path.** Mitigation: exception-swallowing, no network, and tested failure injection. Rollback: run the rollback migration (drop the triggers); signup behaviour is then byte-identical to today.
+- **Risk: duplicate or missing email.** Mitigated by the five layers above. A stuck row is visible in the outbox with `last_error`.
+- **Risk: cron cost.** One HTTP call per minute, which returns immediately when the queue is empty, the same cost as the two existing per-minute workers. Option: a 2-minute schedule.
+- **Observation (out of scope, not changed):** `create-organization` is publicly callable without authentication, and `accept-invite` still creates users. Once this feature ships, any use of either produces an admin email, which is useful detection. Their hardening remains the deferred item.
+
+---
+
 ## 2026-10-09 — RELEASED (PR #433, merge `d88982d`): Campaigns page table redesign, Phase 1
 
 **Current status:** Released 2026-10-09. PR #433 was squash-merged as `d88982d`, whose tree is identical to the verified head `67d638a`, and Vercel deployed it to production on both projects. Authenticated hosted checks remain NOT VERIFIED; see §15 Release. §14 records what was built; the text below §14's heading is the approved plan, kept as written.
