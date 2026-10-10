@@ -228,3 +228,12 @@ verify_jwt = false
 
 [functions.sms-consent-status]
 verify_jwt = false
+
+# Onboarding email series — NOT DEPLOYED. Invoked only by pg_cron with the dedicated Vault token
+# onboarding_email_worker_token; authorization is enforced in code (ONBOARDING_EMAIL_WORKER_TOKEN).
+[functions.onboarding-email-worker]
+verify_jwt = false
+
+# Onboarding email unsubscribe — NOT DEPLOYED. The signed token is the authorization (handler.ts).
+[functions.email-unsubscribe]
+verify_jwt = false

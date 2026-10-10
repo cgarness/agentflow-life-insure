@@ -1,0 +1,124 @@
+name: Onboarding emails
+
+# Verifies the INACTIVE onboarding email series. Runs nothing against production: the SQL suite uses an
+# isolated Postgres service with synthetic data, and the Edge tests use fakes for Resend and the store.
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/pending/20261011120000_onboarding_email_foundation.sql'
+      - 'supabase/migrations/rollback/20261011120000_onboarding_email_foundation.rollback.sql'
+      - 'supabase/ops/onboarding_emails_*.sql'
+      - 'supabase/tests/onboarding_emails*.sql'
+      - 'scripts/run_onboarding_email_tests.sh'
+      - 'scripts/render-onboarding-email-previews.ts'
+      - 'supabase/functions/_shared/onboardingEmail/**'
+      - 'supabase/functions/_shared/systemEmail.ts'
+      - 'supabase/functions/onboarding-email-worker/**'
+      - 'supabase/functions/email-unsubscribe/**'
+      - 'src/lib/emailSubscriptions.ts'
+      - 'src/pages/EmailUnsubscribePage.tsx'
+      - 'src/components/settings/profile/OnboardingEmailPreference.tsx'
+      - 'src/components/settings/profile/ProfileNotificationsSection.tsx'
+      - 'src/App.tsx'
+      - 'docs/plans/2026-10-10-onboarding-emails/email-copy.md'
+      - 'supabase/config.toml'
+      - '.github/workflows/onboarding-emails.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: onboarding-emails-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55436:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: SQL suite, disabled-means-zero, concurrency, negative controls, rollback
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55436
+        run: |
+          set -o pipefail
+          bash scripts/run_onboarding_email_tests.sh | tee onboarding-email-sql-results.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: onboarding-email-sql-evidence-${{ github.run_id }}
+          path: onboarding-email-sql-results.txt
+          retention-days: 14
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SUPABASE_URL: https://example.supabase.co
+      VITE_SUPABASE_ANON_KEY: test-anon-key
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install isolated Deno
+        run: npm install --prefix "$RUNNER_TEMP/onboarding-email-tools" --no-package-lock deno@2.5.2
+      - name: Edge tests (templates, links, eligibility, tokens, delivery, handlers)
+        run: >-
+          "$RUNNER_TEMP/onboarding-email-tools/node_modules/.bin/deno" test --allow-read --allow-env
+          supabase/functions/_shared/onboardingEmail/
+          supabase/functions/onboarding-email-worker/
+          supabase/functions/email-unsubscribe/
+      - name: Edge bundle type-check
+        run: >-
+          "$RUNNER_TEMP/onboarding-email-tools/node_modules/.bin/deno" check
+          supabase/functions/onboarding-email-worker/index.ts
+          supabase/functions/email-unsubscribe/index.ts
+          scripts/render-onboarding-email-previews.ts
+      - name: Local previews render
+        run: '"$RUNNER_TEMP/onboarding-email-tools/node_modules/.bin/deno" run --allow-read --allow-write --allow-env scripts/render-onboarding-email-previews.ts'
+      - name: Frontend tests
+        run: >-
+          npx vitest run
+          src/lib/__tests__/emailSubscriptions.test.ts
+          src/pages/__tests__/emailUnsubscribePage.test.tsx
+          src/components/settings/profile/__tests__/
+      - name: Scoped lint
+        run: >-
+          npx eslint src/lib/emailSubscriptions.ts src/pages/EmailUnsubscribePage.tsx
+          src/components/settings/profile/OnboardingEmailPreference.tsx
+          src/components/settings/profile/ProfileNotificationsSection.tsx src/App.tsx
+          src/lib/__tests__/emailSubscriptions.test.ts src/pages/__tests__/emailUnsubscribePage.test.tsx
+          src/components/settings/profile/__tests__/onboardingEmailPreference.test.tsx
+      - run: npx tsc --noEmit
+      - name: Diff whitespace check
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+      - run: npm run build
+      - name: Frontend bundle secret-marker check
+        run: |
+          if grep -R -E 'SUPABASE_SERVICE_ROLE_KEY|EMAIL_UNSUBSCRIBE_SECRET|ONBOARDING_EMAIL_WORKER_TOKEN|RESEND_API_KEY' dist; then
+            echo "Server-only credential marker found in frontend bundle"
+            exit 1
+          fi

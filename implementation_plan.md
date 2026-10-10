@@ -1,3 +1,36 @@
+## 2026-10-10 — BUILT, INACTIVE, final review done (draft PR; not merged, not deployed, not applied): role-based onboarding email series
+
+**Final review (2026-10-10):** PR #438 was verified against production and merged with Chris's approval (`02ad8380`). The onboarding branch is rebased onto it, and only onboarding files change. The security review passed. One correction was approved and made: `sanitizeError` now redacts email addresses, unsubscribe tokens, `Bearer` values, Resend keys and JWTs from every logged or stored error. No merge or deploy mechanism activates the series while Supabase "Deploy to production" stays OFF. All local gates pass. Merge needs Chris's explicit approval; D12 still blocks activation. Details: detailed plan §16.
+
+**As built (2026-10-10):** the full series is implemented on `claude/onboarding-email-series-20261010` and switched off by four independent locks. All local SQL, Deno and frontend gates pass, with zero new TypeScript diagnostics. Evidence is in the detailed plan §15 and WORK_LOG. Merge, migration apply, deploys, secrets, scheduling and activation each need Chris's separate approval (detailed plan §11). D12, a confirmed mailing address, blocks activation.
+
+**Approval (2026-10-10):** Chris approved the D1–D11 defaults and Corrections A–C. D12 means no invented address; one must be confirmed before activation. Correction B is done first, as draft PR #438. Decisions, corrections and the exact file list are in the detailed plan, §14. Activation stays separately gated.
+
+**Status:** plan only, on branch `claude/onboarding-email-series-20261010` (base `main` `e21728e`). No application file has been edited and no migration has been written or applied. No Edge Function, secret, cron job or trigger has been created, and no email has been sent. Production was only read.
+
+**Full plan:** `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md`. **Copy:** `docs/plans/2026-10-10-onboarding-emails/email-copy.md`. **Previews:** https://claude.ai/artifact/X18LPg9HJF4NVdaHGNxqWp.
+
+**Summary:**
+- **Mechanism.** A sweep enrolls users, a queue holds the steps and an Edge worker sends them. It follows the live platform-admin and `sms-consent-worker` pattern. No trigger is added to `auth.users` or `profiles`.
+- **Schedules** (10:00 agency time):
+  - Agent series: Day 1/3/5/8/14, for Agents and Team Leaders.
+  - Admin series: Day 2/4/7/12.
+  - Day 0 stays the existing welcome email, unchanged.
+- **Four locks keep it off:**
+  - a DB flag, default false, that also gates the enrollment and claim RPCs;
+  - an Edge env kill switch;
+  - no cron job;
+  - an unapplied migration under `supabase/migrations/pending/`.
+- **Historical accounts are never enrolled.** Only welcome emails sent after an activation timestamp count, and that timestamp is NULL today.
+- **Opt-out.** A signed one-click unsubscribe, plus a Settings switch shown only when the program is enabled. It covers onboarding tips only.
+- **Untouched:** `create-user`, `send-welcome-email`, the invitation emails, `send-email-previews`, the admin-notification system, `_shared/systemEmail.ts` and `_shared/systemEmailTemplates.ts`.
+
+**Conflict noted (resolved 2026-10-10 by PR #438, merge `02ad8380`):** the platform-admin registration emails are live in production (migration `20261010172702`, `platform-admin-notify` v1, cron active), but `main` had no record of that release. See the detailed plan, §1 and D11.
+
+**Awaiting:** Chris's approval of the plan and the exact file list (detailed plan §7), plus decisions D1–D12 (§10).
+
+---
+
 ## 2026-10-10 — RELEASED (record reconciled 2026-10-10): Super Admin registration emails (new user / new agency)
 
 **Release record (2026-10-10, reconciliation PR):** production carries migration `20261010172702` (authored `20261010200000`, identical bytes), Edge `platform-admin-notify` v1 (bundle byte-identical to `3a6fce2`) and the active cron job. The repository file was renamed to the recorded version. Evidence and limits: `docs/plans/2026-10-10-super-admin-registration-emails/deployment.md` §8. The status lines below are the pre-release history, kept as written.

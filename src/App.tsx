@@ -39,6 +39,7 @@ import NotFound from "./pages/NotFound";
 import LandingPage from "./pages/LandingPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
+import EmailUnsubscribePage from "./pages/EmailUnsubscribePage";
 import LandingPageTest1 from "./pages/LandingPageTest1";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
@@ -125,6 +126,7 @@ const App = () => (
                         <Route path="/" element={<LandingPage />} />
                         <Route path="/privacy" element={<PrivacyPolicyPage />} />
                         <Route path="/terms" element={<TermsOfServicePage />} />
+                        <Route path="/email/unsubscribe" element={<EmailUnsubscribePage />} />
                         <Route path="/homepagetest1" element={<LandingPageTest1 />} />
                         {/* Retired comparison route — kept as a redirect so shared links keep working. */}
                         <Route path="/logintest1" element={<Navigate to="/login" replace />} />

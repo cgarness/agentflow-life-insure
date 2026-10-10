@@ -1,3 +1,122 @@
+## 2026-10-10 — Onboarding email series: final review, PR #438 merged, redaction correction, rebased (still INACTIVE)
+
+**Request.** Chris asked for a final review, PR closeout and merge preparation, with the onboarding series kept fully DISABLED through any merge and automatic Vercel deploy. Detail: `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md` §16.
+
+**PR #438 (admin registration release record).**
+- Verified read-only against production:
+  - Migration `20261010172702`: stored md5 `7962639f…` equals the file.
+  - Both triggers are enabled and the cron job is active.
+  - `platform-admin-notify` is still v1, ezbr `bf8c8704…`.
+  - `create-user` is v57 and is not in the PR.
+  - Only a comment line changed in the existing template code.
+- CI 7/7 green.
+- Marked ready, then **merged with Chris's explicit approval** as merge commit `02ad8380`.
+- After the merge, production is unchanged: newest migration `20261010172702` (324 rows), the integration's `main` row unchanged, no onboarding objects.
+
+**Security review.** Every item passes (plan §16.2):
+- no duplicate emails;
+- Agent/Admin sequence mapping;
+- Super Admin exclusion;
+- no historical enrollment;
+- email confirmation required;
+- inactive, deleted and suspended exclusions;
+- RLS and tenant isolation;
+- preference permissions;
+- unsubscribe without login;
+- GET never opts out;
+- transactional email untouched.
+
+**Correction (approved by Chris).**
+- **Finding:** `sanitizeError` redacted nothing, so provider or database error text reached logs and the stored error columns verbatim. The shared renderer's `assertHttpsUrl` error quotes the footer link, unsubscribe token included.
+- **Change:**
+  - `delivery.ts`: `sanitizeError` masks addresses (including `%40`), unsubscribe tokens, token/key parameters, `Bearer` values, `re_` keys and JWTs, before truncation. Resend's error `name` is kept only when it is a code.
+  - `delivery.test.ts`: four tests. A negative control with redaction disabled fails all four.
+- No SQL, frontend or shared-renderer change.
+
+**Disabled state through merge (plan §16.4).**
+- **GitHub Actions:** no workflow deploys or touches Supabase or Vercel.
+- **Vercel:** deploys the frontend only. The Settings switch stays hidden: its RPC 404s and it renders nothing. `/email/unsubscribe` calls an undeployed function.
+- **Supabase "Deploy to production":** OFF (invariant #30), corroborated, not readable by any tool. Chris confirms it before merging.
+- **Migration:** in `pending/`, outside the CLI glob.
+
+**Rebase.** The branch is rebased onto `02ad8380`. Conflicts in the plan, WORK_LOG and AGENT_RULES were resolved by keeping both sides; `config.toml` auto-merged. Still only the onboarding files.
+
+**Verification (local, after rebase):**
+- **SQL:** ALL PASSED (T0–T14, concurrency 20/100/0 and 3+3 overlap 0, four negative controls, rollback proof).
+- **Deno:** 74/74 onboarding and 90/90 shared email plus admin; `deno check` and `deno lint` clean.
+- **TypeScript:** root `tsc` exit 0; app `tsc` gives 85, an identical set to `main`.
+- **ESLint:** clean.
+- **Vitest:** 5124 passed / 1 failed / 32 skipped against `main`'s 5108 / 1 / 32, the same pre-existing `recordingRetentionVoicemail` failure.
+- **Vite build:** OK, with no secret markers.
+- **Whitespace:** a trailing blank line in `email-copy.md`, which would have failed CI's whitespace check, is removed.
+
+**Docs.**
+- AGENT_RULES #21 onboarding bullet: added the redaction rule and the "merge only while Deploy to production is OFF" rule.
+- Plans: root status, detailed plan §11 (D12 as step 0, the Deploy-to-production confirmation) and the new §16.
+
+**Production.** Read only. No migration applied, no function deployed, no secret, cron job, enrollment or email.
+
+**CI (draft PR #439).** The first run was green except `reports-frontend.yml`, which runs Vitest without `VITE_SUPABASE_*`. Two suites imported the real Supabase client through `emailSubscriptions.ts`. The fix is tests only: the page test mocks the client (repo precedent), and the existing preferences-card test stubs the switch, as it already stubs Call Forwarding. Reproduced and verified locally with the CI checker before pushing.
+
+**Next.**
+- Green CI on #439, then mark it ready for review.
+- Chris's explicit merge approval.
+- Activation stays separately gated (plan §11); D12 (mailing address) blocks it.
+
+## 2026-10-10 — Onboarding email series BUILT, INACTIVE (not merged, not deployed, not applied)
+
+**Approval.** Chris approved the inactive build with the D1–D11 defaults and Corrections A–C. D12: no mailing address was invented; a confirmed platform mailing address blocks activation. Correction B was done first, as draft PR #438 (the admin-registration release record).
+
+**Production unchanged.**
+- Nothing was applied, deployed, scheduled, provisioned, enrolled or sent.
+- `create-user`, `send-welcome-email`, the invitation and preview functions, the admin-notification system, `_shared/systemEmail.ts` and `_shared/systemEmailTemplates.ts` are byte-unchanged.
+- Production was only read (function and migration lists, catalog/cron names, aggregate counts).
+
+**What was built** (`claude/onboarding-email-series-20261010`; plan `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md` §14–§15):
+- **Series.** Nine templates through the shared renderer: Agents and Team Leaders get Day 1/3/5/8/14; Admins get Day 2/4/7/12; Super Admins get none. Each sends at 10:00 agency time (DST-correct, with an anchor + N days fallback), counted from the welcome email (Day 0, unchanged).
+- **Migration** `supabase/migrations/pending/20261011120000_onboarding_email_foundation.sql` (sha256 `f220fc59…`), NOT applied, outside the CLI glob:
+  - Tables: program flag, step catalog, enrollments, deliveries, attempt log, and `user_email_subscriptions`.
+  - Five service-role worker RPCs and two caller-scoped user RPCs.
+  - **No trigger, no cron, no pg_net, no backfill.**
+  - Rollback `rollback/20261011120000_…` (sha256 `d336ffef…`) refuses while the program is enabled or scheduled.
+  - Ops scripts `supabase/ops/onboarding_emails_{schedule,unschedule,enable,disable}.sql` exist but were not run.
+- **Edge functions** `onboarding-email-worker` and `email-unsubscribe` (each a `handler.ts` + thin `index.ts`), NOT deployed, `verify_jwt=false` in `config.toml`. Modules live in `_shared/onboardingEmail/`: catalog, templates, eligibility, unsubscribe token, delivery.
+- **Frontend:**
+  - the public `/email/unsubscribe` confirm page (a GET never unsubscribes; one POST on click);
+  - the "Onboarding tips by email" switch in Settings → My Profile → Preferences, which renders nothing while the program is off and nothing under View As;
+  - `src/lib/emailSubscriptions.ts`, with Zod on the token, the RPC rows and the input.
+- **Previews.** `scripts/render-onboarding-email-previews.ts` renders locally to the gitignored `tmp/` folder; nothing is sent. The published preview is https://claude.ai/artifact/X18LPg9HJF4NVdaHGNxqWp (version 2).
+- **CI.** `.github/workflows/onboarding-emails.yml` runs the Postgres 17.6 SQL runner, Deno test/check, the preview render, targeted vitest, ESLint, tsc, the build and a bundle secret-marker check.
+
+**Correction A — `user_email_subscriptions` security:**
+- Grants: `authenticated` has SELECT only; anon has nothing; service_role has SELECT only.
+- Policy: `user_id = auth.uid() AND organization_id = get_org_id()`.
+- No client INSERT/UPDATE/DELETE privilege or policy.
+- Writes go only through `set_my_onboarding_email_opt_out` (actor from `profiles`, Active, profile org = `get_org_id()`) or the service-role `record_onboarding_email_opt_out`.
+- T11 proves:
+  - an Agent and an Admin in the same agency each read only their own row; the Admin cannot read agents' rows;
+  - another agency's user reads only their own;
+  - a mismatched agency claim hides the row and refuses the write;
+  - Inactive and session-less callers are refused;
+  - direct writes fail with 42501.
+
+**Verification (local only):**
+- **SQL** (`scripts/run_onboarding_email_tests.sh`, PostgreSQL 16.15, 127.0.0.1, synthetic data): ALL PASSED.
+  - Static checks: no trigger, schedule, network call or Vault access, and the flag defaults false.
+  - The replay guard.
+  - 15 behaviour tests, including **disabled means zero** (T1, and T14 with live due rows and eligible users).
+  - Two-session enrollment concurrency: 20 + 0, 20/100/0 duplicates.
+  - Two-session SKIP LOCKED claims: 3 + 3, overlap 0.
+  - Four negative controls caught: claim gate, enrollment gate, RLS agency check, no-backfill watermark.
+  - The rollback proof.
+- **Deno 2.5.2:** onboarding modules and both handlers 70 passed / 0 failed; `deno check` clean on both entry points and the preview script; existing system-email tests 83 passed. `deno lint` reports only the repo-wide `no-import-prefix` finding on the two `index.ts` files.
+- **TypeScript.** `npx tsc --noEmit` exits 0 (vacuous). `npx tsc -p tsconfig.app.json --noEmit` gives **85 diagnostics on both `main` `e21728e` and the candidate, an identical set, so zero new**.
+- **ESLint:** clean on all changed frontend files.
+- **`vite build`:** exits 0; no server-only secret names in the bundle.
+- **Vitest:** full run with dummy `VITE_SUPABASE_*` env: `main` `e21728e` 314 files / 5108 passed / 1 failed / 32 skipped; candidate 317 files / 5124 passed / 1 failed / 32 skipped. The one failure is the same pre-existing test in both (`recordingRetentionVoicemail.test.ts` "byte-identical to deployed v29"). **Zero new failures**, and the three new files (16 tests) pass.
+
+**Not done, deliberately** (each needs Chris's separate approval; checklist in plan §11): merge; migration apply; function deploys; secrets; scheduling; enabling; any production email; and real-client rendering checks.
+
 ## 2026-10-10 — Super Admin registration emails: production release record reconciled (repository only)
 
 **Why.** The feature is live in production, but the repository still said "not deployed" and the migration file carried its authored version. Chris asked for the release to be reconciled with the repository in a separately reviewed PR before the onboarding email series is built. This entry and its PR change **no production state**: nothing was deployed, re-applied, redeployed or modified, and `create-user`, `platform-admin-notify`, the triggers and the cron job were not touched.
