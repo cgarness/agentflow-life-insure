@@ -6,7 +6,7 @@
 
 Source plan: `docs/plans/2026-10-09-reports-refresh-audit/implementation_plan.md` (§4.2, §7.3, §8) on branch `claude/reports-refresh-audit-20261009` @ `fb837372c742978066456898618fd66e33ed4a7e`, file sha256 `a8864a3b9b2517b1ff67aacf154efd242d02c686df94e217e35a623171618989`. §6 below copies its release order and failure handling verbatim.
 
-No RLS policy, grant, table data, Edge Function, frontend file or workflow is changed by this PR.
+This PR changes no RLS policy, grant, table data, Edge Function, frontend file or workflow. Its only non-SQL code change is the CI lint guard in `scripts/verify_reports_frontend.py` (§3).
 
 ## 1. Finding
 
@@ -79,6 +79,7 @@ The full diff is in the commit (`git diff origin/main -- scripts/reports_integri
 | 6 | `supabase/tests/reports_integrity_overlap.sql` | new | 5,108 | `bc5dd082b296b9d3561b3596abdbb9455d346b7a71d760726714f8489d0eabea` |
 | 7 | `supabase/ops/reports_integrity_enable.sql` | modified (line 11) | 4,503 | `d1698e45ecd7e068893f40841428c6fcc1fce7a1c57aa0abf796acfdde61a653` (was `a5433ce838eec87b338c9b3a79cfc939e2fdfb30ac232a4d948227522ae98a32`) |
 | 8 | `scripts/reports_integrity_fixture.py` | modified | 11,761 | `06a6dee3ebbdbb3213fc178427395e64e0cad02a62624d0df5783e754c123c16` |
+| 9 | `scripts/verify_reports_frontend.py` | modified (lint guard; identical to PR-A `79ca7007`) | 6,406 | `07d60a7bb34db7b735eda20f816ffb5222379d13b976c7e4aceaa59c4cdfa03c` (was `68b1b01a4f82e23f0636a676a0fd715825eb038d1a80a70f3ef61c087a27c9f5`) |
 
 **Byte equalities verified on this branch:**
 - File 1 == `supabase/ops/reports_disable.sql` (unchanged on `main`; sha256 `17141977…5079b2`).
