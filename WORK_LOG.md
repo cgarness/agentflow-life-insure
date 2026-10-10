@@ -1,3 +1,40 @@
+## 2026-10-10 — Reports refresh and R-3 correction shipped to production
+
+Chris approved the coordinated production release at about 03:40 UTC. Both parts are live. Release record: `docs/plans/2026-10-09-reports-refresh-audit/production-release.md`.
+
+**PR-A #436 (frontend refresh and accuracy fixes):**
+- Merged at 04:19Z as `b00bfedc` (merge commit). Its tree equals the verified head `3441d2de`.
+- Vercel production `dpl_Ai4dmqDT8KqMmDstJC5Bsw4Xinxb` was READY at 04:20Z on www.fflagent.com.
+
+**PR-B #435 (R-3 SQL):**
+- Merged in the same window at 04:49Z as `462fa12b`. Its four migration files were first renamed to the recorded versions with identical bytes, and exact-head CI on all five workflows was green on the renamed head.
+- Its deploy, `dpl_DAYBGK7CTed17C924F1o9cqCE4HH`, has served production since 04:50:23Z. No frontend source changed.
+
+**R-3 window** (Reports-only, about 1 min 19 s, 04:33:58–04:35:17Z):
+- Applied one step at a time, each read back: recorded versions `20261010043358` (disable), `20261010043449` (correction, `report_integrity_quality` `d330c5be` → `c1355d55`) and `20261010043517` (guarded enable).
+- Every stored statement md5 equals the file bytes. 15/15 pins hold; only the six v2 RPCs grant authenticated/service_role; anon 0 of 34.
+- Advisors are unchanged: security 223, performance 411, identity hashes equal before and after.
+- No Reports traffic occurred between the deploy and the window, so no user saw "temporarily unavailable".
+- `overlap_seconds_removed` is now 0 on all five RPCs. Agency was 3/4/2/1/5 for W1–W5, and Team Leader team was 1/1/1/0/1. Every other metric is identical to the pre-window baseline and the Phase 1 audit.
+- The Supabase integration skipped both merges ("not associated"), so nothing was replayed.
+
+**Read-only production verification** (§7 of the release record):
+- Calls, contacted, talk, session, bookings and dispositions match independent SQL in one snapshot: agency W1/W3/today, plus team and personal.
+- Policies and Known Annual Premium pass 69/69 checks. Reports equals the Leaderboard for September (4 / $3,205.32).
+- Campaign and lead-source partitions are exact.
+- Scope authorization passes 31/32, with one pre-existing finding: an empty claims string gives 22P02 instead of 42501 in `get_org_id`. Access is still denied and PostgREST cannot reach it; it needs a follow-up.
+- Time zone and DST windows are correct.
+- The real export code on live payloads produced 29 CSV kinds with exact values and a "0 duplicate seconds" Note.
+- 0 app database errors and 0 Vercel runtime errors.
+
+**Docs:**
+- AGENT_RULES #41 is amended with pin `c1355d55` (still fifteen pins), and the Reports refresh amendment is marked shipped.
+- The plan status and the packet outcome note are updated.
+
+**Unverified:** Chris's signed-in desktop/iPhone checklist (plan §9.4) and browser console errors; this environment has no linked browser or credentials. Served-bundle strings are inferred from tree equality.
+
+**Unchanged:** S-1 and S-3 permissions, RLS, Edge Functions, Twilio/Dialer and data rows. No rollback was used.
+
 ## 2026-10-10 — Reports visual refresh and accuracy audit implemented (PR-A); R-3 SQL prepared (PR-B); nothing released
 
 **Approval.** Chris approved the final plan on 2026-10-09 (`docs/plans/2026-10-09-reports-refresh-audit/implementation_plan.md`, rev 2, all six §4.5 defaults). It is implemented on `claude/reports-refresh-audit-20261009` (PR-A) and verified at head `6138978d` against `main` `a41ed8ea`.
