@@ -1,12 +1,12 @@
 # Reports overlap-seconds correction (R-3) — PR-B release packet
 
-**Status: files approved; NOT merged and NOT applied.** Chris's plan approval covers adding these files on branch `claude/reports-overlap-sql-20261009` (base `main` `8d53531d0edc509cc97fdc49a06c4873438ca67d`). Applying the three production migrations, and any rollback, each needs Chris's separate exact approval (AGENT_RULES #28/#41).
+**Status: files approved; NOT merged and NOT applied.** Chris's plan approval covers adding these files on branch `claude/reports-overlap-sql-20261009` (authored on `main` `8d53531d0edc509cc97fdc49a06c4873438ca67d`; on 2026-10-10 `main` `b00bfedc` was merged in after PR-A #436 shipped, with no conflicts). Applying the three production migrations, and any rollback, each needs Chris's separate exact approval (AGENT_RULES #28/#41).
 
 **Merge rule: this PR merges only in the same approved window as the production apply, never before it.** `supabase/ops/reports_integrity_enable.sql` is the documented #41 recovery source. If its corrected pin reached `main` while production still runs the old body, an emergency re-enable from `main` would refuse and leave Reports disabled. If the apply is not approved, or it refuses at step 2, this PR stays unmerged.
 
 Source plan: `docs/plans/2026-10-09-reports-refresh-audit/implementation_plan.md` (§4.2, §7.3, §8) on branch `claude/reports-refresh-audit-20261009` @ `fb837372c742978066456898618fd66e33ed4a7e`, file sha256 `a8864a3b9b2517b1ff67aacf154efd242d02c686df94e217e35a623171618989`. §6 below copies its release order and failure handling verbatim.
 
-This PR changes no RLS policy, grant, table data, Edge Function, frontend file or workflow. Its only non-SQL code change is the CI lint guard in `scripts/verify_reports_frontend.py` (§3).
+This PR changes no RLS policy, grant, table data, Edge Function, frontend file or workflow. Besides the migrations, ops pin and SQL tests, it changes only the test fixture `scripts/reports_integrity_fixture.py`. The CI lint guard (§3 row 9) is identical to the change PR-A #436 already shipped, so it no longer appears in this PR's diff against `main`.
 
 ## 1. Finding
 
@@ -79,7 +79,7 @@ The full diff is in the commit (`git diff origin/main -- scripts/reports_integri
 | 6 | `supabase/tests/reports_integrity_overlap.sql` | new | 5,108 | `bc5dd082b296b9d3561b3596abdbb9455d346b7a71d760726714f8489d0eabea` |
 | 7 | `supabase/ops/reports_integrity_enable.sql` | modified (line 11) | 4,503 | `d1698e45ecd7e068893f40841428c6fcc1fce7a1c57aa0abf796acfdde61a653` (was `a5433ce838eec87b338c9b3a79cfc939e2fdfb30ac232a4d948227522ae98a32`) |
 | 8 | `scripts/reports_integrity_fixture.py` | modified | 11,761 | `06a6dee3ebbdbb3213fc178427395e64e0cad02a62624d0df5783e754c123c16` |
-| 9 | `scripts/verify_reports_frontend.py` | modified (lint guard; identical to PR-A `79ca7007`) | 6,406 | `07d60a7bb34db7b735eda20f816ffb5222379d13b976c7e4aceaa59c4cdfa03c` (was `68b1b01a4f82e23f0636a676a0fd715825eb038d1a80a70f3ef61c087a27c9f5`) |
+| 9 | `scripts/verify_reports_frontend.py` | already on `main` (PR-A #436 shipped the identical lint guard `79ca7007`); no longer in this PR's diff | — | — |
 
 **Byte equalities verified on this branch:**
 - File 1 == `supabase/ops/reports_disable.sql` (unchanged on `main`; sha256 `17141977…5079b2`).
@@ -110,7 +110,7 @@ File 4 mirrors these guards with the md5s swapped and restores the byte-identica
 
 No workflow file changes.
 
-**CI and the lint guard.** This branch changes no `.ts`/`.tsx` file. On `main` today, `scripts/verify_reports_frontend.py` then calls ESLint with no paths. That lints the whole repository, which fails on 11 errors that already exist on `main`. This branch therefore carries the same one-line guard as PR-A (skip ESLint when no TypeScript changed; cherry-picked from PR-A commit `79ca7007`). With it, the `reports-frontend` gate can pass here on its own, and whichever PR merges second sees an identical change. Still **rebase this branch onto `main` after PR-A merges** (§8a), then obtain exact-head CI green on all five gates. Never touch an unrelated `.ts` file to work around it.
+**CI and the lint guard.** This branch changes no `.ts`/`.tsx` file. Before PR-A, `scripts/verify_reports_frontend.py` called ESLint with no paths, which linted the whole repository and failed on errors that already exist on `main`. PR-A #436 shipped a one-line guard (skip ESLint when no TypeScript changed). This branch carried the identical change until `main` was merged in. Still obtain exact-head CI green on all five gates before the window and after the §7 rename. Never touch an unrelated `.ts` file to work around a gate.
 
 ## 4. Local evidence
 
@@ -293,7 +293,7 @@ The applied migration files stay as the historical record; applied migrations ar
 
 ## 9. Unverified (exact reason)
 
-- **DDL and guard execution on PostgreSQL 17.6:** only PostgreSQL 16 binaries exist locally. The corrected expression itself ran on production 17.6 as a read-only SELECT. CI's `postgres:17.6` job will execute the DDL.
+- **DDL and guard execution on PostgreSQL 17.6:** only PostgreSQL 16 binaries exist locally. CI's `postgres:17.6` job passed on head `646bb7fd` (Reports backend verification run 38014466408). The corrected expression also ran on production 17.6 as a read-only SELECT.
 - **Hosted apply, readback and rollback:** not executed. Each needs Chris's separate exact approval; production was only read.
 - **Browser gate:** not re-run for this change. Its input payload JSON is unchanged (§4.1).
-- **Exact-head CI on PR-B:** pending. No PR has been opened from this branch yet.
+- **Exact-head CI on PR-B (#435):** all five workflows passed on `646bb7fd`: runs 38014466408, 38014466370, 38014466448, 38014466384 and 38014466414. After `main` was merged in, the head changed. Fresh exact-head CI is required before the window, and again after the §7 rename, before the merge.
