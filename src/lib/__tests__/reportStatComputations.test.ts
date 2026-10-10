@@ -7,7 +7,8 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { computeAllStats, STAT_DEFINITIONS, isStatAvailable, POLICY_RATIO_SCOPE_REASON } from "@/lib/stat-computations";
 import { DEFAULT_LAYOUT, DEFAULT_VISIBLE_STATS, MAX_VISIBLE_STATS } from "@/lib/report-layout-constants";
 import { ReportsQueryError } from "@/lib/reports-queries";
-import { AGENT_A, emptySummary, reportSummary, reportVolume } from "./reportsFixtures";
+import { policyLeaderText } from "@/lib/reports-basis-text";
+import { AGENT_A, emptySummary, quality, reportSummary, reportVolume } from "./reportsFixtures";
 import type { ReportSummary } from "@/lib/reports-schemas";
 
 const ready = <T,>(data: T) => ({ status: "ready" as const, data });
@@ -27,7 +28,7 @@ describe("canonical stat values", () => {
     expect(v("stat_total_dials").value).toBe("19");
     expect(v("stat_total_contacted").value).toBe("11");
     expect(v("stat_contact_rate").value).toBe("57.9%");
-    expect(v("stat_total_talk_time").value).toBe("12:20");
+    expect(v("stat_total_talk_time").value).toBe("12m 20s"); // elapsed format, never the m:ss clock form
     expect(v("stat_policies_sold").value).toBe("5");
     expect(v("stat_leads_converted").value).toBe("2");
     expect(v("stat_appointments_set").value).toBe("4");
@@ -39,7 +40,40 @@ describe("canonical stat values", () => {
     expect(v("stat_best_contact_agent").label).toBe("Best call contact rate");
     expect(v("stat_best_contact_agent").subtitle).toBe("100.0% call contact rate");
     expect(v("stat_dials_per_contact").label).toBe("Dials per contacted call");
-    expect(v("stat_dials_per_contact").subtitle).toBe("calls made ÷ contacted calls");
+    expect(v("stat_dials_per_contact").value).toBe("1.7"); // 19 calls ÷ 11 contacted
+  });
+
+  it("labels the contacted count 'Contacted calls' (id unchanged)", () => {
+    expect(v("stat_total_contacted").label).toBe("Contacted calls");
+    expect(STAT_DEFINITIONS.find((d) => d.id === "stat_total_contacted")!.label).toBe("Contacted calls");
+  });
+
+  it("drops formula subtitles; keeps only the ones that change how a number reads (data-basis C12-C19)", () => {
+    for (const id of ["stat_total_dials", "stat_outbound", "stat_total_contacted", "stat_contact_rate", "stat_dials_per_contact", "stat_appointments_set"]) {
+      expect(v(id).subtitle).toBeUndefined();
+    }
+    expect(v("stat_calls_per_hour").subtitle).toBe("session-matched calls ÷ all session hours");
+    expect(v("stat_talk_time_ratio").subtitle).toBe("session-matched talk ÷ all session time");
+    expect(v("stat_dnc_rate").subtitle).toBe("DNC dispositions per 100 calls");
+    expect(v("stat_leads_converted").subtitle).toBe("distinct people");
+    for (const id of ["stat_calls_per_hour", "stat_talk_time_ratio", "stat_dnc_rate", "stat_leads_converted"]) expect(v(id).noteTone).toBeUndefined();
+  });
+
+  it("Dials per booking divides calls made by every booking type (R-1); the id and value are unchanged", () => {
+    expect(v("stat_dials_per_appt").label).toBe("Dials per booking");
+    expect(v("stat_dials_per_appt").subtitle).toBe("all booking types");
+    expect(v("stat_dials_per_appt").value).toBe("4.8"); // 19 calls ÷ 4 bookings created (all types)
+    expect(STAT_DEFINITIONS.some((d) => d.label === "Dials per appointment")).toBe(false);
+  });
+
+  it("durations use the elapsed format; the 0.1 s per-dial average is shown as sent (R-5)", () => {
+    expect(v("stat_avg_duration_all").value).toBe("38.9s"); // payload 38.9, not "39s"
+    expect(v("stat_session_time").value).toBe("2h 40m 0s");
+    const fractional = computeAllStats(inputs({ summary: ready(reportSummary({ avg_talk_per_dial_seconds: 81.4, talk_time_seconds: 45 })) }));
+    expect(fractional.get("stat_avg_duration_all")!.value).toBe("1m 21.4s");
+    expect(fractional.get("stat_total_talk_time")!.value).toBe("45s");
+    const unknown = computeAllStats(inputs({ summary: ready(reportSummary({ avg_talk_per_dial_seconds: null })) }));
+    expect(unknown.get("stat_avg_duration_all")!.value).toBe("—");
   });
 
   it("session-based ratios use the server interval-matched cohort", () => {
@@ -56,6 +90,23 @@ describe("canonical stat values", () => {
     expect(v("stat_agents_active").value).toBe("2");
   });
 
+  it("a shared top policy count names no one, exactly as the band's leader row (D-5)", () => {
+    const tile = (byAgent: ReportSummary["by_agent"]) => computeAllStats(inputs({ summary: ready(reportSummary({}, byAgent)) })).get("stat_top_performer")!;
+    const base = reportSummary().by_agent;
+    const tied = base.map((a) => ({ ...a, policies_sold: 2 }));
+    expect(policyLeaderText(tied)).toBe("2 agents tied · 2 policies each");
+    const shared = tile(tied);
+    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies — current assignments", "2 agents tied", "2 policies each"]);
+    expect(`${shared.value} · ${shared.subtitle}`).toBe(policyLeaderText(tied));
+    expect(shared.value).not.toMatch(/Alice|Bob/); // never an alphabetical pick among the tied agents
+    const ones = tile(base.map((a) => ({ ...a, policies_sold: 1 })));
+    expect([ones.value, ones.subtitle]).toEqual(["2 agents tied", "1 policy each"]);
+    // A clear leader is still named, with the unchanged subtitle; a lower shared count is not a tie at the top.
+    const clear = tile([...base, { ...base[0], agent_id: "c3", name: "Cara Agent", policies_sold: 1 }]);
+    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies currently assigned"]);
+    expect(policyLeaderText(reportSummary().by_agent)).toBe("Bob Agent · 2 policies");
+  });
+
   it("reads 'calls today' from the AGENCY calendar day", () => {
     expect(v("stat_calls_today").value).toBe("3"); // 2026-07-20 in the fixture
     const outside = computeAllStats(inputs({ agencyToday: "2026-08-02" })).get("stat_calls_today")!;
@@ -66,6 +117,53 @@ describe("canonical stat values", () => {
 
 // Policy counts are the client's CURRENT assignment (plan §20 rev 2), not original seller credit.
 const org = (s: ReportSummary, filter: string | null = null): ReportSummary => ({ ...s, scope: "organization", filter_agent_id: filter });
+
+describe("data-quality cautions on the strip (C14, C15)", () => {
+  const withQuality = (over: { duration?: Partial<ReturnType<typeof quality>["duration"]>; sessions?: Partial<ReturnType<typeof quality>["sessions"]> }) => {
+    const base = quality();
+    const summary = { ...reportSummary(), quality: { ...base, duration: { ...base.duration, ...over.duration }, sessions: { ...base.sessions, ...over.sessions } } };
+    return computeAllStats(inputs({ summary: ready(summary) }));
+  };
+
+  it("talk time and the per-dial average carry the duration provenance, zero parts omitted", () => {
+    const stats = withQuality({ duration: { estimated_calls: 3, unknown_calls: 1263, conflicting_calls: 484 } });
+    for (const id of ["stat_total_talk_time", "stat_avg_duration_all"]) {
+      expect(stats.get(id)!.subtitle).toBe("Durations: 3 estimated · 1,263 unknown source or amount · 484 conflicting");
+      expect(stats.get(id)!.noteTone).toBe("caution");
+    }
+    const some = withQuality({ duration: { estimated_calls: 0, unknown_calls: 1263, conflicting_calls: 484 } });
+    expect(some.get("stat_total_talk_time")!.subtitle).toBe("Durations: 1,263 unknown source or amount · 484 conflicting");
+    // Talk time share of session uses session-matched talk; the duration counts describe all calls made.
+    expect(stats.get("stat_talk_time_ratio")!.subtitle).toBe("session-matched talk ÷ all session time");
+    expect(stats.get("stat_talk_time_ratio")!.noteTone).toBeUndefined();
+  });
+
+  it("the default fixture's unknown durations show; a clean summary shows no caution at all", () => {
+    expect(computeAllStats(inputs()).get("stat_total_talk_time")!.subtitle).toBe("Durations: 19 unknown source or amount");
+    const clean = withQuality({ duration: { unknown_calls: 0 } });
+    for (const id of ["stat_total_talk_time", "stat_avg_duration_all", "stat_session_time"]) {
+      expect(clean.get(id)!.subtitle).toBeUndefined();
+      expect(clean.get(id)!.noteTone).toBeUndefined();
+    }
+  });
+
+  it("dialer session time names stale and missing-evidence sessions only when there are some", () => {
+    expect(withQuality({ sessions: { stale_capped: 2 } }).get("stat_session_time")!.subtitle).toBe("2 stale, capped at last heartbeat");
+    const both = withQuality({ sessions: { stale_capped: 1, missing_evidence: 1 } }).get("stat_session_time")!;
+    expect(both.subtitle).toBe("1 stale, capped at last heartbeat · 1 missing/invalid end evidence");
+    expect(both.noteTone).toBe("caution");
+    expect(both.value).toBe("2h 40m 0s"); // the value is unchanged; the caution only qualifies it
+    expect(withQuality({ sessions: { missing_evidence: 3 } }).get("stat_session_time")!.subtitle).toBe("3 missing/invalid end evidence");
+  });
+
+  it("a failed summary shows its reason, never a caution or a count", () => {
+    const stats = computeAllStats(inputs({ summary: { status: "error" as const, error: new ReportsQueryError("unavailable") } }));
+    for (const id of ["stat_total_talk_time", "stat_session_time"]) {
+      expect(stats.get(id)!.subtitle).toBe("Couldn't load — not a zero");
+      expect(stats.get(id)!.noteTone).toBeUndefined();
+    }
+  });
+});
 
 describe("per-policy ratios are organization-period figures, never agent or team efficiency", () => {
   it("organization scope with no agent filter: calls / talk in the period ÷ dated stored policies in the period", () => {

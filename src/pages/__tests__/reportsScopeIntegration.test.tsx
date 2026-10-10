@@ -74,6 +74,7 @@ describe("Reports explicit scopes with real request lifetimes", () => {
     expect(h.calls).toEqual([{ name: "scope", request: null }]);
     await resolveScope("agency"); await resolvePanels(901);
     expect(screen.getByRole("tab", { name: "Agency" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Customize layout" })).toBeEnabled(); // the View As case below is not vacuous
     expect(screen.getByTestId("current-calls")).toHaveTextContent("901");
     const oldExport = h.exports[h.exports.length - 1]!;
     fireEvent.click(screen.getByRole("button", { name: "Drill into Alice" }));
@@ -109,8 +110,10 @@ describe("Reports explicit scopes with real request lifetimes", () => {
     const total = h.calls.length;
     h.impersonating = true; view.rerender(<MemoryRouter><Reports /></MemoryRouter>);
     expect(h.calls).toHaveLength(total);
+    expect(screen.getByRole("button", { name: "Customize layout" })).toBeDisabled(); // View As never edits a layout
     await resolveScope("agency");
     expect(h.calls).toHaveLength(total); expect(screen.queryByTestId("current-calls")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Customize layout" })).toBeDisabled();
     h.impersonating = false; view.rerender(<MemoryRouter><Reports /></MemoryRouter>);
     expect(h.calls[h.calls.length - 1]).toEqual({ name: "scope", request: null });
   });

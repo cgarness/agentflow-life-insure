@@ -162,6 +162,11 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
     keyRef.current = key;
     requestRef.current = request;
   });
+  // Nothing to request: drop the stored panels before anything else can render, so a key that returns
+  // (Refresh, scope Retry) never re-commits the previous generation's payloads for a frame. A passive
+  // effect is not enough: its update has default priority, and the returning scope answer can render
+  // first with discrete priority.
+  useLayoutEffect(() => { if (!key) setStored(null); }, [key]);
 
   const commit = useCallback(<K extends PanelKey>(forKey: string, panel: K, next: LoadState<ReportPanelData[K]>) => {
     setStored((prev) => (prev && prev.key === forKey ? { ...prev, panels: { ...prev.panels, [panel]: next } } : prev));
@@ -193,7 +198,8 @@ export function useReportPanels(scopeKey: string | null, request: ReportRequest 
   );
 
   useEffect(() => {
-    if (!key || !request) return;
+    // Nothing to request (the stored panels were already dropped in the layout effect above).
+    if (!key || !request) { setStored(null); return; }
     // A stale START is refused too: only the key this render committed may begin requests.
     if (keyRef.current !== key) return;
     setStored({ key, nonce, panels: ALL_LOADING });

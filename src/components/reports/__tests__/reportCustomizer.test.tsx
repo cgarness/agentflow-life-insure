@@ -53,6 +53,51 @@ describe("personal report customization", () => {
     expect(screen.getByRole("button", { name: "Move Lead sources down" })).toBeDisabled();
   });
 
+  it("keeps focus on the moved item, switching to its other move button at a group edge (U-9)", () => {
+    const { container } = render(<DraftEditor />);
+    const press = (name: string) => {
+      const button = screen.getByRole("button", { name });
+      button.focus();
+      fireEvent.click(button);
+    };
+    const focused = () => document.activeElement?.getAttribute("aria-label");
+    // Same direction while the button stays enabled (the moved row is re-ordered in the DOM).
+    press("Move Agent performance down");
+    expect(idsIn(container, "performance")).toEqual(["agent_efficiency", "agent_performance_cards", "campaign_performance", "lead_source_roi"]);
+    expect(focused()).toBe("Move Agent performance down");
+    // Into the first slot: "up" disables, so focus moves to the same item's "down".
+    press("Move Agent performance up");
+    expect(idsIn(container, "performance")[0]).toBe("agent_performance_cards");
+    expect(screen.getByRole("button", { name: "Move Agent performance up" })).toBeDisabled();
+    expect(focused()).toBe("Move Agent performance down");
+    // Into the last slot: "down" disables, so focus moves to the same item's "up".
+    press("Move Campaign performance down");
+    expect(idsIn(container, "performance").at(-1)).toBe("campaign_performance");
+    expect(screen.getByRole("button", { name: "Move Campaign performance down" })).toBeDisabled();
+    expect(focused()).toBe("Move Campaign performance up");
+  });
+
+  it("does not move focus for a move the owner refused", () => {
+    const input = props();
+    const { rerender } = render(<ReportCustomizer {...input} />);
+    screen.getByRole("button", { name: "Move Agent efficiency up" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Move Agent efficiency up" }));
+    expect(input.onSectionsChange).toHaveBeenCalledOnce();
+    const calls = screen.getByRole("checkbox", { name: "Show Calls made" });
+    calls.focus();
+    // A later render with the order unchanged (the move never happened) must not steal focus back.
+    rerender(<ReportCustomizer {...input} sections={input.sections.map((section) => ({ ...section }))} />);
+    expect(document.activeElement).toBe(calls);
+  });
+
+  it("says in one line that only the viewer's report changes and the fixed content stays", () => {
+    render(<ReportCustomizer {...props()} />);
+    const region = screen.getByRole("region", { name: "Customize your report" });
+    expect(within(region).getByText("Only your view changes. Production totals and trends always stay.")).toBeInTheDocument();
+    expect(within(region).getByText("Reset removes your saved layout and uses your agency default when available.")).toBeInTheDocument();
+    expect(region.querySelector("[data-customizer-actions]")).toContainElement(screen.getByRole("button", { name: "Save layout" }));
+  });
+
   it("keeps selected team metrics removable in Personal with a scope explanation", () => {
     const input = props();
     input.showTeamSections = false;

@@ -1,51 +1,45 @@
 import React, { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
 import { formatCount, formatRate, formatPremium } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import { CAMPAIGN_ATTRIBUTION_NOTE } from "@/lib/reports-policy-text";
+import { CAMPAIGN_LINEAGE_NOTE } from "@/lib/reports-policy-text";
 import type { ReportCampaigns } from "@/lib/reports-schemas";
 import { cn } from "@/lib/utils";
+import CampaignCallsChart from "./CampaignCallsChart";
+import CampaignTotalsFoot from "./CampaignTotalsFoot";
 import ReportSection from "./ReportSection";
-type CampaignRow = ReportCampaigns["campaigns"][number];
+import ReportTableFrame from "./ReportTableFrame";
+import { ROW_LABEL_WIDE, TD, TD_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./reportTableStyles";
+
 const CHART_TOP_N = 10;
-const COLUMNS: { label: string; numeric: boolean }[] = [
-  { label: "Campaign", numeric: false },
-  { label: "Type", numeric: false },
-  { label: "Calls made", numeric: true },
-  { label: "Contacted calls", numeric: true },
-  { label: "Call contact rate", numeric: true },
-  { label: "Leads dialed", numeric: true },
-  { label: "Contacted leads", numeric: true },
-  { label: "Converted leads", numeric: true },
-  { label: "Policies (campaign-attributed)", numeric: true },
-  { label: "Known annual premium", numeric: true }, { label: "Known / total policies", numeric: true },
+/** Screen order: production first, so policies and premium are visible without scrolling. */
+const COLUMNS = [
+  "Campaign", "Policies (campaign-attributed)", "Known annual premium", "Known / total policies", "Calls made",
+  "Contacted calls", "Call contact rate", "Leads dialed", "Contacted leads", "Converted leads", "Type",
+] as const;
+/** The CSV keeps its original column order and values. */
+const EXPORT_HEADERS = [
+  "Campaign", "Type", "Calls made", "Contacted calls", "Call contact rate %", "Leads dialed", "Contacted leads",
+  "Converted leads", "Policies (campaign-attributed)", "Known annual premium", "Known / total policies",
 ];
+/** A real link (U-3): text-sized, with a 40px hit area that reaches into the cell padding, and a visible focus ring. */
+const LINK = "relative rounded-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring after:absolute after:inset-x-0 after:-inset-y-2.5";
+
 interface Props {
   campaigns: ReportCampaigns;
   onExport?: ReportExportFn;
 }
-const tick = { fill: "hsl(var(--muted-foreground))", fontSize: 11 };
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--foreground))",
-};
-const textStyle = { color: "hsl(var(--foreground))" };
-const truncate = (s: string) => (s.length > 18 ? `${s.slice(0, 18)}…` : s);
-const cellClass = "py-3 px-4 text-right tabular-nums text-muted-foreground font-medium";
+
 const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
-  const navigate = useNavigate();
   const rows = campaigns.campaigns;
   // Server order is calls_made DESC; the chart shows the busiest campaigns that placed calls.
   const chartData = useMemo(() => rows.filter((c) => c.calls_made > 0).slice(0, CHART_TOP_N), [rows]);
+  const unavailable = campaigns.calls_attribution_unavailable > 0 || campaigns.policies_attribution_unavailable > 0;
   const handleExport = onExport
     ? () =>
         onExport(
           "Campaign Performance",
-          COLUMNS.map((c) => (c.label === "Call contact rate" ? "Call contact rate %" : c.label)),
+          EXPORT_HEADERS,
           [...rows.map((c) => [
             c.name,
             c.type,
@@ -59,113 +53,50 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
           ]), ["Attribution unavailable", null, campaigns.calls_attribution_unavailable, null, null, null, null, null, campaigns.policies_attribution_unavailable, campaigns.premium_attribution_unavailable.annual_premium, `${campaigns.premium_attribution_unavailable.known_count}/${campaigns.premium_attribution_unavailable.policy_count}`]],
         )
     : undefined;
-  const open = (c: CampaignRow) => navigate(`/campaigns/${c.campaign_id}`);
   return (
-    <ReportSection title="Campaign Performance" onExport={handleExport}>
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No visible campaign breakdown in this period.</p>
-      ) : (
+    <ReportSection title="Campaign performance" onExport={handleExport}>
+      {rows.length === 0 && (
+        <p className={unavailable ? "mb-3 text-sm text-muted-foreground" : "py-12 text-center text-sm text-muted-foreground"}>
+          No visible campaign breakdown in this period.
+        </p>
+      )}
+      {chartData.length > 0 && <CampaignCallsChart data={chartData} />}
+      {(rows.length > 0 || unavailable) && (
         <>
-          {chartData.length > 0 && (
-            <>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
-                Calls made vs contacted calls{rows.length > chartData.length ? ` · top ${chartData.length} by calls` : ""}
-              </p>
-              <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 48 + 40)}>
-                <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                  <XAxis type="number" tick={tick} allowDecimals={false} tickFormatter={(v: number) => formatCount(v)} />
-                  <YAxis type="category" dataKey="name" width={140} tick={tick} tickFormatter={truncate} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={textStyle}
-                    itemStyle={textStyle}
-                    cursor={{ fill: "hsl(var(--muted))" }}
-                    formatter={(v: number, name: string) => [formatCount(v), name]}
-                  />
-                  <Legend
-                    verticalAlign="top"
-                    align="right"
-                    iconType="circle"
-                    iconSize={8}
-                    formatter={(value: string) => <span className="text-[11px] text-muted-foreground">{value}</span>}
-                  />
-                  <Bar dataKey="calls_made" name="Calls made" fill="hsl(var(--primary) / 0.35)" radius={[0, 4, 4, 0]} barSize={12} />
-                  <Bar dataKey="contacted_calls" name="Contacted calls" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={12} />
-                </BarChart>
-              </ResponsiveContainer>
-            </>
-          )}
-          <div className={cn("overflow-x-auto rounded-xl border border-border", chartData.length > 0 && "mt-6")}>
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr className="border-b border-border">
-                  {COLUMNS.map((c) => (
-                    <th
-                      key={c.label}
-                      className={cn(
-                        "py-3 px-4 text-muted-foreground font-bold uppercase tracking-wider text-[10px] whitespace-nowrap",
-                        c.numeric ? "text-right" : "text-left",
-                      )}
-                    >
-                      {c.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {rows.map((c) => (
-                  <tr
-                    key={c.campaign_id}
-                    className="group hover:bg-muted/40 cursor-pointer transition-colors focus-visible:outline-none focus-visible:bg-muted/40"
-                    onClick={() => open(c)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        open(c);
-                      }
-                    }}
-                    tabIndex={0}
-                    role="link"
-                  >
-                    <td className="py-3 px-4 font-bold text-foreground group-hover:text-primary transition-colors">{c.name}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="secondary" className="bg-muted text-muted-foreground font-bold text-[10px] px-2 py-0.5 rounded-md border-none">
-                        {c.type}
-                      </Badge>
-                    </td>
-                    <td className={cellClass}>{formatCount(c.calls_made)}</td>
-                    <td className={cellClass}>{formatCount(c.contacted_calls)}</td>
-                    <td className="py-3 px-4 text-right tabular-nums font-bold text-foreground">{formatRate(c.contact_rate_pct)}</td>
-                    <td className={cellClass}>{formatCount(c.leads_dialed)}</td>
-                    <td className={cellClass}>{formatCount(c.contacted_leads)}</td>
-                    <td className={cellClass}>{formatCount(c.converted_leads)}</td>
-                    <td className="py-3 px-4 text-right tabular-nums font-bold text-foreground">{formatCount(c.attributed_policies)}</td>
-                    <td className={cellClass}>{formatPremium(c.premium.annual_premium)}</td><td className={cellClass}>{c.premium.known_count}/{c.premium.policy_count}</td>
-                  </tr>
+          <ReportTableFrame label="Campaign performance table" tableClassName="min-w-[960px]"
+            caption="Campaign activity and campaign-attributed policies for the selected report. Each campaign name opens that campaign.">
+            <thead>
+              <tr>
+                {COLUMNS.map((label, i) => (
+                  <th key={label} scope="col" className={i === 0 ? TH_FIRST : label === "Type" ? cn(TH, "text-left") : TH}>
+                    <span className={TH_LABEL}>{label}</span>
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.campaign_id} className={TR}>
+                  <th scope="row" className={TD_FIRST}>
+                    <span className={ROW_LABEL_WIDE}><Link to={`/campaigns/${c.campaign_id}`} className={LINK}>{c.name}</Link></span>
+                  </th>
+                  <td className={TD}>{formatCount(c.attributed_policies)}</td>
+                  <td className={TD}>{formatPremium(c.premium.annual_premium)}</td>
+                  <td className={TD}>{c.premium.known_count}/{c.premium.policy_count}</td>
+                  <td className={TD}>{formatCount(c.calls_made)}</td>
+                  <td className={TD}>{formatCount(c.contacted_calls)}</td>
+                  <td className={TD}>{formatRate(c.contact_rate_pct)}</td>
+                  <td className={TD}>{formatCount(c.leads_dialed)}</td>
+                  <td className={TD}>{formatCount(c.contacted_leads)}</td>
+                  <td className={TD}>{formatCount(c.converted_leads)}</td>
+                  <td className={cn(TD, "text-left text-xs text-muted-foreground")}>{c.type}</td>
+                </tr>
+              ))}
+            </tbody>
+            {unavailable && <CampaignTotalsFoot campaigns={campaigns} columns={COLUMNS} />}
+          </ReportTableFrame>
+          <p className="mt-3 text-xs text-muted-foreground">{CAMPAIGN_LINEAGE_NOTE}</p>
         </>
-      )}
-      {rows.length > 0 && (
-        <p className="text-[11px] text-muted-foreground mt-3">
-          Outbound calls. Converted leads are unique campaign leads given a converting disposition. {CAMPAIGN_ATTRIBUTION_NOTE}
-        </p>
-      )}
-      {campaigns.policies_attribution_unavailable > 0 && (
-        <p className="text-[11px] text-muted-foreground mt-1">
-          {formatCount(campaigns.policies_attribution_unavailable)} of {formatCount(campaigns.policies_in_period)} policies sold in this
-          period have unavailable campaign attribution (missing, ambiguous, or restricted).
-          {" "}Known annual premium in that subset: {formatPremium(campaigns.premium_attribution_unavailable.annual_premium)};
-          {" "}{campaigns.premium_attribution_unavailable.known_count}/{campaigns.premium_attribution_unavailable.policy_count} policies known.
-        </p>
-      )}
-      {campaigns.calls_attribution_unavailable > 0 && (
-        <p className="text-[11px] text-muted-foreground mt-1">
-          {formatCount(campaigns.calls_attribution_unavailable)} outbound calls in this period have unavailable campaign attribution (missing or restricted).
-        </p>
       )}
     </ReportSection>
   );

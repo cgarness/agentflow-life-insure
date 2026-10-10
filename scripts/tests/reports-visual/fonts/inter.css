@@ -1,0 +1,9 @@
+/* Fixture-only copy of the font production loads. The app's index.html loads Inter from Google Fonts,
+   which this isolated page never contacts, and the layout budgets in verify.mjs are measured in Inter.
+   Serving it from the fixture makes the gate independent of the machine's installed fonts: a web font
+   declared under a family name shadows any locally installed font of that name.
+   Inter 4.0, Latin subset, SIL OFL 1.1 (see OFL.txt). */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("./Inter-Regular-latin.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("./Inter-Medium-latin.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 600; font-display: swap; src: url("./Inter-SemiBold-latin.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 700; font-display: swap; src: url("./Inter-Bold-latin.woff2") format("woff2"); }

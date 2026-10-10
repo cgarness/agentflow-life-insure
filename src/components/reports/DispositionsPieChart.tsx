@@ -1,5 +1,4 @@
 import React, { useMemo } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportDispositions } from "@/lib/reports-schemas";
@@ -19,16 +18,16 @@ const FLAGS: { field: FlagField; label: string }[] = [
   { field: "appointment", label: "Appointment" },
 ];
 
-interface Slice {
+interface Share {
   key: string;
   name: string;
   color: string;
   calls: number;
   /** Share of total outbound calls as a percentage; null when there are no calls. */
   share: number | null;
-  flags: string[];
-  /** For the "Other" slice: how many dispositions it groups. */
-  grouped?: number;
+  /** The disposition's flags ("Contacted · Converts"), or for Other how many dispositions it groups. */
+  note: string;
+  grouped: boolean;
 }
 
 interface Props {
@@ -41,35 +40,36 @@ const pct = (part: number, whole: number): number | null => {
   return r === null ? null : r * 100;
 };
 
-const flagsOf = (d: DispositionRow): string[] => FLAGS.filter((f) => d[f.field]).map((f) => f.label);
+const flagsOf = (d: DispositionRow): string => FLAGS.filter((f) => d[f.field]).map((f) => f.label).join(" · ");
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
+const callsLabel = (n: number) => `${formatCount(n)} outbound ${n === 1 ? "call" : "calls"}`;
 
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: 8,
-  color: "hsl(var(--foreground))",
-};
-const textStyle = { color: "hsl(var(--foreground))" };
-
+/**
+ * Disposition breakdown (registry id conversion_funnel) — a ranked share list, not a donut: each row names
+ * its disposition in text, so identity never rests on colour (U-2). The configured colour is only a small
+ * recognition swatch; the share bar is the one accent. Shares are of all outbound calls in the period (the
+ * rule is in Data basis), so the rows plus Other add up to the header total.
+ */
 const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
   const total = dispositions.total_calls;
 
-  const slices = useMemo<Slice[]>(() => {
+  const rows = useMemo<Share[]>(() => {
     // Server order is calls DESC, so the first N rows are the top N by calls.
-    const rows = dispositions.by_disposition.filter((d) => d.calls > 0);
-    const top: Slice[] = rows.slice(0, TOP_N).map((d) => ({
+    const used = dispositions.by_disposition.filter((d) => d.calls > 0);
+    const top: Share[] = used.slice(0, TOP_N).map((d) => ({
       key: d.key,
       name: d.name,
       color: d.color,
       calls: d.calls,
       share: pct(d.calls, total),
-      flags: flagsOf(d),
+      note: flagsOf(d),
+      grouped: false,
     }));
-    const rest = rows.slice(TOP_N);
+    const rest = used.slice(TOP_N);
     if (rest.length > 0) {
       const calls = rest.reduce((s, d) => s + d.calls, 0);
-      top.push({ key: "__other__", name: "Other", color: OTHER_COLOR, calls, share: pct(calls, total), flags: [], grouped: rest.length });
+      const note = `${formatCount(rest.length)} more ${rest.length === 1 ? "disposition" : "dispositions"}`;
+      top.push({ key: "__other__", name: "Other", color: OTHER_COLOR, calls, share: pct(calls, total), note, grouped: true });
     }
     return top;
   }, [dispositions, total]);
@@ -95,78 +95,43 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
         )
     : undefined;
 
-  return (
-    <ReportSection title="Disposition Breakdown" onExport={handleExport}>
-      {total === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-12">No outbound calls in this period.</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-          <div className="relative">
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={slices} cx="50%" cy="50%" innerRadius={62} outerRadius={96} dataKey="calls" nameKey="name" paddingAngle={2} stroke="hsl(var(--card))">
-                  {slices.map((s) => (
-                    <Cell key={s.key} fill={s.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  labelStyle={textStyle}
-                  itemStyle={textStyle}
-                  formatter={(v: number, name: string, item: { payload?: Slice }) => [
-                    `${formatCount(v)} calls · ${formatRate(item.payload?.share)}`,
-                    name,
-                  ]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <p className="text-2xl font-black text-foreground tracking-tight">{formatCount(total)}</p>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">outbound calls</p>
-              </div>
-            </div>
-          </div>
+  const grouped = rows.some((r) => r.grouped);
 
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">
-              {slices.some((s) => s.grouped) ? `Top ${TOP_N} dispositions by calls` : "Dispositions by calls"}
-            </p>
-            <ul className="divide-y divide-border/60">
-              {slices.map((s) => (
-                <li key={s.key} className="flex items-center gap-3 py-2">
-                  {/* Swatch colour is the disposition's configured colour (data-driven). */}
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate">{s.name}</p>
-                    {(s.flags.length > 0 || s.grouped) && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {s.grouped ? (
-                          <span className="text-[10px] text-muted-foreground">{s.grouped} more dispositions</span>
-                        ) : (
-                          s.flags.map((f) => (
-                            <span
-                              key={f}
-                              className="text-[9px] font-black uppercase tracking-wider bg-muted text-muted-foreground px-1.5 py-0.5 rounded"
-                            >
-                              {f}
-                            </span>
-                          ))
-                        )}
-                      </div>
-                    )}
+  return (
+    <ReportSection title="Disposition breakdown" onExport={handleExport} meta={total > 0 ? callsLabel(total) : undefined}>
+      {total === 0 ? (
+        <p className="py-12 text-center text-sm text-muted-foreground">No outbound calls in this period.</p>
+      ) : (
+        <>
+          {grouped && <p className="mb-1 text-xs font-medium text-muted-foreground">Top {TOP_N} by calls</p>}
+          <ol aria-label="Dispositions by share of outbound calls" className="divide-y divide-border/50">
+            {rows.map((r) => (
+              <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem] items-center gap-x-3 py-2">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-start gap-2">
+                    {/* The configured disposition colour (data-driven) is a recognition swatch only. */}
+                    <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full ring-1 ring-border" style={{ backgroundColor: r.color }} />
+                    <span className="min-w-0 break-words text-sm font-medium leading-5 text-foreground">
+                      {r.name}
+                      {r.note && <> <span className="ml-1 text-[11px] font-normal text-muted-foreground">{r.note}</span></>}
+                    </span>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-foreground tabular-nums">{formatCount(s.calls)}</p>
-                    <p className="text-[11px] text-muted-foreground tabular-nums">{formatRate(s.share)}</p>
+                  <div aria-hidden="true" className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                    {/* Bar width is the row's share of outbound calls (data-driven). */}
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${r.share ?? 0}%` }} />
                   </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+                </div>
+                <span className="text-right text-sm font-medium tabular-nums text-foreground">
+                  {formatCount(r.calls)}<span className="sr-only"> {r.calls === 1 ? "call" : "calls"}</span>
+                </span>
+                <span className="text-right text-xs tabular-nums text-muted-foreground">
+                  {formatRate(r.share)}<span className="sr-only"> of outbound calls</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </>
       )}
-      {total > 0 && <p className="text-[11px] text-muted-foreground mt-3">Outbound calls by disposition; share is of all outbound calls in this period.</p>}
     </ReportSection>
   );
 };

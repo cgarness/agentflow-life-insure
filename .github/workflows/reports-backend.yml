@@ -64,7 +64,7 @@ jobs:
       - run: npm ci
       - name: Install pinned isolated browser tooling
         run: |
-          npm install --prefix "$RUNNER_TEMP/reports-browser" --no-save playwright@1.56.1 agent-browser@0.38.2
+          npm install --prefix "$RUNNER_TEMP/reports-browser" --no-save playwright@1.56.1 agent-browser@0.38.2 axe-core@4.10.2
           "$RUNNER_TEMP/reports-browser/node_modules/.bin/playwright" install --with-deps chromium
       - name: Real Reports page against native synthetic SQL payloads
         env:

@@ -7,7 +7,7 @@ export function buildStatComponents(inputs: StatInputs): Record<string, React.Re
   const components: Record<string, React.ReactNode> = {};
   computeAllStats(inputs).forEach((r, id) => {
     components[id] = (
-      <StatCard label={r.label} value={r.value} subtitle={r.subtitle} category={r.category} state={r.state} smallValue={r.smallValue} />
+      <StatCard label={r.label} value={r.value} subtitle={r.subtitle} category={r.category} state={r.state} smallValue={r.smallValue} noteTone={r.noteTone} />
     );
   });
   return components;
