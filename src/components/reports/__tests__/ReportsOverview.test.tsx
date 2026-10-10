@@ -15,6 +15,9 @@ const band = () => screen.getByRole("region", { name: "Production overview" });
 const policiesCell = () => within(screen.getByRole("article", { name: "Policies sold" }));
 const premiumCell = () => within(screen.getByRole("article", { name: "Known annual premium" }));
 const meter = (container: HTMLElement) => container.querySelector('[role="progressbar"]');
+const heroes = () => Array.from(band().querySelectorAll('[data-report-value="hero"]'));
+const bandAmounts = () => [...heroes(), ...Array.from(screen.getByRole("article", { name: "Known annual premium" }).querySelectorAll("dl dd"))];
+const layout = (container: HTMLElement) => container.querySelector("[data-hero-layout]")!.getAttribute("data-hero-layout");
 type AgentRow = ReportSummary["by_agent"][number];
 const agents = (...counts: [string, number][]): AgentRow[] => counts.map(([name, n], i) => ({ ...reportSummary().by_agent[i % 2], agent_id: i % 2 ? AGENT_B : AGENT_A, name, policies_sold: n }));
 
@@ -45,6 +48,8 @@ describe("Reports production band", () => {
     const allUnknown = { ...premium(5, 0), annual_premium: 0, monthly_premium: 0, average_annual_premium: 0 };
     const { container } = render(<ReportsOverview summary={ready(reportSummary({ premium: allUnknown }))} onRetry={vi.fn()} />);
     expect(premiumCell().getAllByText("Unavailable")).toHaveLength(2); // annual + known monthly
+    expect(heroes()[1]).toHaveTextContent("Unavailable");
+    expect(heroes()[1]).toHaveClass("whitespace-nowrap", "text-2xl", "text-muted-foreground", "md:text-3xl");
     expect(premiumCell().queryByText("$0.00")).not.toBeInTheDocument();
     expect(premiumCell().getByText("0 of 5 premiums known · 5 unknown excluded")).toBeInTheDocument();
     expect(premiumCell().getByText("Avg per known policy").closest("div")).toHaveTextContent("—"); // zero denominator
@@ -73,9 +78,40 @@ describe("Reports production band", () => {
     expect(premiumCell().getByText("$1,234,567,890.12", { selector: "[data-report-value]" })).toBeInTheDocument();
     expect(screen.getByText("$102,880,657.51")).toBeInTheDocument();
     expect(view.container.querySelector("[data-hero-layout]")).toHaveAttribute("data-hero-layout", "stacked");
+    // Full width when stacked: today's sizes, on one line.
+    expect(heroes()[0]).toHaveClass("whitespace-nowrap", "text-4xl", "md:text-5xl", "xl:text-[3.5rem]");
+    expect(heroes()[1]).toHaveClass("whitespace-nowrap", "text-3xl", "md:text-4xl", "xl:text-[3.5rem]");
     expect(view.container.textContent).not.toMatch(/previous|last period|[0-9]%/i);
     view.rerender(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
     expect(view.container.querySelector("[data-hero-layout]")).toHaveAttribute("data-hero-layout", "split"); // "$1,481.40"
+  });
+
+  it("never wraps a band amount mid-number: a long value gets a smaller size tier, a long premium stacks", () => {
+    const view = render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
+    expect(heroes().map((node) => node.textContent)).toEqual(["5", "$1,481.40"]);
+    expect(heroes()[0]).toHaveClass("text-4xl", "md:text-5xl", "xl:text-[3.5rem]", "text-foreground"); // today's sizes where they fit
+    expect(heroes()[1]).toHaveClass("text-3xl", "md:text-4xl", "xl:text-[3.5rem]", "text-foreground");
+    const long = { ...premium(5, 4), annual_premium: 140406, monthly_premium: 11700.5, average_annual_premium: 35101.5 };
+    view.rerender(<ReportsOverview summary={ready(reportSummary({ premium: long, policies_sold: 12345 }))} onRetry={vi.fn()} />);
+    expect(layout(view.container)).toBe("split"); // "$140,406.00" is 11 characters
+    expect(heroes().map((node) => node.textContent)).toEqual(["12,345", "$140,406.00"]);
+    expect(heroes()[0]).toHaveClass("text-2xl", "md:text-4xl", "xl:text-[3.5rem]");
+    expect(heroes()[0]).not.toHaveClass("text-4xl");
+    expect(heroes()[1]).toHaveClass("text-2xl", "md:text-4xl", "xl:text-[3.5rem]");
+    expect(heroes()[1]).not.toHaveClass("text-3xl");
+    view.rerender(<ReportsOverview summary={ready(reportSummary({ policies_sold: 1234 }))} onRetry={vi.fn()} />);
+    expect(heroes()[0]).toHaveTextContent("1,234");
+    expect(heroes()[0]).toHaveClass("text-3xl", "md:text-5xl");
+    for (const totals of [{ premium: long }, { premium: { ...long, annual_premium: 1234567890.12 } }, { premium: premium(5, 0) }]) {
+      view.rerender(<ReportsOverview summary={ready(reportSummary(totals))} onRetry={vi.fn()} />);
+      expect(bandAmounts()).toHaveLength(4); // both values, Known monthly and Avg per known policy
+      for (const node of heroes()) expect(node).toHaveClass("leading-none"); // kept after the size class
+      for (const node of bandAmounts()) {
+        expect(node).toHaveClass("whitespace-nowrap", "tabular-nums");
+        expect(node.className).not.toContain("overflow-wrap");
+      }
+      expect(heroes().every((node) => node.tagName === "P" && node.getAttribute("data-report-value") === "hero")).toBe(true);
+    }
   });
 
   it("withholds previous values during loading and error, and supports retry", () => {
