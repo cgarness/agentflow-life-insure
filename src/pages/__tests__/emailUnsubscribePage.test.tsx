@@ -10,6 +10,9 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 const state = vi.hoisted(() => ({ submit: vi.fn() }));
 
+// The real module is imported for its token schema; its Supabase client is never reached here,
+// and must not need VITE_SUPABASE_* to load.
+vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: vi.fn() } } }));
 vi.mock("@/lib/emailSubscriptions", async () => {
   const actual = await vi.importActual<typeof import("@/lib/emailSubscriptions")>("@/lib/emailSubscriptions");
   return { ...actual, submitUnsubscribe: (token: string) => state.submit(token) };

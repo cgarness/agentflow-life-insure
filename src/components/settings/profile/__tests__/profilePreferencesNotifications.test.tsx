@@ -27,6 +27,10 @@ vi.mock("next-themes", () => ({
 vi.mock("@/components/settings/profile/ProfileCallForwardingSection", () => ({
   ProfileCallForwardingSection: () => null,
 }));
+// The onboarding-tips switch also owns its data and save path (onboardingEmailPreference.test.tsx).
+vi.mock("@/components/settings/profile/OnboardingEmailPreference", () => ({
+  OnboardingEmailPreference: () => null,
+}));
 
 const requestPushPermission = vi.fn(async () => "granted" as const);
 vi.mock("@/contexts/NotificationContext", () => ({

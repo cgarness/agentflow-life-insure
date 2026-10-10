@@ -56,8 +56,10 @@
 
 **Production.** Read only. No migration applied, no function deployed, no secret, cron job, enrollment or email.
 
+**CI (draft PR #439).** The first run was green except `reports-frontend.yml`, which runs Vitest without `VITE_SUPABASE_*`. Two suites imported the real Supabase client through `emailSubscriptions.ts`. The fix is tests only: the page test mocks the client (repo precedent), and the existing preferences-card test stubs the switch, as it already stubs Call Forwarding. Reproduced and verified locally with the CI checker before pushing.
+
 **Next.**
-- Draft onboarding PR and its CI.
+- Green CI on #439, then mark it ready for review.
 - Chris's explicit merge approval.
 - Activation stays separately gated (plan §11); D12 (mailing address) blocks it.
 

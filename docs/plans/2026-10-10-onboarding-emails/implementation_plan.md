@@ -798,3 +798,16 @@ No SQL, frontend or shared-renderer change.
 - **Vite build:** exit 0, with no server-only secret names in `dist`.
 - **Whitespace:** a trailing blank line in `email-copy.md` would have failed the workflow's whitespace check; it is removed.
 - **Previews:** nine render locally.
+
+### 16.6 GitHub CI on draft PR #439
+
+**First run, on `fc1824c5`:** everything was green except `Reports frontend verification` / `frontend`.
+- **Green:** both `Onboarding emails` jobs (`postgres`: the SQL suite on PG 17.6; `verify`: Deno, previews, targeted vitest, lint, tsc, whitespace, build, bundle scan), plus `native`, `consent`, the other `verify` / `postgres` jobs, and Vercel previews.
+- **`Supabase Preview` was cancelled:** the integration is at its concurrent-branch limit, so no preview project exists.
+- **The failure:** that workflow runs Vitest **without** `VITE_SUPABASE_*`. Two suites loaded the real Supabase client through `emailSubscriptions.ts` and failed at import (`supabaseUrl is required`):
+  - `emailUnsubscribePage.test.tsx`;
+  - the existing `profilePreferencesNotifications.test.tsx`, which renders `ProfileNotificationsSection` and so now imports the switch.
+- **Fix (tests only):**
+  - The page test mocks `@/integrations/supabase/client`, as 131 other suites do.
+  - The preferences-card test stubs `OnboardingEmailPreference`, as it already stubs `ProfileCallForwardingSection`; the switch has its own suite.
+- **Before pushing:** reproduced without the env, saw both pass after the fix, and ran `scripts/verify_reports_frontend.py` locally against `main` `02ad8380` without the env.
