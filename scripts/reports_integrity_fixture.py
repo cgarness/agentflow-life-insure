@@ -6,6 +6,9 @@ def read(p):return (ROOT/p).read_text()
 def block(path,header):
  s=read(path);a=s.index(header);return s[a:s.index('\n$$;',a)+4]
 def clean(s):return re.sub(r'^\\.*\n','',s,flags=re.M)
+def migration(suffix,folder='supabase/migrations'):
+ # Version prefixes are renamed to the recorded production version after apply; the suffix stays unique.
+ paths=sorted((ROOT/folder).glob('*_'+suffix+'.sql'));assert len(paths)==1,suffix;return paths[0].read_text()
 def quote(s):return "$candidate$"+s+"$candidate$"
 def refused(sql,message):return "SELECT rt.expect_sql_failure("+quote(sql)+","+quote(message)+");"
 def payload_sql():
@@ -40,7 +43,16 @@ def steps():
  first=read('supabase/migrations/20261006043731_reports_integrity_readers.sql')
  second=read('supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql')
  disable=read('supabase/ops/reports_disable.sql')
- enable=read('supabase/ops/reports_integrity_enable.sql')
+ # The applied 20261006 release enable (historical pins) proves the shipped recovery path; the current ops
+ # enable carries the corrected overlap reader pin and is proven by the correction release steps below.
+ enable=read('supabase/migrations/20261006044003_reports_integrity_release_enable.sql')
+ corrected_enable=read('supabase/ops/reports_integrity_enable.sql')
+ release_disable=migration('reports_overlap_release_disable')
+ release_enable=migration('reports_overlap_release_enable')
+ correction=migration('reports_integrity_quality_overlap_seconds')
+ correction_rollback=migration('reports_integrity_quality_overlap_seconds.rollback','supabase/migrations/rollback')
+ assert release_disable==disable and release_enable==corrected_enable,'overlap release migrations must equal the reviewed ops sources'
+ quality="(SELECT md5(prosrc) FROM pg_proc WHERE oid='private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[])'::regprocedure)"
  yield 'migration order refusal',refused(second,'Reports shared-reader drift or order')
  yield 'shared-reader authorization drift refusal',refused('ALTER FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) SECURITY INVOKER;'+first,'Reports preimage or authorization drift')
  yield 'access authorization drift refusal',refused('ALTER FUNCTION private.report_access(uuid) SECURITY INVOKER;'+second,'Reports preimage or authorization drift')
@@ -58,6 +70,24 @@ def steps():
  yield 'new enable rejects inherited legacy grants',refused('CREATE ROLE reports_inherited_client NOLOGIN; GRANT reports_inherited_client TO authenticated; GRANT EXECUTE ON FUNCTION public.rpc_report_call_summary(uuid,timestamptz,timestamptz,uuid) TO reports_inherited_client;'+enable,'Reports integrity enable: effective privilege mismatch')+"SELECT rt.assert_sealed(false);"
  yield 'version-aware enable restores only verified v2',enable+"SELECT rt.assert_sealed(true);SELECT rt.eq('recovery result',rt.isummary()->'totals'->>'calls_made','5');SELECT rt.eq('recovery source unchanged',rt.source_fingerprint(),(SELECT fingerprint FROM rt.integrity_preimage));"
  yield 'synthetic volume and existing-index verification',read('supabase/tests/reports_integrity_performance.sql')
+ yield 'overlap correction fixture and payload preimage',read('supabase/tests/reports_integrity_overlap_fixture.sql')
+ yield 'overlap correction refuses an enabled Reports surface',refused(correction,'Reports overlap correction: Reports must be disabled first')+"SELECT rt.assert_sealed(true);"
+ yield 'overlap correction refuses reader drift',refused('ALTER FUNCTION private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[]) SECURITY DEFINER;'+release_disable+correction,'Reports overlap correction: preimage or authorization drift')
+ yield 'overlap correction refuses reader ACL drift',refused('GRANT EXECUTE ON FUNCTION private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[]) TO service_role;'+release_disable+correction,'Reports overlap correction: preimage or authorization drift')
+ yield 'overlap correction refuses session-reader drift',refused('ALTER FUNCTION private.report_session_seconds(uuid,timestamptz,timestamptz,uuid[]) SECURITY INVOKER;'+release_disable+correction,'Reports overlap correction: preimage or authorization drift')
+ yield 'corrected enable refuses the uncorrected reader',refused(release_disable+corrected_enable,'Reports integrity enable: unverified body')+"SELECT rt.assert_sealed(true);"
+ yield 'overlap release disables Reports only',release_disable+"SELECT rt.assert_sealed(false);"
+ yield 'overlap correction in the disabled window',correction+"SELECT rt.assert_sealed(false);SELECT rt.eq('corrected reader',"+quality+",'c1355d551fba0cc2217150f5531d1b31');"
+ yield 'overlap correction replay refuses',refused(correction,'Reports overlap correction: refusing replay')
+ yield 'historical enable refuses the corrected reader',refused(enable,'Reports integrity enable: unverified body')+"SELECT rt.assert_sealed(false);"
+ yield 'corrected enable rejects reader drift',refused('ALTER FUNCTION private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[]) SET search_path=public;'+corrected_enable,'Reports integrity enable: unverified body')+"SELECT rt.assert_sealed(false);"
+ yield 'corrected enable rejects inherited legacy grants',refused('CREATE ROLE reports_overlap_inherited_client NOLOGIN; GRANT reports_overlap_inherited_client TO authenticated; GRANT EXECUTE ON FUNCTION public.rpc_report_call_summary(uuid,timestamptz,timestamptz,uuid) TO reports_overlap_inherited_client;'+corrected_enable,'Reports integrity enable: effective privilege mismatch')+"SELECT rt.assert_sealed(false);"
+ yield 'corrected enable restores only verified v2',release_enable+"SELECT rt.assert_sealed(true);SELECT rt.overlap_compare();SELECT rt.eq('correction source unchanged',rt.source_fingerprint(),(SELECT fingerprint FROM rt.integrity_preimage));"
+ yield 'overlap correction assertions and controls',read('supabase/tests/reports_integrity_overlap.sql')
+ yield 'overlap rollback refuses an enabled Reports surface',refused(correction_rollback,'Reports overlap rollback: Reports must be disabled first')+"SELECT rt.assert_sealed(true);"
+ yield 'overlap rollback refuses reader drift',refused('ALTER FUNCTION private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[]) SECURITY DEFINER;'+release_disable+correction_rollback,'Reports overlap rollback: preimage or authorization drift')+"SELECT rt.assert_sealed(true);"
+ yield 'overlap rollback restores the exact preimage only while disabled',refused(release_disable+correction_rollback+"SELECT rt.eq('restored preimage',"+quality+",'d330c5bea75fb160a0f55e72ed2fe191');SELECT rt.expect_sql_failure($inner$"+correction_rollback+"$inner$,'Reports overlap rollback: refusing replay');SELECT rt.expect_sql_failure($inner$"+corrected_enable+"$inner$,'Reports integrity enable: unverified body');SELECT rt.assert_sealed(false);"+enable+"SELECT rt.assert_sealed(true);SELECT rt.overlap_compare(true);DO $proof$ BEGIN RAISE EXCEPTION 'overlap rollback proof rollback'; END $proof$;",'overlap rollback proof rollback')
+ yield 'corrected reader retained after the rollback proof',"SELECT rt.eq('corrected reader retained',"+quality+",'c1355d551fba0cc2217150f5531d1b31');SELECT rt.assert_sealed(true);SELECT rt.eq('final source unchanged',rt.source_fingerprint(),(SELECT fingerprint FROM rt.integrity_preimage));"
 if __name__=='__main__':
  data=list(steps())
  if '--payload-sql' in sys.argv:print(payload_sql())
