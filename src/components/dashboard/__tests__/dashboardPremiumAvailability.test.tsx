@@ -130,4 +130,11 @@ describe("Dashboard Monthly Premium goal (D14)", () => {
     h.current = { policies: 3, unknown_premiums: 1, annual_premium: 2400, monthly_premium: 200 };
     expect(await renderGoal()).toHaveTextContent("$200.00 / $5,000.00");
   });
+
+  it("policies sold with every premium known and totalling $0 keep a genuine $0.00", async () => {
+    h.current = { policies: 2, unknown_premiums: 0, annual_premium: 0, monthly_premium: 0 };
+    const row = await renderGoal();
+    expect(row).toHaveTextContent("$0.00 / $5,000.00");
+    expect(row).not.toHaveTextContent("Unavailable");
+  });
 });

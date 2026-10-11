@@ -441,4 +441,15 @@ describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
     expect(podiumValue("Casey")).not.toHaveTextContent("$0.00");
     expect(podiumValue("Blake")).toHaveTextContent("$3,600.00");
   });
+
+  it("podium: policies sold with every premium known and totalling $0 keep a genuine $0.00", () => {
+    const roster = [D14_ROSTER[0], D14_ROSTER[1], { ...D14_ROSTER[4], rank: 3 }, { ...D14_ROSTER[2], rank: 4 }];
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: roster };
+    render(<Leaderboard />);
+    const cards = [...new Set(screen.getAllByText(/^Emery/).map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent("$0.00");
+    expect(cards[0]).not.toHaveTextContent("—");
+    expect(premiumCell("Casey C.").textContent).toBe("—*"); // the all-unknown agent, now in the table
+  });
 });
