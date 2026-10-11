@@ -693,7 +693,17 @@ try {
   assert.match(premium, /(Average|Avg) annual premium\s*\$4,802\.00/);
   assert.equal(await premiumArticle().getByText('Partial', { exact: true }).count(), 1, 'Partial chip for a partly known premium');
   assert.ok(!/\d%/.test(await band().innerText()), 'no percentage in the production band');
-  assert.match(await page.getByRole('article', { name: 'Policies sold', exact: true }).innerText(), /8[\s\S]*Primary \+ additional policies/);
+  assert.equal((await page.getByRole('article', { name: 'Policies sold', exact: true }).locator('[data-report-value="hero"]').innerText()).trim(), '8', 'policies sold hero value');
+  assert.ok(!/Primary \+ additional/.test(await band().innerText()), 'no provenance line under the count');
+  // PB-13: no basis sentence in the band at any width (textContent includes width-hidden text); its footer row
+  // keeps only the band's own Data basis trigger, right-aligned.
+  assert.ok(!/Current book|×12|current agent/.test(await band().evaluate(node => node.textContent)), 'no basis sentence in the production band');
+  const bandFooter = await band().getByRole('button', { name: 'Data basis', exact: true }).evaluate(node => {
+    const row = node.parentElement, rowBox = row.getBoundingClientRect(), box = node.getBoundingClientRect();
+    return { text: row.textContent.trim(), gap: rowBox.right - box.right - parseFloat(getComputedStyle(row).paddingRight) };
+  });
+  assert.equal(bandFooter.text, 'Data basis', 'the band footer row holds only its Data basis trigger');
+  assert.ok(Math.abs(bandFooter.gap) <= 1, `the band's Data basis trigger is right-aligned ${JSON.stringify(bandFooter)}`);
   assert.match(await band().innerText(), /Most policies sold[\s\S]*Synthetic agent · 7 policies/, 'agency leader row');
   // Six-metric strip: exact labels and values, one duration format, data-quality cautions in place.
   for (const [id, label, value] of [['stat_total_dials', 'Calls made', '5'], ['stat_total_contacted', 'Contacted calls', '1'], ['stat_contact_rate', 'Call contact rate', '20.0%'],

@@ -525,8 +525,12 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
 
   it("the band has its own Data basis trigger", () => {
     renderPage();
+    // PB-13: no basis sentence on the band at any width; the rules (and the current-agent credit) are in the sheet.
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/);
     fireEvent.click(within(band()).getByRole("button", { name: "Data basis" }));
-    expect(within(screen.getByRole("dialog", { name: "Data basis" })).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
+    const sheet = screen.getByRole("dialog", { name: "Data basis" });
+    expect(within(sheet).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
+    expect(within(within(sheet).getByRole("region", { name: "Agent credit" })).getByText(/^Agent policy counts and premiums use the client's current assigned agent/)).toBeInTheDocument();
   });
 
   it("Campaign performance shows campaign-attributed policies and, in its tfoot, the policies with no provable campaign", () => {

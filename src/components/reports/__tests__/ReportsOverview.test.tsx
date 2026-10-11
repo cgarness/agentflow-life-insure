@@ -3,7 +3,8 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { AGENT_A, AGENT_B, emptySummary, policyQuality, premium, reportSummary } from "@/lib/__tests__/reportsFixtures";
 import type { LoadState } from "@/hooks/useReportsData";
 import type { ReportSummary } from "@/lib/reports-schemas";
-import { PERIOD_TOTALS_LINE, PRODUCTION_BASIS_BAR, PRODUCTION_BASIS_BAR_SHORT } from "@/lib/reports-basis-text";
+import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
+import type { LiveSummary } from "../ReportDataQuality";
 import ReportsOverview from "../ReportsOverview";
 import ReportsActivityFlow from "../ReportsActivityFlow";
 
@@ -25,7 +26,8 @@ describe("Reports production band", () => {
   it("preserves cents and shows coverage in words with a meter and a Partial chip (no percentage)", () => {
     const { container } = render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
     expect(policiesCell().getByText("5")).toHaveAttribute("data-report-value", "hero");
-    expect(policiesCell().getByText("Primary + additional policies")).toBeInTheDocument();
+    expect(policiesCell().queryByText("Primary + additional policies")).not.toBeInTheDocument();
+    expect(policiesCell().queryByText("No policies sold in this period.")).not.toBeInTheDocument(); // only for a successful zero
     const value = premiumCell().getByText("$1,481.40");
     expect(value.tagName).toBe("P"); // the money-clipping guard scans leaf <p> values
     expect(value).toHaveAttribute("data-report-value", "hero");
@@ -37,8 +39,7 @@ describe("Reports production band", () => {
     expect(premiumCell().getByText("Monthly premium").parentElement).toHaveTextContent("$123.45");
     expect(premiumCell().getByText("Average annual premium").closest("div")).toHaveTextContent("$370.35");
     expect(premiumCell().getByText("Avg annual premium")).toBeInTheDocument(); // the phone label
-    expect(screen.getByText(PRODUCTION_BASIS_BAR)).toBeInTheDocument();
-    expect(screen.getByText(PRODUCTION_BASIS_BAR_SHORT)).toBeInTheDocument();
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/); // no basis sentence at any width (PB-13)
     expect(band().textContent).not.toMatch(/%/);
     expect(container.querySelector("svg.lucide-shield-check, svg.lucide-circle-dollar-sign")).toBeNull(); // no hero icons
     expect(screen.queryByText(/excluded from amount|have a known premium/)).not.toBeInTheDocument();
@@ -136,6 +137,26 @@ describe("Reports production band", () => {
     const note = within(band()).getByText("Data quality across this scope, all dates (not only this period): 2 policies have no usable sale date and are not counted in any period; 1 additional-policy record could not be read.");
     expect(note.parentElement!.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
+
+  it("keeps only the band's own Data basis trigger, right-aligned in its footer row, and no basis sentence (PB-13)", () => {
+    const live: LiveSummary = { status: "ready", data: reportSummary() };
+    const view = render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
+    const card = () => band().firstElementChild!;
+    // Before the scope resolves there is no trigger and no empty footer row.
+    expect(within(band()).queryByRole("button", { name: "Data basis" })).not.toBeInTheDocument();
+    for (const row of Array.from(card().children)) expect(row.textContent).not.toBe("");
+    view.rerender(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} dataBasis={{ summary: live, timeZone: "America/Los_Angeles", today: "2026-07-20" }} />);
+    const trigger = within(band()).getByRole("button", { name: "Data basis" });
+    const footer = trigger.parentElement!;
+    expect(footer.parentElement).toBe(card());
+    expect(footer.lastElementChild).toBe(trigger);
+    expect(footer.textContent).toBe("Data basis");
+    expect(footer).toHaveClass("justify-end");
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/);
+    fireEvent.click(trigger);
+    const credit = within(screen.getByRole("dialog", { name: "Data basis" })).getByRole("region", { name: "Agent credit" });
+    expect(within(credit).getByText(CURRENT_ASSIGNMENT_NOTE)).toBeInTheDocument();
+  });
 });
 
 describe("Most policies sold (from the same summary)", () => {
@@ -168,16 +189,19 @@ describe("Most policies sold (from the same summary)", () => {
 });
 
 describe("Period totals", () => {
-  it("shows five independent totals with their date basis, no arrows and no funnel rate", () => {
+  it("shows five independent totals, no arrows and no funnel rate", () => {
     const { container } = render(<ReportsActivityFlow summary={ready(reportSummary({ calls_made: 1, contacted: 1, appointments_set: 9, converted: 2, policies_sold: 15 }))} onRetry={vi.fn()} />);
     const section = screen.getByRole("region", { name: "Period totals" });
     expect(section).toHaveAttribute("aria-labelledby", "report-totals-title");
     const labels = ["Calls made", "Contacted calls", "Appointments", "Converted leads/clients", "Policies sold"];
     expect(Array.from(container.querySelectorAll("dt")).map((node) => node.textContent)).toEqual(labels);
     expect(Array.from(container.querySelectorAll("dt + dd")).map((node) => node.textContent)).toEqual(["1", "1", "9", "2", "15"]);
-    expect(Array.from(container.querySelectorAll("dd + dd")).map((node) => node.textContent))
-      .toEqual(["by call date", "by call date", "by date created", "distinct people · by call date", "by sale date"]);
-    expect(screen.getByText(PERIOD_TOTALS_LINE)).toBeInTheDocument();
+    // Only Appointments keeps its basis: the count is bookings created in the period, not appointments scheduled in it.
+    expect(Array.from(container.querySelectorAll("dd + dd")).map((node) => node.textContent)).toEqual(["by date created"]);
+    expect(screen.getByText("by date created").parentElement!.querySelector("dt")).toHaveTextContent("Appointments");
+    expect(container.textContent).not.toMatch(/by call date|by sale date|distinct people/);
+    expect(screen.queryByText("Independent period totals, not one cohort.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Period totals" })).toHaveAttribute("id", "report-totals-title");
     expect(screen.queryByText(/moving through a funnel/)).not.toBeInTheDocument(); // the full statement is in Data basis
     expect(container.querySelector("svg")).toBeNull(); // no ArrowRight between independent totals
     expect(container.textContent).not.toContain("%");

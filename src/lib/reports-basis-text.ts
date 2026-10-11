@@ -34,10 +34,6 @@ export const DIALS_PER_BOOKING_NOTE = "Dials per booking = calls made ÷ booking
 export const CONVERTED_NOTE = "Converted leads/clients counts distinct people given an outbound call with a converting disposition (one whose pipeline stage converts the lead to a client).";
 export const NOT_A_POLICY_COUNT_NOTE = "It is not a policy count, and Reports has no conversion rate.";
 
-/** The production band's basis bar (data-basis C2; C3 is the phone form). The full rules are in the sheet. */
-export const PRODUCTION_BASIS_BAR = "Current book · stored policies by sale date · monthly premium ×12 · client's current agent";
-export const PRODUCTION_BASIS_BAR_SHORT = "Current book · sale date · monthly ×12 · current agent";
-
 /** Some, but not all, premiums are known: the amount is real but covers only part of the cohort (C7 "Partial"). */
 export const isPartialPremium = (p: ReportPremium) => p.known_count > 0 && p.known_count < p.policy_count;
 
@@ -72,9 +68,6 @@ export function policyLeaderText(byAgent: ReportSummary["by_agent"]): string | n
   if (!top) return null;
   return top.tied > 1 ? `${formatCount(top.tied)} agents tied · ${policyCount(top.policies)} each` : `${top.name} · ${policyCount(top.policies)}`;
 }
-
-/** The one line Period totals keeps on screen (data-basis C29: the first sentence of PERIOD_TOTALS_NOTE). */
-export const PERIOD_TOTALS_LINE = "Independent period totals, not one cohort.";
 
 /** Moved verbatim from the Period totals (formerly "Activity and production") card. */
 export const PERIOD_TOTALS_NOTE = "These are independent period totals, not one cohort moving through a funnel. Calls and conversions use call creation dates; bookings use booking creation dates; policies use their sale dates. Conversions count distinct identities on converting outbound calls, with campaign-lead or call identity used when a contact identity is missing. No stage-to-stage conversion rate is implied.";

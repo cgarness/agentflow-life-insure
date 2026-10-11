@@ -3,7 +3,7 @@ import type { LoadState } from "@/hooks/useReportsData";
 import type { ReportSummary } from "@/lib/reports-schemas";
 import { formatCount, formatPremium } from "@/lib/reports-format";
 import { heroValueSize, isLongPremium } from "@/lib/reports-hero-size";
-import { PRODUCTION_BASIS_BAR, PRODUCTION_BASIS_BAR_SHORT, policyLeaderText } from "@/lib/reports-basis-text";
+import { policyLeaderText } from "@/lib/reports-basis-text";
 import { policyQualityNote } from "@/lib/reports-policy-text";
 import { cn } from "@/lib/utils";
 import ReportPanelState from "./ReportPanelState";
@@ -67,9 +67,7 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                   <p data-report-value="hero" className={cn("mt-1 text-foreground md:mt-2", heroValueSize("count", count, stacked), HERO)}>
                     {count}
                   </p>
-                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
-                    {policiesSold === 0 ? "No policies sold in this period." : "Primary + additional policies"}
-                  </p>
+                  {policiesSold === 0 && <p className="mt-2 text-xs text-muted-foreground md:text-sm">No policies sold in this period.</p>}
                 </article>
                 {stacked && leaderRow}
                 <article aria-label="Annual premium"
@@ -104,13 +102,12 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                   <span className="min-w-0">{policyQuality}</span>
                 </p>
               )}
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 bg-muted/20 px-4 py-2 text-xs text-muted-foreground md:px-6">
-                <p className="min-w-0">
-                  <span className="sm:hidden">{PRODUCTION_BASIS_BAR_SHORT}</span>
-                  <span className="hidden sm:inline">{PRODUCTION_BASIS_BAR}</span>
-                </p>
-                {dataBasis && <DataBasisButton {...dataBasis} className="shrink-0" />}
-              </div>
+              {/* The basis rules are only in the sheet; this row holds just the band's own trigger. */}
+              {dataBasis && (
+                <div className="flex items-center justify-end border-t border-border/60 bg-muted/20 px-4 py-2 md:px-6">
+                  <DataBasisButton {...dataBasis} />
+                </div>
+              )}
             </div>
           );
         }}

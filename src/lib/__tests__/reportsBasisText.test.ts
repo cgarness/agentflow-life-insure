@@ -169,12 +169,17 @@ describe("live data quality = the summary CSV's own sentences", () => {
   });
 });
 
-describe("production band and Period totals captions (C2, C3, C6, C7, C10, C29)", () => {
-  it("are the approved wording", () => {
-    expect(basis.PRODUCTION_BASIS_BAR).toBe("Current book · stored policies by sale date · monthly premium ×12 · client's current agent");
-    expect(basis.PRODUCTION_BASIS_BAR_SHORT).toBe("Current book · sale date · monthly ×12 · current agent");
-    expect(basis.PERIOD_TOTALS_LINE).toBe("Independent period totals, not one cohort.");
+describe("production band and Period totals captions (C6, C7, C10; C2, C3 and C29 removed in Part B)", () => {
+  it("the band's basis bar and the Period totals line are gone; the sheet keeps the cohort statement and the credit basis", () => {
+    expect(basis).not.toHaveProperty("PRODUCTION_BASIS_BAR");
+    expect(basis).not.toHaveProperty("PRODUCTION_BASIS_BAR_SHORT");
+    expect(basis).not.toHaveProperty("PERIOD_TOTALS_LINE");
     expect(basis.PERIOD_TOTALS_NOTE.startsWith("These are independent period totals, not one cohort")).toBe(true);
+    const sections = basis.dataBasisSections(null);
+    expect(sections.find((s) => s.key === "totals")!.paragraphs).toContain(basis.PERIOD_TOTALS_NOTE);
+    expect(sections.find((s) => s.key === "credit")!.paragraphs).toContain(CURRENT_ASSIGNMENT_NOTE);
+    expect(sections.find((s) => s.key === "premium")!.paragraphs).toContain(PREMIUM_BASIS);
+    expect(sections.find((s) => s.key === "policies")!.paragraphs).toContain(POLICY_SOURCE_NOTE);
   });
 
   it.each([
