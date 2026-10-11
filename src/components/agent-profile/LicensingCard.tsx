@@ -92,7 +92,6 @@ export const LicensingCard: React.FC<LicensingCardProps> = ({
   return (
     <ProfileSection
       title="State licensing"
-      description="Recorded state licences, the source of truth for where you can write."
       action={
         <Button
           variant="outline"

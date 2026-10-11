@@ -60,7 +60,7 @@ export const PolicyTypeMixCard: React.FC<PolicyTypeMixCardProps> = ({
   const total = slices.reduce((sum, s) => sum + s.policies, 0);
 
   return (
-    <ProfileSection title={title} description="Share of the book by product type.">
+    <ProfileSection title={title}>
       {error ? (
         <MetricUnavailable title="Policy mix couldn't load" onRetry={onRetry} />
       ) : isLoading || !rows ? (

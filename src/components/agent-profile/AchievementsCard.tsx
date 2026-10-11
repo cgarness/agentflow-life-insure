@@ -154,10 +154,7 @@ export const AchievementsCard: React.FC<AchievementsCardProps> = ({
     : [];
 
   return (
-    <ProfileSection
-      title={isTeam ? "Team achievements" : "Lifetime achievements"}
-      description="Career records, derived from recorded policy and dialing history."
-    >
+    <ProfileSection title={isTeam ? "Team achievements" : "Lifetime achievements"}>
       {error ? (
         <MetricUnavailable title="Achievements couldn't load" onRetry={onRetry} />
       ) : isLoading || !stats ? (

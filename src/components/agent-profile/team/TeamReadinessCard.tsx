@@ -86,7 +86,6 @@ export const TeamReadinessCard: React.FC<TeamReadinessCardProps> = ({
   return (
     <ProfileSection
       title="Team readiness"
-      description="How much of the team is fully set up to write business."
       action={
         stats && !error && percent !== null ? (
           <span className="text-sm font-medium tabular-nums text-muted-foreground">

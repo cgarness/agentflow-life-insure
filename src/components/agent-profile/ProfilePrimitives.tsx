@@ -34,7 +34,7 @@ export const ProfileSection: React.FC<{
 }> = ({ title, description, action, className, children }) => (
   <Card className={cn("border-border/60 bg-card shadow-sm", className)}>
     <CardContent className="p-5 sm:p-6">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div className={cn("mb-5 flex flex-wrap justify-between gap-3", description ? "items-start" : "items-center")}>
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
           {description && (

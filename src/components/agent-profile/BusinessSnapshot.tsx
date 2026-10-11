@@ -15,7 +15,6 @@
 import React from "react";
 import { Building2, FileText, MapPin, Users, Wallet } from "lucide-react";
 import {
-  DefinitionHint,
   MetricUnavailable,
   ProfileSection,
   StatTile,
@@ -68,7 +67,6 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             icon={<Users className="h-4 w-4" />}
             label={`${prefix}Clients`}
             value={formatCount(stats.totalClients)}
-            hint="People on the book."
             caveat={
               stats.clientsWithoutPolicyDetail > 0
                 ? `${formatCount(stats.clientsWithoutPolicyDetail)} with no policy details recorded`
@@ -85,7 +83,7 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
                 ? `Includes ${formatCount(stats.additionalPolicyCount)} additional ${
                     stats.additionalPolicyCount === 1 ? "policy" : "policies"
                   } beyond the primary one.`
-                : "Primary policy per client, plus any additional policies recorded."
+                : undefined
             }
             caveat={
               stats.malformedAdditionalPolicies > 0
@@ -100,7 +98,6 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
             icon={<Wallet className="h-4 w-4" />}
             label={`${prefix}Monthly Premium`}
             value={formatMonthlyCurrency(stats.totalPremiumMonthly)}
-            hint="Sum of the monthly premium recorded on each policy. Not annualized."
             caveat={
               stats.policiesMissingPremium > 0
                 ? `${formatCount(stats.policiesMissingPremium)} ${
@@ -128,16 +125,6 @@ export const BusinessSnapshot: React.FC<BusinessSnapshotProps> = ({
 
           {extraTile}
         </div>
-      )}
-
-      {stats && !error && (
-        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-          Lifetime totals from the{" "}
-          <DefinitionHint text="A policy is the primary policy stored on a client record, plus any additional policies recorded against that client. There is no separate policies table, and policy sale events (wins) are not used here — they freeze values at the moment of sale and miss manually created or imported clients.">
-            book of business
-          </DefinitionHint>
-          . For performance over a date range, see Reports.
-        </p>
       )}
     </ProfileSection>
   );

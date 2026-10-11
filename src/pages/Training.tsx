@@ -73,9 +73,6 @@ const Training: React.FC = () => {
             <GraduationCap className="h-6 w-6 text-primary" />
             Training Center
           </h1>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">
-            Knowledge Library
-          </p>
         </div>
 
         <div className="space-y-4">
@@ -132,9 +129,6 @@ const Training: React.FC = () => {
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
             <h2 className="text-2xl font-bold tracking-tight">{activeCategoryName}</h2>
-            <p className="text-muted-foreground text-sm">
-              Viewing {filteredResources.length} resources in {activeCategoryName}
-            </p>
           </div>
           
           <div className="flex items-center gap-3">
@@ -175,9 +169,6 @@ const Training: React.FC = () => {
               <Search className="h-8 w-8 text-muted-foreground/50" />
             </div>
             <h3 className="text-lg font-semibold">No results found</h3>
-            <p className="text-muted-foreground max-w-xs mt-1 text-sm">
-              We couldn't find any resources matching your criteria in this category.
-            </p>
           </div>
         )}
 

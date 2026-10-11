@@ -51,10 +51,7 @@ export const TeamCoverageCard: React.FC<TeamCoverageCardProps> = ({
   const maxAgents = stats?.topStates.reduce((acc, s) => Math.max(acc, s.agents), 0) ?? 0;
 
   return (
-    <ProfileSection
-      title="Licensing coverage"
-      description="Where the team is licensed to write."
-    >
+    <ProfileSection title="Licensing coverage">
       {error ? (
         <MetricUnavailable title="Coverage couldn't load" onRetry={onRetry} />
       ) : isLoading || !stats ? (

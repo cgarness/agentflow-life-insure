@@ -203,7 +203,9 @@ describe("the real figures render with their definitions attached", () => {
     expect(screen.getByText("$681.07")).toBeTruthy();
     // Never 681.07 x 12.
     expect(screen.queryByText("$8,172.84")).toBeNull();
-    expect(screen.getByText(/Not annualized\./)).toBeTruthy();
+    // The tile title names the unit; the "Not annualized." hint is deleted (Part B, PB-33).
+    expect(screen.getByText("Monthly Premium")).toBeTruthy();
+    expect(screen.queryByText(/Not annualized/)).toBeNull();
     expect(screen.getByText(/1 policy has no premium recorded/)).toBeTruthy();
     expect(screen.getByText(/Includes 2 additional policies/)).toBeTruthy();
   });
