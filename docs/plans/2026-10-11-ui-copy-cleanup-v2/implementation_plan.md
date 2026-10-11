@@ -1199,3 +1199,149 @@ These are not copy cleanup. Each needs its own decision or task; nothing here is
 - No change to the Campaigns table structure. The onboarding series stays INACTIVE. The manual SMS composer is unchanged, and the purpose dropdown is not restored.
 - No change to user-authored content: ticker text, scripts, templates, campaign descriptions and resource descriptions.
 - No push of Part B code, merge, production deploy, bypass/share token or access change without its own approval.
+
+### §17.11 Approved Part B (Chris, 2026-10-11): decisions, overrides and the final file list, recorded before any application edit
+
+**Authority.** Chris approved implementing Part B as planned in §17 and `reconciliation.md` (reviewed plan head `572b15487a4fb789e7322ca63c9d5bf72c58173c`), with the overrides below.
+- **Also approved:** updating draft PR #440 and its normal protected preview with the completed, locally verified Part B work, plus narrowly scoped CI corrections.
+- **Not approved:** a production merge or deploy, backend changes, onboarding activation, a protection bypass, a share token, or an access change.
+- **No further mapping or audit round.** Base `main` was re-fetched before this record and is still `e11c8bea`; the PR head is `572b154`. No other open PR changed since the last check, and PR #440 has no reviews or review comments.
+
+**Decisions.** Every PB recommendation in §17.5 is accepted, except for these overrides and clarifications.
+
+- **PB-10 (overrides "delete").** The routine legacy-unknown provenance commentary goes.
+  - Real estimate or conflict limitations stay as concise conditional feedback, only where the metric they affect is shown.
+  - The shared on-screen notes become, in order and only when non-zero:
+    - "Annual premium (N policies with unknown premium)" (Part A wording, unchanged);
+    - "Talk time includes {e} estimated[ and {c} conflicting] call duration(s)", shown only when `estimated_duration_calls + conflicting_duration_calls > 0`, on the Leaderboard page and TV (both display Talk Time);
+    - "Outside active roster: …" (unchanged).
+  - `unknown_duration_calls`, which counts the `legacy_unknown` default, never triggers or appears in any note.
+  - The Dashboard widget (no Talk Time) gets only the outside-roster note.
+  - The snapshot fields, validation, calculations and `leaderboardCsv` are unchanged.
+- **PB-13 (overrides "Credited to…").** The permanent basis sentence is removed from the production band at every width. `PRODUCTION_BASIS_BAR` and `PRODUCTION_BASIS_BAR_SHORT` are deleted; they are screen-only constants.
+  - The band keeps its existing Data basis button, right-aligned, in the existing compact footer row. There is no text, no empty row and no added spacing.
+  - The full current-agent attribution stays in the sheet's Agent credit section (`CURRENT_ASSIGNMENT_NOTE`).
+- **PB-15 (overrides "retained").** One screen-only definition is added to the Policies sold section of the CURRENT Data basis sheet, as a new constant in `src/lib/reports-basis-text.ts` rendered by the existing `dataBasisSections()`. It states that:
+  - "Dials per policy sold" and "Talk minutes per policy sold" divide the period's calls made or talk minutes by the dated stored policies sold in the same period;
+  - they are period ratios, available only for the whole organization with no agent filter;
+  - they are not original-seller efficiency.
+  - The two formula subtitles are then deleted (B3-07, B3-08). The organization-only restriction (`POLICY_RATIO_SCOPE_REASON`), the unavailable reasons, the denominators and the values are unchanged.
+  - No CSV-shared or SHA-pinned constant changes, and export output is unchanged.
+- **PB-33 (overrides "shorten").** The Monthly Premium tile hint is deleted entirely; "Not annualized." goes too.
+  - The title names the unit.
+  - Monthly arithmetic (no ×12), the "{n} policies have no premium recorded" caveat and the lifetime-scope text stay.
+  - The two copy assertions are retargeted to negatives, and the arithmetic guards stay.
+- **PB-1 (scope).** The `aria-describedby={undefined}` opt-out applies only to the four redundant descriptions: B5-09, B5-23, B5-28 and B5-53.
+  - Accessible titles, existing screen-reader text, meaningful context and destructive-action consequences are preserved.
+  - There is no change to the shared `dialog.tsx` or `sheet.tsx` primitives.
+- **PB-19 and PB-22 (separately reviewable UI-state bugfixes).**
+  - **`QueueExhaustedNotice`** gets local state ownership. State is keyed by `campaignId` (loading / ready / error), and a previous campaign's row or response never drives the new campaign's heading, error state or next-eligible time.
+    - Tests cover: initial loading; successful empty and non-empty diagnostics; failure after a previous success; a campaign switch while mounted; a late response from the previous campaign; and preservation of the distinct queue states and next-eligible time.
+    - No change to eligibility, claiming, locks, retry rules, licensing, the RPC contract, polling or dialing.
+  - **The other listed fixes** each distinguish a failed load from a successful empty result without inventing data: B4-43 FloatingDialer Recent, B4-66 CampaignHeatmap, B4-67 the CampaignDetail filtered-empty message, and B4-65 the campaigns-fetch toast.
+  - The broader deferred loading defects in §17.9 are not bundled in.
+- **PB-21 (scope).** Only the two user-facing toast strings in `TwilioContext.tsx` change (B4-46, B4-64), in their own commit.
+  - `device.connect()`, every re-entrancy guard, call creation/status/disposition, telemetry, logs, error codes and connection logic are untouched.
+  - The source-pinned and telephony suites run.
+- **PB-26 (scope).** Only the decorative `ReputationAiScanner` mount and its import are removed. Signal and status data are untouched.
+
+**Final file list.** Edits stay inside it. If an existing test turns out to pin approved copy, its file is added to a dated deviation list in this section before the commit that touches it.
+
+*Application source, 102 files (98 from the inventory, plus 4 implied by the decisions):*
+- **Area 1.** `src/components/dashboard/{DashboardDetailModal,DashboardRefreshButton,StatCards}.tsx` and `src/components/dashboard/widgets/GoalProgressWidget.tsx`.
+- **Area 2.** `src/lib/leaderboardExport.ts`, `src/pages/Leaderboard.tsx`, `src/components/leaderboard/TVMode.tsx` and `src/components/dashboard/widgets/LeaderboardWidget.tsx`.
+- **Area 3.**
+  - `src/components/reports/{ReportsOverview,ReportsActivityFlow,CommunicationsStats,AgentEfficiency,CallVolumeChart,CallDurationAnalysis,CallFlowAnalysis}.tsx`;
+  - `src/lib/stat-computations.ts`;
+  - **`src/lib/reports-basis-text.ts`** (implied by B3-01, B3-03 and PB-15).
+- **Area 4.**
+  - `src/components/dialer/{CampaignSelection,QueueExhaustedNotice,QueuePanelLocked}.tsx` and `src/components/dialer/campaignSettingsSchema.ts`;
+  - `src/pages/{DialerPage,CampaignDetail}.tsx`;
+  - `src/components/layout/FloatingDialer.tsx`;
+  - `src/contexts/TwilioContext.tsx` (two strings);
+  - `src/hooks/useDialerSession.ts`;
+  - `src/components/campaigns/CampaignHeatmap.tsx`.
+- **Area 5.**
+  - `src/pages/{Conversations,Contacts,CalendarPage}.tsx`;
+  - `src/components/messaging/MessageTemplatesPickerModal.tsx`;
+  - `src/components/contacts/{ContactsFilterModal,FullScreenContactView,TasksPanel,ConvertLeadModal,ImportLeadsModal}.tsx`;
+  - `src/components/calendar/AppointmentModal.tsx`.
+- **Area 6a** (profile, users, permissions, branding, menu links, agency group, phone, inbound, recording, monitoring).
+  - `src/pages/SettingsPage.tsx` and `src/components/settings/SettingsRenderer.tsx`;
+  - `src/components/settings/profile/{ProfileInfoCard,ProfileStateLicensesCard,ProfileGoalsCard,ProfilePasswordCard}.tsx` and `src/components/settings/ProfileCarriersSection.tsx`;
+  - `src/components/settings/user-management/{UserManagementHeader,PendingInvitesTable}.tsx`;
+  - `src/components/settings/{Permissions,CompanyBranding,CustomMenuLinks}.tsx`;
+  - `src/components/settings/agency-group/{AgencyGroupNoGroup,AgencyGroupLeaderView,AgencyGroupResourceList}.tsx`;
+  - **`src/components/settings/PhoneSystem.tsx`** (implied: B6-42 under PB-25);
+  - `src/components/settings/phone/{TrustHubSection,TrustHubRegistrationPanel,NumberManagementSection,LocalPresenceSection,NumberGroupsSection,PhoneNumberRoutingModal}.tsx` and `src/components/settings/phone/a2p/A2pRegistration.tsx`;
+  - `src/components/settings/{NumberReputation,InboundRoutingManager,CallRecordingSettings,CallMonitoring}.tsx`;
+  - `src/components/settings/inbound-routing/InboundV2Section.tsx`;
+  - `src/components/settings/state-licenses/StateLicensesSection.tsx`.
+- **Area 6b** (scripts, dispositions, contact flow, calendar, workflows, templates, carriers, activity log, Super Admin, Control Center).
+  - `src/components/settings/{CallScripts,DispositionsManager,ContactManagement,CalendarSettings,EmailSMSTemplates,Carriers,ActivityLog}.tsx`;
+  - `src/components/settings/call-scripts/CallScriptsList.tsx`;
+  - `src/components/workflows/WorkflowList.tsx`;
+  - `src/components/workflows/panels/ActionConfigPanel.tsx`, plus **`WaitConfigPanel.tsx`** and **`ConditionConfigPanel.tsx`** (implied: B6-106 covers all three panels);
+  - `src/pages/{SuperAdminDashboard,SuperAdminOrgDetail}.tsx`;
+  - `src/components/super-admin/provisioning/ProvisioningPanel.tsx` and `src/components/super-admin/system/SystemMonitoringTab.tsx`;
+  - `src/pages/control-center/ControlCenter{Overview,Features,Issues,Runtime,Tracker,Health}Page.tsx`.
+- **Area 7.**
+  - `src/pages/{Resources,Training}.tsx`;
+  - `src/components/resources/AgencyResourceCard.tsx` and `src/components/training/ResourceCard.tsx`;
+  - `src/components/agent-profile/{AgentProfileTab,BusinessSnapshot,ReadinessCard,PolicyTypeMixCard,LicensingCard,CarrierAppointmentsCard,AchievementsCard,ProfilePrimitives}.tsx`;
+  - `src/components/agent-profile/team/{TeamReadinessCard,TeamCoverageCard}.tsx`.
+- **Not edited.** `ProfileNotificationsSection.tsx` (PB-31, retained), `OnboardingEmailPreference.tsx`, the Campaigns table components, `MessageComposePanel.tsx`, the `ui/` primitives, the hooks other than `useDialerSession.ts`, and everything under `supabase/`.
+
+*Existing tests and test support to change (retarget, never delete or weaken):*
+- **Area 1.** `src/components/dashboard/__tests__/{dashboardCallbacks.test.ts,dashboardRefresh.test.tsx,dashboardPremiumAvailability.test.tsx,dashboardPremiumLabels.test.tsx}`.
+- **Area 2.**
+  - `src/lib/__tests__/performanceContract.test.ts`;
+  - `src/components/dashboard/__tests__/leaderboardWidget.test.tsx`;
+  - `src/pages/__tests__/leaderboardPage.test.tsx`;
+  - `src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx`;
+  - `src/test/fixtures/performance.ts` (an optional `excluded` override, defaulting to zeros).
+- **Area 3.**
+  - `src/components/reports/__tests__/{ReportsOverview.test.tsx,reportTrendCharts.test.tsx,reportsDialerIntelligence.test.tsx,reportsTables.test.tsx,reportsDataBasis.test.tsx}`;
+  - `src/lib/__tests__/{reportsBasisText.test.ts,reportStatComputations.test.ts}`;
+  - `src/pages/__tests__/reportsPage.test.tsx`.
+- **Area 4.** `src/components/dialer/__tests__/campaignSelectionTable.test.tsx` and `src/components/layout/__tests__/floatingDialerDisposition.test.tsx`.
+- **Area 5.** `src/pages/__tests__/{contactsImportHistoryTab.test.tsx,conversationsViewAs.test.tsx}`.
+- **Area 7.** `src/components/agent-profile/__tests__/{profileStates.test.tsx,profileContracts.test.ts}`.
+
+*New tests:*
+- `src/components/dialer/__tests__/queueExhaustedNotice.test.tsx` (PB-19);
+- `src/components/layout/__tests__/floatingDialerRecentStates.test.tsx` (B4-43);
+- `src/components/campaigns/__tests__/campaignHeatmapStates.test.tsx` (B4-66);
+- `src/pages/__tests__/campaignDetailLeadFilterEmpty.test.tsx` (B4-67);
+- `src/components/contacts/__tests__/redundantDialogDescriptions.test.tsx` (PB-1: B5-09, B5-23, B5-28, B5-53);
+- `src/pages/__tests__/settingsPageHeading.test.tsx` (B6-01, B6-02, B6-42);
+- `src/components/settings/__tests__/numberReputationGuide.test.tsx` (B6-64, B6-65);
+- `src/components/training/__tests__/resourceCardMeta.test.tsx` (B7-17).
+
+*Browser-gate harness (test tooling, not app code):*
+- `scripts/tests/reports-visual/verify.mjs` (B3-02 at :696; the PB-13 band row);
+- `scripts/tests/leaderboard-visual/{verify.mjs,entry.tsx,README.md}` (B2-01, B2-03, and the PB-10 note).
+
+*Docs and records:*
+- this plan;
+- `reconciliation.md` (implemented status per ID);
+- `AGENT_RULES.md` (the #40 on-screen notes bullet after :494, matching PB-10 exactly; the Reports sentence after :666, matching PB-13 and PB-15 exactly);
+- `docs/plans/2026-10-09-reports-refresh-audit/data-basis-wording.md` (the Part B formula-line table, with rows matching the final text, including C2/C3 removed and the new PB-15 sheet sentence);
+- `docs/plans/2026-10-09-reports-refresh-audit/assertion-diff.md` (a dated O21 note);
+- the root `implementation_plan.md`;
+- `WORK_LOG.md`;
+- `docs/plans/2026-10-11-ui-copy-cleanup-v2/evidence/csv-capture/`: the capture and compare scripts, the fixture identities (payload sha256, served roots and SHAs) and both hash manifests, so the 61-export comparison can be reproduced.
+
+**Commit boundaries.**
+1. C0: this record (docs).
+2. C1: Area 1.
+3. C2: Area 2 and its gate harness.
+4. C3a: band and Period totals (PB-13). C3b: strip subtitles and the PB-15 sheet definition. C3c: panel lines and the Reports gate.
+5. C4: Dialer and Campaigns copy. C4a: the `TwilioContext.tsx` toast strings. C4b: the UI-state bugfixes (PB-19, PB-22).
+6. C5: Area 5.
+7. C6a, C6b: Area 6.
+8. C7: Area 7.
+9. C8: the rule and record amendments.
+10. C9: the evidence, the reconciliation status, WORK_LOG and the context snapshot.
+
+Implementation runs in isolated worktrees, area by area. Commits are integrated onto this branch in this order without rewriting existing history.
