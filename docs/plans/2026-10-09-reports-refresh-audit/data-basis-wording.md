@@ -143,3 +143,28 @@ Module placement:
 - `policyExportNotes` and `integrityExportNotes` bodies are untouched, and the campaign-note split is byte-identical.
 - **One exception, owner-approved:** the R-3 correction inside `qualityNotes` (IT:12) changes the "Sessions assessed…" Note in every panel's CSV whenever `overlapping_rows = 0` and seconds > 0. That is true today in every window: 3 → 0 for W1.
 - A new must-pass test, `src/lib/__tests__/reportsBasisText.test.ts`, pins the SHA-256 of POLICY_SOURCE_NOTE, CURRENT_ASSIGNMENT_NOTE, CAMPAIGN_ATTRIBUTION_NOTE and PREMIUM_BASIS, plus golden `policyExportNotes`/`integrityExportNotes` outputs for the existing fixtures (unchanged) and one new rows-0/seconds-3 fixture (corrected).
+
+---
+
+## V2 simple-label amendment (2026-10-11; approved by Chris)
+
+This section **supersedes** the display wording in the rows listed below. The rows above are kept as the shipped history.
+
+The change is display wording only. Definitions, calculations, denominators, attribution, metric ids, the registry identity, CSV headers and every CSV Note constant are unchanged. Plan: `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §16.
+
+| Row | Was | Now |
+|---|---|---|
+| B2.1 | Data basis section "Known annual premium" | "Annual premium". Its paragraphs (`PREMIUM_BASIS` and the premium notes) are unchanged. |
+| B5.1 | Section "Bookings created (all types)"; `BOOKINGS_NOTE` "Bookings created (all types) counts every booking, of any type, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user)." | Section "Appointments"; `BOOKINGS_NOTE` (screen-only) "Appointments counts every booking of any type, including callbacks, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it "Bookings created (all types)"." |
+| C8/C9 | "Known monthly" / "Avg per known policy" (mobile "Avg / known policy") | "Monthly premium" / "Average annual premium" (mobile "Avg annual premium"). "Unavailable" and "—" behave as before. |
+| C10 | Leader row "Most policies — current assignments" | "Most policies sold", on the band and the `stat_top_performer` tile together. The tie format is unchanged. The single-leader tile subtitle reads "{n} policies", as on the band. |
+| C22 | Trend panel caption "Known annual premium" | "Annual premium". The chart name "Annual premium by {unit}" and the key list "Annual premium key" follow. |
+| C27 | Tooltip `dt` "Known annual premium"; readout "…; known annual premium $X; …" | "Annual premium"; "…; annual premium $X; …". The limitation lines "Known premium unavailable for this period." and "Gap = known premium unavailable, not $0" stay verbatim (D13). |
+| C30 | Period totals label "Bookings created (all types)" | "Appointments". The caption "by date created" is unchanged. |
+
+Other screen labels renamed by the same approval:
+- the agent tables use "Policies sold", "Annual premium" and "Appointments";
+- the campaign table uses "Attributed policies", "Annual premium" and "Premium coverage";
+- the registry labels are "Annual premium", "Average annual premium", "Appointments" and "Most policies sold".
+
+Kept: "Call contact rate" (D2) and "Dials per booking" (D6). The Data basis live data-quality list still shows the CSV Note sentences verbatim ("Known annual premium $…", "Bookings created (all types): N; …"), so screen and CSV stay identical by design.
