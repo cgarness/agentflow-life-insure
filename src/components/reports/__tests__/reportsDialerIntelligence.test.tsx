@@ -237,7 +237,8 @@ describe("Call flow and Call duration captions", () => {
     expect(pressed(group)).toEqual([["By hour", "true"], ["By day", "false"]]);
     expect(screen.getByText("Calls made")).toHaveClass("text-xs", "font-medium", "text-muted-foreground");
     expect(screen.getByText("Call contact rate")).toHaveClass("text-xs", "font-medium", "text-muted-foreground");
-    expect(screen.getByText("Hours and days are in the agency time zone; a bucket with no calls shows no call contact rate.")).toBeInTheDocument();
+    expect(screen.getByText("Hours and days are in the agency time zone.")).toBeInTheDocument();
+    expect(screen.queryByText(/a bucket with no calls/)).not.toBeInTheDocument(); // the tooltip says it per bucket
     expect(container.innerHTML).not.toMatch(/uppercase|tracking-widest|font-black/);
     fireEvent.click(within(group).getByRole("button", { name: "By day" }));
     expect(pressed(group)).toEqual([["By hour", "false"], ["By day", "true"]]);
@@ -246,14 +247,18 @@ describe("Call flow and Call duration captions", () => {
     expect(onExport.mock.calls[0][2]).toContainEqual(["Fri", 5, 1, 20]);
   });
 
-  it("Call duration: segmented view, plain insight text and the one-line footnote", () => {
+  it("Call duration: segmented view and plain insight text, with no provenance footnote", () => {
     render(<CallDurationAnalysis dispositions={reportDispositions()} />);
     open("Call duration");
-    expect(pressed(screen.getByRole("group", { name: "Call duration view" }))).toEqual([["By disposition", "true"], ["Distribution", "false"]]);
+    const group = screen.getByRole("group", { name: "Call duration view" });
+    expect(pressed(group)).toEqual([["By disposition", "true"], ["Distribution", "false"]]);
     const insight = screen.getByText(/^Calls with a converting disposition averaged/);
     expect(insight.className).toBe("mt-3 text-xs text-muted-foreground"); // no tinted box
-    expect(screen.getByText("Stored outbound call durations; estimates and unknown provenance are listed in Data basis.")).toBeInTheDocument();
+    expect(screen.queryByText(/^Stored outbound call durations/)).not.toBeInTheDocument();
     expect(screen.getByText("Average duration")).toHaveClass("text-xs", "font-medium");
+    fireEvent.click(within(group).getByRole("button", { name: "Distribution" }));
+    expect(screen.getByText("Calls by duration")).toBeInTheDocument();
+    expect(screen.queryByText(/^Stored outbound call durations/)).not.toBeInTheDocument();
   });
 });
 
@@ -269,6 +274,9 @@ describe("Call summary", () => {
     expect(screen.getAllByRole("term").map((dt) => dt.textContent)).toEqual([
       "Calls made", "Inbound calls", "Contacted calls", "Call contact rate", "Talk time", "Avg talk time per dial", "Calls made per day", "Inbound talk time",
     ]);
+    // The definition and formula subtitles are gone (B3-21 to B3-24); only the per-day tile keeps its period length.
+    expect(Array.from(document.querySelectorAll("dd + dd")).map((dd) => dd.textContent)).toEqual(["Over 31 days"]);
+    expect(screen.queryByText(/Outbound dials|reached a contact|Contacted calls ÷|On calls made/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Export Call summary CSV" }));
     const t = summary.totals;
     expect(onExport).toHaveBeenCalledWith("Call Summary", ["Metric", "Value"], [

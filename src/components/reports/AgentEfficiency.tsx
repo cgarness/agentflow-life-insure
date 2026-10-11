@@ -130,7 +130,6 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
               })}
             </tbody>
           </ReportTableFrame>
-          <p className="mt-3 text-xs text-muted-foreground">Calls per session hour = session-matched calls ÷ session hours.</p>
           <AgentEfficiencyScatter points={points} />
         </>
       )}

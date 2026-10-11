@@ -218,7 +218,9 @@ describe("Agent efficiency", () => {
     const alice = cellsByHeader(table, within(table).getByRole("row", { name: /^Alice Agent/ }));
     // 9 matched calls over 9000 s (2.5 h) = 3.6 calls per session hour.
     expect(alice).toMatchObject({ "Calls made": "10", "Session time": "2h 30m 0s", "Session-matched calls": "9", "Calls per session hour": "3.6", "Talk time": "4m 24s" });
-    expect(screen.getByText("Calls per session hour = session-matched calls ÷ session hours.")).toBeInTheDocument();
+    // The Session-matched calls column explains the rate beside it; the formula footnote is gone (B3-26).
+    expect(screen.queryByText(/^Calls per session hour = /)).not.toBeInTheDocument();
+    expect(screen.getByText("Calls per session hour vs call contact rate")).toBeInTheDocument(); // the scatter still follows the table
     expect(screen.queryByText(CURRENT_ASSIGNMENT_NOTE, { exact: false })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Export Agent efficiency CSV" }));
     const [report, csvHeaders, rows] = onExport.mock.calls[0];

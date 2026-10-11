@@ -115,9 +115,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
                 dot={{ r: 3, fill: SERIES_COLOR, strokeWidth: 0 }} activeDot={CHART_THEME.activeDot} connectNulls={false} isAnimationActive={false} />
             </LineChart>
           </TrendPanel>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Hours and days are in the agency time zone; a bucket with no calls shows no call contact rate.
-          </p>
+          <p className="mt-3 text-xs text-muted-foreground">Hours and days are in the agency time zone.</p>
         </>
       )}
     </ReportSection>

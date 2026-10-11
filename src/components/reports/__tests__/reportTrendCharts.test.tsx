@@ -139,7 +139,12 @@ describe("Calling trend", () => {
     ]);
     render(<CallVolumeChart volume={volume} grouping="weekly" onExport={onExport} />);
     expect(chart.data[0]).toMatchObject({ calls_made: 10, contacted: 1, inbound_calls: 60, contact_rate_pct: 10 });
-    expect(screen.getByText("1 contacted ÷ 10 outbound calls")).toBeInTheDocument();
+    // On screen, the tooltip's Call contact rate is the combined 1 ÷ 10 = 10.0%, not the 50% average of the daily rates.
+    expect(screen.getByText("Call contact rate", { selector: "dt" }).nextElementSibling).toHaveTextContent(/^10\.0%$/);
+    expect(screen.getByText("10.0%")).toBeInTheDocument();
+    expect(screen.queryByText("50.0%")).not.toBeInTheDocument();
+    expect(screen.queryByText(/contacted ÷/)).not.toBeInTheDocument(); // the tooltip rows already show both operands
+    expect(screen.queryByText("No outbound calls; rate unavailable.")).not.toBeInTheDocument();
     expect(screen.getByTestId("axis-rate")).toHaveAttribute("data-domain", "[0,10]"); // zero-based nice max, not 0–100
     expect(screen.getByText("60 inbound calls (not in call contact rate)")).toBeInTheDocument();
     expect(screen.queryByText(/outbound calls · .* call contact rate/)).not.toBeInTheDocument(); // no duplicate totals line
