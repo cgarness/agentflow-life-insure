@@ -1,3 +1,99 @@
+## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented and verified locally (not pushed, not deployed); Part B still blocked
+
+**Request and approval.** Chris approved the isolated Part A implementation with decisions D1–D14 (2026-10-11).
+- **Not approved:** publication, any preview, a production release, backend changes and email activation.
+- **Plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §16, with the review-driven additions in §16.1.
+
+**Base and branch.**
+- Local branch `claude/ui-copy-cleanup-v2-20261011`, verified code head `f6420bb` (this WORK_LOG commit follows, docs only).
+- Base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched 2026-10-11. The local `main` ref is stale at `8d53531` and was not used.
+- There is no concurrent work; the open PRs are unchanged, and #429 is not merged.
+- **Not pushed.** There is no PR, preview or deployment.
+
+**Commits** (planning commits `7967e84`, `cd10c4e`, `4c8e13d`, `946f929` and `f6420bb` record the plan and records only):
+
+| Commit | Content |
+|---|---|
+| `5587d3a` | Reports labels, tests and browser-gate selectors |
+| `9fd72ef` | CRM labels, `METRIC_DISPLAY_LABEL` and tests |
+| `cb14cfa` | Approved display-wording amendments (AGENT_RULES §4 #38 and the Reports refresh amendment; dated addendum in `data-basis-wording.md`) |
+| `74219dc` | D14, presentation-only |
+| `f23a987` | D14 follow-up for Settings › User Management › Goals, found by the review pass |
+| `0c62756` | D14 test strengthening, test-only |
+
+**What changed (display wording only, unless marked D14).**
+
+*Reports (sentence case):*
+- Band: "Annual premium" (title and accessible name), "Monthly premium", and "Average annual premium" ("Avg annual premium" on phones).
+- Leader row and tile: "Most policies sold". The tie rule is unchanged; the single-leader subtitle reads "{n} policies".
+- Agent tables: "Policies sold", "Annual premium" and "Appointments".
+- Campaign table: "Attributed policies", "Annual premium" and "Premium coverage". The tfoot keys moved in lockstep.
+- Period totals and strip: "Appointments".
+- Trends: caption, chart name, series, key list, tooltip and readout all say "Annual premium".
+- Data basis: the "Annual premium" and "Appointments" section titles. The screen-only `BOOKINGS_NOTE` now says appointments include callbacks, counted by creation date, and that exports call them "Bookings created (all types)".
+
+*CRM (Title Case):*
+- Dashboard: the "Annual Premium" card, the "Annual Premium" and "Scheduled Appointments" drill-down titles, and a win row that reads "$X annual premium" or "Premium unknown" (previously "Premium unknown annualized").
+- Leaderboard and TV: the selector, podium, deep-rank and ranking title show "Annual Premium", "Appointments" and "Policies / 100 Calls" through a display map over the unchanged ids. The selector keeps `value={id}` and gains `aria-label="Metric"`. The main table reads Calls Made, Policies Sold and Appointments; the TV keeps its short headings (D9). Recent Wins and the shared caption say "annual premium", and the roster disclosure says "appointments".
+- Settings: the user tab reads Appointments and Policies / 100 Calls; the agent modal reads Monthly Calls Goal and Monthly Appointments Goal.
+- CampaignDetail: "Leads Called" and "Leads Called Over Time" (D10).
+
+*D14:* a premium amount shows "Unavailable" (Dashboard card and goal widget) or "—" (Leaderboard and TV cells, the roster total, Settings Goals) only when that row or period's own counts show `policies > 0` and every premium unknown. These are the same unit: `performance_rows` counts the wins in the window and the wins with a NULL sale-time premium.
+- A premium comparison is suppressed when either period is wholly unknown.
+- Preserved: no policies keeps $0.00, known premiums totalling $0 stay $0.00, partial coverage keeps its subtotal and markers, and loading, failed and stale stay distinct.
+- The amount alone never decides. Sorting, ranks, payloads, CSV and queries are unchanged.
+
+**Unchanged.**
+- CSV headers, values and Note constants (the SHA pins pass), metric ids, the TV stored index, the registry identity, the six-metric cap and the default layout.
+- Payloads, RPCs and migrations; calculations, denominators, attribution and sorting.
+- "Call contact rate" and "Dials per booking".
+- Untouched files: Campaigns table, onboarding (series INACTIVE), manual SMS, telephony (`TwilioContext`, `twilio-voice`, Dialer) and hooks.
+
+**Verification against the exact base `e11c8bea`** (fixture and local only; no signed-in acceptance):
+- `scripts/verify_reports_frontend.py` on head `f6420bb`, run with `REPORTS_BASE_SHA` and a detached base worktree. Every comparison passed: no new app tsc diagnostic; root tsc equal; no new failed suite or test; no new unhandled runtime error; strict Reports set exit 0; changed-file ESLint exit 0; production build exit 0. Passing tests: base 5,039, candidate 5,079 (+40 new).
+- `npx tsc --noEmit`: 0. `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics on both base and candidate, with an identical set. `git diff --check e11c8bea`: clean.
+- The same 10 test files fail on both sides. Nine fail at setup because `VITE_SUPABASE_*` is unset (no Supabase URL/key in this environment); the tenth, `recordingRetentionVoicemail`, has one pre-existing failing test. Run with CI's synthetic env, the dialer suites pass. These are not an allowlist.
+- CI-equivalent targeted suites, with synthetic env:
+  - dialer and telephony: 40 files, 514 tests;
+  - SMS consent, campaigns and onboarding: 23 files, 641 tests;
+  - SMS consent and settings, re-run on the final head: 17 files, 163 tests;
+  - Reports: 27 files, 407 tests;
+  - Leaderboard, TV and Dashboard: all pass.
+- **Reports browser gate.** Evidence path: "embedded SQL + real browser", not native PostgreSQL. Pinned Playwright 1.56.1, agent-browser 0.38.2 and axe-core 4.10.2.
+  - Base and candidate each pass all 22 checks.
+  - axe reports 0 violations, light and dark, at 390 and 1440 px.
+  - The 13 CSV downloads are identical between base and candidate in every header, Note row and value; the only differing line is the "Generated" timestamp (normalized SHA-256: 13 of 13 equal).
+  - Layout is identical at 1440 px. At 390 px the hero values are unchanged, and the strip ends 23 px higher (845 vs 868) because "Appointments" no longer wraps.
+- **Leaderboard and TV visual gate:** passes at every TV size, metric and period switch, and roster size.
+- **D14 proof.** Every all-unknown test fails on the pre-D14 tree (`cb14cfa`), and every no-policy, genuine-zero, partial, loading and failed case passes before and after. A scratch mutation that infers from `amount === 0` fails 7 tests.
+- **Not run:**
+  - native PostgreSQL scripts (no SQL changed);
+  - the 74-file CSV golden capture (its tool is not committed; the 13 live exports are byte-identical apart from the timestamp);
+  - signed-in production acceptance (not approved; no production users, calls or messages were created).
+
+**Separate review pass.** Four lenses with adversarial verifiers: correctness, V2 compliance, test quality, newer-work preservation. No blocker. Four minor findings were fixed: the Settings Goals D14 gap, the TV rank assertion, the missing genuine-$0 cases and stale plan status lines. One was refuted (CampaignDetail empty-state text is outside D10).
+
+**Observations, not changed.**
+- At 390 px the approved phone label "Avg annual premium" wraps to two lines. The budget still passes.
+- The profile Business Snapshot "Monthly Premium" (lifetime current book) can show $0.00 when every policy lacks a premium. It uses different evidence and needs its own decision.
+- The CampaignDetail empty state "No contact activity yet" is optional copy.
+- Pre-existing: the Leaderboard and TV "*" marker is title-only, CampaignDetail Contacted/Converted read stored counters (AGENT_RULES :126), and the Dashboard stat cards are not keyboard-operable.
+
+**Migrations and deploys.** None. Supabase was not contacted. Vercel was used only for read-only sandbox and snapshot metadata; no deploy.
+
+**Blockers, Part B (open deliverable, not complete).**
+- The named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` returns `403 forbidden` (create on `vercelRun`) for both resume and isolated create. It was not retried through other endpoints or credentials.
+- The archive `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (SHA-256 `dad1cca7…`) was not received.
+- The 2026-10-11 attachment `AgentFlow_Cleanup_References_All_In_One.md` did not reach this session (uploads and attach are empty), so the original audit could not be classified.
+- Snapshots: `snap_E9Lz…` expires 2026-10-18 02:48 UTC; `snap_Vw08…` expires 2026-10-15.
+- D11 deferred items (formula, basis and helper lines) belong to Part B.
+
+**Next.**
+1. Chris re-uploads the references file and the archive, or grants this session sandbox start access. Then classify the audit groups (still needed, already satisfied, superseded, retained) and bring a Part B file list for approval.
+2. Publication of this branch (push, PR, protected preview) needs Chris's separate approval.
+
+---
+
 ## 2026-10-10 — Onboarding email series: final review, PR #438 merged, redaction correction, rebased (still INACTIVE)
 
 **Request.** Chris asked for a final review, PR closeout and merge preparation, with the onboarding series kept fully DISABLED through any merge and automatic Vercel deploy. Detail: `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md` §16.
