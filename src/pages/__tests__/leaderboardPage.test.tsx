@@ -401,3 +401,44 @@ describe("rev 1.2 review: no spinner while offline", () => {
     expect(screen.queryByLabelText("Refreshing")).not.toBeInTheDocument();
   });
 });
+
+describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
+  // Ranks come from the data and stay as given; only the displayed premium changes.
+  const D14_ROSTER: AgentStats[] = [
+    agent({ id: "bbbb0000-0000-0000-0000-000000000001", first_name: "Avery", last_name: "Adams", policiesSold: 4, premiumSold: 4800, unknownPremiums: 0, rank: 1 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000002", first_name: "Blake", last_name: "Brooks", policiesSold: 3, premiumSold: 3600, unknownPremiums: 1, rank: 2 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000003", first_name: "Casey", last_name: "Cole", policiesSold: 2, premiumSold: 0, unknownPremiums: 2, rank: 3 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000004", first_name: "Drew", last_name: "Dunn", policiesSold: 2, premiumSold: 0, unknownPremiums: 2, rank: 4 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000005", first_name: "Emery", last_name: "Ellis", policiesSold: 1, premiumSold: 0, unknownPremiums: 0, rank: 5 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000006", first_name: "Finley", last_name: "Fox", policiesSold: 0, premiumSold: 0, unknownPremiums: 0, rank: 6 }),
+  ];
+  const premiumCell = (name: string) =>
+    (screen.getByText(name).closest('[role="row"]') as HTMLElement).querySelectorAll('[role="cell"]')[4] as HTMLElement;
+
+  it("full rankings: all-unknown shows — with its marker; partial keeps the subtotal; genuine and empty zeros stay $0.00", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    render(<Leaderboard />);
+    expect(premiumCell("Drew D.").textContent).toBe("—*");
+    expect(premiumCell("Drew D.").querySelector("[title]")).toHaveAttribute("title", "2 policies have unknown premium");
+    expect(premiumCell("Emery E.").textContent).toBe("$0.00"); // a known $0 premium
+    expect(premiumCell("Finley F.").textContent).toBe("$0.00"); // no policies
+    const rows = Array.from(document.querySelectorAll('[role="rowgroup"] [role="row"]')).map((r) => r.querySelectorAll('[role="cell"]')[0].textContent);
+    expect(rows).toEqual(["4", "5", "6"]); // order and ranks unchanged
+  });
+
+  it("podium: an all-unknown premium reads —, a partial one keeps its amount", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    render(<Leaderboard />);
+    // One podium card per agent: the card root is the rounded flex column that carries the metric caption.
+    const podiumValue = (first: string) => {
+      const cards = [...new Set(screen.getAllByText(new RegExp(`^${first}`))
+        .map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
+      expect(cards).toHaveLength(1);
+      expect(cards[0]).toHaveTextContent("annual premium");
+      return cards[0];
+    };
+    expect(podiumValue("Casey")).toHaveTextContent("—");
+    expect(podiumValue("Casey")).not.toHaveTextContent("$0.00");
+    expect(podiumValue("Blake")).toHaveTextContent("$3,600.00");
+  });
+});

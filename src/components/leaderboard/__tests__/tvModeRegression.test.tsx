@@ -70,3 +70,39 @@ describe("TV simple labels over unchanged metric ids",()=>{
   expect(screen.queryByText(/Premium Sold|Appointments Set/)).toBeNull();
  });
 });
+describe("D14 on TV: a wholly unknown premium is never shown as a $0 sale",()=>{
+ const agentRow=(i:number,over:Partial<AgentStats>):AgentStats=>({id:`d14-${i}`,first_name:`Name${String.fromCharCode(65+i)}`,last_name:"Test",rank:i+1,
+  callsMade:10,policiesSold:1,appointmentsSet:0,talkTime:0,conversionRate:0,premiumSold:0,unknownPremiums:0,recentWins7d:0,...over});
+ const premiumView=async(rows:AgentStats[])=>{
+  localStorage.setItem("leaderboardTvAutoRotate","0");localStorage.setItem("leaderboardTvMetricIndex","5"); // the "Premium Sold" id
+  render(view(rows));await act(async()=>{});
+ };
+ const totalsPremium=()=>within(screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement).getByText("Annual Premium").parentElement as HTMLElement;
+ const podiumCard=(id:string)=>screen.getByTestId("tv-podium").querySelector(`[data-agent-id="${id}"]`) as HTMLElement;
+ it("podium: all-unknown reads —, a known amount and a no-policy $0.00 stay; the roster total keeps its subtotal",async()=>{
+  await premiumView([agentRow(0,{policiesSold:2,premiumSold:2400}),agentRow(1,{policiesSold:2,unknownPremiums:2}),agentRow(2,{policiesSold:0})]);
+  expect(podiumCard("d14-0")).toHaveTextContent("$2,400.00");
+  expect(podiumCard("d14-1")).toHaveTextContent("—");
+  expect(podiumCard("d14-1")).not.toHaveTextContent("$0.00");
+  expect(podiumCard("d14-2")).toHaveTextContent("$0.00");
+  expect(totalsPremium()).toHaveTextContent("$2,400.00");
+ });
+ it("totals: a roster whose every premium is unknown reads —, never $0.00",async()=>{
+  await premiumView([agentRow(0,{policiesSold:2,unknownPremiums:2}),agentRow(1,{policiesSold:1,unknownPremiums:1})]);
+  expect(totalsPremium()).toHaveTextContent("—");
+  expect(totalsPremium()).not.toHaveTextContent("$0.00");
+ });
+ it("ranking table and ranks 11+: all-unknown rows read — (with the table's marker); ranks are unchanged",async()=>{
+  const rows=Array.from({length:12},(_,i)=>i<9?agentRow(i,{policiesSold:1,premiumSold:(9-i)*100}):agentRow(i,{policiesSold:2,unknownPremiums:2}));
+  await premiumView(rows);
+  const tableRow=within(screen.getByTestId("tv-rankings")).getByText("NameJ T.").parentElement!.parentElement as HTMLElement;
+  expect(tableRow).toHaveTextContent("10");
+  expect(tableRow).toHaveTextContent("—*");
+  expect(within(screen.getByTestId("tv-rankings")).getByText("NameI T.").parentElement!.parentElement).toHaveTextContent("$100.00");
+  const deep=screen.getByText("Ranks 11+").closest("div")!.parentElement as HTMLElement;
+  for(const name of ["NameK T.","NameL T."]){
+   const item=within(deep).getByText(name).closest("li") as HTMLElement;
+   expect(item).toHaveTextContent("—");expect(item).not.toHaveTextContent("$0.00");
+  }
+ });
+});

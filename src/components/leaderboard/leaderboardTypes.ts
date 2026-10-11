@@ -1,4 +1,5 @@
 import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 export type Period = "Today" | "This Week" | "This Month";
 export type Metric =
@@ -123,6 +124,13 @@ export const metricLabel = (m: Metric): string => {
       return "annual premium";
   }
 };
+
+/**
+ * The value a Leaderboard/TV cell shows for one agent: null ("—") when the agent sold policies in the period but
+ * every premium is unknown (D14), never a $0 sale. Sorting and ranks keep using the raw row values.
+ */
+export const displayedMetricValue = (m: Metric, agent: AgentStats): number | null =>
+  m === "Premium Sold" && isPremiumWhollyUnknown(agent.policiesSold, agent.unknownPremiums) ? null : (agent[metricKey(m)] as number);
 
 export const formatMetricValue = (m: Metric, val: number | null): string => {
   if (val === null) return "—";

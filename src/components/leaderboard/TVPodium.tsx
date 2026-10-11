@@ -5,7 +5,7 @@ import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
 import { metalConfig } from "./tvPodiumMetal";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type Metric, METRIC_DISPLAY_LABEL, metricKey, formatMetricValue } from "./leaderboardTypes";
+import { type AgentStats, type Metric, METRIC_DISPLAY_LABEL, displayedMetricValue, formatMetricValue } from "./leaderboardTypes";
 import { type RankMotionKind, podiumEnterInitial, tvGlideTransition, tvPodiumEnterTransition, tvPodiumExitTransition } from "./leaderboardRankMotion";
 interface Props {
   agents: AgentStats[]; metric: Metric;
@@ -14,7 +14,6 @@ interface Props {
   spotlightAgentId?: string | null; newLeaderId?: string | null;
 }
 export default function TVPodium({agents, metric, tvRankMotions, tvRankAnimations, spotlightAgentId, newLeaderId}: Props) {
-  const key = metricKey(metric);
   return (
           <div data-testid="tv-podium" className={`mx-auto mt-8 flex h-[280px] w-full max-w-[72rem] shrink-0 items-end justify-center gap-4 pb-4 [@media(min-height:900px)]:h-[320px] md:gap-6`}>
             {([2, 1, 3] as const).map((slotRank) => {
@@ -23,7 +22,7 @@ export default function TVPodium({agents, metric, tvRankMotions, tvRankAnimation
 
               const mc = metalConfig(slotRank);
               const isFirst = slotRank === 1;
-              const metricNumeric = a ? (a[key] as number) : 0;
+              const metricNumeric = a ? displayedMetricValue(metric, a) : 0;
               const motionKind = a ? tvRankMotions.get(a.id) ?? "none" : "none";
               const useLayoutGlide = motionKind === "glide";
               const rankGlow = a ? tvRankAnimations.get(a.id) : undefined;

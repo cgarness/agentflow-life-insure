@@ -1,4 +1,5 @@
 import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import { Phone, ShieldCheck, Calendar, TrendingUp } from "lucide-react";
 import { StatData } from "@/hooks/useDashboardStats";
 import type { DashboardSectionState } from "@/hooks/useDashboardSection";
@@ -41,6 +42,11 @@ const StatCards: React.FC<StatCardsProps> = ({
     return now > prev ? "up" : now < prev ? "down" : "neutral";
   };
 
+  // Every premium in a period unknown: that amount is unavailable, not a $0 sale (D14). A comparison needs both periods.
+  const perf = data?.performance;
+  const premiumUnavailable = !!perf && isPremiumWhollyUnknown(perf.current.policies, perf.current.unknown_premiums);
+  const previousPremiumUnavailable = !!perf && isPremiumWhollyUnknown(perf.previous.policies, perf.previous.unknown_premiums);
+
   const cards = [
     {
       id: "calls_today",
@@ -77,8 +83,8 @@ const StatCards: React.FC<StatCardsProps> = ({
     {
       id: "premium_sold",
       label: "Annual Premium",
-      value: data?.premiumThisMonth != null ? formatPremiumSold(data.premiumThisMonth) : null,
-      trend: trendOf(data?.premiumThisMonth, data?.premiumLastMonth),
+      value: premiumUnavailable ? "Unavailable" : data?.premiumThisMonth != null ? formatPremiumSold(data.premiumThisMonth) : null,
+      trend: premiumUnavailable || previousPremiumUnavailable ? null : trendOf(data?.premiumThisMonth, data?.premiumLastMonth),
       icon: TrendingUp,
       gradient: "premium-gradient-amber",
       shadow: "shadow-amber-500/20",

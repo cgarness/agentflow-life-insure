@@ -3,7 +3,7 @@ import { LayoutGroup, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import LeaderboardPodiumCard from "@/components/leaderboard/LeaderboardPodiumCard";
 import type { AgentStats, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { metricKey } from "@/components/leaderboard/leaderboardTypes";
+import { displayedMetricValue } from "@/components/leaderboard/leaderboardTypes";
 import type { RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
 import { PODIUM_GRID_CLASS, PODIUM_SLOT_RANKS } from "@/components/leaderboard/podiumLayout";
 
@@ -97,7 +97,7 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
                     key={agent.id}
                     agent={agent}
                     metric={metric}
-                    metricNumeric={agent[metricKey(metric)] as number}
+                    metricNumeric={displayedMetricValue(metric, agent)}
                     view={view}
                     userId={userId}
                     metal={mc}

@@ -7,7 +7,7 @@ import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlig
 import { tvTableRowLayoutTransition } from "@/components/leaderboard/leaderboardRankMotion";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
 import type { AgentStats, Metric } from "@/components/leaderboard/leaderboardTypes";
-import { METRIC_DISPLAY_LABEL, formatMetricValue, metricKey } from "@/components/leaderboard/leaderboardTypes";
+import { METRIC_DISPLAY_LABEL, displayedMetricValue, formatMetricValue } from "@/components/leaderboard/leaderboardTypes";
 
 interface TVDeepRankPanelProps {
   agents: AgentStats[];
@@ -24,7 +24,6 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
   spotlightAgentId,
   newLeaderId,
 }) => {
-  const key = metricKey(metric);
 
   return (
     <div className={TV_PANEL_CLASS}>
@@ -42,7 +41,7 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
         ) : (
           <motion.ul layout className="space-y-1">
             {agents.map((a) => {
-              const metricNumeric = a[key] as number;
+              const metricNumeric = displayedMetricValue(metric, a);
               const rankDelta = rankDeltas.get(a.id) ?? 0;
 
               return (

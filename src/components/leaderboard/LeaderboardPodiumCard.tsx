@@ -28,7 +28,8 @@ export type PodiumMetalConfig = {
 interface LeaderboardPodiumCardProps {
   agent: AgentStats;
   metric: Metric;
-  metricNumeric: number;
+  /** Null shows "—": the agent's premiums are all unknown (D14). */
+  metricNumeric: number | null;
   view: LeaderboardView;
   userId?: string;
   metal: PodiumMetalConfig;

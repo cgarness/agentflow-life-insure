@@ -6,6 +6,7 @@ import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAva
 import OdometerValue from "@/components/leaderboard/OdometerValue";
 import type { AgentStats, LeaderboardView, RankMovement } from "@/components/leaderboard/leaderboardTypes";
 import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import {
   type RankMotionKind,
   tableRowLayoutTransition,
@@ -178,7 +179,7 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
                       <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} />
                     </div>
                     <div className="py-3 px-2 text-right text-foreground whitespace-nowrap tabular-nums hidden md:block" role="cell">
-                      <OdometerValue value={a.premiumSold} format={formatPremiumSold} />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
+                      <OdometerValue value={isPremiumWhollyUnknown(a.policiesSold, a.unknownPremiums) ? null : a.premiumSold} format={formatPremiumSold} />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                     </div>
                     <div className="py-3 px-2 text-right text-foreground whitespace-nowrap tabular-nums hidden md:block" role="cell">
                       <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} />

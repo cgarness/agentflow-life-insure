@@ -6,6 +6,7 @@ import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "./tvPanelLayout";
 import { cn } from "@/lib/utils";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import { agentHighlightClass } from "./leaderboardHighlight";
 import { type AgentStats, type Metric, type RankMovement, METRIC_DISPLAY_LABEL, formatPremiumSold } from "./leaderboardTypes";
 import { type RankMotionKind, tvTableRowLayoutTransition } from "./leaderboardRankMotion";
@@ -110,7 +111,7 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                             <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
+                            <OdometerValue value={isPremiumWhollyUnknown(a.policiesSold, a.unknownPremiums) ? null : a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
                             <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
