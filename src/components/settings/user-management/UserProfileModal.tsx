@@ -14,7 +14,7 @@ import UserGoalsTab from "./UserGoalsTab";
 import UserOnboardingTab from "./UserOnboardingTab";
 import UserPerformanceTab from "./UserPerformanceTab";
 import UserTeamTab from "./UserTeamTab";
-import { formatDate, ROLE_BADGE, STATUS_BADGE } from "./userManagementUtils";
+import { formatDate, goalActualsFrom, ROLE_BADGE, STATUS_BADGE } from "./userManagementUtils";
 import type { UserWithProfile } from "./userManagementTypes";
 
 interface Props {
@@ -95,12 +95,7 @@ const UserProfileModal: React.FC<Props> = ({
 
   const initials = `${user.firstName[0]}${user.lastName[0]}`;
   const isSelf = user.id === currentUserId;
-  const goalActuals = {
-    callsMonth: performance?.callsMonthly ?? null,
-    policiesMonth: performance?.policiesMonthly ?? null,
-    appointmentsMonth: performance?.appsMonth ?? null,
-    premiumMonth: performance?.premiumMonthly ?? null,
-  };
+  const goalActuals = goalActualsFrom(performance);
 
   const handleSaveProfile = async () => {
     setSaving(true);
