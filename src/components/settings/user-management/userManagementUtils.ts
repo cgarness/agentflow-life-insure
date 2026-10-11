@@ -73,4 +73,3 @@ export function goalActualsFrom(performance: {
       ? null : performance?.premiumMonthly ?? null,
   };
 }
-
