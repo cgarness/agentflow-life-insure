@@ -261,7 +261,7 @@ const CompanyBranding: React.FC = () => {
         <div className="rounded-md border border-warning/40 bg-warning/10 p-3 flex items-start gap-2">
           <ShieldAlert className="w-4 h-4 mt-0.5 text-warning shrink-0" />
           <p className="text-sm text-foreground">
-            Company Branding can only be edited by an Admin. Contact your agency administrator to make changes.
+            Company Branding can only be edited by an Admin.
           </p>
         </div>
       )}

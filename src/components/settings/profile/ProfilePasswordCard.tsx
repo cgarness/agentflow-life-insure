@@ -124,7 +124,6 @@ export const ProfilePasswordCard: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-lg">Change Password</CardTitle>
-                <p className="text-xs text-muted-foreground">Update the password you use to sign in</p>
               </div>
             </div>
             <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />

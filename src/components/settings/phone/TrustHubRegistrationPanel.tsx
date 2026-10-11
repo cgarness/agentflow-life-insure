@@ -288,15 +288,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
 
         {/* Info callout at the top of registration status */}
         <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 text-xs space-y-2 dark:border-blue-500/15">
-          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-medium">
-            <ShieldCheck className="h-4 w-4" />
-            <span>Understanding Trust Hub Status</span>
-          </div>
-          <ul className="list-disc list-inside space-y-1 text-muted-foreground pl-1">
-            <li><span className="font-semibold text-foreground">Business Profile Approved:</span> Your life insurance agency identity is verified.</li>
-            <li><span className="font-semibold text-foreground">Number Linked:</span> Your phone number is attached to your verified business profile.</li>
-            <li><span className="text-amber-600 dark:text-amber-400 font-medium">Neither status guarantees no spam labeling.</span> These verifications authenticate your agency, but telecom networks evaluate call volume and answer rates to flag spam.</li>
-          </ul>
+          <p className="text-muted-foreground"><span className="text-amber-600 dark:text-amber-400 font-medium">Neither status guarantees no spam labeling.</span> These verifications authenticate your agency, but telecom networks evaluate call volume and answer rates to flag spam.</p>
         </div>
 
         <div className="space-y-3">
@@ -350,7 +342,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
           <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card">
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">3. Telecom Network Programs</p>
-              <p className="text-xs text-muted-foreground">SHAKEN/STIR identity attestation, Voice Integrity remediation, and CNAM (Caller ID Name).</p>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-muted/40">SHAKEN/STIR</Badge>
                 <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-muted/40">Voice Integrity</Badge>
@@ -408,15 +399,6 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
 
   return (
     <div className="space-y-6">
-      {/* Intro */}
-      <div className="rounded-lg border border-border/40 bg-muted/10 p-4">
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Complete this form to register your life insurance agency with the telecom Trust Hub. This creates a verified business identity
-          that helps telecom networks recognize your calls as legitimate, improving answer rates and reducing spam flags.
-          The telecom network will review your submission within 1–5 business days.
-        </p>
-      </div>
-
       {/* Program Selection */}
       <div className="space-y-3">
         <p className="text-sm font-semibold text-foreground">Select Programs</p>
@@ -424,7 +406,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <SectionCard
           icon={<ShieldCheck className="h-4 w-4 text-primary" />}
           title="SHAKEN/STIR"
-          description="Verifies caller identity using encrypted digital signatures. Raises your attestation level so telecom networks display Verified Caller instead of Spam Risk. US phone numbers only."
+          description="Signs your calls so networks can verify caller identity. US phone numbers only."
           enrolled={form.enroll_shaken_stir}
           onToggleEnroll={(v) => set("enroll_shaken_stir", v)}
           enrollLabel="Enroll"
@@ -433,7 +415,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <SectionCard
           icon={<Zap className="h-4 w-4 text-primary" />}
           title="Voice Integrity"
-          description="Remediates spam labels on your phone numbers. Registers your numbers with analytic engines for select US telecom networks so they're treated as verified business traffic."
+          description="Registers your numbers with analytics engines at select US telecom networks to help remediate spam labels."
           enrolled={form.enroll_voice_integrity}
           onToggleEnroll={(v) => set("enroll_voice_integrity", v)}
           enrollLabel="Enroll"
@@ -442,7 +424,7 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
         <SectionCard
           icon={<Phone className="h-4 w-4 text-primary" />}
           title="CNAM (Caller ID Name)"
-          description="Displays your business name on outbound calls to US landlines. Enter up to 15 characters — this is what recipients will see when you call."
+          description="Displays your business name on outbound calls to US landlines."
           enrolled={form.enroll_cnam}
           onToggleEnroll={(v) => set("enroll_cnam", v)}
           enrollLabel="Enroll"

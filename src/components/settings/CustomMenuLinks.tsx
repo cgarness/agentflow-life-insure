@@ -268,11 +268,11 @@ const CustomMenuLinks: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Custom Menu Links</h3>
           <p className="text-sm text-muted-foreground">
-            Add links to your agency sidebar (above Settings). Choose whether each opens in a new browser tab or inside AgentFlow.
+            Links appear in your agency sidebar, above Settings.
           </p>
           {!canManage && (
             <p className="text-xs text-muted-foreground mt-2">
-              Custom menu links are managed by agency admins. Additional delegation will be handled through Permissions.
+              Custom menu links are managed by agency admins.
             </p>
           )}
         </div>
@@ -289,7 +289,7 @@ const CustomMenuLinks: React.FC = () => {
         ) : links.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-12 text-center border-dashed">
             <LinkIcon className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
-            <p className="text-sm text-muted-foreground mb-4">Add important external tools directly into your sidebar.</p>
+            <p className="text-sm text-muted-foreground mb-4">No menu links yet.</p>
             {canManage && (
               <Button size="sm" onClick={openAdd} className="gap-2">
                 <Plus className="w-4 h-4" /> Create Link

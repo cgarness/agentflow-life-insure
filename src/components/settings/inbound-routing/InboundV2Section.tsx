@@ -179,8 +179,7 @@ export const InboundV2Section: React.FC<{ organizationId: string | null; onEngin
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Legacy routing"}</span>
           </CardTitle>
           <CardDescription>
-            Contact's assigned agent first (direct lines take precedence), 20-second browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers.
-            {active ? " While active, the routing strategy, fallback chain and fallback action below are not used." : ""}
+            Contact's assigned agent first (direct lines take precedence), browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -216,7 +215,7 @@ export const InboundV2Section: React.FC<{ organizationId: string | null; onEngin
                 <div className="space-y-1.5">
                   <Label htmlFor="v2-browser-ring">Browser ring (seconds)</Label>
                   <Input id="v2-browser-ring" type="number" min={RING_SECONDS_MIN} max={RING_SECONDS_MAX} value={settings.browser_ring_seconds} onChange={(e) => setSettings((s) => ({ ...s, browser_ring_seconds: Number(e.target.value) }))} />
-                  <p className="text-[11px] text-muted-foreground">Provider setting (integer). Twilio may hold the ring up to ~5 s longer; measured timings show in each agent's connection diagnostics.</p>
+                  <p className="text-[11px] text-muted-foreground">Twilio may hold the ring up to ~5 s longer.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="v2-mobile-ring">Mobile ring (seconds)</Label>

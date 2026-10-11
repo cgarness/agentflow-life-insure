@@ -153,7 +153,6 @@ export const ProfileInfoCard: React.FC = () => {
           </div>
           <div>
             <CardTitle className="text-lg">Profile Information</CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">Your name, contact details, and availability</p>
           </div>
         </div>
       </CardHeader>
@@ -253,7 +252,7 @@ export const ProfileInfoCard: React.FC = () => {
           <div>
             <label className="text-sm font-medium text-foreground block mb-1.5">Availability Status</label>
             <p className="text-sm text-muted-foreground">
-              Set from the availability menu in the top bar (Available · On Break · Do Not Disturb). "On a Call" and "Offline" are detected automatically.
+              Set from the availability menu in the top bar.
             </p>
           </div>
         </div>

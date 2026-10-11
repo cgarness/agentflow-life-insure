@@ -151,7 +151,7 @@ const AgencyGroupLeaderView: React.FC<Props> = ({ group, members, resources, onC
             <UserPlus className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
             <p className="text-sm font-semibold text-foreground">Invite your first agent</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Enter their email address above to send an invitation. They'll appear here once they accept.
+              Invited agencies appear here once they accept.
             </p>
           </div>
         )}

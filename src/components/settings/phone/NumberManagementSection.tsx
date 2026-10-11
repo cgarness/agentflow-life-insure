@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -882,9 +882,9 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-5">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently.
-              </p>
+              <DialogDescription className="text-xs leading-relaxed">
+                Inventory is limited and changes frequently.
+              </DialogDescription>
               <div className="grid grid-cols-2 gap-x-3 gap-y-4 px-0.5 pt-0.5">
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Area code</label>

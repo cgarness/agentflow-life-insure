@@ -148,7 +148,7 @@ const AgencyGroupResourceList: React.FC<Props> = ({
       </div>
       {!canManageResources && (
         <p className="text-xs text-muted-foreground mb-3">
-          Resources are uploaded by the master agency. You can view and download what they share.
+          Resources are uploaded by the master agency.
         </p>
       )}
       {resources.length === 0 ? (

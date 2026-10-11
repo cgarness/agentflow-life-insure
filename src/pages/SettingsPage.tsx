@@ -9,6 +9,7 @@ import {
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
 import SettingsSectionGate from "@/components/SettingsSectionGate";
 import {
+  ALL_SETTINGS_SECTIONS,
   isPhoneSystemSettingsSection,
   resolveSettingsPermissionSlug,
 } from "@/config/settingsConfig";
@@ -85,8 +86,8 @@ const SettingsInner: React.FC = () => {
   return (
     <div className={`space-y-6 ${activeSlug === "automation" ? "w-full" : "max-w-6xl mx-auto"}`}>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold capitalize text-foreground">
-          {activeSlug.replace(/-/g, " ")} Settings
+        <h1 className="text-2xl font-bold text-foreground">
+          {ALL_SETTINGS_SECTIONS.find((s) => s.slug === resolveSettingsPermissionSlug(activeSlug))?.label ?? "Settings"}
         </h1>
       </div>
 

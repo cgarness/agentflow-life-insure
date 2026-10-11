@@ -131,7 +131,6 @@ const CallRecordingSettings: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-foreground">Call Recording</h3>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -139,7 +138,6 @@ const CallRecordingSettings: React.FC = () => {
             Call Recording
           </CardTitle>
           <CardDescription>
-            Control how browser-side call recordings are captured and stored.
             When you set a retention period, recordings older than that limit are eligible for automatic cleanup.
           </CardDescription>
         </CardHeader>

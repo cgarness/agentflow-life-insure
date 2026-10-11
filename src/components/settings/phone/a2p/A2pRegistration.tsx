@@ -100,8 +100,7 @@ function RegistrationContent({ actor, org }: { actor: string; org: string }) {
               <div>
                 <h4 className="font-semibold">Review fees and continue</h4>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The secure form includes the full application, required evidence, review, and final submission. Open
-                  an existing registration to resume or correct an eligible rejection.
+                  The secure form includes the full application, required evidence, review, and final submission.
                 </p>
               </div>
               {d.fees.length
