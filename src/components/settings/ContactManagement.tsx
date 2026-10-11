@@ -718,7 +718,7 @@ const CustomFieldsTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Required</p>
-                <p className="text-xs text-muted-foreground">Enforced where custom-field inputs appear (e.g. the contact view).</p>
+                <p className="text-xs text-muted-foreground">Enforced in the contact view and CSV imports.</p>
               </div>
               <Switch checked={form.required} onCheckedChange={v => setForm(f => ({ ...f, required: v }))} />
             </div>
