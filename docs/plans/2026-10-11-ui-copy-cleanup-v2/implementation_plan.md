@@ -546,3 +546,20 @@ Part B stays open.
 ### Commit 5: records
 - `WORK_LOG.md`: a newest-first entry.
 - This plan, plus the pointer in the root `implementation_plan.md`.
+
+### §16.1 Review-driven additions, recorded before the edits (2026-10-11)
+
+The separate review pass, covering correctness, V2 compliance, test quality and newer-work preservation, found no blocker. Four minor findings were verified real:
+
+1. **D14 follow-up.** Settings › User Management › Goals still shows a wholly unknown monthly premium as "$0.00 / goal" and "0%". It reads the same `performance_summary.current.monthly_premium` that the Dashboard goal widget now guards, through `usersApi.getPerformance` and `UserProfileModal.tsx:102`. After D14 the two surfaces therefore disagree for the same agent and month.
+   - **Addition:** a second, separately reviewable D14 commit. The goal-actuals mapping moves into a pure helper, `goalActualsFrom()`, in the existing `userManagementUtils.ts`. Its premium actual becomes null when `isPremiumWhollyUnknown(policiesMonthly, unknownPremiums)`, and `UserGoalsTab` already renders null as its existing unavailable "—".
+   - **Unchanged:** the API adapter, payload, calculation and every other goal.
+   - **Files:** `src/components/settings/user-management/userManagementUtils.ts`, `UserProfileModal.tsx`, and a new test `src/components/settings/user-management/__tests__/userGoalActuals.test.tsx`.
+   - It falls under the approved D14 rule (wholly unavailable premium amounts, from existing evidence for the same scope and period). It is committed alone, so it can be dropped independently.
+2. **Test strengthening, test-only.**
+   - The TV D14 test's rank assertion could be satisfied by the calls column (`callsMade: 10`). It now asserts the rank cells.
+   - Genuine-$0 cases (policies > 0, all premiums known, total $0) are added for the TV podium, ranking table, ranks 11+ and totals, the Leaderboard podium and the goal widget. An `amount === 0` inference would now fail.
+3. **Records.** The plan header and the root pointer still read "PLAN ONLY"; they are updated in the records commit.
+4. **Refuted.** The CampaignDetail empty state "No contact activity yet" is outside D10's labels-only scope. It is left unchanged and noted as optional.
+
+**Still not covered, reported instead of expanded:** the profile Business Snapshot "Monthly Premium" (lifetime current-book sum, different evidence; see above).
