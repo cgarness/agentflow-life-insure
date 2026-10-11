@@ -12,8 +12,8 @@
  * dial-to-policy figure is explicitly named "Dials per policy sold".
  *
  * Policies Sold = normalized STORED policies by sale date (plan §20). Per-agent policy counts are the
- * client's CURRENT assignment, not original seller credit, so: the policy ranking is labelled "Most
- * policies — current assignments", and the two call/talk-per-policy ratios exist ONLY for the whole
+ * client's CURRENT assignment, not original seller credit, so: the policy ranking ("Most policies
+ * sold") is ranked by current assignment, and the two call/talk-per-policy ratios exist ONLY for the whole
  * organization with no agent filter (period activity ÷ dated stored policies) — never as an agent or
  * team efficiency figure.
  */
@@ -90,8 +90,8 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_dnc_rate", label: "DNC per 100 dials", category: "activity", invertTrend: true },
 
   // New optional metrics retain all existing layout ids/order.
-  { id: "stat_annual_premium", label: "Known annual premium", category: "results" },
-  { id: "stat_avg_premium", label: "Avg annual premium / known policy", category: "results" },
+  { id: "stat_annual_premium", label: "Annual premium", category: "results" },
+  { id: "stat_avg_premium", label: "Average annual premium", category: "results" },
   // Results
   { id: "stat_policies_sold", label: "Policies sold", category: "results" },
   { id: "stat_call_to_close", label: "Call to close rate", category: "results", unavailable: NO_CONVERSION },
@@ -101,7 +101,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_avg_days_to_close", label: "Avg days to close", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
   { id: "stat_best_closing_hour", label: "Best closing hour", category: "results", unavailable: NOT_TRACKED },
   { id: "stat_best_closing_day", label: "Best closing day", category: "results", unavailable: NOT_TRACKED },
-  { id: "stat_appointments_set", label: "Bookings created (all types)", category: "results" },
+  { id: "stat_appointments_set", label: "Appointments", category: "results" },
   { id: "stat_appt_set_rate", label: "Appt set rate", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_contacted_to_appt", label: "Contacted to appt", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_appts_kept", label: "Appointments kept", category: "results", unavailable: NOT_TRACKED },
@@ -119,7 +119,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_lead_exhaustion", label: "Lead exhaustion rate", category: "pipeline", unavailable: NOT_TRACKED, invertTrend: true },
 
   // Team
-  { id: "stat_top_performer", label: "Most policies — current assignments", category: "team" },
+  { id: "stat_top_performer", label: "Most policies sold", category: "team" },
   { id: "stat_top_dialer", label: "Top dialer", category: "team" },
   { id: "stat_best_contact_agent", label: "Best call contact rate", category: "team" },
   { id: "stat_best_conv_agent", label: "Best conv rate", category: "team", unavailable: NO_CONVERSION },
@@ -256,7 +256,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       if (!top) return { value: DASH, subtitle: "no policies in this period" };
       return top.tied > 1
         ? { value: `${formatCount(top.tied)} agents tied`, subtitle: `${policyCount(top.policies)} each`, smallValue: true }
-        : { value: top.name, subtitle: `${top.policies} polic${top.policies === 1 ? "y" : "ies"} currently assigned`, smallValue: true };
+        : { value: top.name, subtitle: policyCount(top.policies), smallValue: true };
     }
     case "stat_top_dialer": {
       const best = leader(s.by_agent, (a) => a.calls_made, (a) => a.name);

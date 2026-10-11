@@ -68,8 +68,8 @@ describe("Reports layout registry snapshot (T-4)", () => {
     expect(REPORT_LAYOUT_SECTIONS.some((section) => /dials per appointment/i.test(section.label))).toBe(false);
     // Contract wording that the registry carries into the editor.
     expect(labelOf("stat_contact_rate")).toBe("Call contact rate");
-    expect(labelOf("stat_top_performer")).toBe("Most policies — current assignments");
-    expect(labelOf("stat_appointments_set")).toBe("Bookings created (all types)");
+    expect(labelOf("stat_top_performer")).toBe("Most policies sold");
+    expect(labelOf("stat_appointments_set")).toBe("Appointments");
     expect(labelOf("stat_dials_per_sale")).toBe("Dials per policy sold");
   });
 });

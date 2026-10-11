@@ -26,7 +26,7 @@ export const CALL_CONTACT_RATE_NOTE = "Call contact rate = contacted outbound ca
 export const INBOUND_NOTE = "Inbound calls are shown separately and are not in calls made, talk time or the call contact rate.";
 export const DISPOSITION_SHARE_NOTE = "Disposition shares are of all outbound calls in the period, including calls with no disposition.";
 
-export const BOOKINGS_NOTE = "Bookings created (all types) counts every booking, of any type, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user).";
+export const BOOKINGS_NOTE = "Appointments counts every booking of any type, including callbacks, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it \"Bookings created (all types)\".";
 export const BOOKING_STATUS_NOTE = "A later status change, such as cancellation, does not remove a booking.";
 export const CALLBACK_DISPOSITIONS_NOTE = "Callback dispositions count calls, not callback bookings.";
 export const DIALS_PER_BOOKING_NOTE = "Dials per booking = calls made ÷ bookings created (all types).";
@@ -49,11 +49,11 @@ export function premiumCoverageText(p: ReportPremium): string {
 
 export const policyCount = (n: number) => `${formatCount(n)} ${n === 1 ? "policy" : "policies"}`;
 
-/** The top of the "Most policies — current assignments" ranking; `tied` agents share its policy count. */
+/** The top of the "Most policies sold" ranking (by current assignment); `tied` agents share its policy count. */
 export interface PolicyLeader { name: string; policies: number; tied: number }
 
 /**
- * The one "Most policies — current assignments" ranking (C10, D-5), used by the production band's leader row
+ * The one "Most policies sold" ranking (C10, D-5; by current assignment), used by the production band's leader row
  * and the stat_top_performer tile alike: the summary's own agent rows by policies, then name (current
  * assignment, never seller credit). When `tied` > 1 the top count is shared and no one may be named.
  * Null when no agent has a policy.
@@ -106,10 +106,10 @@ export interface BasisSection { key: string; title: string; paragraphs: string[]
 export function dataBasisSections(convertedReason: string | null): BasisSection[] {
   return [
     { key: "policies", title: "Policies sold", paragraphs: [POLICY_SOURCE_NOTE, POLICY_SEVERAL_PER_CLIENT_NOTE, POLICY_ISSUE_DATE_NOTE, POLICY_UNDATED_NOTE] },
-    { key: "premium", title: "Known annual premium", paragraphs: [PREMIUM_BASIS, PREMIUM_UNKNOWN_NOTE, PREMIUM_AVERAGE_NOTE, ADDITIONAL_PREMIUM_NOTE, ZERO_PREMIUM_NOTE] },
+    { key: "premium", title: "Annual premium", paragraphs: [PREMIUM_BASIS, PREMIUM_UNKNOWN_NOTE, PREMIUM_AVERAGE_NOTE, ADDITIONAL_PREMIUM_NOTE, ZERO_PREMIUM_NOTE] },
     { key: "credit", title: "Agent credit", paragraphs: [CURRENT_ASSIGNMENT_NOTE, LEADERBOARD_CREDIT_NOTE] },
     { key: "calls", title: "Calls and contacted calls", paragraphs: [CALLS_DATE_NOTE, CONTACTED_RULE_NOTE, CALL_CONTACT_RATE_NOTE, INBOUND_NOTE, DISPOSITION_SHARE_NOTE] },
-    { key: "bookings", title: "Bookings created (all types)", paragraphs: [BOOKINGS_NOTE, BOOKING_STATUS_NOTE, CALLBACK_DISPOSITIONS_NOTE, DIALS_PER_BOOKING_NOTE] },
+    { key: "bookings", title: "Appointments", paragraphs: [BOOKINGS_NOTE, BOOKING_STATUS_NOTE, CALLBACK_DISPOSITIONS_NOTE, DIALS_PER_BOOKING_NOTE] },
     { key: "converted", title: "Converted leads/clients", paragraphs: [CONVERTED_NOTE, NOT_A_POLICY_COUNT_NOTE] },
     { key: "totals", title: "Period totals", paragraphs: [PERIOD_TOTALS_NOTE] },
     { key: "sessions", title: "Talk time and dialer sessions", paragraphs: [TALK_TIME_NOTE, SESSION_TIME_NOTE, SESSION_END_NOTE, SESSION_RATE_NOTE] },

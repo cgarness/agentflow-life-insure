@@ -29,7 +29,7 @@ export default function ReportsActivityFlow({ summary, onRetry }: ReportsActivit
           const tiles = [
             { label: "Calls made", count: totals.calls_made, basis: "by call date" },
             { label: "Contacted calls", count: totals.contacted, basis: "by call date" },
-            { label: "Bookings created (all types)", count: totals.appointments_set, basis: "by date created" },
+            { label: "Appointments", count: totals.appointments_set, basis: "by date created" },
             { label: "Converted leads/clients", count: totals.converted, basis: "distinct people · by call date" },
             { label: "Policies sold", count: totals.policies_sold, basis: "by sale date" },
           ];

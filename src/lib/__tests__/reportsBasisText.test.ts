@@ -92,7 +92,7 @@ describe("Data basis wording (approved K/T/N rows)", () => {
     expect(basis.dataBasisSections(REASON).map((s) => [s.title, s.paragraphs])).toEqual([
       ["Policies sold", [POLICY_SOURCE, "One client can hold several policies.", "Older additional policies with no sold-date field are dated by their issue date.",
         "A policy without a readable sale date is not counted in any period."]],
-      ["Known annual premium", [PREMIUM, "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.",
+      ["Annual premium", [PREMIUM, "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.",
         "The average divides by the number of policies with a known premium.",
         "An additional policy's premium comes only from that policy; a missing one is unknown and never borrows the primary premium.",
         "A $0 primary premium counts as a known zero only when the sale recorded an explicit $0; otherwise it is unknown."]],
@@ -102,7 +102,7 @@ describe("Data basis wording (approved K/T/N rows)", () => {
         "Call contact rate = contacted outbound calls ÷ outbound calls; with no outbound calls it shows —.",
         "Inbound calls are shown separately and are not in calls made, talk time or the call contact rate.",
         "Disposition shares are of all outbound calls in the period, including calls with no disposition."]],
-      ["Bookings created (all types)", ["Bookings created (all types) counts every booking, of any type, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user).",
+      ["Appointments", ["Appointments counts every booking of any type, including callbacks, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it \"Bookings created (all types)\".",
         "A later status change, such as cancellation, does not remove a booking.", "Callback dispositions count calls, not callback bookings.",
         "Dials per booking = calls made ÷ bookings created (all types)."]],
       ["Converted leads/clients", ["Converted leads/clients counts distinct people given an outbound call with a converting disposition (one whose pipeline stage converts the lead to a client).",

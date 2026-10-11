@@ -23,8 +23,8 @@ const EXPORT_HEADERS = [
 ];
 /** Screen columns: production first, then activity. "Contacted calls" is on screen as well as in the CSV. */
 const HEADERS = [
-  "Agent", "Policies (current assignment)", "Known annual premium", "Calls made", "Contacted calls",
-  "Call contact rate", "Bookings created (all types)", "Talk time",
+  "Agent", "Policies sold", "Annual premium", "Calls made", "Contacted calls",
+  "Call contact rate", "Appointments", "Talk time",
 ];
 
 /** The drilldown name: text-sized, with a 40px hit area that reaches into the cell padding. */

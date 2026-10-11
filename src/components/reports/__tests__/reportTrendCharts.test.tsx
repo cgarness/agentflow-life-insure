@@ -100,11 +100,11 @@ describe("Production trend", () => {
     expect(screen.getByTestId("axis-premium")).toBeInTheDocument();
     expect(screen.queryAllByTestId(/^axis-/)).toHaveLength(2);
     expect(screen.queryByText(/left axis|right axis/)).not.toBeInTheDocument();
-    for (const gone of ["Total policies sold", "Peak period", "Most policies — current assignments", "Agent summary not loaded"]) {
+    for (const gone of ["Total policies sold", "Peak period", "Most policies sold", "Agent summary not loaded"]) {
       expect(screen.queryByText(gone)).not.toBeInTheDocument();
     }
     expect(screen.queryByText(/premiums? known ·/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "Known annual premium key" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Annual premium key" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group")).not.toBeInTheDocument(); // grouping lives in Trends, not in the card
   });
 

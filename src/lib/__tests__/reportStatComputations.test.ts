@@ -84,8 +84,8 @@ describe("canonical stat values", () => {
 
   it("derives team leaders from per-agent canonical rows", () => {
     expect(v("stat_top_performer").value).toBe("Bob Agent"); // 2 policies, current assignment
-    expect(v("stat_top_performer").label).toBe("Most policies — current assignments");
-    expect(v("stat_top_performer").subtitle).toBe("2 policies currently assigned");
+    expect(v("stat_top_performer").label).toBe("Most policies sold");
+    expect(v("stat_top_performer").subtitle).toBe("2 policies");
     expect(v("stat_top_dialer").value).toBe("Alice Agent"); // 10 calls
     expect(v("stat_agents_active").value).toBe("2");
   });
@@ -96,14 +96,14 @@ describe("canonical stat values", () => {
     const tied = base.map((a) => ({ ...a, policies_sold: 2 }));
     expect(policyLeaderText(tied)).toBe("2 agents tied · 2 policies each");
     const shared = tile(tied);
-    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies — current assignments", "2 agents tied", "2 policies each"]);
+    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies sold", "2 agents tied", "2 policies each"]);
     expect(`${shared.value} · ${shared.subtitle}`).toBe(policyLeaderText(tied));
     expect(shared.value).not.toMatch(/Alice|Bob/); // never an alphabetical pick among the tied agents
     const ones = tile(base.map((a) => ({ ...a, policies_sold: 1 })));
     expect([ones.value, ones.subtitle]).toEqual(["2 agents tied", "1 policy each"]);
     // A clear leader is still named, with the unchanged subtitle; a lower shared count is not a tie at the top.
     const clear = tile([...base, { ...base[0], agent_id: "c3", name: "Cara Agent", policies_sold: 1 }]);
-    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies currently assigned"]);
+    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies"]);
     expect(policyLeaderText(reportSummary().by_agent)).toBe("Bob Agent · 2 policies");
   });
 
@@ -195,7 +195,7 @@ describe("per-policy ratios are organization-period figures, never agent or team
     const a = computeAllStats(inputs({ summary: ready(after) }));
     expect(b.get("stat_top_performer")!.value).toBe("Bob Agent");
     expect(a.get("stat_top_performer")!.value).toBe("Alice Agent");
-    expect(a.get("stat_top_performer")!.label).toBe("Most policies — current assignments");
+    expect(a.get("stat_top_performer")!.label).toBe("Most policies sold");
     expect(a.get("stat_policies_sold")!.value).toBe(b.get("stat_policies_sold")!.value);
     expect(a.get("stat_top_dialer")!.value).toBe("Alice Agent"); // 10 calls, unchanged
     for (const id of ["stat_dials_per_sale", "stat_talk_mins_per_sale"]) expect(a.get(id)!.state).toBe("unavailable");

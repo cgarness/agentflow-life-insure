@@ -44,7 +44,7 @@ function ProductionTooltip({ active, payload }: { active?: boolean; payload?: Ar
       <p className="mb-2 font-semibold">{periodCell(period.first, period.last)}</p>
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
         <dt>Policies sold</dt><dd className="text-right font-semibold tabular-nums">{formatCount(period.policies_sold)}</dd>
-        <dt>Known annual premium</dt><dd className="text-right font-semibold tabular-nums">{formatPremium(period.annual_premium)}</dd>
+        <dt>Annual premium</dt><dd className="text-right font-semibold tabular-nums">{formatPremium(period.annual_premium)}</dd>
         <dt>Premium coverage</dt><dd className="text-right tabular-nums">{formatRate(period.coverage_pct)}</dd>
       </dl>
       <p className="mt-2 text-muted-foreground">{formatCount(period.known_count)} of {formatCount(period.premium_policy_count)} policies known · {formatCount(period.unknown_count)} unknown</p>
@@ -60,7 +60,7 @@ function periodCell(first: string, last: string): string {
 /** The spoken form of ProductionTooltip, for the focusable panel's live readout. */
 function productionReadout(p: ProductionPeriod): string {
   const amount = p.annual_premium === null ? "unavailable" : formatPremium(p.annual_premium);
-  return `${periodCell(p.first, p.last)}: ${formatCount(p.policies_sold)} ${p.policies_sold === 1 ? "policy" : "policies"} sold; known annual premium ${amount}; ${formatCount(p.known_count)} of ${formatCount(p.premium_policy_count)} policies known, ${formatCount(p.unknown_count)} unknown.`;
+  return `${periodCell(p.first, p.last)}: ${formatCount(p.policies_sold)} ${p.policies_sold === 1 ? "policy" : "policies"} sold; annual premium ${amount}; ${formatCount(p.known_count)} of ${formatCount(p.premium_policy_count)} policies known, ${formatCount(p.unknown_count)} unknown.`;
 }
 
 /**
@@ -108,18 +108,18 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
               <Bar yAxisId="policies" dataKey="policies_sold" name="Policies sold" fill={SERIES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
             </ComposedChart>
           </TrendPanel>
-          <TrendPanel caption="Known annual premium" size="companion">
-            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} aria-label={`Known annual premium by ${unit}`}>
+          <TrendPanel caption="Annual premium" size="companion">
+            <ComposedChart data={series} syncId={TREND_SYNC_ID} margin={CHART_THEME.margin} aria-label={`Annual premium by ${unit}`}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis {...CHART_THEME.xAxis} />
               <YAxis yAxisId="premium" {...CHART_THEME.yAxis} tickFormatter={(value: number) => PREMIUM_AXIS.format(value)} />
               <Tooltip content={<NoTooltip />} cursor={CHART_THEME.cursor} {...CHART_THEME.tooltip} />
-              <Line yAxisId="premium" type="linear" dataKey="annual_premium" name="Known annual premium" stroke={SERIES_COLOR} strokeWidth={2}
+              <Line yAxisId="premium" type="linear" dataKey="annual_premium" name="Annual premium" stroke={SERIES_COLOR} strokeWidth={2}
                 dot={partialDot} activeDot={CHART_THEME.activeDot} connectNulls={false} isAnimationActive={false} />
             </ComposedChart>
           </TrendPanel>
           {(hasPartial || hasGap) && (
-            <ul aria-label="Known annual premium key" className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <ul aria-label="Annual premium key" className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
               {hasPartial && (
                 <li className="flex items-center gap-1.5">
                   <span aria-hidden="true" className="h-2 w-2 rounded-full border-[1.5px] border-primary bg-card" />
