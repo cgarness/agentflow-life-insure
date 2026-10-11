@@ -1,11 +1,25 @@
-# System-wide UI copy cleanup — V2 takeover and reconciliation plan (PLAN ONLY; awaiting Chris's approval)
+# System-wide UI copy cleanup — V2 takeover and reconciliation plan (Part A + D14 IMPLEMENTED and verified locally; not pushed, not deployed; Part B blocked)
 
-**Status (2026-10-11):** plan only, on local branch `claude/ui-copy-cleanup-v2-20261011` (base `main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`). The only changes are this folder and a pointer section in the root `implementation_plan.md`. Nothing else has changed:
+**Status (2026-10-11):** Chris approved the isolated Part A implementation with decisions D1–D14 on 2026-10-11 (§16). It is implemented on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`). The plan commits come first, followed by:
 
-- No application, test, rule or gate file has been edited.
-- No backend command has been run. No migration, Edge Function, secret, cron job or deployment setting was touched.
-- Nothing was pushed, and no PR or preview was created.
-- Supabase was not contacted. Vercel was read only (named-sandbox and snapshot metadata); two sandbox-start requests were refused (§2).
+| Commit | Content |
+|---|---|
+| `5587d3a` | Reports labels |
+| `9fd72ef` | CRM labels |
+| `cb14cfa` | Rule and Data basis wording amendments |
+| `74219dc` | D14 |
+| `f23a987` | D14 follow-up, Settings Goals |
+| `0c62756` | D14 test strengthening |
+
+Verification, decisions and limits are in the newest WORK_LOG entry and §16.1. What has not happened:
+- Nothing is pushed. No PR, preview or deployment exists.
+- No backend, migration, Edge Function, secret, cron or deployment setting changed.
+- Supabase was not contacted. Vercel was read only.
+- The onboarding series stays INACTIVE.
+
+**Part B** (the four-batch carry-over) is still open and blocked (§2, §11). The private archive is unreachable, and the reference attachment did not reach this session.
+
+The text below, from §0 onward, is the plan as presented for approval, kept as written. Where the two differ, §16 records the approved decisions.
 
 **Scope of this plan:**
 

@@ -1,17 +1,15 @@
-## 2026-10-11 — PLAN ONLY, awaiting Chris's approval: UI copy cleanup takeover (V2 simple metric labels + four-batch carry-over)
+## 2026-10-11 — Part A + D14 IMPLEMENTED and verified locally (not pushed, not deployed); Part B blocked: UI copy cleanup takeover (V2 simple metric labels)
 
-**Status:** plan only, on local branch `claude/ui-copy-cleanup-v2-20261011` (base `main` `e11c8bea`). No application, test, rule or gate file is edited. No backend command was run, and nothing is pushed. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md`.
+**Status:** Chris approved the isolated Part A with D1–D14 on 2026-10-11. It is implemented and verified on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea`), in commits `5587d3a` (Reports labels), `9fd72ef` (CRM labels), `cb14cfa` (rule and Data basis wording), `74219dc` (D14), `f23a987` (D14 follow-up, Settings Goals) and `0c62756` (D14 tests). Nothing is pushed, and there is no PR, preview, deploy or backend change. The onboarding series stays INACTIVE. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` (§16 and §16.1). **Evidence:** the newest WORK_LOG entry.
 
 **Summary:**
-- **Part A, V2 simple metric labels (ready for approval).** The plan replaces qualified titles with simple names:
-  - "Known annual premium" → "Annual premium", "Known monthly" → "Monthly premium" and "Avg per known policy" → "Average annual premium";
-  - "Policies (current assignment)" → "Policies sold" and "Bookings created (all types)" → "Appointments";
-  - Dashboard and Leaderboard "Annual Premium Sold" / "Premium Sold" → "Annual Premium".
+- **Labels.** Simple metric labels across Reports, Dashboard, Leaderboard/TV, settings and CampaignDetail. CSV headers, CSV Note constants, ids, payloads and calculations are unchanged.
+- **D14.** Display-only: a premium amount whose every policy has an unknown premium shows "Unavailable" or "—", never $0.00. Sorting, payloads and CSV are untouched.
+- **Part B.** Still open. The Vercel sandbox returns 403, and neither the archive nor the `AgentFlow_Cleanup_References_All_In_One.md` attachment reached this session.
 
-  These cover Reports, Dashboard, Leaderboard/TV, profiles and settings at the existing presentation boundary. CSV headers, CSV Note constants, ids, payload keys and calculations are unchanged. Two display-only mappings are needed: the campaign tfoot keys, and a Leaderboard metric label map. The plan lists 23 application files (§6), plus test, gate and rule amendments (§7) and decisions D1–D14 (§8).
-- **Part B, carry-over of the approved four-batch cleanup (blocked).** Starting the named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` is refused (`403`, create on `vercelRun`), and the archive and documentation pack were not attached. The previous verified snapshot expires on 2026-10-18. File-level overlap with `main` is already mapped: since the base, only Reports (#436), Campaigns (#433) and the onboarding mount (#439) changed in `src`.
-
-**Awaiting:** Chris's approval of Part A and decisions D1–D14, and recovery access (§2) for Part B.
+**Awaiting:**
+- the re-uploaded references and archive (or sandbox access) for Part B;
+- separate approval for any publication (push, PR or preview).
 
 ---
 
