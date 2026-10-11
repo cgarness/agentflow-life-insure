@@ -15,6 +15,9 @@ import {
 export const DATA_BASIS_TITLE = "Data basis";
 export const DATA_BASIS_DESCRIPTION = "How Reports counts and credits these numbers.";
 
+/** The only definition of the two per-policy strip ratios (PB-15; the tiles have no formula line). Screen-only, never a CSV Note. */
+export const POLICY_RATIOS_NOTE = "Dials per policy sold and talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
+
 export const PREMIUM_UNKNOWN_NOTE = "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.";
 export const PREMIUM_AVERAGE_NOTE = "The average divides by the number of policies with a known premium.";
 export const ADDITIONAL_PREMIUM_NOTE = "An additional policy's premium comes only from that policy; a missing one is unknown and never borrows the primary premium.";
@@ -98,7 +101,7 @@ export interface BasisSection { key: string; title: string; paragraphs: string[]
 /** The static methodology, in sheet order. It needs no payload, so it renders even when a panel failed. */
 export function dataBasisSections(convertedReason: string | null): BasisSection[] {
   return [
-    { key: "policies", title: "Policies sold", paragraphs: [POLICY_SOURCE_NOTE, POLICY_SEVERAL_PER_CLIENT_NOTE, POLICY_ISSUE_DATE_NOTE, POLICY_UNDATED_NOTE] },
+    { key: "policies", title: "Policies sold", paragraphs: [POLICY_SOURCE_NOTE, POLICY_SEVERAL_PER_CLIENT_NOTE, POLICY_ISSUE_DATE_NOTE, POLICY_UNDATED_NOTE, POLICY_RATIOS_NOTE] },
     { key: "premium", title: "Annual premium", paragraphs: [PREMIUM_BASIS, PREMIUM_UNKNOWN_NOTE, PREMIUM_AVERAGE_NOTE, ADDITIONAL_PREMIUM_NOTE, ZERO_PREMIUM_NOTE] },
     { key: "credit", title: "Agent credit", paragraphs: [CURRENT_ASSIGNMENT_NOTE, LEADERBOARD_CREDIT_NOTE] },
     { key: "calls", title: "Calls and contacted calls", paragraphs: [CALLS_DATE_NOTE, CONTACTED_RULE_NOTE, CALL_CONTACT_RATE_NOTE, INBOUND_NOTE, DISPOSITION_SHARE_NOTE] },

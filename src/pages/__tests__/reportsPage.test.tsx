@@ -57,6 +57,7 @@ vi.mock("recharts", async () => {
 
 import Reports from "@/pages/Reports";
 import { ReportsQueryError } from "@/lib/reports-queries";
+import { POLICY_RATIOS_NOTE } from "@/lib/reports-basis-text";
 import { resetUserLayout, saveUserLayout } from "@/lib/report-layout";
 import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
 
@@ -561,6 +562,8 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     const tile = screen.queryAllByText("Dials per policy sold");
     for (const t of tile) expect(t.closest("[data-stat-state]")?.getAttribute("data-stat-state") ?? "unavailable").not.toBe("ready");
     expect(screen.queryByText("calls in period ÷ dated stored policies in period")).not.toBeInTheDocument();
+    // PB-15: the ratios' definition is in the Data basis sheet's Policies sold section instead.
+    expect(within(within(openDataBasis()).getByRole("region", { name: "Policies sold" })).getByText(POLICY_RATIOS_NOTE)).toBeInTheDocument();
   });
 
   it("CSV exports carry the policy basis as metadata notes", async () => {
@@ -570,6 +573,8 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(h.downloads[0].csv).toContain(`"Policies sold (stored, by sale date)",5`);
     expect(h.downloads[0].csv).toMatch(/"Note","Agent policy counts and premiums use the client's current assigned agent, not the original seller/);
     expect(h.downloads[0].csv).toMatch(/"Note","Policies are stored client policies/);
+    expect(h.downloads[0].csv).not.toContain(POLICY_RATIOS_NOTE); // a screen-only sheet sentence, never a CSV Note
+    expect(h.downloads[0].csv).not.toMatch(/per policy sold/);
   });
 
   it("Trends sits between the metric strip and Period totals with one grouping control for both charts", () => {

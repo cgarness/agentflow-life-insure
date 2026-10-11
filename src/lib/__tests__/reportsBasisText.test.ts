@@ -85,13 +85,15 @@ describe("CSV Note rows (golden, unchanged for the existing fixtures)", () => {
 });
 
 const REASON = "Conversion removes the source lead and clients carry no lead source, so conversions cannot be attributed to a lead source.";
+/** PB-15: the one definition of the two per-policy strip ratios, which no longer carry formula subtitles. */
+const POLICY_RATIOS = "Dials per policy sold and talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
 
 describe("Data basis wording (approved K/T/N rows)", () => {
   it("is exactly the traced wording, in sheet order", () => {
     expect([basis.DATA_BASIS_TITLE, basis.DATA_BASIS_DESCRIPTION]).toEqual(["Data basis", "How Reports counts and credits these numbers."]);
     expect(basis.dataBasisSections(REASON).map((s) => [s.title, s.paragraphs])).toEqual([
       ["Policies sold", [POLICY_SOURCE, "One client can hold several policies.", "Older additional policies with no sold-date field are dated by their issue date.",
-        "A policy without a readable sale date is not counted in any period."]],
+        "A policy without a readable sale date is not counted in any period.", POLICY_RATIOS]],
       ["Annual premium", [PREMIUM, "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.",
         "The average divides by the number of policies with a known premium.",
         "An additional policy's premium comes only from that policy; a missing one is unknown and never borrows the primary premium.",
@@ -150,6 +152,16 @@ describe("Data basis wording (approved K/T/N rows)", () => {
     const csv = [["summary", reportSummary()], ["volume", reportVolume()], ["dispositions", reportDispositions()], ["campaigns", reportCampaigns()], ["leadSources", reportLeadSources()]]
       .flatMap(([panel, data]) => notesFor(panel as string, data as object));
     for (const p of [...sheetOnly, CAMPAIGN_LINEAGE_NOTE, CAMPAIGN_VISIBILITY_NOTE]) expect(csv, p).not.toContain(p);
+  });
+
+  it("the per-policy ratio definition is a screen-only sheet sentence in Policies sold, never a CSV Note (PB-15)", () => {
+    expect(basis.POLICY_RATIOS_NOTE).toBe(POLICY_RATIOS);
+    expect(basis.dataBasisSections(null).find((s) => s.key === "policies")!.paragraphs.at(-1)).toBe(POLICY_RATIOS);
+    expect(basis.dataBasisSections(null).filter((s) => s.paragraphs.includes(POLICY_RATIOS)).map((s) => s.title)).toEqual(["Policies sold"]);
+    const csv = [["summary", reportSummary()], ["summary", emptySummary()], ["volume", reportVolume()], ["dispositions", reportDispositions()],
+      ["campaigns", reportCampaigns()], ["leadSources", reportLeadSources()]].flatMap(([panel, data]) => notesFor(panel as string, data as object));
+    expect(csv.length).toBeGreaterThan(0);
+    for (const note of csv) expect(note).not.toMatch(/per policy sold|original-seller efficiency/);
   });
 });
 
