@@ -76,7 +76,7 @@ const StatCards: React.FC<StatCardsProps> = ({
     },
     {
       id: "premium_sold",
-      label: "Annual Premium Sold",
+      label: "Annual Premium",
       value: data?.premiumThisMonth != null ? formatPremiumSold(data.premiumThisMonth) : null,
       trend: trendOf(data?.premiumThisMonth, data?.premiumLastMonth),
       icon: TrendingUp,

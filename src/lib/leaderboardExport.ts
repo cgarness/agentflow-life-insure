@@ -28,8 +28,8 @@ export function performanceCaption(snapshot: PerformanceSnapshot): string {
   const conflicts = snapshot.rows.reduce((n,a) => n+(a.conflictingDurationCalls ?? 0),0);
   const asOf = new Intl.DateTimeFormat("en-US", { timeZone: snapshot.time_zone, dateStyle: "short", timeStyle: "medium" }).format(new Date(snapshot.end_at));
   return `Active agents · ${snapshot.time_zone} · As of ${asOf}`
-    + ` · Annualized premium${unknown ? ` (${unknown} policies with unknown premium)` : ""}`
+    + ` · Annual premium${unknown ? ` (${unknown} policies with unknown premium)` : ""}`
     + ((estimated || unknownDuration || conflicts) ? ` · Stored call duration: ${estimated} estimated, ${unknownDuration} unknown provenance, ${conflicts} conflicting` : "")
     + (excluded.calls_made || excluded.appointments_set || excluded.policies_sold
-      ? ` · Outside active roster: ${excluded.calls_made} calls, ${excluded.appointments_set} bookings, ${excluded.policies_sold} policies` : "");
+      ? ` · Outside active roster: ${excluded.calls_made} calls, ${excluded.appointments_set} appointments, ${excluded.policies_sold} policies` : "");
 }

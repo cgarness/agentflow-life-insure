@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AgencyGroupInfo } from "@/hooks/useAgencyGroup";
 import type { Period, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { LEADERBOARD_METRICS } from "@/components/leaderboard/leaderboardTypes";
+import { LEADERBOARD_METRICS, METRIC_DISPLAY_LABEL } from "@/components/leaderboard/leaderboardTypes";
 
 interface LeaderboardFiltersProps {
   view: LeaderboardView;
@@ -68,12 +68,13 @@ const LeaderboardFilters: React.FC<LeaderboardFiltersProps> = ({
         ))}
       </div>
       <select
+        aria-label="Metric"
         value={metric}
         onChange={(e) => setMetric(e.target.value as Metric)}
         className="h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
       >
         {LEADERBOARD_METRICS.map((m) => (
-          <option key={m}>{m}</option>
+          <option key={m} value={m}>{METRIC_DISPLAY_LABEL[m]}</option>
         ))}
       </select>
       <TooltipProvider>

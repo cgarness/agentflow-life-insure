@@ -1020,7 +1020,7 @@ const CampaignDetail: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-card rounded-xl border p-4 text-center">
               <Phone className="w-5 h-5 text-primary mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground mb-1">Calls</p>
+              <p className="text-xs text-muted-foreground mb-1">Leads Called</p>
               <p className="text-2xl font-bold text-foreground">{callsCount}</p>
             </div>
             <div className="bg-card rounded-xl border p-4 text-center opacity-60">
@@ -1116,9 +1116,9 @@ const CampaignDetail: React.FC = () => {
 
             return (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Line Chart — Leads Contacted Over Time */}
+                {/* Line Chart — Leads Called Over Time (each lead on its last-called date) */}
                 <div className="bg-card rounded-xl border p-6">
-                  <h3 className="text-sm font-semibold text-foreground mb-4">Leads Contacted Over Time</h3>
+                  <h3 className="text-sm font-semibold text-foreground mb-4">Leads Called Over Time</h3>
                   {lineData.length === 0 ? (
                     <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">No contact activity yet</div>
                   ) : (
@@ -1131,7 +1131,7 @@ const CampaignDetail: React.FC = () => {
                           contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
                           labelStyle={{ color: "hsl(var(--foreground))" }}
                         />
-                        <Line type="monotone" dataKey="contacted" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} />
+                        <Line type="monotone" dataKey="contacted" name="Leads Called" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3, fill: "hsl(var(--primary))" }} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}

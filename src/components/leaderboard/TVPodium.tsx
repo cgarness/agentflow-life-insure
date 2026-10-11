@@ -5,7 +5,7 @@ import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
 import { metalConfig } from "./tvPodiumMetal";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type Metric, metricKey, formatMetricValue } from "./leaderboardTypes";
+import { type AgentStats, type Metric, METRIC_DISPLAY_LABEL, metricKey, formatMetricValue } from "./leaderboardTypes";
 import { type RankMotionKind, podiumEnterInitial, tvGlideTransition, tvPodiumEnterTransition, tvPodiumExitTransition } from "./leaderboardRankMotion";
 interface Props {
   agents: AgentStats[]; metric: Metric;
@@ -95,7 +95,7 @@ export default function TVPodium({agents, metric, tvRankMotions, tvRankAnimation
                           className={`font-black tabular-nums text-white drop-shadow-lg leading-none ${isFirst ? "text-4xl [@media(min-height:900px)]:text-5xl" : "text-3xl [@media(min-height:900px)]:text-4xl"}`}
                         />
                         <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                          {metric}
+                          {METRIC_DISPLAY_LABEL[metric]}
                         </span>
                       </div>
                       </div>

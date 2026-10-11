@@ -168,6 +168,17 @@ describe("TV mode", () => {
 });
 
 describe("Recent Wins panel", () => {
+  it("captions the feed and titles each premium badge 'annual premium'; an unknown premium shows no badge", () => {
+    const known = { ...WIN, premiumSold: 1200 };
+    const unknown = { ...WIN, id: "win-2", premiumSold: null };
+    render(<RecentWinsPanel wins={[known, unknown]} agents={ROSTER} flashingWinId={null} status={status({ kind: "ok", lastUpdatedAt: 1 })} />);
+    expect(screen.getByText("Latest 20 · all periods · annual premium")).toBeInTheDocument();
+    const badges = screen.getAllByTitle("Annual premium");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent("$1,200.00");
+    expect(screen.queryByText(/annualized/i)).not.toBeInTheDocument();
+  });
+
   const status = (s: WinsStatus) => s;
 
   it("says 'No wins yet' only after a successful empty read", () => {

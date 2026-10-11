@@ -143,7 +143,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "callbacks":
         return "Callbacks Detail";
       case "appointments":
-        return `Appointments Detail${rangeSuffix}`;
+        return `Scheduled Appointments${rangeSuffix}`;
       case "calls_today":
         return `Calls Made${rangeSuffix}`;
       case "policies_sold":
@@ -153,7 +153,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "anniversaries":
         return "Upcoming Anniversaries & Birthdays";
       case "premium_sold":
-        return `Annual Premium Sold Analysis${rangeSuffix}`;
+        return `Annual Premium${rangeSuffix}`;
       default:
         return "Details";
     }
@@ -632,7 +632,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : formatPremiumSold(item.annual_premium)} annualized` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : `${formatPremiumSold(item.annual_premium)} annual premium`}` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );

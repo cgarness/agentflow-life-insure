@@ -29,6 +29,7 @@ import {
   type RankMovement,
   type Win,
   LEADERBOARD_METRICS,
+  METRIC_DISPLAY_LABEL,
   rankAgents,
 } from "@/components/leaderboard/leaderboardTypes";
 import {
@@ -316,7 +317,7 @@ const TVMode: React.FC<Props> = ({
                     }}
                   >
                     {METRICS.map((m, i) => (
-                      <option key={m} value={i}>{m}</option>
+                      <option key={m} value={i}>{METRIC_DISPLAY_LABEL[m]}</option>
                     ))}
                   </select>
                 </div>

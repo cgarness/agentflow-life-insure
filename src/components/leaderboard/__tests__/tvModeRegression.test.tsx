@@ -52,3 +52,21 @@ describe("TV metric isolation",()=>{
   expect(screen.getByTestId("tv-podium").querySelectorAll("[data-agent-id]")).toHaveLength(Math.min(3,n));
  });
 });
+describe("TV simple labels over unchanged metric ids",()=>{
+ it("shows simple names while the stored index keeps selecting the same metric",async()=>{
+  localStorage.setItem("leaderboardTvAutoRotate","0");
+  localStorage.setItem("leaderboardTvMetricIndex","5"); // index 5 is the "Premium Sold" id
+  render(view(agents()));await act(async()=>{});
+  fireEvent.click(screen.getByRole("button",{name:"TV display options"}));
+  const select=screen.getByLabelText("Viewing metric") as HTMLSelectElement;
+  expect(Array.from(select.options).map(o=>[o.textContent,o.value])).toEqual([
+   ["Policies Sold","0"],["Calls Made","1"],["Appointments","2"],["Talk Time","3"],["Policies / 100 Calls","4"],["Annual Premium","5"]]);
+  expect(select.value).toBe("5");
+  expect(within(screen.getByTestId("tv-podium")).getAllByText("Annual Premium")).toHaveLength(3);
+  expect(screen.getByText(/Ranking: Annual Premium/)).toBeTruthy();
+  fireEvent.change(select,{target:{value:"2"}});
+  expect(localStorage.getItem("leaderboardTvMetricIndex")).toBe("2");
+  expect(within(screen.getByTestId("tv-podium")).getAllByText("Appointments")).toHaveLength(3);
+  expect(screen.queryByText(/Premium Sold|Appointments Set/)).toBeNull();
+ });
+});

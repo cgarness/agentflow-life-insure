@@ -97,16 +97,16 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
             Agent
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap" role="columnheader">
-            Calls
+            Calls Made
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap" role="columnheader">
-            Policies
+            Policies Sold
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap hidden md:block" role="columnheader">
             Annual Premium
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap hidden md:block" role="columnheader">
-            Appts
+            Appointments
           </div>
           <div className="py-3 px-2 font-medium text-right whitespace-nowrap hidden xl:block" role="columnheader">
             Talk Time

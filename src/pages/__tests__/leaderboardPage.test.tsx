@@ -213,6 +213,34 @@ describe("board preservation on RPC-fed standings", () => {
   });
 });
 
+describe("V2 simple labels over unchanged metric ids", () => {
+  it("the metric selector shows simple names and still selects the unchanged metric ids", () => {
+    const setMetric = vi.fn();
+    h.hookState = { ...baseHookState(), setMetric };
+    render(<Leaderboard />);
+    const select = screen.getByRole("combobox", { name: "Metric" }) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => [o.textContent, o.value])).toEqual([
+      ["Policies Sold", "Policies Sold"], ["Calls Made", "Calls Made"], ["Appointments", "Appointments Set"],
+      ["Talk Time", "Talk Time"], ["Policies / 100 Calls", "Policies per 100 Calls"], ["Annual Premium", "Premium Sold"],
+    ]);
+    fireEvent.change(select, { target: { value: "Premium Sold" } });
+    expect(setMetric).toHaveBeenLastCalledWith("Premium Sold");
+    fireEvent.change(select, { target: { value: "Appointments Set" } });
+    expect(setMetric).toHaveBeenLastCalledWith("Appointments Set");
+  });
+
+  it("names the full-rankings columns and the podium caption with the simple names", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold" };
+    render(<Leaderboard />);
+    for (const name of ["Calls Made", "Policies Sold", "Annual Premium", "Appointments", "Talk Time", "Policies / 100 Calls"]) {
+      expect(screen.getByRole("columnheader", { name })).toBeInTheDocument();
+    }
+    for (const name of ["Calls", "Policies", "Appts"]) expect(screen.queryByRole("columnheader", { name })).not.toBeInTheDocument();
+    expect(screen.getAllByText("annual premium")).toHaveLength(3); // one caption per podium card
+    expect(screen.queryByText(/annualized premium/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("truthful failure states", () => {
   it("keeps the last snapshot behind a stale banner when a refresh fails, and Retry refetches", () => {
     const retry = vi.fn();

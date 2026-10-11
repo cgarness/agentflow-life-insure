@@ -16,6 +16,15 @@ describe('performance contract',()=>{
   const csv=leaderboardCsv(data!.rows,data!,true);expect(csv).toContain('"9373.92"');expect(csv).toContain('"81","","0"');expect(csv).toContain('"stale"');expect(csv).toContain('"America/Los_Angeles"');
   expect(performanceCaption(data!)).toContain('Outside active roster: 1 calls');
  });
+ it('captions the annual premium in simple wording while the CSV headers keep their contract',async()=>{
+  io.data.rows[0].unknown_premiums=3;
+  const {data}=await load();const caption=performanceCaption(data!);
+  expect(caption).toContain(' · Annual premium (3 policies with unknown premium)');
+  expect(caption).toContain('Outside active roster: 1 calls, 0 appointments, 0 policies');
+  expect(caption).not.toMatch(/annualized|bookings/i);
+  const csv=leaderboardCsv(data!.rows,data!);
+  expect(csv).toContain('"Policies Sold","Annualized Premium USD","Unknown Premium Policies","Appointments Set"');
+ });
  it.each(['foreign-row','wrong-org','wrong-period','wrong-group','negative','bad-zone','bad-window','duplicates','impossible-coverage'])('rejects %s without showing zero',async(kind)=>{
   if(kind==='foreign-row')io.data.rows[0].organization_id=agent;
   if(kind==='wrong-org')io.data.organization_id=agent;

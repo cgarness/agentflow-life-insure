@@ -116,7 +116,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
           `🏆 ${title}`
         )}
       </h3>
-      <p className="px-1 pt-2 text-xs text-muted-foreground">Latest 20 · all periods · annualized premium</p>
+      <p className="px-1 pt-2 text-xs text-muted-foreground">Latest 20 · all periods · annual premium</p>
       {status?.kind === "error" && wins.length > 0 && (
         <p role="status" className={cn("px-1 pt-3 text-xs", isTv ? "text-amber-300/90" : "text-muted-foreground")}>
           {status.lastUpdatedAt !== null
@@ -233,7 +233,7 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
                               ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
                               : "bg-success/15 text-success ring-1 ring-success/30",
                         )}
-                        title="Annualized premium"
+                        title="Annual premium"
                       >
                         {formatPremiumSold(premiumSold!)}
                       </span>
