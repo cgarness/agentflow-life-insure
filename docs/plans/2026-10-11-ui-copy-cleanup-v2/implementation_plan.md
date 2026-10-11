@@ -466,3 +466,83 @@ The following do not happen in this task:
 | The two vocabularies inside Data basis confuse readers. | D7 states the equivalence, including callbacks. The live list stays verbatim by design. |
 | The base is mistaken for the stale local `main`. | Every command pins `e11c8bea` by SHA (§12). |
 | Snapshots expire: `snap_Vw08…` on 2026-10-15 and the previous verified `snap_E9Lz…` on 2026-10-18. | §2: restore recovery access before then. |
+
+---
+
+## §16. Approved Part A implementation (2026-10-11): final intended files, recorded before any edit
+
+**Approval.** Chris approved, on 2026-10-11, the isolated Part A implementation with decisions D1–D14. That decision text supersedes the §8 recommendations where the two differ. The following are **not** approved:
+- publication, a push, a PR or a hosted preview;
+- merging or deploying;
+- any backend, Supabase or migration change;
+- email activation, or sending any email, SMS or call.
+
+Part B stays open.
+
+**Base.** `origin/main` was re-fetched on 2026-10-11 and is still `e11c8bea8bb546023da3fc6489140be2cd464a3e`. The newest WORK_LOG and plan entries are unchanged, and the open PRs are unchanged (#429 and the other drafts are excluded). The comparison base is a detached worktree at that SHA in the session scratchpad.
+
+**Attachment not received.** `AgentFlow_Cleanup_References_All_In_One.md` did not reach this session; the uploads and attach directories are empty, and nothing turned up in a filesystem search. Part A follows the decision text in Chris's approval. The Part B audit classification (§11) still needs the file.
+
+**Decisions as approved:**
+- **D1.** Keep each screen's existing capitalization; use consistent business wording across equivalent metrics.
+- **D2.** Keep "Call contact rate".
+- **D3.** "Most policies sold" on the band and the tile. The tie format is preserved, and the Data basis "Agent credit" section carries the current-agent attribution.
+- **D4/D5.** "Attributed policies" and "Premium coverage".
+- **D6.** Keep "Dials per booking".
+- **D7.** A concise Data basis clarification (all booking types, including callbacks, by creation date). No subtitle is added under the metric.
+- **D8.** "Appointments" for the booking-created metric; "Scheduled appointments" for workload.
+- **D9.** The TV keeps its short headings.
+- **D10.** "Leads Called" and "Leads Called Over Time", labels only.
+- **D11.** Deferred to Part B; not dropped.
+- **D12.** "Avg annual premium" on narrow screens.
+- **D13.** Conditional limitation lines stay.
+- **D14.** A separately committed, presentation-only guard (below).
+
+### Commit 1: Reports labels (Part A)
+- **App:** `src/components/reports/ReportsOverview.tsx`, `ReportsActivityFlow.tsx`, `PoliciesSoldChart.tsx`, `AgentPerformanceCards.tsx` (screen `HEADERS` only), `AgentEfficiency.tsx` (screen `HEADERS` only), `CampaignPerformance.tsx` (screen `COLUMNS` only), `CampaignTotalsFoot.tsx` (header keys move in lockstep), `src/lib/stat-computations.ts` (labels and the `stat_top_performer` subtitle only), and `src/lib/reports-basis-text.ts` (two section titles, the screen-only `BOOKINGS_NOTE`, and comments).
+- **Tests:** `src/components/reports/__tests__/ReportsOverview.test.tsx`, `reportCustomizer.test.tsx`, `reportTrendCharts.test.tsx`, `reportsTrends.test.tsx`, `agentPerformanceTable.test.tsx` and `reportsTables.test.tsx`; `src/lib/__tests__/reportsRegistrySnapshot.test.ts` (two label lines), `reportStatComputations.test.ts` and `reportsBasisText.test.ts`; `src/pages/__tests__/reportsPage.test.tsx`.
+- **Gate:** `scripts/tests/reports-visual/verify.mjs` (display selectors only) and `scripts/tests/reports-visual/README.md`.
+
+### Commit 2: CRM labels (Part A)
+- **App:**
+  - Dashboard: `src/components/dashboard/StatCards.tsx` and `DashboardDetailModal.tsx`.
+  - Leaderboard and TV: `src/components/leaderboard/leaderboardTypes.ts` (adds `METRIC_DISPLAY_LABEL`; `metricLabel` wording), `LeaderboardFilters.tsx` (`value={m}` plus `aria-label`), `TVMode.tsx`, `TVPodium.tsx`, `TVDeepRankPanel.tsx`, `TVRankingsTable.tsx`, `LeaderboardRankingsTable.tsx` and `RecentWinsPanel.tsx`.
+  - Shared caption: `src/lib/leaderboardExport.ts` (`performanceCaption` text only; CSV untouched).
+  - Settings, contacts and campaigns: `src/components/settings/user-management/UserPerformanceTab.tsx`, `src/components/contacts/AgentModal.tsx` and `src/pages/CampaignDetail.tsx`.
+- **Tests:**
+  - `src/pages/__tests__/leaderboardPage.test.tsx`: selector label-to-id mapping; CSV header unchanged.
+  - `src/components/leaderboard/__tests__/tvModeRegression.test.tsx`: TV display labels; the stored index maps to the same metric.
+  - `src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx`: Recent Wins wording.
+  - `src/components/dashboard/__tests__/dashboardSections.test.tsx`: the card label.
+  - `src/components/dashboard/__tests__/dashboardDetailModalVoicemail.test.tsx`, or a new sibling: unknown-premium row text.
+  - `src/lib/__tests__/performanceContract.test.ts`: caption.
+  - New `src/components/settings/user-management/__tests__/userPerformanceTab.test.tsx`.
+  - CampaignDetail and AgentModal label checks, in an existing suite or a new sibling under `src/pages/__tests__/` or `src/lib/__tests__/`.
+
+### Commit 3: approved display-wording amendments
+- `AGENT_RULES.md` :474, :659 and :668 (§7 items 1–3).
+- `docs/plans/2026-10-09-reports-refresh-audit/data-basis-wording.md`: an appended, dated V2 addendum.
+
+### Commit 4: D14, presentation-only (its own commit)
+- **New helper:** `src/lib/premiumAvailability.ts`. It reports a premium amount as wholly unavailable only when the same row or period's own counts show `policies > 0` and every one of those policies has an unknown premium. It never infers from `amount === 0`.
+
+  The evidence is the same unit on both sides. `performance_rows.policies_sold` counts the wins in the window, and `unknown_premiums` counts those wins whose sale-time monthly premium is NULL (`20261005161623_performance_reporting_contract.sql:101-107`). The Dashboard summary sums both (`20261005161626:48-52`).
+- **Surfaces:**
+  - Dashboard: `StatCards.tsx` (card value "Unavailable"; trend suppressed when either period is wholly unavailable) and `widgets/GoalProgressWidget.tsx` (the Monthly Premium bar shows "Unavailable" rather than $0).
+  - Leaderboard and TV, where the cell shows "—":
+    - `LeaderboardRankingsTable.tsx`, `TVRankingsTable.tsx`, `TVPodium.tsx` and `TVDeepRankPanel.tsx`;
+    - `LeaderboardPodium.tsx` together with `LeaderboardPodiumCard.tsx`, where the value prop becomes nullable;
+    - `TVAgencyTotalsStrip.tsx`, using the roster's summed counts.
+
+  Leaderboard and TV use the existing `OdometerValue` null → "—" path. Sorting, ranks, payloads, CSV and calculations are untouched.
+- **States preserved:**
+  - no policies: the existing $0.00 empty-period display;
+  - known premiums totalling $0: a genuine $0.00;
+  - partial coverage: the subtotal plus the existing unknown markers and captions;
+  - loading, failed and stale: the existing distinct states.
+- **Tests:** new `src/lib/__tests__/premiumAvailability.test.ts`; Dashboard card and trend states in `dashboardSections.test.tsx`; the goal-widget premium state in `goalProgressAppointmentsSet.test.tsx` or a sibling; Leaderboard and TV row, podium and totals states in `leaderboardPage.test.tsx`, `tvModeRegression.test.tsx` or a new focused suite.
+- **Not covered, and reported instead of expanded:** the profile Business Snapshot "Monthly Premium" (`BusinessSnapshot.tsx:101`). It is a lifetime current-book sum, it uses the different "no premium recorded" evidence from `get_profile_book_stats`, and it is not a reporting period. It needs its own decision.
+
+### Commit 5: records
+- `WORK_LOG.md`: a newest-first entry.
+- This plan, plus the pointer in the root `implementation_plan.md`.
