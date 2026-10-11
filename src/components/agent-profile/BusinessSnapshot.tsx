@@ -1,12 +1,12 @@
 /**
  * BusinessSnapshot — the five lifetime figures that answer "what have I built?".
  *
- * Every tile carries its definition, because several of them are not what the label alone implies:
+ * Several figures are not what the label alone implies. Where a tile needs it, its hint or caveat says so:
  *
- *   Total Policies         counts additional policies, so it can exceed the client count
- *   Total Monthly Premium  is NOT annualized, and excludes policies with no premium recorded
- *   Carriers               is derived from POLICY records, not from carrier appointments
- *   Licensed States        counts distinct NORMALIZED states, so "CA" and "California" count once
+ *   Total Policies         counts additional policies, so it can exceed the client count ("Includes N additional policies")
+ *   Total Monthly Premium  is NOT annualized (the label names the unit) and excludes policies with no premium recorded (caveat)
+ *   Carriers               is derived from POLICY records, not from carrier appointments (hint)
+ *   Licensed States        counts distinct NORMALIZED states, so "CA" and "California" count once (hint)
  *
  * Used by BOTH tabs. Sharing the component is what guarantees the Agent and Team scopes use the
  * same definitions rather than drifting into two numbers with one name.

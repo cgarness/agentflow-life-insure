@@ -737,7 +737,7 @@ const CalendarSettings: React.FC = () => {
       {/* Card 5 — Google Calendar Integration */}
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base">Google Calendar Integration</CardTitle>
             </div>

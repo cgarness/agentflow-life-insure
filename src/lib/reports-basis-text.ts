@@ -16,7 +16,7 @@ export const DATA_BASIS_TITLE = "Data basis";
 export const DATA_BASIS_DESCRIPTION = "How Reports counts and credits these numbers.";
 
 /** The only definition of the two per-policy strip ratios (PB-15; the tiles have no formula line). Screen-only, never a CSV Note. */
-export const POLICY_RATIOS_NOTE = "Dials per policy sold and talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
+export const POLICY_RATIOS_NOTE = "Dials per policy sold and Talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
 
 export const PREMIUM_UNKNOWN_NOTE = "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.";
 export const PREMIUM_AVERAGE_NOTE = "The average divides by the number of policies with a known premium.";

@@ -99,8 +99,10 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
       )
     : 0;
 
-  // A failed load is not an empty history: no fabricated zeros, no "0 calls" tooltips.
-  const unavailable = isLoading || isError;
+  // A failed load is not an empty history: no fabricated zeros, no "0 calls" tooltips. A failed
+  // background refetch keeps the grid that already loaded (react-query retains `data`).
+  const loadFailed = isError && !data;
+  const unavailable = isLoading || loadFailed;
   const isEmpty = !unavailable && totalCalls === 0;
 
   return (
@@ -158,7 +160,7 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
           No call data yet
         </p>
       )}
-      {isError && (
+      {loadFailed && (
         <p className="text-xs text-muted-foreground text-center mt-3">Couldn't load call data.</p>
       )}
 

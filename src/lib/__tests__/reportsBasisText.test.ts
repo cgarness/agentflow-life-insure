@@ -86,7 +86,7 @@ describe("CSV Note rows (golden, unchanged for the existing fixtures)", () => {
 
 const REASON = "Conversion removes the source lead and clients carry no lead source, so conversions cannot be attributed to a lead source.";
 /** PB-15: the one definition of the two per-policy strip ratios, which no longer carry formula subtitles. */
-const POLICY_RATIOS = "Dials per policy sold and talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
+const POLICY_RATIOS = "Dials per policy sold and Talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
 
 describe("Data basis wording (approved K/T/N rows)", () => {
   it("is exactly the traced wording, in sheet order", () => {

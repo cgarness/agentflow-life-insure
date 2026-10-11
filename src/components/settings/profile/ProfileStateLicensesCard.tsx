@@ -442,7 +442,7 @@ export const ProfileStateLicensesCard: React.FC = () => {
                 type="button"
                 onClick={handleNavigateToTeam}
                 variant="link"
-                className="h-auto p-0 flex items-center gap-1 text-primary hover:underline font-semibold"
+                className="ml-auto h-auto p-0 flex items-center gap-1 text-primary hover:underline font-semibold"
               >
                 <span>Go to Phone System → State Licenses</span>
                 <ArrowRight className="w-3.5 h-3.5" />

@@ -51,9 +51,9 @@ export const ProfileSection: React.FC<{
 /**
  * A premium stat tile.
  *
- * `hint` is not decoration. Several of these numbers have a definition that is not obvious from the
- * label — "Total Policies" counts additional policies, "Total Monthly Premium" is not annualized —
- * and stating it on the tile is what keeps the page honest rather than merely impressive.
+ * `hint` is not decoration. Some of these numbers have a definition that is not obvious from the
+ * label — "Total Policies" counts additional policies, "Carriers" come from policy records — and
+ * stating it on the tile is what keeps the page honest rather than merely impressive.
  */
 export const StatTile: React.FC<{
   label: string;

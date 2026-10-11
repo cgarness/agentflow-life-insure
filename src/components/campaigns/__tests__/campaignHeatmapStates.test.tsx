@@ -3,7 +3,8 @@
  *
  * Pins: on error the panel says "Couldn't load call data.", never "No call data yet", and every
  * cell uses the existing loading style with no "0 calls" tooltip; "No call data yet" appears
- * only after a successful empty load; data renders the scale with neither message. The query
+ * only after a successful empty load; data renders the scale with neither message; a failed
+ * background refetch keeps the grid that already loaded. The query
  * (table, projection and filters) is unchanged.
  */
 import React from "react";
@@ -146,6 +147,28 @@ describe("CampaignHeatmap — failed vs empty vs data", () => {
     const grid = cells(container);
     expect(grid.filter((c) => c.classList.contains("bg-primary/20"))).toHaveLength(1);
     expect(grid.some((c) => c.classList.contains(LOADING_CELL))).toBe(false);
+  });
+
+  it("a failed background refetch keeps the grid that already loaded", async () => {
+    const monday = new Date(2026, 9, 12, 10, 15);
+    h.reply = Promise.resolve({ data: [{ started_at: monday.toISOString(), duration: 60 }], error: null });
+    const { container, client } = renderHeatmap();
+    await waitFor(() => {
+      expect(cells(container).filter((c) => c.classList.contains("bg-primary/20"))).toHaveLength(1);
+    });
+
+    h.reply = Promise.resolve({ data: null, error: { message: "refetch failed" } });
+    await act(async () => {
+      await client.refetchQueries();
+    });
+    await waitFor(() => expect(client.getQueryState(["campaignHeatmap", "camp-1", "all"])?.status).toBe("error"));
+    expect(client.getQueryState(["campaignHeatmap", "camp-1", "all"])?.data).toBeTruthy();
+
+    const grid = cells(container);
+    expect(grid.filter((c) => c.classList.contains("bg-primary/20"))).toHaveLength(1);
+    expect(grid.some((c) => c.classList.contains(LOADING_CELL))).toBe(false);
+    expect(screen.queryByText(FAILED)).not.toBeInTheDocument();
+    expect(screen.queryByText(EMPTY)).not.toBeInTheDocument();
   });
 
   it("keeps the existing calls query (and the answered filter)", async () => {
