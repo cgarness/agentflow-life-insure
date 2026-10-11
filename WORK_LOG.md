@@ -1,14 +1,15 @@
-## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented and verified locally (not pushed, not deployed); Part B still blocked
+## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented, verified and published as a draft PR (not merged, not released); Part B plan pending approval
 
 **Request and approval.** Chris approved the isolated Part A implementation with decisions D1–D14 (2026-10-11).
 - **Not approved:** publication, any preview, a production release, backend changes and email activation.
+- **Later approval (2026-10-11):** Chris approved publishing this branch, opening a draft PR and its normal protected Vercel preview. Still not approved: merging to main, production deploy, backend changes, onboarding email activation, broader preview access, and protection-bypass or share tokens.
 - **Plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §16, with the review-driven additions in §16.1.
 
 **Base and branch.**
-- Local branch `claude/ui-copy-cleanup-v2-20261011`, verified code head `f6420bb` (this WORK_LOG commit follows, docs only).
+- Branch `claude/ui-copy-cleanup-v2-20261011`, verified code head `f6420bb`; the WORK_LOG and plan commits after it are docs only.
 - Base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched 2026-10-11. The local `main` ref is stale at `8d53531` and was not used.
-- There is no concurrent work; the open PRs are unchanged, and #429 is not merged.
-- **Not pushed.** There is no PR, preview or deployment.
+- There is no concurrent work; the open PRs are unchanged, and #429 is not merged. `origin/main` was re-fetched again before publishing and was still `e11c8bea`, so no reconciliation was needed.
+- **Published as a draft PR** (no force-push). Vercel builds its normal protected preview. Nothing is merged and production is not deployed.
 
 **Commits** (planning commits `7967e84`, `cd10c4e`, `4c8e13d`, `946f929` and `f6420bb` record the plan and records only):
 
@@ -49,7 +50,7 @@
 - "Call contact rate" and "Dials per booking".
 - Untouched files: Campaigns table, onboarding (series INACTIVE), manual SMS, telephony (`TwilioContext`, `twilio-voice`, Dialer) and hooks.
 
-**Verification against the exact base `e11c8bea`** (fixture and local only; no signed-in acceptance):
+**Verification: no new regressions against the exact base `e11c8bea`** (fixture and local only; no signed-in acceptance):
 - `scripts/verify_reports_frontend.py` on head `f6420bb`, run with `REPORTS_BASE_SHA` and a detached base worktree. Every comparison passed: no new app tsc diagnostic; root tsc equal; no new failed suite or test; no new unhandled runtime error; strict Reports set exit 0; changed-file ESLint exit 0; production build exit 0. Passing tests: base 5,039, candidate 5,079 (+40 new).
 - `npx tsc --noEmit`: 0. `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics on both base and candidate, with an identical set. `git diff --check e11c8bea`: clean.
 - The same 10 test files fail on both sides. Nine fail at setup because `VITE_SUPABASE_*` is unset (no Supabase URL/key in this environment); the tenth, `recordingRetentionVoicemail`, has one pre-existing failing test. Run with CI's synthetic env, the dialer suites pass. These are not an allowlist.
@@ -62,14 +63,28 @@
 - **Reports browser gate.** Evidence path: "embedded SQL + real browser", not native PostgreSQL. Pinned Playwright 1.56.1, agent-browser 0.38.2 and axe-core 4.10.2.
   - Base and candidate each pass all 22 checks.
   - axe reports 0 violations, light and dark, at 390 and 1440 px.
-  - The 13 CSV downloads are identical between base and candidate in every header, Note row and value; the only differing line is the "Generated" timestamp (normalized SHA-256: 13 of 13 equal).
+  - The gate's 13 CSV downloads are identical between base and candidate in every header, Note row and value. Their only normalization drops lines starting with `"Generated",`: each file has the same line count on both sides and exactly one differing line, its Generated row (normalized SHA-256: 13 of 13 equal).
+  - Re-run on code head `62546df` against base `e11c8bea`, each server alone on strict port 4180, with the served source root proven from the transformed entry's `/@fs/` imports and the served `ReportsOverview.tsx` label: 22 of 22 checks pass on each side, axe 0 violations.
   - Layout is identical at 1440 px. At 390 px the hero values are unchanged, and the strip ends 23 px higher (845 vs 868) because "Appointments" no longer wraps.
 - **Leaderboard and TV visual gate:** passes at every TV size, metric and period switch, and roster size.
 - **D14 proof.** Every all-unknown test fails on the pre-D14 tree (`cb14cfa`), and every no-policy, genuine-zero, partial, loading and failed case passes before and after. A scratch mutation that infers from `amount === 0` fails 7 tests.
 - **Not run:**
   - native PostgreSQL scripts (no SQL changed);
-  - the 74-file CSV golden capture (its tool is not committed; the 13 live exports are byte-identical apart from the timestamp);
+  - the historical 74-file CSV golden (its capture tool was never committed, and the record lists totals only, not the 74 files). See the reproducible capture below.
   - signed-in production acceptance (not approved; no production users, calls or messages were created).
+
+**Pinned-clock CSV capture (reproducible equivalent of the 74-file golden).**
+- **Setup.** Base `e11c8bea` (detached worktree) and candidate `62546df` (repository root), each served alone on strict ports 4181 and 4182, served roots proven as above. Clock fixed at 2026-10-09T04:00:00Z, America/Los_Angeles, 1,100 ms pacing, external requests blocked, the same custom window (October 1, 2026) the fixture's SQL payloads cover.
+- **Scope of the capture.** Every export control in every rendered view-toggle and grouping combination across Agency, Team and Personal: 61 downloads, 42 distinct contents, 16 file names (Agency 23, Team 20, Personal 18). No export was disabled.
+- **Result.** 61 of 61 are byte-identical, raw SHA-256 with no normalization of any kind, 98,865 bytes. Every file's Generated row reads the pinned `2026-10-09T04:00:00.000Z`. An independent `sha256sum` over the saved files agrees. A one-byte negative control fails the comparison.
+- **Mapping.** Each of the gate's 13 exports matches its Agency default-view entry by content.
+- **Not covered by the fixture:**
+  - other periods and windows, because the fixture only carries SQL payloads for October 1, 2026; so Daily, Weekly and Monthly trend groupings produce identical files;
+  - heatmap, call-flow and call-duration view toggles in Team and Personal, because those payloads have no outbound calls and the toggles do not render;
+  - the agent tables in Personal (not offered);
+  - agent drilldowns, error, stale and loading exports, and native PostgreSQL payloads (embedded SQL was used).
+- **Why 61 and not 74.** The historical capture's composition cannot be reconstructed, so 13 of its 74 files are not identified. Equivalence to the 74 is not claimed.
+- The capture tools stay in session scratch and are not committed; committing them is a separate decision.
 
 **Separate review pass.** Four lenses with adversarial verifiers: correctness, V2 compliance, test quality, newer-work preservation. No blocker. Four minor findings were fixed: the Settings Goals D14 gap, the TV rank assertion, the missing genuine-$0 cases and stale plan status lines. One was refuted (CampaignDetail empty-state text is outside D10).
 
@@ -79,9 +94,9 @@
 - The CampaignDetail empty state "No contact activity yet" is optional copy.
 - Pre-existing: the Leaderboard and TV "*" marker is title-only, CampaignDetail Contacted/Converted read stored counters (AGENT_RULES :126), and the Dashboard stat cards are not keyboard-operable.
 
-**Migrations and deploys.** None. Supabase was not contacted. Vercel was used only for read-only sandbox and snapshot metadata; no deploy.
+**Migrations and deploys.** None. Supabase was not contacted. Vercel was used only for read-only sandbox and snapshot metadata and, after publication, for its automatic protected preview of this branch. No production deploy, no bypass or share token, and no change to protection settings.
 
-**Blockers, Part B (open deliverable, not complete).**
+**Part B (open deliverable, not complete).** Chris directed a fresh plan against current code. No attachment or sandbox access is needed, and the denied sandbox operations were not retried. The original implementation was not recovered or reconstructed. Historical blockers, kept for the record:
 - The named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` returns `403 forbidden` (create on `vercelRun`) for both resume and isolated create. It was not retried through other endpoints or credentials.
 - The archive `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (SHA-256 `dad1cca7…`) was not received.
 - The 2026-10-11 attachment `AgentFlow_Cleanup_References_All_In_One.md` did not reach this session (uploads and attach are empty), so the original audit could not be classified.
@@ -89,8 +104,9 @@
 - D11 deferred items (formula, basis and helper lines) belong to Part B.
 
 **Next.**
-1. Chris re-uploads the references file and the archive, or grants this session sandbox start access. Then classify the audit groups (still needed, already satisfied, superseded, retained) and bring a Part B file list for approval.
-2. Publication of this branch (push, PR, protected preview) needs Chris's separate approval.
+1. Chris reviews the draft PR and its protected preview.
+2. The Part B plan (in `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md`) needs Chris's approval before any app or test edit. After that: combined verification, one independent review, a WORK_LOG entry and a context snapshot.
+3. Merging and the production release need separate approval.
 
 ---
 
