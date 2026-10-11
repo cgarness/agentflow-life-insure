@@ -52,7 +52,14 @@
 
 **Verification: no new regressions against the exact base `e11c8bea`** (fixture and local only; no signed-in acceptance):
 - `scripts/verify_reports_frontend.py` on head `f6420bb`, run with `REPORTS_BASE_SHA` and a detached base worktree. Every comparison passed: no new app tsc diagnostic; root tsc equal; no new failed suite or test; no new unhandled runtime error; strict Reports set exit 0; changed-file ESLint exit 0; production build exit 0. Passing tests: base 5,039, candidate 5,079 (+40 new).
-- `npx tsc --noEmit`: 0. `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics on both base and candidate, with an identical set. `git diff --check e11c8bea`: clean.
+- `npx tsc --noEmit`: 0. `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics on both base and candidate, with an identical set.
+- **Correction:** an earlier version of this entry said `git diff --check e11c8bea` was clean. It was not: `f23a987` added a blank line at the end of `userManagementUtils.ts`. This was found before publishing and removed in `cba9e94` (whitespace only; ESLint and the two Settings user-management test files pass). `git diff --check e11c8bea` is now clean.
+- **Change set against `e11c8bea`:** 58 files:
+  - 30 app files, 1 new (`src/lib/premiumAvailability.ts`);
+  - 21 test files, 6 new;
+  - 2 browser-gate files (`verify.mjs`, `README.md`);
+  - 5 docs, 1 new (this plan).
+  - No migration, Edge function, workflow, package or config file.
 - The same 10 test files fail on both sides. Nine fail at setup because `VITE_SUPABASE_*` is unset (no Supabase URL/key in this environment); the tenth, `recordingRetentionVoicemail`, has one pre-existing failing test. Run with CI's synthetic env, the dialer suites pass. These are not an allowlist.
 - CI-equivalent targeted suites, with synthetic env:
   - dialer and telephony: 40 files, 514 tests;
