@@ -39,6 +39,8 @@ const h = vi.hoisted(() => ({
   },
   // Must stay the same object between renders — it is an effect dependency.
   agencyGroup: null as null | { groupId: string; groupName: string; role: "leader" | "member" },
+  // Activity outside the active roster in the next envelopes (undefined: the fixture's zeros).
+  excluded: undefined as undefined | { calls_made: number; appointments_set: number; policies_sold: number },
 }));
 
 vi.mock("@/integrations/supabase/client", () => {
@@ -77,7 +79,7 @@ vi.mock("@/integrations/supabase/client", () => {
           select: (columns: string) => { h.rpcSelections.push(columns); return builder; },
           abortSignal: () => builder,
           then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
-            result.then((r: any) => onFulfilled(r.error ? r : { ...r, data: performanceEnvelope(r.data, args, h.responseOrg, asOf) }), onRejected),
+            result.then((r: any) => onFulfilled(r.error ? r : { ...r, data: performanceEnvelope(r.data, args, h.responseOrg, asOf, h.excluded) }), onRejected),
         };
         return builder;
       },
@@ -198,6 +200,7 @@ beforeEach(() => {
   h.mode = "auto";
   h.autoResult = rpcOk(THREE_ROWS);
   h.agencyGroup = null;
+  h.excluded = undefined;
   navigateSpy.mockReset();
   consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -488,6 +491,28 @@ describe("zero-activity month", () => {
     fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
     await waitFor(() => expect(screen.getByText("Avery Adams")).toBeInTheDocument());
     expect(screen.queryByText(NO_SALES_COPY)).not.toBeInTheDocument();
+  });
+});
+
+describe("on-widget notes (material only)", () => {
+  const ROUTINE_NOTES = /Active agents ·|As of |policies with unknown premium|Talk time includes|Stored call duration|unknown provenance/;
+
+  it("after a successful load shows no routine caption and no premium or talk-time note", async () => {
+    h.autoResult = rpcOk(THREE_ROWS.map((r) => ({ ...r, unknown_premiums: 1, estimated_duration_calls: 2, unknown_duration_calls: 3, conflicting_duration_calls: 1 })));
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(rankedRows()).toHaveLength(3));
+    expect(screen.queryAllByText(ROUTINE_NOTES)).toHaveLength(0);
+    expect(screen.queryByText(/Outside active roster/)).not.toBeInTheDocument();
+  });
+
+  it("qualifies 'No sales recorded yet this month.' with the activity outside the active roster", async () => {
+    h.excluded = { calls_made: 0, appointments_set: 0, policies_sold: 2 };
+    h.autoResult = rpcOk(THREE_ROWS.map((r) => ({ ...r, policies_sold: 0 })));
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
+    expect(screen.getAllByText(/Outside active roster/)).toHaveLength(1);
+    expect(screen.getByText("Outside active roster: 0 calls, 0 appointments, 2 policies")).toBeInTheDocument();
+    expect(screen.queryAllByText(ROUTINE_NOTES)).toHaveLength(0);
   });
 });
 

@@ -97,6 +97,7 @@ const Leaderboard: React.FC = () => {
   const status =
     loadError && standingsStatus.kind === "ok" ? { ...standingsStatus, kind: "error" as const } : standingsStatus;
   const live = standingsLive(status);
+  const caption = performanceSnapshot ? performanceCaption(performanceSnapshot) : "";
 
   if (tvMode) {
     return (
@@ -159,7 +160,7 @@ const Leaderboard: React.FC = () => {
         onEnterTvMode={enterTvMode}
       />
 
-      {performanceSnapshot && <p className="px-1 text-xs text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}
+      {caption && <p className="px-1 text-xs text-muted-foreground">{caption}</p>}
       {!live && !hasAgents ? (
         <LeaderboardErrorBanner
           message={loadError ?? (status.offline ? OFFLINE_HEADLINE : "Couldn't load the leaderboard.")}

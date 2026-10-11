@@ -1,12 +1,13 @@
 /** Protocol fixtures for request-scheduling tests. Numeric/security parsing is tested separately. */
-export function performanceEnvelope(rows: any[], args: Record<string, unknown>, org: string, at: Date) {
+export function performanceEnvelope(rows: any[], args: Record<string, unknown>, org: string, at: Date,
+  excluded = {calls_made:0,appointments_set:0,policies_sold:0}) {
   const period = args.p_period;
   const start = new Date(at);
   start.setHours(0,0,0,0);
   if(period === 'month') start.setDate(1);
   if(period === 'week') start.setDate(start.getDate()-(start.getDay()+6)%7);
   return { period, time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone, start_at:start.toISOString(), end_at:at.toISOString(), organization_id:org,
-    group_id:args.p_group_id ?? null, roster:'active', excluded:{calls_made:0,appointments_set:0,policies_sold:0},
+    group_id:args.p_group_id ?? null, roster:'active', excluded,
     rows:rows.map(r=>({organization_id:org,organization_name:'Test Agency',agent_status:'Active',unknown_premiums:0,
       annualized_premium:0,recent_wins_7d:0,estimated_duration_calls:0,unknown_duration_calls:0,conflicting_duration_calls:0, ...r, first_name:r.first_name ?? r.agent_first_name ?? '', last_name:r.last_name ?? r.agent_last_name ?? ''})) };
 }

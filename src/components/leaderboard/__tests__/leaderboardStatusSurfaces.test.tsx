@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import type { AgentStats, Win } from "@/components/leaderboard/leaderboardTypes";
 import { STANDINGS_STATUS_OK, type StandingsStatus, type WinsStatus } from "@/lib/leaderboardStatusCopy";
+import type { PerformanceSnapshot } from "@/lib/performanceQueries";
 
 /**
  * TV mode and Recent Wins must never present an outage as live data: no empty
@@ -164,6 +165,32 @@ describe("TV mode", () => {
     renderTv({ winsStatus: { kind: "error", lastUpdatedAt: null } });
     expect(screen.queryByText(/No wins yet/)).not.toBeInTheDocument();
     expect(screen.getAllByText("Recent wins unavailable").length).toBeGreaterThan(0);
+  });
+});
+
+describe("TV on-screen notes (material only)", () => {
+  const snapshot = (over: Partial<PerformanceSnapshot> = {}): PerformanceSnapshot => ({
+    period: "today", time_zone: "America/Chicago", start_at: "2026-10-04T05:00:00Z", end_at: "2026-10-04T18:00:00Z",
+    organization_id: "0f000000-0000-0000-0000-0000000000aa", group_id: null, roster: "active", rows: ROSTER,
+    excluded: { calls_made: 0, appointments_set: 0, policies_sold: 0 }, ...over,
+  });
+  const captionLines = () => Array.from(screen.getByTestId("tv-agency-totals").children).filter((e) => e.tagName === "P");
+
+  it("a routine snapshot draws no caption line above the totals", () => {
+    renderTv({ performanceSnapshot: snapshot({ rows: ROSTER.map((a) => ({ ...a, unknownPremiums: 0, unknownDurationCalls: 4 })) }) });
+    expect(screen.getByText("Active-Agent Totals")).toBeInTheDocument();
+    expect(captionLines()).toHaveLength(0);
+    expect(screen.queryByText(/Active agents ·|As of |Stored call duration|unknown provenance|Outside active roster/)).not.toBeInTheDocument();
+  });
+
+  it("unknown premiums, conflicting talk time and activity outside the roster show as one note", () => {
+    const rows = ROSTER.map((a, i) => (i === 0 ? { ...a, unknownPremiums: 1, conflictingDurationCalls: 1, unknownDurationCalls: 4 } : a));
+    renderTv({ performanceSnapshot: snapshot({ rows, excluded: { calls_made: 2, appointments_set: 1, policies_sold: 0 } }) });
+    const lines = captionLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent).toBe(
+      "Annual premium (1 policies with unknown premium) · Talk time includes 1 conflicting call duration · Outside active roster: 2 calls, 1 appointments, 0 policies",
+    );
   });
 });
 

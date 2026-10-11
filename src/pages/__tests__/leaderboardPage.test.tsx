@@ -453,3 +453,29 @@ describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
     expect(premiumCell("Casey C.").textContent).toBe("—*"); // the all-unknown agent, now in the table
   });
 });
+
+describe("on-screen notes under the filters (material only)", () => {
+  const NOTES = /Active agents ·|As of |policies with unknown premium|Talk time includes|Outside active roster|Stored call duration|unknown provenance/;
+  const snapshotWith = (over: Record<string, unknown>) => ({ ...baseHookState().performanceSnapshot, ...over });
+
+  it("a routine snapshot renders no caption", () => {
+    render(<Leaderboard />);
+    expect(screen.getByText(/Avery/)).toBeInTheDocument();
+    expect(screen.queryAllByText(NOTES)).toHaveLength(0);
+  });
+
+  it("activity outside the active roster renders exactly that note", () => {
+    h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ excluded: { calls_made: 2, appointments_set: 0, policies_sold: 0 } }) };
+    render(<Leaderboard />);
+    expect(screen.getAllByText(NOTES)).toHaveLength(1);
+    expect(screen.getByText("Outside active roster: 2 calls, 0 appointments, 0 policies")).toBeInTheDocument();
+  });
+
+  it("unknown premiums and estimated talk time render their notes in one caption", () => {
+    const rows = ROSTER.map((a, i) => (i === 0 ? { ...a, unknownPremiums: 1, estimatedDurationCalls: 2, unknownDurationCalls: 5 } : a));
+    h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ rows }) };
+    render(<Leaderboard />);
+    expect(screen.getByText("Annual premium (1 policies with unknown premium) · Talk time includes 2 estimated call durations")).toBeInTheDocument();
+    expect(screen.queryByText(/unknown provenance|Stored call duration/)).not.toBeInTheDocument();
+  });
+});

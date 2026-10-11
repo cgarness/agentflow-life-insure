@@ -8,7 +8,7 @@ import { useTimeReached } from "@/hooks/useTimeReached";
 import { useLeaderboardWidgetStandings } from "@/hooks/useLeaderboardWidgetStandings";
 import { OFFLINE_HEADLINE, formatStatusTime, standingsDetail, standingsLive } from "@/lib/leaderboardStatusCopy";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
-import { performanceCaption } from "@/lib/leaderboardExport";
+import { outsideRosterNote } from "@/lib/leaderboardExport";
 
 interface LeaderboardWidgetProps {
   userId: string;
@@ -100,6 +100,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
   const top3 = ranked.filter((a) => a.wins > 0).slice(0, 3);
   const noSalesYet = top3.length === 0;
   const asOf = status.lastUpdatedAt !== null ? formatStatusTime(status.lastUpdatedAt) : null;
+  const rosterNote = performanceSnapshot ? outsideRosterNote(performanceSnapshot) : "";
 
   return (
     <div className="space-y-4">
@@ -129,7 +130,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
         </p>
       )}
       {viewToggle}
-      {performanceSnapshot && <p className="text-center text-[10px] text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}
+      {rosterNote && <p className="text-center text-[10px] text-muted-foreground">{rosterNote}</p>}
       {noSalesYet ? (
         <p className="py-6 rounded-xl bg-muted/30 text-center text-sm font-medium text-muted-foreground">
           {!live && asOf ? `No sales recorded as of ${asOf}.` : "No sales recorded yet this month."}

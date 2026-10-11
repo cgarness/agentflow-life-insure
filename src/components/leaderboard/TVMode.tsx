@@ -237,7 +237,7 @@ const TVMode: React.FC<Props> = ({
     toast.success(trimmed ? "Ticker message updated" : "Ticker reset to live wins");
   };
 
-
+  const caption = performanceSnapshot ? performanceCaption(performanceSnapshot) : "";
   const winsTicker =
     wins.length > 0
       ? wins.map(w => `🏆 ${w.agent_name || "Agent"} closed ${w.contact_name || "a deal"}${w.campaign_name ? ` (${w.campaign_name})` : ""}`).join("  ·  ")
@@ -440,7 +440,7 @@ const TVMode: React.FC<Props> = ({
           />
         )}
         <div data-testid="tv-agency-totals" className="mx-auto w-full max-w-[72rem] shrink-0">
-          {performanceSnapshot && <p className="text-xs text-slate-400 text-center">{performanceCaption(performanceSnapshot)}</p>}
+          {caption && <p className="text-xs text-slate-400 text-center">{caption}</p>}
       <TVAgencyTotalsStrip
             agents={agents}
             period={period}

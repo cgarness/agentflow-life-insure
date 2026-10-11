@@ -20,16 +20,25 @@ export function leaderboardCsv(agents: AgentStats[], snapshot: PerformanceSnapsh
   return [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
 }
 
-export function performanceCaption(snapshot: PerformanceSnapshot): string {
+/** The excluded inactive/unattributed activity disclosure, or "" when there is none. */
+export function outsideRosterNote(snapshot: PerformanceSnapshot): string {
   const excluded = snapshot.excluded;
-  const unknown = snapshot.rows.reduce((n,a) => n + (a.unknownPremiums ?? 0), 0);
+  return excluded.calls_made || excluded.appointments_set || excluded.policies_sold
+    ? `Outside active roster: ${excluded.calls_made} calls, ${excluded.appointments_set} appointments, ${excluded.policies_sold} policies` : "";
+}
+
+/** Estimated or conflicting stored durations only; the legacy_unknown default never triggers a note. */
+function talkTimeNote(snapshot: PerformanceSnapshot): string {
   const estimated = snapshot.rows.reduce((n,a) => n+(a.estimatedDurationCalls ?? 0),0);
-  const unknownDuration = snapshot.rows.reduce((n,a) => n+(a.unknownDurationCalls ?? 0),0);
   const conflicts = snapshot.rows.reduce((n,a) => n+(a.conflictingDurationCalls ?? 0),0);
-  const asOf = new Intl.DateTimeFormat("en-US", { timeZone: snapshot.time_zone, dateStyle: "short", timeStyle: "medium" }).format(new Date(snapshot.end_at));
-  return `Active agents · ${snapshot.time_zone} · As of ${asOf}`
-    + ` · Annual premium${unknown ? ` (${unknown} policies with unknown premium)` : ""}`
-    + ((estimated || unknownDuration || conflicts) ? ` · Stored call duration: ${estimated} estimated, ${unknownDuration} unknown provenance, ${conflicts} conflicting` : "")
-    + (excluded.calls_made || excluded.appointments_set || excluded.policies_sold
-      ? ` · Outside active roster: ${excluded.calls_made} calls, ${excluded.appointments_set} appointments, ${excluded.policies_sold} policies` : "");
+  if (estimated + conflicts === 0) return "";
+  return "Talk time includes " + [estimated ? `${estimated} estimated` : null, conflicts ? `${conflicts} conflicting` : null].filter(Boolean).join(" and ")
+    + " call duration" + (estimated + conflicts === 1 ? "" : "s");
+}
+
+/** On-screen notes, only when material, joined by " · "; "" when none applies. */
+export function performanceCaption(snapshot: PerformanceSnapshot): string {
+  const unknown = snapshot.rows.reduce((n,a) => n + (a.unknownPremiums ?? 0), 0);
+  return [unknown > 0 ? `Annual premium (${unknown} policies with unknown premium)` : "", talkTimeNote(snapshot), outsideRosterNote(snapshot)]
+    .filter(Boolean).join(" · ");
 }
