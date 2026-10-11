@@ -929,7 +929,7 @@ const CampaignDetail: React.FC = () => {
               <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
               <p className="text-muted-foreground text-sm">
                 {profile?.role?.toLowerCase() === "agent"
-                  ? "You haven't claimed any leads in this campaign yet. Join the Dialer to get started."
+                  ? "You haven't claimed any leads in this campaign yet."
                   : (profile?.role?.toLowerCase() === "team leader" || profile?.role?.toLowerCase() === "team_leader")
                   ? "No leads have been claimed in this campaign by you or your team yet."
                   : "This campaign has no leads yet."}
@@ -1171,7 +1171,7 @@ const CampaignDetail: React.FC = () => {
           {leads.length === 0 ? (
             <div className="bg-card rounded-xl border p-8 text-center">
               <BarChart3 className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-muted-foreground text-sm">No leads in this campaign yet. Add leads from the Leads tab to get started.</p>
+              <p className="text-muted-foreground text-sm">No leads in this campaign yet.</p>
             </div>
           ) : (
             <div className="bg-card rounded-xl border p-6 space-y-3">

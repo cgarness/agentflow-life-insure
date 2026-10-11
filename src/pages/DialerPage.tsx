@@ -4142,10 +4142,7 @@ export default function DialerPage() {
             <div className="bg-accent/30 p-8 rounded-full mb-6">
               <Users className="w-12 h-12 text-muted-foreground opacity-40" />
             </div>
-            <h2 className="text-xl font-bold mb-2">Campaign Queue Empty</h2>
-            <p className="text-sm text-muted-foreground max-w-md mb-8">
-              There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.
-            </p>
+            <h2 className="text-xl font-bold mb-8">Campaign Queue Empty</h2>
           </>
         )}
         <button
@@ -4297,10 +4294,6 @@ export default function DialerPage() {
             </Button>
           )}
 
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-success inline-block" />
-            <span className="text-success text-xs font-semibold">Dialer Ready</span>
-          </div>
           {/* Campaign type badge */}
           {(() => {
             const t = campaignType.toUpperCase();
@@ -4331,13 +4324,9 @@ export default function DialerPage() {
             <Users className="w-8 h-8 text-muted-foreground/50" />
           </div>
           <h3 className="text-xl font-bold text-foreground mb-2">No Available Contacts In Queue.</h3>
-          {nextAvailableTime ? (
+          {nextAvailableTime && (
             <p className="text-sm font-semibold text-primary max-w-sm text-balance">
-              Next Available Contact Is In {formatTimeUntil(nextAvailableTime.toISOString(), new Date())}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground max-w-sm text-balance">
-              Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.
+              Next eligible in {formatTimeUntil(nextAvailableTime.toISOString(), new Date())}
             </p>
           )}
         </div>
@@ -4806,7 +4795,7 @@ export default function DialerPage() {
               </div>
             </div>
             <p className="text-sm text-slate-400 text-center">
-              Queue is now empty. Great work!
+              Queue is now empty.
             </p>
           </div>
           <DialogFooter>
@@ -4882,8 +4871,7 @@ export default function DialerPage() {
               Lead Not Ready
             </DialogTitle>
             <DialogDescription className="pt-2">
-              This lead is scheduled for a future retry or callback and normally shouldn't be called yet. 
-              Are you sure you want to override the schedule and call them now?
+              This lead is scheduled for a future retry or callback. Override the schedule and call now?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-4 gap-2 sm:gap-0">

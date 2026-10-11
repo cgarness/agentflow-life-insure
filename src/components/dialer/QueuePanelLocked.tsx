@@ -201,9 +201,6 @@ export default function QueuePanelLocked({
         <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground mt-2">
           Available To You Now
         </div>
-        <div className="text-[10px] text-muted-foreground mt-1">
-          {counts.agentsActive} agent{counts.agentsActive !== 1 ? "s" : ""} dialing
-        </div>
         {/* Distinguish total campaign leads from currently-callable (rule 11) */}
         <div className="text-[10px] text-muted-foreground/80 mt-2 flex items-center justify-center gap-2 flex-wrap">
           <span>{counts.total} total</span>
@@ -260,8 +257,6 @@ export default function QueuePanelLocked({
       {/* Lock notice */}
       <div className="px-3 py-3 bg-muted/20 border border-border/50 rounded-lg">
         <p className="text-[10px] text-muted-foreground leading-relaxed text-center">
-          Queue order is managed by your campaign admin.
-          <br />
           Leads are assigned automatically as you dial.
         </p>
       </div>

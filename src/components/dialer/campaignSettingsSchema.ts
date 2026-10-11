@@ -85,7 +85,7 @@ export const CAMPAIGN_SETTINGS_COPY = {
   callingWindowHelper:
     "Auto-dial avoids dialing outside this window. Timezone is estimated from the lead's state.",
   localPresenceHelper:
-    "Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used.",
+    "Matches caller ID to the lead's area code using eligible agency numbers. Personal numbers are excluded from rotation; if no local match exists, your default caller ID is used.",
   sessionActiveNote: "Changes apply to your next call.",
   // Settings Access (edit-permission model)
   accessLabel: "Settings Access",
