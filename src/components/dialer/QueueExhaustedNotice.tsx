@@ -9,6 +9,7 @@ import { formatTimeUntil } from "@/lib/queue-manager";
  * Distinguishes empty / exhausted / temporarily-ineligible / locked-by-others
  * using the org-scoped get_queue_metrics RPC (the only accurate source under
  * RLS — regular agents cannot see other agents' locks). Aggregate counts only.
+ * Loading and a failed load (RPC error or no row) are their own states.
  */
 interface QueueMetricsRow {
   total_leads: number;
@@ -27,38 +28,48 @@ interface QueueExhaustedNoticeProps {
   requireLicensedStateAccess?: boolean;
 }
 
+/**
+ * Result owned by the campaign it was fetched for. A result whose campaignId is
+ * not the current prop is ignored, so the notice reads "loading" until the
+ * current campaign's own response arrives (never a previous campaign's row).
+ */
+type QueueMetricsResult =
+  | { campaignId: string; status: "ready"; row: QueueMetricsRow }
+  | { campaignId: string; status: "error" };
+
 export default function QueueExhaustedNotice({ campaignId, requireLicensedStateAccess = false }: QueueExhaustedNoticeProps) {
-  const [row, setRow] = useState<QueueMetricsRow | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [result, setResult] = useState<QueueMetricsResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!campaignId) return;
     // RPC absent from generated types → narrow cast (sanctioned pattern).
-    (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .rpc("get_queue_metrics", { p_campaign_id: campaignId })
       .then(({ data, error }: { data: unknown; error: unknown }) => {
         if (cancelled) return;
         if (error) {
           console.error("[QueueExhaustedNotice] get_queue_metrics error:", error);
-          setLoaded(true);
+          setResult({ campaignId, status: "error" });
           return;
         }
         const r = (Array.isArray(data) ? data[0] : data) as QueueMetricsRow | undefined;
-        setRow(r ?? null);
-        setLoaded(true);
+        setResult(r ? { campaignId, status: "ready", row: r } : { campaignId, status: "error" });
       });
     return () => { cancelled = true; };
   }, [campaignId]);
 
-  let heading = "No Available Contacts In Queue.";
-  let detail =
-    "Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.";
+  const current = result?.campaignId === campaignId ? result : null;
+  const row = current?.status === "ready" ? current.row : null;
 
-  if (loaded && row) {
+  let heading = "Checking queue…";
+  let detail = "";
+
+  if (current?.status === "error") {
+    heading = "Couldn't load queue status.";
+  } else if (row) {
     if (row.total_leads === 0) {
       heading = "This Campaign Has No Leads.";
-      detail = "";
     } else if (requireLicensedStateAccess) {
       // Licensed-state access is on (Build 2b): the queue is restricted to the
       // agent's licensed states. The campaign has leads, but none are claimable
@@ -85,7 +96,7 @@ export default function QueueExhaustedNotice({ campaignId, requireLicensedStateA
   }
 
   const nextEligible =
-    loaded && row?.next_eligible_at && new Date(row.next_eligible_at) > new Date()
+    row?.next_eligible_at && new Date(row.next_eligible_at) > new Date()
       ? row.next_eligible_at
       : null;
 

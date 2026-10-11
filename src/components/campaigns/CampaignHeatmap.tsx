@@ -58,7 +58,7 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
 }) => {
   const scale = filter === "answered" ? EMERALD_SCALE : PRIMARY_SCALE;
 
-  const { data, isLoading } = useQuery<HeatmapGrid>({
+  const { data, isLoading, isError } = useQuery<HeatmapGrid>({
     queryKey: ["campaignHeatmap", campaignId, filter],
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -99,7 +99,9 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
       )
     : 0;
 
-  const isEmpty = !isLoading && totalCalls === 0;
+  // A failed load is not an empty history: no fabricated zeros, no "0 calls" tooltips.
+  const unavailable = isLoading || isError;
+  const isEmpty = !unavailable && totalCalls === 0;
 
   return (
     <div className="bg-card rounded-xl border p-5">
@@ -126,8 +128,8 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
                 {formatHour(h)}
               </div>
               {DAYS.map((day, dayIdx) => {
-                const count = isLoading ? 0 : data?.[dayIdx]?.[h] || 0;
-                const cls = isLoading ? "bg-muted/20" : scale[bucket(count)];
+                const count = unavailable ? 0 : data?.[dayIdx]?.[h] || 0;
+                const cls = unavailable ? "bg-muted/20" : scale[bucket(count)];
                 return (
                   <Tooltip key={`${h}-${dayIdx}`}>
                     <TooltipTrigger asChild>
@@ -135,7 +137,7 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
                         className={`w-4 h-4 sm:w-5 sm:h-5 rounded-sm ${cls} transition-colors`}
                       />
                     </TooltipTrigger>
-                    {!isLoading && (
+                    {!unavailable && (
                       <TooltipContent>
                         <p className="text-xs">
                           {day} {formatHour(h)} — {count} call
@@ -155,6 +157,9 @@ export const CampaignHeatmap: React.FC<CampaignHeatmapProps> = ({
         <p className="text-xs text-muted-foreground text-center mt-3">
           No call data yet
         </p>
+      )}
+      {isError && (
+        <p className="text-xs text-muted-foreground text-center mt-3">Couldn't load call data.</p>
       )}
 
       <div className="flex items-center justify-end gap-1 mt-3">

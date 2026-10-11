@@ -333,7 +333,7 @@ export function useDialerSession(): UseDialerSessionReturn {
         console.error("[Dialer] campaigns fetch:", error);
         if (!silent) {
           toast.error(
-            "Could not load campaigns. Check your connection or ask an admin to verify database migrations.",
+            "Could not load campaigns. Check your connection.",
           );
         }
         setCampaigns([]);

@@ -928,7 +928,9 @@ const CampaignDetail: React.FC = () => {
             <div className="bg-card rounded-xl border p-8 text-center">
               <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
               <p className="text-muted-foreground text-sm">
-                {profile?.role?.toLowerCase() === "agent"
+                {leadFilter !== "All"
+                  ? "No leads match this filter."
+                  : profile?.role?.toLowerCase() === "agent"
                   ? "You haven't claimed any leads in this campaign yet."
                   : (profile?.role?.toLowerCase() === "team leader" || profile?.role?.toLowerCase() === "team_leader")
                   ? "No leads have been claimed in this campaign by you or your team yet."
