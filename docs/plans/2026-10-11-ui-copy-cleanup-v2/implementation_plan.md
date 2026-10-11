@@ -16,7 +16,7 @@
 
 ## §0. TL;DR
 
-- **Base.** `main` is `e11c8bea` (fetched 2026-10-11, the same as the handoff checkpoint). It has 49 commits since the cleanup base `be2690d8`. The `src` changes in that range come from three PRs only: #433 (Campaigns table), #436 (Reports refresh) and #439 (onboarding preference mount and unsubscribe page).
+- **Base.** `origin/main` is `e11c8bea` (fetched 2026-10-11, the same as the handoff checkpoint). The local `main` ref in this clone is stale at `8d53531` and is never used as a base; every base reference below is the SHA `e11c8bea`. It has 49 commits since the cleanup base `be2690d8`. The `src` changes in that range come from three PRs only: #433 (Campaigns table), #436 (Reports refresh) and #439 (onboarding preference mount and unsubscribe page).
 - **Recovery is blocked.** Both resuming the named sandbox and creating an isolated copy from its snapshot return `403 forbidden` ("You don't have permission to create the vercel sandbox"). The documentation pack, including `METRIC_LABEL_ADDENDUM.md`, was not attached to this session. The V2 text in Chris's request is used as the addendum. The previous verified snapshot `snap_E9LzZeDV5vYzaN2WszrzqzToDL8v` **expires 2026-10-18 02:48 UTC**.
 - **Part A finding.** Every on-screen metric label already lives in its own screen-only constant or JSX, separate from CSV headers, CSV Note constants, payload keys and saved ids. The V2 renames are therefore narrow string edits at the existing presentation boundary. Only two display-only mappings are needed:
   - `CampaignTotalsFoot` keys its cells by the screen header text, so those keys move in lockstep with the headers.
@@ -28,7 +28,8 @@
   - rename the leader row to "Most policies sold";
   - use "Attributed policies" and "Premium coverage" in the campaign table;
   - keep "Dials per booking";
-  - make the sheet-only bookings note state the equivalence with the CSV term.
+  - make the sheet-only bookings note state the equivalence with the CSV term;
+  - show "Unavailable" rather than $0.00 when every premium on a Dashboard or Leaderboard surface is unknown (D14).
 
 ---
 
@@ -36,7 +37,7 @@
 
 | Item | Finding |
 |---|---|
-| Latest `main` | `e11c8bea` "Merge pull request #439: inactive onboarding email series", fetched 2026-10-11. |
+| Latest `main` | `origin/main` = `e11c8bea` "Merge pull request #439: inactive onboarding email series", fetched 2026-10-11. The local `main` ref is stale at `8d53531` (#431, 50 commits behind) and is not used. |
 | Since cleanup base `be2690d8` | 49 commits. First-parent PRs: #433 Campaigns table (`d88982d`), #434 docs, #436 Reports refresh (`b00bfed`), #435 SQL/docs, #437 docs, #438 backend/docs, #439 onboarding (`e11c8be`). #434, #435, #437 and #438 change no `src` files. |
 | Open PRs | None is the cleanup. #429 (START draft, codex/sms-start-20261008) is unapproved and **excluded**. #425, #398, #383, #382, #381, #378 and #294 are unrelated. None is imported. |
 | `origin/codex/ui-copy-cleanup-20261006` | Points at `1a87753`, an ancestor of `main`, with 0 unique commits. It is not the cleanup. Fetched read-only to `refs/recovery/codex-ui-copy-cleanup-20261006`. |
@@ -53,8 +54,8 @@
 | Snapshot | Status | Created (UTC) | Expires (UTC) |
 |---|---|---|---|
 | `snap_NLNxyouDyIOKaNHBk9Elg8nge1iz` (current, automatic, parent `snap_E9Lz…`) | created | 2026-10-11 02:52 | 2026-11-10 02:52 |
-| `snap_E9LzZeDV5vYzaN2WszrzqzToDL8v` (previous verified, manual) | created | 2026-10-10 | **2026-10-18 02:48** (7 days after last use) |
-| `snap_sSJ0…`, `snap_DfGE…`, `snap_Vw08…` (older) | created | 2026-10-08/09 | 2026-11-08, 2026-11-07, 2026-10-14 |
+| `snap_E9LzZeDV5vYzaN2WszrzqzToDL8v` (previous verified, manual) | created | 2026-10-09 21:07 | **2026-10-18 02:48** (7 days after last use) |
+| `snap_sSJ0…`, `snap_DfGE…`, `snap_Vw08…` (older) | created | 2026-10-08 | 2026-11-08, 2026-11-07, **2026-10-15** |
 
 **What was attempted. Both requests were refused and nothing changed.**
 1. `create sandbox` from `snap_NLNx…` as a separate, non-persistent, deny-all-network, read-only recovery copy. The aim was to leave the named sandbox's snapshot chain untouched. Result: `403 forbidden`, action `create`, resource `vercelRun`.
@@ -64,9 +65,14 @@ The Vercel CLI fallback is not installed in this container and has no credential
 
 **Exact missing item (either one unblocks Part B):**
 - **(a)** A Vercel credential for this session with Sandbox create/resume permission on that team and project. The connected Vercel account can read sandbox and snapshot metadata but cannot start a sandbox.
-- **(b)** Chris uploads `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (1,726,881 bytes, SHA-256 `dad1cca7509b1e1d2d6a6861400fe03bc6d97e4ec0cf4d4f98cc693916d0efe0`), plus the four reference documents, into this session.
+- **(b)** Chris uploads `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (1,726,881 bytes, SHA-256 `dad1cca7509b1e1d2d6a6861400fe03bc6d97e4ec0cf4d4f98cc693916d0efe0`) into this session, together with `AgentFlow_UI_Copy_Audit.md`, `AgentFlow_UI_Cleanup_Implementation_Plan.md`, `AgentFlow_UI_Cleanup_Verification_and_Handoff_20261009.md` and `CURRENT_RECONCILIATION_NOTES.md`.
+
+**`METRIC_LABEL_ADDENDUM.md`.** It was not received either. This plan uses the V2 text in Chris's 2026-10-11 request as the addendum. **Chris to confirm**, or upload the file if it says more.
 
 **Recovery procedure once available.** No step publishes the archive, touches `main` or the working checkout, or modifies the source sandbox or branch.
+
+With path (a), first resume the named sandbox (only after Chris confirms that this session may). Make no edits inside it. Copy the archive out of `/tmp` in the sandbox into a new scratch directory here, then continue with step 1. Before the session ends, record the sandbox's new automatic snapshot (id, parent, expiry) in WORK_LOG and confirm that `snap_E9Lz…` and `snap_NLNx…` still exist.
+
 1. Copy the archive into a new empty directory under the session scratchpad. Verify its byte size and SHA-256 against the values above.
 2. Extract it into its own directory. Treat its contents as data. Run no script from inside it.
 3. Confirm the prerequisite history is local: `be2690d8` is present in this clone. Then run `git bundle verify`.
@@ -106,7 +112,8 @@ The Vercel CLI fallback is not installed in this container and has no credential
 | Known monthly | **Monthly premium** | Band (`ReportsOverview.tsx:87`) | `premium.monthly_premium`. "Unavailable" when all premiums are unknown. |
 | Avg per known policy / Avg / known policy (phone) | **Average annual premium** / phone **Avg annual premium** | Band (`ReportsOverview.tsx:92-93`) | `average_annual_premium`. The denominator stays the known-premium policy count; "—" when none are known. `PREMIUM_AVERAGE_NOTE` in Data basis states it. |
 | Avg annual premium / known policy | **Average annual premium** | Strip and customizer label for `stat_avg_premium` (`stat-computations.ts:94`) | Same as above. The tile's coverage subtitle "k/n known policies" stays. |
-| Policies (current assignment) | **Policies sold** | Agent performance and agent efficiency screen headers (`AgentPerformanceCards.tsx:26`, `AgentEfficiency.tsx:33`) | Stored policies by sale date in the period, credited to the client's **current** agent. This is not seller credit; the Data basis "Agent credit" section states it. The CSV header stays "Policies (current assignment)". |
+| Known annual premium (registry label of the fixed stat) | **Annual premium** | `stat_annual_premium` label (`stat-computations.ts:93`). It is never rendered (a fixed stat). Renaming keeps the vocabulary single and keeps the customizer negatives (`reportCustomizer.test.tsx:36`, `verify.mjs:203`) meaningful. | Same as the band. |
+| Policies (current assignment) | **Policies sold** | Agent performance and agent efficiency screen headers (`AgentPerformanceCards.tsx:26`, `AgentEfficiency.tsx:34`) | Stored policies by sale date in the period, credited to the client's **current** agent. This is not seller credit; the Data basis "Agent credit" section states it. The CSV header stays "Policies (current assignment)". |
 | Bookings created (all types) | **Appointments** | Period totals tile (`ReportsActivityFlow.tsx:32`), whose "by date created" caption stays; strip and customizer label for `stat_appointments_set` (`stat-computations.ts:104`); agent table header (`AgentPerformanceCards.tsx:27`); Data basis section title (`reports-basis-text.ts:112`) | Every booking of any kind, by `created_at`, credited to `COALESCE(created_by, user_id)`, regardless of status. **Not** scheduled, upcoming, attended or completed appointments. |
 | Most policies — current assignments | **Most policies sold** (D3) | Band leader row `dt` (`ReportsOverview.tsx:54`); strip label for `stat_top_performer` (`stat-computations.ts:122`), renamed together | The same single current-assignment ranking and tie rule ("N agents tied · X policies each"). It is never "Top performer". |
 | "{n} policies currently assigned" (tile subtitle) | **"{n} policies"** (D3) | `stat-computations.ts:259` | The value is unchanged, and it now matches the band's "Bob Agent · 2 policies". |
@@ -122,21 +129,23 @@ The Vercel CLI fallback is not installed in this container and has no credential
 | Appointments Detail{range} | **Scheduled Appointments{range}** | Drilldown title (`DashboardDetailModal.tsx:146`). It opens from the "Scheduled Appointments" card. | Workload: `status='Scheduled'`, `start_time`, `user_id`. It stays distinct from created-date appointments. |
 | "Closed: {type} • {$X \| Premium unknown} annualized" | **"Closed: {type} • {$X} annual premium"** or **"Closed: {type} • Premium unknown"** | Drilldown row (`DashboardDetailModal.tsx:635`) | This fixes a real display defect: an unknown row currently reads "Premium unknown annualized". |
 | Premium Sold (metric selector, TV selector, TV podium, deep-rank header, TV ranking title) | **Annual Premium** | Through a new display-only `METRIC_DISPLAY_LABEL` in `leaderboardTypes.ts`, used at `LeaderboardFilters.tsx:76`, `TVMode.tsx:319`, `TVPodium.tsx:98`, `TVDeepRankPanel.tsx:36` and `TVRankingsTable.tsx:50`. The `Metric` ids, `LEADERBOARD_METRICS`, the TV `localStorage` index and `METRIC_COLUMN` keys stay. | `premiumSold`, which is annualized sold premium. The ranking table column already says "Annual Premium". |
+| Policies per 100 Calls (selector, TV ranking title, podium caption, user tab) | **Policies / 100 Calls** | Display map, `metricLabel` (`leaderboardTypes.ts:108`), `UserPerformanceTab.tsx:34` | The same rate the table headers already label "Policies / 100 Calls" (`LeaderboardRankingsTable.tsx:115`, `TVRankingsTable.tsx:65`). The CSV header "Policies per 100 Calls" stays. |
 | Appointments Set (selector, TV and podium) | **Appointments** (D8) | Same display map, plus `metricLabel` at `leaderboardTypes.ts:104` ("appointments") | The same created-date, setter-credit, all-types metric as the Reports "Appointments". The CSV header "Appointments Set" stays. |
 | annualized premium (podium caption) | **annual premium** | `metricLabel` (`leaderboardTypes.ts:110`) | Same. |
-| " · Annualized premium (N policies with unknown premium)" | **" · Annual premium (N policies with unknown premium)"** | Shared on-screen caption `performanceCaption` (`leaderboardExport.ts:31`). The CSV headers at :12-15 stay. | The conditional unknown-premium count stays. |
+| " · Annualized premium (N policies with unknown premium)" | **" · Annual premium (N policies with unknown premium)"** | Shared on-screen caption `performanceCaption` (`leaderboardExport.ts:31`), rendered by the Leaderboard, TV and the Dashboard `LeaderboardWidget.tsx:132`. The CSV headers at :12-15 stay. | The conditional unknown-premium count stays. |
 | "Outside active roster: N calls, N bookings, N policies" | "… N calls, N **appointments**, N policies" (only with D8) | `leaderboardExport.ts:34` | The disclosure itself stays (AGENT_RULES). |
 | Latest 20 · all periods · annualized premium / title "Annualized premium" | "… · **annual premium**" / title "**Annual premium**" | `RecentWinsPanel.tsx:119,236` | Same. "Premium unknown" stays. |
-| Policies / Appts (main leaderboard table headers) | **Policies Sold** / **Appointments** | `LeaderboardRankingsTable.tsx:103,109` | Period sold count and created-date appointments. The table's `overflow-x-auto` wrapper and the normal-view gate (`leaderboard-visual/verify.mjs:129-131`) contain the width. |
+| Calls / Policies / Appts (main leaderboard table headers) | **Calls Made** / **Policies Sold** / **Appointments** | `LeaderboardRankingsTable.tsx:100,103,109` | Period sold count and created-date appointments. The table's `overflow-x-auto` wrapper and the normal-view gate (`leaderboard-visual/verify.mjs:129-131`) contain the width. |
 | Policies / Appts / Talk / Calls (TV compact headers and totals strip) | **Unchanged** (D9) | `TVRankingsTable.tsx:60-64`, `TVAgencyTotalsStrip.tsx:63,77` | They stay compact for the TV layout budget (`leaderboard-visual/verify.mjs:63-66`). The ranking title names the full metric. |
 | Appointments Set (month) | **Appointments** | `UserPerformanceTab.tsx:32` | Month to date; the existing "Month to date" line carries the period. |
-| Monthly Appt. Goal | **Monthly Appointments Goal** | `AgentModal.tsx:161` | This matches `UserGoalsTab`. |
-| Calls (CampaignDetail Stats tile) | **Called** (D10) | `CampaignDetail.tsx:1023` | It counts **leads** with `call_attempts > 0`, matching the Campaigns "Called" vocabulary. The heatmap "Calls Made" (:1040) stays. |
+| Monthly Call Goal / Monthly Appt. Goal | **Monthly Calls Goal** / **Monthly Appointments Goal** | `AgentModal.tsx:159,161` | These match `UserGoalsTab.tsx:34-36` and `ProfileGoalsCard.tsx:146`. The fields are unchanged. |
+| Calls (CampaignDetail Stats tile) | **Leads Called** (D10) | `CampaignDetail.tsx:1023` | It counts **leads** with `call_attempts > 0`. It is not "Called": the same tab's Status Breakdown already has a queue-status row "Called" (:1179) with a different count. The heatmap "Calls Made" (:1040) stays. |
+| Leads Contacted Over Time (CampaignDetail chart) | **Leads Called Over Time** (D10) | `CampaignDetail.tsx:1117` | It plots every lead by `last_called_at` with no contacted test (:1092-1098), so it shows called leads. |
 
 ### §4.3 Already satisfied or kept (no change)
 
-- **Already simple:** Dashboard "Calls Made", "Policies Sold", "Scheduled Appointments", "Monthly Premium" and "Monthly Appointments"; the Leaderboard and TV "Annual Premium" column and total, "Talk Time", "Calls Made", "Policies Sold" and "Policies / 100 Calls"; the Dialer's "Calls Made", "Contacted", "Contact Rate" and "Policies Sold"; `UserPerformanceTab` "Calls Made", "Policies Sold" and "Talk Time"; the profile "Monthly Premium" (lifetime current book, not annualized) and "Carrier appointments" (licensing, excluded from the appointments vocabulary); the Campaigns table columns.
-- **"Call contact rate" stays (D2)**, in the strip, Trends, Call flow, Heatmap, tables and Call summary. The Reports customizer also lists the lead-level placeholders "First dial contact rate" and "Follow-up contact rate", and the campaign and lead-source tables show "Contacted leads" beside it. "Call" is therefore a genuinely differentiating word. AGENT_RULES #38 and `reportsContracts.test.ts:155-168` require it.
+- **Already simple:** Dashboard "Calls Made", "Policies Sold", "Scheduled Appointments", "Monthly Premium" and "Monthly Appointments"; the Leaderboard and TV "Annual Premium" column and total, "Talk Time", the selector's "Calls Made" and "Policies Sold", and the "Policies / 100 Calls" headers; the Dialer's "Calls Made", "Contacted", "Contact Rate" and "Policies Sold"; `UserPerformanceTab` "Calls Made", "Policies Sold" and "Talk Time"; the profile "Monthly Premium" (lifetime current book, not annualized) and "Carrier appointments" (licensing, excluded from the appointments vocabulary); the Campaigns table columns.
+- **"Call contact rate" stays (D2)**, in the strip, Trends, Call flow, Heatmap, tables and Call summary. The campaign and lead-source tables show the lead-level "Contacted leads" right beside it (`CampaignPerformance.tsx:18`, `LeadSourceTable.tsx:23`), so "Call" is a genuinely differentiating word. AGENT_RULES #38 (:472) and `reportsContracts.test.ts:155-168` require it.
 - **"Outbound calls" / "Contacted outbound calls" on the Calling trend stay**, with case per D1. "Inbound calls" is shown alongside, and V2 keeps Inbound/Outbound. `CallVolumeChart.tsx:33-36,107,114`.
 - **"Dials per booking" stays (D6).** This is the R-1 owner-approved name, protected by `reportsRegistrySnapshot.test.ts:67-68`.
 - **Genuine limitations stay**, all separate from the titles:
@@ -149,12 +158,16 @@ The Vercel CLI fallback is not installed in this container and has no credential
   - Leaderboard and TV unknown-premium markers;
   - Dashboard, goal-widget and user-tab "N policies have unknown premium";
   - profile "N policies have no premium recorded".
-- **CSV-only text stays byte-identical.** This covers the `Reports.tsx:99-106` summary rows, every component `EXPORT_HEADERS` array, the inline chart CSV header arrays, `CommunicationsStats` `exportLabel`/`premiumRows`, `leaderboardExport.ts:12-15`, `PREMIUM_BASIS`, `premiumNote`, `qualityNotes`, `integrityExportNotes`, `reports-policy-text.ts` and `CAMPAIGN_LINEAGE_NOTE`.
+- **CSV-only text stays byte-identical:** the `Reports.tsx:99-106` summary rows, every component `EXPORT_HEADERS` array, the inline chart CSV header arrays, `CommunicationsStats` `exportLabel`/`premiumRows` and `leaderboardExport.ts:12-15`.
+- **Shared screen and CSV constants stay byte-identical:** `PREMIUM_BASIS`, `premiumNote`, `qualityNotes`, `integrityExportNotes` and the `reports-policy-text.ts` constants (including `CAMPAIGN_ATTRIBUTION_NOTE`). They appear both in CSV Note rows and in the Data basis sheet.
+- **Screen-only notes stay unchanged:** `CAMPAIGN_LINEAGE_NOTE`, the on-screen campaign note (`CampaignPerformance.tsx:98`; never a standalone CSV Note).
 - **The Data basis live list is unchanged.** It deliberately shows the CSV Note sentences verbatim ("Known annual premium $…; k/n policies known…", "Bookings created (all types): N; recorded kind: …"). Screen and CSV stay identical by design.
 - **Unmounted or unrendered strings are not edited:**
   - `AgentScorecardModal.tsx` (no importers; a documented follow-up);
   - `DayAgendaPanel.tsx` (unmounted);
-  - `stat_annual_premium` and `stat_policies_sold` labels, which are fixed stats that are never rendered (`report-layout-constants.ts:25`); changing them is optional, and they are left as is.
+  - the `stat_policies_sold` label, a fixed stat that is never rendered (`report-layout-constants.ts:25`); `stat_annual_premium` is renamed only for consistency (§4.1);
+  - the unavailable registry placeholders (`stat-computations.ts:79-80` contact-rate placeholders, :99 and :105-110 "Appt …" placeholders), which are filtered out of the registry and never listed or rendered (`report-layout-constants.ts:30`);
+  - `CustomReportBuilder.tsx` and `ScheduledReportsModal.tsx`, which are unmounted report components.
 
 ---
 
@@ -168,7 +181,7 @@ The Vercel CLI fallback is not installed in this container and has no credential
 
   Saved `report_layouts` rows store `{id, visible}` only, so a label never persists. Every component stays under the 200-line contract.
 - **Display-only mapping 1.** In `CampaignTotalsFoot.tsx:19-24`, the `values` record keys move in lockstep with the renamed `CampaignPerformance` COLUMNS. Otherwise the tfoot renders blank cells silently. A stable-id refactor is not proposed.
-- **Display-only mapping 2.** Add `METRIC_DISPLAY_LABEL: Record<Metric,string>` in `leaderboardTypes.ts`, where every entry equals its id except the two renames. Because `LeaderboardFilters.tsx:76` renders `<option>{m}</option>` with no `value`, and `onChange` reads the option text, the option must become `<option value={m}>{METRIC_DISPLAY_LABEL[m]}</option>`. Its `<select>` gets `aria-label="Metric"`; today it has no accessible name.
+- **Display-only mapping 2.** Add `METRIC_DISPLAY_LABEL: Record<Metric,string>` in `leaderboardTypes.ts`, where every entry equals its id except three: "Premium Sold" → "Annual Premium", "Appointments Set" → "Appointments" (D8) and "Policies per 100 Calls" → "Policies / 100 Calls". Because `LeaderboardFilters.tsx:76` renders `<option>{m}</option>` with no `value`, and `onChange` reads the option text, the option must become `<option value={m}>{METRIC_DISPLAY_LABEL[m]}</option>`. Its `<select>` gets `aria-label="Metric"`; today it has no accessible name.
 - **Not touched:** shared or byte-pinned constants, CSV builders, `reports-export.ts`, payload schemas, RPCs and migrations.
 
 ---
@@ -177,7 +190,7 @@ The Vercel CLI fallback is not installed in this container and has no credential
 
 ### Application files
 
-23 files: 9 Reports and 14 CRM.
+23 files: 9 Reports and 14 CRM. If D14 is approved, its guard edits `StatCards.tsx`, `LeaderboardRankingsTable.tsx`, `TVRankingsTable.tsx`, `TVPodium.tsx` and `TVDeepRankPanel.tsx`, which are already listed, plus `TVAgencyTotalsStrip.tsx` and `LeaderboardPodiumCard.tsx`, which are then additional files.
 
 | File | Change |
 |---|---|
@@ -185,22 +198,22 @@ The Vercel CLI fallback is not installed in this container and has no credential
 | `src/components/reports/ReportsActivityFlow.tsx` | :32 label → "Appointments". The basis caption is unchanged. |
 | `src/components/reports/PoliciesSoldChart.tsx` | :47 tooltip `dt`, :63 readout ("annual premium $X"; the coverage clause is unchanged), :111 caption, :112 `aria-label` "Annual premium by {unit}", :117 series name, :122 key-list `aria-label` "Annual premium key". **Unchanged:** :51, :126 and :129 (limitations) and the :90 CSV header. |
 | `src/components/reports/AgentPerformanceCards.tsx` | `HEADERS` :26-27 only: "Policies sold", "Annual premium", "Appointments". `EXPORT_HEADERS` is unchanged. |
-| `src/components/reports/AgentEfficiency.tsx` | `HEADERS` :33 → "Policies sold". `EXPORT_HEADERS` :35-43, including its "Policies (current assignment)" at :42, is unchanged. |
+| `src/components/reports/AgentEfficiency.tsx` | `HEADERS` :34 → "Policies sold". `EXPORT_HEADERS` :36-44, including its "Policies (current assignment)" at :43, is unchanged. |
 | `src/components/reports/CampaignPerformance.tsx` | `COLUMNS` :17 only: "Attributed policies", "Annual premium", "Premium coverage". `EXPORT_HEADERS` is unchanged. |
 | `src/components/reports/CampaignTotalsFoot.tsx` | The :20-22 keys follow the new column labels. The values are unchanged. |
-| `src/lib/stat-computations.ts` | Labels :94 "Average annual premium", :104 "Appointments", :122 "Most policies sold" (D3); subtitle :259 "{n} policies" (D3); the :16 comment follows D3. **No id, calculation or other subtitle changes.** |
-| `src/lib/reports-basis-text.ts` | Titles :109 "Annual premium" and :112 "Appointments". `BOOKINGS_NOTE` :29 is reworded per D7; it is screen-only. The :56 comment follows D3. Every other constant is byte-identical. |
-| `src/components/dashboard/StatCards.tsx` | :79 → "Annual Premium". |
+| `src/lib/stat-computations.ts` | Labels :93 "Annual premium", :94 "Average annual premium", :104 "Appointments", :122 "Most policies sold" (D3); subtitle :259 "{n} policies" (D3); the :16 comment follows D3. **No id, calculation or other subtitle changes.** |
+| `src/lib/reports-basis-text.ts` | Titles :109 "Annual premium" and :112 "Appointments". `BOOKINGS_NOTE` :29 is reworded per D7; it is screen-only. The :52 and :56 comments follow D3. Every other constant is byte-identical. |
+| `src/components/dashboard/StatCards.tsx` | :79 → "Annual Premium". With D14, the value shows "Unavailable" when `policies > 0` and `unknown_premiums === policies`. |
 | `src/components/dashboard/DashboardDetailModal.tsx` | :146, :156 and the :635 row text (§4.2). |
-| `src/components/leaderboard/leaderboardTypes.ts` | Add `METRIC_DISPLAY_LABEL`. `metricLabel` :104 (D8) and :110. |
+| `src/components/leaderboard/leaderboardTypes.ts` | Add `METRIC_DISPLAY_LABEL`. `metricLabel` :104 (D8), :108 ("policies / 100 calls") and :110. |
 | `src/components/leaderboard/LeaderboardFilters.tsx` | :70 `aria-label="Metric"`; :76 `value={m}` plus the display label. |
 | `src/components/leaderboard/TVMode.tsx`, `TVPodium.tsx`, `TVDeepRankPanel.tsx`, `TVRankingsTable.tsx` | Render `METRIC_DISPLAY_LABEL[metric]` (TVMode :319, TVPodium :98, TVDeepRankPanel :36, TVRankingsTable :50). The TV compact column headers are unchanged (D9). |
-| `src/components/leaderboard/LeaderboardRankingsTable.tsx` | :103 "Policies Sold", :109 "Appointments". |
+| `src/components/leaderboard/LeaderboardRankingsTable.tsx` | :100 "Calls Made", :103 "Policies Sold", :109 "Appointments". With D14, an all-unknown premium cell shows "—" (its marker stays). |
 | `src/components/leaderboard/RecentWinsPanel.tsx` | :119 and :236. |
 | `src/lib/leaderboardExport.ts` | `performanceCaption` :31 ("Annual premium"), and :34 ("appointments") with D8. **CSV headers :12-15 are unchanged.** |
-| `src/components/settings/user-management/UserPerformanceTab.tsx` | :32 → "Appointments". |
-| `src/components/contacts/AgentModal.tsx` | :161 → "Monthly Appointments Goal". |
-| `src/pages/CampaignDetail.tsx` | :1023 → "Called" (D10). Nothing else, including the stored-counter data issue in §9. |
+| `src/components/settings/user-management/UserPerformanceTab.tsx` | :32 → "Appointments"; :34 → "Policies / 100 Calls". |
+| `src/components/contacts/AgentModal.tsx` | :159 → "Monthly Calls Goal"; :161 → "Monthly Appointments Goal". |
+| `src/pages/CampaignDetail.tsx` | :1023 → "Leads Called" and :1117 → "Leads Called Over Time" (D10). Nothing else, including the stored-counter data issue in §9. |
 
 The TV row covers four files. No other application file is touched; code comments are edited only where they quote a renamed label.
 
@@ -214,30 +227,36 @@ Exact-label negatives must be retargeted to the new label so they cannot pass va
   - :508 ("Annual premium");
   - :534-541 ("Attributed policies"; :536 keeps asserting **no** "Policies sold" column in the campaign table);
   - :542 (the unchanged "Calls made" key);
-  - :549-551 ("Policies sold" agent header);
+  - :547-551: the "Policies sold" agent header. The test titled "agent views label policy counts as the current assignment" is rewritten to keep a current-assignment assertion: the header reads "Policies sold" **and** the Data basis "Agent credit" section shows `CURRENT_ASSIGNMENT_NOTE`;
+  - :595: the exact-label negative (campaign panel failed) is retargeted to "Attributed policies";
   - :615 (renamed tfoot keys).
   - The CSV assertions at :617 and :622-623 are unchanged.
 - `src/lib/__tests__/reportsRegistrySnapshot.test.ts`: :71 "Most policies sold" (D3) and :72 "Appointments". The 38 ids, groups, `teamOnly`, order, `DEFAULT_LAYOUT`, the six-metric cap, "Dials per booking", "Call contact rate", "Dials per policy sold" and the `/dials per appointment/` negative are all **unchanged**.
-- `src/lib/__tests__/reportStatComputations.test.ts`: :87-88 and :99-106 (D3 label and subtitle). The `/top performer|seller/i` negative at :208 stays.
+- `src/lib/__tests__/reportStatComputations.test.ts`: :87-88, :99-106 and :198 (D3 label and subtitle). The `/top performer|seller/i` negative at :208 stays.
 - `src/lib/__tests__/reportsBasisText.test.ts`: :95 (title), :105-107 (title and the D7 `BOOKINGS_NOTE`). Every paragraph, CSV Note and golden assertion is unchanged, including the :147-153 "no sheet-only sentence reaches a CSV Note" guard.
-- `src/components/reports/__tests__/reportCustomizer.test.tsx`: :36 (the negative is retargeted to "Annual premium").
-- `src/components/reports/__tests__/reportTrendCharts.test.tsx`: the caption, legend, readout and `aria-label` assertions (:57, :69, :72, :103, :107, :144, :161, :173, :178, verified at edit time). The :61 CSV and the :67/:93 limitation assertions are unchanged.
+- `src/components/reports/__tests__/reportCustomizer.test.tsx`: :36. The negative is retargeted to "Annual premium", which is the renamed label of the fixed `stat_annual_premium`, so it still guards that the fixed stat never appears in the editor.
+- `src/components/reports/__tests__/reportTrendCharts.test.tsx`: only :103 (the gone-list, retargeted to "Most policies sold") and :107 (the key-list negative, retargeted to "Annual premium key"). The recharts mock means this file asserts no caption or `aria-label`. The CSV assertion at :61 and the D13 limitation assertions at :57, :69, :72 and :93 are unchanged.
 - `src/components/reports/__tests__/reportsTrends.test.tsx`: :94-95, :107-116 (`aria-label` and readout).
 - `src/components/reports/__tests__/agentPerformanceTable.test.tsx`: :66-67 (screen headers); the :75 comment. The :48 CSV assertion is unchanged.
 - `src/components/reports/__tests__/reportsTables.test.tsx`: :76-79, :101-105, :215-216. The CSV assertions at :83, :153 and :226 are unchanged.
-- **New CRM label assertions.** Today nothing pins these, so they are added to the existing suites:
+- **New CRM label assertions (all mandatory).** Today nothing pins these, so they are added to the existing suites:
   - `src/pages/__tests__/leaderboardPage.test.tsx`: the selector shows "Annual Premium" and "Appointments"; selecting either still sets the `Premium Sold` / `Appointments Set` metric id; the CSV header row is unchanged (the existing :174 pin).
   - `src/components/dashboard/__tests__/dashboardSections.test.tsx`: the "Annual Premium" card label.
   - `src/components/dashboard/__tests__/dashboardDetailModalVoicemail.test.tsx`, or a sibling in that folder: an unknown-premium win row reads "Premium unknown" with no "annualized", and a known row reads "$X annual premium".
   - `src/lib/__tests__/performanceContract.test.ts`: the caption reads "Annual premium (N policies with unknown premium)", and the conditional parts are unchanged.
-  - Optional: a `UserPerformanceTab` render check. There is currently no suite for it.
-- **Leaderboard and TV regressions:** `leaderboardStatusSurfaces.test.tsx`, `tvModeRegression.test.tsx` (the "Calls Made" pin is unaffected) and `useLeaderboardData.test.tsx` run unchanged.
+  - `tvModeRegression.test.tsx`: the TV selector, podium, deep-rank header and ranking title show "Annual Premium" / "Appointments", and the stored `leaderboardTvMetricIndex` still maps each index to the same metric;
+  - `leaderboardStatusSurfaces.test.tsx`: the Recent Wins caption and badge title read "annual premium";
+  - a new `UserPerformanceTab` render check (no suite exists today): "Appointments" and "Policies / 100 Calls";
+  - `campaignDetailImportRetry.test.tsx`, or a sibling: the Stats tab shows "Leads Called" and the separate "Called" status row with their different values;
+  - an existing `AgentModal` suite: "Monthly Calls Goal" and "Monthly Appointments Goal";
+  - with D14: complete, partial, all-unknown, zero, loading and error states for the Dashboard premium card, the Leaderboard row and the TV podium and totals. All-unknown shows "Unavailable" or "—", never $0.00.
+- **Leaderboard and TV regressions:** `useLeaderboardData.test.tsx` and the existing `tvModeRegression.test.tsx` "Calls Made" pin run unchanged.
 
 ### Gates and docs (amendments are listed in §7)
 
-- `scripts/tests/reports-visual/verify.mjs`: :48, :52-53 (IMPORTANT_COLUMNS), :203, :295, :298-305 (D3), :322, :362, :601, :686, :692, :697, :709, :716-723 (tfoot keys) and :737 (readout). The CSV checks (:756, :775), the budgets, axe, the one-line checks and the R-4 probe are unchanged. `scripts/tests/reports-visual/README.md`: :44 and :46.
+- `scripts/tests/reports-visual/verify.mjs`: :48, :52-53 (IMPORTANT_COLUMNS), :203 (retargeted to "Annual premium"), :295, :298-305 (D3), :322, :362, :601, :686, :692-693 (monthly and average labels), :697, :699-700 (default strip tile `stat_appointments_set` → "Appointments"), :709, :716-723 (tfoot keys) and :737 (readout). The CSV checks (:756, :775), the budgets, axe, the one-line checks and the R-4 probe are unchanged. `scripts/tests/reports-visual/README.md`: :44 and :46.
 - `AGENT_RULES.md`: three narrow wording amendments (§7).
-- `docs/plans/2026-10-09-reports-refresh-audit/data-basis-wording.md`: **append** a dated "V2 simple-label amendment (2026-10-11)" section that supersedes rows C8/C9, C10, C30 (bookings label), B2.1 (section name) and B5.1 (`BOOKINGS_NOTE`). The shipped rows are left as history.
+- `docs/plans/2026-10-09-reports-refresh-audit/data-basis-wording.md`: **append** a dated "V2 simple-label amendment (2026-10-11)" section that supersedes rows C8/C9, C10, C22 (Trends caption), C27 (tooltip `dt` and readout wording; the limitation lines stay verbatim per D13), C30 (bookings label), B2.1 (section name) and B5.1 (`BOOKINGS_NOTE`). The shipped rows are left as history.
 - `WORK_LOG.md` and the root `implementation_plan.md`: newest-first entries.
 
 ---
@@ -257,7 +276,7 @@ All amendments are display-wording only. None changes a definition, calculation,
    - Proposed: `Leader ties for "Most policies sold" (the current-assignment ranking) use one rule everywhere.`
    - The tie format sentences are unchanged.
 4. **`reportsRegistrySnapshot.test.ts` "contract wording" block (:71-72).** It pins `stat_top_performer` and `stat_appointments_set` labels. The file header already says "Labels may change wording"; the frozen identity assertions are untouched.
-5. **`data-basis-wording.md`.** An appended V2 section supersedes C8/C9, C10, C30, B2.1 and B5.1. It records that `PREMIUM_BASIS`, the CSV Notes and the 74-file CSV set are unchanged.
+5. **`data-basis-wording.md`.** An appended V2 section supersedes C8/C9, C10, C22, C27, C30, B2.1 and B5.1. It states that `PREMIUM_BASIS` and the CSV Notes are unchanged. The 74-file CSV result is recorded only after the §12 capture has passed.
 6. **Not proposed.**
    - AGENT_RULES :472 "Call contact rate" stays (D2).
    - The `reportsContracts.test.ts` call-contact-rate scan stays.
@@ -270,23 +289,26 @@ All amendments are display-wording only. None changes a definition, calculation,
 ## §8. Decisions for Chris (recommendation first)
 
 - **D1 — Letter case.** *Recommended:* change the words and keep each surface's existing case. Reports was deliberately moved to sentence case in #436 (`reportTableStyles.ts:2`, `ReportSection.tsx:7`), and the CRM already uses Title Case. The words become identical ("Annual premium" / "Annual Premium"), the diff stays small, and about 40 case-only test rewrites are avoided. *Alternative:* Title Case for every Reports metric label, including "Calls Made", "Contacted Calls", "Converted Leads/Clients", "Dialer Session Time" and so on. That adds roughly 25 case-only label edits and their test and gate updates, and the case-sensitive negatives must be retargeted (for example `reportsPage.test.tsx:114/125/136/172/183/218/297/536/593`).
-- **D2 — "Call contact rate" vs "Contact Rate" on Reports.** *Recommended:* keep "Call contact rate". Reports shows lead-level "contact rate" placeholders and "Contacted leads" beside this call-level rate, so a bare "Contact rate" would invite a lead-level reading. *Alternative:* "Contact rate" on screens only. That needs AGENT_RULES :472 reworded and the `reportsContracts.test.ts:155-168` and `reportsPage.test.tsx:227-234` guards rewritten, which weakens a semantic guard.
+- **D2 — "Call contact rate" vs "Contact Rate" on Reports.** *Recommended:* keep "Call contact rate". The campaign and lead-source tables show the lead-level "Contacted leads" beside this call-level rate, so a bare "Contact rate" would invite a lead-level reading. *Alternative:* "Contact rate" on screens only. That needs AGENT_RULES :472 reworded and the `reportsContracts.test.ts:155-168` and `reportsPage.test.tsx:227-234` guards rewritten, which weakens a semantic guard.
 - **D3 — Leader label.** *Recommended:* "Most policies sold", on the band and the strip tile together (the AGENT_RULES one-name rule). Change the tile subtitle "{n} policies currently assigned" to "{n} policies". The attribution stays in the Data basis "Agent credit" section. *Alternatives:* "Most policies", or keep the current text.
 - **D4 — Campaign table policy column.** *Recommended:* "Attributed policies". *Alternative:* keep "Policies (campaign-attributed)". It can never be "Policies sold".
 - **D5 — Campaign coverage column.** *Recommended:* "Premium coverage", with the k/n values unchanged. *Alternative:* keep "Known / total policies". Note that "Premium coverage" in the Production trend tooltip is a percentage.
 - **D6 — "Dials per booking" beside "Appointments".** *Recommended:* keep it. It is the R-1 owner-approved name, it is not a V2 target, and it is hidden by default. *Alternative:* "Dials per appointment". That reverses R-1 and needs the snapshot negative, `reportStatComputations.test.ts:63-66`, `verify.mjs:207-208` and `DIALS_PER_BOOKING_NOTE` amended.
-- **D7 — Data basis bookings wording.** This is screen-only; `BOOKINGS_NOTE` is not a CSV Note. *Recommended text:* "Appointments counts every booking of any type by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it "Bookings created (all types)"." Without it, the sheet would show the "Appointments" heading above the unchanged live CSV line "Bookings created (all types): 4; recorded kind: 0 appointment, …" with nothing connecting the two names. *Alternative:* retitle only, and rely on the note's current opening words.
+- **D7 — Data basis bookings wording.** This is screen-only; `BOOKINGS_NOTE` is not a CSV Note. *Recommended text:* "Appointments counts every booking of any type, including callbacks, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it "Bookings created (all types)"." Without it, the sheet would show the "Appointments" heading above the unchanged live CSV line "Bookings created (all types): 4; recorded kind: 0 appointment, …" with nothing connecting the two names. *Alternative:* retitle only, and rely on the note's current opening words.
 - **D8 — "Appointments Set" on Leaderboard, TV and the user tab.** *Recommended:* "Appointments", which is the same metric as on Reports. The CSV header "Appointments Set" stays. *Alternative:* keep "Appointments Set".
 - **D9 — TV compact headers "Policies", "Appts", "Talk", "Calls".** *Recommended:* keep them compact on TV only, for the TV layout budget. The main Leaderboard table expands them. *Alternative:* expand on TV too and re-run the TV layout gate.
-- **D10 — CampaignDetail "Calls" tile, which counts leads called.** *Recommended:* "Called". *Alternative:* leave it.
+- **D10 — CampaignDetail called-lead labels.** The "Calls" tile counts leads called, and the "Leads Contacted Over Time" chart plots called leads. *Recommended:* "Leads Called" and "Leads Called Over Time". Plain "Called" would collide with the Status Breakdown's queue-status row. *Alternative:* leave both.
 - **D11 — Description items outside the label pass.** These are:
   - the band basis bar "Current book · stored policies by sale date · monthly premium ×12 · client's current agent" (approved C2/C3; it hosts the Data basis button);
-  - formula subtitles: "calls in period ÷ dated stored policies in period", "talk minutes in period ÷ dated stored policies in period", Call summary "Contacted calls ÷ calls made", and the Agent efficiency footnote;
+  - formula subtitles: "calls in period ÷ dated stored policies in period" (`stat-computations.ts:245`), "talk minutes in period ÷ dated stored policies in period" (:280), "session-matched calls ÷ all session hours" (:215), "session-matched talk ÷ all session time" (:229), Call summary "Contacted calls ÷ calls made", and the Agent efficiency footnote;
+  - the Period totals date-basis captions "by call date", "by date created", "distinct people · by call date" and "by sale date" (`ReportsActivityFlow.tsx:30-34`; approved C30);
+  - the Dashboard line "{scope} · {time_zone} · Through {end} · Compared with previous full {range}" (`StatCards.tsx:91`);
   - the profile hint "Sum of the monthly premium recorded on each policy. Not annualized."
 
   *Recommended:* none changes in Part A. Decide them in Part B against the approved audit inventory, and remove them without replacement only if the audit already approved that.
 - **D12 — Band average on phones.** *Recommended:* "Avg annual premium" below sm and "Average annual premium" from sm, measured by the 390 px budget and the one-line gates.
 - **D13 — Conditional Trends limitation lines.** *Recommended:* keep them verbatim ("Known premium unavailable for this period.", "Gap = known premium unavailable, not $0"). They are genuine conditional limitations, not titles, and C25 tightened them deliberately.
+- **D14 — All-unknown premium on the Dashboard and Leaderboard.** V2 requires "Unavailable", never $0, for a wholly unavailable value. Today `get_performance_summary` and the Leaderboard snapshot return a coalesced 0 (`20261005161626_performance_scoped_summaries.sql:51`; `performanceQueries.ts:12`), so the relabelled "Annual Premium" card shows "$0.00" when every premium is unknown, and an agent row shows "$0.00*". *Recommended:* a display-only guard, with no RPC or calculation change, mirroring the Reports band (`ReportsOverview.tsx:35-41`). It shows "Unavailable" on the Dashboard card and "—" in Leaderboard and TV cells when `policies > 0` and every premium is unknown; the unknown-premium markers stay. *Alternative:* record it as a known limitation and leave it out of this task.
 
 ---
 
@@ -333,39 +355,73 @@ Once the archive is recovered and verified:
 
 ---
 
-## §12. Verification plan (against the exact pinned base)
+## §12. Verification plan (against the exact pinned base `e11c8bea`)
 
-Nothing below reuses historical counts as a baseline.
+Nothing below reuses historical counts as a baseline. The base is always the SHA `e11c8bea8bb546023da3fc6489140be2cd464a3e`, never the stale local `main` ref. Commit the candidate before running the exact-base script: its changed-file ESLint reads `git diff --name-only $REPORTS_BASE_SHA HEAD`, which ignores uncommitted work.
 
-1. **Install and verify script.** Run `npm ci`. Then run `scripts/verify_reports_frontend.py` with a detached base worktree at the pinned `main`, as CI does:
-   - root and `tsconfig.app.json` typecheck, comparing diagnostic identity and multiplicity;
-   - full vitest on base and candidate, comparing failed suites and tests and unhandled runtime-error signatures;
+1. **Exact-base comparison (CI's `reports-frontend.yml`).** Run `npm ci`. Add a detached base worktree in the scratchpad with `git worktree add --detach $SCRATCH/base e11c8bea8bb546023da3fc6489140be2cd464a3e`. Then run `REPORTS_BASE_SHA=e11c8bea8bb546023da3fc6489140be2cd464a3e REPORTS_BASE_WORKTREE=$SCRATCH/base REPORTS_EVIDENCE=$SCRATCH/evidence python3 scripts/verify_reports_frontend.py`. It compares base and candidate on:
+   - the root and `tsconfig.app.json` typechecks, by diagnostic identity and multiplicity;
+   - full vitest, by failed suites, failed tests and unhandled runtime-error signatures;
    - the strict Reports file set, which must all pass;
    - changed-file ESLint;
    - the production build.
-2. **Run directly as well:** `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json --noEmit` and `git diff --check`.
-3. **Targeted suites:**
+
+   Every touched or retargeted suite must pass outright, not merely add no new failures.
+2. **Run directly as well:** `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json --noEmit`, `npx eslint` over `git diff --name-only e11c8bea -- '*.ts' '*.tsx'`, and `git diff --check e11c8bea`, which covers committed and uncommitted changes.
+3. **CI workflows these paths trigger, with their local equivalents:**
+
+| Workflow | Triggered by | Local equivalent |
+|---|---|---|
+| `reports-frontend.yml` | `src/**` | Step 1 |
+| `reports-backend.yml` | `src/components/reports/**`, `src/lib/reports-*`, `stat-computations.ts`, `scripts/tests/reports-visual/**` | Native SQL payloads, then the Reports browser gate (step 4) |
+| `dialer-dnc-backend.yml` | `src/**` | `npx vitest run dialer twilio teamOpen teamCampaign dncCheck useTeamOpen caller-id-selection convertLeadModalPolicyFields leadDisposition outboundPathPinned`, `bash scripts/run_dialer_dnc_tests.sh` and `npx tsc --noEmit` |
+| `sms-consent.yml` | `src/components/contacts/**`, `src/components/settings/**` (`AgentModal`, `UserPerformanceTab`) | `npx vitest run src/components/messaging/smsConsent.test.tsx src/pages/__tests__/conversationsSendContract.test.tsx src/pages/__tests__/conversationsViewAs.test.tsx src/components/conversations/__tests__/conversationThreadIsolation.test.tsx src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx`, `node scripts/test-sms-consent.mjs`, the dialer DNC script and the SMS visual gate |
+| `policy-sale-recording.yml` | `src/components/leaderboard/**` | `bash scripts/run_policy_sale_recording_tests.sh` and the leaderboard/TV visual gate (step 6) |
+
+   A suite that needs native PostgreSQL or Docker and cannot run in this container is reported as **not run locally**; CI evidence then comes from the approved publication.
+4. **Targeted suites:**
    - all Reports suites;
-   - Leaderboard and TV (`leaderboardPage`, `leaderboardStatusSurfaces`, `tvModeRegression`, `useLeaderboardData`, `performanceContract`);
-   - Dashboard (`dashboardSections`, `dashboardDetailModal*`, `goalProgressAppointmentsSet`, `dashboardRefreshWiring`);
-   - contacts (`AgentModal` suites);
-   - `campaignDetailImportRetry`;
-   - the Campaigns, SMS and permission suites as a shared-surface regression.
-4. **Reports browser gate** (`scripts/tests/reports-visual/verify.mjs`, with SQL payloads via the documented embedded-SQL path where possible). It covers the 390 px and 1440 px first-screen budgets, axe, one-line values, the R-4 probe, renamed accessible names, and complete, partial, all-unknown, zero, loading and error states.
-5. **CSV byte identity.** `exportAll()` writes per-file normalized SHA-256 to `csv/manifest.json`. Generate the manifest on the base and on the candidate with the same fixed clock, and require them to be identical. This is the repeatable form of the 74-file comparison.
-6. **Leaderboard visual gate** (`scripts/tests/leaderboard-visual/verify.mjs`): the TV fixture layout and the normal-view overflow.
-7. **Diff review.** Review the full diff against `main` for any id, payload, RPC, calculation, CSV, permission, View As, dialer or onboarding change. Confirm that missing data never becomes zero and that current assignment never becomes seller credit.
-8. **Local visual checks** at desktop and 390 px, in light and dark, by role (Personal, Team, Agency) and in View As, using local fixtures. These are labelled as local fixture checks, distinct from signed-in acceptance. Signed-in acceptance needs a published preview, which needs a separate approval.
+   - Leaderboard and TV: `leaderboardPage`, `leaderboardStatusSurfaces`, `tvModeRegression`, `useLeaderboardData` and `performanceContract`;
+   - Dashboard: `dashboardSections`, `dashboardDetailModal*`, `goalProgressAppointmentsSet` and `dashboardRefreshWiring`;
+   - the contacts `AgentModal` suites, `campaignDetailImportRetry` and the new `UserPerformanceTab` check;
+   - the Campaigns table and permission suites, as a shared-surface regression.
+5. **Reports browser gate** (`scripts/tests/reports-visual/verify.mjs`). It covers:
+   - the 390 px and 1440 px first-screen budgets, axe, one-line values and the R-4 probe;
+   - the renamed accessible names;
+   - complete, partial, all-unknown, zero, loading and error states.
+
+   Evidence from the documented embedded path is labelled "embedded SQL + real browser, not native PostgreSQL".
+6. **Leaderboard and TV visual gate** (`scripts/tests/leaderboard-visual/verify.mjs`): the TV fixture geometry (D9) and the normal-view overflow with the expanded table headers.
+7. **CSV byte identity, the 74-file golden comparison.** Re-run the capture on base `e11c8bea` and on the candidate:
+   - with the fixed clock 2026-10-09T04:00Z, 1,100 ms pacing and America/Los_Angeles;
+   - over all 13 export controls, every view toggle and grouping, in Agency, Team and Personal.
+
+   Require 74/74 identical raw and normalized SHA-256. The capture tool is not committed to the repository, so recover it with the archive, or build it as a recorded scratch tool. The 13-file `csv/manifest.json` from `verify.mjs` `exportAll()` is supplementary only.
+8. **Full-diff review against `e11c8bea`.** Look for any id, payload, RPC, calculation, CSV, permission, View As, dialer, SMS or onboarding change. Confirm all four outcomes:
+   - missing or unknown data never shows as zero;
+   - a failure never renders as empty;
+   - stale data is never shown as live;
+   - current assignment is never presented as seller credit.
+
+   Confirm that the appointment created-date semantics and the current-owner attribution are still stated in Data basis.
+9. **Local visual checks:**
+   - all touched surfaces, and in Part B all four batches;
+   - at desktop and 390 px, in light and dark;
+   - by role (Personal, Team and Agency scopes; Agent, Team Leader and Admin) and in View As;
+   - using local fixtures.
+
+   These are labelled as local fixture checks. Signed-in acceptance on a protected preview is a separate step after publication approval. No production user, call or message is created to test copy.
 
 ---
 
-## §13. Explicit non-actions
+## §13. Explicit non-actions and release gates
 
 The following do not happen in this task:
 
 - No database, RLS, migration, Edge Function, secret, cron, deployment-setting, RPC, hook, calculation, export, authorization, queue, call, disposition or workflow change.
 - No Supabase production access.
-- No push, PR, preview, merge, bypass or share link, or protection change without Chris's separate approval. A branch push can trigger a deployment.
+- A **branch push, PR, preview or publication** each needs Chris's explicit approval. A branch push can trigger a Vercel deployment; it is not side-effect-free.
+- A **direct push to `main`, merge, bypass or share link, branch-protection change or production deployment** is not done without the corresponding separate approval. None is requested by this plan.
 - No onboarding activation.
 - No import of #429 or any other open PR.
 - No change to a user-authored field name or content.
@@ -374,7 +430,32 @@ The following do not happen in this task:
 
 ---
 
-## §14. Risks
+## §14. Close-out after approval (Phase 4)
+
+1. **Commits**, each reviewable on its own:
+   - (i) Reports label strings and their tests;
+   - (ii) CRM labels, `METRIC_DISPLAY_LABEL` and their tests, plus D14 if approved;
+   - (iii) the gate, README, AGENT_RULES and `data-basis-wording.md` amendments approved in §7;
+   - (iv) the Part B batches, each with its tests, once recovered and approved;
+   - (v) `WORK_LOG.md`: a newest-first entry with date and status, files, decisions, verification, migrations and deploys (none), blockers and next steps.
+2. **A separate review pass** of the full diff, covering both the visual cleanup and regressions against newer work. Its findings are recorded and fixed before any publication request.
+3. **Final context snapshot:**
+   - current base, head and branch;
+   - recovery status;
+   - applied, already-satisfied, superseded and deferred items;
+   - newer work preserved;
+   - changed files;
+   - tests against the base;
+   - visual coverage and its limits;
+   - migrations and deploys (none);
+   - blockers;
+   - the single next approval needed.
+
+   It states exactly whether the work is local-only, PR-ready, preview-approved or released.
+
+---
+
+## §15. Risks
 
 | Risk | Mitigation |
 |---|---|
@@ -382,5 +463,6 @@ The following do not happen in this task:
 | The tfoot goes blank after a header rename. | Its keys move in the same edit, and the tfoot tests and `verify.mjs:716-723` assert the values under the new keys. |
 | The Leaderboard selector breaks when its option text changes. | `value={m}` keeps the id. A new test selects by label and asserts the id. |
 | "Monthly premium" or "Average annual premium" wraps on phones. | D12 uses a phone form, and the 390 px budgets are re-run. |
-| The two vocabularies inside Data basis confuse readers. | D7 states the equivalence. The live list stays verbatim by design. |
-| The previous snapshot expires on 2026-10-18. | §2: restore recovery access before then. |
+| The two vocabularies inside Data basis confuse readers. | D7 states the equivalence, including callbacks. The live list stays verbatim by design. |
+| The base is mistaken for the stale local `main`. | Every command pins `e11c8bea` by SHA (§12). |
+| Snapshots expire: `snap_Vw08…` on 2026-10-15 and the previous verified `snap_E9Lz…` on 2026-10-18. | §2: restore recovery access before then. |

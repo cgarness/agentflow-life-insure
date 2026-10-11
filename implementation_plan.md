@@ -8,10 +8,10 @@
   - "Policies (current assignment)" → "Policies sold" and "Bookings created (all types)" → "Appointments";
   - Dashboard and Leaderboard "Annual Premium Sold" / "Premium Sold" → "Annual Premium".
 
-  These cover Reports, Dashboard, Leaderboard/TV, profiles and settings at the existing presentation boundary. CSV headers, CSV Note constants, ids, payload keys and calculations are unchanged. Two display-only mappings are needed: the campaign tfoot keys, and a Leaderboard metric label map. The plan lists 23 application files (§6), plus test, gate and rule amendments (§7) and decisions D1–D13 (§8).
+  These cover Reports, Dashboard, Leaderboard/TV, profiles and settings at the existing presentation boundary. CSV headers, CSV Note constants, ids, payload keys and calculations are unchanged. Two display-only mappings are needed: the campaign tfoot keys, and a Leaderboard metric label map. The plan lists 23 application files (§6), plus test, gate and rule amendments (§7) and decisions D1–D14 (§8).
 - **Part B, carry-over of the approved four-batch cleanup (blocked).** Starting the named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` is refused (`403`, create on `vercelRun`), and the archive and documentation pack were not attached. The previous verified snapshot expires on 2026-10-18. File-level overlap with `main` is already mapped: since the base, only Reports (#436), Campaigns (#433) and the onboarding mount (#439) changed in `src`.
 
-**Awaiting:** Chris's approval of Part A and decisions D1–D13, and recovery access (§2) for Part B.
+**Awaiting:** Chris's approval of Part A and decisions D1–D14, and recovery access (§2) for Part B.
 
 ---
 
