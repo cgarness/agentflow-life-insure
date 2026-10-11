@@ -64,7 +64,7 @@ const ControlCenterHealthPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Health Checks</h1>
           <p className="text-sm text-slate-400">
-            Registry of probes. Live execution is not wired in v1; status is manual.
+            Live execution is not wired in v1; status is manual.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -82,7 +82,6 @@ const ControlCenterHealthPage: React.FC = () => {
         <EmptyState
           icon={<Activity className="h-8 w-8" />}
           title="No health checks registered yet"
-          description="Add the first check to populate the registry. v1 records manual status only — no live probes."
           action={
             <Button onClick={openCreate} className="bg-sky-600 hover:bg-sky-500 text-white">
               <Plus className="h-4 w-4 mr-1.5" />

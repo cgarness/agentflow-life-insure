@@ -573,14 +573,12 @@ const CalendarSettings: React.FC = () => {
       {/* Header */}
       <div>
         <h3 className="text-lg font-semibold text-foreground">Calendar Settings</h3>
-        <p className="text-sm text-muted-foreground mt-1">Control how your team's calendar looks and behaves</p>
       </div>
 
       {/* Card 1 — Default Calendar View */}
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Default Calendar View</CardTitle>
-          <CardDescription>Choose the default view agents see when they open the calendar</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-3">
@@ -607,7 +605,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">First Day of the Week</CardTitle>
-          <CardDescription>Controls how the calendar grid is displayed</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 max-w-xs">
@@ -634,7 +631,7 @@ const CalendarSettings: React.FC = () => {
         <CardHeader className="flex flex-row items-start justify-between">
           <div>
             <CardTitle className="text-base">Appointment Types</CardTitle>
-            <CardDescription>Manage the types of appointments your team can schedule. Default types are locked and cannot be renamed or removed.</CardDescription>
+            <CardDescription>Default types are locked and cannot be renamed or removed.</CardDescription>
           </div>
           {canManageAppointmentTypes && (
             <Button
@@ -704,7 +701,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Scheduling Defaults</CardTitle>
-          <CardDescription>Control default durations and buffer time between appointments</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
@@ -744,7 +740,6 @@ const CalendarSettings: React.FC = () => {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle className="text-base">Google Calendar Integration</CardTitle>
-              <CardDescription>Connect your Google Calendar and control how events sync.</CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Badge className={googleSyncSettings.connected ? "bg-[#22C55E] text-white" : "bg-muted text-muted-foreground"}>
@@ -873,7 +868,6 @@ const CalendarSettings: React.FC = () => {
       <Card className="opacity-60">
         <CardHeader>
           <CardTitle className="text-base">Appointment Confirmation</CardTitle>
-          <CardDescription>Automatically send a confirmation to contacts when an appointment is created</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-muted/50 rounded-lg px-4 py-2.5 text-xs text-muted-foreground">
@@ -941,14 +935,13 @@ const CalendarSettings: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Personal Appointment Reminders</CardTitle>
-          <CardDescription>Configure popups and alerts for your upcoming appointments and callbacks</CardDescription>
+          <CardDescription>Popups for your upcoming appointments and callbacks.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Reminder Lead Time</Label>
-                <p className="text-xs text-muted-foreground">How many minutes before an appointment should we show the popup?</p>
               </div>
               <Select 
                 value={String(agentReminderTime)} 
@@ -972,7 +965,6 @@ const CalendarSettings: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Enable Sound Notification</Label>
-                <p className="text-xs text-muted-foreground">Play a chime when the reminder popup appears</p>
               </div>
               <Switch 
                 checked={agentReminderSound} 

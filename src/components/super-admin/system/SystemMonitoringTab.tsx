@@ -21,7 +21,7 @@ import {
   Loader2,
   User,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -351,7 +351,7 @@ const SystemMonitoringTab: React.FC = () => {
     outage: {
       bg: "bg-gradient-to-r from-rose-500/10 via-rose-500/5 to-transparent border-rose-500/20",
       title: "Major Outage",
-      desc: "Platform outages detected. Engineering is actively investigating.",
+      desc: "Platform outages detected.",
       badgeColor: "bg-rose-500 text-white",
       pulse: "bg-rose-400",
     },
@@ -456,9 +456,6 @@ const SystemMonitoringTab: React.FC = () => {
       <Card className="border border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="pb-3 border-b border-border/30">
           <CardTitle className="text-base font-semibold">Service Status Ledger</CardTitle>
-          <CardDescription>
-            Live registry of cloud infrastructure, integrations, and daemon performance.
-          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (

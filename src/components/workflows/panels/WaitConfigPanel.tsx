@@ -68,7 +68,7 @@ const WaitConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete }) =
   };
 
   return (
-    <PanelShell open title="Wait / Delay" subtitle="Pause the workflow before the next step" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
+    <PanelShell open title="Wait / Delay" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       <div className="mb-4">
         <label className="mb-1.5 block text-sm font-medium text-foreground">Duration *</label>
         <div className="flex items-center gap-2">

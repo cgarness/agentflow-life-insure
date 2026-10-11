@@ -542,7 +542,6 @@ const SuperAdminDashboard: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Agencies</h1>
-          <p className="text-muted-foreground text-sm">Manage all agencies on the platform</p>
         </div>
         <div className="flex gap-2">
           {realProfile?.platform_role === "platform_admin" && (

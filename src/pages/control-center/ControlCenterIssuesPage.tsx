@@ -97,9 +97,6 @@ const ControlCenterIssuesPage: React.FC = () => {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Issue Tracker</h1>
-          <p className="text-sm text-slate-400">
-            Broken areas, known problems, blockers, and risks.
-          </p>
         </div>
         <Button onClick={openCreate} className="bg-sky-600 hover:bg-sky-500 text-white">
           <Plus className="h-4 w-4 mr-1.5" />
@@ -164,7 +161,6 @@ const ControlCenterIssuesPage: React.FC = () => {
         <EmptyState
           icon={<AlertOctagon className="h-8 w-8" />}
           title="No issues tracked yet"
-          description="Log the first issue to start tracking severity, status, and source."
           action={
             <Button onClick={openCreate} className="bg-sky-600 hover:bg-sky-500 text-white">
               <Plus className="h-4 w-4 mr-1.5" />

@@ -103,7 +103,7 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
   };
 
   return (
-    <PanelShell open title={meta?.label ?? "Action"} subtitle="Configure this step" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
+    <PanelShell open title={meta?.label ?? "Action"} onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       {action === "send_sms" && (
         <SmsForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("sms"))} />
       )}

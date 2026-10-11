@@ -100,7 +100,6 @@ const ControlCenterFeaturesPage: React.FC = () => {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Feature Tracker</h1>
-          <p className="text-sm text-slate-400">Build status across the platform.</p>
         </div>
         <Button onClick={openCreate} className="bg-sky-600 hover:bg-sky-500 text-white">
           <Plus className="h-4 w-4 mr-1.5" />
@@ -183,7 +182,6 @@ const ControlCenterFeaturesPage: React.FC = () => {
         <EmptyState
           icon={<ListChecks className="h-8 w-8" />}
           title="No features tracked yet"
-          description="Add the first feature to start tracking build status, ownership, and priorities."
           action={
             <Button onClick={openCreate} className="bg-sky-600 hover:bg-sky-500 text-white">
               <Plus className="h-4 w-4 mr-1.5" />

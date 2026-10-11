@@ -124,7 +124,7 @@ const ConditionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete
   };
 
   return (
-    <PanelShell open title="Condition" subtitle="Branch the flow based on a contact field" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
+    <PanelShell open title="Condition" onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       <Field label="Field *">
         <SelectInput value={field} onChange={(v) => set({ field: v, value: "", operator: "" })}>
           <option value="">Select field…</option>

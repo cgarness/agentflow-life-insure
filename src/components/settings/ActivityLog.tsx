@@ -168,7 +168,6 @@ const ActivityLog: React.FC = () => {
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-semibold text-foreground">Activity Log</h3>
-                    <p className="text-sm text-muted-foreground">View recent system actions and user activity</p>
                 </div>
             </div>
 

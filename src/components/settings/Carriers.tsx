@@ -340,7 +340,6 @@ const Carriers: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Carriers</h3>
-          <p className="text-sm text-muted-foreground">Manage your insurance carrier appointments, logos, and contact numbers</p>
         </div>
         {canManage && (
           <Button onClick={openAdd} className="gap-2">
@@ -371,12 +370,9 @@ const Carriers: React.FC = () => {
             <Shield className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-foreground font-medium text-lg">No carriers found</p>
             {canManage ? (
-              <>
-                <p className="text-sm text-muted-foreground mb-4">Add your first insurance carrier to begin tracking appointments.</p>
-                <Button size="sm" onClick={openAdd} className="gap-2">
-                  <Plus className="w-4 h-4" /> Add Carrier
-                </Button>
-              </>
+              <Button size="sm" onClick={openAdd} className="mt-4 gap-2">
+                <Plus className="w-4 h-4" /> Add Carrier
+              </Button>
             ) : (
               <p className="text-sm text-muted-foreground">No carriers have been added by your agency admins yet.</p>
             )}
