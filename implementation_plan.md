@@ -1,15 +1,15 @@
-## 2026-10-11 — Part A + D14 IMPLEMENTED and verified locally (not pushed, not deployed); Part B blocked: UI copy cleanup takeover (V2 simple metric labels)
+## 2026-10-11 — Part A + D14 published as draft PR #440 (not merged, not released); Part B PLANNED against current code, awaiting approval: UI copy cleanup takeover (V2 simple metric labels)
 
-**Status:** Chris approved the isolated Part A with D1–D14 on 2026-10-11. It is implemented and verified on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea`), in commits `5587d3a` (Reports labels), `9fd72ef` (CRM labels), `cb14cfa` (rule and Data basis wording), `74219dc` (D14), `f23a987` (D14 follow-up, Settings Goals) and `0c62756` (D14 tests). Nothing is pushed, and there is no PR, preview, deploy or backend change. The onboarding series stays INACTIVE. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` (§16 and §16.1). **Evidence:** the newest WORK_LOG entry.
+**Status:** Chris approved the isolated Part A with D1–D14 on 2026-10-11. It is implemented and verified on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea`), in commits `5587d3a` (Reports labels), `9fd72ef` (CRM labels), `cb14cfa` (rule and Data basis wording), `74219dc` (D14), `f23a987` (D14 follow-up, Settings Goals), `0c62756` (D14 tests) and `cba9e94` (whitespace). It is published as draft PR #440 with its normal protected preview (CI green). Nothing is merged, and there is no production deploy or backend change. The onboarding series stays INACTIVE. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` (§16 and §16.1 for Part A; §17 and `reconciliation.md` for Part B). **Evidence:** the newest WORK_LOG entry.
 
 **Summary:**
 - **Labels.** Simple metric labels across Reports, Dashboard, Leaderboard/TV, settings and CampaignDetail. CSV headers, CSV Note constants, ids, payloads and calculations are unchanged.
 - **D14.** Display-only: a premium amount whose every policy has an unknown premium shows "Unavailable" or "—", never $0.00. Sorting, payloads and CSV are untouched.
-- **Part B.** Still open. The Vercel sandbox returns 403, and neither the archive nor the `AgentFlow_Cleanup_References_All_In_One.md` attachment reached this session.
+- **Part B.** A fresh, targeted plan against current code (§17): 410 items across seven areas, each mapped and adversarially verified. 187 are still needed, 188 retained, 28 already satisfied and 7 superseded. No Part B app or test edit has been made. Nothing was recovered from the sandbox or reconstructed from old files.
 
 **Awaiting:**
-- the re-uploaded references and archive (or sandbox access) for Part B;
-- separate approval for any publication (push, PR or preview).
+- Chris's approval of the Part B plan (§17.5 decisions PB-1 to PB-35) before any app or test edit;
+- separate approval for merging and the production release.
 
 ---
 

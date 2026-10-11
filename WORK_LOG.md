@@ -1,4 +1,4 @@
-## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented, verified and published as a draft PR (not merged, not released); Part B plan pending approval
+## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented, verified and published as draft PR #440 (not merged, not released); Part B planned against current code, awaiting approval
 
 **Request and approval.** Chris approved the isolated Part A implementation with decisions D1–D14 (2026-10-11).
 - **Not approved:** publication, any preview, a production release, backend changes and email activation.
@@ -9,7 +9,7 @@
 - Branch `claude/ui-copy-cleanup-v2-20261011`, verified code head `f6420bb`; the WORK_LOG and plan commits after it are docs only.
 - Base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched 2026-10-11. The local `main` ref is stale at `8d53531` and was not used.
 - There is no concurrent work; the open PRs are unchanged, and #429 is not merged. `origin/main` was re-fetched again before publishing and was still `e11c8bea`, so no reconciliation was needed.
-- **Published as a draft PR** (no force-push). Vercel builds its normal protected preview. Nothing is merged and production is not deployed.
+- **Published as draft PR #440** (no force-push). At head `51fff58`, every CI job passed (frontend, tv-browser, verify, consent, native and three postgres jobs); the Supabase preview was skipped because no `supabase/` path changed. Both protected Vercel previews deployed. Nothing is merged and production is not deployed.
 
 **Commits** (planning commits `7967e84`, `cd10c4e`, `4c8e13d`, `946f929` and `f6420bb` record the plan and records only):
 
@@ -97,13 +97,19 @@
 
 **Observations, not changed.**
 - At 390 px the approved phone label "Avg annual premium" wraps to two lines. The budget still passes.
-- The profile Business Snapshot "Monthly Premium" (lifetime current book) can show $0.00 when every policy lacks a premium. It uses different evidence and needs its own decision.
+- **Correction.** An earlier version of this line said the profile Business Snapshot "Monthly Premium" can show $0.00 when every policy lacks a premium. That was wrong. The tile shows "—" with "{n} policies have no premium recorded" (`formatMonthlyCurrency` renders 0 as "—"). The only $0 is the milestone ladder "Monthly premium $0 / $1,000" (team $10,000; `profile-milestones.ts:66-71`). That still needs its own decision, and D14 was not broadened to it.
 - The CampaignDetail empty state "No contact activity yet" is optional copy.
 - Pre-existing: the Leaderboard and TV "*" marker is title-only, CampaignDetail Contacted/Converted read stored counters (AGENT_RULES :126), and the Dashboard stat cards are not keyboard-operable.
 
 **Migrations and deploys.** None. Supabase was not contacted. Vercel was used only for read-only sandbox and snapshot metadata and, after publication, for its automatic protected preview of this branch. No production deploy, no bypass or share token, and no change to protection settings.
 
-**Part B (open deliverable, not complete).** Chris directed a fresh plan against current code. No attachment or sandbox access is needed, and the denied sandbox operations were not retried. The original implementation was not recovered or reconstructed. Historical blockers, kept for the record:
+**Part B (open deliverable, not complete): planned, awaiting approval.** Chris directed a fresh plan against current code. No attachment or sandbox access was needed, and the denied sandbox operations were not retried. The original implementation was not recovered or reconstructed.
+- **Method:** seven read-only mapping passes, one per area, each adversarially verified (352 confirmed, 56 revised, 0 rejected; the verifiers added 14 missed items, and 12 cross-area duplicates point at one owner).
+- **Result:** 410 classified items. 187 are still needed, in 98 source files; 188 are retained; 28 already satisfied; 7 superseded.
+- **Plan:** §17 of the cleanup plan, with the full per-item before/after table in `docs/plans/2026-10-11-ui-copy-cleanup-v2/reconciliation.md`. There are 35 owner decisions (PB-1 to PB-35), each with a recommendation.
+- **No Part B app or test file is edited.**
+
+Historical blockers, kept for the record:
 - The named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` returns `403 forbidden` (create on `vercelRun`) for both resume and isolated create. It was not retried through other endpoints or credentials.
 - The archive `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (SHA-256 `dad1cca7…`) was not received.
 - The 2026-10-11 attachment `AgentFlow_Cleanup_References_All_In_One.md` did not reach this session (uploads and attach are empty), so the original audit could not be classified.
@@ -111,8 +117,8 @@
 - D11 deferred items (formula, basis and helper lines) belong to Part B.
 
 **Next.**
-1. Chris reviews the draft PR and its protected preview.
-2. The Part B plan (in `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md`) needs Chris's approval before any app or test edit. After that: combined verification, one independent review, a WORK_LOG entry and a context snapshot.
+1. Chris reviews draft PR #440 and its protected preview.
+2. Chris approves or amends the Part B plan (§17.5, PB-1 to PB-35) before any app or test edit. After that: implementation by area, combined verification against `e11c8bea`, one independent review, a WORK_LOG entry and a context snapshot.
 3. Merging and the production release need separate approval.
 
 ---
