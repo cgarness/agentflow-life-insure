@@ -4,7 +4,6 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -131,12 +130,9 @@ const ContactsFilterModal: React.FC<ContactsFilterModalProps> = ({
     // Contacts QA Fix Pass 1 (Fix 5): right-side slide-in drawer (was a centered modal).
     // Pinned header + footer, scrollable body. Same open/onOpenChange contract + all fields.
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col">
+      <SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col" aria-describedby={undefined}>
         <SheetHeader className="px-6 pt-6 pb-2 shrink-0 text-left">
           <SheetTitle>Filter {activeTab}</SheetTitle>
-          <SheetDescription>
-            Narrow down your {activeTab.toLowerCase()} using the filters below.
-          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">

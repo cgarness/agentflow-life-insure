@@ -112,13 +112,9 @@ export function MessageTemplatesPickerModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-4 sm:max-w-md">
+      <DialogContent className="max-w-md gap-4 sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Message templates</DialogTitle>
-          <p className="text-sm font-normal text-muted-foreground">
-            Pick a saved template for this {channel === "email" ? "email" : "text"}. Merge fields fill in using the contact
-            and your profile when possible.
-          </p>
         </DialogHeader>
 
         <input

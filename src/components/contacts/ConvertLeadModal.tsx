@@ -236,7 +236,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
             <div>
               <DialogTitle className="text-base font-bold tracking-tight text-green-700">Convert to Client</DialogTitle>
               <DialogDescription className="text-muted-foreground text-[10px] -mt-0.5">
-                Closing the sale for {lead?.firstName} {lead?.lastName}. Enter policy details below.
+                Closing the sale for {lead?.firstName} {lead?.lastName}.
               </DialogDescription>
             </div>
           </div>

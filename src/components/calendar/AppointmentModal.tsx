@@ -17,7 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/PermissionGate";
 import ContactMiniCard from "./ContactMiniCard";
@@ -404,16 +404,13 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="sm:max-w-[500px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[500px] w-[95vw] max-h-[95vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl bg-card rounded-xl">
         <DialogHeader className="p-4 border-b border-primary/10 bg-primary/[0.03] flex flex-row items-center justify-between space-y-0">
           <div className="flex flex-col">
             <DialogTitle className="text-sm font-bold tracking-tight text-primary flex items-center gap-2">
               <CalendarIcon className="w-3.5 h-3.5" />
               {editing ? "Edit Appointment" : "Schedule Meeting"}
             </DialogTitle>
-            <DialogDescription className="text-[10px] text-muted-foreground opacity-80">
-              {editing ? "Update your meeting details." : "Set your next meeting details below."}
-            </DialogDescription>
           </div>
           
           <div className="flex items-center gap-2 mr-6">
