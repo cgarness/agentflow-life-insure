@@ -161,7 +161,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
   return (
     <div className="space-y-6">
       {notice}
-      <p className="text-xs text-muted-foreground">{data.timeZone} · {data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
+      <p className="text-xs text-muted-foreground">{data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
       {data.callsTarget > 0 && (
         <ProgressBar
           current={data.callsMonth}

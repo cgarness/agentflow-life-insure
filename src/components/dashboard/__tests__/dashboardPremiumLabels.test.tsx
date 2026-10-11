@@ -4,7 +4,7 @@
  * "Premium unknown" — never "Premium unknown annualized". Display wording only; ids and data are unchanged.
  */
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const io = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[] }));
@@ -75,6 +75,9 @@ describe("Dashboard drill-down wording", () => {
     await waitFor(() => expect(screen.getByText("Closed: Term • $1,200.00 annual premium")).toBeInTheDocument());
     expect(screen.getByText("Closed: Whole Life • Premium unknown")).toBeInTheDocument();
     expect(screen.queryByText(/annualized/i)).not.toBeInTheDocument();
+    // The subtitle names whose records are listed: the server scope only, no zone or as-of time (Part B, B1-05).
+    expect(await screen.findByText("Team")).toBeInTheDocument();
+    expect(screen.queryByText(/UTC|As of/)).toBeNull();
   });
 
   it("titles the workload drill-down 'Scheduled Appointments'", () => {
@@ -82,5 +85,21 @@ describe("Dashboard drill-down wording", () => {
     render(<DashboardDetailModal isOpen onClose={() => {}} type="appointments" userId="u1" role="Admin" adminToggle="team" timeRange="week" />);
     expect(screen.getByText("Scheduled Appointments (week)")).toBeInTheDocument();
     expect(screen.queryByText(/Appointments Detail/)).not.toBeInTheDocument();
+  });
+
+  it("closes from the footer 'Close' and the named header button, with no engine commentary (Part B, B1-03/B1-04)", async () => {
+    io.rows = [];
+    const onClose = vi.fn();
+    render(<DashboardDetailModal isOpen onClose={onClose} type="appointments" userId="u1" role="Admin" adminToggle="team" timeRange="week" />);
+    await waitFor(() => expect(screen.getByText("No records found")).toBeInTheDocument());
+    const closes = screen.getAllByRole("button", { name: "Close" });
+    expect(closes).toHaveLength(2);
+    const footerClose = screen.getByText("Close", { selector: "button" });
+    fireEvent.click(footerClose);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(closes.find((button) => button !== footerClose)!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Dismiss View")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Analytics Engine|Batch Size/)).not.toBeInTheDocument();
   });
 });

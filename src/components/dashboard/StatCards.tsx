@@ -94,7 +94,13 @@ const StatCards: React.FC<StatCardsProps> = ({
   return (
     <div className="space-y-2">
     {status && <DashboardSectionNotice state={status} label="stats" className="px-2" />}
-    {data?.performance && <p className="px-2 text-xs text-muted-foreground">{data.performance.scope} · {data.performance.time_zone} · Through {new Date(data.performance.end_at).toLocaleString()} · Compared with previous full {timeRange}{data.performance.current.unknown_premiums ? ` · ${data.performance.current.unknown_premiums} policies with unknown premium` : ""}</p>}
+    {data?.performance && (adminToggle === "team" || data.performance.current.unknown_premiums > 0) && (
+      <p className="px-2 text-xs text-muted-foreground">
+        {[adminToggle === "team" ? data.performance.scope : null,
+          data.performance.current.unknown_premiums ? `${data.performance.current.unknown_premiums} policies with unknown premium` : null,
+        ].filter(Boolean).join(" · ")}
+      </p>
+    )}
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card, index) => (
         <div
@@ -135,9 +141,11 @@ const StatCards: React.FC<StatCardsProps> = ({
                       >
                         {card.trend === "up" ? "↑" : card.trend === "down" ? "↓" : "—"}
                       </span>
-                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold whitespace-nowrap">
-                        vs {data?.prevLabel || "yesterday"}
-                      </span>
+                      {data?.prevLabel && (
+                        <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold whitespace-nowrap">
+                          vs {data.prevLabel}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}

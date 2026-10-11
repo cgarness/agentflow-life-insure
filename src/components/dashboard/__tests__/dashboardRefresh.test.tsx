@@ -99,6 +99,9 @@ describe("DashboardRefreshButton", () => {
     const button = screen.getByRole("button", { name: "Refresh dashboard" });
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).not.toBeDisabled();
+    // The cooldown time is announced, not shown as a persistent sentence (Part B, B1-12).
+    expect(button).toHaveAccessibleDescription(/^Available at /);
+    expect(screen.getByText(/^Available at /)).toHaveClass("sr-only");
     fireEvent.click(button);
     expect(onRefresh).not.toHaveBeenCalled();
 
@@ -107,11 +110,13 @@ describe("DashboardRefreshButton", () => {
     fireEvent.click(button);
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Refreshing…")).toBeInTheDocument();
+    expect(button).not.toHaveAttribute("aria-describedby");
 
     await act(async () => {
       finish();
     });
     await waitFor(() => expect(screen.getByText("Refresh")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Refresh dashboard" })).toHaveAccessibleDescription(/^Available at /);
     fireEvent.click(screen.getByRole("button", { name: "Refresh dashboard" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
 

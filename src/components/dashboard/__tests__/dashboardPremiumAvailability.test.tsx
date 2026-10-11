@@ -57,8 +57,11 @@ const statData = (current: Record<string, number>, previous: Record<string, numb
 };
 const premiumCard = () => screen.getByText("Annual Premium").closest(".rounded-2xl") as HTMLElement;
 const arrowOf = (card: HTMLElement) => card.querySelector("span.rounded-lg")?.textContent;
-const renderCards = (stats: StatData | null, loading = false) =>
-  render(<StatCards role="Admin" userId="u1" adminToggle="team" timeRange="month" stats={stats} loading={loading} />);
+const renderCards = (stats: StatData | null, loading = false, adminToggle: "team" | "my" = "team") =>
+  render(<StatCards role="Admin" userId="u1" adminToggle={adminToggle} timeRange="month" stats={stats} loading={loading} />);
+/** Routine provenance the scope line no longer carries (Part B, B1-13); the fixture zone is "UTC". */
+const ROUTINE_PROVENANCE = /unknown premium|Through|Compared with previous full|UTC/;
+const scopeLine = (container: HTMLElement) => container.querySelector("p.text-xs");
 
 beforeEach(() => { resetDashboardSectionLanes(); h.current = {}; h.goal = 5000; });
 afterEach(() => { cleanup(); resetDashboardSectionLanes(); });
@@ -68,19 +71,36 @@ describe("Dashboard Annual Premium card (D14)", () => {
     renderCards(statData({ policies: 0, unknown_premiums: 0, annual_premium: 0 }));
     expect(premiumCard()).toHaveTextContent("$0.00");
     expect(premiumCard()).not.toHaveTextContent("Unavailable");
+    expect(screen.getByText("Team")).toBeInTheDocument();
+    expect(screen.queryByText(ROUTINE_PROVENANCE)).toBeNull();
   });
 
   it("known premiums totalling $0: a genuine $0.00", () => {
     renderCards(statData({ policies: 2, unknown_premiums: 0, annual_premium: 0 }));
     expect(premiumCard()).toHaveTextContent("$0.00");
     expect(premiumCard()).not.toHaveTextContent("Unavailable");
+    expect(screen.getByText("Team")).toBeInTheDocument();
+    expect(screen.queryByText(ROUTINE_PROVENANCE)).toBeNull();
   });
 
   it("some premiums known: keeps the subtotal, its comparison and the unknown-premium note", () => {
     renderCards(statData({ policies: 3, unknown_premiums: 1, annual_premium: 2400 }, { policies: 2, annual_premium: 1200 }));
     expect(premiumCard()).toHaveTextContent("$2,400.00");
     expect(arrowOf(premiumCard())).toBe("↑");
-    expect(screen.getByText(/1 policies with unknown premium/)).toBeInTheDocument();
+    expect(premiumCard()).toHaveTextContent("vs previous full month");
+    expect(screen.getByText("Team · 1 policies with unknown premium")).toBeInTheDocument();
+  });
+
+  it("personal perspective: no scope line without unknowns, only the unknown-premium count with them", () => {
+    const zero = renderCards(statData({ policies: 2, unknown_premiums: 0, annual_premium: 2400 }), false, "my");
+    expect(scopeLine(zero.container)).toBeNull();
+    expect(screen.queryByText("Team")).toBeNull();
+    expect(screen.queryByText(ROUTINE_PROVENANCE)).toBeNull();
+    zero.unmount();
+    const one = renderCards(statData({ policies: 3, unknown_premiums: 1, annual_premium: 2400 }), false, "my");
+    expect(scopeLine(one.container)?.textContent).toBe("1 policies with unknown premium");
+    expect(screen.getByText("1 policies with unknown premium")).toBeInTheDocument();
+    expect(screen.queryByText(/Team|Through|Compared with previous full|UTC/)).toBeNull();
   });
 
   it("every premium unknown: shows Unavailable, never $0.00, and no comparison", () => {
@@ -105,10 +125,14 @@ describe("Dashboard Annual Premium card (D14)", () => {
     expect(premiumCard()).toHaveTextContent("—");
     expect(premiumCard()).not.toHaveTextContent("Unavailable");
     expect(premiumCard()).not.toHaveTextContent("$0.00");
+    // No comparison basis was loaded, so no "vs …" chip claims one (Part B, B1-M1).
+    expect(premiumCard()).not.toHaveTextContent("vs yesterday");
+    expect(premiumCard()).not.toHaveTextContent(/\bvs\b/);
   });
 });
 
 describe("Dashboard Monthly Premium goal (D14)", () => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const renderGoal = async () => {
     render(<MemoryRouter><GoalProgressWidget userId="22222222-2222-4222-8222-222222222222" /></MemoryRouter>);
     const label = await screen.findByText("Monthly Premium");
@@ -121,6 +145,7 @@ describe("Dashboard Monthly Premium goal (D14)", () => {
     expect(row).toHaveTextContent("Unavailable / $5,000.00");
     expect(row).not.toHaveTextContent("$0.00 /");
     expect(screen.getByText(/2 policies have unknown premium; premium progress is incomplete\./)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(zone);
   });
 
   it("no policies and partial coverage keep their real amounts", async () => {
@@ -136,5 +161,8 @@ describe("Dashboard Monthly Premium goal (D14)", () => {
     const row = await renderGoal();
     expect(row).toHaveTextContent("$0.00 / $5,000.00");
     expect(row).not.toHaveTextContent("Unavailable");
+    // The period line no longer carries the time zone (Part B, B1-14).
+    expect(screen.getByText("Month to date")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(zone);
   });
 });
