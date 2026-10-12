@@ -1,4 +1,6 @@
-## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
+## 2026-10-11 — Merged (PR #440, `f91e4ba`) and deployed to production on 2026-10-12: UI copy cleanup takeover (V2 simple metric labels)
+
+**Release (2026-10-12):** Chris accepted the protected preview of `0c3813c` and approved the merge and production release. PR #440 was merged as `f91e4ba62e0d4eeeb9baec5e296c3ec5d6beb325`, whose tree is identical to `0c3813c`. Vercel's Git integration deployed it to production on both projects: canonical `agentflow` `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws` (READY, aliased to `www.fflagent.com`) and `agentflow-life-insure` `dpl_Hq2kU5arad7qn1da2HtdHziuNsJJ` (READY). Served-asset verification from the production domain is NOT DONE: this session's network policy blocks the host. The cleanup is therefore not yet declared LIVE. No backend change. The onboarding series stays INACTIVE. Evidence and limits: the detailed plan §17.14 and the newest WORK_LOG entry. The status lines below are the pre-release history, kept as written.
 
 **Final targeted polish (2026-10-12):** Chris approved two presentation fixes on top of `d4b7257`: the Contact Flow Required Fields note, and the duplicate Permissions and coming-soon Settings headings. The exact files and lines are in the detailed plan §17.13. Implemented in `9010612`, with its tests, and verified against `e11c8bea`. No backend change. Owner acceptance on the protected preview follows. The PR stays in draft.
 
