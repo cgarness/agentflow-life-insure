@@ -168,3 +168,26 @@ Other screen labels renamed by the same approval:
 - the registry labels are "Annual premium", "Average annual premium", "Appointments" and "Most policies sold".
 
 Kept: "Call contact rate" (D2) and "Dials per booking" (D6). The Data basis live data-quality list still shows the CSV Note sentences verbatim ("Known annual premium $…", "Bookings created (all types): N; …"), so screen and CSV stay identical by design.
+
+## Part B formula-line amendment (2026-10-11; approved by Chris)
+
+This section **supersedes** the on-screen wording in the rows listed below. The rows above are kept as the shipped history.
+
+Display wording only. Definitions, calculations, denominators, attribution, metric ids, CSV headers and every CSV Note constant are unchanged. Plan: `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §17.11.
+
+| Row | Was | Now |
+|---|---|---|
+| C2 / C3 | Basis bar "Current book · stored policies by sale date · monthly premium ×12 · client's current agent" (phone: "Current book · sale date · monthly ×12 · current agent") | Removed at every width (PB-13); both constants are deleted. The band's footer row holds only its Data basis button, right-aligned. The clauses are stated in B1.1 (`POLICY_SOURCE_NOTE`), B2.1 (`PREMIUM_BASIS`) and B3.1 (`CURRENT_ASSIGNMENT_NOTE`). |
+| C4 | "Primary + additional policies" under the count | Removed. "No policies sold in this period." is unchanged and shows only for a successful zero. B1.1 and B1.2 carry the rule. |
+| C13 | Subtitle "all booking types" on Dials per booking | Removed. The label "Dials per booking" is unchanged; B5.1 and B5.4 carry the rule. |
+| C16 / C17 | Session-rate subtitles "session-matched calls ÷ all session hours" / "session-matched talk ÷ all session time" | Removed; B8.5 states the numerator and denominator. |
+| C19 | Subtitle "distinct people" on Converted leads/clients | Removed; B6.1 (`CONVERTED_NOTE`). |
+| C27 | Calling trend tooltip line "{c} contacted ÷ {n} outbound calls" | Removed. The tooltip rows and "No outbound calls; rate unavailable." are unchanged. |
+| C29 | Period totals line "Independent period totals, not one cohort." | Removed; B7.1 (`PERIOD_TOTALS_NOTE`) opens with the same sentence. |
+| C30 | Period totals captions | Only "by date created" (Appointments) remains; the other bases are stated in B4.1, B6.1, B1.1 and B7.1. |
+| C32 | Agent efficiency footnote | Removed; B8.5 and the on-screen "Session-matched calls" column carry it. |
+| C40 | Call flow footnote | "Hours and days are in the agency time zone." The zero-bucket clause is removed; the tooltip and B4.3 carry it. |
+| C41 | Call duration footnote | Removed. B8.1 (`TALK_TIME_NOTE`), the sheet's live data-quality line and the conditional Talk time caution (C14) carry the disclosure. |
+| B1.6 (new) | Subtitles "calls in period ÷ dated stored policies in period" and "talk minutes in period ÷ dated stored policies in period" on the two per-policy tiles | Removed (PB-15). The sheet's Policies sold section adds `POLICY_RATIOS_NOTE`, verbatim: "Dials per policy sold and Talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency." Screen-only; never a CSV Note. The organization-only unavailable reason stays on the tiles. |
+
+Also removed, with no pinned row: the strip subtitles "callback dispositions" (repeats the label), "agency calendar day" (Calls today) and the ", agency calendar" clause (Calls this week now reads "Monday to today"), and the four Call summary subtitles. Kept: "DNC dispositions per 100 calls" (C18), the Calling trend inbound meta (C26), the heatmap zone caption (C39), `CAMPAIGN_LINEAGE_NOTE` (C34), the tfoot attribution lines (C31, C33), the converted-by-source notice (C36) and the production trend coverage lines (C23–C25).
