@@ -1,5 +1,7 @@
 ## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
 
+**Final targeted polish (2026-10-12):** Chris approved two presentation fixes on top of `d4b7257`: the Contact Flow Required Fields note, and the duplicate Permissions and coming-soon Settings headings. The exact files and lines are in the detailed plan §17.13. No backend change. Owner acceptance on the protected preview follows. The PR stays in draft.
+
 **Part B status (2026-10-12):** Chris approved the Part B plan with overrides (PB-10, PB-13, PB-15, PB-33, PB-1, PB-19/22, PB-21 and PB-26), recorded in the detailed plan §17.11 before any edit.
 - **Implemented** on the same branch and draft PR #440, in commits `208be52` to `022e7d1` (detailed plan §17.12).
 - **Records.** `reconciliation.md` names the implementing commit for each item.

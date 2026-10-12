@@ -1475,3 +1475,61 @@ Implementation runs in isolated worktrees, area by area. Commits are integrated 
 - **Not acceptance.** Supabase, auth, roles and Twilio were stubbed. Signed-in acceptance was not done.
 
 Verification on the combined branch, the gaps and the next steps are in the 2026-10-12 WORK_LOG entry.
+
+### §17.13 Final targeted polish (Chris, 2026-10-12): two approved presentation fixes, recorded before any edit
+
+**Authority.** On 2026-10-12 Chris approved exactly two narrowly scoped presentation fixes on top of reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.
+- **Process.** Both corrections go in one separately reviewable commit. No mapping cycle or audit.
+- **Not approved:** a backend command, enforcement, validation, import, query, database-rule or workflow change, a layout redesign, a route change, or anything broader.
+- **Accepted deviations.** Chris accepted the documented `CampaignDetail.tsx` (+2 lines) and `Leaderboard.tsx` (+1 line) growth as specific exceptions; that code is not compressed or restructured.
+- **CSV.** The 61-export comparison and its limitations stay as recorded; equivalence to the historical 74 is not claimed.
+- **Pre-edit checks (2026-10-12 01:23 UTC).** `origin/main` is still `e11c8bea`, and the PR head is `d4b7257`. PR #440 has no reviews or review threads; no other open PR changed. `AGENT_RULES.md`, `VISION.md` and `WORK_LOG.md` were reread.
+
+**Verified enforcement behavior** (read from current code; nothing here changes):
+- **Contacts Add and Edit forms.** Every lead, client and recruit Add or Edit modal in `src/pages/Contacts.tsx` calls `enforceContactPreSave` → `computeMissingRequired` with `enforceCustomFields: false`. That enforces the locked core fields plus the Required Fields settings; custom required fields are not checked.
+- **The contact view.** `FullScreenContactView.handleSave` (`:637-646`) enforces the standard required fields and the custom required fields (`missingRequiredCustomDetails`), wherever the view opens: Contacts, Calendar, the Dialer and direct links.
+- **The Dialer's inline lead edit** (`DialerPage.saveInlineEdit`, and the Team/Open path `useTeamOpenLeadEdit`) runs no required-field check.
+- **Lead CSV import** (`ImportLeadsModal.tsx:583-596`).
+  - It blocks Continue until Phone, a name column, each required custom field and the required Email, State, Lead Source, Date of Birth, Age and Best Time to Call are mapped. A required Assigned Agent is not checked.
+  - The `import-contacts` Edge Function rejects a row only when first name, last name or phone is blank (`:197-206`). Blank cells in other required columns still import.
+- **AGENT_RULES.** The "Required-field enforcement" row (frontend save paths; `import-contacts` core fields only) already matches this behavior and is unchanged.
+
+**Correction 1: the Required Fields note** (Settings › Contact Flow › Required Fields).
+- **File:** `src/components/settings/ContactManagement.tsx:68-69`, the `REQUIRED_FIELDS_ACTIVE_NOTE` constant, which is rendered once at `:1315`. Only the string changes.
+- **Before:** "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view)."
+- **What was wrong with it:**
+  - "Create/edit forms" includes the Dialer inline edit, which checks nothing.
+  - "CSV imports" claims per-row enforcement that only covers first name, last name and phone.
+  - The custom-field sentence is contradicted by the Dialer inline edit, which shows custom-field inputs and does not enforce them.
+- **After:** "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+- **Why this wording.**
+  - It names only the places where the settings are enforced, and it states the one limitation an admin needs: imports do not check the other required fields row by row.
+  - Custom required fields are configured, and explained, on the Custom Fields tab. Its accurate B6-93 helper, "Enforced in the contact view. Lead CSV imports must map a column to it.", is unchanged.
+  - The green notice box, its icon and its position are unchanged.
+
+**Correction 2: duplicate Settings headings** (the screens identified in §17.9).
+- **`src/components/settings/Permissions.tsx:726-728`.** Delete the wrapper `<div><h3 className="text-lg font-semibold text-foreground">Permissions</h3></div>`.
+  - It sits directly under the page h1 "Permissions" with no action beside it. This is the same pure-duplicate pattern B6-42 removed from Phone System.
+  - The role tabs, banners, accordion section titles (h3), Save and Reset actions, and the loading state are unchanged.
+  - `Permissions` is mounted only through `SettingsRenderer` under the Settings page h1.
+- **`src/components/settings/SettingsRenderer.tsx:61`.** Delete `<h3 className="font-semibold mb-1">{section?.label || "Settings"}</h3>` from the default, coming-soon card.
+  - It repeated the page h1: "Zapier & Webhooks" twice, and "Settings" twice for an unknown `?section=`.
+  - The card, its icon and the notice "Coming soon — this section is not active yet." are unchanged. The card has no actions.
+  - Nothing is decided here about telling a known unbuilt section apart from an unknown slug; that stays recorded in §17.9.
+- **Headings that anchor an action stay**, for example Company Branding with Save and Custom Menu Links with Add.
+
+**Tests** (one commit with the code):
+- `src/pages/__tests__/settingsPageHeading.test.tsx`: the B6-02 case is retargeted.
+  - The coming-soon card renders no heading of its own, and keeps its notice.
+  - On the page, "Zapier & Webhooks" appears once, as the h1.
+  - An unknown slug shows "Settings" once.
+- `src/lib/__tests__/permissionsSettingsContacts.test.tsx`: one new case. The component renders no "Permissions" heading of its own, while its section headings, role tabs and Save action remain.
+- New `src/components/settings/__tests__/contactFlowRequiredFieldsNote.test.tsx`: the exact new note text; the old claims are absent; the B6-93 Custom Field helper is unchanged.
+
+**Verification:**
+- `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`, compared with exact base `e11c8bea`;
+- the affected suites;
+- changed-file ESLint, the build and `git diff --check`;
+- `scripts/verify_reports_frontend.py` against `e11c8bea`.
+
+**Publication.** Push to draft PR #440 (no force-push) and wait for exact-head CI. Report the canonical `agentflow` project's protected preview URL for the final SHA, for Chris's signed-in, read-only acceptance.
