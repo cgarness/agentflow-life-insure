@@ -1227,10 +1227,20 @@ These are not copy cleanup. Each needs its own decision or task; nothing here is
   - Lead CSV import only requires that a column is mapped for a required custom field. Blank cells still import.
   - The retained `REQUIRED_FIELDS_ACTIVE_NOTE` (`ContactManagement.tsx:68`) still says custom required fields "are enforced where custom-field inputs are surfaced". The Dialer inline edit contradicts that.
   - The B6-93 helper was corrected to match the code (§17.12). The retained note, AGENT_RULES "Required-field enforcement", and the enforcement gap itself are left for that decision.
+  - *Update (2026-10-12, §17.13, `9010612`):* the retained note is corrected. It now reads "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+    - The enforcement gap is unchanged and still needs its own decision.
+    - Also found: lead-to-client conversion (`ConvertLeadModal`) does not check the client Required Fields.
+    - `AGENT_RULES.md:460` says `FullScreenContactView.handleSave` passes `enforceCustomFields: true`. The code passes `false` and checks custom fields through `missingRequiredCustomDetails`, so the behavior is equivalent and only the wording is stale.
+    - AGENT_RULES is unchanged.
 - **Settings headings after B6-01** *(nit)*.
   - Permissions shows h1 "Permissions" followed directly by h3 "Permissions".
   - Zapier & Webhooks repeats its h1 in the card h3.
   - An unknown `?section=` shows "Settings" twice, and the B6-02 notice "Coming soon — this section is not active yet." Base said "Ready for configuration." Telling a known unbuilt section apart from an unknown slug would be a small logic change.
+  - *Update (2026-10-12, §17.13, `9010612`):* the Permissions inner h3 and the coming-soon card h3 are removed, so each of these three screens shows its title once. The unknown-slug notice wording is unchanged.
+  - **Not in this list, and so not changed:**
+    - Activity Log still shows h1 "Activity Log" directly above an inner h3 "Activity Log".
+    - Call Scripts and Carriers do the same for users who cannot manage them; for managers the inner heading anchors the Add action.
+  - Permissions now steps from the page h1 to the h4 "System rules". That is no more level-skipping than before.
 - **Number Reputation empty branch (B6-63)** *(nit)*. With no active numbers, the header reads only "These are signals, not guarantees.", and "These" has no referent. It reads correctly in the populated branch.
 - **Calendar settings** *(nit)*.
   - Every card is now title-only except Appointment Reminders and Working Hours, which keep their descriptions.
@@ -1533,3 +1543,30 @@ Verification on the combined branch, the gaps and the next steps are in the 2026
 - `scripts/verify_reports_frontend.py` against `e11c8bea`.
 
 **Publication.** Push to draft PR #440 (no force-push) and wait for exact-head CI. Report the canonical `agentflow` project's protected preview URL for the final SHA, for Chris's signed-in, read-only acceptance.
+
+**Outcome (2026-10-12).** Both corrections are implemented exactly as recorded above, in `9010612` with their tests. The plan record is `2ee237b`, and the records commit follows.
+- **Diff.** Three app files:
+  - `ContactManagement.tsx`: one string, ±1 line;
+  - `Permissions.tsx`: −4 lines;
+  - `SettingsRenderer.tsx`: −1 line.
+- **Tests.**
+  - Each new or retargeted assertion fails on the previous code: 5 tests failed with the three app edits reverted.
+  - All pass on the fix.
+  - The B6-93 preservation case passes on both.
+- **Targeted check.** Three read-only skeptics each tried to refute one claim: the note's accuracy, the safety of the heading removals, and test soundness.
+  - None was refuted; their nits are recorded in §17.9 and the closing section of `reconciliation.md`.
+  - One vacuous absence assertion they found was removed before the commit.
+- **Exact-base verification (code head `9010612`):**
+  - `scripts/verify_reports_frontend.py` passed every comparison:
+    - root tsc 0 on both sides;
+    - app tsc 85 diagnostics on both sides, an identical set;
+    - no new failed or skipped test (33 skipped on both, the same set), and no unhandled error;
+    - the strict Reports set, changed-file ESLint and the build exit 0.
+  - Passing tests: base 5,040, candidate 5,184, which is +5, the new and retargeted cases.
+  - All 14 CI-equivalent suite groups pass.
+  - ESLint on the three app files matches base: 9 warnings, 0 errors, in `ContactManagement` only.
+  - `git diff --check` is clean.
+- **Fixture render** (synthetic, not acceptance), at 390 and 1440 px, light and dark:
+  - Permissions, Zapier & Webhooks and an unknown section each show their title once; nothing overflows.
+  - axe: on Webhooks and the unknown section, `heading-order` is resolved (1 → 0). Permissions keeps the one `heading-order` node it had on base; it is now the "System rules" h4 instead of the removed h3.
+  - The new Required Fields note renders for Admin and Agent, the old claim is absent, and the axe results match the Part B render.

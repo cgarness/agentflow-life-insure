@@ -1,3 +1,101 @@
+## 2026-10-12 — UI copy cleanup V2: final targeted polish (Required Fields note, duplicate Settings headings) on draft PR #440; awaiting owner acceptance (not merged, not released)
+
+**Request and approval.** On 2026-10-12 Chris approved exactly two presentation fixes on reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.
+- **Not approved:** no further mapping or audit, no backend command, no enforcement, validation, import, query, database-rule or workflow change, and no layout redesign or route change.
+- **Accepted deviations.** He accepted the documented `CampaignDetail.tsx` (+2 lines) and `Leaderboard.tsx` (+1 line) growth as exceptions; that code was not touched. The 61-export comparison stands with its limitations, and equivalence to the 74 is not claimed.
+- **Plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §17.13, recorded before any edit (`2ee237b`).
+
+**Base, branch and concurrency.**
+- `origin/main` is still `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched before the edits and again before the push.
+- The PR head was `d4b7257`. PR #440 has no reviews or review threads, and no other open PR changed.
+- `AGENT_RULES.md`, `VISION.md` and `WORK_LOG.md` were reread first.
+
+**Commits** (no force-push, no history rewritten):
+
+| Commit | Content |
+|---|---|
+| `2ee237b` | §17.13 plan record: approval, verified enforcement behavior, exact files and lines (docs) |
+| `9010612` | **The two corrections and their tests**: one separately reviewable commit |
+| this commit | Records: this entry, `reconciliation.md` (B6-02, B6-24, B6-96 and a closing section), plan §17.9 updates and the §17.13 outcome, root plan status |
+
+**Exact corrections** (`9010612`):
+1. **Settings › Contact Flow › Required Fields note** (`src/components/settings/ContactManagement.tsx:68-69`, `REQUIRED_FIELDS_ACTIVE_NOTE`, string only).
+   - **Before:** "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view)."
+   - **After:** "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+   - **Why the old text was wrong** (verified in code):
+     - The Dialer's inline lead edit, both Personal (`saveInlineEdit`) and Team/Open (`useTeamOpenLeadEdit`), runs no required check, although it shows custom-field inputs.
+     - `import-contacts` rejects a row only for a blank first name, last name or phone (`:197-206`). The import screen requires most required columns to be mapped, but blank cells still import.
+     - What is enforced: the Contacts Add and Edit modals (`enforceContactPreSave`), and the contact view (`FullScreenContactView.handleSave`, standard plus custom fields) wherever it opens.
+   - **Unchanged:** the B6-93 Custom Fields helper, and all enforcement.
+2. **Duplicate Settings page titles** (the screens identified in §17.9).
+   - `src/components/settings/Permissions.tsx:726-728`: the inner `<div><h3>Permissions</h3></div>` is deleted, because it sat directly under the page h1 with no action beside it.
+   - `src/components/settings/SettingsRenderer.tsx:61`: the coming-soon card's `<h3>` is deleted. It repeated the h1: "Zapier & Webhooks", or "Settings" for an unknown section.
+   - **Unchanged:** the card, its icon and its notice; the Permissions role tabs, banners, System rules, the six section headings, and Save/Reset.
+
+**Tests** (in `9010612`):
+- `settingsPageHeading.test.tsx`: the B6-02 case is retargeted. The card has no heading of its own, and the notice is kept. On the page, "Zapier & Webhooks" and the unknown-slug "Settings" each appear once, as the h1.
+- `permissionsSettingsContacts.test.tsx`: new case. No own "Permissions" heading, while the six section headings, three role tabs and Save/Reset remain.
+- New `contactFlowRequiredFieldsNote.test.tsx`: the exact new note text and the absence of the old claims; the B6-93 helper unchanged in the real Add Custom Field dialog.
+- With the three app edits reverted, the 5 new or retargeted assertions fail. All pass on the fix.
+
+**Targeted check (not an audit).** Three read-only skeptics each tried to refute one claim: note accuracy, heading-removal safety, test soundness. None was refuted. Their nits, all recorded and not changed:
+- Lead-to-client conversion (`ConvertLeadModal`) does not check the client Required Fields. The note does not claim it does.
+- Permissions now steps from the h1 to the h4 "System rules": the same single heading-order skip as before, moved from the removed h3.
+- **Outside the approved screens:** Activity Log still shows h1 "Activity Log" above an inner h3 "Activity Log". Call Scripts and Carriers do the same for users without manage rights; for managers the heading anchors the Add action.
+- `AGENT_RULES.md:460` describes `handleSave` as passing `enforceCustomFields: true`. It passes `false` plus `missingRequiredCustomDetails`, so the behavior is equivalent and the doc is stale. AGENT_RULES is unchanged.
+- One vacuous test assertion was found, and removed before the commit.
+
+**Verification on code head `9010612`, against exact base `e11c8bea`** (local and fixture only):
+- **`scripts/verify_reports_frontend.py`**, every comparison passed:
+  - `npx tsc --noEmit` 0 on both sides;
+  - `npx tsc -p tsconfig.app.json --noEmit` 85 on both, an identical diagnostic set;
+  - passing tests: base 5,040, candidate 5,184 (+5, the new and retargeted cases);
+  - 33 skipped on both, the same set; the same 10 baseline-failing files (nine need `VITE_SUPABASE_*`, plus `recordingRetentionVoicemail`);
+  - no unhandled error;
+  - the strict Reports set, changed-file ESLint and the production build exit 0.
+- **CI-equivalent suites** (synthetic env), all 14 groups pass:
+  - dialer and DNC 540; `TwilioContext` source pins 96; UI-state 215;
+  - SMS consent 91; onboarding 43 (still INACTIVE); A2P 12; Twilio balance 7;
+  - `performanceContract` 43 under each of LA, New York and UTC;
+  - new tests 35; profile 78; Leaderboard, TV and Dashboard 358 (12 skipped, as on base); Reports 389.
+- **Static checks.**
+  - ESLint warnings on the three app files are identical to base: `ContactManagement` 9, the others 0, 0 errors.
+  - `git diff --check`: clean.
+- **Fixture render**, synthetic, at 390 and 1440 px, light and dark (screenshots in session scratch, not committed):
+  - Each of the three screens shows its title once, with no overflow.
+  - axe `heading-order` is resolved on Webhooks and on the unknown section. Permissions keeps its one pre-existing `heading-order` node.
+  - The new Required Fields note renders for Admin and Agent, with axe identical to the Part B render.
+  - The pre-existing switch-name and contrast findings are unchanged; that includes the green note's light-mode contrast.
+
+**Gaps.**
+- **Signed-in owner acceptance has not happened yet.** I cannot inspect Chris's signed-in session. Chris's own review and screenshots are the acceptance evidence, not an automated walkthrough.
+- **Exact-head CI and the protected preview** for the final SHA are recorded in the PR #440 description, because recording them here would move the head.
+
+**Migrations and deploys.** None.
+- Supabase was not contacted.
+- Vercel builds only its automatic protected previews; there is no production deploy, bypass or share token, and no protection or access change.
+- No calls, messages or business data.
+
+**Blockers.** None.
+
+**Next.**
+1. Chris opens the canonical `agentflow` protected preview for the final SHA, signs in normally, and reviews read-only on desktop and narrow layouts:
+   - Dashboard, Reports and Leaderboard labels and details;
+   - Dialer and Campaigns presentation, without starting a session or a call;
+   - Contacts, Conversations and Calendar;
+   - Settings, Resources, Training and profiles.
+
+   He checks for duplicate headings, awkward gaps, missing actions and leftover developer-style text. During this review: no saves, dialing, calls, messages, settings changes or onboarding activation.
+2. Acceptance is recorded from Chris's review.
+3. Merging and the release need Chris's separate explicit approval. The PR stays in draft until acceptance is recorded.
+
+**Context snapshot.**
+- **Base and branch.** Base `e11c8bea8bb546023da3fc6489140be2cd464a3e`. Code head `9010612abb3c901afd5527ffe5a97042503a8416`; this records commit is the PR head.
+- **What the branch contains.** Part A and D14 are preserved. Part B is complete. The two final corrections are in. The CSV is unchanged: 61/61, as recorded.
+- **Status.** Not live; the PR is draft. Decisions are in §17.11 and §17.13. Migrations and deploys: none. Blockers: none. Remaining: Chris's signed-in acceptance, then separate merge and release approval.
+
+---
+
 ## 2026-10-12 — UI copy cleanup V2: Part B implemented, reviewed and verified on draft PR #440 (not merged, not released)
 
 **Request and approval.** On 2026-10-11 Chris approved implementing Part B as planned in §17 and `reconciliation.md` (reviewed plan head `572b154`), with these overrides: PB-10, PB-13, PB-15, PB-33, PB-1, PB-19/22, PB-21 and PB-26.

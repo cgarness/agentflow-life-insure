@@ -9,6 +9,7 @@
   - PB-19: `QueueExhaustedNotice` state keyed to the current campaign, under B4-13 and B4-14 in `e31b002`.
 - Retained, Already satisfied, Superseded and pointer items are unchanged.
 - Verification, gaps and the commit list are in the 2026-10-12 WORK_LOG entry.
+- **Final targeted polish (2026-10-12, `9010612`; plan §17.13).** Chris approved two more presentation fixes. Both are recorded under B6-02, B6-24 and B6-96, and in the closing section of this file.
 
 *Original status (2026-10-11), kept for history:* plan input, awaiting Chris's approval. No app or test file has been edited for Part B.
 
@@ -1346,6 +1347,7 @@ Verified. Still needed: 86 · Retained: 42 · Superseded: 1 · Already satisfied
   - Why: The generated heading repeats the word Settings and doubles it for slugs that already end in -settings; it also mis-cases DNC/A2P and disagrees with the sidebar label (Automation vs Workflow Builder, Contact Management vs Contact Flow). One-line lookup, no routing/permission change (resolveSettingsPermissionSlug is already imported and used).
 - **B6-02** · Still needed · `src/components/settings/SettingsRenderer.tsx:62` — Settings default renderer — reached by sidebar item "Zapier & Webhooks" (slug webhooks, settingsConfig.ts:78)
   - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - **Final polish (2026-10-12):** `9010612`. The card's own h3 is removed. It repeated the page h1: "Zapier & Webhooks", or "Settings" for an unknown slug. The icon and the not-active notice stay.
   - Before: `Ready for configuration.`
   - After: `Coming soon — this section is not active yet.`
   - Tests: none — string unasserted
@@ -1469,6 +1471,7 @@ Verified. Still needed: 86 · Retained: 42 · Superseded: 1 · Already satisfied
   - Why: Irreversible-action warnings and dialog screen-reader descriptions.
 - **B6-24** · Still needed · `src/components/settings/Permissions.tsx:729` — Permissions page header
   - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - **Final polish (2026-10-12):** `9010612`. The remaining inner h3 "Permissions" and its wrapper are removed, because they duplicated the page h1 with no action beside them. The section headings, role tabs and Save/Reset stay.
   - Before: `Manage role-based access controls for your team.`
   - After: `(delete)`
   - Markup: Remove the <p> :729; the <div> keeps the h3.
@@ -1932,6 +1935,7 @@ Verified. Still needed: 86 · Retained: 42 · Superseded: 1 · Already satisfied
   - Why: Generic intros restating headings; each radio option keeps its own consequence text.
 - **B6-96** · Still needed · `src/components/settings/ContactManagement.tsx:1316` — Contact Flow › Required Fields header and footer
   - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - **Final polish (2026-10-12):** `9010612`. The retained `REQUIRED_FIELDS_ACTIVE_NOTE` this item relied on is corrected to "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row." The old "forms/imports and where custom inputs appear" claim, cited in the Why line below, no longer applies.
   - Before: `:1316 "Choose which fields agents must fill in before a contact record can be saved." :1370-1372 "Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab)."`
   - After: `(delete both)`
   - Markup: Remove the two <p> elements.
@@ -2552,3 +2556,24 @@ Verified. Still needed: 21 · Retained: 34 · Already satisfied: 1 · pointer: 1
   - Before: `Upload Photo (L83) | Crop Photo (L97) | Save Photo / Cancel (L108, L112) | Invalid file type / Please upload a JPG, PNG, or WebP image. (L29-30)`
   - Why: Actions, a modal heading and a file-type error. There is no ornamental copy.
   - Pins: none
+
+## Final targeted polish (2026-10-12): two approved presentation fixes
+
+Approved by Chris on 2026-10-12 on top of reviewed candidate `d4b7257`. The plan is §17.13; the code commit is `9010612`, with its tests. Copy and markup only: no enforcement, validation, import, query, route, layout or backend change.
+
+**1. Required Fields note** (`ContactManagement.tsx:68-69`, `REQUIRED_FIELDS_ACTIVE_NOTE`; it lived on as Retained context for B6-93 and B6-96).
+- **Before:** "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view)."
+- **After:** "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+- **Why.** The old text contradicted the code in two places:
+  - the Dialer's inline lead edit, Personal and Team/Open, checks no required field;
+  - `import-contacts` rejects a row only for a blank first name, last name or phone.
+- **Unchanged:** the B6-93 Custom Fields helper.
+
+**2. Duplicate page titles** (the §17.9 screens).
+- **Permissions:** the inner h3 "Permissions" and its wrapper are removed (`Permissions.tsx:726-728`; see B6-24).
+- **Coming-soon card:** its h3 is removed (`SettingsRenderer.tsx:61`; see B6-02). That fixes both "Zapier & Webhooks" and the unknown-slug "Settings".
+
+**Recorded, not changed** (each needs its own decision):
+- Activity Log still shows h1 "Activity Log" directly above an inner h3 "Activity Log". Call Scripts and Carriers do the same for users who cannot manage them; for managers the inner heading anchors the Add action.
+- Lead-to-client conversion (`ConvertLeadModal`) does not check the client Required Fields; the note does not claim it does.
+- Permissions now steps from the page h1 to the h4 "System rules". That is no more level-skipping than before.
