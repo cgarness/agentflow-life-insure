@@ -1,3 +1,54 @@
+## 2026-10-12 — UI copy cleanup V2: PR #440 merged and deployed to production (served-asset verification pending; not yet declared LIVE)
+
+**Approval.** Chris accepted the protected preview of `0c3813c` (`https://agentflow-jc1tqftd5-cgarness-projects.vercel.app`): "Looks fine for now". He approved merging PR #440 and the production release after the final safety checks.
+- This was Chris's own preview check. It is not an exhaustive all-role walkthrough, and the automated tests are not signed-in acceptance.
+- The accepted application commit is `9010612`. `9010612..0c3813c` changes docs only.
+
+**Preflight** (all passed before the merge):
+- **No drift.** `main` was `e11c8bea8bb546023da3fc6489140be2cd464a3e` and the PR head was `0c3813c74b0b94f2fc0d8fafbc2c7e34116ae16b`. The working tree was clean.
+- **Frontend-only boundary.** `e11c8bea..0c3813c` touches no `supabase/`, `.github/`, package or lock file, `vercel.json`, Vite or tsconfig file. It changes 164 `src/` files, 10 docs, 5 script and test files, `AGENT_RULES.md`, `WORK_LOG.md` and the root plan.
+- **Type check:** root tsc 0. App tsc 85, the same set as base. `git diff --check` is clean.
+- **Exact-head CI** on `0c3813c` was green: frontend, tv-browser, verify ×2, consent, native, postgres ×3 and Vercel Preview Comments. Supabase Preview was skipped, since there is no `supabase/` change.
+- **PR state:** no reviews or review threads, and mergeable.
+- **Supabase production**, read-only: see Backend and onboarding below.
+
+**Merge.**
+- The acceptance was recorded as a PR comment without moving the head: https://github.com/cgarness/agentflow-life-insure/pull/440#issuecomment-6117945068.
+- The PR was marked ready and merged by the normal merge method, with expected head `0c3813c`.
+- **Merge commit:** `f91e4ba62e0d4eeeb9baec5e296c3ec5d6beb325`, with parents `e11c8bea` and `0c3813c`. Its tree is `346994da1f6820d4fa769928ed7513f80c6bfeab`, identical to `0c3813c`.
+
+**Production** (Vercel API, read-only; Git integration only, nothing created or promoted by hand):
+- **Canonical `agentflow`:** `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`.
+  - Target production, source `main` `f91e4ba`, READY.
+  - Aliases: `www.fflagent.com`, `fflagent.com` (redirects to www), `agentflow-eta.vercel.app`, `agentflow-cgarness-projects.vercel.app` and `agentflow-git-main-cgarness-projects.vercel.app`, with no alias error.
+  - The alias records for `www.fflagent.com` and `fflagent.com` both name this deployment. The domain configuration is not misconfigured.
+  - Build output: `assets/index-D2UnWTns.js` and `assets/index-0hcdISoo.css`.
+  - The previous production deployment was `dpl_F5UGVnxAyThBzh5AJ4kf1XD5hZ8y`, built from `e11c8bea`.
+- **Secondary `agentflow-life-insure`:** `dpl_Hq2kU5arad7qn1da2HtdHziuNsJJ`, production, `f91e4ba`, READY. Its configuration was not changed.
+
+**Served-asset verification: NOT DONE.**
+- **Blocked.** The session's network policy refuses `www.fflagent.com`, `fflagent.com` and `agentflow-eta.vercel.app` (403 on CONNECT), so the served HTML and its entry asset could not be fetched.
+- **Not used.** Vercel's URL-fetch tool was not used, because it creates a protection-bypass link.
+- **Local rebuild (supporting only).** A local rebuild of the merged tree emits the same CSS file. The JS differs, because there is no local `.env` and the Vercel build includes the project's build-time environment values.
+- **Result.** The cleanup is not declared LIVE.
+
+**Authenticated production checks: none.** No production sign-in, no saved data, no dialing session, no message, no setting change and no force-refresh of active agents.
+
+**Backend and onboarding.** Supabase production was only read, before the merge and after the deployment, with the same results both times:
+- the production `main` branch has no Git branch and was last updated 2026-08-25T19:24:20Z;
+- there is no `onboarding-email-worker` or `email-unsubscribe` Edge Function;
+- the newest migration is still `20261010172702`, and the onboarding foundation `20261011120000` is not applied.
+
+What this means:
+- No Supabase write was made. **The onboarding emails remain INACTIVE.**
+- The "Deploy to production" setting cannot be read here. This evidence is consistent with it staying off, but does not prove it. This merge changed no `supabase/` file.
+
+**Records.** This entry, the root plan release line, the detailed plan title and §17.14, and the `reconciliation.md` release line. They are in a docs-only follow-up PR from `main` `f91e4ba`; there is no direct push to `main`.
+
+**Follow-ups:**
+- **Open:** served-asset verification from the production domain.
+- **Remaining findings:** the items in §17.9 and in the `reconciliation.md` closing section stay on the follow-up list. There is no cleanup expansion.
+
 ## 2026-10-12 — UI copy cleanup V2: final targeted polish (Required Fields note, duplicate Settings headings) on draft PR #440; awaiting owner acceptance (not merged, not released)
 
 **Request and approval.** On 2026-10-12 Chris approved exactly two presentation fixes on reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.

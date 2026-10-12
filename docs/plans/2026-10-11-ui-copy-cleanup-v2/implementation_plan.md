@@ -1,4 +1,6 @@
-# System-wide UI copy cleanup — V2 takeover and reconciliation plan (Part A + D14 and Part B implemented on draft PR #440; not merged, not released)
+# System-wide UI copy cleanup — V2 takeover and reconciliation plan (merged in PR #440 as `f91e4ba` and deployed to production on 2026-10-12; served-asset verification pending)
+
+**Release (2026-10-12):** merged and deployed to production; the cleanup is not yet declared LIVE, because served-asset verification from the production domain is pending. The record is §17.14. The status lines below are the pre-release history, kept as written.
 
 **Status (2026-10-11):** Chris approved the isolated Part A implementation with decisions D1–D14 on 2026-10-11 (§16). It is implemented on branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`), published as draft PR #440 under Chris's 2026-10-11 publication approval. The plan commits come first, followed by:
 
@@ -1570,3 +1572,55 @@ Verification on the combined branch, the gaps and the next steps are in the 2026
   - Permissions, Zapier & Webhooks and an unknown section each show their title once; nothing overflows.
   - axe: on Webhooks and the unknown section, `heading-order` is resolved (1 → 0). Permissions keeps the one `heading-order` node it had on base; it is now the "System rules" h4 instead of the removed h3.
   - The new Required Fields note renders for Admin and Agent, the old claim is absent, and the axe results match the Part B render.
+
+### §17.14 Release record (2026-10-12)
+
+**Approval.** Chris accepted the protected preview of `0c3813c` (`https://agentflow-jc1tqftd5-cgarness-projects.vercel.app`): "Looks fine for now". He approved merging PR #440 and releasing it to production after the final safety checks. This was Chris's own preview check. It is not an exhaustive all-role walkthrough, and the automated tests are not signed-in acceptance.
+
+**Accepted code.** The application commit is `9010612`. `9010612..0c3813c` changes docs only, and the `src/` trees are identical.
+
+**Preflight** (all passed before the merge):
+- **No drift.** `main` was `e11c8bea8bb546023da3fc6489140be2cd464a3e` and the PR head was `0c3813c74b0b94f2fc0d8fafbc2c7e34116ae16b`.
+- **Frontend-only boundary.** `e11c8bea..0c3813c` touches no `supabase/`, `.github/`, package or lock file, `vercel.json`, Vite or tsconfig file.
+- **Exact-head CI** on `0c3813c` was green. The Supabase Preview check was skipped, since there is no `supabase/` change.
+- **Supabase production** was only read, as listed under Backend and onboarding below.
+
+**Merge.**
+- The acceptance was recorded as a PR comment without moving the head: https://github.com/cgarness/agentflow-life-insure/pull/440#issuecomment-6117945068.
+- The PR was marked ready, then merged by the normal merge method, with expected head `0c3813c`.
+- **Merge commit:** `f91e4ba62e0d4eeeb9baec5e296c3ec5d6beb325`, with parents `e11c8bea` and `0c3813c`. Its tree is `346994da1f6820d4fa769928ed7513f80c6bfeab`, identical to `0c3813c`.
+
+**Production deployments** (Git integration only; nothing created or promoted by hand).
+
+| Project | Deployment | Target, source | State | Aliases |
+|---|---|---|---|---|
+| `agentflow` (canonical) | `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws` (`agentflow-ktw03arph-cgarness-projects.vercel.app`) | production, `main` `f91e4ba` | READY | `www.fflagent.com`, `fflagent.com` (redirects to www), `agentflow-eta.vercel.app`, `agentflow-cgarness-projects.vercel.app`, `agentflow-git-main-cgarness-projects.vercel.app`; no alias error |
+| `agentflow-life-insure` (secondary, configuration unchanged) | `dpl_Hq2kU5arad7qn1da2HtdHziuNsJJ` | production, `main` `f91e4ba` | READY | `agentflow-life-insure.vercel.app` and its team and git-main aliases |
+
+- **Alias and domain records.** The Vercel records for `www.fflagent.com` and `fflagent.com` both name `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`. The `www.fflagent.com` domain configuration reports `misconfigured: false`. The previous production deployment was `dpl_F5UGVnxAyThBzh5AJ4kf1XD5hZ8y`, built from `e11c8bea`.
+- **Build output** (from the canonical build log):
+  - `index.html`;
+  - `assets/index-D2UnWTns.js`, 4,356.43 kB;
+  - `assets/index-0hcdISoo.css`, 239.27 kB;
+  - `assets/A2pRegistration-qOBuAdK9.js` and `assets/A2pSession-B_TmC2-B.js`.
+
+**Served-asset verification: NOT DONE.** The cleanup is not declared LIVE until it is done.
+- **Blocked.** This session's network policy refuses the production hosts `www.fflagent.com`, `fflagent.com` and `agentflow-eta.vercel.app` (403 on CONNECT). So the HTML served from the domain, and the entry asset it references, could not be fetched.
+- **Not used.** Vercel's URL-fetch tool was not used, because it creates a protection-bypass link.
+- **Local rebuild (supporting only).** A local build of the merged tree emits the same CSS file, `index-0hcdISoo.css`. The JS hash differs: `index-DV5eMWjy.js`, 4,351.75 kB. There is no `.env` file locally, while the Vercel build includes the project's build-time environment values. So the JS hash is not expected to match, and this rebuild proves nothing about what the domain serves.
+
+**Authenticated production checks: none performed.** Nobody signed in to production. No data was saved, no dialing session was started, no message was sent, no setting was changed, and no active agent was force-refreshed.
+
+**Backend and onboarding.** Supabase production was only read, before the merge and again after the deployment, with the same results both times:
+- **Branches:** the production `main` branch has no Git branch and was last updated 2026-08-25T19:24:20Z.
+- **Edge Functions:** neither `onboarding-email-worker` nor `email-unsubscribe` exists. The newest function is still `platform-admin-notify` v1.
+- **Migrations:** the newest is still `20261010172702`. The onboarding foundation `20261011120000` is not applied.
+
+What this means:
+- No Supabase write of any kind was made. No migration, Edge Function, secret, cron job, RLS policy or setting changed.
+- The onboarding emails remain INACTIVE.
+- The Supabase "Deploy to production" setting cannot be read by any tool available here. The evidence above is consistent with it staying off, but does not prove it. In any case, this merge changed no `supabase/` file.
+
+**Follow-ups.** Two kinds remain.
+- **Still open from this release:** served-asset verification from the production domain.
+- **Remaining findings:** the items in §17.9 and in the closing section of `reconciliation.md` stay on the follow-up list. The cleanup scope is not expanded.

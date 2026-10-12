@@ -1,5 +1,7 @@
 # UI copy cleanup V2, Part B — reconciliation table (fresh, against current code)
 
+**Release (2026-10-12):** merged in PR #440 as `f91e4ba` (tree identical to `0c3813c`) and deployed to production by Vercel. Served-asset verification from the production domain is pending, so the cleanup is not yet declared LIVE; see `implementation_plan.md` §17.14. The status line below is the pre-release history, kept as written.
+
 **Status (2026-10-12): implemented on draft PR #440. Not merged and not released.** Chris approved this table on 2026-10-11 with the overrides in `implementation_plan.md` §17.11.
 - Every **Still needed** item (187) is implemented. So are three items this table lists as Retained: B3-07 and B3-08 (PB-15) and B6-42 (PB-25).
 - Each implemented item has an **Implemented** line naming its commit and any follow-up commit.
