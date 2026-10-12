@@ -59,6 +59,23 @@ describe("Settings → Permissions — Contacts module", () => {
     expect(screen.queryByText("Convert leads")).not.toBeInTheDocument();
   });
 
+  it("does not repeat the Settings page title: no \"Permissions\" heading of its own, while its sections, role tabs and actions stay", async () => {
+    render(<Permissions />);
+    await screen.findByText("Contacts Permissions");
+
+    // The Settings page h1 already reads "Permissions" (final polish, 2026-10-12).
+    expect(screen.queryByRole("heading", { name: "Permissions" })).toBeNull();
+
+    for (const name of ["Contacts Permissions", "Page Access", "Settings Sections", "Feature Permissions", "Data Access", "Commission Visibility"]) {
+      expect(screen.getByRole("heading", { level: 3, name })).toBeInTheDocument();
+    }
+    for (const name of ["Agent", "Team Leader", "Admin"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "Save Permissions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset to Defaults" })).toBeInTheDocument();
+  });
+
   it("persists a normalized permissions.contacts block on save", async () => {
     render(<Permissions />);
     await screen.findByText("Contacts Permissions");

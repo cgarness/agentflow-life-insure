@@ -724,10 +724,6 @@ const Permissions: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold text-foreground">Permissions</h3>
-      </div>
-
       {/* Role tabs */}
       <div className="flex gap-1 rounded-lg p-1 bg-background border">
         {roles.map((r) => (

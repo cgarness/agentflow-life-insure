@@ -4,7 +4,9 @@
  * - The page h1 is the section's sidebar label (ALL_SETTINGS_SECTIONS, resolved through
  *   resolveSettingsPermissionSlug), so legacy phone slugs read "Phone System" and an unknown slug reads
  *   "Settings". It is never the generated "{slug} Settings" ("Email Settings Settings", "Dnc Settings").
- * - The default renderer says the section is not active yet instead of "Ready for configuration.".
+ * - The default renderer says the section is not active yet instead of "Ready for configuration.", and (final
+ *   polish, 2026-10-12) does not repeat the page h1 as its own h3: "Zapier & Webhooks" and the unknown-slug
+ *   "Settings" each appear once.
  * - Phone System no longer repeats its own name as an inner h3 (loading or loaded).
  *
  * The real SettingsPage, SettingsSectionGate, SettingsRenderer and PhoneSystem render; only the section bodies
@@ -153,11 +155,24 @@ describe("Settings page heading is the sidebar label (B6-01)", () => {
 });
 
 describe("Default renderer (B6-02)", () => {
-  it("states the section is not active yet, under the sidebar label", () => {
+  it("states the section is not active yet and does not repeat the page title as its own heading", () => {
     render(<SettingsRenderer activeSlug="webhooks" isSuperAdmin={false} />);
-    expect(screen.getByRole("heading", { level: 3, name: "Zapier & Webhooks" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByText("Zapier & Webhooks")).toBeNull();
     expect(screen.getByText(COMING_SOON)).toBeInTheDocument();
     expect(screen.queryByText("Ready for configuration.")).toBeNull();
+  });
+
+  it.each([
+    ["webhooks", "Zapier & Webhooks"],
+    ["not-a-real-section", "Settings"],
+  ])("?section=%s shows %j once, as the page h1, above the not-active notice", (slug, label) => {
+    renderAt(slug);
+    const headings = screen.getAllByRole("heading", { name: label });
+    expect(headings).toHaveLength(1);
+    expect(headings[0].tagName).toBe("H1");
+    expect(screen.getAllByText(label)).toHaveLength(1);
+    expect(screen.getByText(COMING_SOON)).toBeInTheDocument();
   });
 });
 

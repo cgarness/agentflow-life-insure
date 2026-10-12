@@ -66,7 +66,7 @@ const DUPLICATE_DETECTION_ACTIVE_NOTE =
   "Duplicate Detection is enforced on manual contact saves and CSV imports.";
 
 const REQUIRED_FIELDS_ACTIVE_NOTE =
-  "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view).";
+  "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row.";
 
 // ==================== PIPELINE STAGES TAB ====================
 
