@@ -1,4 +1,4 @@
-# System-wide UI copy cleanup — V2 takeover and reconciliation plan (Part A + D14 published as draft PR #440, not merged; Part B planned against current code, awaiting approval)
+# System-wide UI copy cleanup — V2 takeover and reconciliation plan (Part A + D14 and Part B implemented on draft PR #440; not merged, not released)
 
 **Status (2026-10-11):** Chris approved the isolated Part A implementation with decisions D1–D14 on 2026-10-11 (§16). It is implemented on branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`), published as draft PR #440 under Chris's 2026-10-11 publication approval. The plan commits come first, followed by:
 
@@ -18,7 +18,12 @@ Verification, decisions and limits are in the newest WORK_LOG entry and §16.1. 
 - Supabase was not contacted. Vercel only built its automatic protected preview; no bypass or share token, no protection change.
 - The onboarding series stays INACTIVE.
 
-**Part B** (the four-batch carry-over) was blocked (§2, §11). Chris then directed a fresh, targeted plan against current code. That plan is §17, with the per-item table in `reconciliation.md`, and it awaits approval. No Part B app or test file has been edited. Nothing was recovered from the sandbox, and nothing was reconstructed from old files.
+**Part B (status 2026-10-12): implemented on the same draft PR #440. Not merged, not released.** Chris approved §17 with the overrides recorded in §17.11 before any edit.
+- **What was done.** Every planned item is implemented. Each item's commit is recorded in `reconciliation.md`.
+- **Verification.** Combined-branch verification against `e11c8bea` is in the 2026-10-12 WORK_LOG entry, together with one independent final review and a fixture-based visual review. Signed-in acceptance has not been done.
+- **Not done.** No backend, migration, Edge Function, export or telephony-logic change. Production is not deployed.
+
+*Earlier status (2026-10-11), kept for history:* Part B (the four-batch carry-over) was blocked (§2, §11). Chris then directed a fresh, targeted plan against current code. That plan is §17, with the per-item table in `reconciliation.md`, and it awaits approval. No Part B app or test file has been edited. Nothing was recovered from the sandbox, and nothing was reconstructed from old files.
 
 The text below, from §0 onward, is the plan as presented for approval, kept as written. Where the two differ, §16 records the approved decisions.
 
@@ -158,6 +163,14 @@ With path (a), first resume the named sandbox (only after Chris confirms that th
 | Monthly Call Goal / Monthly Appt. Goal | **Monthly Calls Goal** / **Monthly Appointments Goal** | `AgentModal.tsx:159,161` | These match `UserGoalsTab.tsx:34-36` and `ProfileGoalsCard.tsx:146`. The fields are unchanged. |
 | Calls (CampaignDetail Stats tile) | **Leads Called** (D10) | `CampaignDetail.tsx:1023` | It counts **leads** with `call_attempts > 0`. It is not "Called": the same tab's Status Breakdown already has a queue-status row "Called" (:1179) with a different count. The heatmap "Calls Made" (:1040) stays. |
 | Leads Contacted Over Time (CampaignDetail chart) | **Leads Called Over Time** (D10) | `CampaignDetail.tsx:1117` | It plots every lead by `last_called_at` with no contacted test (:1092-1098), so it shows called leads. |
+
+*Part B note (2026-10-12) on the two caption rows above ("Annual premium (N policies with unknown premium)" and "Outside active roster").* Both wordings are unchanged. Part B (PB-10, B2-01, B2-04; §17.11) changes what surrounds them:
+- The caption no longer opens with "Active agents · {time zone} · As of {time}", and it is empty when nothing is material.
+- Its segments, each shown only when non-zero, are:
+  - the unknown-premium count;
+  - "Talk time includes {e} estimated[ and {c} conflicting] call duration(s)", on the Leaderboard page and TV only;
+  - the outside-roster note.
+- The Dashboard widget shows only the outside-roster note, through the new `outsideRosterNote()`.
 
 ### §4.3 Already satisfied or kept (no change)
 
@@ -323,6 +336,18 @@ All amendments are display-wording only. None changes a definition, calculation,
   - the profile hint "Sum of the monthly premium recorded on each policy. Not annualized."
 
   *Recommended:* none changes in Part A. Decide them in Part B against the approved audit inventory, and remove them without replacement only if the audit already approved that.
+
+  *Part B outcome (approved 2026-10-11, implemented 2026-10-12; §17.11, reconciliation.md):*
+  - **Band basis bar.** Removed at every width (B3-01, PB-13). The band keeps only its Data basis button, right-aligned in the existing footer row, and the full attribution stays in the sheet's Agent credit section.
+  - **Formula subtitles.**
+    - "calls in period ÷ …" and "talk minutes in period ÷ …" are deleted (B3-07, B3-08). The new screen-only `POLICY_RATIOS_NOTE` in the sheet defines both ratios as period ratios, available only for the whole organization, and not original-seller efficiency (PB-15).
+    - The two session subtitles are deleted (B3-05, B3-06).
+    - The Call summary "Contacted calls ÷ calls made" is deleted (B3-23).
+    - The Agent efficiency footnote is deleted (B3-26).
+    - The sheet already defined these.
+  - **Period totals captions.** The heading line `PERIOD_TOTALS_LINE` is removed (B3-03). Only Appointments keeps "by date created", because bookings created are not appointments scheduled (B3-04).
+  - **Dashboard line.** The time zone, "Through {end}" and "Compared with previous full {range}" are removed. The line now appears only for the Team view (its scope) or when premiums are unknown (their count) (B1-13).
+  - **Profile hint.** Deleted entirely, including "Not annualized." (B7-30, PB-33). The tile title names the unit, and the monthly arithmetic and missing-premium caveat stay.
 - **D12 — Band average on phones.** *Recommended:* "Avg annual premium" below sm and "Average annual premium" from sm, measured by the 390 px budget and the one-line gates.
 - **D13 — Conditional Trends limitation lines.** *Recommended:* keep them verbatim ("Known premium unavailable for this period.", "Gap = known premium unavailable, not $0"). They are genuine conditional limitations, not titles, and C25 tightened them deliberately.
 - **D14 — All-unknown premium on the Dashboard and Leaderboard.** V2 requires "Unavailable", never $0, for a wholly unavailable value. Today `get_performance_summary` and the Leaderboard snapshot return a coalesced 0 (`20261005161626_performance_scoped_summaries.sql:51`; `performanceQueries.ts:12`), so the relabelled "Annual Premium" card shows "$0.00" when every premium is unknown, and an agent row shows "$0.00*". *Recommended:* a display-only guard, with no RPC or calculation change, mirroring the Reports band (`ReportsOverview.tsx:35-41`). It shows "Unavailable" on the Dashboard card and "—" in Leaderboard and TV cells when `policies > 0` and every premium is unknown; the unknown-premium markers stay. *Alternative:* record it as a known limitation and leave it out of this task.
@@ -585,7 +610,9 @@ The separate review pass, covering correctness, V2 compliance, test quality and 
 
 ---
 
-## §17. Part B — fresh targeted plan against current code (2026-10-11; AWAITING APPROVAL, nothing implemented)
+## §17. Part B — fresh targeted plan against current code (2026-10-11; approved with overrides, §17.11; implemented 2026-10-12, §17.12)
+
+*§17.0–§17.10 are the plan as presented for approval and are kept as written. §17.11 records the approved decisions and file list, and §17.12 records how the implementation went. Where they differ from §17.0–§17.10, §17.11 and §17.12 win.*
 
 ### §17.0 Status, authority and provenance
 
@@ -1099,6 +1126,7 @@ There are 188 retained items. Every one is listed with its reason in `reconcilia
   - A new `src/components/dialer/__tests__/queueExhaustedNotice.test.tsx` covers every branch, including loading and failed.
 - **Contacts, Conversations and Calendar:** `conversationsViewAs.test.tsx:326`, plus new assertions for the edited empty states and dialogs.
 - **Settings and profiles:** no current test pins a still-needed string. The B7-30 shortening keeps `profileStates.test.tsx:206` and `profileContracts.test.ts:104-106` green.
+  - *Superseded (2026-10-12):* PB-33 deleted the hint outright, so those two copy assertions were retargeted to negative checks. The arithmetic guards are unchanged ($681.07 shown; $8,172.84, the ×12 value, absent).
 
 **Left unedited.** These files contain old strings but must not be rewritten: `e2e/team-open-local/evidence/final-run/evidence.sanitized.json:254`, the historical verification lines in other plans, and WORK_LOG history.
 
@@ -1191,6 +1219,37 @@ These are not copy cleanup. Each needs its own decision or task; nothing here is
   - A Training duration appears twice when set.
   - ProfileHero shows "Licensed states: Unavailable" while loading.
 - **Carried from Part A.** "Avg annual premium" wraps at 390 px, and the CampaignDetail "No contact activity yet" empty state is optional copy.
+
+**Added 2026-10-12, from the final review and the fixture-based visual review of the implemented Part B.** None of these was changed. Items marked *(nit)* are cosmetic.
+
+- **Required custom fields (functional; needs its own decision).**
+  - The Dialer Personal inline edit renders custom-field inputs but does not enforce `custom_fields.required` on save.
+  - Lead CSV import only requires that a column is mapped for a required custom field. Blank cells still import.
+  - The retained `REQUIRED_FIELDS_ACTIVE_NOTE` (`ContactManagement.tsx:68`) still says custom required fields "are enforced where custom-field inputs are surfaced". The Dialer inline edit contradicts that.
+  - The B6-93 helper was corrected to match the code (§17.12). The retained note, AGENT_RULES "Required-field enforcement", and the enforcement gap itself are left for that decision.
+- **Settings headings after B6-01** *(nit)*.
+  - Permissions shows h1 "Permissions" followed directly by h3 "Permissions".
+  - Zapier & Webhooks repeats its h1 in the card h3.
+  - An unknown `?section=` shows "Settings" twice, and the B6-02 notice "Coming soon — this section is not active yet." Base said "Ready for configuration." Telling a known unbuilt section apart from an unknown slug would be a small logic change.
+- **Number Reputation empty branch (B6-63)** *(nit)*. With no active numbers, the header reads only "These are signals, not guarantees.", and "These" has no referent. It reads correctly in the populated branch.
+- **Calendar settings** *(nit)*.
+  - Every card is now title-only except Appointment Reminders and Working Hours, which keep their descriptions.
+  - Record conflict: B6-103 (Retained) lists the :876 description as kept, while the verifier-added MB6-01 deletes it. The implementation followed MB6-01. The not-active notice stays.
+- **Conversations (B5-01)** *(nit)*. The "Select a conversation" h2 raises the empty pane's minimum width from 194 px to 250 px. Below 1024 px that takes space from the conversation list.
+- **Dashboard** *(nit)*.
+  - The B1-13 line now renders only for the Team view or unknown premiums, so switching Team and Personal moves the stat cards about 24 px. Reserving space would add spacing, which the plan rules out.
+  - The valid-empty state still uses a static `Loader2` glyph, which B1-02 left as an owner option.
+  - Pre-existing and identical on base: the Admin and Team Leader controls row overflows at 390 px (scrollWidth 550).
+- **Dialer and FloatingDialer** *(nit)*.
+  - The heading-only QueueExhaustedNotice states keep the h2's 8 px gap above "Return to Campaigns". That matches base's detail-to-button gap, but the Personal screen has 32 px.
+  - B4-40's kept bordered wrapper now holds only the "Enable desktop alerts" button, so it reads as a box inside a box.
+  - At the 320 px panel width, B4-41's note leaves the single word "tab." on its second line.
+- **Agent Profile** *(nit)*.
+  - At 390 px, "Manage licences" stays on the State licensing title line while "Manage carriers" wraps to its own row.
+  - On a clean book, the Clients, Policies and Monthly Premium tiles have about 60–70 px of empty space at xl, because sibling tiles keep their hints.
+- **Pre-existing, identical on base.**
+  - Failed Training and Resources documents loads render as empty (already listed above).
+  - A long Training category badge wraps out of its fixed-height border.
 
 ### §17.10 Explicit non-actions
 
@@ -1345,3 +1404,74 @@ These are not copy cleanup. Each needs its own decision or task; nothing here is
 10. C9: the evidence, the reconciliation status, WORK_LOG and the context snapshot.
 
 Implementation runs in isolated worktrees, area by area. Commits are integrated onto this branch in this order without rewriting existing history.
+
+### §17.12 Implementation record (2026-10-12)
+
+**Commits** on `claude/ui-copy-cleanup-v2-20261011`, applied in order on top of reviewed plan head `572b154`.
+- No history was rewritten and nothing was force-pushed.
+- Each area was implemented in its own worktree and integrated by cherry-pick.
+- The implementing commit for each item is in `reconciliation.md`.
+
+| Commit | Boundary | Content |
+|---|---|---|
+| `78ff832` | C0 | §17.11 decisions and final file list (docs) |
+| `208be52` | C1 | Area 1, Dashboard |
+| `12b757c` | C2 | Area 2, Leaderboard and TV, with its gate harness |
+| `7429da1` | C3a | Reports band and Period totals (PB-13), with the Reports gate edits |
+| `caa3b61` | C3b | Strip subtitles and the PB-15 sheet definition |
+| `6cc328a` | C3c | Reports panel lines |
+| `8e92099` | C4 | Dialer and Campaigns copy |
+| `2c397ff` | C4a | The two `TwilioContext.tsx` toast strings only (PB-21) |
+| `e31b002` | C4b | UI-state fixes (PB-19, PB-22) |
+| `702960d` | C5 | Area 5 |
+| `f0562bb` | C6a | Area 6a |
+| `bdfe2b3` | C6b | Area 6b |
+| `1381ccf` | C6b fix | Area 6b review: B6-93 wording |
+| `b7ab152` | C7 | Area 7 |
+| `9094a2d` | Review fix | Final review findings |
+| `26d79d3` | Review fix | Visual review findings (classes and one `role` only) |
+| `022e7d1` | C8 | Rule and record amendments (docs) |
+| C9 | C9 | Evidence, reconciliation status, this record, WORK_LOG and the context snapshot (docs) |
+
+**Dated deviation list (2026-10-12).**
+- **Files.** Every file changed against `572b154` is in the §17.11 final file list; a mechanical comparison found none outside it. No unlisted test pinned approved copy.
+- **B6-93 wording.** The approved PB-28 text, "Enforced where custom-field inputs appear (e.g. the contact view).", is not accurate: the Dialer Personal inline edit renders custom-field inputs without enforcing them.
+  - The Area 6b review changed it to "Enforced in the contact view and CSV imports." (`1381ccf`).
+  - The final review then found the CSV half overstated, because a lead import only requires a mapped column. The final text is "Enforced in the contact view. Lead CSV imports must map a column to it." (`9094a2d`).
+  - These are copy changes only; no enforcement logic changed. The underlying gap is in §17.9.
+- **Commit boundaries.**
+  - C3a carries the Reports gate edits for B3-02 and PB-13, so each gate edit lands with the UI change it tracks. C3c has no gate edit, because no gate string tracks its lines.
+  - The two review-fix commits sit between C7 and C8, and both stay inside the file list.
+- **Not integrated.**
+  - `93c0547`: an Area 5 review pass removed four dead `eslint-disable` comments from `Contacts.tsx` and `ImportLeadsModal.tsx`. That is unrelated to copy, so it is out of scope.
+  - `684cdfe`: an empty Area 6a review commit.
+- **"Already-oversized files only shrink" (§17.1).** Two oversized files grew:
+  - `CampaignDetail.tsx`, 1,417 to 1,419 lines: B4-67's approved ternary.
+  - `Leaderboard.tsx`, 250 to 251 lines: B2-02 computes the caption once, so an empty caption renders no row.
+  - Across the 102 app files the net change is −263 lines: 64 shrank, 9 grew and 29 kept their length.
+  - The other seven files that grew are all under 200 lines: `CampaignHeatmap` 178, `StatCards` 171, `LeaderboardWidget` 167, `ResourceCard` 133, `SettingsPage` 128, `QueueExhaustedNotice` 117 and `leaderboardExport.ts` 44.
+- **ESLint gate.** The area agents ran `--max-warnings 0`, which fails on pre-existing warnings. CI and `scripts/verify_reports_frontend.py` run plain `eslint`. On the combined branch: 0 errors, and no warning that is not already on base. The apparent new `ControlCenterOverviewPage` warnings are base warnings moved to new line numbers.
+
+**Independent final review** of the combined diff: five lenses, each finding checked by skeptics. Result: 10 confirmed (five distinct issues after de-duplication), 1 disputed, 7 refuted.
+- **Fixed in `9094a2d`:**
+  - the B6-93 overstatement;
+  - stale `BusinessSnapshot` and `ProfilePrimitives` comments;
+  - the Google Calendar header alignment;
+  - the State Licenses admin link position;
+  - the disputed `CampaignHeatmap` finding, judged real: a failed background refetch hid a grid that had already loaded. A new test fails on the old code and passes now.
+  - Also in `9094a2d`: the PB-15 sentence capitalises "Talk minutes per policy sold" as the tile is labelled.
+- **Out of scope:** the retained `REQUIRED_FIELDS_ACTIVE_NOTE`, recorded in §17.9.
+
+**Fixture-based visual review**, base `e11c8bea` against the candidate:
+- **Coverage.** 75 surfaces across the seven areas and both browser gates, at desktop and narrow widths, light and dark, and the role states the fixtures model.
+- **Fixed in `26d79d3`, six findings:**
+  - the Reports leader row height;
+  - the Dashboard modal close button overlapping the title at 390 px;
+  - the footer Close contrast, now 6.58:1 (was 3.39:1);
+  - FloatingDialer Recent failure announced with `role="alert"`;
+  - the Call Monitoring heading no longer wraps;
+  - the Number Reputation guide focus ring offset.
+- **The rest** is recorded in §17.9.
+- **Not acceptance.** Supabase, auth, roles and Twilio were stubbed. Signed-in acceptance was not done.
+
+Verification on the combined branch, the gaps and the next steps are in the 2026-10-12 WORK_LOG entry.

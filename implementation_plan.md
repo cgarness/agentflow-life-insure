@@ -1,4 +1,13 @@
-## 2026-10-11 — Part A + D14 published as draft PR #440 (not merged, not released); Part B PLANNED against current code, awaiting approval: UI copy cleanup takeover (V2 simple metric labels)
+## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
+
+**Part B status (2026-10-12):** Chris approved the Part B plan with overrides (PB-10, PB-13, PB-15, PB-33, PB-1, PB-19/22, PB-21 and PB-26), recorded in the detailed plan §17.11 before any edit.
+- **Implemented** on the same branch and draft PR #440, in commits `208be52` to `022e7d1` (detailed plan §17.12).
+- **Records.** `reconciliation.md` names the implementing commit for each item.
+- **Verified** against base `e11c8bea`; one independent final review and a fixture-based visual review were done (WORK_LOG 2026-10-12).
+- **Not done:** signed-in acceptance, any backend change, and any production merge or deploy.
+- **Awaiting:** Chris's review of draft PR #440 and its protected preview, signed-in acceptance, and separate approval for merging and the production release.
+
+*The Part A entry below is kept as written on 2026-10-11.*
 
 **Status:** Chris approved the isolated Part A with D1–D14 on 2026-10-11. It is implemented and verified on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea`), in commits `5587d3a` (Reports labels), `9fd72ef` (CRM labels), `cb14cfa` (rule and Data basis wording), `74219dc` (D14), `f23a987` (D14 follow-up, Settings Goals), `0c62756` (D14 tests) and `cba9e94` (whitespace). It is published as draft PR #440 with its normal protected preview (CI green). Nothing is merged, and there is no production deploy or backend change. The onboarding series stays INACTIVE. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` (§16 and §16.1 for Part A; §17 and `reconciliation.md` for Part B). **Evidence:** the newest WORK_LOG entry.
 
