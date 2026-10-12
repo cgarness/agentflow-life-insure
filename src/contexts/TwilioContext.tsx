@@ -946,10 +946,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
     if (notificationPermission === "granted") {
-      toast.success("Desktop alerts are on for inbound calls. Twilio plays the ringtone in your browser.");
+      toast.success("Desktop alerts are on for inbound calls.");
     } else if (notificationPermission === "denied") {
       toast.message(
-        "Allow notifications in your browser settings if you want desktop pop-ups. Twilio still rings incoming calls in this tab."
+        "Allow notifications in your browser settings if you want desktop pop-ups. Incoming calls still ring in this tab."
       );
     } else if (!audioPrimed) {
       toast.error("Could not unlock audio for this browser. Try again or check browser permissions.");

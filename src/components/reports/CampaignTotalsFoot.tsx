@@ -17,9 +17,9 @@ interface Props {
 const CampaignTotalsFoot: React.FC<Props> = ({ campaigns, columns }) => {
   const p = campaigns.premium_attribution_unavailable;
   const values: Record<string, string> = {
-    "Policies (campaign-attributed)": formatCount(campaigns.policies_attribution_unavailable),
-    "Known annual premium": formatPremium(p.annual_premium),
-    "Known / total policies": `${p.known_count}/${p.policy_count}`,
+    "Attributed policies": formatCount(campaigns.policies_attribution_unavailable),
+    "Annual premium": formatPremium(p.annual_premium),
+    "Premium coverage": `${p.known_count}/${p.policy_count}`,
     "Calls made": formatCount(campaigns.calls_attribution_unavailable),
   };
   return (

@@ -15,7 +15,6 @@ import {
   ISSUE_SEVERITIES,
   type IssueSeverity,
 } from "@/lib/control-center/constants";
-import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useAnalyzeControlCenterSystem } from "@/hooks/useAnalyzeControlCenterSystem";
 
@@ -24,7 +23,6 @@ const ControlCenterOverviewPage: React.FC = () => {
   const featuresQ = useControlCenterFeatures();
   const issuesQ = useControlCenterIssues();
   const healthQ = useControlCenterHealthChecks();
-  const { realProfile } = useAuth();
 
   const features = featuresQ.data ?? [];
   const issues = issuesQ.data ?? [];
@@ -81,10 +79,6 @@ const ControlCenterOverviewPage: React.FC = () => {
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold text-slate-100">Control Center</h1>
-          <p className="text-sm text-slate-400">
-            Welcome back{realProfile?.first_name ? `, ${realProfile.first_name}` : ""}. Internal
-            AgentFlow platform status.
-          </p>
         </div>
         <Button
           onClick={runSystemAudit}

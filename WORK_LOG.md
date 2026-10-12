@@ -1,3 +1,448 @@
+## 2026-10-12 — UI copy cleanup V2: final targeted polish (Required Fields note, duplicate Settings headings) on draft PR #440; awaiting owner acceptance (not merged, not released)
+
+**Request and approval.** On 2026-10-12 Chris approved exactly two presentation fixes on reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.
+- **Not approved:** no further mapping or audit, no backend command, no enforcement, validation, import, query, database-rule or workflow change, and no layout redesign or route change.
+- **Accepted deviations.** He accepted the documented `CampaignDetail.tsx` (+2 lines) and `Leaderboard.tsx` (+1 line) growth as exceptions; that code was not touched. The 61-export comparison stands with its limitations, and equivalence to the 74 is not claimed.
+- **Plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §17.13, recorded before any edit (`2ee237b`).
+
+**Base, branch and concurrency.**
+- `origin/main` is still `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched before the edits and again before the push.
+- The PR head was `d4b7257`. PR #440 has no reviews or review threads, and no other open PR changed.
+- `AGENT_RULES.md`, `VISION.md` and `WORK_LOG.md` were reread first.
+
+**Commits** (no force-push, no history rewritten):
+
+| Commit | Content |
+|---|---|
+| `2ee237b` | §17.13 plan record: approval, verified enforcement behavior, exact files and lines (docs) |
+| `9010612` | **The two corrections and their tests**: one separately reviewable commit |
+| this commit | Records: this entry, `reconciliation.md` (B6-02, B6-24, B6-96 and a closing section), plan §17.9 updates and the §17.13 outcome, root plan status |
+
+**Exact corrections** (`9010612`):
+1. **Settings › Contact Flow › Required Fields note** (`src/components/settings/ContactManagement.tsx:68-69`, `REQUIRED_FIELDS_ACTIVE_NOTE`, string only).
+   - **Before:** "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view)."
+   - **After:** "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+   - **Why the old text was wrong** (verified in code):
+     - The Dialer's inline lead edit, both Personal (`saveInlineEdit`) and Team/Open (`useTeamOpenLeadEdit`), runs no required check, although it shows custom-field inputs.
+     - `import-contacts` rejects a row only for a blank first name, last name or phone (`:197-206`). The import screen requires most required columns to be mapped, but blank cells still import.
+     - What is enforced: the Contacts Add and Edit modals (`enforceContactPreSave`), and the contact view (`FullScreenContactView.handleSave`, standard plus custom fields) wherever it opens.
+   - **Unchanged:** the B6-93 Custom Fields helper, and all enforcement.
+2. **Duplicate Settings page titles** (the screens identified in §17.9).
+   - `src/components/settings/Permissions.tsx:726-728`: the inner `<div><h3>Permissions</h3></div>` is deleted, because it sat directly under the page h1 with no action beside it.
+   - `src/components/settings/SettingsRenderer.tsx:61`: the coming-soon card's `<h3>` is deleted. It repeated the h1: "Zapier & Webhooks", or "Settings" for an unknown section.
+   - **Unchanged:** the card, its icon and its notice; the Permissions role tabs, banners, System rules, the six section headings, and Save/Reset.
+
+**Tests** (in `9010612`):
+- `settingsPageHeading.test.tsx`: the B6-02 case is retargeted. The card has no heading of its own, and the notice is kept. On the page, "Zapier & Webhooks" and the unknown-slug "Settings" each appear once, as the h1.
+- `permissionsSettingsContacts.test.tsx`: new case. No own "Permissions" heading, while the six section headings, three role tabs and Save/Reset remain.
+- New `contactFlowRequiredFieldsNote.test.tsx`: the exact new note text and the absence of the old claims; the B6-93 helper unchanged in the real Add Custom Field dialog.
+- With the three app edits reverted, the 5 new or retargeted assertions fail. All pass on the fix.
+
+**Targeted check (not an audit).** Three read-only skeptics each tried to refute one claim: note accuracy, heading-removal safety, test soundness. None was refuted. Their nits, all recorded and not changed:
+- Lead-to-client conversion (`ConvertLeadModal`) does not check the client Required Fields. The note does not claim it does.
+- Permissions now steps from the h1 to the h4 "System rules": the same single heading-order skip as before, moved from the removed h3.
+- **Outside the approved screens:** Activity Log still shows h1 "Activity Log" above an inner h3 "Activity Log". Call Scripts and Carriers do the same for users without manage rights; for managers the heading anchors the Add action.
+- `AGENT_RULES.md:460` describes `handleSave` as passing `enforceCustomFields: true`. It passes `false` plus `missingRequiredCustomDetails`, so the behavior is equivalent and the doc is stale. AGENT_RULES is unchanged.
+- One vacuous test assertion was found, and removed before the commit.
+
+**Verification on code head `9010612`, against exact base `e11c8bea`** (local and fixture only):
+- **`scripts/verify_reports_frontend.py`**, every comparison passed:
+  - `npx tsc --noEmit` 0 on both sides;
+  - `npx tsc -p tsconfig.app.json --noEmit` 85 on both, an identical diagnostic set;
+  - passing tests: base 5,040, candidate 5,184 (+5, the new and retargeted cases);
+  - 33 skipped on both, the same set; the same 10 baseline-failing files (nine need `VITE_SUPABASE_*`, plus `recordingRetentionVoicemail`);
+  - no unhandled error;
+  - the strict Reports set, changed-file ESLint and the production build exit 0.
+- **CI-equivalent suites** (synthetic env), all 14 groups pass:
+  - dialer and DNC 540; `TwilioContext` source pins 96; UI-state 215;
+  - SMS consent 91; onboarding 43 (still INACTIVE); A2P 12; Twilio balance 7;
+  - `performanceContract` 43 under each of LA, New York and UTC;
+  - new tests 35; profile 78; Leaderboard, TV and Dashboard 358 (12 skipped, as on base); Reports 389.
+- **Static checks.**
+  - ESLint warnings on the three app files are identical to base: `ContactManagement` 9, the others 0, 0 errors.
+  - `git diff --check`: clean.
+- **Fixture render**, synthetic, at 390 and 1440 px, light and dark (screenshots in session scratch, not committed):
+  - Each of the three screens shows its title once, with no overflow.
+  - axe `heading-order` is resolved on Webhooks and on the unknown section. Permissions keeps its one pre-existing `heading-order` node.
+  - The new Required Fields note renders for Admin and Agent, with axe identical to the Part B render.
+  - The pre-existing switch-name and contrast findings are unchanged; that includes the green note's light-mode contrast.
+
+**Gaps.**
+- **Signed-in owner acceptance has not happened yet.** I cannot inspect Chris's signed-in session. Chris's own review and screenshots are the acceptance evidence, not an automated walkthrough.
+- **Exact-head CI and the protected preview** for the final SHA are recorded in the PR #440 description, because recording them here would move the head.
+
+**Migrations and deploys.** None.
+- Supabase was not contacted.
+- Vercel builds only its automatic protected previews; there is no production deploy, bypass or share token, and no protection or access change.
+- No calls, messages or business data.
+
+**Blockers.** None.
+
+**Next.**
+1. Chris opens the canonical `agentflow` protected preview for the final SHA, signs in normally, and reviews read-only on desktop and narrow layouts:
+   - Dashboard, Reports and Leaderboard labels and details;
+   - Dialer and Campaigns presentation, without starting a session or a call;
+   - Contacts, Conversations and Calendar;
+   - Settings, Resources, Training and profiles.
+
+   He checks for duplicate headings, awkward gaps, missing actions and leftover developer-style text. During this review: no saves, dialing, calls, messages, settings changes or onboarding activation.
+2. Acceptance is recorded from Chris's review.
+3. Merging and the release need Chris's separate explicit approval. The PR stays in draft until acceptance is recorded.
+
+**Context snapshot.**
+- **Base and branch.** Base `e11c8bea8bb546023da3fc6489140be2cd464a3e`. Code head `9010612abb3c901afd5527ffe5a97042503a8416`; this records commit is the PR head.
+- **What the branch contains.** Part A and D14 are preserved. Part B is complete. The two final corrections are in. The CSV is unchanged: 61/61, as recorded.
+- **Status.** Not live; the PR is draft. Decisions are in §17.11 and §17.13. Migrations and deploys: none. Blockers: none. Remaining: Chris's signed-in acceptance, then separate merge and release approval.
+
+---
+
+## 2026-10-12 — UI copy cleanup V2: Part B implemented, reviewed and verified on draft PR #440 (not merged, not released)
+
+**Request and approval.** On 2026-10-11 Chris approved implementing Part B as planned in §17 and `reconciliation.md` (reviewed plan head `572b154`), with these overrides: PB-10, PB-13, PB-15, PB-33, PB-1, PB-19/22, PB-21 and PB-26.
+- **Also approved:** updating draft PR #440 and its normal protected preview with completed, locally verified work, plus narrowly scoped CI corrections.
+- **Not approved:** a production merge or deploy, backend changes, onboarding activation, a protection bypass, a share token, or an access change.
+- **Process.** The decisions and the final file list were recorded before any edit (§17.11, `78ff832`). The implementation record and the deviation list are in §17.12.
+
+**Base and branch.**
+- **Branch:** `claude/ui-copy-cleanup-v2-20261011`.
+  - Previous PR head: `572b15487a4fb789e7322ca63c9d5bf72c58173c`.
+  - Code head: `022e7d1c52b307cb153c5cb4665040945b186341`. The C9 records commit after it is docs only.
+- **Base:** `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched before edits and again before publishing; unchanged both times.
+- **Concurrency.** No other open PR changed (the newest, #429, last moved on 2026-10-08), and PR #440 has no reviews or review comments. No merge or reconciliation was needed.
+- **No force-push**, and no history rewritten.
+
+**Commits.** Each area was implemented in its own worktree and integrated by cherry-pick.
+
+| Commit | Boundary | Content |
+|---|---|---|
+| `78ff832` | C0 | §17.11 decisions and final file list (docs) |
+| `208be52` | C1 | Dashboard |
+| `12b757c` | C2 | Leaderboard and TV, with the gate harness |
+| `7429da1` | C3a | Reports band and Period totals (PB-13), with the Reports gate edits |
+| `caa3b61` | C3b | Strip subtitles and the PB-15 Data basis definition |
+| `6cc328a` | C3c | Reports panel lines |
+| `8e92099` | C4 | Dialer and Campaigns copy |
+| `2c397ff` | C4a | Two `TwilioContext.tsx` toast strings only (PB-21) |
+| `e31b002` | C4b | UI-state fixes (PB-19, PB-22) |
+| `702960d` | C5 | Contacts, Conversations and Calendar |
+| `f0562bb` | C6a | Settings: profile, users, permissions, branding, menu links, agency group, phone, inbound, recording, monitoring |
+| `bdfe2b3` | C6b | Settings: scripts, dispositions, contact flow, calendar, workflows, templates, carriers, activity log, Super Admin, Control Center |
+| `1381ccf` | C6b fix | Area review: B6-93 wording |
+| `b7ab152` | C7 | Resources, Training and profiles |
+| `9094a2d` | Review fix | Final review findings |
+| `26d79d3` | Review fix | Visual review findings (Tailwind classes and one `role` only) |
+| `022e7d1` | C8 | AGENT_RULES #40 notes bullet and Reports Part B paragraph; queue rule #16; `data-basis-wording.md` Part B table; `assertion-diff.md` O21 note |
+| this commit | C9 | Evidence folder, reconciliation status, plan §4.2/§8/§17.7/§17.9/§17.12 notes, root plan status, this entry |
+
+**Files** (against `572b154`, before C9): 141, all inside the §17.11 final file list (checked mechanically).
+- 102 app files, edited and none new; net −263 lines.
+- 23 changed tests and test support, including `src/test/fixtures/performance.ts`.
+- 8 new test files:
+  - `queueExhaustedNotice`, `floatingDialerRecentStates`, `campaignHeatmapStates`, `campaignDetailLeadFilterEmpty`;
+  - `redundantDialogDescriptions`, `settingsPageHeading`, `numberReputationGuide`, `resourceCardMeta`.
+- 4 browser-gate harness files:
+  - `scripts/tests/reports-visual/verify.mjs`;
+  - `scripts/tests/leaderboard-visual/{verify.mjs,entry.tsx,README.md}`.
+- 4 docs.
+- C9 adds:
+  - `reconciliation.md`, this plan, the root `implementation_plan.md` and `WORK_LOG.md`;
+  - `docs/plans/2026-10-11-ui-copy-cleanup-v2/evidence/csv-capture/`: README, the capture and compare scripts, `run-capture.sh`, and both manifests.
+- None of these: migration, `supabase/` path, Edge Function, workflow, dependency or config file.
+
+**What changed** (presentation and UI state only; per-item before and after text is in `reconciliation.md`, with the implementing commit for every item).
+- **Dashboard.**
+  - Copy:
+    - "Loading records…", "No records found" and "Close";
+    - the "AgentFlow Analytics Engine" footer is gone;
+    - the Refresh "Available at…" sentence is now screen-reader-only, and the cooldown, keyboard access and click guards are unchanged.
+  - The detail subtitle shows only the scope.
+  - The stat-card line appears only for the Team view (its scope) or when premiums are unknown (their count).
+  - With no stats loaded, the comparison chip shows no "vs yesterday".
+  - D14 is unchanged.
+- **Leaderboard and TV (PB-10).** The caption carries only material notes, each shown only when non-zero:
+  - the unknown-premium count;
+  - "Talk time includes {e} estimated[ and {c} conflicting] call duration(s)", on the Leaderboard page and TV;
+  - "Outside active roster: …".
+  - `legacy_unknown` durations never trigger a note. The Dashboard widget shows only the outside-roster note.
+  - Snapshot fields, validation, rankings, ties and `leaderboardCsv` are unchanged.
+- **Reports.**
+  - The band basis sentence is gone (PB-13). The Data basis button stays in the band's footer row, and the attribution stays in the sheet.
+  - The Period totals heading line is gone. Only Appointments keeps "by date created".
+  - The strip formula subtitles are gone. A new sheet sentence (PB-15) defines "Dials per policy sold" and "Talk minutes per policy sold" as organization-only period ratios, not original-seller efficiency.
+  - The panel formula and provenance lines are gone.
+  - Shared CSV constants and every export are unchanged.
+- **Dialer and Campaigns.**
+  - Generic intros and congratulatory filler are gone. Session totals and the Campaigns table stay.
+  - `QueueExhaustedNotice` keys its own state to the current campaign (loading, ready or error), so a previous campaign's row or late response never drives the heading, error or next-eligible time.
+  - Failed versus empty is now distinct, without inventing data, in:
+    - FloatingDialer Recent;
+    - the Campaign heatmaps (a failed background refetch keeps the loaded grid);
+    - the CampaignDetail filtered-empty message;
+    - the campaigns-fetch toast.
+  - Two inbound-alert toast strings in `TwilioContext.tsx` changed. Nothing else in that file changed.
+- **Contacts, Conversations and Calendar.**
+  - "Select a conversation".
+  - Redundant empty-state prose and obvious modal intros are gone.
+  - `aria-describedby={undefined}` is applied only to the four redundant descriptions (B5-09, B5-23, B5-28, B5-53). The `ui/` primitives are unchanged.
+- **Settings and admin.**
+  - The Settings page h1 now reads the section's sidebar label.
+  - Generic "Manage…/Configure…" intros are gone.
+  - The decorative Reputation scanner mount is gone (PB-26), and the signal guide is a keyboard button.
+  - The B6-93 Required helper reads "Enforced in the contact view. Lead CSV imports must map a column to it."
+- **Resources, Training and profiles.**
+  - "Fast Access Library", "Knowledge Library", "Viewing X resources…" and heading-restating descriptions are gone.
+  - The Training card no longer shows a fabricated "5 min" when no duration is recorded.
+  - The Monthly Premium hint is deleted, including "Not annualized." (PB-33). The no-×12 arithmetic and the missing-premium caveat stay.
+- **Records (C8).** AGENT_RULES #40 gains the on-screen notes bullet and the Reports refresh amendment gains its Part B paragraph; both match the shipped text.
+
+**Unchanged.**
+- CSV bytes, headers, Note constants and SHA pins.
+- Payloads, RPCs, queries, calculations, denominators, attribution and sorting.
+- The Part A labels and D14.
+- Telephony: `device.connect()`, re-entrancy guards, telemetry, logs, error codes and connection logic.
+- The queue: eligibility, claim, locks, retry, licensing, polling and dialing.
+- Permissions, View As, `organization_id` handling and `.maybeSingle()` uses.
+- Onboarding stays INACTIVE. The manual SMS composer is unchanged, and the purpose dropdown is not restored.
+- User-authored content.
+- The deferred §17.9 defects are not bundled in, and D14 is not broadened to profile milestones.
+
+**Verification** (local and fixture only; no signed-in acceptance). Code head `022e7d1`, against the exact base `e11c8bea`:
+- **`scripts/verify_reports_frontend.py`** (`REPORTS_BASE_SHA`, detached base worktree). Every comparison passed:
+  - root `tsc` reports 0 on both sides;
+  - `tsc -p tsconfig.app.json` gives the identical 85 pre-existing diagnostics on both sides;
+  - no new failed suite or test, and no new unhandled runtime error (0 reported);
+  - the strict Reports set, changed-file ESLint and the production build all exit 0.
+- **Test counts.** Passing: base 5,040, candidate 5,179. Skipped: 33 on both sides, the identical set. The same 10 files fail on both sides:
+  - nine at setup, because `VITE_SUPABASE_*` is unset locally;
+  - `recordingRetentionVoicemail`, which has one pre-existing failing assertion.
+  - This is a baseline comparison, not an allowlist.
+- **CI-equivalent suites** (synthetic env as in CI), all exit 0:
+
+  | Suite | Files | Tests |
+  |---|---|---|
+  | dialer-dnc filter set | 42 | 540 |
+  | the seven `TwilioContext` source-pinned suites | 7 | 96 |
+  | UI-state set (the four new UI-state tests, `floatingDialerDisposition`, `floatingDialerRecent`, `campaigns/`, `campaignsPage`, `campaignDetailImportRetry`) | 12 | 215 |
+  | SMS consent | 5 | 91 |
+  | onboarding (still INACTIVE) | 6 | 43 |
+  | A2P | 1 | 12 |
+  | Twilio balance | 1 | 7 |
+  | `performanceContract` under LA, New York and UTC | 1 | 43 each |
+  | the four other new tests | 4 | 33 |
+  | profile | 3 | 78 |
+  | Leaderboard, TV and Dashboard | 17 | 358 (12 skipped, as on base) |
+  | Reports | 25 | 389 |
+
+- **Static checks.**
+  - `git diff --check e11c8bea HEAD`: clean.
+  - ESLint warnings on every file the review fixes touched are identical to base, at 0 errors.
+- **Reports browser gate** ("embedded SQL + real browser"; Playwright 1.56.1, axe-core 4.10.2):
+  - each side was served alone on strict port 4180, with the served root proven from the transformed entry's `/@fs/` imports;
+  - 22/22 checks pass on base and on the candidate;
+  - axe reports 0 violations in light and dark at 390 and 1440 px.
+- **Leaderboard/TV gate:** base 14 checks pass, candidate 15 (the new routine TV variant). Output went to scratch, not `docs/`.
+- **Pinned-clock CSV capture: 61/61 byte-identical** to base, raw SHA-256 with no normalization, 98,865 bytes.
+  - Clock 2026-10-09T04:00:00Z, America/Los_Angeles; strict ports 4181 and 4182, with served roots proven.
+  - The same 61 hashes as at Part A (`62546df`) and at `b7ab152`.
+  - A separate `sha256sum` agrees.
+  - Both negative controls fail as they should: a file edited alone, and a byte change with its manifest re-hashed.
+  - The committed `run-capture.sh` reproduced the same hashes in a separate run.
+  - Scripts, manifests and the fixture identity are in `docs/plans/2026-10-11-ui-copy-cleanup-v2/evidence/csv-capture/`.
+- **UI-state bugfix tests (PB-19, PB-22).** `queueExhaustedNotice.test.tsx` has 23 tests covering:
+  - initial loading;
+  - successful empty and non-empty diagnostics;
+  - failure after a previous success;
+  - a campaign switch while mounted;
+  - a late response from the previous campaign;
+  - the distinct queue states and the next-eligible time.
+
+  The Recent, heatmap (including a failed background refetch) and CampaignDetail filter tests each distinguish failed from empty.
+- **Process.** Every gate above ran on the final code head, after the review fixes. Each Vite server ran alone and only its own PID was stopped.
+
+**Reviews.**
+- **One independent final review** of the combined diff: five lenses with skeptic verification. Result: 10 confirmed (five distinct issues), 1 disputed, 7 refuted.
+  - Fixed in `9094a2d`:
+    - the B6-93 overstatement;
+    - stale profile comments;
+    - two alignment leftovers;
+    - the disputed heatmap refetch regression, judged real; its new test fails on the old code.
+  - Afterwards the affected suites, both tsc commands, ESLint, the build and every gate were rerun (above).
+- **Fixture-based visual review**, base against candidate: 75 surfaces across all seven areas and both gates, at desktop and narrow widths, light and dark, and the role states each area's fixture models. Some areas did not model Team Leader or Super Admin; those are listed as gaps in the review results.
+  - Six findings were fixed in `26d79d3`:
+    - the Reports leader row;
+    - the modal X overlap at 390 px (0 of 49 measured cases now overlap);
+    - the footer Close contrast, 6.58:1;
+    - Recent failure `role="alert"`;
+    - the Live Calls heading wrap (header back to base's 36 px);
+    - the guide focus ring offset.
+  - Each was re-measured on the fix tree.
+  - The other nits and the out-of-scope findings are recorded in plan §17.9.
+
+**Gaps (stated, not hidden).**
+- **Signed-in acceptance not done.** No authorized preview session was available. The visual review stubs Supabase, auth, roles and Twilio, so it is fixture evidence, not acceptance.
+- **Not renderable in the fixtures:**
+  - the `TwilioContext` toasts (unit and source-pinned tests only);
+  - the full DialerPage and FloatingDialer call lifecycle;
+  - the PB-10 talk-time note in the Leaderboard gate fixture (unit-tested exactly);
+  - collapsed Reports panels and non-default strip tiles (unit-tested);
+  - Leaderboard non-TV dark mode;
+  - telephony-backed Phone System tabs;
+  - the Workflow canvas;
+  - tablet widths other than those measured.
+- **CSV.** 61 exports are compared, not the historical 74; equivalence to the 74 is not claimed. The coverage gaps are listed in the evidence README. Export refusal while a panel is unavailable is covered by unit tests, not the capture.
+- **Not run:** the native PostgreSQL scripts (no SQL changed) and production smoke tests.
+
+**Migrations and deploys.** None.
+- Supabase was not contacted.
+- Vercel only builds its automatic protected previews for this branch. No production deploy, bypass or share token, and no change to protection, auth or access settings.
+- No real calls or messages.
+
+**Blockers.** None for the draft. Signed-in acceptance needs Chris, or an authorized session.
+
+**Next.**
+1. Chris reviews draft PR #440 and its protected preview, signed in, read-only.
+2. Decide the §17.9 items that need their own task:
+   - the required-custom-field enforcement gap and the retained `REQUIRED_FIELDS_ACTIVE_NOTE`;
+   - the failed-load-as-empty defects;
+   - the Settings duplicate headings and the unknown-slug notice;
+   - the profile milestone $0.
+3. Merging and the production release need Chris's separate approval.
+
+**Context snapshot.**
+- **Base and head.** Base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`. Code head `022e7d1c52b307cb153c5cb4665040945b186341`; the C9 records commit is the PR head.
+- **Part A and D14 preserved.** The labels, the D14 "Unavailable"/"—" guard and their tests are unchanged and still pass, and the CSV is byte-identical to base.
+- **Part B complete.** Every planned item is implemented, plus the decision overrides. The final review and visual-review fixes are in.
+- **Exact-head CI and the protected preview** are recorded in the PR #440 description, so that recording them does not move the head.
+- **Remaining:** signed-in acceptance and Chris's approval. The cleanup is not live. The PR stays in draft.
+- **Decisions:** §17.11. **Migrations and deploys:** none. **Blockers:** none.
+
+---
+
+## 2026-10-11 — UI copy cleanup V2: Part A (simple metric labels) and D14 implemented, verified and published as draft PR #440 (not merged, not released); Part B planned against current code, awaiting approval
+
+**Request and approval.** Chris approved the isolated Part A implementation with decisions D1–D14 (2026-10-11).
+- **Not approved:** publication, any preview, a production release, backend changes and email activation.
+- **Later approval (2026-10-11):** Chris approved publishing this branch, opening a draft PR and its normal protected Vercel preview. Still not approved: merging to main, production deploy, backend changes, onboarding email activation, broader preview access, and protection-bypass or share tokens.
+- **Plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` §16, with the review-driven additions in §16.1.
+
+**Base and branch.**
+- Branch `claude/ui-copy-cleanup-v2-20261011`, verified code head `f6420bb`; the WORK_LOG and plan commits after it are docs only.
+- Base `origin/main` `e11c8bea8bb546023da3fc6489140be2cd464a3e`, re-fetched 2026-10-11. The local `main` ref is stale at `8d53531` and was not used.
+- There is no concurrent work; the open PRs are unchanged, and #429 is not merged. `origin/main` was re-fetched again before publishing and was still `e11c8bea`, so no reconciliation was needed.
+- **Published as draft PR #440** (no force-push). At head `51fff58`, every CI job passed (frontend, tv-browser, verify, consent, native and three postgres jobs); the Supabase preview was skipped because no `supabase/` path changed. Both protected Vercel previews deployed. Nothing is merged and production is not deployed.
+
+**Commits** (planning commits `7967e84`, `cd10c4e`, `4c8e13d`, `946f929` and `f6420bb` record the plan and records only):
+
+| Commit | Content |
+|---|---|
+| `5587d3a` | Reports labels, tests and browser-gate selectors |
+| `9fd72ef` | CRM labels, `METRIC_DISPLAY_LABEL` and tests |
+| `cb14cfa` | Approved display-wording amendments (AGENT_RULES §4 #38 and the Reports refresh amendment; dated addendum in `data-basis-wording.md`) |
+| `74219dc` | D14, presentation-only |
+| `f23a987` | D14 follow-up for Settings › User Management › Goals, found by the review pass |
+| `0c62756` | D14 test strengthening, test-only |
+
+**What changed (display wording only, unless marked D14).**
+
+*Reports (sentence case):*
+- Band: "Annual premium" (title and accessible name), "Monthly premium", and "Average annual premium" ("Avg annual premium" on phones).
+- Leader row and tile: "Most policies sold". The tie rule is unchanged; the single-leader subtitle reads "{n} policies".
+- Agent tables: "Policies sold", "Annual premium" and "Appointments".
+- Campaign table: "Attributed policies", "Annual premium" and "Premium coverage". The tfoot keys moved in lockstep.
+- Period totals and strip: "Appointments".
+- Trends: caption, chart name, series, key list, tooltip and readout all say "Annual premium".
+- Data basis: the "Annual premium" and "Appointments" section titles. The screen-only `BOOKINGS_NOTE` now says appointments include callbacks, counted by creation date, and that exports call them "Bookings created (all types)".
+
+*CRM (Title Case):*
+- Dashboard: the "Annual Premium" card, the "Annual Premium" and "Scheduled Appointments" drill-down titles, and a win row that reads "$X annual premium" or "Premium unknown" (previously "Premium unknown annualized").
+- Leaderboard and TV: the selector, podium, deep-rank and ranking title show "Annual Premium", "Appointments" and "Policies / 100 Calls" through a display map over the unchanged ids. The selector keeps `value={id}` and gains `aria-label="Metric"`. The main table reads Calls Made, Policies Sold and Appointments; the TV keeps its short headings (D9). Recent Wins and the shared caption say "annual premium", and the roster disclosure says "appointments".
+- Settings: the user tab reads Appointments and Policies / 100 Calls; the agent modal reads Monthly Calls Goal and Monthly Appointments Goal.
+- CampaignDetail: "Leads Called" and "Leads Called Over Time" (D10).
+
+*D14:* a premium amount shows "Unavailable" (Dashboard card and goal widget) or "—" (Leaderboard and TV cells, the roster total, Settings Goals) only when that row or period's own counts show `policies > 0` and every premium unknown. These are the same unit: `performance_rows` counts the wins in the window and the wins with a NULL sale-time premium.
+- A premium comparison is suppressed when either period is wholly unknown.
+- Preserved: no policies keeps $0.00, known premiums totalling $0 stay $0.00, partial coverage keeps its subtotal and markers, and loading, failed and stale stay distinct.
+- The amount alone never decides. Sorting, ranks, payloads, CSV and queries are unchanged.
+
+**Unchanged.**
+- CSV headers, values and Note constants (the SHA pins pass), metric ids, the TV stored index, the registry identity, the six-metric cap and the default layout.
+- Payloads, RPCs and migrations; calculations, denominators, attribution and sorting.
+- "Call contact rate" and "Dials per booking".
+- Untouched files: Campaigns table, onboarding (series INACTIVE), manual SMS, telephony (`TwilioContext`, `twilio-voice`, Dialer) and hooks.
+
+**Verification: no new regressions against the exact base `e11c8bea`** (fixture and local only; no signed-in acceptance):
+- `scripts/verify_reports_frontend.py` on head `f6420bb`, run with `REPORTS_BASE_SHA` and a detached base worktree. Every comparison passed: no new app tsc diagnostic; root tsc equal; no new failed suite or test; no new unhandled runtime error; strict Reports set exit 0; changed-file ESLint exit 0; production build exit 0. Passing tests: base 5,039, candidate 5,079 (+40 new).
+- `npx tsc --noEmit`: 0. `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics on both base and candidate, with an identical set.
+- **Correction:** an earlier version of this entry said `git diff --check e11c8bea` was clean. It was not: `f23a987` added a blank line at the end of `userManagementUtils.ts`. This was found before publishing and removed in `cba9e94` (whitespace only; ESLint and the two Settings user-management test files pass). `git diff --check e11c8bea` is now clean.
+- **Change set against `e11c8bea`:** 58 files:
+  - 30 app files, 1 new (`src/lib/premiumAvailability.ts`);
+  - 21 test files, 6 new;
+  - 2 browser-gate files (`verify.mjs`, `README.md`);
+  - 5 docs, 1 new (this plan).
+  - No migration, Edge function, workflow, package or config file.
+- The same 10 test files fail on both sides. Nine fail at setup because `VITE_SUPABASE_*` is unset (no Supabase URL/key in this environment); the tenth, `recordingRetentionVoicemail`, has one pre-existing failing test. Run with CI's synthetic env, the dialer suites pass. These are not an allowlist.
+- CI-equivalent targeted suites, with synthetic env:
+  - dialer and telephony: 40 files, 514 tests;
+  - SMS consent, campaigns and onboarding: 23 files, 641 tests;
+  - SMS consent and settings, re-run on the final head: 17 files, 163 tests;
+  - Reports: 27 files, 407 tests;
+  - Leaderboard, TV and Dashboard: all pass.
+- **Reports browser gate.** Evidence path: "embedded SQL + real browser", not native PostgreSQL. Pinned Playwright 1.56.1, agent-browser 0.38.2 and axe-core 4.10.2.
+  - Base and candidate each pass all 22 checks.
+  - axe reports 0 violations, light and dark, at 390 and 1440 px.
+  - The gate's 13 CSV downloads are identical between base and candidate in every header, Note row and value. Their only normalization drops lines starting with `"Generated",`: each file has the same line count on both sides and exactly one differing line, its Generated row (normalized SHA-256: 13 of 13 equal).
+  - Re-run on code head `62546df` against base `e11c8bea`, each server alone on strict port 4180, with the served source root proven from the transformed entry's `/@fs/` imports and the served `ReportsOverview.tsx` label: 22 of 22 checks pass on each side, axe 0 violations.
+  - Layout is identical at 1440 px. At 390 px the hero values are unchanged, and the strip ends 23 px higher (845 vs 868) because "Appointments" no longer wraps.
+- **Leaderboard and TV visual gate:** passes at every TV size, metric and period switch, and roster size.
+- **D14 proof.** Every all-unknown test fails on the pre-D14 tree (`cb14cfa`), and every no-policy, genuine-zero, partial, loading and failed case passes before and after. A scratch mutation that infers from `amount === 0` fails 7 tests.
+- **Not run:**
+  - native PostgreSQL scripts (no SQL changed);
+  - the historical 74-file CSV golden (its capture tool was never committed, and the record lists totals only, not the 74 files). See the reproducible capture below.
+  - signed-in production acceptance (not approved; no production users, calls or messages were created).
+
+**Pinned-clock CSV capture (reproducible equivalent of the 74-file golden).**
+- **Setup.** Base `e11c8bea` (detached worktree) and candidate `62546df` (repository root), each served alone on strict ports 4181 and 4182, served roots proven as above. Clock fixed at 2026-10-09T04:00:00Z, America/Los_Angeles, 1,100 ms pacing, external requests blocked, the same custom window (October 1, 2026) the fixture's SQL payloads cover.
+- **Scope of the capture.** Every export control in every rendered view-toggle and grouping combination across Agency, Team and Personal: 61 downloads, 42 distinct contents, 16 file names (Agency 23, Team 20, Personal 18). No export was disabled.
+- **Result.** 61 of 61 are byte-identical, raw SHA-256 with no normalization of any kind, 98,865 bytes. Every file's Generated row reads the pinned `2026-10-09T04:00:00.000Z`. An independent `sha256sum` over the saved files agrees. A one-byte negative control fails the comparison.
+- **Mapping.** Each of the gate's 13 exports matches its Agency default-view entry by content.
+- **Not covered by the fixture:**
+  - other periods and windows, because the fixture only carries SQL payloads for October 1, 2026; so Daily, Weekly and Monthly trend groupings produce identical files;
+  - heatmap, call-flow and call-duration view toggles in Team and Personal, because those payloads have no outbound calls and the toggles do not render;
+  - the agent tables in Personal (not offered);
+  - agent drilldowns, error, stale and loading exports, and native PostgreSQL payloads (embedded SQL was used).
+- **Why 61 and not 74.** The historical capture's composition cannot be reconstructed, so 13 of its 74 files are not identified. Equivalence to the 74 is not claimed.
+- The capture tools stay in session scratch and are not committed; committing them is a separate decision.
+
+**Separate review pass.** Four lenses with adversarial verifiers: correctness, V2 compliance, test quality, newer-work preservation. No blocker. Four minor findings were fixed: the Settings Goals D14 gap, the TV rank assertion, the missing genuine-$0 cases and stale plan status lines. One was refuted (CampaignDetail empty-state text is outside D10).
+
+**Observations, not changed.**
+- At 390 px the approved phone label "Avg annual premium" wraps to two lines. The budget still passes.
+- **Correction.** An earlier version of this line said the profile Business Snapshot "Monthly Premium" can show $0.00 when every policy lacks a premium. That was wrong. The tile shows "—" with "{n} policies have no premium recorded" (`formatMonthlyCurrency` renders 0 as "—"). The only $0 is the milestone ladder "Monthly premium $0 / $1,000" (team $10,000; `profile-milestones.ts:66-71`). That still needs its own decision, and D14 was not broadened to it.
+- The CampaignDetail empty state "No contact activity yet" is optional copy.
+- Pre-existing: the Leaderboard and TV "*" marker is title-only, CampaignDetail Contacted/Converted read stored counters (AGENT_RULES :126), and the Dashboard stat cards are not keyboard-operable.
+
+**Migrations and deploys.** None. Supabase was not contacted. Vercel was used only for read-only sandbox and snapshot metadata and, after publication, for its automatic protected preview of this branch. No production deploy, no bypass or share token, and no change to protection settings.
+
+**Part B (open deliverable, not complete): planned, awaiting approval.** Chris directed a fresh plan against current code. No attachment or sandbox access was needed, and the denied sandbox operations were not retried. The original implementation was not recovered or reconstructed.
+- **Method:** seven read-only mapping passes, one per area, each adversarially verified (352 confirmed, 56 revised, 0 rejected; the verifiers added 14 missed items, and 12 cross-area duplicates point at one owner).
+- **Result:** 410 classified items. 187 are still needed, in 98 source files; 188 are retained; 28 already satisfied; 7 superseded.
+- **Plan:** §17 of the cleanup plan, with the full per-item before/after table in `docs/plans/2026-10-11-ui-copy-cleanup-v2/reconciliation.md`. There are 35 owner decisions (PB-1 to PB-35), each with a recommendation.
+- **No Part B app or test file is edited.**
+
+Historical blockers, kept for the record:
+- The named Vercel sandbox `ui-copy-cleanup-20261007-7e5caef` returns `403 forbidden` (create on `vercelRun`) for both resume and isolated create. It was not retried through other endpoints or credentials.
+- The archive `AgentFlow_UI_Cleanup_Review_20261009.tar.gz` (SHA-256 `dad1cca7…`) was not received.
+- The 2026-10-11 attachment `AgentFlow_Cleanup_References_All_In_One.md` did not reach this session (uploads and attach are empty), so the original audit could not be classified.
+- Snapshots: `snap_E9Lz…` expires 2026-10-18 02:48 UTC; `snap_Vw08…` expires 2026-10-15.
+- D11 deferred items (formula, basis and helper lines) belong to Part B.
+
+**Next.**
+1. Chris reviews draft PR #440 and its protected preview.
+2. Chris approves or amends the Part B plan (§17.5, PB-1 to PB-35) before any app or test edit. After that: implementation by area, combined verification against `e11c8bea`, one independent review, a WORK_LOG entry and a context snapshot.
+3. Merging and the production release need separate approval.
+
+---
+
 ## 2026-10-10 — Onboarding email series: final review, PR #438 merged, redaction correction, rebased (still INACTIVE)
 
 **Request.** Chris asked for a final review, PR closeout and merge preparation, with the onboarding series kept fully DISABLED through any merge and automatic Vercel deploy. Detail: `docs/plans/2026-10-10-onboarding-emails/implementation_plan.md` §16.

@@ -213,6 +213,34 @@ describe("board preservation on RPC-fed standings", () => {
   });
 });
 
+describe("V2 simple labels over unchanged metric ids", () => {
+  it("the metric selector shows simple names and still selects the unchanged metric ids", () => {
+    const setMetric = vi.fn();
+    h.hookState = { ...baseHookState(), setMetric };
+    render(<Leaderboard />);
+    const select = screen.getByRole("combobox", { name: "Metric" }) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => [o.textContent, o.value])).toEqual([
+      ["Policies Sold", "Policies Sold"], ["Calls Made", "Calls Made"], ["Appointments", "Appointments Set"],
+      ["Talk Time", "Talk Time"], ["Policies / 100 Calls", "Policies per 100 Calls"], ["Annual Premium", "Premium Sold"],
+    ]);
+    fireEvent.change(select, { target: { value: "Premium Sold" } });
+    expect(setMetric).toHaveBeenLastCalledWith("Premium Sold");
+    fireEvent.change(select, { target: { value: "Appointments Set" } });
+    expect(setMetric).toHaveBeenLastCalledWith("Appointments Set");
+  });
+
+  it("names the full-rankings columns and the podium caption with the simple names", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold" };
+    render(<Leaderboard />);
+    for (const name of ["Calls Made", "Policies Sold", "Annual Premium", "Appointments", "Talk Time", "Policies / 100 Calls"]) {
+      expect(screen.getByRole("columnheader", { name })).toBeInTheDocument();
+    }
+    for (const name of ["Calls", "Policies", "Appts"]) expect(screen.queryByRole("columnheader", { name })).not.toBeInTheDocument();
+    expect(screen.getAllByText("annual premium")).toHaveLength(3); // one caption per podium card
+    expect(screen.queryByText(/annualized premium/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("truthful failure states", () => {
   it("keeps the last snapshot behind a stale banner when a refresh fails, and Retry refetches", () => {
     const retry = vi.fn();
@@ -371,5 +399,83 @@ describe("rev 1.2 review: no spinner while offline", () => {
     render(<Leaderboard />);
     expect(screen.getByText("Standings are not updating.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Refreshing")).not.toBeInTheDocument();
+  });
+});
+
+describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
+  // Ranks come from the data and stay as given; only the displayed premium changes.
+  const D14_ROSTER: AgentStats[] = [
+    agent({ id: "bbbb0000-0000-0000-0000-000000000001", first_name: "Avery", last_name: "Adams", policiesSold: 4, premiumSold: 4800, unknownPremiums: 0, rank: 1 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000002", first_name: "Blake", last_name: "Brooks", policiesSold: 3, premiumSold: 3600, unknownPremiums: 1, rank: 2 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000003", first_name: "Casey", last_name: "Cole", policiesSold: 2, premiumSold: 0, unknownPremiums: 2, rank: 3 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000004", first_name: "Drew", last_name: "Dunn", policiesSold: 2, premiumSold: 0, unknownPremiums: 2, rank: 4 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000005", first_name: "Emery", last_name: "Ellis", policiesSold: 1, premiumSold: 0, unknownPremiums: 0, rank: 5 }),
+    agent({ id: "bbbb0000-0000-0000-0000-000000000006", first_name: "Finley", last_name: "Fox", policiesSold: 0, premiumSold: 0, unknownPremiums: 0, rank: 6 }),
+  ];
+  const premiumCell = (name: string) =>
+    (screen.getByText(name).closest('[role="row"]') as HTMLElement).querySelectorAll('[role="cell"]')[4] as HTMLElement;
+
+  it("full rankings: all-unknown shows — with its marker; partial keeps the subtotal; genuine and empty zeros stay $0.00", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    render(<Leaderboard />);
+    expect(premiumCell("Drew D.").textContent).toBe("—*");
+    expect(premiumCell("Drew D.").querySelector("[title]")).toHaveAttribute("title", "2 policies have unknown premium");
+    expect(premiumCell("Emery E.").textContent).toBe("$0.00"); // a known $0 premium
+    expect(premiumCell("Finley F.").textContent).toBe("$0.00"); // no policies
+    const rows = Array.from(document.querySelectorAll('[role="rowgroup"] [role="row"]')).map((r) => r.querySelectorAll('[role="cell"]')[0].textContent);
+    expect(rows).toEqual(["4", "5", "6"]); // order and ranks unchanged
+  });
+
+  it("podium: an all-unknown premium reads —, a partial one keeps its amount", () => {
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    render(<Leaderboard />);
+    // One podium card per agent: the card root is the rounded flex column that carries the metric caption.
+    const podiumValue = (first: string) => {
+      const cards = [...new Set(screen.getAllByText(new RegExp(`^${first}`))
+        .map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
+      expect(cards).toHaveLength(1);
+      expect(cards[0]).toHaveTextContent("annual premium");
+      return cards[0];
+    };
+    expect(podiumValue("Casey")).toHaveTextContent("—");
+    expect(podiumValue("Casey")).not.toHaveTextContent("$0.00");
+    expect(podiumValue("Blake")).toHaveTextContent("$3,600.00");
+  });
+
+  it("podium: policies sold with every premium known and totalling $0 keep a genuine $0.00", () => {
+    const roster = [D14_ROSTER[0], D14_ROSTER[1], { ...D14_ROSTER[4], rank: 3 }, { ...D14_ROSTER[2], rank: 4 }];
+    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: roster };
+    render(<Leaderboard />);
+    const cards = [...new Set(screen.getAllByText(/^Emery/).map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent("$0.00");
+    expect(cards[0]).not.toHaveTextContent("—");
+    expect(premiumCell("Casey C.").textContent).toBe("—*"); // the all-unknown agent, now in the table
+  });
+});
+
+describe("on-screen notes under the filters (material only)", () => {
+  const NOTES = /Active agents ·|As of |policies with unknown premium|Talk time includes|Outside active roster|Stored call duration|unknown provenance/;
+  const snapshotWith = (over: Record<string, unknown>) => ({ ...baseHookState().performanceSnapshot, ...over });
+
+  it("a routine snapshot renders no caption", () => {
+    render(<Leaderboard />);
+    expect(screen.getByText(/Avery/)).toBeInTheDocument();
+    expect(screen.queryAllByText(NOTES)).toHaveLength(0);
+  });
+
+  it("activity outside the active roster renders exactly that note", () => {
+    h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ excluded: { calls_made: 2, appointments_set: 0, policies_sold: 0 } }) };
+    render(<Leaderboard />);
+    expect(screen.getAllByText(NOTES)).toHaveLength(1);
+    expect(screen.getByText("Outside active roster: 2 calls, 0 appointments, 0 policies")).toBeInTheDocument();
+  });
+
+  it("unknown premiums and estimated talk time render their notes in one caption", () => {
+    const rows = ROSTER.map((a, i) => (i === 0 ? { ...a, unknownPremiums: 1, estimatedDurationCalls: 2, unknownDurationCalls: 5 } : a));
+    h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ rows }) };
+    render(<Leaderboard />);
+    expect(screen.getByText("Annual premium (1 policies with unknown premium) · Talk time includes 2 estimated call durations")).toBeInTheDocument();
+    expect(screen.queryByText(/unknown provenance|Stored call duration/)).not.toBeInTheDocument();
   });
 });

@@ -82,10 +82,6 @@ const ControlCenterTrackerPage: React.FC = () => {
         </div>
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Tracker</h1>
-          <p className="text-sm text-slate-400">
-            Launch-readiness command center for AgentFlow — systems, items, issues, and marketing
-            reality.
-          </p>
         </div>
       </header>
 

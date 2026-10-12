@@ -973,9 +973,6 @@ const FloatingDialer: React.FC = () => {
             !incomingCallAlerts.optIn &&
             twilioCallState !== "incoming" && (
             <div className="mx-3 mt-1.5 shrink-0 rounded-lg border border-border bg-muted/50 px-2.5 py-2">
-              <p className="text-[10px] text-muted-foreground leading-snug mb-1.5">
-                One tap unlocks optional desktop pop-ups for inbound life-insurance calls (Twilio rings in the browser; your browser may require this for notifications).
-              </p>
               <Button
                 type="button"
                 size="sm"
@@ -993,7 +990,7 @@ const FloatingDialer: React.FC = () => {
             incomingCallAlerts.desktopPermission === "denied" &&
             twilioCallState !== "incoming" && (
               <p className="mx-3 mt-1.5 shrink-0 text-[10px] text-amber-700 dark:text-amber-500/90 leading-snug">
-                Browser notifications are off — you’ll still get the in-app incoming screen and Twilio’s ringtone when this tab is open.
+                Browser notifications are off. Incoming calls still ring in this tab.
               </p>
             )}
 
@@ -1008,8 +1005,7 @@ const FloatingDialer: React.FC = () => {
                 {!recentLoading && (recentError || recentCalls.length === 0) && (
                   <div className="flex flex-col items-center justify-center py-8 space-y-2">
                     <Phone className="w-8 h-8 text-muted-foreground" />
-                    <p className="font-medium text-foreground">No recent calls</p>
-                    <p className="text-sm text-muted-foreground">Your call history will appear here</p>
+                    <p role={recentError ? "alert" : undefined} className="font-medium text-foreground">{recentError ? "Couldn't load recent calls." : "No recent calls"}</p>
                   </div>
                 )}
                 {!recentLoading && !recentError && recentCalls.length > 0 && (
@@ -1156,7 +1152,7 @@ const FloatingDialer: React.FC = () => {
 
                 {!onCall && showDisposition && (
                   <div className="flex flex-col items-center space-y-3">
-                    <p className="font-medium text-foreground text-center">How did it go?</p>
+                    <p className="font-medium text-foreground text-center">Select Outcome</p>
                     {!callScopeMatches ? (
                       <p role="alert" className="text-sm text-muted-foreground text-center">
                         Your account or agency changed. Return to this call's account and agency to finish.

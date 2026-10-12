@@ -322,9 +322,6 @@ export const ProfileStateLicensesCard: React.FC = () => {
               </div>
               <div>
                 <CardTitle className="text-lg font-semibold tracking-tight">State Licenses</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Manage your personal state licenses here.
-                </p>
               </div>
             </div>
             <Button size="sm" onClick={handleAddClick} className="shadow-sm">
@@ -439,17 +436,13 @@ export const ProfileStateLicensesCard: React.FC = () => {
           )}
 
           <div className="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
-            <span>
-              {canAccessPhoneSystem
-                ? "Admins can manage team-wide licensing under Phone System → State Licenses."
-                : "Your licenses are used to route state-based inbound calls to you."}
-            </span>
+            {!canAccessPhoneSystem && <span>Your licenses are used to route state-based inbound calls to you.</span>}
             {canAccessPhoneSystem && (
               <Button
                 type="button"
                 onClick={handleNavigateToTeam}
                 variant="link"
-                className="h-auto p-0 flex items-center gap-1 text-primary hover:underline font-semibold"
+                className="ml-auto h-auto p-0 flex items-center gap-1 text-primary hover:underline font-semibold"
               >
                 <span>Go to Phone System → State Licenses</span>
                 <ArrowRight className="w-3.5 h-3.5" />

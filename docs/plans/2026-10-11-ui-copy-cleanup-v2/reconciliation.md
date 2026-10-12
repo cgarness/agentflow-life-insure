@@ -1,0 +1,2579 @@
+# UI copy cleanup V2, Part B — reconciliation table (fresh, against current code)
+
+**Status (2026-10-12): implemented on draft PR #440. Not merged and not released.** Chris approved this table on 2026-10-11 with the overrides in `implementation_plan.md` §17.11.
+- Every **Still needed** item (187) is implemented. So are three items this table lists as Retained: B3-07 and B3-08 (PB-15) and B6-42 (PB-25).
+- Each implemented item has an **Implemented** line naming its commit and any follow-up commit.
+- Where a decision or a review changed the planned text, an **Outcome** line gives the final result. That applies to B2-06, B3-01, B3-07, B3-08, B6-42, B6-93, B6-121, B7-30 and MB6-01. The Outcome line wins over the item's After line.
+- Two decisions have no row of their own:
+  - PB-15: the new `POLICY_RATIOS_NOTE` Data basis sentence, under B3-07/B3-08.
+  - PB-19: `QueueExhaustedNotice` state keyed to the current campaign, under B4-13 and B4-14 in `e31b002`.
+- Retained, Already satisfied, Superseded and pointer items are unchanged.
+- Verification, gaps and the commit list are in the 2026-10-12 WORK_LOG entry.
+- **Final targeted polish (2026-10-12, `9010612`; plan §17.13).** Chris approved two more presentation fixes. Both are recorded under B6-02, B6-24 and B6-96, and in the closing section of this file.
+
+*Original status (2026-10-11), kept for history:* plan input, awaiting Chris's approval. No app or test file has been edited for Part B.
+
+**How this was built (2026-10-11).**
+- Fresh, read-only mapping of current code on branch `claude/ui-copy-cleanup-v2-20261011` (code identical at `62546df` and `51fff58`; base `main` `e11c8bea`).
+- Seven mapping passes, one per area, each followed by an independent adversarial verification pass that re-read every cited line, corrected classifications and line numbers, and added missed items.
+- The old Part B implementation was **not** recovered and nothing was reconstructed from old files. The Vercel sandbox was not retried. The approved audit inventory is not in the repository, so items were classified against Chris's Part B standard of 2026-10-11.
+- Each item is classified **Still needed** (planned change), **Retained** (kept for safety, meaning, a rule or an accessibility reason), **Already satisfied** (current code already meets the standard) or **Superseded** (the surface no longer exists or is unmounted).
+- Where the verifier revised an item, the verifier's classification and wording are used and its reason is recorded.
+
+**Totals:** Still needed 187 · Retained 188 · Already satisfied 28 · Superseded 7. Verifier verdicts: confirmed 352, revised 56, rejected 0. Areas verified: 7 of 7.
+
+Line numbers are at code head `62546df`/`51fff58`. They are re-checked at implementation time; text, not line numbers, is the anchor.
+
+## Area 1 — Dashboard
+
+Verified. Still needed: 10 · Retained: 9 · Already satisfied: 6 · pointer: 1.
+
+- **B1-01** · Still needed · `src/components/dashboard/DashboardDetailModal.tsx:714` — Dashboard detail modal: first-page loading state (every modal type)
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `Synchronizing Intelligence...`
+  - After: `Loading records...`
+  - Tests: src/components/dashboard/__tests__/dashboardCallbacks.test.ts:984: change getByText("Synchronizing Intelligence...") to getByText("Loading records..."). This keeps the assertion that a stale finally cannot clear a newer request's loading state. · Optional guard in the same test: expect(screen.queryByText(/intelligence/i)).toBeNull()
+  - Pins: AGENT_RULES.md:217 (#22) requires loading, valid-empty and failure to be distinguishable. It pins no wording, and the change preserves this.
+  - Accessibility: The text stays in the DOM (CSS uppercase is visual only). The spinner area has no live region today and none is added, so there is no change to accessible names.
+  - Why: This is the owner's named target. The loading state stays distinct from the error (716-723) and valid-empty (724-729) branches, and the loading/page===0 logic is unchanged.
+- **B1-02** · Still needed · `src/components/dashboard/DashboardDetailModal.tsx:727` — Dashboard detail modal: valid-empty state (successful empty initial load)
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `No intelligence found in this range / (line 728) Activity will appear here as records are processed.`
+  - After: `Line 727: "No records found". Line 728: (delete).`
+  - Markup: Delete the second <p className="text-sm mt-2">…</p> (728). The wrapper div at 725 is unchanged. Update the code comment at 449 ("never 'No intelligence found in this range'") to "never the valid-empty state". Optional, not copy: the empty state reuses a static Loader2 (spinner) glyph at 726; the owner may swap it for a neutral icon (see decisions).
+  - Tests: src/components/dashboard/__tests__/dashboardCallbacks.test.ts:813: rename the test title "…NOT 'No intelligence found'" to "…NOT the valid-empty message". · dashboardCallbacks.test.ts:818, :955, :1063, :1118: change queryByText("No intelligence found in this range") to queryByText("No records found"). Every negative must point at the NEW string, or the assertion becomes vacuous and the failure-vs-empty guard weakens. · dashboardCallbacks.test.ts:827 and :987: change getByText to "No records found". · Optional: add expect(screen.queryByText("Activity will appear here as records are processed.")).toBeNull() to the :825 valid-empty test.
+  - Pins: AGENT_RULES.md:217 (#22): a failure must never render the valid-empty message. This is preserved, and the tests keep asserting it against the new string.
+  - Accessibility: Plain text with no aria references, so nothing changes for accessibility.
+  - Why: The owner asked for an ordinary empty state. The second line is filler and implies a background processing pipeline that does not exist (the list is fetched once per open). "in this range" is also wrong for the callbacks, missed-calls and anniversaries types. The failure branch (716-723) keeps its own message, so empty and failed stay distinct.
+- **B1-03** · Still needed · verifier: revise · `src/components/dashboard/DashboardDetailModal.tsx:828` — Dashboard detail modal footer commentary
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}  (rendered inside <div className="flex items-center gap-3"> with a decorative dot, lines 825-830)`
+  - After: `(delete) the left-hand div at DashboardDetailModal.tsx:825-830, including the dot at 826. At 824, change 'justify-between' to 'justify-end'. BATCH_SIZE stays: it is 20 (line 60), not 60, and paging uses it at 251-252, 276, 287-288, 311, 441 and 813.`
+  - Markup (as mapped; the verifier correction below wins where they differ): At line 824, change the footer container from `flex items-center justify-between` to `flex items-center justify-end` so the remaining Close button stays right-aligned. Keep the BATCH_SIZE constant (60), because the fetch paging still uses it.
+  - Tests (as mapped; the verifier correction below wins where they differ): None assert it (repo-wide grep for "Analytics Engine" and "Batch Size" matches only the component). Optional negative: expect(screen.queryByText(/Analytics Engine|Batch Size/)).toBeNull() in dashboardPremiumLabels.test.tsx.
+  - Accessibility: Decorative text only. Nothing references it.
+  - Why: This is the owner's named target. It is engine commentary with no user meaning.
+  - Verifier correction: The classification and edit are right, but the markup note misstates the constant: `const BATCH_SIZE = 20;` at line 60. Repo-wide, "Analytics Engine" and "Batch Size" appear only in this component and in historical docs/index.html. No test or rule pins them.
+- **B1-04** · Still needed · `src/components/dashboard/DashboardDetailModal.tsx:832` — Dashboard detail modal footer close action
+  - **Implemented (2026-10-12):** `208be52` (C1); follow-up `26d79d3` (footer Close contrast raised to text-foreground/70, axe 6.58:1).
+  - Before: `Dismiss View`
+  - After: `Close`
+  - Markup: Text only. Keep the button and its onClose. Optional a11y follow-up for owner approval: the header icon-only close button (lines 670-674, <Button variant="ghost" size="icon" onClick={onClose}><X/></Button>) has NO accessible name today. Adding aria-label="Close" to it would make both controls read "Close".
+  - Tests: No test asserts "Dismiss View" today. · Recommended new assertion in dashboardPremiumLabels.test.tsx: clicking getByRole("button", { name: "Close" }) calls onClose. If the optional aria-label is added to the header X, use getAllByRole("button", { name: "Close" }) or scope with within(footer).
+  - Accessibility: The footer button's accessible name becomes "Close". This modal is a custom framer-motion overlay, NOT a Radix Dialog: it has no role="dialog", no aria-modal, no focus trap and no Escape handling. So no DialogTitle/DialogDescription/aria-describedby requirement applies (the repo's Radix pattern is DialogDescription, used in 64 files, and none use aria-describedby={undefined}). No dialog refactor is proposed.
+  - Why: This is the owner's named target: an ornamental action becomes the ordinary verb. Behavior is unchanged.
+- **B1-05** · Still needed · verifier: revise · `src/components/dashboard/DashboardDetailModal.tsx:274` — Dashboard detail modal header subtitle for calls_today / policies_sold / premium_sold / appointments (rendered at line 690, CSS uppercase)
+  - **Implemented (2026-10-12):** `208be52` (C1); follow-up `26d79d3` (header text reserves room for the close button at 390 px).
+  - Before: `'${detail.scope} · ${detail.time_zone} · As of ${new Date(detail.end_at).toLocaleString()}'  (e.g. "personal · America/Los_Angeles · As of 10/11/2026, 9:42:13 AM")`
+  - After: `setPerformanceSubtitle(detail.scope) at DashboardDetailModal.tsx:274 (the subtitle <p> at 690 is unchanged). Owner note: in every personal view this renders "SELECTED AGENT" (CSS uppercase), not "personal".`
+  - Tests (as mapped; the verifier correction below wins where they differ): No current test asserts the subtitle. · Recommended addition to src/components/dashboard/__tests__/dashboardPremiumLabels.test.tsx:68-78 (the mock returns scope "Team" and time_zone "UTC"): expect(await screen.findByText("Team")).toBeInTheDocument(); expect(screen.queryByText(/UTC|As of/)).toBeNull().
+  - Pins: AGENT_RULES.md:492 (#40) requires frozen as-of metadata. That is a data contract, and it is unchanged (performanceAsOf/end_at is still sent to loadPerformanceDetails). No display wording is pinned.
+  - Accessibility: Plain text with no aria references, so nothing changes.
+  - Why: The raw IANA zone and the locale timestamp are routine provenance. The scope is meaningful here because the modal covers the page's Perspective toggle, and it states whose records are listed. The modal still freezes rows at performanceAsOf (223, 271), so behavior is unchanged. If the subtitle were deleted outright, the fallback at 178 ("Selected period: {range}") would only repeat the title's "({range})" suffix.
+  - Verifier correction: The proposed edit is fine, but the rationale's example values are wrong for this surface. In personal mode, fetchData sends `isFiltered ? userId : null` as p_agent_id (270-271). private.performance_scope then takes its p_agent branch first and returns 'selected agent' (supabase/migrations/20261005161626_performance_scoped_summaries.sql:11-16, before the 'personal' branch at :17). So 'personal' is never returned to the Dashboard. 'selected agent' shows for Agents (who have no toggle; adminViewMode defaults to "my", Dashboard.tsx:191), for Admin and Team Leader on "Personal Stats", and for any role whose Dashboard & Reports access is "own". Team views give "self and downline" or "agency activity (all statuses)". The scope token is still the meaningful part, so keeping it is acceptable. Optional variant for the owner, render-only: show performanceSubtitle only when adminToggle === "team", so personal drill-downs fall back to the existing "Selected period: {range}". The test idea is valid: the dashboardPremiumLabels.test.tsx mock returns scope "Team" and time_zone "UTC" (:22-25), so add findByText("Team") and queryByText(/UTC|As of/) → null.
+- **B1-06** · Retained · `src/components/dashboard/DashboardDetailModal.tsx:178` — Dashboard detail modal subtitle fallbacks and fixed-window subtitles
+  - Before: `Selected period: {timeRange} / Selected period (fallback before details load or after failure); Last 24 hours (172); Upcoming 90 days (174); Scheduled callbacks (176)`
+  - Why: These name the window each list covers (the missed-calls 24 h window, the anniversaries 90 days) or the selected period while the scope has not arrived. They are meaningful period and scope, not provenance.
+- **B1-07** · Still needed · `src/components/dashboard/DashboardDetailModal.tsx:798` — Dashboard detail modal pagination loading indicator
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `Loading next batch...`
+  - After: `Loading more records...`
+  - Tests: None (no test matches "Loading next batch").
+  - Accessibility: No change. Plain text.
+  - Why: This is a directly equivalent string on the same surface: the "batch" engine jargon that B1-03 removes from the footer. The pagination-loading state itself is kept. It is optional for the owner (see decisions).
+- **B1-08** · Retained · `src/components/dashboard/DashboardDetailModal.tsx:706` — Dashboard detail modal list header chip
+  - Before: `Records (703); {data.length} RECORDS LOADED {hasMore && "• SCROLL FOR MORE"} (706)`
+  - Why: It tells the user the list is partial and more rows exist (pagination state). It is not provenance. Tests use "SCROLL FOR MORE" as the observable hasMore signal.
+- **B1-09** · Retained · `src/components/dashboard/DashboardDetailModal.tsx:719` — Dashboard detail modal failure states and end-of-list
+  - Before: `Couldn't load these records / Something went wrong. Close and reopen to try again. (719-721); Couldn't load more records (808); End of list (816)`
+  - Why: These are initial-failure, pagination-failure and complete-list states, and they keep failed distinct from empty (AGENT_RULES #22). "Close and reopen" is the only recovery guidance, and it still matches the renamed "Close" button.
+  - Pins: AGENT_RULES.md:217 (#22).
+- **B1-10** · Retained · `src/components/dashboard/DashboardDetailModal.tsx:635` — Dashboard detail modal premium row text (premium_sold) and policies_sold row (610)
+  - Before: `Closed: {type} • {$X annual premium | Premium unknown} (635); • {$X} monthly / • Premium unknown (610)`
+  - Why: These are the Part A label and the material missing-data indicator. They are kept exactly.
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:144 (Part A §4.2 row).
+- **B1-11** · Already satisfied · `src/components/dashboard/DashboardDetailModal.tsx:165` — Dashboard detail modal former subtitle "Real-time Intelligence Feed"
+  - Before: `(only a code comment at 162-168 now mentions it; the rendered subtitle is getSubtitle(), 169-180)`
+  - Why: An earlier build already replaced the misleading real-time claim. Nothing renders it.
+- **B1-12** · Still needed · `src/components/dashboard/DashboardRefreshButton.tsx:67` — Dashboard Refresh control cooldown hint (visible from sm upward, beside the button)
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `<span id="dashboard-refresh-hint" className="hidden text-[10px] text-muted-foreground sm:inline">Available at {formatStatusTime(availableAt)}</span>  (lines 66-70)`
+  - After: `<span id={hintId} className="sr-only">Available at {formatStatusTime(availableAt)}</span>, under the same {!refreshing && !ready && …} condition (DashboardRefreshButton.tsx:66-70). Everything else is unchanged.`
+  - Markup: Change only the className at 67 to `sr-only`. Keep the id, the render condition and aria-describedby (59), so the reference stays valid. The wrapper <span className="inline-flex items-center gap-2"> (52) can stay: an sr-only child is absolutely positioned and adds no flex gap. Unchanged: the click-time guard (38: `if (refreshing || Date.now() < availableAt) return;`), the cooldown reset in finally (45), aria-disabled (57, the button stays focusable and keyboard-operable, never `disabled`), aria-busy (58), the visible "Refresh"/"Refreshing…" label (63) and the sr-only " dashboard" (64).
+  - Tests: src/components/dashboard/__tests__/dashboardRefresh.test.tsx:93-121 asserts no hint text today. Strengthen it without weakening: after :100 add expect(button).toHaveAccessibleDescription(/^Available at /) and expect(screen.getByText(/^Available at /)).toHaveClass("sr-only"); after :109 (refreshing) add expect(button).not.toHaveAttribute("aria-describedby"); after :114 (the cooldown restarted) add expect(screen.getByRole("button", { name: "Refresh dashboard" })).toHaveAccessibleDescription(/^Available at /). The existing aria-disabled, not-disabled and click-guard assertions stay. · src/pages/__tests__/dashboardRefreshWiring.test.tsx:116-161 is unaffected (accessible name "Refresh dashboard" unchanged).
+  - Pins: AGENT_RULES.md:250 (one bounded Refresh control, 30 s after opening and after each refresh). It pins behavior only, not the hint wording, and behavior is unchanged.
+  - Accessibility: The accessible name stays "Refresh dashboard", and the accessible description stays "Available at {time}" while cooling down (now at every viewport; before, display:none below sm still contributed through aria-describedby). aria-describedby is removed while refreshing, exactly as now.
+  - Why: This is the owner's target: remove the persistent visible sentence, but keep the cooldown communicated accessibly. Screen-reader users still hear "Refresh dashboard … Available at 3:47 PM". Sighted users see the aria-disabled state (opacity-60, cursor-not-allowed), and clicks during the cooldown are still ignored at click time.
+- **B1-13** · Still needed · verifier: revise · `src/components/dashboard/StatCards.tsx:97` — Dashboard stat cards provenance line (above the four cards)
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `{data.performance.scope} · {data.performance.time_zone} · Through {new Date(data.performance.end_at).toLocaleString()} · Compared with previous full {timeRange}{data.performance.current.unknown_premiums ? ' · ${N} policies with unknown premium' : ""}`
+  - After:
+
+    ```text
+    Replace StatCards.tsx:97 with:
+    {data?.performance && (adminToggle === "team" || data.performance.current.unknown_premiums > 0) && (
+      <p className="px-2 text-xs text-muted-foreground">
+        {[adminToggle === "team" ? data.performance.scope : null,
+          data.performance.current.unknown_premiums ? `${data.performance.current.unknown_premiums} policies with unknown premium` : null,
+        ].filter(Boolean).join(" · ")}
+      </p>
+    )}
+    This deletes time_zone, "Through {end_at}" and "Compared with previous full {range}". It keeps the server scope in the Team perspective and the conditional unknown-premium count everywhere. Same <p> classes, no spacing change. StatCards goes from 163 to about 168 lines. Simpler fallback if the owner wants less logic: `{data.performance.scope}{unknown ? ` · ${N} policies with unknown premium` : ""}` always shown.
+    ```
+  - Markup (as mapped; the verifier correction below wins where they differ): Replace the line-97 condition `data?.performance &&` with the unknown_premiums condition, and keep the same <p> classes. No spacing change: the space-y-2 wrapper (95) and DashboardSectionNotice (96) are untouched.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/dashboard/__tests__/dashboardPremiumAvailability.test.tsx:83: the regex /1 policies with unknown premium/ still passes. Tighten it to getByText("1 policies with unknown premium"). · Add to dashboardPremiumAvailability.test.tsx:67-77 (zero-unknown cases): expect(screen.queryByText(/unknown premium/)).toBeNull(). · Add a negative in any StatCards render: expect(screen.queryByText(/Through |Compared with previous full|UTC/)).toBeNull() (the fixture time_zone is "UTC", :48). · src/components/dashboard/__tests__/dashboardPremiumLabels.test.tsx:58-65 is unaffected.
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:173 (§4.3 keeps "Dashboard … 'N policies have unknown premium'"). Preserved by the conditional indicator. · implementation_plan.md:319 and :322 (D11 deferred this exact line, cited as the stale StatCards.tsx:91, to Part B: "remove without replacement only if the audit already approved that"). The approved audit is unavailable (plan :60), so this needs the owner's explicit approval. Record it in §8 D11 and the Part B reconciliation table. Amendment text: "D11 (Part B, approved {date}): the Dashboard line is removed except its conditional '{N} policies with unknown premium' indicator." · AGENT_RULES.md:492 (#40): "Display … unknown coverage" is satisfied by the indicator. "frozen as-of metadata" is a data contract and is unchanged.
+  - Accessibility: Plain text, with no aria references to it.
+  - Why: The raw time zone and "Through {timestamp}" are routine provenance. "Compared with previous full {range}" duplicates each card's "vs previous full {range}" chip (138-140; prevLabel from useDashboardStats.ts:55). Scope is already named by the Perspective toggle (Dashboard.tsx:511-527) for Admin and Team Leader, and agents are always personal. The conditional unknown-premium count is a material missing-data indicator (D14/V2), and Part A recorded it as a kept genuine limitation, so it stays as a concise conditional indicator. D14 "Unavailable" (86), trend suppression (87) and stale/error notices (96) are unchanged.
+  - Verifier correction: Deleting the scope as well, as the mapper proposed, rests on two false premises. (1) "Agents are always personal" is true, but the personal label they would see is "selected agent" (see B1-05), so the mapper's reading of the line was wrong. (2) "The Perspective toggle names the scope" is false whenever the role's "Dashboard & Reports" data access is not the default (src/config/permissionDefaults.ts:218; DataScope own|team|all, :18). useDashboardStats.ts:45 computes isFiltered = getDataScope("reports") === "own" || adminToggle === "my". A Team Leader set to "own" sees "Team Overview" (Dashboard.tsx:524) while the cards are personal. A Team Leader set to "all" gets "agency activity (all statuses)", not their downline. The server scope is the only on-screen statement of the real permission-limited scope, and the owner's standard says to preserve meaningful scope and permission restrictions. Showing it only in Team perspective removes the meaningless "selected agent" token from every Agent's and every personal view. "Compared with previous full {range}" duplicates the per-card chip ("vs previous full {range}", StatCards.tsx:138-140; useDashboardStats.ts:55), so deleting it is correct. Keeping the unknown-premium count is required by D14's "partial coverage: the subtotal plus the existing unknown markers and captions" (implementation_plan.md:553) and by §4.3 (:173). Tests: dashboardPremiumAvailability.test.tsx:83 (adminToggle "team", scope "Team") still passes as a regex; tighten it to getByText("Team · 1 policies with unknown premium"). In :67-77 add getByText("Team") and queryByText(/unknown premium|Through|Compared with previous full|UTC/) → null. Add a personal case (adminToggle="my"): with zero unknowns no scope or line (queryByText("Team") → null), and with one unknown getByText("1 policies with unknown premium") exact. dashboardSections.test.tsx:481 (adminToggle "my", zero unknowns) and dashboardPremiumLabels.test.tsx:58-65 are unaffected. Pins: the owner's Part B standard names this exact line, which satisfies D11's condition (implementation_plan.md:319, :322). Record it in D11 and the §11 Part B table. No AGENT_RULES amendment is needed: #40 is at AGENT_RULES.md:494, not 492, and it requires displaying unknown coverage, which is kept. Risk drops to low.
+- **B1-14** · Still needed · `src/components/dashboard/widgets/GoalProgressWidget.tsx:164` — Dashboard Goal Progress widget period / missing-data line
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `{data.timeZone} · {data.unknownPremiums ? '${N} policies have unknown premium; premium progress is incomplete.' : "Month to date"}`
+  - After: `{data.unknownPremiums ? '${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.' : "Month to date"} at GoalProgressWidget.tsx:164. This drops '{data.timeZone} · ' only.`
+  - Tests: src/components/dashboard/__tests__/dashboardPremiumAvailability.test.tsx:123: the regex still passes, unchanged. · Add: expect(screen.queryByText(new RegExp(Intl.DateTimeFormat().resolvedOptions().timeZone.replace('/', '\\/')))).toBeNull() (the fixture zone comes from src/test/fixtures/performance.ts:25 via the branding mock :17), plus a no-unknowns render asserting getByText("Month to date"). · src/components/dashboard/__tests__/goalProgressAppointmentsSet.test.tsx: no assertion on this line, so unaffected.
+  - Pins: implementation_plan.md:173 (§4.3 keeps the goal-widget "N policies have unknown premium"). Preserved.
+  - Accessibility: Plain text, so nothing changes.
+  - Why: The raw IANA zone is routine provenance. "Month to date" is kept because Goal Progress is always month-to-date, even when the page period tab is Day, Week or Year. The unknown-premium sentence is a material missing-data indicator (D14), and Part A kept it. The "Unavailable / $goal" bar state (57) is unchanged.
+- **B1-15** · see B2-04 · verifier: revise · `src/components/dashboard/widgets/LeaderboardWidget.tsx:132` — Dashboard Leaderboard widget caption (shared performanceCaption, src/lib/leaderboardExport.ts:23-35)
+  - Same surface as B2-04. One implementation: the widget renders only the existing "Outside active roster: …" note, through the shared `outsideRosterNote` helper, only when it is non-zero. No AGENT_RULES amendment is needed.
+- **B1-16** · Retained · `src/components/dashboard/widgets/LeaderboardWidget.tsx:128` — Dashboard Leaderboard widget held-refresh notice (also line 90 in the empty-roster branch)
+  - Before: `Standings can refresh again at {formatStatusTime(refreshHeldUntil)}.`
+  - Why: Unlike the Refresh button's persistent hint, this is conditional. It appears only after a Dashboard Refresh that the standings request gate throttled, and it tells the user that this section did NOT refresh and when it can. That is a cooldown and truthful-state notice (role="status").
+  - Pins: AGENT_RULES.md:250 (truthful states: the promised next check is the time the gate will really accept).
+- **B1-17** · Retained · `src/components/dashboard/widgets/LeaderboardWidget.tsx:115` — Dashboard Leaderboard widget stale, offline and error strip, the shared Retry hint, and the as-of empty text
+  - Before: `You're offline / Refresh failed / {loadError} + " — showing results from {time}." | " — standings may be out of date." (110-115); LeaderboardRetryButton hint "Retry available at {time}" (src/components/leaderboard/LeaderboardErrorBanner.tsx:54-58 via src/lib/leaderboardStatusCopy.ts:114-116); "No sales recorded as of {time}." (135); full failure panel (66-78)`
+  - Why: These are stale, offline and error states with their timestamps and cooldowns, and they appear only when standings are not live. The Retry button and its copy belong to the shared Leaderboard component (Leaderboard/TV area), so they are not edited from Area 1.
+  - Pins: AGENT_RULES.md:250 (truthful states).
+- **B1-18** · Retained · `src/components/dashboard/DashboardSectionNotice.tsx:32` — Dashboard section stale/offline/partial/failed notices (stat cards and every widget) and the unavailable panel
+  - Before: `Refreshing… (aria-hidden); Some {label} couldn't be loaded — what's shown may be incomplete.; You're offline — showing {label} from {time}. / … will load when you reconnect.; Couldn't refresh — showing {label} from {time}. / Couldn't load {label}. Use Refresh to try again. (lines 30-44); panel "You're offline" / "Couldn't load {label}" + guidance (79-84)`
+  - Why: These show only when data is not current. They are stale, offline, partial and failed distinctions with a meaningful timestamp, and nothing renders when data is current. They are not routine provenance.
+  - Pins: AGENT_RULES.md:219 and :250 (a failed Refresh keeps values and says from when).
+- **B1-19** · Already satisfied · `src/components/dashboard/widgets/CallbacksWidget.tsx:137` — Dashboard Callbacks widget failure and empty states
+  - Before: `Couldn't load callbacks / Something went wrong. Your callbacks may still be there. / Try again (137-151); No pending callbacks (166); View All {totalCount} Callbacks (246)`
+  - Why: These are already ordinary failure and empty states with no timezone, timestamp or provenance lines. "may still be there" is essential guidance that a failure is not "none".
+  - Pins: AGENT_RULES.md:217 (#22).
+- **B1-20** · Already satisfied · `src/components/dashboard/widgets/AppointmentsWidget.tsx:111` — Dashboard Schedule widget
+  - Before: `Your schedule is clear for today / Schedule Appointment (111-122); View Full Calendar (191)`
+  - Why: This is an ordinary empty state with no provenance lines. The failure path uses DashboardSectionUnavailable.
+- **B1-21** · Already satisfied · verifier: revise · `src/components/dashboard/widgets/MissedCallsWidget.tsx:370` — Dashboard Missed Calls widget
+  - Before: `All caught up! (370); per row "{n}m/h/d ago" (397) and the D13 outcome label (400); Call Back (416)`
+  - Why: The relative time and the D13 outcome (including forwarding consequences such as "forwarded to mobile") are row content, not provenance. The empty state is ordinary.
+  - Pins: The D13 outcome labels (src/lib/inbound-call-labels) stay untouched.
+  - Verifier correction: The classification is right, but the line numbers are impossible: MissedCallsWidget.tsx has 227 lines. At HEAD: "All caught up!" is at 173, timeAgo is defined at 41-45 and rendered at 199, the D13 outcome label (data-testid missed-call-outcome) is at 202, and "Call Back" is at 219. Pins: dashboardSections.test.tsx:313, 439, 447 and 451; dashboardRefresh.test.tsx:246.
+- **B1-22** · Already satisfied · `src/components/dashboard/widgets/AnniversariesWidget.tsx:138` — Dashboard Anniversaries widget
+  - Before: `No policy anniversaries soon (138); Anniversary {Today!|Tomorrow|in N days} (174)`
+  - Why: This is an ordinary empty state and row content, with no provenance lines.
+- **B1-23** · Retained · `src/components/dashboard/StatCards.tsx:86` — Dashboard stat card values, D14 Unavailable, and the comparison chip
+  - Before: `Annual Premium (85); "Unavailable" when wholly unknown (86); "—" for unloaded or failed (34); "vs {prevLabel}" e.g. "vs previous full month" (139); arrow ↑/↓/— (136)`
+  - Why: These are Part A labels and D14 behavior. They are kept exactly. The per-card "vs previous full {range}" chip is the comparison basis that makes the line-97 "Compared with…" clause redundant (B1-13).
+  - Pins: implementation_plan.md:141 (Part A Annual Premium) and the D14 records (:543-557).
+- **B1-24** · Already satisfied · `src/pages/Dashboard.tsx:531` — Dashboard page controls row (period tabs, Perspective toggle, Refresh mount, Customize Layout)
+  - Before: `Day/Week/Month/Year tabs (496-508); Perspective: Team Overview / Personal Stats (511-527); <DashboardRefreshButton> (531); Customize Layout / Done Editing (541)`
+  - Why: The page itself renders no timezone, timestamp, provenance or auto-refresh text. The selected period and scope are carried by these controls, which is why the StatCards and modal lines can drop the redundant parts. Behavior is unchanged.
+  - Pins: AGENT_RULES.md:369-375 (View As allow-list; the Dashboard is not a View As landing surface). Not touched.
+- **B1-25** · Retained · `src/components/dashboard/AgencyGroupInviteBanner.tsx:50` — Dashboard Agency Group invitation banner
+  - Before: `{Org} has invited your agency to join their Agency Group. / Accept to share leaderboard visibility and training resources. Your data stays independent.`
+  - Why: This is real user-facing guidance about the consequence of accepting (what is shared and what is not). It is not clutter.
+- **B1-M1** (found by the verifier) · Still needed · `src/components/dashboard/StatCards.tsx:139` — Dashboard stat cards comparison chip when no stats are loaded (failed first load, or stats null)
+  - **Implemented (2026-10-12):** `208be52` (C1).
+  - Before: `vs {data?.prevLabel || "yesterday"}  (with stats null and loading false, every card shows "—" plus "vs yesterday", even for Week, Month or Year)`
+  - After: `Render the chip label only when a comparison basis exists: {data?.prevLabel && <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold whitespace-nowrap">vs {data.prevLabel}</span>}. This deletes the "yesterday" fallback. The arrow chip (127-137) is unchanged.`
+  - Markup: Wrap the existing span (138-140) in the data?.prevLabel condition. No spacing change: the remaining arrow chip sits alone in the same flex gap-1.5 row.
+  - Tests: src/components/dashboard/__tests__/dashboardPremiumAvailability.test.tsx:104-107 (failed state): add expect(premiumCard()).not.toHaveTextContent("vs yesterday"). The existing toHaveTextContent("—") still passes because the arrow chip remains. · No test asserts "vs yesterday" or "vs previous full" today (repo grep).
+  - Accessibility: Plain text with no aria references. The arrow glyph stays.
+  - Why: Optional, low risk, and on the same surface as B1-13. B1-13 removes "Compared with previous full {range}" because the per-card chip carries that basis. In the unloaded or failed state, the chip states a false basis ("yesterday" for a month view) next to a value of "—". Deleting the fallback removes untrue text and keeps the loading, failed and loaded distinctions. When data loads, prevLabel is always set (useDashboardStats.ts:55), so loaded comparisons are unchanged.
+
+## Area 2 — Leaderboard and TV
+
+Verified. Still needed: 5 · Retained: 17 · Already satisfied: 2 · Superseded: 1.
+
+- **B2-01** · Still needed · verifier: revise · `src/lib/leaderboardExport.ts:29` — Shared on-screen performance caption `performanceCaption`, rendered on the Leaderboard page (Leaderboard.tsx:162), on TV (TVMode.tsx:443) and in the Dashboard LeaderboardWidget (LeaderboardWidget.tsx:132). The visual fixture also renders it (scripts/tests/leaderboard-visual/entry.tsx:17).
+  - **Implemented (2026-10-12):** `12b757c` (C2).
+  - Before: `:29 'const asOf = new Intl.DateTimeFormat("en-US", { timeZone: snapshot.time_zone, dateStyle: "short", timeStyle: "medium" }).format(new Date(snapshot.end_at));' :30 'return 'Active agents · ${snapshot.time_zone} · As of ${asOf}'' :31 '+ ' · Annual premium${unknown ? ' (${unknown} policies with unknown premium)' : ""}'' (:32-34 conditional segments follow). Typical render: "Active agents · America/Los_Angeles · As of 10/3/26, 9:56:52 PM · Annual premium".`
+  - After:
+
+    ```text
+    Keep the approach: delete :29 (asOf) and the unconditional prefix "Active agents · {tz} · As of {time} · Annual premium"; return only the conditional segments joined by " · ", or "" when none applies. Keep the function name; leaderboardCsv :11-21 stays untouched. Corrections:
+    (1) If decision 4 follows B2-06 (recommended), the body becomes:
+    `const unknown = snapshot.rows.reduce((n,a) => n + (a.unknownPremiums ?? 0), 0); return [unknown ? `Annual premium (${unknown} policies with unknown premium)` : "", outsideRosterNote(snapshot)].filter(Boolean).join(" · ");`
+    The estimated/unknownDuration/conflicts reductions (:26-28) and the :32 segment are deleted. `outsideRosterNote` is the new exported helper from B2-04, holding the unchanged :33-34 wording.
+    If the owner keeps the duration segment, the mapper's three-segment version stands, but drop the claim that a routine snapshot gives "" (see B2-06).
+    (2) Replace the proposed AGENT_RULES #40 bullet with this text (insert after AGENT_RULES.md:494):
+    "- **On-screen performance notes (UI copy cleanup V2 Part B, 2026-10-xx; presentation only).** `performanceCaption` (`src/lib/leaderboardExport.ts`) returns only the conditional notes \"Annual premium (N policies with unknown premium)\" and \"Outside active roster: N calls, N appointments, N policies\", joined by \" · \", and \"\" when neither applies. The Leaderboard and TV render it only when it is non-empty. The Dashboard widget renders only the \"Outside active roster: …\" note, only when it is non-empty. The routine \"Active agents · {timezone} · As of {time} · Annual premium\" prefix is removed in every state. The period controls show the period; when standings are not live, the status strip shows the last successful update (\"Showing results from …\"); TV \"Active-Agent Totals\" shows the roster. The snapshot contract, its validation and the CSV export (Period, Agency Timezone, Start Inclusive, As Of Exclusive, Roster, Group ID, Unknown Premium Policies, Snapshot Status) are unchanged. For on-screen display this supersedes \"Display period/timezone/scope/last successful update consistently\" (docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:139) and the on-screen label in \"one explicitly labeled comparison window/timezone\" for Group (:46). The Group window still uses the viewing agency's timezone, and the CSV still labels it."
+    If the duration segment is kept, add it to the list of notes in that bullet.
+    (3) Tests:
+    - performanceContract.test.ts:22 becomes the exact `toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 appointments, 0 policies')`.
+    - Add a routine-envelope `toBe('')` case.
+    - Add a case with estimated_duration_calls:1 and unknown_duration_calls:1: `not.toMatch(/Stored call duration/)` if B2-06 is approved, otherwise the mapper's `toContain`.
+    - Add `not.toMatch(/Active agents|As of|America\/Los_Angeles/)`.
+    - verify.mjs:19 changes as the mapper proposes.
+    ```
+  - Tests (as mapped; the verifier correction below wins where they differ): src/lib/__tests__/performanceContract.test.ts:17 `toContain('Outside active roster: 1 calls')` is unchanged and still passes · src/lib/__tests__/performanceContract.test.ts:22 `toContain(' · Annual premium (3 policies with unknown premium)')` fails, because the segment now comes first with no leading separator. Change it to the exact `expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 appointments, 0 policies')`, which is stronger. :23, :24 and :26 (CSV header pin) are unchanged. · src/lib/__tests__/performanceContract.test.ts: add (a) an envelope with excluded all 0, unknown_premiums 0 and no duration flags gives `toBe('')`; (b) estimated_duration_calls:1 gives toContain('Stored call duration: 1 estimated, 0 unknown provenance, 0 conflicting'); (c) `not.toMatch(/Active agents|As of|America\/Los_Angeles/)` · scripts/tests/leaderboard-visual/verify.mjs:19 `assert.match(body,/Active agents · America\/Los_Angeles · As of/)` fails. Replace it with assert.match(body,/Annual premium \(1 policies with unknown premium\) · Outside active roster: 2 calls, 1 appointments, 0 policies/) plus assert.doesNotMatch(body,/Active agents · |As of /). The fixture snapshot at entry.tsx:14-15 has unknownPremiums:1 and excluded {2,1,0}, so the TV disclosure is still asserted. · scripts/tests/leaderboard-visual/verify.mjs:127 `/1 policies with unknown premium/` (normal view) is unchanged and passes. entry.tsx:17 still renders the non-empty fixture caption. Mirroring the conditional render there is optional.
+  - Pins: AGENT_RULES.md:494: "use secured server facts, agency IANA calendar bounds and frozen as-of metadata ... disclose excluded inactive/unattributed activity ... Display exact seconds/cents, unknown coverage". Still met: the snapshot, bounds and as-of are still used, and the excluded and unknown-coverage disclosures stay. · docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:139 "Display period/timezone/scope/last successful update consistently" (with :46, the Group timezone label) conflicts in the live state. Proposed presentation-only AGENT_RULES #40 bullet, inserted after :494: "- **On-screen performance notes (UI copy cleanup V2 Part B, 2026-10-xx; presentation only).** `performanceCaption` (`src/lib/leaderboardExport.ts`) returns only the conditional notes \"Annual premium (N policies with unknown premium)\", \"Stored call duration: N estimated, N unknown provenance, N conflicting\" and \"Outside active roster: N calls, N appointments, N policies\", joined by \" · \", and \"\" when none applies. The Leaderboard and TV render it only when it is non-empty. The routine \"Active agents · {timezone} · As of {time} · Annual premium\" text is removed: the period controls show the period, the not-live strips (\"Showing results from …\") show the last successful update, and TV \"Active-Agent Totals\" plus the roster note show the roster. The CSV export (Period, Agency Timezone, Start Inclusive, As Of Exclusive, Roster, Unknown Premium Policies, Snapshot Status) is unchanged. For the live on-screen state only, this supersedes \"Display period/timezone/scope/last successful update consistently\" in docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md §6." · docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:149-150 (Part A caption rows): append a Part B note that the segment wording is kept and only the routine prefix is removed · scripts/tests/leaderboard-visual/README.md:24 ("supplies TV's agency timezone/as-of/active-roster/unknown-premium caption"): append a dated line saying the fixture now asserts the material-only caption
+  - Accessibility: Plain <p> text with no aria-describedby, live region or accessible-name reference anywhere, so nothing changes for screen readers. No Dialog/Sheet is involved.
+  - Why: The timezone, as-of instant, roster name and "Annual premium" unit are routine methodology. The period is already shown by the selected period controls (LeaderboardFilters.tsx:59-69, TVAgencyTotalsStrip.tsx:97-122). The last successful update is shown only when it matters, by the not-live strips ("Showing results from h:mm", leaderboardStatusCopy.ts:91). The unit is in every premium header and label ("Annual Premium", "annual premium"). The CSV keeps Period, Agency Timezone, Start Inclusive, As Of Exclusive, Roster and Snapshot Status. The three conditional segments are material missing-data and exclusion disclosures and stay (B2-05..07).
+  - Verifier correction: Verified at HEAD 51fff58: performanceCaption is at leaderboardExport.ts:23-35 and is rendered at Leaderboard.tsx:162, TVMode.tsx:443, LeaderboardWidget.tsx:132 and entry.tsx:17. 51fff58 differs from 62546df only in WORK_LOG.md and userManagementUtils.ts.
+Removing the prefix is consistent with the owner's explicit target. Three things in the mapping are wrong or missing.
+(a) The "routine snapshot gives '' and nothing renders" claim is false while the duration segment stays (see B2-06). The segment fires for every outbound call with duration_source='legacy_unknown' or NULL duration. That source is the column default (20261005161632:4), and only twilio-voice-status writes it (duration.ts:40). It therefore fires for every in-flight call and every pre-release October call.
+(b) The proposed amendment cites only plan :139. Decision 3 (drop the Group timezone) also contradicts plan :46 ("explicitly labeled comparison window/timezone"), so the amendment must name :46. "For the live on-screen state only" is also inaccurate: the caption change applies in every state.
+(c) The gates are incomplete:
+- performanceContract.test.ts is a CI gate: reporting-integrity.yml:44-50 runs it on any src/** PR under TZ=America/Los_Angeles, America/New_York and UTC. The proposed `toBe` assertions are timezone-independent once asOf is gone.
+- reports-frontend.yml (scripts/verify_reports_frontend.py:84-94) runs the full vitest suite against the PR base, eslint on every changed .ts/.tsx, and npm run build. All the candidate files currently lint clean (exit 0, checked locally read-only).
+- The tv-browser job (policy-sale-recording.yml:4-11) triggers on src/components/leaderboard/** and scripts/tests/leaderboard-visual/**, not on src/lib/leaderboardExport.ts or src/pages/Leaderboard.tsx. It runs here only because TVMode.tsx and verify.mjs change; otherwise use workflow_dispatch.
+The historical evidence lines that mention the old caption must not be rewritten: docs/plans/2026-10-04-leaderboard-accuracy/verification.md:56 and implementation_progress.md:33.
+Accessibility: confirmed no impact (plain <p>, no aria references).
+- **B2-02** · Still needed · `src/pages/Leaderboard.tsx:162` — Leaderboard page, under the filters
+  - **Implemented (2026-10-12):** `12b757c` (C2).
+  - Before: `{performanceSnapshot && <p className="px-1 text-xs text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}`
+  - After: `(see Markup) Conditional render, so an empty <p> never takes a space-y-6 slot (the 1.5rem gap goes with the line). No other spacing change. File goes from 250 to 251 lines; it was already over 200 before this change.`
+  - Markup: Conditional render, so an empty <p> never takes a space-y-6 slot (the 1.5rem gap goes with the line). No other spacing change. File goes from 250 to 251 lines; it was already over 200 before this change.
+  - Tests: src/pages/__tests__/leaderboardPage.test.tsx: no existing assertion covers the caption (baseHookState :90 is a routine snapshot with excluded all 0), and :232-239 and :405-460 are unaffected (the exact-match "annual premium" count at :239 is podium-only). Add: baseHookState renders nothing matching /Active agents ·|As of /; a snapshot with excluded {calls_made:2,appointments_set:0,policies_sold:0} shows exactly "Outside active roster: 2 calls, 0 appointments, 0 policies".
+  - Pins: AGENT_RULES.md:494 (disclosure kept and conditional) · Same #40 amendment as B2-01
+  - Accessibility: None. The caption is not referenced by any accessible name or description.
+  - Why: The page shows the period (filter buttons), the unit ("Annual Premium" column, podium "annual premium") and stale or offline state (LeaderboardErrorBanner). The podium has no partial-unknown marker (LeaderboardPodiumCard.tsx:127-138), so the conditional unknown-premium note remains the page-level disclosure for ranks 1-3.
+- **B2-03** · Still needed · verifier: revise · `src/components/leaderboard/TVMode.tsx:443` — TV mode, inside data-testid="tv-agency-totals" above TVAgencyTotalsStrip
+  - **Implemented (2026-10-12):** `12b757c` (C2).
+  - Before: `{performanceSnapshot && <p className="text-xs text-slate-400 text-center">{performanceCaption(performanceSnapshot)}</p>}`
+  - After:
+
+    ```text
+    As proposed: `{caption && <p className="text-xs text-slate-400 text-center">{caption}</p>}`, with `const caption = performanceSnapshot ? performanceCaption(performanceSnapshot) : "";` beside the derived strings (~:263-271), inside data-testid="tv-agency-totals".
+    Add a test for the state the gate never renders. Give scripts/tests/leaderboard-visual/entry.tsx a routine variant, e.g. `?routine=1`, with excluded {0,0,0} and unknownPremiums 0 on row 0, used only for TV. In verify.mjs, measure at least 1366x768 in that variant and assert that `[data-testid="tv-agency-totals"] > p` has count 0, in addition to the existing centerline and overlap checks.
+    The tvModeRegression/leaderboardStatusSurfaces additions stay as the mapper proposed. Neither suite passes performanceSnapshot today (tvModeRegression.test.tsx:14 view(); leaderboardStatusSurfaces has no performanceSnapshot), so the new tests must pass one.
+    ```
+  - Markup (as mapped; the verifier correction below wins where they differ): Conditional render only. The <p> stays inside the tv-agency-totals wrapper. In the routine case the podium sits one text line higher. The centerline and overlap checks are relative, but the TV gate must re-run.
+  - Tests (as mapped; the verifier correction below wins where they differ): scripts/tests/leaderboard-visual/verify.mjs:19 (see B2-01). Geometry assertions :62-82 at 1366x768, 1920x1080, 3840x2160 and 1093x614 must re-pass. The CI job policy-sale-recording.yml tv-browser is triggered by src/components/leaderboard/** and scripts/tests/leaderboard-visual/**. Chromium could not run locally in earlier sessions (README:21-26). · src/components/leaderboard/__tests__/tvModeRegression.test.tsx / leaderboardStatusSurfaces.test.tsx: neither passes a performanceSnapshot today, so there is no existing assertion. Add: TV with a routine snapshot shows no /Active agents ·|As of /, and with excluded or unknown counts shows the note. :48, :65-70 and :81 are unaffected; "Annual Premium" exact or case-sensitive queries do not match "Annual premium (".
+  - Pins: AGENT_RULES.md:494 · AGENT_RULES.md:250 (TV notice with period buttons and "live" wording only when live) is unaffected · docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:139 (#40 amendment, B2-01)
+  - Accessibility: None
+  - Why: TV already labels the scope ("Active-Agent Totals · N agents", TVAgencyTotalsStrip.tsx:92-95), the period (tabs), live state (Live Feed, Live Ranking, LIVE NEWS FEED) and stale state (TVStandingsNotice strip). The TV totals "Annual Premium" (:72-75) and podium values have no partial-unknown marker, so the conditional unknown and roster notes stay.
+  - Verifier correction: The site is confirmed at TVMode.tsx:443; the strip header is at TVAgencyTotalsStrip.tsx:92-95 and the period tabs at :97-122. The totals premium (:74) and podium (TVPodium.tsx:25 via displayedMetricValue) carry no partial-unknown marker, so the conditional notes stay.
+Gap: the visual fixture snapshot is non-routine (entry.tsx:14-15: unknownPremiums 1, excluded {2,1,0}), so the CI geometry gate would still render the caption. The new everyday state, with no caption line in the totals wrapper, would never be measured. The mapper's statement that the geometry checks "must re-pass" does not cover that state. The centerline check (verify.mjs:52-62) is horizontal and the overlap checks are relative, so risk is low, but the TV layout is pinned and the routine state should be exercised once.
+Accessibility: none.
+- **B2-04** · Still needed · verifier: revise · `src/components/dashboard/widgets/LeaderboardWidget.tsx:132` — Dashboard Leaderboard widget (top 3 ranks, names and photos only; no scores, per LeaderboardPreviewRow.tsx:17-19)
+  - **Implemented (2026-10-12):** `12b757c` (C2).
+  - Before: `{performanceSnapshot && <p className="text-center text-[10px] text-muted-foreground">{performanceCaption(performanceSnapshot)}</p>}`
+  - After:
+
+    ```text
+    Do not delete the disclosure on the widget; reduce it to the one relevant note.
+    In src/lib/leaderboardExport.ts, export the existing segment unchanged:
+    `export function outsideRosterNote(snapshot: PerformanceSnapshot): string { const e = snapshot.excluded; return e.calls_made || e.appointments_set || e.policies_sold ? `Outside active roster: ${e.calls_made} calls, ${e.appointments_set} appointments, ${e.policies_sold} policies` : ""; }`
+    Use it inside performanceCaption (B2-01).
+    In LeaderboardWidget.tsx:
+    - :11 becomes `import { outsideRosterNote } from "@/lib/leaderboardExport";`
+    - after :102 add `const rosterNote = performanceSnapshot ? outsideRosterNote(performanceSnapshot) : "";`
+    - :132 becomes `{rosterNote && <p className="text-center text-[10px] text-muted-foreground">{rosterNote}</p>}`
+    The file goes from 166 to 167 lines, and no AGENT_RULES:494 amendment is needed.
+    Tests (src/components/dashboard/__tests__/leaderboardWidget.test.tsx):
+    - After a successful load, assert no text matches /Active agents ·|As of |policies with unknown premium|Stored call duration/.
+    - Add a positive case: excluded {0,0,2} with no active-agent sales shows both "No sales recorded yet this month." and "Outside active roster: 0 calls, 0 appointments, 2 policies". This needs an optional excluded override in src/test/fixtures/performance.ts performanceEnvelope (default zeros; the helper is shared with useLeaderboardData.test.tsx) or a per-test override in the mock's then wrapper (:80).
+    - performanceContract.test.ts: unit cases for outsideRosterNote, all-zero → "".
+    Owner option: trigger the widget note only on excluded.policies_sold > 0, since the widget ranks by policies. This needs the mapper's :494 amendment, narrowed to calls and appointments.
+    ```
+  - Markup (as mapped; the verifier correction below wins where they differ): Removes one space-y-4 child; the view toggle is followed directly by the top-3 list or the no-sales note. No other spacing change. File goes from 166 to 164 lines.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/dashboard/__tests__/leaderboardWidget.test.tsx: no existing caption assertion. Add a negative check after a successful load: no text matching /Active agents ·|Outside active roster|policies with unknown premium/ · src/pages/__tests__/dashboardRefreshWiring.test.tsx:53 mocks the widget (unaffected)
+  - Pins: AGENT_RULES.md:494 lists "widget" in "Rank active profiles of every role; disclose excluded inactive/unattributed activity." Proposed presentation-only amendment: replace that sentence with "Rank active profiles of every role; disclose excluded inactive/unattributed activity on the Leaderboard and TV (the Dashboard widget shows only ranks, names and photos and links to the full standings)." Without that amendment, use the fallback (material-only conditional caption).
+  - Accessibility: None. The <ol aria-label="Top agents this month"> and the Retry hint (aria-describedby) are untouched.
+  - Why: The widget shows no premium, talk time or totals, so the unknown-premium and duration notes describe nothing on screen. Excluded inactive or unattributed activity does not change the ranking among active agents, and the full disclosure is one click away ("View Full Standings"). The stale and cooldown lines (:106-130) stay.
+  - Verifier correction: The deletion rationale is refuted on two counts.
+(1) The widget can claim "No sales recorded yet this month." (LeaderboardWidget.tsx:135), or show a top 3 (:100) that omits a now-inactive top seller, while excluded.policies_sold > 0. Today the caption's "Outside active roster: … N policies" is the only on-widget disclosure, so deleting it makes the empty claim unqualified. AGENT_RULES.md:494 names the widget among the surfaces that disclose excluded activity.
+(2) "The full disclosure is one click away" is false. "View Full Standings" navigates to /leaderboard (:157), whose period defaults to "Today" (useLeaderboardData.ts:76, not persisted), while the widget is month-scoped (useLeaderboardWidgetStandings.ts:141,149).
+The unknown-premium and duration notes do describe nothing on the widget (no premium or talk time; LeaderboardPreviewRow), so the mapper's full-caption fallback would leave unnecessary text. The outside-roster note alone is the minimal compliant form.
+Accessibility: the <ol aria-label> (:138) and the Retry aria-describedby are untouched.
+- **B2-05** · Retained · `src/lib/leaderboardExport.ts:31` — Caption segment: unknown premium (Leaderboard page, TV)
+  - Before: `· Annual premium (N policies with unknown premium) [only when N > 0]`
+  - Why: Material missing-data indicator required by AGENT_RULES:494 ("unknown coverage"). The podium cards (LeaderboardPodiumCard, TVPodium) and the TV totals carry no partial-unknown marker, and the "*" markers are only on rows 4+. Part A wording is preserved.
+  - Pins: AGENT_RULES.md:494
+- **B2-06** · Still needed · verifier: revise · `src/lib/leaderboardExport.ts:32` — Caption segment: stored call duration provenance (Leaderboard page, TV)
+  - **Implemented (2026-10-12):** `12b757c` (C2).
+  - Outcome: PB-10 override. Routine legacy-unknown commentary is gone. "Talk time includes {e} estimated[ and {c} conflicting] call duration(s)" appears only when estimated + conflicting > 0, on the Leaderboard page and TV; `unknown_duration_calls` never triggers a note. Snapshot fields, validation and `leaderboardCsv` are unchanged.
+  - Before: `· Stored call duration: X estimated, Y unknown provenance, Z conflicting [only when any > 0]`
+  - After:
+
+    ```text
+    (delete) from the on-screen caption: remove the :26-28 reductions and the :32 segment. performanceQueries' schema and validation of estimated_duration_calls, unknown_duration_calls and conflicting_duration_calls stay unchanged; there is no RPC or calculation change.
+    Owner alternative, keeping the wording verbatim: render "Stored call duration: X estimated, Y unknown provenance, Z conflicting" only when `estimated || conflicts`, i.e. drop unknownDuration from the trigger only.
+    Rule-pin amendment: add one sentence to the B2-01 #40 bullet: "The on-screen notes do not show stored call-duration provenance; the snapshot still carries and validates estimated_duration_calls, unknown_duration_calls and conflicting_duration_calls."
+    Test: performanceContract.test.ts adds a case with estimated_duration_calls:1, unknown_duration_calls:1 and conflicting_duration_calls:1, asserting `not.toMatch(/Stored call duration/)` (or, for the alternative, `toContain('Stored call duration: 1 estimated, 1 unknown provenance, 1 conflicting')` plus a case with only unknown_duration_calls:5 that asserts `toBe('')`).
+    ```
+  - Tests (as mapped; the verifier correction below wins where they differ): performanceContract.test.ts: new case (b) in B2-01
+  - Pins: AGENT_RULES.md:494, :498 · docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:37
+  - Accessibility: none
+  - Why: Talk Time is displayed (page column :187-192 and TV "Talk"). This is the only disclosure of estimates, unknown provenance and conflicts; the CSV has no such column. The accuracy plan Talk Time row (:37) and AGENT_RULES #40 (:498 "preserved and flagged") require distinguishing them. It renders only when a condition exists, but legacy unknown-provenance calls may keep it visible for a whole month (owner decision 4).
+  - Verifier correction: The mapper's premise that the note renders "only when a condition exists" is materially wrong in practice.
+The trigger counts every outbound call whose duration_source is 'legacy_unknown' or whose duration is NULL (20261005161623_performance_reporting_contract.sql:87). 'legacy_unknown' is the column default (20261005161632:4). Only twilio-voice-status sets provenance (supabase/functions/twilio-voice-status/duration.ts:40); the browser never writes duration (TwilioContext.tsx:1222-1223). Every in-flight call, and every call missing its terminal callback, therefore counts as "unknown provenance". So do all pre-release October calls (1,263 outbound by Oct 4 per docs/plans/2026-10-04-leaderboard-accuracy/verification.md:21; AGENT_RULES:498 forbids rewriting legacy values).
+Result: the note would show on This Month for all of October and on Today/This Week during essentially every dialing period, so the Leaderboard and TV would keep a jargon line most of the working day.
+The owner's Area 2 brief names "Stored call duration: ..." inside the routine-diagnostic example, and its preserve examples name only the unknown-premium counts and the excluded-roster disclosure.
+The pins are data-level, not display: plan :37 ("Distinguish provider values, estimates and unknown provenance") is met by the validated snapshot fields, and AGENT_RULES:498 "preserved and flagged" refers to the stored duration_conflict data. Neither changes.
+Owner decision 4's recommendation should therefore flip to delete, or to the estimates/conflicts-only alternative.
+- **B2-07** · Retained · `src/lib/leaderboardExport.ts:33` — Caption segment: activity outside the active roster (Leaderboard page, TV)
+  - Before: `· Outside active roster: N calls, N appointments, N policies [only when any > 0]`
+  - Why: AGENT_RULES:494 "disclose excluded inactive/unattributed activity" and accuracy plan :45/:130 ("reconcile excluded inactive/unattributed activity separately"). The CSV does not carry the excluded counts, so the screen is the only disclosure. Shown only when non-zero, which is the minimal presentation that still discloses.
+  - Pins: AGENT_RULES.md:494 · docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:45, :130
+- **B2-08** · Already satisfied · `src/lib/leaderboardExport.ts:12` — Where Leaderboard/TV methodology lives once the routine caption is removed
+  - Before: `CSV headers :12-15 include "Unknown Premium Policies", "Period", "Agency Timezone", "Start Inclusive", "As Of Exclusive", "Roster", "Group ID", "Snapshot Status"`
+  - Why: Neither Leaderboard nor TV has an existing methodology details, tooltip or sheet area. The only tooltip names the TV button (LeaderboardFilters.tsx:83-88 "Full Screen Display Mode"); TVMode.tsx:282-360 is a display-options popover; the "*" and movement arrows carry title text only. Reports' Data basis sheet is the Reports-only help surface under the AGENT_RULES Reports refresh amendment. The removed metadata (timezone, bounds, as-of, roster, unknown count, stale flag) is already in the unchanged CSV export, so nothing needs inventing.
+  - Pins: AGENT_RULES.md Reports refresh amendment (Data basis sheet is the single reporting-help surface; Reports only)
+- **B2-09** · Retained · `src/components/leaderboard/RecentWinsPanel.tsx:119` — Recent Wins caption (Leaderboard page and TV)
+  - Before: `Latest 20 · all periods · annual premium`
+  - Why: Meaningful scope: the feed ignores the selected period (latest 20 across periods), next to a period-scoped board. "annual premium" separates these amounts from the Dashboard's monthly premium. The badge's title (:236) is not visible to touch users.
+  - Pins: AGENT_RULES.md:494 ("The feed is latest 20 across periods") · docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:48 ("labeled accordingly"), :139 ("Recent Wins explicitly spans periods") · docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:151 (Part A wording)
+- **B2-10** · Retained · `src/components/leaderboard/RecentWinsPanel.tsx:225` — Recent Wins row, unknown premium
+  - Before: `Premium unknown`
+  - Why: Material missing-data indicator; D14 (never $0 for unknown).
+  - Pins: AGENT_RULES.md:494
+- **B2-11** · Retained · `src/components/leaderboard/LeaderboardRankingsTable.tsx:182` — Unknown-premium "*" markers: page rankings :182 and TV rankings TVRankingsTable.tsx:114
+  - Before: `* with title "{N} policies have unknown premium"; "—*" when wholly unknown (D14)`
+  - Why: Material missing-data marker and D14 behavior.
+  - Pins: AGENT_RULES.md:494
+- **B2-12** · Retained · `src/components/leaderboard/LeaderboardErrorBanner.tsx:95` — Leaderboard page not-live strip (stale :89-101) and full failure panel (:108-109); messages at Leaderboard.tsx:165, :191
+  - Before: `{message} {detail || "Standings shown may be out of date."}, e.g. "Standings are paused for maintenance. Showing results from 9:05 AM. We'll check again automatically at …"`
+  - Why: Shown only when not live. These are stale, offline, error and maintenance distinctions with a truthful next-check time and a Retry cooldown. No routine text renders in the live state.
+  - Pins: AGENT_RULES.md:250 (truthful states; promised next check)
+- **B2-13** · Retained · `src/components/leaderboard/TVStandingsNotice.tsx:55` — TV not-live strip (:46-58) and full notice (:61-92)
+  - Before: `strip: "Loading standings for this period…" or '${headline} ${detail}'; full: "Loading standings…" or headline, with detail <p> :66 and period buttons`
+  - Why: Only shown when not live or loading. Required truthful TV state with period buttons.
+  - Pins: AGENT_RULES.md:250 (TV mode shows a notice with period buttons)
+- **B2-14** · Retained · `src/components/leaderboard/TVMode.tsx:368` — TV live-state wording: toolbar "Live Feed" (:368-375), ticker "LIVE NEWS FEED"/"NEWS FEED" (:495), "Live Ranking"/"Ranking" (TVRankingsTable.tsx:51)
+  - Before: `Live Feed / LIVE NEWS FEED / Live Ranking: {metric}`
+  - Why: State indicator: its absence is how a wall display shows it is not live.
+  - Pins: AGENT_RULES.md:250 ("uses 'live' wording only when live")
+- **B2-15** · Retained · `src/components/dashboard/widgets/LeaderboardWidget.tsx:106` — Dashboard widget not-live line (:106-125)
+  - Before: `"You're offline" / "Refresh failed" / {loadError} + " — showing results from {time}." or " — standings may be out of date." + Retry`
+  - Why: Stale, offline and error indicator with Retry cooldown; shown only when not live.
+  - Pins: AGENT_RULES.md:250 and rev 1.2/1.3 widget bullets
+- **B2-16** · Retained · `src/components/dashboard/widgets/LeaderboardWidget.tsx:126` — Dashboard widget refresh cooldown (:126-130 live; :88-92 empty)
+  - Before: `Standings can refresh again at {time}.`
+  - Why: Cooldown or click-time guard disclosure (preserve list).
+  - Pins: AGENT_RULES.md rev 1.2 refresh coordination (spaced/held runs reported deferred)
+- **B2-17** · Retained · `src/components/leaderboard/TVAgencyTotalsStrip.tsx:92` — TV totals strip header
+  - Before: `Active-Agent Totals · {n} agents`
+  - Why: Required scope label (totals are active-roster only). Without it, an active-only sum would read as agency-wide. Short label, not a paragraph.
+  - Pins: docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:45 ("Label totals as active-agent totals"), :130
+- **B2-18** · Retained · `src/components/leaderboard/TVMode.tsx:327` — TV display options popover, Auto-rotate helper
+  - Before: `Cycles metrics every 30s.`
+  - Why: The only statement of the rotation interval; it sits in an on-demand options popover, not the normal view. The switch's name comes from its Label ("Auto-rotate stats", :326), which verify.mjs:94/:118 use; the helper is not part of the name.
+- **B2-19** · Retained · `src/components/leaderboard/TVMode.tsx:340` — TV display options popover, ticker editor (Admin/Team Leader)
+  - Before: `Scrolling ticker (org-wide)`
+  - Why: Useful label that states a consequence: saving changes the ticker for the whole organization. Ticker content is user-authored.
+- **B2-20** · Retained · `src/pages/Leaderboard.tsx:184` — Empty states: page "No agents on the board" + guidance (:184-185); "All agents shown in podium above" (LeaderboardRankingsTable.tsx:124); "ALL AGENTS COMPETING ON THE PODIUM" (TVRankingsTable.tsx:73); "No agents ranked 11+ yet" (TVDeepRankPanel.tsx:40)
+  - Before: `No agents on the board / Add active agents to your organization to start tracking standings.`
+  - Why: Valid-empty states, shown only after a successful empty read, and kept distinct from failure. The guidance line is the actionable next step.
+  - Pins: AGENT_RULES.md:250 ("No agents on the board" only after a successful empty read)
+- **B2-21** · Retained · `src/components/leaderboard/RecentWinsPanel.tsx:121` — Recent Wins status copy (:121-125 refresh failed, :129 sr-only loading, :136 unavailable, :140 no wins)
+  - Before: `Couldn't refresh — showing wins as of {time}. / Loading recent wins… (sr-only) / Recent wins are unavailable right now. / No wins yet. Get dialing and close some deals! 🦈`
+  - Why: Covers the stale, loading, failed and valid-empty distinctions. The sr-only text is a screen-reader description, not clutter.
+  - Pins: AGENT_RULES.md:250 ("No wins yet" only after a successful empty read)
+- **B2-22** · Superseded · `src/components/leaderboard/LeaderboardDemoCountdown.tsx:41` — Unmounted leaderboard components: LeaderboardDemoCountdown ("Next scoreboard refresh in {n}s") and AgentScorecardModal.tsx (Dialog)
+  - Before: `Next scoreboard refresh in <span>{secondsLeft}s</span>`
+  - Why: Not rendered; editing would be dead-code churn. AgentScorecardModal is a documented unmounted follow-up (AGENT_RULES #23 "Unchanged / follow-ups").
+  - Pins: AGENT_RULES.md #23 follow-ups bullet (AgentScorecardModal is unmounted; changes need Chris's approval)
+- **B2-23** · Already satisfied · `src/components/leaderboard/leaderboardTypes.ts:1` — Part A labels and D14 on Leaderboard/TV: METRIC_DISPLAY_LABEL (LeaderboardFilters.tsx:77, TVMode.tsx:320, TVPodium.tsx:97, TVDeepRankPanel.tsx:35, TVRankingsTable.tsx:51); "Annual Premium" headers (LeaderboardRankingsTable.tsx:107, TVRankingsTable.tsx:63, TVAgencyTotalsStrip.tsx:72); "Appointments" (LeaderboardRankingsTable.tsx:110); "—" for wholly unknown premium
+  - Before: `As implemented at HEAD 62546df`
+  - Why: Part A and D14 must be preserved exactly; the B2-01..04 edits touch only the routine caption text and its conditional rendering.
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md §4.2
+- **B2-24** (found by the verifier) · Retained · `src/components/dashboard/widgets/LeaderboardWidget.tsx:135` — Dashboard Leaderboard widget valid-empty and failure states: "No sales recorded yet this month." / "No sales recorded as of {time}." (:135), empty roster "No sales data yet" (:87), first-load failure panel (:66-78)
+  - Before: `{!live && asOf ? 'No sales recorded as of ${asOf}.' : "No sales recorded yet this month."} ; "No sales data yet" ; {loadError ?? OFFLINE_HEADLINE} + detail + Retry`
+  - Why: These are truthful-state lines. "No sales" appears only after a successful empty read; a failure never shows a fake empty board. The mapper did not classify them. They are listed because the B2-04 deletion would leave "No sales recorded yet this month." unqualified when excluded.policies_sold > 0; the B2-04 revision keeps the outside-roster note beside it.
+  - Pins: AGENT_RULES.md:250 ("No sales" only after a successful empty read) · AGENT_RULES.md:272 (widget month identity; "Top agents this month") · AGENT_RULES.md:494 (widget discloses excluded activity)
+- **B2-25** (found by the verifier) · Retained · `src/pages/Leaderboard.tsx:174` — Leaderboard page period-switch loading state (screen-reader text inside role=status aria-busy skeleton)
+  - Before: `<span className="sr-only">Loading standings…</span>`
+  - Why: A screen-reader description, not clutter (owner standard). It is the only accessible statement that a period switch is loading, and it keeps loading distinct from "No agents on the board".
+  - Pins: AGENT_RULES.md:250 (a period switch in progress is not "live"; "No agents on the board" only after a successful empty read)
+
+## Area 3 — Reports
+
+Verified. Still needed: 19 · Retained: 24 · Superseded: 2 · Already satisfied: 2.
+
+- **B3-01** · Still needed · `src/components/reports/ReportsOverview.tsx:107` — Production band: basis bar (footer row under the band that also holds the band's own Data basis trigger). Constants: src/lib/reports-basis-text.ts:37-39.
+  - **Implemented (2026-10-12):** `7429da1` (C3a).
+  - Outcome: PB-13 override. The basis sentence is removed at every width and `PRODUCTION_BASIS_BAR`/`_SHORT` are deleted; the footer row holds only the right-aligned Data basis button. The full attribution stays in the sheet (`CURRENT_ASSIGNMENT_NOTE`).
+  - Before: `"Current book · stored policies by sale date · monthly premium ×12 · client's current agent" (PRODUCTION_BASIS_BAR, sm and up, :110) / "Current book · sale date · monthly ×12 · current agent" (PRODUCTION_BASIS_BAR_SHORT, below sm, :109)`
+  - After: `"Credited to the client's current agent" at every width (PRODUCTION_BASIS_BAR gets this value; PRODUCTION_BASIS_BAR_SHORT deleted). Owner alternative: delete the text and keep the footer row with only the band's DataBasisButton.`
+  - Markup: ReportsOverview.tsx:108-111: replace <p className="min-w-0"><span className="sm:hidden">{PRODUCTION_BASIS_BAR_SHORT}</span><span className="hidden sm:inline">{PRODUCTION_BASIS_BAR}</span></p> with <p className="min-w-0">{PRODUCTION_BASIS_BAR}</p>. The :107 container classes and the :112 DataBasisButton (shrink-0) stay. Drop PRODUCTION_BASIS_BAR_SHORT from the :6 import. reports-basis-text.ts:37-39: delete the _SHORT constant and update the C2/C3 comment. For the full-deletion alternative: {dataBasis && (<div className="flex justify-end border-t border-border/60 bg-muted/20 px-4 py-2 md:px-6"><DataBasisButton {...dataBasis} /></div>)}.
+  - Tests: src/lib/__tests__/reportsBasisText.test.ts:172 describe title cites C2, C3: drop C3 · src/lib/__tests__/reportsBasisText.test.ts:174 -> expect(basis.PRODUCTION_BASIS_BAR).toBe("Credited to the client's current agent") · src/lib/__tests__/reportsBasisText.test.ts:175 -> expect(basis).not.toHaveProperty("PRODUCTION_BASIS_BAR_SHORT") · src/components/reports/__tests__/ReportsOverview.test.tsx:6 import: drop PRODUCTION_BASIS_BAR_SHORT · src/components/reports/__tests__/ReportsOverview.test.tsx:40 keep getByText(PRODUCTION_BASIS_BAR); :41 -> expect(band().textContent).not.toMatch(/Current book|×12/). This proves the formula clauses are gone and the attribution stays. · src/pages/__tests__/reportsPage.test.tsx:526-530 unchanged; the band trigger must still open the sheet. · scripts/tests/reports-visual/verify.mjs:166 (band trigger, Space key) and :378-395 (390/1440 first-screen budgets) unchanged. The footer only gets shorter: at 390 px today's short string plus the button can wrap, while the new string fits one row, so tilesBottom <= 844 can only improve.
+  - Pins: docs/plans/2026-10-09-reports-refresh-audit/data-basis-wording.md:103-104 (C2, C3, verdict K). Proposed Part B amendment row: "C2/C3 | Basis bar 'Current book · stored policies by sale date · monthly premium ×12 · client's current agent' (phone 'Current book · sale date · monthly ×12 · current agent') | 'Credited to the client's current agent' at every width. The current-book, sale-date and monthly ×12 clauses are stated only in the Data basis sheet (PREMIUM_BASIS, POLICY_SOURCE_NOTE). The band keeps its Data basis trigger." · AGENT_RULES.md:474 already says the Data basis 'Agent credit' section (CURRENT_ASSIGNMENT_NOTE) states the basis: no change needed. · AGENT_RULES.md Reports personal layout invariant ('scope/date/basis/export controls remain fixed'): satisfied, because the band's Data basis trigger stays. · AGENT_RULES.md:658-662 (four fixed parts) does not pin this text.
+  - Accessibility: Plain visible text that no aria-describedby references. The 'Production overview' region name and the 'Data basis' button name are unchanged, and the Sheet keeps SheetTitle and SheetDescription. Today both spans are in the DOM with one display:none; afterwards one string is read at every width.
+  - Why: Three of the four clauses repeat the Data basis sheet word for word. "Current book" and "monthly premium ×12" are PREMIUM_BASIS (Annual premium section). "Stored policies by sale date" is POLICY_SOURCE_NOTE (Policies sold section). The attribution clause is also in the sheet (CURRENT_ASSIGNMENT_NOTE, Agent credit), but it is the only on-band statement that Personal/Team policy totals and the 'Most policies sold' leader row use current assignment, and the area brief says to preserve attribution. The wording reuses the existing approved phrase 'credited to the client's current agent' (POLICY_RATIO_SCOPE_REASON, stat-computations.ts:152). The band keeps its own Data basis trigger. The constants are screen-only: policyExportNotes and integrityExportNotes never import reports-basis-text (its header :1-5), so the CSV Note rows and the 74-file golden comparison are unaffected.
+- **B3-02** · Still needed · verifier: revise · `src/components/reports/ReportsOverview.tsx:71` — Production band, Policies sold cell, line under the hero count
+  - **Implemented (2026-10-12):** `7429da1` (C3a); follow-up `26d79d3` (the Most policies sold row keeps its content height).
+  - Before: `"Primary + additional policies" (shown when policiesSold > 0; zero case: "No policies sold in this period.")`
+  - After: `(delete) the non-zero line; keep "No policies sold in this period." verbatim (markup as proposed).`
+  - Markup (as mapped; the verifier correction below wins where they differ): Replace :70-72 with {policiesSold === 0 && (<p className="mt-2 text-xs text-muted-foreground md:text-sm">No policies sold in this period.</p>)}. No other spacing change: in the split layout the premium cell sets the row height; in the stacked layout (<360 px) the Policies cell just gets shorter.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/reports/__tests__/ReportsOverview.test.tsx:28 -> expect(policiesCell().queryByText("Primary + additional policies")).not.toBeInTheDocument() · src/components/reports/__tests__/ReportsOverview.test.tsx:64 unchanged (the zero-state line, exactly once) · scripts/tests/reports-visual/verify.mjs hero checks (:376-385, heroLines) unaffected: the hero <p> is unchanged
+  - Pins: data-basis-wording.md:105 C4 (K). Amendment: "C4 | 'Primary + additional policies' | removed; the zero state 'No policies sold in this period.' is unchanged (B1.1/B1.2 in the sheet carry the rule)."
+  - Accessibility: The article's accessible name comes from aria-label="Policies sold" and is unchanged. No describedby relationship.
+  - Why: A permanent provenance helper that repeats POLICY_SOURCE_NOTE ('stored client policies (primary and additional)') and POLICY_SEVERAL_PER_CLIENT_NOTE in the sheet's 'Policies sold' section. The label already names the unit (policies). The successful-empty line stays, so empty-vs-failed is preserved (a failure renders ReportNotice instead).
+  - Verifier correction: Text and markup are correct (ReportsOverview.tsx:70-72). The test list misses a browser-gate pin: scripts/tests/reports-visual/verify.mjs:696 runs assert.match(<Policies sold article>.innerText(), /8[\s\S]*Primary \+ additional policies/), and the run fails if the line is deleted. Required gate change, keeping the value check: assert.equal((await page.getByRole('article', { name: 'Policies sold', exact: true }).locator('[data-report-value="hero"]').innerText()).trim(), '8'); assert.ok(!/Primary \+ additional/.test(await band().innerText()), 'no provenance line under the count'). ReportsOverview.test.tsx:28 changes as proposed, and :64 stays. The README.md:46 description is still accurate.
+- **B3-03** · Still needed · verifier: revise · `src/components/reports/ReportsActivityFlow.tsx:25` — Period totals heading line (constant PERIOD_TOTALS_LINE, src/lib/reports-basis-text.ts:76-77)
+  - **Implemented (2026-10-12):** `7429da1` (C3a).
+  - Before: `"Independent period totals, not one cohort."`
+  - After: `(delete) PERIOD_TOTALS_LINE and its <p>; keep the bare h2 'Period totals' (markup as proposed).`
+  - Markup (as mapped; the verifier correction below wins where they differ): Replace the :23-26 wrapper <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"> (h2 + p) with the bare <h2 id="report-totals-title" className="text-sm font-semibold tracking-tight text-foreground">Period totals</h2>. The section keeps space-y-2. Delete the :4 import and reports-basis-text.ts:76-77 (constant and C29 comment).
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/reports/__tests__/ReportsOverview.test.tsx:6 import: drop PERIOD_TOTALS_LINE · src/components/reports/__tests__/ReportsOverview.test.tsx:180 -> expect(screen.queryByText("Independent period totals, not one cohort.")).not.toBeInTheDocument(); keep :181 (funnel sentence absent), :182 (no svg), :183 (no %) · src/lib/__tests__/reportsBasisText.test.ts:176 -> expect(basis).not.toHaveProperty("PERIOD_TOTALS_LINE"); keep :177 (PERIOD_TOTALS_NOTE starts with the same sentence, so the sheet still carries it) · src/lib/__tests__/reportsContracts.test.ts:183 (>= 2 conversion-rate negations) still passes via PERIOD_TOTALS_NOTE and NOT_A_POLICY_COUNT_NOTE · scripts/tests/reports-visual/verify.mjs:606 (hierarchy selector section[aria-labelledby="report-totals-title"]) and :708-712 unchanged · src/pages/__tests__/reportsPage.test.tsx:373, :575 (heading/region 'Period totals') unchanged
+  - Pins: data-basis-wording.md:125 C29 (K). Amendment: "C29 | Period totals line 'Independent period totals, not one cohort.' | removed; B7.1 (PERIOD_TOTALS_NOTE) in the sheet opens with the same sentence." · AGENT_RULES.md:658-662 lists 'Period totals' as a fixed part; the part stays and only the helper line goes.
+  - Accessibility: The section stays labelled by its h2 (aria-labelledby="report-totals-title"). The removed text had no ARIA role.
+  - Why: The sentence is the opening of PERIOD_TOTALS_NOTE, which the sheet already shows in its 'Period totals' section. The tiles' structure already prevents a funnel reading: no arrows, no order cue and no percentages, all test-asserted. The owner named PERIOD_TOTALS_LINE as a review target, and the Data basis sheet is the single help surface.
+  - Verifier correction: Text verified at ReportsActivityFlow.tsx:23-26 (constant at reports-basis-text.ts:76-77). Deleting it is acceptable because PERIOD_TOTALS_NOTE (B7.1) opens with the same sentence in the sheet's 'Period totals' section. The rationale has a factual error: there is an order cue. The five tiles are always in funnel order (Calls made → Contacted calls → Appointments → Converted leads/clients → Policies sold, ReportsActivityFlow.tsx:30-34). With the line gone, the remaining guards are the heading, the absence of arrows and percentages, and the sheet. This makes D-B3b a real trade-off. Add a missed doc pin: docs/plans/2026-10-09-reports-refresh-audit/assertion-diff.md:45 (O21) records base assertion B78 as EQUIVALENT partly through ReportsOverview.test.tsx:180 (PERIOD_TOTALS_LINE) and :178-179 ('by sale date'). The Part B amendment should note that O21's equivalence now rests only on the sheet assertions (reportsBasisText.test.ts:110, :177; reportsDataBasis.test.tsx:97). The test changes are otherwise as proposed. The reportsContracts.test.ts:183 count still holds.
+- **B3-04** · Still needed · verifier: revise · `src/components/reports/ReportsActivityFlow.tsx:43` — Period totals per-tile date-basis captions (values defined at :30-34)
+  - **Implemented (2026-10-12):** `7429da1` (C3a).
+  - Before: `"by call date" (Calls made), "by call date" (Contacted calls), "by date created" (Appointments), "distinct people · by call date" (Converted leads/clients), "by sale date" (Policies sold)`
+  - After: `Delete 'by call date' (Calls made), 'by call date' (Contacted calls), 'distinct people · by call date' (Converted leads/clients) and 'by sale date' (Policies sold). Keep 'by date created' on the Appointments tile. Owner alternative: delete all five.`
+  - Markup (as mapped; the verifier correction below wins where they differ): Remove the `basis` field from the :30-34 tile objects and delete the third <dd className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{tile.basis}</dd> at :43. TILE (px-4 py-3) is unchanged. Update the :12-19 docstring, which no longer has 'each with its own date basis'.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/reports/__tests__/ReportsOverview.test.tsx:171 test title: drop 'with their date basis' · src/components/reports/__tests__/ReportsOverview.test.tsx:178-179 -> expect(container.querySelectorAll("dd + dd")).toHaveLength(0); keep :176 (dt labels) and :177 (dt + dd values) · scripts/tests/reports-visual/verify.mjs:709-710 (dt texts, dt + dd values) unchanged · scripts/tests/reports-visual/README.md:48 ('Period totals dt/dd') still accurate
+  - Pins: data-basis-wording.md:126 C30 (T) and V2 amendment row :163 ('The caption "by date created" is unchanged'). Amendment: "C30 | Period totals captions 'by call date' · 'by call date' · 'by date created' · 'distinct people · by call date' · 'by sale date' | removed; B7.1 (PERIOD_TOTALS_NOTE) and B6.1 (CONVERTED_NOTE) in the sheet carry every date basis and the distinct-people rule."
+  - Accessibility: Each dt keeps exactly one dd (its value), so the dl stays valid. Screen readers no longer announce a second description per term.
+  - Why: PERIOD_TOTALS_NOTE in the sheet states every basis: 'Calls and conversions use call creation dates; bookings use booking creation dates; policies use their sale dates. Conversions count distinct identities…'. CONVERTED_NOTE carries 'distinct people'. These are permanent provenance captions repeated on all five tiles.
+  - Verifier correction: Deleting 'by date created' removes essential meaning. After Part A renamed the tile to 'Appointments' (ReportsActivityFlow.tsx:32), this caption is the only on-screen cue that the count is bookings CREATED in the period, not appointments scheduled in it. Part A approved the rename with 'whose "by date created" caption stays' (implementation_plan.md:131; data-basis-wording.md:163). C30 (data-basis-wording.md:126) tightened 'by booking date' to this wording precisely because the old text 'reads as the appointment's scheduled date'. D11 (:318, :510) defers the decision, and D7 (:506) only declined ADDING a strip subtitle. The other four captions repeat obvious or sheet-carried bases (CALLS_DATE_NOTE, CONVERTED_NOTE, POLICY_SOURCE_NOTE, PERIOD_TOTALS_NOTE). Markup: make `basis` optional, keep basis: 'by date created' only on the Appointments object, and change :43 to {tile.basis && <dd className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{tile.basis}</dd>}. Update the :15-19 docstring. Tests: ReportsOverview.test.tsx:178-179 → expect(Array.from(container.querySelectorAll("dd + dd")).map(n => n.textContent)).toEqual(["by date created"]) plus expect(screen.getByText("by date created").parentElement!.querySelector("dt")).toHaveTextContent("Appointments"). :171 title → 'shows five independent totals, no arrows and no funnel rate'. verify.mjs:709-710 is unchanged. Amendment row: 'C30 | captions | only "by date created" (Appointments) remains; the others are in B4.1/B6.1/B1.1/B7.1.' Also add the assertion-diff.md:45 (O21) note from B3-03. dt/dd validity holds either way.
+- **B3-05** · Still needed · `src/lib/stat-computations.ts:215` — Metric strip tile 'Calls per session hour' (opt-in, not in DEFAULT_VISIBLE_STATS)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"session-matched calls ÷ all session hours"`
+  - After: `(delete): return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)) };`
+  - Tests: src/lib/__tests__/reportStatComputations.test.ts:51 test title (C12-C19 wording) · src/lib/__tests__/reportStatComputations.test.ts:55 -> add stat_calls_per_hour to the :52-54 toBeUndefined loop; :59 noteTone loop still passes · src/lib/__tests__/reportStatComputations.test.ts:81 and src/lib/__tests__/reportsIntegrity.test.ts:36 (values) unchanged
+  - Pins: data-basis-wording.md:115 C16 (T). Amendment: "C16 | 'session-matched calls ÷ all session hours' | removed; B8.5 (SESSION_RATE_NOTE)." · AGENT_RULES.md:509 (session rate numerators need a same-agent/campaign interval match): a behavior rule, unchanged.
+  - Accessibility: No change to the tile label or value. The removed <p> had no ARIA relationship.
+  - Why: A formula line. SESSION_RATE_NOTE (sheet, 'Talk time and dialer sessions') states both the numerator ('only session-matched calls…') and the denominator ('all of that agent's session time'). The strip already dropped the equivalent formula subtitles for Calls made, Contacted calls and Call contact rate.
+- **B3-06** · Still needed · `src/lib/stat-computations.ts:229` — Metric strip tile 'Talk time share of session' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"session-matched talk ÷ all session time"`
+  - After: `(delete): return { value: r === null ? DASH : '${(r * 100).toFixed(1)}%' };`
+  - Tests: src/lib/__tests__/reportStatComputations.test.ts:56 -> toBeUndefined (move into the :52-54 loop) · src/lib/__tests__/reportStatComputations.test.ts:137 -> expect(...subtitle).toBeUndefined(); keep :138 noteTone undefined. Together these still prove the 'Durations:' caution never lands on this tile. · src/lib/__tests__/reportStatComputations.test.ts:82 and reportsIntegrity.test.ts:37 (values) unchanged
+  - Pins: data-basis-wording.md:116 C17 (T). Amendment: "C17 | 'session-matched talk ÷ all session time' | removed; B8.5 (SESSION_RATE_NOTE)." · data-basis-wording.md:113 C14 ('Do not show it on Talk time share of session') remains satisfied
+  - Accessibility: none
+  - Why: A formula line carried by SESSION_RATE_NOTE. The C14 rule (no duration caution on this tile) is unaffected because the tile gets no subtitle at all.
+- **B3-07** · Retained · verifier: revise · `src/lib/stat-computations.ts:245` — Metric strip tile 'Dials per policy sold' (opt-in; organization scope with no agent filter only)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b); follow-up `9094a2d` (sheet sentence capitalises the tile name).
+  - Outcome: PB-15 override (was Retained). Subtitle deleted; defined by the new screen-only `POLICY_RATIOS_NOTE` in the sheet's Policies sold section. `POLICY_RATIO_SCOPE_REASON`, the denominator and the value are unchanged.
+  - Before: `"calls in period ÷ dated stored policies in period"`
+  - Why: A formula line. The label states the ratio. 'Dated stored policies' is the definition of Policies sold (POLICY_SOURCE_NOTE, POLICY_UNDATED_NOTE), and 'in period' as an independent total is PERIOD_TOTALS_NOTE. The org-only restriction stays visible as the unavailable reason in every other scope. Note: the sheet has no sentence that defines this ratio itself, and plan §12 forbids adding one.
+  - Pins: AGENT_RULES.md:474 ('exist ONLY for organization scope with no agent filter (period activity ÷ dated stored policies)'): a behavior rule, not visible wording; no amendment needed · stat-computations.ts:14-18 doc comment: no change needed
+  - Verifier correction: Text verified at stat-computations.ts:245 (opt-in; ready only for organization scope with no agent filter). The rationale's 'plan §12 forbids adding one' is unsupported: §12 of docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:372 is the Verification plan, and no such prohibition exists. Correct basis: the brief's 'sheet already carries the definition' condition is met only by composition. CALLS_DATE_NOTE defines calls in period, POLICY_SOURCE_NOTE and POLICY_UNDATED_NOTE define dated stored policies, and PERIOD_TOTALS_NOTE says these are independent period totals. Precedent: 'Dials per contacted call' (stat-computations.ts:274) already has no subtitle and no sheet sentence. Risk to state to the owner: this subtitle is the only on-tile statement that both operands are independent period totals, not a cohort efficiency (AGENT_RULES.md:472, :474). If the owner reads the brief strictly, the classification becomes 'retained'. Tests: reportStatComputations.test.ts:172 → toBeUndefined. reportsPage.test.tsx:559 still passes but becomes a vacuous reintroduction guard.
+  - Decision: PB-15: recommended retained. The Data basis sheet carries this ratio only by composition, and the subtitle is the only on-tile statement that both operands are independent period totals, not a cohort efficiency (AGENT_RULES.md:472, :474). Alternative: delete the subtitle as mapped.
+- **B3-08** · Retained · verifier: revise · `src/lib/stat-computations.ts:280` — Metric strip tile 'Talk minutes per policy sold' (opt-in; organization scope only)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b); follow-up `9094a2d` (sheet sentence capitalises the tile name).
+  - Outcome: PB-15 override (was Retained). As B3-07.
+  - Before: `"talk minutes in period ÷ dated stored policies in period"`
+  - Why: Same as B3-07. TALK_TIME_NOTE plus the Policies sold section carry it, and the label states the ratio.
+  - Pins: AGENT_RULES.md:474 (behavior only; unchanged)
+  - Verifier correction: Same correction as B3-07. Drop the false 'plan §12' citation. The composition here is TALK_TIME_NOTE plus the Policies sold and Period totals sections. If the owner applies the brief strictly, the item is 'retained'. Text verified at stat-computations.ts:280. Tests: reportStatComputations.test.ts:174 → toBeUndefined; :173 and :177-188 unchanged.
+  - Decision: PB-15: recommended retained, for the same reason as B3-07. Alternative: delete as mapped.
+- **B3-09** · Still needed · `src/lib/stat-computations.ts:277` — Metric strip tile 'Dials per booking' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"all booking types"`
+  - After: `(delete): return { value: num(ratio(t.calls_made, t.appointments_set)) };`
+  - Tests: src/lib/__tests__/reportStatComputations.test.ts:64 -> toBeUndefined; keep :63 label, :65 value, :66 old-label negative · scripts/tests/reports-visual/verify.mjs:207-208 (label only) unchanged
+  - Pins: data-basis-wording.md:112 C13 (N, subtitle signed off). Amendment: "C13 | subtitle 'all booking types' | removed; the label 'Dials per booking' is unchanged; B5.1 (BOOKINGS_NOTE) and B5.4 (DIALS_PER_BOOKING_NOTE) state that bookings include every type."
+  - Accessibility: none
+  - Why: DIALS_PER_BOOKING_NOTE ('calls made ÷ bookings created (all types)') and the V2 BOOKINGS_NOTE ('every booking of any type, including callbacks') in the sheet's Appointments section carry it. The approved label 'Dials per booking' (D6/R-1) is unchanged.
+- **B3-10** · Still needed · verifier: revise · `src/lib/stat-computations.ts:249` — Metric strip tile 'Converted leads/clients' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"distinct people"`
+  - After: `(delete): return { value: formatCount(t.converted) };`
+  - Tests (as mapped; the verifier correction below wins where they differ): src/lib/__tests__/reportStatComputations.test.ts:58 -> toBeUndefined (move into the :52-54 loop); :59 noteTone loop still passes
+  - Pins: data-basis-wording.md:119 C19 (K). Amendment: "C19 | 'distinct people' | removed; B6.1 (CONVERTED_NOTE)."
+  - Accessibility: none
+  - Why: The label already names the unit (leads/clients), and CONVERTED_NOTE ('counts distinct people…') is in the sheet. This keeps the tile consistent with B3-04, which removes the same phrase from Period totals.
+  - Verifier correction: Substance confirmed (stat-computations.ts:249; CONVERTED_NOTE at reports-basis-text.ts:34). Rule-pin line is wrong: C19 is data-basis-wording.md:118, not :119 (:119 is C22). Tests: reportStatComputations.test.ts:58-59.
+- **B3-11** · Still needed · `src/lib/stat-computations.ts:251` — Metric strip tile 'Callback dispositions' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"callback dispositions" (repeats the tile label 'Callback dispositions', stat-computations.ts:116)`
+  - After: `(delete): return { value: formatCount(t.callback_calls) };`
+  - Tests: none assert it; optionally add stat_callback_rate to the reportStatComputations.test.ts:52-54 toBeUndefined loop
+  - Accessibility: none (the visible label already says the same words)
+  - Why: A verbatim duplicate of the label. CALLBACK_DISPOSITIONS_NOTE in the sheet says these count calls, not bookings.
+- **B3-12** · Retained · `src/lib/stat-computations.ts:235` — Metric strip tile 'DNC per 100 dials' (opt-in)
+  - Before: `"DNC dispositions per 100 calls"`
+  - Why: The sheet has no sentence defining DNC dispositions, so this cannot be consolidated under the brief's rule. It is the only text saying the count is call dispositions, not DNC-list entries, which matters next to compliance concepts. C18 deliberately kept it.
+  - Pins: data-basis-wording.md:117 C18 (T, 'keep today's text')
+- **B3-13** · Still needed · verifier: revise · `src/lib/stat-computations.ts:291` — Metric strip tile 'Calls today' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"agency calendar day"`
+  - After: `(delete): return { value: formatCount(row?.calls_made ?? 0) }; keep the :289 reason.`
+  - Tests (as mapped; the verifier correction below wins where they differ): src/lib/__tests__/reportStatComputations.test.ts:110-115 assert value/state only and are unchanged
+  - Pins: AGENT_RULES.md:475 ('Any future agent-local Reports view must be a separately labelled mode'): all of Reports stays agency-time and the zone is labelled on the context line, so no amendment
+  - Accessibility: none
+  - Why: The label names the period ('today'). The agency zone is shown page-wide on the context line (ReportContextLine.tsx:275) and in the sheet (timeZoneNote: 'Times use the agency time zone… days run midnight to midnight').
+  - Verifier correction: Substance acceptable, but two citations are wrong. The page-wide zone is at ReportContextLine.tsx:31 (the file is 45 lines; there is no :275), and it shows only the IANA zone name ({scope.time_zone}), not the word 'agency'. The agency-zone and agent-local rule is AGENT_RULES.md:471, not :475 (:475 is policy-quality counts). Caveat for the owner: AGENT_RULES.md:471 contrasts the Dialer's agent-local 'Today' counters with Reports' agency today. This subtitle is the only tile-level cue to that difference. After deletion, the context-line zone and the sheet's timeZoneNote carry it. Tests (reportStatComputations.test.ts:110-115) are unaffected.
+- **B3-14** · Still needed · `src/lib/stat-computations.ts:298` — Metric strip tile 'Calls this week' (opt-in)
+  - **Implemented (2026-10-12):** `caa3b61` (C3b).
+  - Before: `"Monday to today, agency calendar"`
+  - After: `"Monday to today"`
+  - Tests: none assert the subtitle
+  - Accessibility: none
+  - Why: 'Monday to today' is the tile's own window, which can differ from the selected period, so it is preserved as a meaningful period. The ', agency calendar' clause repeats the context-line zone and timeZoneNote ('weeks start Monday'). The :296 reason 'Select a period that includes this whole week' is kept.
+- **B3-15** · Retained · `src/lib/stat-computations.ts:213` — Metric strip tile 'Calls per day'
+  - Before: `"over {N} day(s)"`
+  - Why: The period length and denominator of a per-day figure (preserve units and periods). It is not a formula restatement.
+- **B3-16** · Retained · `src/lib/stat-computations.ts:272` — Metric strip tile 'Agents dialing' (team scopes)
+  - Before: `"with at least one call"`
+  - Why: Defines 'dialing' as in-period activity rather than live dialer presence. No sheet sentence carries it, so it cannot be consolidated.
+- **B3-17** · Retained · `src/lib/stat-computations.ts:256` — Team strip tiles: Most policies sold, Top dialer, Best call contact rate, Avg calls per dialing agent (:256-270)
+  - Before: `"no policies in this period" / "{n} policies" / "{n} policies each" / "{n} calls made" / "no calls made" / "{x}% call contact rate" / "{n} dialing agent(s)"`
+  - Why: These are values, denominators or empty states, not explanations. The tie and leader wording is pinned by the AGENT_RULES one-rule clause.
+  - Pins: AGENT_RULES.md:668 (tile tie format 'N agents tied' / 'X policies each')
+- **B3-18** · Retained · `src/lib/stat-computations.ts:240` — Metric strip tile 'Average annual premium' (opt-in)
+  - Before: `"{k}/{n} known policies"`
+  - Why: A material missing-data and coverage indicator. The Part A plan (implementation_plan.md:128) states this subtitle stays.
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:128
+- **B3-19** · Superseded · `src/lib/stat-computations.ts:242` — Computed-only stats stat_policies_sold (:242) and stat_annual_premium (:238)
+  - Before: `"stored policies, by sale date" / "{k}/{n} known; current monthly ×12"`
+  - Why: These are never rendered. report-layout-constants.ts:25 (fixedStats) excludes both ids from REPORT_LAYOUT_SECTIONS, normalizeReportLayout drops ids missing from sectionById, and SectionRenderer renders only registered sections. The production band (ReportsOverview.tsx) now owns these values on screen, and verify.mjs:203-205 asserts they are not registered.
+  - Pins: AGENT_RULES.md:664 (registry frozen by reportsRegistrySnapshot.test.ts)
+- **B3-20** · Retained · `src/lib/stat-computations.ts:180` — Strip caution and unavailable/error subtitles (durationCaution :180-182, sessionCaution :185-187, POLICY_RATIO_SCOPE_REASON :151-152, reasons :289/:296, configuration/error :310-311, NO_DEFINITION/NOT_TRACKED :59-61)
+  - Before: `"Durations: {e} estimated · {u} unknown source or amount · {c} conflicting"; "{n} stale, capped at last heartbeat · {m} missing/invalid end evidence"; "Organization view only: policies are credited to the client's current agent, not the original seller"; "Today is outside the selected period"; "Select a period that includes this whole week"; "Agency time zone not configured"; "Couldn't load — not a zero"`
+  - Why: These are conditional data-quality warnings, permission/scope restrictions, and the error-vs-zero and unavailable distinctions. All are explicitly preserved by the standard.
+  - Pins: data-basis-wording.md:113-114 C14/C15 · AGENT_RULES.md:510 (#41 disclose estimates/unknown/conflicts)
+- **B3-21** · Still needed · `src/components/reports/CommunicationsStats.tsx:43` — Call summary (collapsed by default), Calls made tile
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Outbound dials"`
+  - After: `(delete) subtitle 'Outbound dials'; exportLabel unchanged`
+  - Tests: src/components/reports/__tests__/reportsDialerIntelligence.test.tsx:268-286 (dt labels and CSV rows) unchanged; reportsCallDuration.test.tsx:96-125 values unchanged
+  - Accessibility: The dt/dd group keeps its term and value
+  - Why: 'Calls made' is outbound by canon and sits beside the 'Inbound calls' tile. The strip's Calls made tile already has no subtitle. CALLS_DATE_NOTE and INBOUND_NOTE in the sheet carry the rule.
+- **B3-22** · Still needed · `src/components/reports/CommunicationsStats.tsx:48` — Call summary, Contacted calls tile
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Outbound calls that reached a contact"`
+  - After: `(delete)`
+  - Tests: none assert it
+  - Accessibility: none
+  - Why: A definition line, and less precise than CONTACTED_RULE_NOTE in the sheet (more than 45 s or a contacted disposition; No Answer never counts).
+- **B3-23** · Still needed · `src/components/reports/CommunicationsStats.tsx:55` — Call summary, Call contact rate tile
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Contacted calls ÷ calls made"`
+  - After: `(delete)`
+  - Tests: none assert it
+  - Pins: data-basis-wording.md:61 B4.3 (sheet sentence) is unchanged
+  - Accessibility: none
+  - Why: A formula line carried by CALL_CONTACT_RATE_NOTE. The strip's Call contact rate tile already has no subtitle (reportStatComputations.test.ts:52-54).
+- **B3-24** · Still needed · `src/components/reports/CommunicationsStats.tsx:59` — Call summary, Talk time tile
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"On calls made"`
+  - After: `(delete)`
+  - Tests: none assert it
+  - Accessibility: none
+  - Why: TALK_TIME_NOTE ('stored duration of outbound calls') and INBOUND_NOTE carry it. The separate 'Inbound talk time' tile label already distinguishes the two.
+- **B3-25** · Retained · `src/components/reports/CommunicationsStats.tsx:69` — Call summary, Calls made per day tile
+  - Before: `"Over {N} day(s)"`
+  - Why: The period length and denominator (preserve periods and units). It matches the strip's 'over N days'.
+- **B3-26** · Still needed · `src/components/reports/AgentEfficiency.tsx:133` — Agent efficiency footnote under the table
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Calls per session hour = session-matched calls ÷ session hours."`
+  - After: `(delete)`
+  - Markup: Delete the :133 <p className="mt-3 text-xs text-muted-foreground">. The AgentEfficiencyScatter wrapper's existing mt-5 provides the spacing below the table.
+  - Tests: src/components/reports/__tests__/reportsTables.test.tsx:221 -> expect(screen.queryByText(/^Calls per session hour = /)).not.toBeInTheDocument(); keep :213-216 (headers incl. 'Session-matched calls') and :219 (cell values), so the explanatory column stays proven
+  - Pins: data-basis-wording.md:128 C32 (K). Amendment: "C32 | Agent efficiency footnote | removed; B8.5 (SESSION_RATE_NOTE) and the on-screen 'Session-matched calls' column."
+  - Accessibility: The table's sr-only caption ('Agent activity against dialer session time…') and column headers are unchanged
+  - Why: The table already shows a 'Session-matched calls' column right next to 'Calls per session hour' (AgentEfficiency.tsx:31 comment: it 'explains the rate beside it'), and SESSION_RATE_NOTE in the sheet gives the full rule.
+- **B3-27** · Still needed · verifier: revise · `src/components/reports/CallVolumeChart.tsx:38` — Calling trend tooltip footer line
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"{c} contacted ÷ {n} outbound calls" (non-zero buckets; zero buckets show "No outbound calls; rate unavailable.")`
+  - After: `(delete) the non-zero formula line; keep "No outbound calls; rate unavailable." (markup as proposed: {period.calls_made === 0 && <p className="mt-2 text-muted-foreground">…</p>})`
+  - Markup (as mapped; the verifier correction below wins where they differ): Replace :38 with {period.calls_made === 0 && <p className="mt-2 text-muted-foreground">No outbound calls; rate unavailable.</p>}. This is the same pattern as FlowTooltip in CallFlowAnalysis.tsx.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/reports/__tests__/reportTrendCharts.test.tsx:142 -> expect(screen.queryByText(/contacted ÷/)).not.toBeInTheDocument(); keep :141 (combined denominator data) and :159 (zero-bucket line) · src/components/reports/__tests__/reportsTrends.test.tsx:111 (readout) unchanged
+  - Pins: data-basis-wording.md:124 C27 ('No outbound calls; rate unavailable.' … verbatim, K). Amendment: "C27 | Calling tooltip line '{c} contacted ÷ {n} outbound calls' | removed; the tooltip rows and 'No outbound calls; rate unavailable.' are unchanged."
+  - Accessibility: The tooltip is pointer-only. The keyboard and screen-reader live readout (callingReadout, :49-52) never contained the formula, so AT output is unchanged.
+  - Why: The tooltip's own rows directly above (Outbound calls, Contacted outbound calls, Call contact rate) already show both operands and the result. CALL_CONTACT_RATE_NOTE carries the formula. The zero-denominator unavailable line is a real limitation and is kept.
+  - Verifier correction: Deletion confirmed (CallVolumeChart.tsx:38). Two corrections. (1) Tests: reportTrendCharts.test.tsx:142 is the test's only on-screen proof of the combined-denominator rate. Replace it with a check that keeps the meaning: expect(screen.getByText("10.0%")).toBeInTheDocument() (the tooltip's Call contact rate dd, :35; the averaged daily rate would be 50%; scope to the tooltip dl if it is not unique) plus expect(screen.queryByText(/contacted ÷/)).not.toBeInTheDocument(). Keep :141 and :159. (2) A11y: the tooltip is not pointer-only. With accessibilityLayer (:109), recharts also shows it during keyboard navigation. The SR live readout (callingReadout :49-52) never contained the formula, so assistive-tech output is still unchanged.
+- **B3-28** · Retained · `src/components/reports/CallVolumeChart.tsx:89` — Calling trend card meta (shown only when inbound > 0)
+  - Before: `"{n} inbound call(s) (not in call contact rate)"`
+  - Why: Conditional, and it is the only on-card count of inbound calls, which the chart excludes. C26 kept it. The parenthetical could be dropped (INBOUND_NOTE carries it), but that is not recommended because the meta would then lose its reason for appearing.
+  - Pins: data-basis-wording.md:123 C26
+- **B3-29** · Still needed · verifier: revise · `src/components/reports/CallDurationAnalysis.tsx:119` — Call duration panel footnote (collapsed by default)
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Stored outbound call durations; estimates and unknown provenance are listed in Data basis."`
+  - After: `(delete)`
+  - Markup (as mapped; the verifier correction below wins where they differ): Delete the :119 <p>. The disposition-tab insight <p> keeps its own mt-3, and the distribution tab simply ends at the chart.
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/reports/__tests__/reportsDialerIntelligence.test.tsx:249 test title ('the one-line footnote') · src/components/reports/__tests__/reportsDialerIntelligence.test.tsx:255 -> expect(screen.queryByText(/^Stored outbound call durations/)).not.toBeInTheDocument(); keep :252-254 (insight) and :256
+  - Pins: data-basis-wording.md:135 C41 (K). Amendment: "C41 | Call duration footnote | removed; B8.1 (TALK_TIME_NOTE) and live line L1 in the sheet, plus the conditional Talk time caution (C14)." · AGENT_RULES.md:510 (#41 'disclose estimates, unknown provenance/amount and conflicts'): still satisfied by C14 and L1
+  - Accessibility: none
+  - Why: A permanent provenance pointer shown whether or not any estimate exists. TALK_TIME_NOTE carries the basis. The #41 disclosure is still on screen when it applies: the conditional 'Durations: …' caution on the Talk time tile (a default strip metric) and the sheet's live list ('Stored outbound duration: …').
+  - Verifier correction: Text and markup are confirmed (CallDurationAnalysis.tsx:119; tests reportsDialerIntelligence.test.tsx:249/:255). The rationale overstates what remains on screen. The 'Durations:' caution shows only while Talk time or Avg talk time per dial is in the viewer's customizable strip (the six-metric cap; users can hide them). It comes from the summary payload, while this panel uses the dispositions payload. The guaranteed remaining #41 disclosure (AGENT_RULES.md:510) is the sheet's live line L1, and only when the summary is ready; otherwise the sheet shows DATA_QUALITY_UNAVAILABLE. State this in D-B3e.
+- **B3-30** · Still needed · `src/components/reports/CallFlowAnalysis.tsx:119` — Call flow panel footnote (collapsed by default)
+  - **Implemented (2026-10-12):** `6cc328a` (C3c).
+  - Before: `"Hours and days are in the agency time zone; a bucket with no calls shows no call contact rate."`
+  - After: `"Hours and days are in the agency time zone."`
+  - Tests: src/components/reports/__tests__/reportsDialerIntelligence.test.tsx:240 -> getByText("Hours and days are in the agency time zone.") · reportsDialerIntelligence.test.tsx:162 (heatmap negative /Hours are in the agency time zone/) unaffected
+  - Pins: data-basis-wording.md:134 C40 (K). Amendment: "C40 | Call flow footnote | 'Hours and days are in the agency time zone.' (the zero-bucket clause is removed; the tooltip and B4.3 carry it)."
+  - Accessibility: none
+  - Why: The zero-bucket clause repeats the tooltip's 'No outbound calls; rate unavailable.' (CallFlowAnalysis.tsx:47) and CALL_CONTACT_RATE_NOTE ('with no outbound calls it shows —'). The zone clause stays because the hour and weekday axes are agency-zone units on a panel far from the context line, matching the heatmap (B3-31).
+- **B3-31** · Retained · verifier: revise · `src/components/reports/CallingHeatmap.tsx:76` — Calling heatmap caption beside the legend
+  - Before: `"Agency time ({time_zone})"`
+  - Why: It names the zone of the hour axis, an essential unit, on a panel far from the context line. It is short, not a formula, and C39 kept it.
+  - Pins: data-basis-wording.md:133 C39 · AGENT_RULES.md:475 (agency zone drives hour/heatmap buckets)
+  - Verifier correction: Retention is correct (CallingHeatmap.tsx:76; test reportsDialerIntelligence.test.tsx:160). The rule-pin line is wrong: the agency-zone buckets rule is AGENT_RULES.md:471, not :475.
+- **B3-32** · Retained · verifier: revise · `src/components/reports/PoliciesSoldChart.tsx:50` — Production trend: tooltip coverage (:50), limitation (:51), legend (:121-131), card meta (:82-84)
+  - Before: `"{k} of {n} policies known · {u} unknown"; "Known premium unavailable for this period."; "Some premiums unknown"; "Gap = known premium unavailable, not $0"; meta "{k} of {n} premiums known · {u} unknown"`
+  - Why: Material missing-data indicators and conditional limitation lines. D13 keeps them verbatim, and Part A labels are untouched.
+  - Pins: implementation_plan.md:312 D13 · data-basis-wording.md:120-122 C23-C25
+  - Verifier correction: Retention is correct (PoliciesSoldChart.tsx:50, :51, :82-84, :121-131). The rule-pin line is wrong: D13 is implementation_plan.md:324 (recommendation) and :512 (approval), not :312 (:312 is D8). C23-C25 at data-basis-wording.md:120-122 are correct.
+- **B3-33** · Retained · `src/components/reports/ReportsOverview.tsx:101` — Production band: coverage text and Partial chip (PremiumCoverage.tsx:19-29), conditional policy-quality warning (:101-106), Monthly/Average labels, leader row
+  - Before: `"{k} of {n} premiums known · {u} unknown excluded"; "Partial"; policyQualityNote(...); "Monthly premium"; "Average annual premium"/"Avg annual premium"; "Most policies sold" · "{name} · {n} policies"`
+  - Why: Coverage, data-quality warnings, Part A labels and the D14 Unavailable/— behavior are all explicitly preserved.
+  - Pins: AGENT_RULES.md:658-668 · data-basis-wording.md:106-110, :159-160
+- **B3-34** · Retained · verifier: revise · `src/components/reports/CampaignPerformance.tsx:98` — Campaign performance note under the table
+  - Before: `CAMPAIGN_LINEAGE_NOTE: "Campaign-attributed policies use conversion lineage only: not complete campaign sales attribution and not proof the campaign caused the sale."`
+  - Why: An attribution and causation caveat. It is a CSV-shared, byte-pinned constant, and the browser gate asserts it on this panel.
+  - Pins: AGENT_RULES.md:666 (byte-pinned shared constants) · AGENT_RULES.md:476 (lineage only, not causation) · data-basis-wording.md:130 C34
+  - Verifier correction: Retention is correct (CampaignPerformance.tsx:98). The gate cite is off by one: the lineage-note assertion is verify.mjs:720, not :719.
+- **B3-35** · Retained · `src/components/reports/CampaignTotalsFoot.tsx:31` — Campaign and agent tfoot sub-lines (also AgentPerformanceCards.tsx:112-113)
+  - Before: `"Missing, ambiguous or restricted"; "Activity or policies without an agent"; "{n} inbound calls"`
+  - Why: Attribution disclosures for rows that reconcile the totals.
+  - Pins: data-basis-wording.md:127 C31, :129 C33
+- **B3-36** · Retained · verifier: revise · `src/components/reports/LeadSourceTable.tsx:66` — Lead sources note (when sources exist)
+  - Before: `"Converted by source isn't available: {server reason}"`
+  - Why: An unavailable-feature notice. The standard says never hide an unfinished feature, and the column is CSV-only for that reason.
+  - Pins: data-basis-wording.md:131 C36 · AGENT_RULES.md:472 (converted-by-source explicitly unavailable)
+  - Verifier correction: Retention is correct (LeadSourceTable.tsx:66, shown only when sources exist). The test cite is wrong: reportsPage.test.tsx:640 asserts the Data basis SHEET copy. The panel note is asserted at src/components/reports/__tests__/reportsTables.test.tsx:149.
+- **B3-37** · Retained · `src/components/reports/DispositionDeepDive.tsx:165` — Disposition deep dive footnote (:164-167), conditional attribution line (:121-123); Disposition breakdown 'Top 8 by calls' (DispositionsPieChart.tsx:106)
+  - Before: `"Outbound calls with a campaign|with an assigned agent." + conditional " Top 8 dispositions by calls; the rest are grouped as Other."; "{n} calls have unavailable campaign attribution (missing or restricted)."; "Top 8 by calls"`
+  - Why: The footnote states which calls the chart includes, which is a meaningful scope since unattributed calls are excluded. The other lines are conditional grouping and attribution notices, not formulas.
+- **B3-38** · Retained · verifier: revise · `src/components/reports/DataBasisSections.tsx:188` — Data basis sheet (ReportDataBasis.tsx:147-152; reports-basis-text.ts dataBasisSections)
+  - Before: `SheetTitle "Data basis"; SheetDescription "How Reports counts and credits these numbers."; nine static sections, the live data-quality list, and time zone/freshness`
+  - Why: This is the single reporting-help surface and already carries every definition removed above (PREMIUM_BASIS, POLICY_SOURCE_NOTE, POLICY_SEVERAL_PER_CLIENT_NOTE, CURRENT_ASSIGNMENT_NOTE, CALL_CONTACT_RATE_NOTE, CONTACTED_RULE_NOTE, TALK_TIME_NOTE, SESSION_RATE_NOTE, DIALS_PER_BOOKING_NOTE, BOOKINGS_NOTE, CONVERTED_NOTE, PERIOD_TOTALS_NOTE, timeZoneNote).
+  - Pins: AGENT_RULES.md:662, :666
+  - Verifier correction: Retention is correct, but the cited lines do not exist. ReportDataBasis.tsx is 45 lines: SheetTitle/SheetDescription are at :36-37 (from DATA_BASIS_TITLE/DESCRIPTION, reports-basis-text.ts:15-16). DataBasisSections.tsx is 53 lines: sections render at :30-53 from dataBasisSections() (reports-basis-text.ts:106-122). The Radix Sheet keeps the Title + Description pattern.
+- **B3-39** · Retained · verifier: revise · `src/components/reports/ReportContextLine.tsx:271` — Toolbar context line
+  - Before: `"{start} – {end} · {time zone} · Summary as of {time} · Data basis"`
+  - Why: Shows the selected period, the agency zone, freshness (only for the current summary) and the primary Data basis trigger. After this pass it is the page-wide zone statement that B3-13 and B3-14 rely on.
+  - Pins: data-basis-wording.md:102 C1 · AGENT_RULES.md personal layout invariant (basis controls fixed)
+  - Verifier correction: Retention is correct, but the cite is wrong: ReportContextLine.tsx is 45 lines. The line is :22-43 (period :27, zone :31, as-of :35-37, Data basis :40). Note that the zone shows as the bare IANA name, which B3-13/B3-14 rely on. Tests reportsPage.test.tsx:76 and :635 are correct.
+- **B3-40** · Retained · verifier: revise · `src/components/reports/ReportPanelState.tsx:83` — Panel and page notices (ReportPanelState.tsx:70/75/83; ReportsNotices.tsx:24/28/33/38; Reports.tsx:73-74, :82, :152; ReportsToolbar.tsx:64 export title)
+  - Before: `e.g. "{message} This is not a zero — the numbers are unknown until it loads."; "An admin must choose and save the agency time zone in Settings → Company Branding. …"; "Reload to see reports for your current access."; "Export is available once the summary has loaded"`
+  - Why: Error-vs-zero, configuration, permission, access-drift and readiness states, all explicitly preserved.
+  - Pins: AGENT_RULES.md:475 (configuration-required state)
+  - Verifier correction: Retention is correct. Line refs check out (ReportPanelState.tsx:70/75/83; ReportsNotices.tsx:24/28/33/38; Reports.tsx:73-74/:82/:152; ReportsToolbar.tsx:64). The rule pin is wrong: the configuration-required state is AGENT_RULES.md:471, not :475.
+- **B3-41** · Retained · `src/components/reports/ReportCustomizer.tsx:75` — Layout customizer helper lines (:75, :87-88, :103, :132)
+  - Before: `"Only your view changes. Production totals and trends always stay."; "{n} of 6 metrics selected. …"; "Team and Agency scopes only"; "Reset removes your saved layout and uses your agency default when available."`
+  - Why: Not formula or provenance lines. They state personal-layout scope, the metric cap (live), a scope restriction and the consequence of Reset. The brief says to keep the customizer.
+  - Pins: AGENT_RULES.md Reports personal layout invariant
+- **B3-42** · Superseded · `src/components/reports/CustomReportBuilder.tsx:19` — CustomReportBuilder and ScheduledReportsModal (ScheduledReportsModal.tsx:24)
+  - Before: `(unmounted components)`
+  - Why: Not a live Reports surface. The live owner is the fixed page in Reports.tsx.
+- **B3-43** · Already satisfied · `src/pages/Reports.tsx:136` — Reports page help surfaces
+  - Before: `(no 'How totals are counted' block; the old 'Report basis and data quality' block is gone)`
+  - Why: A repo-wide grep finds no 'How totals are counted' in src/ or scripts/. reportsPage.test.tsx:636 guards the old block's absence, and the Data basis sheet is the only explanation system.
+  - Pins: AGENT_RULES.md:662
+- **B3-44** · Already satisfied · `src/lib/stat-computations.ts:209` — Default strip tiles: Calls made, Outbound calls, Contacted calls, Call contact rate, Dials per contacted call, Appointments
+  - Before: `(no subtitles)`
+  - Why: Formula subtitles for these tiles were already removed in the refresh, and the test asserts it.
+  - Pins: data-basis-wording.md:111 C12
+- **B3-M1** (found by the verifier) · Retained · `src/components/reports/AgentPerformanceCards.tsx:37` — Agent performance table, Annual premium cell sub-line (PremiumValue, also in the tfoot at :117)
+  - Before: `"{k}/{n} known" plus " · {u} unknown" when u > 0`
+  - Why: A per-agent missing-data and coverage indicator. Part A lists 'agent-table "k/n known · u unknown"' among the genuine limitations that stay (implementation_plan.md:172). It is not a formula or provenance helper.
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:172
+- **B3-M2** (found by the verifier) · Retained · `src/components/reports/CampaignCallsChart.tsx:26` — Campaign performance chart caption
+  - Before: `"Top {n} by calls made"`
+  - Why: States the chart's scope, which is a truncation to the top campaigns. This is the same category as B3-37's 'Top 8 by calls', not a formula or provenance line.
+- **B3-M3** (found by the verifier) · Retained · `src/components/reports/AgentEfficiencyScatter.tsx:53` — Agent efficiency scatter: h4 title (:36), sr-only description (:53), empty state (:38)
+  - Before: `"Calls per session hour vs call contact rate"; sr-only "One point per agent; each agent's values are in the Agent efficiency table above."; "No agents with both session time and calls made in this period."`
+  - Why: A chart title, a screen-reader-only description and an empty-vs-data state, all preserved by the standard. These are the only remaining text in that panel after B3-26, and none is a formula line.
+
+## Area 4 — Dialer and Campaigns
+
+Verified. Still needed: 28 · Retained: 34 · Already satisfied: 4 · Superseded: 1.
+
+- **B4-01** · Still needed · `src/components/dialer/CampaignSelection.tsx:80` — Dialer campaign selection: eyebrow chip above the h1
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `[Phone icon] DIALER`
+  - After: `(delete)`
+  - Markup: Delete the chip div at lines 80-83. Remove `Phone` from the lucide import on line 2, since it is only used there; `RefreshCw` stays. No other spacing change: the h1 becomes the first child of the `mb-8 max-w-lg` header block.
+  - Accessibility: The chip is decorative text inside a div. The h1 "Select a Campaign" stays the page heading, so no accessible name or landmark changes.
+  - Why: A generic page introduction. TopBar already titles the /dialer route "Dialer" (TopBar.tsx:25, pageTitles). The chip adds no state or scope.
+- **B4-02** · Still needed · `src/components/dialer/CampaignSelection.tsx:85` — Dialer campaign selection: intro paragraph under the h1
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Choose an active campaign to start dialing.`
+  - After: `(delete)`
+  - Markup: Delete the <p> at lines 85-87. Drop `mb-1` from the h1 on line 84; it only spaced the removed paragraph. The presence header (mt-3, :91) and the Refresh button (mt-3, :111) keep their own spacing.
+  - Tests: src/components/dialer/__tests__/campaignSelectionTable.test.tsx:125 — change getByText(...).toBeInTheDocument() to expect(screen.queryByText("Choose an active campaign to start dialing.")).not.toBeInTheDocument(). Keep :122 (table) and :124 (h1) unchanged, so the header contract is still asserted.
+  - Accessibility: No description semantics are attached to this paragraph. The h1 keeps the heading role.
+  - Why: A generic campaign-selection introduction that restates the h1 and the per-row "Start Dialing" buttons.
+- **B4-03** · Retained · verifier: revise · `src/components/dialer/CampaignSelection.tsx:84` — Dialer campaign selection: h1 and row action label
+  - Before: `Select a Campaign (h1); Start Dialing (CampaignSelectionRow.tsx:168)`
+  - Why: Both labels are useful, and both are quoted verbatim in user-facing onboarding email copy: supabase/functions/_shared/onboardingEmail/templates.ts:50 ("choose a campaign under Select a Campaign, and click Start Dialing") and docs/plans/2026-10-10-onboarding-emails/email-copy.md:40.
+  - Pins: supabase/functions/_shared/onboardingEmail/templates.ts:50 quotes both labels. Do not change them without changing the email.
+  - Verifier correction: The classification is correct, but the list of pins is incomplete. Besides the onboarding email (templates.ts:50) and campaignSelectionTable.test.tsx:124, the e2e harness drives this button by its label: e2e/team-open-local/scenarios.mjs:48 calls `getByText("START DIALING")`. Add that pin to tests_affected.
+- **B4-04** · Retained · `src/components/dialer/CampaignSelection.tsx:101` — Dialer campaign selection: presence header, refresh, stats error, empty and loading states
+  - Before: `"{n} active agent(s)" / "No active agents" (:101-103, hidden when presence is unavailable); "Refresh campaigns" (:114); "Could not load lead counts." + Retry (:122,:128); "No active campaigns" (:136); CampaignTableSkeleton (:133)`
+  - Why: These keep loading, empty, failed and presence-unavailable states distinct and keep the retry and refresh actions. None of it is filler.
+- **B4-05** · Retained · `src/components/dialer/CampaignSelectionRow.tsx:99` — Dialer campaign selection: row cells
+  - Before: `"Loading counts…" (:99); "—" (:101); "No active agents" (:114); "{n} active" (:120); "Open to agency" (:128); "Unknown" (:132); sr-only "Last dialed {exact}" (:152-155); campaign description (:89-93, user-authored)`
+  - Why: These show pending, failed and unavailable states with "—" (never a fake 0). The sr-only exact timestamp is a screen-reader description. The campaign description is user-authored content.
+- **B4-06** · Retained · `src/components/dialer/CampaignSelectionRowDetails.tsx:73` — Dialer campaign selection: expanded row details
+  - Before: `"Contact states" (:73); "Loading counts…" (:78); "—" (:80); "No leads" (:93); "Active agents" / "No active agents" (:138,:152); "Campaign Settings" with the noPermission title and aria-label (:166-171)`
+  - Why: "No leads" appears only for an authoritative empty result. The permission label carries the edit restriction.
+- **B4-07** · Retained · `src/components/dialer/CampaignSettingsModal.tsx:103` — Calling Settings dialog description
+  - Before: `Configure call attempt limits and scheduling for {campaignName}.`
+  - Why: This is the dialog's Radix DialogDescription and the only place that names which campaign is being edited (scope). Description elements are not clutter under the Part B standard.
+- **B4-08** · Retained · verifier: revise · `src/components/dialer/campaignSettingsSchema.ts:284` — Calling Settings helper and validation copy
+  - Before: `callingWindowHelper "Auto-dial avoids dialing outside this window. Timezone is estimated from the lead's state." (:284-285); sessionActiveNote "Changes apply to your next call." (:288); accessHelper (:291); noPermission / accessSaveFailed (:294-295); requireLicensedStateHelper / NotApplicable (:297-300); RetryIntervalField helper (campaignSettingsControls.tsx:104-105); "(Hangs up if no answer)" (CampaignSettingsModal.tsx:163); Zod messages (:236-261)`
+  - Why: Each line carries something operational: the timezone-estimate caveat, when changes take effect, the licensing requirement and its not-applicable notice, the scope of edit permission, retry semantics, and validation errors.
+  - Verifier correction: The line numbers are wrong: campaignSettingsSchema.ts has only 102 lines. Correct locations:
+- callingWindowHelper: :85-86
+- localPresenceHelper: :87-88
+- sessionActiveNote: :89
+- accessHelper: :92
+- noPermission and accessSaveFailed: :95-96
+- requireLicensedStateHelper and NotApplicable: :99-101
+- Zod messages: :37-62
+- RetryIntervalField helper: campaignSettingsControls.tsx:102-105
+- "(Hangs up if no answer)": CampaignSettingsModal.tsx:163 (correct as cited)
+
+Retained is the right call. One accuracy note for the owner: requireLicensedStateHelper says "active license", but the gating counts any agent_state_licenses row and never reads expiration_date (migration 20261003043122, get_queue_metrics eligible universe and the claim path). Changing it is optional and not proposed.
+- **B4-09** · Still needed · verifier: revise · `src/components/dialer/campaignSettingsSchema.ts:286` — Calling Settings: Local Presence helper
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Matches caller ID to the lead's area code using eligible agency numbers. Personal/direct numbers are excluded from rotation; if no local match exists, your default caller ID is used.`
+  - After: `Matches caller ID to the lead's area code using eligible agency numbers. Personal numbers are excluded from rotation; if no local match exists, your default caller ID is used.`
+  - Pins: AGENT_RULES.md:136 and :144 (is_direct_line is inbound display only). The proposed text brings the copy in line with the rule, so no amendment is needed.
+  - Accessibility: Helper text only; no change.
+  - Why: An accuracy fix inside an explanatory helper. "/direct" contradicts the caller-ID rule: is_direct_line is never read for outbound eligibility, so Agency direct-line numbers stay in the automatic pool. Removing two words keeps the ownership-safety consequence and drops the wrong claim.
+  - Verifier correction: The location is wrong: the string is at campaignSettingsSchema.ts:87-88, not :286. It is rendered at CampaignSettingsModal.tsx:170. The finding stands, with one nuance. In number-group mode, direct lines are already excluded from group membership (NumberGroupMembersModal.tsx:32-44, copy at :107), so "/direct" is true only there. In the default org pool, Agency direct lines are eligible (AGENT_RULES.md:136, :144; caller-id-selection.ts:71). The proposed text is accurate in both modes. This is an accuracy deletion, not one of the area's listed cleanup targets, so it should stay an owner decision.
+- **B4-10** · Retained · `src/pages/DialerPage.tsx:4128` — Dialer: initial lead queue load
+  - Before: `Loading lead queue…`
+  - Why: A distinct loading state.
+- **B4-11** · Still needed · `src/pages/DialerPage.tsx:4146` — Dialer: Personal empty queue (leadQueue.length === 0, not lockMode)
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `There are no remaining leads to dial in this campaign that haven't already been called or marked as DNC.`
+  - After: `(delete)`
+  - Markup: Delete the <p> at lines 4146-4148. Change the h2 at :4145 from `mb-2` to `mb-8`, so the gap before the "Return to Campaigns" button (:4150-4156) is the same as before; the deleted paragraph carried mb-8.
+  - Pins: AGENT_RULES.md:118 ("Personal keeps its cheap static message"). The heading "Campaign Queue Empty" stays as that static message, so no amendment is needed.
+  - Accessibility: The h2 stays.
+  - Why: A redundant explanation under the heading "Campaign Queue Empty". Personal is a single static state; the heading remains that static message and no state is merged.
+- **B4-12** · Retained · `src/pages/DialerPage.tsx:4145` — Dialer: empty queue heading and exit action
+  - Before: `Campaign Queue Empty (:4145); Return to Campaigns (:4155)`
+  - Why: Essential state label and action.
+  - Pins: AGENT_RULES.md:118
+- **B4-13** · Still needed · `src/components/dialer/QueueExhaustedNotice.tsx:54` — Team/Open empty queue notice: default state (shown while the get_queue_metrics RPC is loading, and after it fails at :42-45, where loaded=true and row stays null)
+  - **Implemented (2026-10-12):** `e31b002` (C4b).
+  - Before: `heading "No Available Contacts In Queue."; detail "Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry."`
+  - After: `While not loaded: heading "Checking queue…" with no detail. When loaded with no row: heading "Couldn't load queue status." with no detail. The generic detail is deleted.`
+  - Markup: Initialise heading to "Checking queue…" and detail to "", then add `if (loaded && !row) heading = "Couldn't load queue status."` before the existing `if (loaded && row)` chain. Render the detail paragraph only when it is non-empty (`{detail && <p …>}` at :99). The RPC, the effect and branch order are unchanged.
+  - Tests: No existing test. Add src/components/dialer/__tests__/queueExhaustedNotice.test.tsx: mock supabase.rpc and assert each branch heading stays distinct (loading, error, total=0, licensing, eligible=0, locked, retry/callback) plus "Next eligible in". The dialer-dnc-backend.yml vitest filter "dialer" will pick it up.
+  - Pins: AGENT_RULES.md:118 (distinguish empty / exhausted / temporarily ineligible / locked-by-others). This proposal keeps all four and adds a separate failed state, so no amendment is needed.
+  - Accessibility: The h2 text changes. The component has no role=status today, and this proposal does not add one.
+  - Why: Today, loading and RPC failure render the same text as a genuinely exhausted queue, so the failed state cannot be told apart from an empty one. That conflicts with the owner standard's loading and failed distinctions. The fix uses only the existing `loaded` and `row` state; there is no query or logic change. The generic detail is filler.
+- **B4-14** · Still needed · `src/components/dialer/QueueExhaustedNotice.tsx:59` — Team/Open empty queue notice: campaign has no leads (total_leads === 0)
+  - **Implemented (2026-10-12):** `8e92099` (C4), `e31b002` (C4b).
+  - Before: `heading "This Campaign Has No Leads."; detail "Import or assign leads to this campaign to start dialing."`
+  - After: `heading "This Campaign Has No Leads." unchanged; detail deleted`
+  - Markup: Covered by the conditional detail render in B4-13.
+  - Tests: New queueExhaustedNotice test (B4-13)
+  - Pins: AGENT_RULES.md:118 (empty state kept); no amendment needed
+  - Accessibility: No change.
+  - Why: The heading is self-explanatory. The nudge is filler and doesn't fit agents, who cannot import. The no-leads state stays distinct.
+- **B4-15** · Still needed · `src/components/dialer/QueueExhaustedNotice.tsx:67` — Team/Open empty queue notice: licensed-state restriction (requireLicensedStateAccess)
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `heading "No leads in your licensed states for this campaign."; detail "This campaign only serves contacts in states where you hold an active license. Contacts with no state are still shown. Add licenses in your profile or ask your admin."`
+  - After: `heading unchanged; detail "Add licenses in your profile or ask your admin."`
+  - Tests: New queueExhaustedNotice test (B4-13)
+  - Accessibility: No change.
+  - Why: The heading already states the licensed-state requirement. The remedy, which is the license requirement action, stays. The rule restatement and the no-state nuance are redundant here. Branch precedence at :62 is unchanged.
+- **B4-16** · Retained · `src/components/dialer/QueueExhaustedNotice.tsx:71` — Team/Open empty queue notice: completed (eligible_leads === 0)
+  - Before: `heading "Campaign Complete."; detail "Every lead in this campaign has been processed (called, removed, or marked DNC)."`
+  - Why: Not congratulatory. The detail defines the processed set (including DNC) and separates queue completion from the campaign "Completed" status shown on CampaignDetail.
+  - Pins: AGENT_RULES.md:118 (exhausted state)
+- **B4-17** · Still needed · `src/components/dialer/QueueExhaustedNotice.tsx:74` — Team/Open empty queue notice: leads locked by other agents
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `heading "All Available Leads Are Being Dialed."; detail "{n} lead(s) is/are currently locked by {m} active agent(s). One may free up shortly."`
+  - After: `'${n} lead${n !== 1 ? "s are" : " is"} locked by ${m} active agent${m !== 1 ? "s" : ""}.'`
+  - Tests: New queueExhaustedNotice test (B4-13)
+  - Pins: AGENT_RULES.md:118 (locked-by-others kept); no amendment needed
+  - Accessibility: No change.
+  - Why: Removes the filler reassurance ("One may free up shortly.") and "currently". The locked and active counts stay, and the state stays distinct.
+- **B4-18** · Still needed · `src/components/dialer/QueueExhaustedNotice.tsx:78` — Team/Open empty queue notice: retry or callback waiting (temporarily ineligible)
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `heading "No Eligible Leads Right Now."; detail "Leads exist but aren't callable yet ({n} waiting on retry, {m} upcoming callback(s))." or fallback "Leads exist but aren't callable yet (retry timing, callbacks, or suppression)."`
+  - After: `'${bits.join(", ")}.'; fallback "Waiting on retry timing, callbacks, or suppression."`
+  - Tests: New queueExhaustedNotice test (B4-13)
+  - Pins: AGENT_RULES.md:118 (temporarily ineligible; next_eligible_at shown). Kept, so no amendment is needed.
+  - Accessibility: No change.
+  - Why: The heading already says the leads aren't callable. The counts and the reason buckets stay. "Next eligible in {t}" (:100-104) is untouched.
+- **B4-19** · Retained · `src/components/dialer/QueueExhaustedNotice.tsx:102` — Team/Open empty queue notice: next eligible timing
+  - Before: `Next eligible in {formatTimeUntil(next_eligible_at)}`
+  - Why: Operationally useful retry timing, required by the rule.
+  - Pins: AGENT_RULES.md:118
+- **B4-20** · Still needed · `src/pages/DialerPage.tsx:4340` — Dialer in-session column area when the queue has rows but no current lead (isQueueExhausted, :495-497)
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Your queue is empty or all contacts have been processed. Additional leads will appear here when assigned or eligible for retry.`
+  - After: `(delete)`
+  - Markup: Replace the ternary at :4334-4342 with `{nextAvailableTime && (<p …>…</p>)}`. The h3 at :4333 keeps mb-2. The wrapper is unchanged.
+  - Accessibility: The h3 stays.
+  - Why: Generic filler under "No Available Contacts In Queue.". The retry-timing line stays when it applies.
+- **B4-21** · Still needed · `src/pages/DialerPage.tsx:4336` — Dialer in-session exhausted area: next retry or callback timing
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Next Available Contact Is In {formatTimeUntil(...)}`
+  - After: `Next eligible in {formatTimeUntil(...)}`
+  - Accessibility: No change.
+  - Why: Simplifies the wording and makes the three retry-timing displays read the same (QueueExhaustedNotice.tsx:102, QueuePanelLocked.tsx:215). The timing and its source are unchanged.
+- **B4-22** · Retained · `src/pages/DialerPage.tsx:4333` — Dialer in-session exhausted heading
+  - Before: `No Available Contacts In Queue.`
+  - Why: State label.
+- **B4-23** · Still needed · `src/components/dialer/QueuePanelLocked.tsx:204` — Team/Open Queue tab: count card subline
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `{n} agent(s) dialing`
+  - After: `(delete)`
+  - Markup: Delete the div at :204-206. The total/callable line (:208, mt-2) keeps its spacing.
+  - Pins: AGENT_RULES.md:117 (Available plus a separate total/callable line). Both stay, so no amendment is needed.
+  - Accessibility: No change; the pill keeps its label.
+  - Why: It repeats the "Active Agents" pill (:225-228), which shows the same counts.agentsActive value.
+- **B4-24** · Still needed · verifier: revise · `src/components/dialer/QueuePanelLocked.tsx:263` — Team/Open Queue tab: lock notice
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Queue order is managed by your campaign admin. / Leads are assigned automatically as you dial.`
+  - After: `Leads are assigned automatically as you dial.`
+  - Markup (as mapped; the verifier correction below wins where they differ): Delete the whole notice block at :260-267. The parent `flex flex-col gap-4` handles spacing.
+  - Accessibility: No change.
+  - Why: A redundant explanatory paragraph. The locked panel itself (counts only, no list) already shows that leads are served automatically.
+  - Verifier correction: Delete only the first sentence and the `<br />` (QueuePanelLocked.tsx:263-264), and keep the wrapper (:261-262) with the second sentence. In Team/Open, the Queue tab replaces Personal's lead list with counts only, and this line is the only statement that the missing list is intentional. Without it, the view can read as a list that failed to load, which breaks the owner's empty-versus-failed rule. "Queue order is managed by your campaign admin" is the redundant part: agents have no reorder control anyway. It is also wrong for the manager roles who see Campaign Filters directly below (:105-106, :270). Keeping one line also keeps the "lock notice" doc comments accurate (QueuePanel.tsx:66, QueuePanelLocked.tsx:74). No test pins it.
+- **B4-25** · Retained · `src/components/dialer/QueuePanelLocked.tsx:202` — Team/Open Queue tab: metrics
+  - Before: `"Available To You Now" (:202); "{total} total · {eligible} callable" (:209-211); "Next eligible in {t}" (:215); pills Locked / Active Agents / Available (:223-232); "{n} waiting on retry" / "{n} callback(s) upcoming" (:252,:255)`
+  - Why: These are the authoritative queue metrics from get_queue_metrics. The rule requires them and they are not clutter.
+  - Pins: AGENT_RULES.md:115-117
+- **B4-26** · Retained · `src/components/dialer/QueuePanelLocked.tsx:282` — Team/Open Queue tab: manager Campaign Filters
+  - Before: `These filters apply to all agents in this campaign.`
+  - Why: States the consequence of a manager write that affects every agent's queue.
+- **B4-27** · Retained · `src/components/dialer/QueuePanel.tsx:166` — Personal Queue tab
+  - Before: `"Queue is empty" (:166); "No leads match filters" + Clear Filters (:171,:176); "Showing {x} of {y} leads" (DialerPage.tsx:4605); badges Callback Due / Ready / "Retry in {t}" / "Callback in {t}" / Now (:242-269); "Calls Today:" / "Total Calls:" (:225,:228)`
+  - Why: Empty and filtered-empty stay distinct, the filter scope is shown, and per-lead retry timing is kept.
+- **B4-28** · Retained · `src/components/dialer/DialerActions.tsx:108` — Dialer controls: lead-not-ready banner
+  - Before: `Warning: Available for callback in {t} / Warning: Available for retry in {t}`
+  - Why: Operational retry and callback timing at the moment of calling. The word "Warning:" carries meaning that the amber color alone does not.
+- **B4-29** · Retained · `src/components/dialer/DialerActions.tsx:321` — Dialer Scripts tab and script popup
+  - Before: `"No scripts assigned to this campaign" (:321); script name and 40-character preview (:333-337); "No content available for this script." (DraggableScriptPopup.tsx:52)`
+  - Why: An empty state, plus script content that is user-authored and must not be touched.
+- **B4-30** · Retained · `src/components/dialer/LeadCardBlurred.tsx:115` — Team/Open ringing lead card
+  - Before: `"Calling · Attempt {n}" (:63); "Revealed on connect" (:115); field labels`
+  - Why: States the permission and readiness rule for the blurred fields. Tests pin it.
+- **B4-31** · Retained · verifier: revise · `src/components/dialer/TeamOpenLeadDetails.tsx:24` — Team/Open lead details notices
+  - Before: `"Loading the full contact record…"; "The full contact record could not be loaded. Showing this campaign's copy only." + Retry; "The full contact record isn't available to you yet — showing this campaign's copy. More details appear once this lead is claimed." (:22-27); "Custom field settings could not be loaded; saved custom values are shown read-only." (:71); "No details on file." (:75)`
+  - Why: Keeps the loading, failed and not-yet-authorized (permission and readiness) states apart, plus a material missing-data note.
+  - Verifier correction: The classification is correct, but the pin list is incomplete. Besides dialerAppointmentSave.test.tsx:525, the e2e harness asserts this notice: e2e/team-open-local/scenarios.mjs:105 checks `connected?.includes("isn't available to you yet")`.
+- **B4-32** · Retained · `src/components/dialer/DialerHeaderStats.tsx:66` — Dialer header stats: scope and stale line
+  - Before: `Selected campaign · Local day ({tz}) [· Stale since {time} | · Stats unavailable] [Retry stats]`
+  - Why: Shows the selected scope and period and the stale or unavailable state, with Retry. The Part A list marks the labels as already simple.
+  - Pins: AGENT_RULES.md:93 (selected-campaign, user-local-day header stats)
+- **B4-33** · Still needed · verifier: revise · `src/pages/DialerPage.tsx:4302` — Dialer top bar: readiness pill
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `[green dot] Dialer Ready`
+  - After: `(delete) — or, as the owner alternative, bind to twilioStatus`
+  - Markup (as mapped; the verifier correction below wins where they differ): Delete the div at :4300-4303. The right group keeps `gap-3`.
+  - Accessibility: Removes a misleading visible status. There was no live region.
+  - Why: The pill is static and always says "Dialer Ready" whatever twilioStatus is (twilioStatus is destructured at :520 but never used here). It claims readiness even when the phone is connecting or errored, which misrepresents a readiness state. The real states are shown by FloatingDialer (:932-940) and enforced by makeCall toasts.
+  - Verifier correction: The pill is confirmed static at :4300-4303, and twilioStatus is not used in it. The rationale is wrong on one point: FloatingDialer starts closed (`open=false`, FloatingDialer.tsx:128), so its :932-940 status is not visible on /dialer by default. The cue that is always visible is the TopBar avatar dot, which shows AgentStatusContext's derived "Offline (phone disconnected)" (TopBar.tsx:94-96; aria-label "Account menu, status: …" at :196). There is also the click-time error toast at DialerPage.tsx:2560-2561. The string also appears in a historical card excerpt at e2e/team-open-local/evidence/final-run/evidence.sanitized.json:254. That is a record, not an assertion; do not edit it. Keep this as an owner decision: delete it, or bind it to twilioStatus.
+- **B4-34** · Retained · `src/pages/DialerPage.tsx:4169` — Dialer safety and compliance surfaces
+  - Before: `Orphan banner "Active call detected after page reload" / "Call {id}... is still {status} on the network. Audio cannot be restored — use Hang Up to terminate cleanly." (:4169-4173); "Caller ID Changed" modal (:4208-4216, and FloatingDialer.tsx:814-822); "Do Not Call Warning" / "This number is on the agency DNC list and cannot be called." + Reason (:4751-4765); DNC skip toast "Skipped {phone} — on agency DNC list." (:2586-2588)`
+  - Why: Telephony recovery diagnostics, caller-ID consequence, and DNC compliance.
+- **B4-35** · Still needed · `src/pages/DialerPage.tsx:4809` — Dialer End-of-Session modal
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Queue is now empty. Great work!`
+  - After: `Queue is now empty.`
+  - Accessibility: The dialog has a DialogTitle ("Session Complete") and no Description, both before and after. That is pre-existing; the repository has no aria-describedby={undefined} pattern. No change is proposed.
+  - Why: Removes the congratulatory filler. The session totals "Total Leads" and "Leads Dialed" (:4796-4804) and the End Session action stay. Note that this modal opens only from the "auto-dial-session-end" listener (:3421-3428), and nothing in the repository dispatches that event, so it is unreachable today and the edit is harmless.
+- **B4-36** · Still needed · `src/pages/DialerPage.tsx:4885` — Lead Not Ready (queue override) confirmation
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `This lead is scheduled for a future retry or callback and normally shouldn't be called yet. Are you sure you want to override the schedule and call them now?`
+  - After: `This lead is scheduled for a future retry or callback. Override the schedule and call now?`
+  - Accessibility: The DialogDescription stays, so the Radix Title and Description pair stays valid.
+  - Why: Removes the redundant restatement. The click-time guard, the Title "Lead Not Ready", and the Cancel / "Call Anyway" buttons are unchanged.
+- **B4-37** · Retained · `src/pages/DialerPage.tsx:1662` — Dialer toasts
+  - Before: `Lock and queue: :1662 "Lead lock was lost. Your draft is retained; refresh the queue before continuing.", :1673, :1702/:1820 "Failed to load leads: …", :1797 "Session expired — starting from the top", :1804 "Resuming where you left off", :1978 "Queue updated — new leads are now eligible", :2282, :2306 "No more dialable leads ready right now.", :2727/:3670 "Queue empty — no more leads available". Call guards: :2469, :2526, :2548, :2552, :2556, :2561, :2579, :2840. Settings: :3105-3235. Wrap-up validation and save: :3539-3546, :3595-3634, :3639-3733, :3749-3765, :3796, :3837. Contact and appointment saves: :3867-3869, :4004-4006, :4029, :4692, :4728-4740.`
+  - Why: Every one reports a failure, a click-time guard, lock loss, a queue state change, or save acknowledgement, which is shown before the queue advances. None is filler.
+- **B4-38** · Already satisfied · `src/components/dialer/ConversationHistory.tsx:317` — Dialer message composer and send
+  - Before: `MessageComposePanel (input, Templates, Send); send toast "{SMS|EMAIL} sending coming soon" (DialerPage.tsx:4046); "No activity yet" (:165); "No inbox connected" (:128)`
+  - Why: Already meets the Manual SMS UI rule: no purpose dropdown, consent-readiness paragraph or status link. The coming-soon toast is a not-active feature notice and must stay.
+  - Pins: AGENT_RULES.md:648 (Manual SMS UI). Already satisfied; no amendment needed.
+- **B4-39** · Retained · `src/components/layout/FloatingDialer.tsx:933` — Floating dialer header connection status
+  - Before: `"Connecting…" (:933); "Starting phone…" (:934); "Ready" (:935); "{twilioErrorMessage}" or "Connection failed" + "retry" (:938-939)`
+  - Why: Real readiness and connection-failure states.
+- **B4-40** · Still needed · `src/components/layout/FloatingDialer.tsx:977` — Floating dialer: desktop alerts opt-in
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `One tap unlocks optional desktop pop-ups for inbound life-insurance calls (Twilio rings in the browser; your browser may require this for notifications).`
+  - After: `(delete)`
+  - Markup: Delete the <p> at :976-978. Keep the bordered wrapper div (:975) and the "Enable desktop alerts" Button (:979-986).
+  - Pins: AGENT_RULES.md:648 states the owner's minimal-copy preference. This supports the change; no amendment needed.
+  - Accessibility: The button's accessible name "Enable desktop alerts" is unchanged.
+  - Why: An implementation explanation; the rule asks for no implementation explanations in UI copy. The button label already says what it does, and the box appears only while alerts are off.
+- **B4-41** · Still needed · `src/components/layout/FloatingDialer.tsx:996` — Floating dialer: notifications denied note
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Browser notifications are off — you’ll still get the in-app incoming screen and Twilio’s ringtone when this tab is open.`
+  - After: `Browser notifications are off. Incoming calls still ring in this tab.`
+  - Accessibility: No change.
+  - Why: Shorter, and keeps the consequence: calls are only signalled while this tab is open. Drops the vendor name.
+- **B4-42** · Still needed · `src/components/layout/FloatingDialer.tsx:1012` — Floating dialer Recent tab: empty state
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `Your call history will appear here`
+  - After: `(delete)`
+  - Markup: Delete the <p> at :1012. The `space-y-2` wrapper keeps the icon and "No recent calls".
+  - Accessibility: No change.
+  - Why: Filler under "No recent calls".
+- **B4-43** · Still needed · `src/components/layout/FloatingDialer.tsx:1008` — Floating dialer Recent tab: failed load shown as empty
+  - **Implemented (2026-10-12):** `e31b002` (C4b); follow-up `26d79d3` (the failure text is announced, role="alert").
+  - Before: `When recentError is true (set at :394), the panel shows "No recent calls" (:1008-1011), the same as a genuinely empty history.`
+  - After: `recentError: "Couldn't load recent calls."; empty: "No recent calls"`
+  - Markup: Split the condition at :1008 into two branches: `!recentLoading && recentError` renders the error line in the same icon wrapper, and `!recentLoading && !recentError && recentCalls.length === 0` renders "No recent calls". The fetch is unchanged.
+  - Accessibility: Visible text only. Optionally give the error line role="alert", matching the disposition-config alert at :1166; this is not required.
+  - Why: Today a failed load reads as an empty history. The owner standard keeps empty and failed apart. This branches only on the existing recentError state.
+- **B4-44** · Still needed · verifier: revise · `src/components/layout/FloatingDialer.tsx:1159` — Floating dialer wrap-up heading
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `How did it go?`
+  - After: `Select Outcome`
+  - Tests (as mapped; the verifier correction below wins where they differ): src/components/layout/__tests__/floatingDialerDisposition.test.tsx:98 — findByText("How did it go?") becomes findByText("Call Outcome") · src/components/layout/__tests__/floatingDialerDisposition.test.tsx:267 — getByText("How did it go?").toBeVisible() becomes getByText("Call Outcome").toBeVisible(). Both remain wrap-up-visible sentinels, so the semantics are unchanged.
+  - Accessibility: It is a <p>, not a heading, so no accessible-name dependency.
+  - Why: Replaces a conversational filler prompt with a plain label, in the same Title Case as "Call Notes" and "Schedule Callback" in the same panel.
+  - Verifier correction: The replacement is right, but use the product's existing wording rather than a new label: the main Dialer's disposition heading is "Select Outcome" (DialerActions.tsx:180). The tests change to findByText("Select Outcome") at floatingDialerDisposition.test.tsx:98 and getByText("Select Outcome").toBeVisible() at :267. FloatingDialer has no other "Select Outcome" text, so the matches stay unique.
+- **B4-45** · Retained · `src/components/layout/FloatingDialer.tsx:1162` — Floating dialer wrap-up guards, readiness and dial pad
+  - Before: `"Your account or agency changed. Return to this call's account and agency to finish." (:1162); "Couldn't load dispositions. Please retry." / "No dispositions are configured for this agency." / "Waiting for your agency…" / "Loading dispositions…" + Retry (:1168-1174); "Wait for Ready in the header before placing a call." (:1226); title "Wait until the dialer shows Ready" (:834, :1290, :1334); "or dial manually" (:1301); "No contacts" (:1261); validation toasts (:697-746)`
+  - Why: Scope guard, the four distinct disposition-config states, readiness, and a useful divider label.
+  - Pins: AGENT_RULES.md:41 (Floating dialer configuration: load before enabling wrap-up)
+- **B4-46** · Still needed · verifier: revise · `src/contexts/TwilioContext.tsx:949` — Toast after enabling desktop alerts (permission granted)
+  - **Implemented (2026-10-12):** `2c397ff` (C4a).
+  - Before: `Desktop alerts are on for inbound calls. Twilio plays the ringtone in your browser.`
+  - After: `Desktop alerts are on for inbound calls.`
+  - Tests (as mapped; the verifier correction below wins where they differ): None assert it. src/lib/__tests__/outboundPathPinned.test.ts and inboundOrphanSafety.test.ts read this source file but do not reference this string (grep verified). The dialer-dnc-backend.yml gate (vitest filters plus tsc) covers src/**.
+  - Accessibility: Toast text only.
+  - Why: The second sentence is an implementation explanation. The confirmation stays.
+  - Verifier correction: The change is right, but the test inventory is incomplete. Seven tests read TwilioContext.tsx as source text:
+- inboundBrowserLifecycleWrites
+- inboundBrowserZeroWrites
+- inboundDeviceLifetime
+- inboundOrphanSafety
+- outboundAnswerSignalPinned
+- outboundPathPinned
+- realtimeExactRowScope
+
+None references the string. inboundBrowserLifecycleWrites.test.ts:152-153 uses fixed 1200/2000-character windows around calls writes, and those sites are far from :949. Only outboundPathPinned is in the dialer-dnc-backend.yml filter list, so run `npx vitest run src/lib/__tests__/inbound src/lib/__tests__/outbound src/lib/__tests__/realtimeExactRowScope` explicitly.
+- **B4-47** · Retained · verifier: revise · `src/contexts/TwilioContext.tsx:860` — Telephony toasts
+  - Before: `:860 "This call was answered by another agent."; :951-953 notifications blocked, how to allow; :955 "Could not unlock audio for this browser…"; :957 "Inbound alerts enabled."; :1210 inbound managed by the phone system, cleared from this tab only; :1235/:1238/:1242 orphan hang-up results; :1428 / :1464 answer microphone and answer errors; :1568 "Call timed out after {n}s without answer."; :2174 / :2183 click-time re-entry guards; :2190-2194 / :2200 / :2205-2210 device not registered or ready; :2232 / :2240 auth; :2246 "Security Block: No Valid Organization Token."; :2251 profile loading; :2261 microphone required; :2415 / :2426 call start failures`
+  - Why: All of these are operationally necessary: call failures, device and connection errors, permission errors, cooldown and re-entry guards, and inbound ownership outcomes. Only :949 has a filler clause (B4-46). :2246 is jargon but is an error that must stay; rewording it is an optional owner choice and is not proposed.
+  - Verifier correction: The toasts are verified at :860, :955, :1210, :1235-1242, :1428, :1464, :1568, :2174-2261, :2415 and :2426. One exception: the :951-953 toast carries the same vendor and implementation clause ("Twilio still rings incoming calls in this tab.") that B4-41 and B4-46 remove. Treat it the same way, for consistency.
+- **B4-48** · Already satisfied · verifier: revise · `src/components/campaigns/CampaignsPageContent.tsx:135` — Campaigns management page header
+  - Before: `h1 "Campaigns" + count (sr-only "{n} campaigns") (:135-139); "New Campaign" behind PermissionGate "Create Campaigns" (:108,:113)`
+  - Why: No introduction or explanatory paragraph exists, and the permission gate stays.
+  - Pins: AGENT_RULES.md:676 (New Campaign keeps PermissionGate "Create Campaigns")
+  - Verifier correction: The line numbers are wrong. The h1 "Campaigns" is at CampaignsPageContent.tsx:118, the sr-only "{n} campaigns" at :121, and PermissionGate "Create Campaigns" spans :96-103. The classification is correct.
+- **B4-49** · Superseded · `src/pages/Campaigns.tsx:14` — Old Campaigns card-grid copy hunks (Part B batch 2)
+  - Before: `Old card-grid introduction and card copy. It no longer exists; Campaigns.tsx is now a keyed wrapper that renders CampaignsPageContent.`
+  - Why: PR #433 replaced the card grid with the management table (implementation_plan §3, :104,:111).
+  - Pins: AGENT_RULES.md:670-678 (Campaigns table invariant; never restore the card grid)
+- **B4-50** · Already satisfied · verifier: revise · `src/components/campaigns/CampaignsListStates.tsx:32` — Campaigns list loading, error, empty, filtered-empty and notices
+  - Before: `aria-label "Loading campaigns" (:9); "There are too many campaigns to display." / "Couldn't load campaigns." + Retry (:32-37); "No campaigns yet" (:47); "No campaigns match" + "Reset filters" (:57-58); notices "Couldn't refresh campaigns." / "Metrics unavailable." / "Couldn't refresh metrics." / "Last dialed unavailable." + Retry (CampaignsPageContent.tsx:151-154); "Showing {x} of {y}" + "Show more" (CampaignsPageContent.tsx:172-174)`
+  - Why: Already one concise line per state, and empty, filtered, failed and stale stay distinct.
+  - Pins: AGENT_RULES.md:674 (loading, error, unavailable and value are separate states)
+  - Verifier correction: The CampaignsListStates lines (:9, :32-37, :47, :57-58) are correct. The CampaignsPageContent lines are wrong: the four notices are at :134-137, and "Showing {x} of {y}" with "Show more" is at :153-159.
+- **B4-51** · Retained · `src/components/campaigns/CampaignCells.tsx:67` — Campaigns table metric and last-dialed cells, row details
+  - Before: `Dash with sr label "Metrics unavailable" (:67) / "Not available for this campaign" (:68) / "Last dialed unavailable" (:165); "Never" (:167); tooltip "Called at least once" (:99); compact "called" (:86); "Unknown user" (:112,:154); "Open to agency" (:139); row details labels (CampaignRowDetails.tsx:36-48)`
+  - Why: Authoritative metrics with separate unavailable and failed states (never 0). Required by the invariant.
+  - Pins: AGENT_RULES.md:674 (omitted rows show "—"; never 0 for loading or failed metrics)
+- **B4-52** · Already satisfied · `src/components/campaigns/CampaignColumnsMenu.tsx:100` — Campaigns Columns editor
+  - Before: `"Columns" (:100); prefs error / "Couldn't load saved columns." + Retry (:104-106); sr-only "(always shown)" (:27) and "Visible columns and order" (:111); Reset / Cancel / Save / "Saving…" (:137-142); "Loading…" (:148); prefs.ts:35-38 errors ("Your columns changed elsewhere. Try again.", "Saved columns use a newer format and can't be changed here.")`
+  - Why: There is no helper paragraph. The conflict and version-refusal errors carry the compare-and-set and version-refusal invariant.
+  - Pins: AGENT_RULES.md:678 (column preferences: CAS, version refusal, View As edit block)
+- **B4-53** · Retained · verifier: revise · `src/components/campaigns/CampaignRowActions.tsx:23` — Campaigns duplicate and create restrictions
+  - Before: `"Only the campaign owner can duplicate" / "Unavailable while the agency is suspended or archived" (:23-24); New Campaign tooltip "This agency is suspended/archived. Reactivate to create campaigns." (CampaignsPageContent.tsx:117); same toast (DuplicateCampaignDialog.tsx:114)`
+  - Why: Permission and suspended-agency restrictions.
+  - Pins: AGENT_RULES.md:676 (Duplicate owner/assignee rule; blocked when suspended or archived)
+  - Verifier correction: The line numbers are wrong. The New Campaign tooltip is at CampaignsPageContent.tsx:100 (not :117). The suspended or archived toast is at DuplicateCampaignDialog.tsx:39 (not :114; the file has 90 lines). CampaignRowActions.tsx:23-24 is correct.
+- **B4-54** · Retained · verifier: revise · `src/components/campaigns/DuplicateCampaignDialog.tsx:152` — Duplicate campaign confirmation
+  - Before: `Title "Duplicate campaign"; description "Creates a Draft copy of {name}. Leads are not copied." (:150-153); toast "Campaign duplicated. Find it in your Draft campaigns." (:130); "Failed to duplicate campaign" (:119,:127)`
+  - Why: States the consequence (a Draft copy, leads not copied) and where the copy goes. Tests pin the toast.
+  - Pins: AGENT_RULES.md:676 (Duplicate keeps the old payload)
+  - Verifier correction: The line numbers are wrong for a 90-line file:
+- Title: DuplicateCampaignDialog.tsx:75
+- Description "Creates a Draft copy of {name}. Leads are not copied.": :76-78
+- Success toast: :55
+- "Failed to duplicate campaign": :44 and :52
+
+The pins are also incomplete. Add duplicateCampaignDialog.test.tsx:127 (`toHaveTextContent("Leads are not copied.")`) alongside :182.
+- **B4-55** · Retained · `src/components/campaigns/CreateCampaignModal.tsx:137` — Create Campaign modal
+  - Before: `Type descriptions "All assigned agents compete for the same leads in real time" / "Agent manages their own private lead list" / "Admin assigns specific leads to specific agents" (:137-139); "This campaign will be assigned to you" (:234); "Loading agents..." (:256); "No agents available — add agents in User Management first" (:259); toasts (:110,:115); Zod messages (:28-29)`
+  - Why: Users need the type semantics to choose a type, which cannot be changed later (CampaignDetail.tsx:1212). Also covers the ownership consequence and an empty state with a remedy. Not a target of this area.
+- **B4-56** · Still needed · `src/pages/CampaignDetail.tsx:932` — CampaignDetail Leads tab: agent empty state
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `You haven't claimed any leads in this campaign yet. Join the Dialer to get started.`
+  - After: `You haven't claimed any leads in this campaign yet.`
+  - Accessibility: No change.
+  - Why: Removes the filler nudge. The agent scope (only claimed leads are visible) is meaningful and stays.
+- **B4-57** · Retained · `src/pages/CampaignDetail.tsx:934` — CampaignDetail Leads tab: Team Leader and Admin empty states
+  - Before: `"No leads have been claimed in this campaign by you or your team yet." (:934); "This campaign has no leads yet." (:935)`
+  - Why: Role-scoped empty states that are already concise.
+- **B4-58** · Still needed · `src/pages/CampaignDetail.tsx:1174` — CampaignDetail Stats tab: empty state
+  - **Implemented (2026-10-12):** `8e92099` (C4).
+  - Before: `No leads in this campaign yet. Add leads from the Leads tab to get started.`
+  - After: `No leads in this campaign yet.`
+  - Accessibility: No change.
+  - Why: Removes the filler nudge, which is also wrong for roles without "Upload Campaign Leads".
+- **B4-59** · Retained · `src/pages/CampaignDetail.tsx:944` — CampaignDetail Leads tab: admin drag hint
+  - Before: `Drag rows to reorder the call queue priority`
+  - Why: The only cue for a non-obvious interaction, and it states the consequence (queue priority).
+- **B4-60** · Retained · `src/pages/CampaignDetail.tsx:890` — CampaignDetail not-active features
+  - Before: `Tooltips "Coming soon — configure SMS in Settings first" / "Coming soon — configure Email in Settings first" (:890,:900) on the disabled SMS Blast and Email Blast; tiles "SMS Sent" / "Emails Sent" showing "Coming Soon" (:1028-1034)`
+  - Why: Unavailable-feature notices must stay; never hide an unfinished feature to look complete.
+- **B4-61** · Retained · `src/pages/CampaignDetail.tsx:1023` — CampaignDetail Stats: Part A D10 labels and chart empty state
+  - Before: `"Leads Called" (:1023); "Leads Called Over Time" (:1121); series name "Leads Called" (:1132); chart empty "No contact activity yet" (:1123)`
+  - Why: Part A D10 labels; preserve them exactly. "No contact activity yet" was left unchanged in Part A (plan §… item 4, refuted as outside D10's scope). Any change to it is an owner decision.
+- **B4-62** · Retained · verifier: revise · `src/pages/CampaignDetail.tsx:1280` — CampaignDetail settings, permissions and destructive confirms
+  - Before: `"Danger Zone" / "Permanently delete this campaign and all its data. This cannot be undone." (:1279-1280); delete confirm messages (:1404-1405); "Remove this lead from the campaign? The lead itself won't be deleted." (:1412); "Remove {n} leads from this campaign?" (:1413); "(cannot be changed)" (:1212); "Personal campaigns are assigned to the owner only" (:1232); permission fallbacks (:1199,:1296); "Could not load import history." + Retry (:1304); "No imports yet for this campaign." (:1315); "Campaign not found" (:805)`
+  - Why: Irreversible-action warnings, a removal consequence, constraints, permission restrictions, and failed versus empty states.
+  - Verifier correction: Off-by-one lines: "Remove this lead from the campaign? The lead itself won't be deleted." is at :1411 and "Remove {n} leads from this campaign?" at :1412. The other lines are verified: :1279-1280, :1404-1405, :1212, :1232, :805, plus the permission fallbacks and the import-history states. Note that the "has activity" branch reads stored counters, as the mapper already listed.
+- **B4-63** · Retained · `src/pages/CampaignDetail.tsx:374` — CampaignDetail quick call and toasts
+  - Before: `Tooltip "No phone number on file" / "Phone hidden in Open Pool" / "Quick call" (:374); "You can manage this campaign, but only its owner can dial it." (:676); toasts (:244-250, :608-655, :698-710, :752, :778-779, :987)`
+  - Why: Covers material missing data, an Open Pool restriction, the dial-permission guard, and mutation results.
+- **B4-64** (found by the verifier) · Still needed · `src/contexts/TwilioContext.tsx:952` — Toast shown when desktop alerts are enabled but browser notifications are denied
+  - **Implemented (2026-10-12):** `2c397ff` (C4a).
+  - Before: `Allow notifications in your browser settings if you want desktop pop-ups. Twilio still rings incoming calls in this tab.`
+  - After: `Allow notifications in your browser settings if you want desktop pop-ups. Incoming calls still ring in this tab.`
+  - Tests: None assert it: a repo-wide grep for "Twilio still rings" and "Allow notifications in your browser" finds no test. Seven tests read TwilioContext.tsx as source: src/lib/__tests__/inbound*, outbound*, and realtimeExactRowScope. Run them explicitly; only outboundPathPinned is in the dialer-dnc-backend.yml filter.
+  - Pins: AGENT_RULES.md:648 (owner's minimal-copy, no-implementation-explanation preference). It supports the change, so no amendment is needed.
+  - Accessibility: Toast text only; no change.
+  - Why: This is the same vendor and implementation clause that B4-41 (FloatingDialer.tsx:996) and B4-46 (:949) remove. The remedy and the consequence (calls only ring in this open tab) stay. Change these three messages together so the desktop-alert copy stays consistent. If the owner declines TwilioContext edits (B4-46), this item becomes retained.
+- **B4-65** (found by the verifier) · Still needed · `src/hooks/useDialerSession.ts:336` — Dialer campaign selection: toast when the campaigns fetch fails
+  - **Implemented (2026-10-12):** `e31b002` (C4b).
+  - Before: `Could not load campaigns. Check your connection or ask an admin to verify database migrations.`
+  - After: `Could not load campaigns. Check your connection.`
+  - Tests: None. A grep for "verify database migrations" and "Could not load campaigns" finds no test. useDialerSession tests, if any, match the dialer-dnc-backend.yml "dialer" filter.
+  - Pins: AGENT_RULES.md:648 (minimal copy, no implementation explanations). It supports the change.
+  - Accessibility: Toast text only.
+  - Why: "ask an admin to verify database migrations" is a developer diagnostic. An agency admin cannot act on it; the real error is still logged at :333. The failure notice and the connection hint stay. The file is a hook, outside the listed Area 4 paths, but this string renders on the Dialer selection surface. The edit is string-only and does not change hook behavior. If the owner restricts Part B to the listed paths, classify it retained. Separate gap, not fixable by copy: after this toast, the persistent screen shows "No active campaigns" (CampaignSelection.tsx:136), so a failed load reads as empty. Fixing that needs an error flag returned from the hook, which is a separate task.
+- **B4-66** (found by the verifier) · Still needed · `src/components/campaigns/CampaignHeatmap.tsx:155` — CampaignDetail Stats tab: "Calls Made" and "Calls Answered" heatmaps (mounted at CampaignDetail.tsx:1040-1041)
+  - **Implemented (2026-10-12):** `e31b002` (C4b); follow-up `9094a2d` (a failed background refetch keeps the grid that already loaded; new test).
+  - Before: `When the calls query fails, 'data' is undefined, totalCalls is 0 (:95-100), and isEmpty is true (:102). The panel shows "No call data yet" (:154-158), and every cell tooltip reads "{day} {hour} — 0 calls" (:129, :138-144). A failed load reads as a genuinely empty history, with fabricated zeros.`
+  - After: `On error: "Couldn't load call data.", with cells in the existing loading style (muted, no tooltip). "No call data yet" shows only after a successful empty load.`
+  - Markup: Destructure `isError` from the existing useQuery at :61, and add `const unavailable = isLoading || isError;`. Use `unavailable` in place of `isLoading` at :129-130 (count and cell class) and :138 (tooltip guard). Set `isEmpty = !unavailable && totalCalls === 0` at :102. Render `{isError && <p className="text-xs text-muted-foreground text-center mt-3">Couldn't load call data.</p>}` beside :154-158. The queryKey, queryFn and supabase query are unchanged. The file grows from 171 to about 175 lines (under 200). Owner alternative (text only): just branch the :154-158 line on isError and leave the cells as they are.
+  - Tests: No test references CampaignHeatmap, "No call data yet", or "Couldn't load call data". src/pages/__tests__/campaignDetailImportRetry.test.tsx:340-349 renders the Stats tab, and with it both heatmaps, but asserts neither string and has no global negative text or role assertions. Rerun it explicitly; it is not in any CI filter. Optionally add a small test with a rejecting supabase mock asserting "Couldn't load call data." and no "No call data yet".
+  - Accessibility: A plain text line, like the existing empty line. Removing the tooltips on error removes false "0 calls" descriptions. role="status" is optional.
+  - Why: This is the same empty-versus-failed conflation the mapper fixes in B4-13 (QueueExhaustedNotice) and B4-43 (FloatingDialer Recent). The owner standard keeps failed and empty distinct and never shows a fabricated 0 for a failed metric. The fix uses only existing react-query state.
+- **B4-67** (found by the verifier) · Still needed · `src/pages/CampaignDetail.tsx:931` — CampaignDetail Leads tab: empty state when a status filter matches nothing
+  - **Implemented (2026-10-12):** `e31b002` (C4b).
+  - Before: `When leadFilter !== "All" (select at :873; filter applied at :598-600) and nothing matches, the role empty text renders: "You haven't claimed any leads in this campaign yet. Join the Dialer to get started." / "No leads have been claimed in this campaign by you or your team yet." / "This campaign has no leads yet." (:930-936). A filtered-empty view reads as a campaign with no leads.`
+  - After: `With leadFilter !== "All": "No leads match this filter." With leadFilter === "All": the role texts unchanged, with B4-56 applied.`
+  - Markup: Inside the existing <p> at :930, wrap the role ternary as `leadFilter !== "All" ? "No leads match this filter." : (…existing role ternary…)`. There is no new state, query or layout change; the status select directly above stays the way to clear it.
+  - Tests: None. No test sets leadFilter or asserts these strings; campaignDetailImportRetry.test.tsx uses the default "All". Optionally add a test that selects a status with no matches and asserts "No leads match this filter." and the absence of "This campaign has no leads yet.".
+  - Accessibility: Visible text only; no change.
+  - Why: The mapper listed this as truthfulness gap (b) and deferred it. It is the same presentation-only branch on existing state as B4-13 and B4-43, so it fits Part B. It also matches the Dialer's own "No leads match filters" distinction (QueuePanel.tsx:171). Separate gap, not fixable by copy: fetchLeads discards the Supabase error (:508), so a failed load also reads as empty here and in Stats (:1171-1174). That is a separate task.
+
+## Area 5 — Contacts, Conversations and Calendar
+
+Verified. Still needed: 18 · Retained: 28 · Already satisfied: 9 · Superseded: 2.
+
+- **B5-01** · Still needed · `src/pages/Conversations.tsx:317` — Conversations - right pane when no conversation is selected (also shown while a deep link resolves, and as the fallback for a rejected non-UUID contactId)
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<h2 className="text-2xl font-bold text-foreground mb-2">Your Unified Inbox</h2> followed by <p className="text-muted-foreground max-w-sm mx-auto">Select a conversation from the list to start messaging with your leads across SMS and Email.</p> (lines 317-320)`
+  - After: `<h2 className="text-2xl font-bold text-foreground">Select a conversation</h2> (delete the <p> on Conversations.tsx:318-320)`
+  - Markup: Remove `mb-2` from the h2 because nothing follows it any more. Keep the icon circle (`mb-6`) and the centering container unchanged.
+  - Tests: src/pages/__tests__/conversationsViewAs.test.tsx:326 `expect(await screen.findByText(/Your Unified Inbox/i))` must become `expect(await screen.findByText("Select a conversation"))`. Its semantics are unchanged: a non-UUID contactId still falls back to the no-selection pane, and the :325 `queryByTestId("thread")` null assertion stays. · Runs in sms-consent.yml (vitest list) and in the reports-frontend.yml full vitest. Note that src/pages/** alone does not trigger sms-consent.yml.
+  - Pins: None pin this text. AGENT_RULES.md:648 (minimal UI copy) is consistent with the change; no amendment is needed.
+  - Accessibility: The pane keeps one h2 with plain text. There is no dialog and no ARIA reference, so nothing breaks.
+  - Why: This is the owner's named target. The brand-style heading and the sentence explaining channels are both introductory. The instruction "Select a conversation" is all this state needs. The sidebar beside it already shows the list, the empty state and the error state.
+- **B5-02** · Retained · `src/pages/Conversations.tsx:288` — Conversations - deep link denied state
+  - Before: `"Conversation not available" / "This contact isn't in your conversations, or it no longer exists." (lines 288-291)`
+  - Why: This is the permission and not-found boundary for out-of-scope deep links. The sentence says why the thread is withheld, and it must never read as an empty inbox.
+  - Pins: AGENT_RULES.md:335 (Conversations effective-viewer scoping)
+- **B5-03** · Already satisfied · `src/components/conversations/ConversationsSidebar.tsx:207` — Conversations sidebar - load error vs empty list
+  - Before: `Error: "Couldn't load conversations" + {displayError} + Retry (207-216). Empty: "No conversations found." (221)`
+  - Why: The copy is already minimal, and the failed state stays distinct from the empty state.
+  - Pins: AGENT_RULES.md:397 (error state distinct from empty)
+- **B5-04** · Already satisfied · `src/components/conversations/ConversationThread.tsx:433` — Conversation thread - empty and failed states
+  - Before: `"No messages yet" (433). Failed: "Couldn't load this conversation" + {loadError} + Retry (421-428)`
+  - Why: The empty state is a heading only, and the failed state stays distinct and retryable.
+- **B5-05** · Retained · `src/components/conversations/ConversationThread.tsx:448` — Conversation thread - composer replaced under View As
+  - Before: `"Read-only while viewing as another user. Sending would use your own email connection and caller ID, not theirs." (448-452)`
+  - Why: This is the View As write restriction. The second sentence states the consequence: sending would use the operator's own mailbox and number. The owner's standard preserves View As restrictions.
+  - Pins: AGENT_RULES.md:379 (Under View As, reads may stay, writes may not)
+- **B5-06** · Already satisfied · `src/components/conversations/ContactBriefView.tsx:92` — Conversations - right contact brief panel
+  - Before: `{loadFailed ? "Contact details are unavailable." : "No contact selected."}; field fallbacks 'No email', 'Unknown'`
+  - Why: Each state is one short line, and the failed state differs from the no-contact state.
+- **B5-07** · Already satisfied · `src/components/messaging/MessageComposePanel.tsx:36` — Manual SMS/email composer (Conversations, contact view, Dialer)
+  - Before: `Inputs 'Type SMS message…' / 'Subject' / 'Type EMAIL message…', SMS/EMAIL pills, Templates, Send (title 'Send SMS'/'Send Email'). There is no purpose dropdown, no readiness paragraph and no refresh link.`
+  - Why: This already matches the Manual SMS UI rule exactly. Do not touch it.
+  - Pins: AGENT_RULES.md:648 Manual SMS UI (keep input/Templates/Send; never restore purpose dropdown, consent-readiness paragraph or status-refresh link)
+- **B5-08** · Superseded · `src/components/messaging/SmsReadiness.tsx:2` — Former manual-SMS consent readiness paragraph ('Informational: granted · Marketing: …' + Refresh)
+  - Before: `SmsReadiness is imported by nothing in src. SmsPurposeSelect ('Text purpose' select) is rendered only by workflows/panels/actionForms.tsx:39 and settings/TemplateModal.tsx:193, which are automated or template paths.`
+  - Why: The October 8 manual-SMS simplification removed the readiness UI from the composer. The file is dead code, and deleting it is not a copy edit. SmsPurposeSelect must stay because automated workflow and confirmation texts keep an explicit purpose.
+  - Pins: AGENT_RULES.md:646 (automated texts retain explicit purpose) · AGENT_RULES.md:648
+- **B5-09** · Still needed · `src/components/messaging/MessageTemplatesPickerModal.tsx:118` — Message templates picker dialog (shared: contact view FullScreenContactView.tsx:1342 and DialerPage.tsx:4192)
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<p className="text-sm font-normal text-muted-foreground">Pick a saved template for this {channel === "email" ? "email" : "text"}. Merge fields fill in using the contact and your profile when possible.</p> (lines 118-121, inside DialogHeader under DialogTitle 'Message templates')`
+  - After: `(delete MessageTemplatesPickerModal.tsx:118-121; DialogHeader keeps only <DialogTitle>Message templates</DialogTitle>; line 115 gets aria-describedby={undefined})`
+  - Markup: Line 115 becomes `<DialogContent className="max-w-md gap-4 sm:max-w-md" aria-describedby={undefined}>`. No spacing change is needed; DialogContent `gap-4` already separates the header from the search input.
+  - Tests: None assert the text. Every FullScreenContactView suite mocks this modal (e.g. fullScreenContactViewConversation.test.tsx:109), and smsConsent.test.tsx and sms-visual verify.mjs cover only the composer. · Gates: sms-consent.yml (triggered by src/components/messaging/**), reports-frontend.yml, dialer-dnc-backend.yml (src/**).
+  - Pins: AGENT_RULES.md:648 is consistent with this change (Templates stays); no amendment is needed.
+  - Accessibility: The <p> was never a DialogDescription, so today Radix 1.1.14 already sets aria-describedby to an id with no matching element and logs the 'Missing Description' warning. Passing aria-describedby={undefined} (the Radix opt-out) removes that dangling reference. The accessible name stays 'Message templates' from DialogTitle.
+  - Why: This is a modal introduction that restates the title, plus an implementation note about merge-field filling. AGENT_RULES.md:648 asks for no implementation explanations in the manual SMS UI. The Templates button and the picker itself stay.
+- **B5-10** · Retained · `src/components/messaging/MessageTemplatesPickerModal.tsx:141` — Message templates picker - list states
+  - Before: `"Select an organization to see templates." (141-143); "No {SMS|EMAIL} templates yet." <br/> "Add them under Settings → Email & SMS Templates." (147-151); "No templates match your search." (153)`
+  - Why: The missing-organization state is a context indicator. The modal has no create action, so the Settings path is the only actionable guidance, and it is accurate (settingsConfig.ts:77 'Email & SMS Templates'). The no-match line is already minimal.
+- **B5-11** · Still needed · `src/pages/Contacts.tsx:2762` — Contacts > Leads table - no-data empty state
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `noDataTitle "No leads yet" + noDataBody "Add your first lead to start building your pipeline." + 'Add Lead' button when permitted (renderEmptyState, body rendered at :2575)`
+  - After: `"No leads yet" + Add Lead button when permitted (delete Contacts.tsx:2762; 2556 'noDataBody?: string;'; 2575 '{noDataBody && <p ...>{noDataBody}</p>}'; prepend 'mt-3' to the 2576 button)`
+  - Markup: Shared helper (applies to B5-11/12/13): line 2556 `noDataBody: string;` becomes `noDataBody?: string;`. Line 2575 becomes `{noDataBody && <p className="text-sm text-muted-foreground mb-4">{noDataBody}</p>}` (Agents keeps its body, see B5-14). On line 2576, prepend `mt-3` to the Add button's className. The h3 keeps `mb-1`, so the heading-to-button gap stays at 16px, as before.
+  - Tests: No test asserts the body. These must stay green with no edits: src/lib/__tests__/contactsGatingRender.test.tsx, src/lib/__tests__/contactsRender.test.tsx, src/pages/__tests__/contactsViewAsFailClosed.test.tsx
+  - Pins: None. The Contacts Build 6 distinction between filtered-to-zero and no-records-yet (code comment :2538-2540) is preserved, because the headings and actions still differ.
+  - Accessibility: The h3 stays and the button keeps its visible label. No ARIA references.
+  - Why: The heading and the existing Add Lead action already explain the state. When the user cannot add, the body was misleading anyway, because it tells them to add.
+- **B5-12** · Still needed · `src/pages/Contacts.tsx:2865` — Contacts > Clients table - no-data empty state
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No clients yet" + "Convert leads to clients after policy sales, or add one manually." + 'Add Client'`
+  - After: `"No clients yet" + Add Client button (delete Contacts.tsx:2865)`
+  - Markup: Uses the shared helper change in B5-11.
+  - Tests: None assert it (same suites as B5-11 must stay green)
+  - Accessibility: No change beyond removing the text.
+  - Why: Add Client is present, and every lead row always exposes Convert (comment :2484). This is workflow guidance rather than essential safety text, so it is flagged for owner confirmation.
+- **B5-13** · Still needed · `src/pages/Contacts.tsx:2962` — Contacts > Recruits table - no-data empty state
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No recruits yet" + "Start building your recruit pipeline." + 'Add Recruit'`
+  - After: `"No recruits yet" + Add Recruit button when permitted (delete Contacts.tsx:2962)`
+  - Markup: Uses the shared helper change in B5-11.
+  - Tests: None assert it
+  - Accessibility: No change.
+  - Why: This is encouragement copy, and the heading and action already explain the state.
+- **B5-14** · Retained · `src/pages/Contacts.tsx:3016` — Contacts > Agents tab - empty state
+  - Before: `"No agents available" + "You'll see yourself and anyone in your downline here." (no action)`
+  - Why: There is no action button, and the sentence defines the list's scope (self plus downline). That makes an empty list read as a scope or permission outcome rather than an absence of agents. The owner's standard preserves meaningful scope.
+  - Pins: AGENT_RULES.md:370 (View As supports Contacts Import History and Agents tabs)
+- **B5-15** · Still needed · `src/pages/Contacts.tsx:2566` — Contacts Leads/Clients/Recruits/Agents - filtered-to-zero state
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No {noun}s match your filters" + "Try adjusting or clearing your filters to see more." + 'Clear filters' button (2565-2567)`
+  - After: `"No {noun}s match your filters" + Clear filters button (delete Contacts.tsx:2566; prepend 'mt-3' to the :2567 button)`
+  - Markup: On line 2567, prepend `mt-3` to the Clear filters button className (h3 `mb-1` + `mt-3` = the previous 16px gap).
+  - Tests: None assert the sentence. The same Contacts suites must stay green.
+  - Accessibility: No change.
+  - Why: The heading and the Clear filters action fully explain the state. The sentence restates the button.
+- **B5-16** · Retained · `src/pages/Contacts.tsx:2583` — Contacts tables - load error card
+  - Before: `"Couldn't load {tab}" + {loadError} + Retry`
+  - Why: This is the failed-versus-empty distinction, with real error feedback.
+  - Pins: AGENT_RULES.md:397
+- **B5-17** · Retained · `src/pages/Contacts.tsx:2712` — Contacts - lists blocked under View As
+  - Before: `"Contacts aren't available while viewing as another user" + "Lead, client and recruit lists are scoped by the database to the signed-in account, so they cannot be narrowed to the user you're viewing. Showing them here would display your own contacts under their name. Stop viewing as this user to see your contacts." (2712-2717)`
+  - Why: This is a View As restriction and its consequence: the operator's own contacts would appear under another user's name. It is outside this area's named targets, and the standard preserves permission and View As notices.
+  - Pins: AGENT_RULES.md:370,378
+- **B5-18** · Still needed · `src/pages/Contacts.tsx:3082` — Contacts > Import History - no imports yet
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No imports yet" + "When you import leads via CSV, your history will appear here." + 'Import CSV' (only when not impersonating and the user has contacts.leads.import)`
+  - After: `"No imports yet" + Import CSV button when permitted (delete Contacts.tsx:3082; prepend 'mt-3' to the :3085 button)`
+  - Markup: On line 3085, prepend `mt-3` to the Import CSV button className. The h3 keeps `mb-1`.
+  - Tests: src/pages/__tests__/contactsImportHistoryTab.test.tsx:273,297,401,419,428-440 assert only the heading 'No imports yet' (present or absent, plus the no-flash frames). They need no edit and must stay green.
+  - Pins: AGENT_RULES.md:398 (Import History scoping) is unaffected
+  - Accessibility: No change.
+  - Why: This is redundant import empty-state prose; the heading and the Import CSV action already explain the state. The permission and View As gating on the button is unchanged.
+- **B5-19** · Retained · `src/pages/Contacts.tsx:3069` — Contacts > Import History - failed load
+  - Before: `"Couldn't load import history" + {importHistoryError} + Retry (3062-3076); append failure inline`
+  - Why: This is the failed-versus-empty distinction.
+  - Pins: AGENT_RULES.md:397
+- **B5-20** · Retained · `src/pages/Contacts.tsx:3414` — Import History drill-in sheet
+  - Before: `SheetTitle {fileName}; SheetDescription '${imported} imported • ${date}' (3414-3416); empty states "This import was undone — its contacts were removed." / "No contacts were recorded for this import." / "No contacts you can access from this import." (3446-3450)`
+  - Why: The description carries real data: the count and the date. The three empty lines tell apart undone, nothing recorded and no access (a permission boundary).
+  - Pins: AGENT_RULES.md:398
+- **B5-21** · Retained · `src/pages/Contacts.tsx:3389` — Undo Import confirmation
+  - Before: `"Removes the leads created by this import (and their campaign queue rows) in one transaction. It only proceeds if none have calls, messages, appointments, tasks, conversions, or other history. The import record is kept and marked Undone."`
+  - Why: This is an irreversible, destructive-action warning with its preconditions.
+- **B5-22** · Retained · verifier: revise · `src/pages/Contacts.tsx:3527` — Possible duplicate prompt (Contacts page)
+  - Before: `ConfirmDialogDescription "Existing contacts that match the configured duplicate rule:" followed by the matched-records <pre>`
+  - Why: The sentence introduces the list of real matched records the user must judge before 'Save Anyway'. It is also kept in parity with ContactDeepLinkPage.tsx:327.
+  - Verifier correction: The rationale's parity claim is false. ContactDeepLinkPage.tsx:326-329 has no lead-in: it renders the matches directly as ConfirmDialogDescription with whitespace-pre-line. The two surfaces already differ. The title is already 'N possible duplicate(s) found' (contactSavePolicy.ts:190), so the lead-in only partly restates it, and it adds that the match comes from the agency's configured rule. Keeping it is defensible. The parity suites (contactsFullScreenDuplicateParity.test.tsx:331-347 and the deep-link suite) assert behavior only (Cancel and Save Anyway inside role=dialog), so either choice keeps them green.
+- **B5-23** · Still needed · `src/components/contacts/ContactsFilterModal.tsx:137` — Contacts filter drawer (Sheet) header
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<SheetTitle>Filter {activeTab}</SheetTitle> + <SheetDescription>Narrow down your {activeTab.toLowerCase()} using the filters below.</SheetDescription> (137-139)`
+  - After: `(delete ContactsFilterModal.tsx:137-139; SheetContent :134 gets aria-describedby={undefined}; remove 'SheetDescription,' from the import at :7, which is its only use)`
+  - Markup: Line 134 becomes `<SheetContent side="right" className="w-full sm:max-w-md p-0 flex flex-col" aria-describedby={undefined}>`. Remove `SheetDescription,` from the import on line 7. The SheetHeader padding (`px-6 pt-6 pb-2`) stays unchanged.
+  - Tests: No test asserts it. Gates: sms-consent.yml (src/components/contacts/**), reports-frontend.yml
+  - Accessibility: SheetContent is Radix Dialog Content, so without a Description it would keep a dangling aria-describedby and warn. aria-describedby={undefined} is the documented opt-out. The accessible name stays 'Filter {tab}'.
+  - Why: This is an obvious modal introduction that restates 'Filter Leads'.
+- **B5-24** · Retained · `src/components/contacts/ContactsFilterModal.tsx:170` — Contacts filter drawer - Status field in Kanban
+  - Before: `"Not applied in Kanban — the board shows every stage as a column."`
+  - Why: This is field guidance that explains why the control is disabled.
+- **B5-25** · Still needed · `src/components/contacts/FullScreenContactView.tsx:1224` — Contact view > Notes tab - empty list
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No Notes Yet" + "Important details and context will be stored here." (1223-1224), below the note textarea and 'Add Note' button`
+  - After: `"No Notes Yet" (delete FullScreenContactView.tsx:1224)`
+  - Tests: No suite asserts it. The fullScreenContactView*.test.tsx suites must stay green.
+  - Accessibility: No change.
+  - Why: This is redundant notes empty-state prose. The input and Add Note action sit directly above it.
+- **B5-26** · Still needed · `src/components/contacts/FullScreenContactView.tsx:1278` — Contact view > Campaigns tab (leads) - empty
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"Not in any campaigns" + "This lead is not currently part of any dialer campaigns." (1277-1278), header has 'Add to Campaign'`
+  - After: `"Not in any campaigns" (delete FullScreenContactView.tsx:1278)`
+  - Tests: None assert it
+  - Accessibility: No change.
+  - Why: The second line restates the heading, and the Add to Campaign action is in the tab header.
+- **B5-27** · Still needed · `src/components/contacts/TasksPanel.tsx:119` — Contact view > Tasks tab - empty
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `"No tasks yet" + "Add a follow-up task to keep track of next steps." (118-119), header has 'Add Task'`
+  - After: `"No tasks yet" (delete TasksPanel.tsx:119)`
+  - Tests: None assert it
+  - Accessibility: No change.
+  - Why: This is redundant task empty-state prose, because the header already shows Follow-Up Tasks and Add Task. Separately, TasksPanel already shows 'No tasks yet' on a query error. That empty-versus-failed gap is recorded in docs/plans/2026-09-28-contact-followups/implementation_plan.md:672 and is not changed here.
+- **B5-28** · Still needed · `src/components/contacts/FullScreenContactView.tsx:1333` — Contact view - Delete Note confirmation dialog
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<DialogTitle>Delete Note</DialogTitle> + <DialogDescription>Are you sure you want to delete this note?</DialogDescription>`
+  - After: `(delete FullScreenContactView.tsx:1333; DialogContent :1330 gets aria-describedby={undefined})`
+  - Markup: Line 1330 `<DialogContent>` becomes `<DialogContent aria-describedby={undefined}>`. The DialogDescription import stays, because :1307 and :1320 still use it.
+  - Tests: None assert it
+  - Accessibility: aria-describedby={undefined} avoids the dangling reference and the Radix warning. The accessible name stays 'Delete Note'.
+  - Why: The description only restates the title and carries no irreversibility or consequence information.
+- **B5-29** · Retained · `src/components/contacts/FullScreenContactView.tsx:1307` — Contact view - Delete contact dialog
+  - Before: `"Delete {name}? This permanently removes all associated data."`
+  - Why: This is an irreversible-action warning, and it names the record.
+- **B5-30** · Retained · verifier: revise · `src/components/contacts/FullScreenContactView.tsx:1320` — Contact view - Discard Changes dialog
+  - Before: `"You have unsaved edits in the contact profile. Leave without saving?"`
+  - Why: This warns about losing unsaved draft data, and the standard preserves drafts.
+  - Pins: Contact Details invariant (AGENT_RULES.md around :616) preserves failed-save drafts
+  - Verifier correction: The classification is correct, but the rule citation is wrong. AGENT_RULES.md:616 is a row in the Tools table. The failed-save-drafts preservation is at AGENT_RULES.md:638, in the Contact Details invariant that starts at :632. The test fullScreenContactViewSaveFailure.test.tsx:212 and :373 asserts the 'Discard Changes?' title.
+- **B5-31** · Retained · `src/components/contacts/activity/ContactActivityTimeline.tsx:9` — Contact view > Activity tab
+  - Before: `:9 "Detailed changes recorded since {date}. Earlier changes may not have been recorded."; :10 "Some operational changes could not be recorded. History may be incomplete."; :12 enrichment unavailable; :15 "Legacy entries may overlap events above; their source links were not recorded."; :18 "No activity recorded yet"; :20 "No more recorded events available"`
+  - Why: These are material missing-data and coverage indicators, and the empty state is already minimal. The contact-history plan forbids implying complete history and pins the end-of-history wording.
+  - Pins: docs/plans/2026-10-03-contact-history/implementation_plan.md:208 ('Do not show complete history'; exhaustion means **No more recorded events available**)
+- **B5-32** · Already satisfied · `src/components/contacts/conversation-history/ConversationTimeline.tsx:15` — Contact view > Conversation History card
+  - Before: `EMPTY_STATE_COPY 'No activity yet' / 'No calls yet' / 'No text messages yet' / 'No emails yet' (15-20); error "Couldn't load conversation history. Retry" (96-99); :112 enrichment note; :114 'No more recorded events available'`
+  - Why: The empty states are already one short line each, and the failed state stays distinct.
+  - Pins: docs/plans/2026-10-03-contact-history/implementation_plan.md:208
+- **B5-33** · Retained · `src/components/contacts/followups/ContactFollowUpsDialog.tsx:57` — Contact view - Follow-ups 'View all' dialog
+  - Before: `DialogDescription "Open appointments, callbacks and tasks on this contact that you have access to." + {truncated ? " Showing the first results only." : ""}`
+  - Why: This does not restate the title 'Follow-ups'. It states what the dialog includes, the permission boundary ("that you have access to") and the truncation indicator for missing data.
+- **B5-34** · Already satisfied · `src/components/contacts/followups/ContactFollowUpsCard.tsx:103` — Contact view - Follow-ups card
+  - Before: `"No follow-ups scheduled" + 'Add follow-up' (103); "Couldn't load follow-ups" + Retry (93); header title attribute "Shows follow-ups you have access to" (71)`
+  - Why: The copy is already minimal, and failed is distinct from empty. The title attribute is a scope hint, not visible prose.
+- **B5-35** · Retained · `src/components/contacts/AddToCampaignModal.tsx:218` — Add to Campaign modal
+  - Before: `"Select an active campaign to add {N} contact(s) to." (217-219); "Create a new campaign and add {N} contact(s) to it." (282-284)`
+  - Why: These lines carry the meaningful selection count for a bulk write, which the task says to preserve.
+- **B5-36** · Already satisfied · `src/components/contacts/AddTaskModal.tsx:113` — Add Follow-Up Task dialog; Add/Edit Lead, Client, Recruit modals (AddLeadModal.tsx:138, AddClientModal.tsx:89, AddRecruitModal.tsx:81)
+  - Before: `Title only ('Add Follow-Up Task', '{Edit|Add New} Lead/Client/Recruit'); no introduction`
+  - Why: There is no modal introduction to remove. AddTaskModal has no DialogDescription, so it already carries a dangling aria-describedby (a pre-existing Radix warning). That is not a copy item and can be fixed separately with aria-describedby={undefined}.
+- **B5-37** · Still needed · `src/components/contacts/ConvertLeadModal.tsx:239` — Convert to Client dialog header
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<DialogDescription className="text-muted-foreground text-[10px] -mt-0.5">Closing the sale for {lead?.firstName} {lead?.lastName}. Enter policy details below.</DialogDescription>`
+  - After: `Closing the sale for {lead?.firstName} {lead?.lastName}.`
+  - Tests: No test asserts the text. These must stay green: src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx, ContactKanbanBoardConvert.test.tsx. Gates: dialer-dnc-backend.yml local list includes convertLeadModalPolicyFields; sms-consent.yml.
+  - Accessibility: The DialogDescription stays with a valid name-bearing description, so the dialog remains described.
+  - Why: "Enter policy details below." is an obvious instruction. The first sentence is kept because it identifies whose sale is being recorded, which is meaningful when the dialog opens from a row, a Kanban drop or a deep link.
+- **B5-38** · Retained · `src/components/contacts/ConvertLeadModal.tsx:381` — Convert to Client - field guidance
+  - Before: `:316 "Add carriers under Settings → Carriers." (only when no carriers); :381 "Saved on the client once. Draft Date is the next scheduled premium draft."; :408 "Saved on the client once (covers all policies on this conversion)."`
+  - Why: This is essential field guidance on multi-policy save semantics, along with an actionable fix when no carriers exist.
+- **B5-39** · Retained · `src/components/contacts/RecordPolicyModal.tsx:62` — Record Policy dialog
+  - Before: `"Save this policy and its sale together. Editing an existing policy does not record another sale."`
+  - Why: This states the sale-recording consequence (production-credit semantics). It does not merely restate the title.
+- **B5-40** · Retained · `src/components/contacts/DeleteConfirmModal.tsx:48` — Bulk/row delete confirmation
+  - Before: `{description || "This action cannot be undone."}`
+  - Why: This is an irreversible-action warning.
+- **B5-41** · Already satisfied · `src/components/contacts/AgentModal.tsx:177` — Agent modal notes/history/activity
+  - Before: `"No notes yet." (177), "No history yet" (182), "Last updated {timeAgo}" (190), "No activity yet" (193)`
+  - Why: The copy is already minimal, and 'Last updated' is a staleness indicator. This file carries the Part A goal labels (:159, :161), which must not be touched.
+  - Pins: Part A labels 'Monthly Calls Goal' / 'Monthly Appointments Goal'
+- **B5-42** · Retained · `src/components/contacts/AddLeadAssignmentSection.tsx:162` — Add Lead - campaign queue assignment
+  - Before: `"Their Personal queues, Team queues they are on, and Open Pool queues." (162-164); "No qualifying campaigns — you can save the lead without a queue." (169-171)`
+  - Why: This is assignment and scope guidance about which queues qualify, which the standard preserves.
+- **B5-43** · Retained · `src/components/contacts/KanbanColumn.tsx:73` — Contacts Kanban columns and board
+  - Before: `"Showing {n} of {total}" (73-75); "Status not in your pipeline configuration" (78-80); "No contacts" (103); board error "Couldn't load the board" + {error} (ContactKanbanBoard.tsx:104-105)`
+  - Why: These are truncation, unmapped-status and failed-state indicators, and the empty line is already minimal.
+- **B5-44** · Still needed · `src/components/contacts/ImportLeadsModal.tsx:2148` — Import Leads flow header (rendered as page at /contacts/import via ImportLeadsPage.tsx:173)
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `stepTitles subtitles: 1 "Upload a CSV file to import leads into AgentFlow", 2 "Match your CSV columns to AgentFlow lead fields", 3 "Review and confirm before importing" (2148-2150), rendered by :2175 '{stepTitles[step].sub && <p className="text-sm text-muted-foreground mt-0.5">…</p>}'`
+  - After: `Titles only: "Import Leads", "Map Your Fields", "Review Your Import", "Importing..." (no subtitles; ImportLeadsModal.tsx:2147 type '{ title: string }', drop 'sub' from :2148-2152, delete :2175)`
+  - Markup: Line 2147: change the type to `Record<number, { title: string }>` and drop the `sub` key from entries 1-5 (2148-2152). Delete line 2175. The <div> wrapping the h2 can stay.
+  - Tests: Titles stay, so these need no edit and must stay green: src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx:85,88; importLeadsModalResult.test.tsx:107,289; importLeadsCustomFields.test.tsx:105,397,538.
+  - Accessibility: This is a custom modal and page with no Radix dialog and no aria references to the subtitle. The h2 stays.
+  - Why: These are obvious modal introductions that restate each step title, and the step-1 dropzone already says what to do.
+- **B5-45** · Still needed · verifier: revise · `src/components/contacts/ImportLeadsModal.tsx:1773` — Import review step - Lead Settings
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `label "Lead status for imported leads" (1757) + helper <p className="text-xs text-muted-foreground mt-1">Every imported lead gets this pipeline stage.</p> (1773)`
+  - After: `(delete ImportLeadsModal.tsx:1773; optional owner decision)`
+  - Tests (as mapped; the verifier correction below wins where they differ): None assert it
+  - Accessibility: The label at :1757 is not programmatically associated with the select (pre-existing). Deleting the helper does not change that.
+  - Why: The helper restates its own label word for word. This is a directly equivalent string on the import surface and is optional; see decisions.
+  - Verifier correction: The rationale is inaccurate. The helper does not restate the label word for word: the label at :1757 is 'Lead status for imported leads', and the helper says every lead gets this stage. The only extra meaning is that the stage applies uniformly. That is already implicit, because Status is not a mappable CSV field (AGENTFLOW_FIELDS at import-field-matching.ts:31-34), and :1150 assigns importStatus to every row. Deletion stays safe and optional. No test asserts it.
+- **B5-46** · Retained · `src/components/contacts/ImportLeadsModal.tsx:1288` — Import step 1 dropzone
+  - Before: `"Drop your CSV file here" / "or click to browse files" / "Accepts .csv files only — max 50MB"`
+  - Why: These lines carry the file-type and size constraint, and the only cue that the div is clickable.
+- **B5-47** · Retained · verifier: revise · `src/components/contacts/ImportLeadsModal.tsx:1898` — Import step 4 progress
+  - Before: `"Importing your leads..." (1897) / "Please don't close this window" (1898) / {progress}%`
+  - Why: This is an in-flight loading state with essential guidance not to close the window. The body line duplicates the header 'Importing...', but it sits beside the spinner and progress bar; removing it is optional.
+  - Verifier correction: Line 1898 is essential in-flight guidance. Line 1897 duplicates the step-4 header 'Importing...' (stepTitles[4] at :2151, rendered at :2174, because the header shows when step < 5 and the title is non-empty). It is unnecessary text under the owner's standard and should be listed as its own optional item rather than left inside a retained item.
+- **B5-48** · Retained · `src/components/contacts/ImportLeadsModal.tsx:1641` — Import review - assignment/campaign warnings
+  - Before: `:1641 "Unassigned leads must join a Team or Open Pool campaign (choose below). Personal campaigns are not valid."; :1731 "You'll be the only participant. An authorized manager must add the intended agents before they can use this campaign."; :1618 "Include in rotation"`
+  - Why: These state assignment constraints and permission consequences.
+- **B5-49** · Retained · `src/components/contacts/ImportLeadsModal.tsx:1990` — Import result screen
+  - Before: `"Leads imported — provenance not saved" (1990) and the attach/duplicate/error count lines (2058-2088)`
+  - Why: These are failed-save, partial-outcome and diagnostic counts.
+- **B5-50** · Retained · `src/pages/ContactDeepLinkPage.tsx:287` — Contact deep link - not found
+  - Before: `"Contact not found" + "This record may have been deleted or you don't have access to it." + Go back`
+  - Why: This is the not-found and permission distinction.
+- **B5-51** · Still needed · `src/pages/CalendarPage.tsx:545` — Calendar > Day view - empty day
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<p>No appointments scheduled for today</p>`
+  - After: `<p>No appointments</p>`
+  - Tests: None assert it. These must stay green: src/pages/__tests__/calendarPageListFilter.test.tsx, calendarPageAppointmentOwnership.test.tsx, calendarContactIdentity.test.tsx
+  - Accessibility: No change.
+  - Why: The header directly above (536-537) already shows the weekday and date. "for today" is wrong whenever the user navigates to another day, so the shorter text is both cleaner and correct.
+- **B5-52** · Already satisfied · verifier: revise · `src/pages/CalendarPage.tsx:740` — Calendar > Agenda sidebar - empty
+  - Before: `"No events scheduled" + 'Schedule One' button`
+  - Why: The copy is already minimal. Separately, the 'Schedule One' button (:741) is not wrapped in PermissionGate 'Create Appointments', unlike the toolbar Schedule button (:133). That is a permission inconsistency, not a copy item.
+  - Verifier correction: The classification is correct, but the line reference is wrong. The toolbar Schedule button's PermissionGate 'Create Appointments' is at CalendarPage.tsx:710-714. Line 133 is the google-calendar-status invoke. The ungated 'Schedule One' button is at :741. The same correction applies to decisions_for_owner (b).
+- **B5-53** · Still needed · `src/components/calendar/AppointmentModal.tsx:414` — Schedule Meeting / Edit Appointment dialog (shared: CalendarPage.tsx:778, FullScreenContactView, DialerPage)
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<DialogDescription className="text-[10px] text-muted-foreground opacity-80">{editing ? "Update your meeting details." : "Set your next meeting details below."}</DialogDescription> (414-416)`
+  - After: `(delete AppointmentModal.tsx:414-416; DialogContent :407 gets aria-describedby={undefined}; remove DialogDescription from the :20 import, which has no other use)`
+  - Markup: Line 407 becomes `<DialogContent aria-describedby={undefined} className="sm:max-w-[500px] …">` with the classes unchanged. Remove `DialogDescription` from the import on line 20 (no other use). The `<div className="flex flex-col">` wrapper can stay.
+  - Tests: src/components/calendar/__tests__/appointmentModalAssignee.test.tsx:391 asserts 'Edit Appointment' (unchanged; must stay green) · src/pages/__tests__/dialerAppointmentSave.test.tsx and fullScreenContactViewSchedule.test.tsx must stay green (no description assertions)
+  - Accessibility: aria-describedby={undefined} removes the dangling reference and the warning. The accessible name stays 'Edit Appointment' / 'Schedule Meeting'.
+  - Why: This is an obvious modal introduction that restates the title.
+- **B5-54** · Retained · `src/components/calendar/AppointmentModal.tsx:444` — Delete Appointment inline confirmation
+  - Before: `"Delete Appointment?" + "This action cannot be undone."`
+  - Why: This is an irreversible-action warning.
+- **B5-55** · Superseded · `src/components/calendar/DayAgendaPanel.tsx:47` — Unmounted calendar components: DayAgendaPanel ('No appointments' / 'Click + Add to schedule one' :46-47), ListView ('No appointments found' / 'Try adjusting your filters or schedule a new appointment' :90-91), DayView, MonthView, WeekView, AppointmentPopover
+  - Before: `See surface. None of these components is imported by any page (only by each other).`
+  - Why: Users never see this copy. Editing or deleting dead components is outside a presentation-only Part B.
+- **B5-56** · Retained · `src/pages/CalendarPage.tsx:677` — Calendar toolbar - Google sync icon button
+  - Before: `title="Import new Google Calendar events into AgentFlow"`
+  - Why: This is the only accessible name and tooltip of an icon-only control.
+- **B5-M1** (found by the verifier) · Still needed · `src/components/contacts/ImportLeadsModal.tsx:1897` — Import Leads step 4 (import in progress) at /contacts/import (ImportLeadsPage.tsx:172, renderAsPage)
+  - **Implemented (2026-10-12):** `702960d` (C5).
+  - Before: `<p className="text-foreground text-lg font-medium">Importing your leads...</p>. This renders directly below the step-4 header <h2>Importing...</h2> (stepTitles[4] at :2151, rendered at :2174).`
+  - After: `(delete line 1897; keep the Loader2 spinner (:1896), "Please don't close this window" (:1898), the Progress bar (:1899-1901) and {importProgress}% (:1902))`
+  - Tests: None. A grep of src/**/*.test.tsx finds no 'Importing your leads', 'Importing...' or "Please don't close". importLeadsModalResult.test.tsx, importLeadsModalCampaign.test.tsx and importLeadsCustomFields.test.tsx must stay green unchanged. · Gates: sms-consent.yml (src/components/contacts/**), reports-frontend.yml and dialer-dnc-backend.yml (src/**).
+  - Pins: None
+  - Accessibility: The h2 'Importing...' remains the step heading. Nothing references the deleted <p> through ARIA. The spinner and progress bar stay unlabelled, as before (pre-existing).
+  - Why: This duplicates the step heading 'Importing...' on the same screen. Deleting it leaves the loading state, the do-not-close guidance and the progress all intact. It is optional and low value, so it is listed for owner decision. It replaces the 'optional' note buried in retained item B5-47.
+
+## Area 6 — Settings, Phone, workflows and admin
+
+Verified. Still needed: 86 · Retained: 42 · Superseded: 1 · Already satisfied: 4.
+
+- **B6-01** · Still needed · `src/pages/SettingsPage.tsx:88` — Settings shell page heading (every ?section=)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `<h1 className="text-2xl font-bold capitalize text-foreground">{activeSlug.replace(/-/g, " ")} Settings</h1> (renders e.g. "Email Settings Settings", "Calendar Settings Settings", "Dnc Settings", "A2p Registration Settings", "Automation Settings", "Webhooks Settings")`
+  - After: `{ALL_SETTINGS_SECTIONS.find((s) => s.slug === resolveSettingsPermissionSlug(activeSlug))?.label ?? "Settings"} (drop 'capitalize')`
+  - Markup: Add ALL_SETTINGS_SECTIONS to the existing @/config/settingsConfig import (:11-14); drop the `capitalize` class (labels are already cased). Wrapper div :87 unchanged.
+  - Tests: none — no test renders SettingsPage/SettingsRenderer/SettingsSectionGate (grep of src/**/*.test.*) · viewAsSidebarNav.test.tsx:58-66 reads SETTINGS_CONFIG labels only; unaffected
+  - Pins: none (docs/SETTINGS_LAYOUT.md documents sections by label, not the h1)
+  - Accessibility: Page keeps exactly one h1; its text becomes the section's sidebar name, improving landmark/heading navigation.
+  - Why: The generated heading repeats the word Settings and doubles it for slugs that already end in -settings; it also mis-cases DNC/A2P and disagrees with the sidebar label (Automation vs Workflow Builder, Contact Management vs Contact Flow). One-line lookup, no routing/permission change (resolveSettingsPermissionSlug is already imported and used).
+- **B6-02** · Still needed · `src/components/settings/SettingsRenderer.tsx:62` — Settings default renderer — reached by sidebar item "Zapier & Webhooks" (slug webhooks, settingsConfig.ts:78)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - **Final polish (2026-10-12):** `9010612`. The card's own h3 is removed. It repeated the page h1: "Zapier & Webhooks", or "Settings" for an unknown slug. The icon and the not-active notice stay.
+  - Before: `Ready for configuration.`
+  - After: `Coming soon — this section is not active yet.`
+  - Tests: none — string unasserted
+  - Pins: Owner standard: never hide an unfinished feature to look complete
+  - Accessibility: Plain paragraph; no accessible-name impact.
+  - Why: Webhooks has no implementation; "Ready for configuration." makes an unfinished feature look complete. Replacement matches the existing not-active pattern used in CalendarSettings.tsx:602/628/734/933. This is a correction to an unavailable-feature notice, not a deletion.
+- **B6-03** · Retained · `src/components/SettingsSectionGate.tsx:36` — Settings permission gate
+  - Before: `You don't have permission to view this settings section. Contact your admin if you think this is a mistake. [Go to My Profile]`
+  - Why: Permission restriction notice with recovery action.
+- **B6-04** · Retained · `src/pages/SettingsPage.tsx:104` — Settings unsaved-changes AlertDialog
+  - Before: `Unsaved Changes / You have unsaved changes. If you leave, your changes will be lost.`
+  - Why: Irreversible data-loss warning; AlertDialogDescription is the dialog's accessible description.
+- **B6-05** · Still needed · `src/components/settings/profile/ProfileInfoCard.tsx:156` — My Profile › Profile Information card header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Your name, contact details, and availability`
+  - After: `(delete)`
+  - Markup: Remove the <p> at :156; the wrapping <div> (:154-157) keeps only CardTitle.
+  - Tests: none — unasserted
+  - Accessibility: Static header, not part of any accessible name.
+  - Why: Restates the card title and its visible fields.
+- **B6-06** · Still needed · `src/components/settings/profile/ProfileInfoCard.tsx:256` — My Profile › Availability Status helper (no control on this card)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Set from the availability menu in the top bar (Available · On Break · Do Not Disturb). "On a Call" and "Offline" are detected automatically.`
+  - After: `Set from the availability menu in the top bar.`
+  - Tests: none — unasserted
+  - Accessibility: The <label> at :254 is not associated with a control; unchanged.
+  - Why: Keeps the essential pointer (there is no control here); the state list and auto-detection detail repeat the top-bar menu itself.
+- **B6-07** · Still needed · `src/components/settings/profile/ProfileStateLicensesCard.tsx:326` — My Profile › State Licenses card header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Manage your personal state licenses here.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :325-327; header row (title + Add License) unchanged.
+  - Tests: none — unasserted
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro repeating the title and the Add License action.
+- **B6-08** · Still needed · `src/components/settings/profile/ProfileStateLicensesCard.tsx:444` — My Profile › State Licenses footer (admins)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a); follow-up `9094a2d` (admin link keeps its right-edge position).
+  - Before: `Admins can manage team-wide licensing under Phone System → State Licenses. [Go to Phone System → State Licenses]`
+  - After: `Admins: sentence deleted, button kept. Non-admins keep 'Your licenses are used to route state-based inbound calls to you.'`
+  - Markup: Replace the ternary <span> :442-446 with {!canAccessPhoneSystem && <span>Your licenses are used to route state-based inbound calls to you.</span>}; the flex justify-between footer then holds only the button for admins.
+  - Tests: none — unasserted
+  - Accessibility: Link button keeps its own accessible name.
+  - Why: For admins the sentence duplicates the link button text directly beside it. The non-admin routing consequence is retained.
+- **B6-09** · Retained · `src/components/settings/profile/ProfileStateLicensesCard.tsx:340` — My Profile › State Licenses empty state and Add/Edit dialog
+  - Before: `No licenses added yet. Add your state licenses to receive state-specific calls. / DialogDescription :466-470 "Update your license details. State selection cannot be modified." | "Record your state license. License number and expiration are optional but recommended."`
+  - Why: Empty state carries the routing consequence (license requirement); DialogDescription is the dialog's screen-reader description.
+- **B6-10** · Still needed · `src/components/settings/ProfileCarriersSection.tsx:108` — Insurance Carriers card header (My Profile and User Management › Profile tab)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `adminEditing: "Writing numbers for each carrier. Only carriers listed under Settings → Carriers can be selected." / self: "Configure your writing numbers. Only carriers your agency added under Settings → Carriers appear in the list."`
+  - After: `adminEditing: "Only carriers listed under Settings → Carriers can be selected." / self: "Only carriers your agency added under Settings → Carriers appear in the list."`
+  - Tests: none — unasserted
+  - Accessibility: headerBlock is inside the collapsible trigger when collapsible (ProfileCarriersCard); accessible name becomes shorter but still includes the title.
+  - Why: Drops the generic first sentences; keeps the non-obvious source of the carrier list.
+- **B6-11** · Still needed · `src/components/settings/profile/ProfileGoalsCard.tsx:136` — My Profile › My Goals collapsible trigger
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Dialing and production targets`
+  - After: `(delete)`
+  - Markup: Remove the <p> :136; inner <div className="min-w-0"> keeps CardTitle.
+  - Tests: none — unasserted (myProfileSurface.test.tsx opens Preferences only)
+  - Pins: Part A/D14 goal logic in this card untouched
+  - Accessibility: Collapsible trigger accessible name changes from "My Goals Dialing and production targets" to "My Goals" — still valid.
+  - Why: Restates "My Goals".
+- **B6-12** · Still needed · `src/components/settings/profile/ProfilePasswordCard.tsx:127` — My Profile › Change Password collapsible trigger
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Update the password you use to sign in`
+  - After: `(delete)`
+  - Markup: Remove the <p> :127.
+  - Tests: none — unasserted
+  - Accessibility: Trigger name becomes "Change Password".
+  - Why: Restates "Change Password".
+- **B6-13** · Retained · `src/components/settings/profile/ProfilePreferencesCard.tsx:128` — My Profile › Preferences collapsible trigger
+  - Before: `Appearance, notifications, call forwarding, and timezone`
+  - Why: The card is collapsed by default; this is the only signal that Call Forwarding lives inside Preferences (non-obvious location).
+  - Pins: docs/SETTINGS_LAYOUT.md:27 documents the four Preferences subsections
+- **B6-14** · Retained · verifier: revise · `src/components/settings/profile/ProfileNotificationsSection.tsx:54` — My Profile › Preferences › Notifications › Browser notifications helper
+  - Before: `Receive alerts while AgentFlow is in the background.`
+  - Why: Restates the "Browser notifications" label; the live push-status line carries the meaningful state.
+  - Pins: AGENT_RULES.md:180 onboarding series INACTIVE · docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:105 and §10 C — review any ProfileNotificationsSection hunk by hand against the mount
+  - Verifier correction: The deletion itself is valid. Two things are missing from the mapping. (1) Deleting :54 moves the mount from :74 to :73. That makes the line references in docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:105 (':5 and the mount at :74') and :348 ('its mount in ProfileNotificationsSection.tsx:74') stale, so the records commit needs a presentation-only update (:74→:73). (2) The plan's §11 step 3 (implementation_plan.md:365) explicitly leaves this file out of the per-hunk reapply, and §10 C asks for a hand review against the mount. Editing it also triggers onboarding-emails.yml (frontend tests over profile/__tests__ and the scoped ESLint). profilePreferencesNotifications.test.tsx asserts only push-status and the switch name, so it is unaffected.
+  - Decision: PB-31: retained by default. The file sits beside the INACTIVE onboarding mount and is on the onboarding-emails.yml path; deleting the one helper line is optional and would also move the mount reference in this plan (:105, :348) from :74 to :73.
+- **B6-15** · Retained · `src/components/settings/profile/ProfileNotificationsSection.tsx:67` — My Profile › Notifications › Email/SMS rows
+  - Before: `Email · Not yet connected / SMS · Not yet connected (disabled switches, aria-label "… (not yet connected)")`
+  - Why: Unavailable-feature notices; must stay visible.
+  - Pins: docs/SETTINGS_LAYOUT.md:27 "email/SMS shown disabled until wired"
+- **B6-16** · Retained · `src/components/settings/profile/OnboardingEmailPreference.tsx:62` — My Profile › Notifications › onboarding tips preference (mounted at ProfileNotificationsSection.tsx:74)
+  - Before: `Short emails to help you get started. Account emails always arrive.`
+  - Why: Owner instruction: onboarding preference component and its mount are out of scope; series stays INACTIVE.
+  - Pins: AGENT_RULES.md:180-200 · implementation_plan.md §10 C
+- **B6-17** · Retained · `src/components/settings/profile/ProfileCallForwardingSection.tsx:150` — My Profile › Call Forwarding description + activation notice (CallForwardingActivationNotice.tsx:18-20)
+  - Before: `Send unanswered calls to your mobile. / "Call forwarding isn't available for your agency yet. Your settings are saved and apply once it's turned on." | "We couldn't confirm whether call forwarding is active for your agency. Your settings are saved either way."`
+  - Why: Forwarding consequence and unavailable/unconfirmed state distinction.
+- **B6-18** · Superseded · `src/components/settings/profile/ConnectionDiagnostics.tsx:46` — Phone connection diagnostics card
+  - Before: `Phone connection diagnostics … Provider setting: the organization's browser ring seconds (default 20) …`
+  - Why: Not rendered; myProfileSurface.test.tsx:74-75 asserts it is absent from My Profile. Its only live reference is the dangling pointer in InboundV2Section.tsx:219 (see B6-74).
+- **B6-19** · Still needed · `src/components/settings/user-management/UserManagementHeader.tsx:13` — User Management header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Manage your team members and pending invitations.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :13; the <div> keeps the h3; header row stays items-center with the Invite button.
+  - Tests: none — unasserted (teamMembersImpersonate/userPerformanceTab/userGoalActuals tests do not render the header text)
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro repeating the tabs (Team Members, Pending Invites).
+- **B6-20** · Still needed · `src/components/settings/user-management/PendingInvitesTable.tsx:103` — User Management › Pending Invites empty state
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Invite new users to join your organization.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :103.
+  - Tests: none — unasserted
+  - Accessibility: n/a
+  - Why: Generic prompt; the Invite New Agent action is in the header directly above.
+- **B6-21** · Retained · `src/components/settings/HierarchyTree.tsx:268` — User Management › Team hierarchy, Team Members empty state, Super Admin access toggle
+  - Before: `"Your full upline chain and everyone in your downline. Peers under the same manager are not shown." (:268-270); duplicate-rows diagnostic :278-280; :296-298; TeamMembersTable.tsx:94 "Try adjusting your filters or search terms."; UserProfileTab.tsx:91 "Grants full system access across all organizations."`
+  - Why: Scope statement (what is visible), operator diagnostic, filtered-empty guidance, permission consequence.
+  - Pins: AGENT_RULES.md:43-45 downline scoping
+- **B6-22** · Already satisfied · `src/components/settings/user-management/UserPerformanceTab.tsx:30` — User Management › Performance tab labels and period line
+  - Before: `Calls Made · Policies Sold · Appointments · Talk Time · Policies / 100 Calls; "Month to date · {timeZone} · N policies have unknown premium" (:45)`
+  - Why: Part A label set and the meaningful period/missing-data line; must not be reverted.
+  - Pins: implementation_plan.md:228 (Part A), :568-571 (D14 follow-up)
+- **B6-23** · Retained · `src/components/settings/user-management/UserProfileModal.tsx:327` — User Management irreversible/account dialogs
+  - Before: `Reset Password / Delete User descriptions (:327-329, :342-344); Deactivate/Reactivate (UserManagementConfirmDialogs.tsx:17-21); TransferLeadsModal.tsx:78-93 "Critical Action … no longer be able to log in"; InviteUserModal.tsx:121 and AvatarUploadPreview.tsx:77 DialogDescriptions`
+  - Why: Irreversible-action warnings and dialog screen-reader descriptions.
+- **B6-24** · Still needed · `src/components/settings/Permissions.tsx:729` — Permissions page header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - **Final polish (2026-10-12):** `9010612`. The remaining inner h3 "Permissions" and its wrapper are removed, because they duplicated the page h1 with no action beside them. The section headings, role tabs and Save/Reset stay.
+  - Before: `Manage role-based access controls for your team.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :729; the <div> keeps the h3.
+  - Tests: none — permissionsSettingsContacts.test.tsx asserts "Contacts Permissions", catalog rows, "Sensitive", /System rules/ only
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro.
+- **B6-25** · Still needed · `src/components/settings/Permissions.tsx:779` — Permissions › System rules list
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `:779 "Service-role keys are never exposed to the browser." and :781 "Call/telemetry integrity and Twilio/Dialer safety are preserved regardless of these settings."`
+  - After: `(delete :779 and :781; keep :778 and :780 and the heading)`
+  - Markup: Remove two <li> elements; list keeps two items.
+  - Tests: permissionsSettingsContacts.test.tsx:54-55 asserts /System rules/ heading — still present; :58-59 conversion-not-a-toggle negatives unaffected
+  - Pins: AGENT_RULES.md:648 (Chris requests minimal UI copy; no implementation explanations) supports removal
+  - Accessibility: n/a
+  - Why: Implementation explanations an admin cannot act on; the conversion and tenant-isolation rules explain why no toggles exist and stay.
+- **B6-26** · Still needed · `src/components/settings/Permissions.tsx:789` — Permissions › Contacts Permissions accordion header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Control Contacts module actions for this role. Conversion (Lead → Client) is always available and is intentionally not listed here.`
+  - After: `(delete; make AccordionSection description optional at :316 and render :332 only when present)`
+  - Markup: Make AccordionSection `description` optional (:316 `description?: string`) and render :332 only when present.
+  - Tests: permissionsSettingsContacts.test.tsx:44 finds "Contacts Permissions" by text — unaffected
+  - Accessibility: The accordion toggle <button> accessible name currently includes the description; it becomes the title only. (Pre-existing: toggle lacks aria-expanded — not changed.)
+  - Why: First sentence generic; second duplicates System rules bullet :780.
+- **B6-27** · Still needed · `src/components/settings/Permissions.tsx:838` — Permissions › Page Access accordion header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Control which pages appear in the sidebar for this role. Settings is always available — use Settings Sections below to control tabs.`
+  - After: `Settings is always available; use Settings Sections below to control its tabs.`
+  - Tests: none
+  - Accessibility: Toggle name shortens.
+  - Why: Keeps the non-obvious rule; drops the generic "Control…" lead.
+- **B6-28** · Still needed · `src/components/settings/Permissions.tsx:864` — Permissions › Settings Sections / Feature Permissions / Data Access / Commission Visibility accordion headers
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `:864 "Control which Settings tabs this role can see. Applies only within your organization." :900 "Control specific actions available to this role within each section." :929 "Control how much data this role can see across the platform." :944 "Control what commission and earnings information this role can see."`
+  - After: `(delete :864, :900, :929, :944 descriptions)`
+  - Markup: Same optional-description change as B6-26.
+  - Tests: none
+  - Accessibility: Toggle names become the titles.
+  - Why: Generic "Control…" intros restating titles; tenant scope is stated once in System rules :778.
+- **B6-29** · Retained · `src/components/settings/Permissions.tsx:754` — Permissions banners and danger copy
+  - Before: `:754-756 "Permission changes apply to active sessions when reloaded. All changes are logged to the Activity Log."; :765-766 admin locked banner; :818-820 "Grants a high-impact or destructive action to {role}s."`
+  - Why: When changes take effect, audit consequence, permission restriction, destructive-permission warning.
+- **B6-30** · Already satisfied · `src/components/settings/CompanyBranding.tsx:249` — Company Branding header
+  - Before: `Company Branding [Save Changes]`
+  - Why: Header has no subtitle already.
+- **B6-31** · Still needed · `src/components/settings/CompanyBranding.tsx:264` — Company Branding read-only notice
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Company Branding can only be edited by an Admin. Contact your agency administrator to make changes.`
+  - After: `Company Branding can only be edited by an Admin.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps the permission restriction; second sentence is implied.
+- **B6-32** · Retained · `src/components/settings/BrandingUploadField.tsx:93` — Company Branding upload hints
+  - Before: `"PNG, JPG — max 5MB" / "ICO, PNG — max 1MB — recommended 64×64px"; drop text :90-92`
+  - Why: File type/size limits.
+- **B6-33** · Still needed · `src/components/settings/CustomMenuLinks.tsx:270` — Custom Menu Links header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Add links to your agency sidebar (above Settings). Choose whether each opens in a new browser tab or inside AgentFlow.`
+  - After: `Links appear in your agency sidebar, above Settings.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps non-obvious placement; the open-mode choice is shown in the dialog's "How it opens" radios.
+- **B6-34** · Still needed · `src/components/settings/CustomMenuLinks.tsx:275` — Custom Menu Links non-admin notice
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Custom menu links are managed by agency admins. Additional delegation will be handled through Permissions.`
+  - After: `Custom menu links are managed by agency admins.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps the permission notice; drops a future-roadmap promise. Matches the existing toast at :104 and Carriers.tsx:355 / ContactManagement.tsx:61 wording.
+- **B6-35** · Still needed · `src/components/settings/CustomMenuLinks.tsx:292` — Custom Menu Links empty state
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Add important external tools directly into your sidebar.`
+  - After: `No menu links yet.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional line replaced by a plain empty status (the Create Link button follows for admins).
+- **B6-36** · Retained · `src/components/settings/CustomMenuLinks.tsx:389` — Custom Menu Links dialog open-mode help and remove confirmation
+  - Before: `:389 "Opens the URL in a separate browser tab (best for sites that cannot be embedded)." :396 "Shows the page in the main area while keeping the AgentFlow sidebar and header. Some external sites may block this." :416-418 remove confirmation`
+  - Why: Non-obvious embedding consequence; destructive confirmation. (Pre-existing: the Add/Edit Dialog :351 has no DialogDescription — not changed here.)
+- **B6-37** · Still needed · `src/components/settings/agency-group/AgencyGroupNoGroup.tsx:22` — Agency Group › Create an Agency Group card
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Link independent agents under your agency for shared visibility — without merging their data.`
+  - After: `(delete) — keep the three bullets`
+  - Markup: Remove the <p> :22-24; the bullets' <ul> keeps mb-5.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional intro; the bullets already state what is shared and what stays separate (privacy consequences).
+- **B6-38** · Still needed · `src/components/settings/agency-group/AgencyGroupNoGroup.tsx:54` — Agency Group › Waiting for an invite? card
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `:54-56 "When a manager invites your agency to their group, you'll see the invitation here." :57-59 "Your manager will send an invitation to your admin email address. You can also accept via the link in the email."`
+  - After: `Invitations appear here and are emailed to your agency's admin.`
+  - Markup: Replace the two <p> elements with one <p className="text-sm text-muted-foreground">.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Two overlapping paragraphs collapsed into one sentence with the same facts.
+- **B6-39** · Still needed · `src/components/settings/agency-group/AgencyGroupLeaderView.tsx:153` — Agency Group (leader) › Members empty state
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Invite your first agent / Enter their email address above to send an invitation. They'll appear here once they accept.`
+  - After: `Invite your first agent / Invited agencies appear here once they accept.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: The instruction repeats the Invite an Agency card directly above. (Heading says "agent" while invites are to agencies — wording decision listed for owner, not changed here.)
+- **B6-40** · Still needed · `src/components/settings/agency-group/AgencyGroupResourceList.tsx:150` — Agency Group › Shared Resources (members)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Resources are uploaded by the master agency. You can view and download what they share.`
+  - After: `Resources are uploaded by the master agency.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps the permission explanation (why no Upload); second sentence is implied by the download links.
+- **B6-41** · Retained · `src/components/settings/agency-group/AgencyGroupLeaderView.tsx:139` — Agency Group consequences and errors
+  - Before: `LeaderView :139 "The Admin of the invited agency will get an email with an acceptance link valid for 7 days."; AgencyGroupPendingInvite.tsx:58-60 membership consequence; CreateGroupModal.tsx:56-58 "You'll be the master agency…"; AgencyGroupSettings.tsx:118-119 load error + Retry`
+  - Why: Expiry, data-sharing consequences, role consequence, failure state. (Pre-existing: CreateGroupModal is a custom div without dialog semantics — a11y follow-up, out of scope.)
+- **B6-42** · Retained · `src/components/settings/PhoneSystem.tsx:76` — Phone System inner heading (also loading branch :62-65)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Outcome: Implemented under PB-25 (was Retained; §17.11 file list). Both inner h3 blocks removed; the page h1 from B6-01 names the section.
+  - Before: `<h3>Phone System</h3> (below shell h1 "Phone System Settings" or legacy "Inbound Routing Settings" etc.)`
+  - Why: Today it gives context for legacy slugs whose h1 differs; becomes a pure duplicate only after B6-01.
+- **B6-43** · Still needed · `src/components/settings/phone/TrustHubSection.tsx:30` — Phone System › Trust Hub tab header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Register your agency to verify your business identity with telecom networks and improve call answer rates.`
+  - After: `Verifies your agency's business identity with telecom networks.`
+  - Tests: none — no Trust Hub tests
+  - Pins: AGENT_RULES.md:628 (Trust Hub approval ≠ A2P/number registration) — wording unaffected
+  - Accessibility: n/a
+  - Why: Keeps a one-line explanation of a non-obvious term; removes the promotional outcome claim (which the panel's own limitation note contradicts).
+- **B6-44** · Still needed · `src/components/settings/phone/TrustHubRegistrationPanel.tsx:290` — Trust Hub › Registration Status callout
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `"Understanding Trust Hub Status" + bullets: "Business Profile Approved: Your life insurance agency identity is verified." / "Number Linked: Your phone number is attached to your verified business profile." / "Neither status guarantees no spam labeling. These verifications authenticate your agency, but telecom networks evaluate call volume and answer rates to flag spam."`
+  - After: `Single line: "Neither status guarantees no spam labeling. These verifications authenticate your agency, but telecom networks evaluate call volume and answer rates to flag spam." (amber emphasis kept)`
+  - Markup: Remove the header div :291-294 and the <ul>/<li> :295-299; render one <p className="text-muted-foreground"> inside the existing callout :290.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: The first two bullets restate the row titles/descriptions directly below (:306-307, :327-328); the limitation is material and stays.
+- **B6-45** · Still needed · `src/components/settings/phone/TrustHubRegistrationPanel.tsx:353` — Trust Hub › 3. Telecom Network Programs row
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `SHAKEN/STIR identity attestation, Voice Integrity remediation, and CNAM (Caller ID Name).`
+  - After: `(delete)`
+  - Markup: Remove the <p> :353; badge row keeps mt-2.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Duplicates the badges immediately beneath.
+- **B6-46** · Still needed · `src/components/settings/phone/TrustHubRegistrationPanel.tsx:412` — Trust Hub › registration form intro box
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Complete this form to register your life insurance agency with the telecom Trust Hub. This creates a verified business identity that helps telecom networks recognize your calls as legitimate, improving answer rates and reducing spam flags. The telecom network will review your submission within 1–5 business days.`
+  - After: `(delete the intro box :411-418)`
+  - Markup: Remove the comment + div :411-418; the form's space-y-6 container is unchanged.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional introduction; its only fact (1–5 day review) is already stated at :629.
+- **B6-47** · Still needed · verifier: revise · `src/components/settings/phone/TrustHubRegistrationPanel.tsx:427` — Trust Hub › Select Programs cards
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `:427 "Verifies caller identity using encrypted digital signatures. Raises your attestation level so telecom networks display Verified Caller instead of Spam Risk. US phone numbers only." :436 "Remediates spam labels on your phone numbers. Registers your numbers with analytic engines for select US telecom networks so they're treated as verified business traffic." :445 "Displays your business name on outbound calls to US landlines. Enter up to 15 characters — this is what recipients will see when you call."`
+  - After: `:427 "Signs your calls so networks can verify caller identity. US phone numbers only." :436 "Registers your numbers with analytics engines at select US telecom networks to help remediate spam labels." :445 "Displays your business name on outbound calls to US landlines."`
+  - Tests (as mapped; the verifier correction below wins where they differ): none
+  - Accessibility: Checkbox ids derive from title, not description; unchanged.
+  - Why: Shortens necessary explanations of non-obvious programs; removes outcome promises; the 15-character limit is already in the label (:452) and counter (:460).
+  - Verifier correction: The proposed :436 drops the 'select US telecom networks' limitation and so overstates coverage. Keep that qualifier. The :427 and :445 shortenings are fine: the 15-character limit stays in the label (:452) and the counter (:460).
+- **B6-48** · Retained · `src/components/settings/phone/TrustHubRegistrationPanel.tsx:307` — Trust Hub status rows, gating and form hints
+  - Before: `:307 "Verification of agency identity and authorized representative." :328 "Attach your active phone numbers to your verified business profile." :309-317 pending/rejected; :401-404 "Admin access required …"; :460 CNAM counter; :523 "9 digits — dashes OK"; :583 Authorized Representative definition; :629 review time`
+  - Why: Row definitions (become the only definitions after B6-44), review/rejection states, permission restriction, field format/legal hints.
+- **B6-49** · Retained · `src/components/settings/phone/a2p/A2pRegistration.tsx:47` — A2P Registration header
+  - Before: `Register your agency to send business texts from US local numbers.`
+  - Why: One-line explanation of a non-obvious acronym in a separately gated compliance flow.
+  - Pins: AGENT_RULES.md:626-630
+- **B6-50** · Retained · verifier: revise · `src/components/settings/phone/a2p/A2pRegistration.tsx:83` — A2P Registration › last-checked line
+  - Before: `Last checked {time} | Status has not been checked yet. + " Approval updates and required actions appear in agency administrators’ notifications."`
+  - Why: Keeps the staleness indicator; the notification sentence is process explanation.
+  - Pins: AGENT_RULES.md:648 minimal-copy preference supports
+  - Verifier correction: This is not just process explanation. a2p-reconcile really does deliver admin notifications (supabase/functions/_shared/a2p/notifications.ts deliverEmails from a2p_email_outbox, Admin/Super Admin only, with a link back to ?section=a2p-registration). Approval and rejection then arrive asynchronously over days and can require correction. The sentence is the only on-page statement that required actions reach admins by notification, a meaningful consequence next to the staleness line. The A2P flow is separately gated (AGENT_RULES.md:626-628) and the clutter gain is small. If the owner still wants it gone, A2pRegistration.test.tsx does not assert it.
+- **B6-51** · Still needed · `src/components/settings/phone/a2p/A2pRegistration.tsx:103` — A2P Registration › Review fees and continue
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `The secure form includes the full application, required evidence, review, and final submission. Open an existing registration to resume or correct an eligible rejection.`
+  - After: `The secure form includes the full application, required evidence, review, and final submission.`
+  - Tests: A2pRegistration.test.tsx:91-104,219 assert button names only — unaffected
+  - Accessibility: n/a
+  - Why: Second sentence repeats the "Resume / correct …" button labels.
+- **B6-52** · Retained · `src/components/settings/phone/a2p/A2pRegistration.tsx:64` — A2P readiness, locks, fees, View As/permission, status and consent diagnostics
+  - Before: `:64-68 "Account setup required …"; :72-75 operation pending alert; :118 "Current fees must be confirmed before submission."; :126-129 fee attestation; :157 "Exit View As to manage A2P registration."; :166 admin access; A2pStatus.tsx:24-36, :48-51, :58-60 "Campaign approval and number registration are separate. Toll-free numbers require their own verification."; A2pSession.tsx:15-18; A2pPreparation.tsx:42-45 and :70-73 and <details> :104-118; SmsConsentReadiness.tsx:4-10`
+  - Why: Readiness states, uncertain-operation lock, consent/STOP compliance, View As and permission restrictions, distinct-status invariant, and operator diagnostics; requirements are already consolidated in the existing <details>. SmsConsentReadiness is the settings diagnostics panel — the Manual SMS UI rule targets the composer, not this panel.
+  - Pins: AGENT_RULES.md:628 (Trust Hub/brand/campaign/number distinct) · AGENT_RULES.md:648 Manual SMS UI rule (MessageComposePanel only)
+- **B6-53** · Already satisfied · `src/components/settings/phone/NumberManagementSection.tsx:490` — Phone System › Phone Numbers card header and empty state
+  - Before: `"Phone numbers {n} active" (no subtitle); empty :515-517 "Purchase a number from Twilio to use it for outbound caller ID and inbound routing."`
+  - Why: Header already has no intro; empty state states what numbers are used for.
+  - Pins: AGENT_RULES.md:146 read-only Agency/Personal badge
+- **B6-54** · Still needed · `src/components/settings/phone/NumberManagementSection.tsx:886` — Phone Numbers › Purchase number dialog
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Enter an area code, state, or city to search available numbers. Inventory is limited and changes frequently.`
+  - After: `Inventory is limited and changes frequently.`
+  - Markup: Optional (recommended): render the kept sentence as <DialogDescription className="text-xs leading-relaxed"> instead of <p>, because this Dialog (:874-880) currently has a Title but no Description (pre-existing Radix warning). Repo pattern for descriptions: NotificationsPanel.tsx:123; no aria-describedby={undefined} usage exists in the repo.
+  - Tests: none
+  - Accessibility: If converted to DialogDescription the dialog gains a valid accessible description.
+  - Why: First sentence repeats the field labels (Area code, State, City).
+- **B6-55** · Retained · `src/components/settings/phone/NumberManagementSection.tsx:1036` — Phone Numbers › Release / Remove confirmations and row tooltips
+  - Before: `Release dialog :1036-1048 (inactive in AgentFlow, still in Twilio, default-number warning); Remove dialog :1067-1069; tooltips (Personal cannot be default; direct-line rules)`
+  - Why: Irreversible-action and provider-side consequences.
+  - Pins: AGENT_RULES.md:134-146
+- **B6-56** · Retained · `src/components/settings/phone/LocalPresenceSection.tsx:26` — Phone Numbers › Local presence toggle helper
+  - Before: `Local presence uses your active org numbers to choose the best caller ID for outbound dials based on the lead's area code. When off, the dialer uses your default number.`
+  - Why: Compact explanation of a non-obvious setting including the off-state consequence; rewording risks misdescribing the Agency-only pool rule.
+  - Pins: AGENT_RULES.md:138 (Agency-only automatic pool)
+- **B6-57** · Still needed · `src/components/settings/phone/LocalPresenceSection.tsx:32` — Phone Numbers › Local presence card note
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Routing, voicemail, and local presence settings are saved as part of your organization's phone configuration.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :31-33; CardContent space-y-3 unchanged.
+  - Tests: none
+  - Pins: AGENT_RULES.md:648 minimal-copy preference
+  - Accessibility: n/a
+  - Why: Implementation explanation; routing/voicemail are not on this card.
+- **B6-58** · Still needed · `src/components/settings/phone/LocalPresenceSection.tsx:45` — Phone Numbers › Local presence area-code tip (shown when < 3 area codes)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Tip: add numbers in additional area codes to improve answer rates when dialing term-life leads out of state.`
+  - After: `(delete)`
+  - Markup: Remove the conditional <p> :43-47; the area-code count line :35-42 remains. Info import becomes unused (lint rule no-unused-vars is off); remove it for tidiness.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional tip.
+- **B6-59** · Retained · `src/components/settings/phone/NumberGroupsSection.tsx:98` — Phone Numbers › Number groups header, delete dialog, group modals
+  - Before: `:98-100 "Assign campaigns to a subset of org numbers. Only active Agency numbers are eligible — Personal numbers and direct lines are excluded."; :167-173 delete consequence ("Those campaigns will fall back to using all org numbers."); NumberGroupFormModal.tsx:98-100; NumberGroupMembersModal.tsx:106-108, :113-116`
+  - Why: Eligibility rule, deletion consequence, dialog descriptions, empty-eligible reason.
+  - Pins: AGENT_RULES.md:142-145
+- **B6-60** · Still needed · `src/components/settings/phone/NumberGroupsSection.tsx:108` — Phone Numbers › Number groups empty state
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Group numbers by geography, team, or purpose to keep campaign caller IDs focused.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :107-109; give the heading <p> :106 mb-4 when canManage (or leave mb-1; button keeps its own spacing).
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional line; purpose is stated in the header :98-100.
+- **B6-61** · Still needed · `src/components/settings/phone/PhoneNumberRoutingModal.tsx:140` — Phone Numbers › Configure Inbound Journey dialog › Routing Strategy
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Determines who rings when this specific number is called.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :139-141.
+  - Tests: none
+  - Accessibility: Dialog keeps DialogDescription :116-118.
+  - Why: Restates the "Routing Strategy" label; options are self-describing.
+- **B6-62** · Retained · `src/components/settings/phone/PhoneNumberRoleModal.tsx:150` — Outbound role dialog and per-number voicemail override
+  - Before: `Role options :150-152, :162-164; DialogDescription :135-138; PhoneNumberRoutingModal.tsx:195-197 "Per-number override. When set, this value always wins over the global setting for this number."`
+  - Why: Ownership/rotation consequences and override precedence.
+  - Pins: AGENT_RULES.md:134-146
+- **B6-63** · Still needed · `src/components/settings/NumberReputation.tsx:435` — Phone System › Number Reputation header (empty branch :434-436 and main branch :465-467)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.`
+  - After: `These are signals, not guarantees.`
+  - Tests: none — no NumberReputation tests
+  - Accessibility: n/a
+  - Why: Generic "Monitor…" intro removed; the material limitation stays.
+- **B6-64** · Still needed · `src/components/settings/NumberReputation.tsx:470` — Number Reputation › ReputationAiScanner banner (src/components/settings/number-reputation/ReputationAiScanner.tsx:56-93)
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `"AgentFlow // Reputation shield" / "AI line monitor" / "Continuous watch on your agency's caller IDs. Run a check on any row to refresh attestation and reputation signals from Twilio." / "LIVE NEURAL FILTER" / "Protected lines {n}" / ticker "STIR/SHAKEN attestation · Voice integrity alignment · Telecom block heuristics · Spam label watch · Answer-rate drift · Policy guard ·"`
+  - After: `(remove mount :470 and import :12) — or strip promotional strings`
+  - Markup: Remove <ReputationAiScanner …/> and its import; the component file becomes unused (leave or delete; no other importer). The table and guide follow directly after the header.
+  - Tests: none — no test or gate references it; animate-reputation-pulse-dot keyframe in tailwind.config.ts becomes unused (harmless)
+  - Pins: AGENT_RULES.md:594-596 Forbidden: mock data in production paths (arguably applies)
+  - Accessibility: Removes a continuously animated marquee/rotations (motion reduction benefit).
+  - Why: Promotional banner with no action that overstates behaviour (checks are manual per row, not continuous/"neural"); the only data shown is the active number count already visible in the table.
+- **B6-65** · Still needed · `src/components/settings/NumberReputation.tsx:474` — Number Reputation › Reputation Signal Guide & Legend (existing collapsible) and duplicate column tooltips
+  - **Implemented (2026-10-12):** `f0562bb` (C6a); follow-up `26d79d3` (focus ring offset).
+  - Before: `Guide :472-512 (Spam Heuristics, Attestation levels, Network Specific Signals) duplicated by header tooltips: Attestation :528-543, Spam likely :547-563, AT&T/Verizon/T-Mobile :571-606 ("… A missing/unknown (?) signal is normal and NOT a negative mark.")`
+  - After: `Keep guide text; delete five header HelpCircle tooltips; make guide toggle a <button type="button" aria-expanded>`
+  - Markup: Make the guide toggle :474 a <button type="button" aria-expanded={showGuide}> (currently a clickable div — not keyboard reachable) so the consolidated reference stays keyboard-accessible; remove Tooltip/TooltipTrigger/TooltipContent blocks and the then-unused HelpCircle import.
+  - Tests: none
+  - Accessibility: Net improvement: one keyboard-operable disclosure instead of hover-only tooltips. Column header text unchanged.
+  - Why: Consolidates duplicated reference material into the existing collapsible, per the area brief. The tooltips' svg triggers are not focusable, so today keyboard/touch users cannot reach them anyway.
+- **B6-66** · Retained · `src/components/settings/NumberReputation.tsx:442` — Number Reputation empty state
+  - Before: `No active numbers / Add phone numbers under Phone System to monitor reputation here. [Go to Phone System]`
+  - Why: Empty state with recovery action.
+- **B6-67** · Still needed · `src/components/settings/InboundRoutingManager.tsx:287` — Phone System › Inbound Routing header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Configure how every inbound call is answered, routed, and handled when no agent picks up.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :286-288; header row keeps h2 + Save Changes.
+  - Tests: inboundRoutingManagerGating.test.tsx asserts the Save Changes button, testids and payload — unaffected
+  - Pins: AGENT_RULES.md:318-332 inbound invariant (no wording pin)
+  - Accessibility: n/a
+  - Why: Generic "Configure…" intro.
+- **B6-68** · Still needed · `src/components/settings/InboundRoutingManager.tsx:310` — Inbound Routing › 1. Routing Strategy
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `How should incoming calls be distributed during business hours?`
+  - After: `Applies during business hours.`
+  - Tests: none (testid routing-strategy-group unchanged)
+  - Accessibility: n/a
+  - Why: Keeps the meaningful scope (business hours only); drops the question restating the title.
+- **B6-69** · Still needed · `src/components/settings/InboundRoutingManager.tsx:421` — Inbound Routing › 2. Unanswered / Fallback
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `If no agents are available, or the call goes unanswered, what happens next?`
+  - After: `(delete)`
+  - Markup: Remove CardDescription :421; CardHeader keeps CardTitle.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Restates the card title.
+- **B6-70** · Still needed · `src/components/settings/InboundRoutingManager.tsx:534` — Inbound Routing › Business Hours card
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Set your organization's availability.`
+  - After: `(delete)`
+  - Markup: Remove CardDescription :534.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic intro.
+- **B6-71** · Retained · `src/components/settings/InboundRoutingManager.tsx:399` — Inbound Routing consequences
+  - Before: `:399-401 legacy-controls-retired notice; :382-384 v2 greeting use; :335/:352/:369 strategy option descriptions; :462 "spoken … before the beep"; :477 "Calls will be forwarded to this number if the primary routing fails."; :491 "…before immediately dropping the call."; :510-512 Auto-Create Leads; :593-595 "Sent automatically to the caller's number when the call lands outside business hours."`
+  - Why: Forwarding, hang-up, automatic SMS and lead-creation consequences; which controls are inactive under v2.
+  - Pins: AGENT_RULES.md:318-332
+- **B6-72** · Still needed · verifier: revise · `src/components/settings/inbound-routing/InboundV2Section.tsx:182` — Inbound Routing › Inbound Calling v2 card description
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Contact's assigned agent first (direct lines take precedence), 20-second browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers.{active ? " While active, the routing strategy, fallback chain and fallback action below are not used." : ""}`
+  - After: `Contact's assigned agent first (direct lines take precedence), browser ring, mobile forwarding with Press 1, agent voicemail, and an explicit inbound group for unassigned callers. (and delete the {active ? … : ""} expression at :183)`
+  - Markup (as mapped; the verifier correction below wins where they differ): Delete the {active ? … : ""} expression at :183.
+  - Tests (as mapped; the verifier correction below wins where they differ): inboundV2Section.test.tsx asserts the /browser ring/ label and render counts — unaffected
+  - Pins: AGENT_RULES.md:318-332 (behaviour unchanged)
+  - Accessibility: n/a
+  - Why: "20-second browser ring" is a hard-coded claim that contradicts the configurable Browser ring field below; the active sentence duplicates the legacy-controls-retired notice shown under the same condition (InboundRoutingManager.tsx:398-401).
+  - Verifier correction: Only the stale '20-second' claim needs to go. The ring is configurable from 5 to 120 seconds with a default of 20 (inboundSettingsValidation.ts:17-18, InboundV2Section.tsx:84). The mapper's rewrite also drops the browser-ring step and adds 'then' sequencing, which risks misdescribing the engine (AGENT_RULES.md:318-332), so keep the original wording minus '20-second'. Deleting the active sentence is right: `active` and the parent's v2Active stay in sync through onEngineChange (:90; InboundRoutingManager.tsx:85), and the legacy-controls-retired notice (:398-401) says more.
+- **B6-73** · Still needed · `src/components/settings/inbound-routing/InboundV2Section.tsx:219` — Inbound Calling v2 › Browser ring helper
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Provider setting (integer). Twilio may hold the ring up to ~5 s longer; measured timings show in each agent's connection diagnostics.`
+  - After: `Twilio may hold the ring up to ~5 s longer.`
+  - Tests: inboundV2Section.test.tsx:58,74 use label /browser ring/ — unaffected
+  - Accessibility: Helper is not linked via aria-describedby; no change.
+  - Why: Points to "connection diagnostics", which is not mounted anywhere (B6-18); "Provider setting (integer)" is implementation detail (input is type=number).
+- **B6-74** · Retained · `src/components/settings/inbound-routing/InboundV2Section.tsx:212` — Inbound Calling v2 and Fallback Chain details
+  - Before: `:212 "Only Available, connected, non-busy members ring; when none qualifies the caller reaches the group voicemail."; :228 "Unheard voicemails are kept up to 90 days regardless."; :234-236 Activation check; :252 activation requirement; FallbackChainSection.tsx:95-97, :140-143 (no state licenses), :183-185`
+  - Why: Routing consequences, voicemail retention, readiness diagnostics, missing-data indicator.
+- **B6-75** · Still needed · `src/components/settings/state-licenses/StateLicensesSection.tsx:84` — Phone System › State Licenses header
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Track which states each agent is licensed in. Used by state-based inbound call routing.`
+  - After: `Used by state-based inbound call routing.`
+  - Tests: none
+  - Pins: AGENT_RULES.md:540 agent_state_licenses canonical (no wording pin)
+  - Accessibility: n/a
+  - Why: Keeps the routing consequence; drops generic "Track…".
+- **B6-76** · Retained · `src/components/settings/state-licenses/StateLicensesSection.tsx:97` — State Licenses empty states and dialogs
+  - Before: `:97-100 "No active agents …"; :105-110 "Add licenses to enable state-based inbound call routing."; StateLicenseFormModal.tsx:105-107; StateLicenseTable.tsx:197-200`
+  - Why: Empty-state reasons, license requirement, dialog descriptions.
+- **B6-77** · Still needed · `src/components/settings/CallRecordingSettings.tsx:134` — Phone System › Recording Settings heading
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `<h3>Call Recording</h3> followed by CardTitle "Call Recording" (:137-140)`
+  - After: `(delete outer h3 :134)`
+  - Markup: Wrapper div space-y-4 now holds only the Card.
+  - Tests: none
+  - Accessibility: CardTitle renders h3 (ui/card.tsx:19), so the section keeps one heading.
+  - Why: Duplicate heading.
+- **B6-78** · Still needed · `src/components/settings/CallRecordingSettings.tsx:142` — Recording Settings card description
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Control how browser-side call recordings are captured and stored. When you set a retention period, recordings older than that limit are eligible for automatic cleanup.`
+  - After: `When you set a retention period, recordings older than that limit are eligible for automatic cleanup.`
+  - Tests: none — recordingRetention*.test.ts are backend handler tests
+  - Pins: Owner standard: preserve recording retention/deletion
+  - Accessibility: n/a
+  - Why: Generic "Control…" + implementation detail removed; recording retention/deletion consequence kept verbatim.
+- **B6-79** · Retained · `src/components/settings/CallRecordingSettings.tsx:159` — Recording Settings › AI Transcription and no-org notice
+  - Before: `AI Transcription (Coming Soon) [disabled switch]; :118 "Link your account to an organization to manage recording settings."`
+  - Why: Unavailable-feature notice; missing-organization state.
+- **B6-80** · Already satisfied · `src/components/settings/CallRecordingLibrary.tsx:196` — Phone System › Recording Library
+  - Before: `Recording Library (no subtitle); :186-188 not-linked notice; :258-267 filter-specific empty states`
+  - Why: No intro to remove; empty states distinguish filters.
+- **B6-81** · Still needed · `src/components/settings/CallMonitoring.tsx:126` — Phone System › Call Monitoring info banner
+  - **Implemented (2026-10-12):** `f0562bb` (C6a).
+  - Before: `Listen, Whisper, and Barge require Twilio Call Control integration. Full functionality coming soon.`
+  - After: `Listen, Whisper, and Barge are coming soon.`
+  - Tests: none
+  - Pins: Owner standard: never hide an unfinished feature
+  - Accessibility: n/a
+  - Why: Shortens the unavailable-feature notice; keeps it visible. The row text "Listen · Whisper · Barge — coming soon" (:217-219) and toast (:115) stay.
+- **B6-82** · Still needed · verifier: revise · `src/components/settings/CallMonitoring.tsx:140` — Call Monitoring › Live Calls freshness label
+  - **Implemented (2026-10-12):** `f0562bb` (C6a); follow-up `26d79d3` ("Live Calls" stays on one line).
+  - Before: `Live via Realtime`
+  - After: `Updates automatically`
+  - Tests (as mapped; the verifier correction below wins where they differ): none
+  - Accessibility: Keep this text — it is the only non-visual signal of live updating.
+  - Why: "Realtime" is backend jargon; the text remains the accessible live indicator (the pulsing dot has no text alternative).
+  - Verifier correction: 'Live' would sit right after the 'Live Calls' heading (:134-139) and read 'Live Calls ● Live'. 'Updates automatically' keeps the only text alternative for the pulsing dot, describes the real Realtime push (channel at :62-94) without jargon, and matches the empty-state wording at :173.
+- **B6-83** · Retained · `src/components/settings/CallMonitoring.tsx:154` — Call Monitoring connection failure and empty state
+  - Before: `:154-156 "Live call tracking is not connected. The monitoring service may be temporarily unavailable." [Retry]; :171-172 "No active calls right now / Live calls will appear here automatically."`
+  - Why: Connection failure vs empty distinction.
+- **B6-84** · Still needed · `src/components/settings/CallScripts.tsx:497` — Call Scripts header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Write and manage scripts for your agents to use during calls`
+  - After: `(delete)`
+  - Markup: Remove the <p> :497.
+  - Tests: none
+  - Pins: Owner standard: user-authored scripts untouchable (not affected)
+  - Accessibility: n/a
+  - Why: Generic intro. Script content itself is untouched.
+- **B6-85** · Still needed · `src/components/settings/CallScripts.tsx:509` — Call Scripts non-admin notice
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Call scripts are managed by agency admins. Additional delegation will be handled through Permissions.`
+  - After: `Call scripts are managed by agency admins.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps the permission notice; removes roadmap promise (same as B6-34).
+- **B6-86** · Still needed · `src/components/settings/call-scripts/CallScriptsList.tsx:94` — Call Scripts list empty state (admins)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `No scripts yet. Click Add Script to get started.`
+  - After: `No scripts yet.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: The Add Script button is rendered directly below.
+- **B6-87** · Retained · `src/components/settings/call-scripts/CallScriptEditor.tsx:49` — Call Scripts editor/list states and dialogs
+  - Before: `"Select a script from the list to view[ and edit] it."; CallScriptsList.tsx:105 "No scripts match your search. Try adjusting your filters."; DeleteCallScriptDialog.tsx:26-28; UnsavedChangesDialog.tsx:23-25`
+  - Why: Selection guidance, filtered-empty state, destructive/unsaved warnings.
+- **B6-88** · Still needed · `src/components/settings/DispositionsManager.tsx:358` — Dispositions header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage call outcome categories used after every call.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :358.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro; the info banner :365-367 already states the post-call effect.
+- **B6-89** · Retained · `src/components/settings/DispositionsManager.tsx:366` — Dispositions banners, option consequences, dialogs
+  - Before: `:366 "The order here determines what agents see after every call in the dialer."; :374 view-only notice; :488/:512 locked tooltips; :536-538 DialogDescription; :596-772 option descriptions (DNC auto-add, remove from campaign, conversion, counts as contacted); :802 delete consequence`
+  - Why: Ordering effect, permission restriction, DNC/conversion/queue consequences, dialog descriptions.
+  - Pins: AGENT_RULES.md:91 counts_as_contacted · AGENT_RULES.md:486 invariant #39 DNC
+- **B6-90** · Still needed · `src/components/settings/ContactManagement.tsx:1466` — Contact Flow page header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Configure pipeline stages, custom fields, lead sources, and contact behavior.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :1466.
+  - Tests: contactManagementFieldLayout.test.tsx uses tab/button names only — unaffected
+  - Accessibility: n/a
+  - Why: Generic "Configure…" intro repeating the tab bar.
+- **B6-91** · Still needed · `src/components/settings/ContactManagement.tsx:396` — Contact Flow › Pipeline Stages section descriptions
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:396 "Manage the status options that appear on lead records and the Kanban board." :406 "Manage the pipeline stages for your recruit Kanban board."`
+  - After: `:396 "Status options on lead records and the Kanban board." :406 "Stages on the recruit Kanban board."`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Drops "Manage…"; keeps where the stages appear.
+- **B6-92** · Still needed · `src/components/settings/ContactManagement.tsx:636` — Contact Flow › Custom Fields empty state
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Add your first custom field to capture information specific to your agency.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :636; give the h4 :635 mb-4.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional prompt.
+- **B6-93** · Still needed · `src/components/settings/ContactManagement.tsx:722` — Contact Flow › Add/Edit Custom Field › Required toggle helper
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b); follow-up `1381ccf` (area review); `9094a2d` (final review: wording corrected).
+  - Outcome: Final text "Enforced in the contact view. Lead CSV imports must map a column to it." The approved PB-28 text overstated where the rule is enforced: the Dialer inline edit does not enforce it, and imports require only a mapped column. No enforcement logic changed (§17.11 deviation list).
+  - Before: `Enforcement on contact forms ships in a later release; this toggle saves your intent now.`
+  - After: `Enforced where custom-field inputs appear (e.g. the contact view). — or plain deletion (owner)`
+  - Tests: none
+  - Pins: AGENT_RULES.md:538 Required-field enforcement row (frontend save paths)
+  - Accessibility: n/a
+  - Why: Stale not-active notice: custom required fields ARE enforced (FullScreenContactView.tsx:642-646 missingRequiredCustomDetails; ImportLeadsModal.tsx:560-595,1363-1367), and the same component's REQUIRED_FIELDS_ACTIVE_NOTE (:68-69) says so. Replacement reuses that note's wording.
+- **B6-94** · Still needed · `src/components/settings/ContactManagement.tsx:938` — Contact Flow › Lead Sources header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage the lead source options that appear when adding or importing contacts.`
+  - After: `Options shown when adding or importing contacts.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Drops "Manage…"; keeps where options appear.
+- **B6-95** · Still needed · `src/components/settings/ContactManagement.tsx:1153` — Contact Flow › Duplicate Detection header and card subtitles
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:1153 "Control how the system identifies and handles duplicate contacts." :1166 "Choose what field combination triggers a duplicate warning." :1180 "Define which contacts are checked when looking for duplicates." :1192 "Choose what happens when a duplicate is detected."`
+  - After: `(delete all four)`
+  - Markup: Remove the four <p> elements; card wrappers keep space-y-3 with the h5 directly above the radios.
+  - Tests: none
+  - Pins: AGENT_RULES.md:459 duplicate-detection behaviour (unchanged); DUPLICATE_DETECTION_ACTIVE_NOTE :65-66 kept
+  - Accessibility: n/a
+  - Why: Generic intros restating headings; each radio option keeps its own consequence text.
+- **B6-96** · Still needed · `src/components/settings/ContactManagement.tsx:1316` — Contact Flow › Required Fields header and footer
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - **Final polish (2026-10-12):** `9010612`. The retained `REQUIRED_FIELDS_ACTIVE_NOTE` this item relied on is corrected to "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row." The old "forms/imports and where custom inputs appear" claim, cited in the Why line below, no longer applies.
+  - Before: `:1316 "Choose which fields agents must fill in before a contact record can be saved." :1370-1372 "Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab)."`
+  - After: `(delete both)`
+  - Markup: Remove the two <p> elements.
+  - Tests: none
+  - Pins: AGENT_RULES.md:538
+  - Accessibility: n/a
+  - Why: The active-note banner already says required fields are enforced on forms/imports and where custom inputs appear; the footer is a near-verbatim duplicate.
+- **B6-97** · Retained · `src/components/settings/ContactManagement.tsx:625` — Contact Flow retained notices
+  - Before: `:61 ContactFlowReadOnlyBanner; :65-69 active notes; :625 agency vs personal field visibility; :730 "Visible to everyone in the org…"; :1213 "Contact merging is not built yet — these preferences are not saved." + Not Active badge; :1799-1803 Field Layout scope; dialogs :309, :344, :780, :794, :1063`
+  - Why: Permission/visibility scope, not-active notice, layout precedence invariant, deletion consequences.
+  - Pins: AGENT_RULES.md:537 layout resolution
+- **B6-98** · Retained · `src/components/settings/DNCSettings.tsx:248` — DNC List header, read-only notice, Compliance Notice
+  - Before: `:248 "Your agency's \"Do Not Call\" list. Numbers here are blocked from auto-dialing and trigger a warning for manual calls."; :315 "Read-only view. Only Admins can add or remove numbers from the agency DNC list."; :392-399 "Compliance Notice — Numbers on this list cannot be dialed manually or automatically from any campaign in this organization."`
+  - Why: DNC compliance and permission copy. Note: :248 (manual = warning) and :398 (cannot be dialed manually) contradict each other; resolve only after verifying actual manual-dial/Override DNC behaviour — not a Part B deletion.
+  - Pins: AGENT_RULES.md:486 invariant #39
+- **B6-99** · Still needed · `src/components/settings/CalendarSettings.tsx:576` — Calendar settings header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Control how your team's calendar looks and behaves`
+  - After: `(delete)`
+  - Markup: Remove the <p> :576.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic "Control…" intro.
+- **B6-100** · Still needed · `src/components/settings/CalendarSettings.tsx:583` — Calendar › card descriptions (Default Calendar View, First Day of the Week, Scheduling Defaults, Google Calendar Integration)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b); follow-up `9094a2d` (Google Calendar header centre-aligned).
+  - Before: `:583 "Choose the default view agents see when they open the calendar" :610 "Controls how the calendar grid is displayed" :707 "Control default durations and buffer time between appointments" :747 "Connect your Google Calendar and control how events sync."`
+  - After: `(delete :583, :610, :707, :747 CardDescriptions)`
+  - Markup: Remove the CardDescription elements; CardHeader keeps CardTitle. The "Coming soon — this setting is not active yet." lines (:602, :628, :734) and the Connected/Disconnected badge stay.
+  - Tests: none
+  - Pins: Owner standard: keep not-active notices (kept)
+  - Accessibility: CardDescription is a plain <p>, not a dialog description.
+  - Why: Generic intros restating titles/controls (:707 also mentions duration controls that do not exist).
+- **B6-101** · Still needed · `src/components/settings/CalendarSettings.tsx:637` — Calendar › Appointment Types
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage the types of appointments your team can schedule. Default types are locked and cannot be renamed or removed.`
+  - After: `Default types are locked and cannot be renamed or removed.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Keeps the restriction; drops "Manage…".
+- **B6-102** · Still needed · `src/components/settings/CalendarSettings.tsx:944` — Calendar › Personal Appointment Reminders
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:944 "Configure popups and alerts for your upcoming appointments and callbacks" :951 "How many minutes before an appointment should we show the popup?"`
+  - After: `:944 "Popups for your upcoming appointments and callbacks." :951 (delete)`
+  - Markup: Remove the <p> :951; label "Reminder Lead Time" remains.
+  - Tests: none
+  - Pins: AGENT_RULES.md:228 personal-reminder recipient (behaviour unchanged)
+  - Accessibility: Select has no label association (pre-existing) — not changed.
+  - Why: Keeps the scope (callbacks included); :951 restates its label.
+- **B6-103** · Retained · `src/components/settings/CalendarSettings.tsx:602` — Calendar not-active notices and Google sync explanation
+  - Before: `"Coming soon — this setting is not active yet." (:602, :628, :734, :933); :846-848 "Contact reminders are not active yet. Personal agent reminders are available below."; :880-882 "Confirmation emails and calendar color coding are not active yet."; :842/:876/:907 descriptions of inactive features; :827-830 2-way/outbound sync behaviour (Google-wins); :698 admin-only notice; :651/:782/:802 errors`
+  - Why: Unavailable-feature notices, sync consequences, permission restriction, error states.
+- **B6-104** · Still needed · `src/components/workflows/WorkflowList.tsx:92` — Workflow Builder header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Visual automations triggered by lead activity, dispositions, and more.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :91-93.
+  - Tests: none
+  - Pins: Workflow content untouched
+  - Accessibility: n/a
+  - Why: Promotional intro.
+- **B6-105** · Still needed · `src/components/workflows/WorkflowList.tsx:161` — Workflow Builder empty state (no workflows)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Workflows let you automate follow-ups, tag leads, send messages, and more — without writing code.`
+  - After: `(delete no-workflows text; keep folder-empty text)`
+  - Markup: Render the <p> :158-162 only when hasWorkflows.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional copy; the folder-empty guidance is functional and kept.
+- **B6-106** · Still needed · `src/components/workflows/panels/ActionConfigPanel.tsx:106` — Workflow editor side panels (Action, Wait, Condition)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `ActionConfigPanel.tsx:106 subtitle="Configure this step"; WaitConfigPanel.tsx:71 subtitle="Pause the workflow before the next step"; ConditionConfigPanel.tsx:127 subtitle="Branch the flow based on a contact field"`
+  - After: `(remove subtitle on Action/Wait/Condition panels)`
+  - Markup: PanelShell.tsx:44 already renders subtitle only when truthy; no PanelShell change.
+  - Tests: none
+  - Accessibility: PanelShell is a plain aside (not a Radix dialog); no description requirement.
+  - Why: Generic "Configure…" / title-restating subtitles.
+- **B6-107** · Retained · `src/components/workflows/panels/triggerForms/forms.tsx:175` — Workflow unfinished-feature notices, destructive dialog, hints
+  - Before: `forms.tsx:175 "Coming soon — this trigger type is not yet active. You can save the workflow as a draft."; TriggerTypeSelector.tsx:27 " — Coming Soon"; ActionNode.tsx:47 "Coming Soon"; DeleteWorkflowDialog.tsx:34-36 "This cannot be undone. All execution history will also be deleted."; NewWorkflowModal.tsx:96, NewFolderModal.tsx:48 DialogDescriptions; WaitConfigPanel.tsx:94-96; actionForms.tsx:52,117 hints; forms.tsx:168,180; WorkflowExecutionLog.tsx:104,150-152`
+  - Why: Not-active notices (time-based triggers are not scheduled — AGENT_RULES Known Tech Debt), irreversible warning, dialog descriptions, defaults, execution diagnostics.
+  - Pins: AGENT_RULES.md:623 cron schedules not yet scheduled
+- **B6-108** · Retained · `src/components/settings/EmailSetup.tsx:118` — Email Setup header
+  - Before: `Connect your Gmail inbox so contact email send/receive can appear in conversation history (Gmail is currently supported).`
+  - Why: In-app statement of Google data use, aligned with the Google verification submission (docs/plans/2026-10-09-google-verification/policy-review.md:23,59; submission-packet.md:68). Only the redundant parenthetical is a candidate.
+  - Pins: implementation_plan.md §10 E (Google disclosures out of scope for Part A)
+- **B6-109** · Still needed · `src/components/settings/EmailSMSTemplates.tsx:232` — Email & SMS Templates header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage templates for automated and manual messaging. Agency templates are shared with your organization; Personal templates are visible only to you.`
+  - After: `Agency templates are shared with your organization; Personal templates are visible only to you.`
+  - Tests: none (sms-consent visual gate targets the composer, not this page)
+  - Pins: Owner standard: templates untouchable (content unaffected)
+  - Accessibility: n/a
+  - Why: Drops "Manage…"; keeps visibility semantics. Template content untouched.
+- **B6-110** · Retained · `src/components/settings/TemplateModal.tsx:99` — Templates modal hints, preview label, empty state
+  - Before: `TemplateModal.tsx:99-108 scope hints ("Visibility is fixed after creation. Duplicate to change scope." etc.); :169-171 SMS attachments are reference-only; TemplatePreviewPanel.tsx:41 "Sample data only — not real contact info"; TemplatesListView.tsx:40-41`
+  - Why: Irreversible scope, SMS send consequence, sample-data disclosure, empty state.
+- **B6-111** · Still needed · `src/components/settings/Carriers.tsx:343` — Carriers header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage your insurance carrier appointments, logos, and contact numbers`
+  - After: `(delete)`
+  - Markup: Remove the <p> :343.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro.
+- **B6-112** · Still needed · `src/components/settings/Carriers.tsx:375` — Carriers empty state (admins)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Add your first insurance carrier to begin tracking appointments.`
+  - After: `(delete)`
+  - Markup: Remove the <p>; add mb-4 to the heading <p> :372 inside the canManage branch (or wrap the button with mt-4).
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Prompt duplicates the button.
+- **B6-113** · Retained · `src/components/settings/Carriers.tsx:355` — Carriers retained notices
+  - Before: `:355 "Carrier settings are managed by agency admins."; :381 "No carriers have been added by your agency admins yet."; :530 "JPG, PNG, or WebP. Max 5MB for uploads."; :572-574 remove confirmation; CarrierContactsEditor.tsx:44,83,103`
+  - Why: Permission, empty-state reason, file limits, destructive confirmation, validation.
+- **B6-114** · Still needed · `src/components/settings/ActivityLog.tsx:171` — Activity Log header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `View recent system actions and user activity`
+  - After: `(delete)`
+  - Markup: Remove the <p> :171; the wrapper divs remain (header row has no actions).
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic intro.
+- **B6-115** · Retained · `src/components/settings/ActivityLog.tsx:228` — Activity Log empty state
+  - Before: `No activity yet / Actions like inviting users, importing leads, and creating campaigns will appear here as they happen.`
+  - Why: Explains what is logged. (Pre-existing: the same "No activity yet" shows when filters match nothing — behaviour follow-up, not copy deletion.)
+- **B6-116** · Still needed · `src/pages/SuperAdminDashboard.tsx:545` — Super Admin › Agencies header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage all agencies on the platform`
+  - After: `(delete)`
+  - Markup: Remove the <p> :545; header row keeps h1 + actions.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro.
+- **B6-117** · Retained · `src/pages/SuperAdminDashboard.tsx:237` — Super Admin wizard and tiles
+  - Before: `Provision wizard DialogDescription step text :237-241; :280 slug hint; :320-323 provisioned summary; HealthTile subtitle :591 "In-progress calls"; TwilioBalanceTile.tsx:83 "Balance could not be loaded"`
+  - Why: Dialog description/progress, input hint, result confirmation, metric qualifier, connection failure.
+- **B6-118** · Still needed · `src/pages/SuperAdminOrgDetail.tsx:338` — Super Admin › Agency detail › Agency team card
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Manage team members and their platform permissions`
+  - After: `(delete)`
+  - Markup: Remove CardDescription :338 (plain <p>, not a dialog description).
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic "Manage…" intro.
+- **B6-119** · Still needed · `src/pages/SuperAdminOrgDetail.tsx:459` — Super Admin › Agency detail › Settings tab placeholder
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Agency configuration / Administrative settings and limits for {org.name} / [Configure agency] (button has no onClick)`
+  - After: `Agency configuration / Coming soon — agency configuration is not active yet. (recommended: disable the no-op button)`
+  - Markup: Replace the paragraph text :459-461. Owner decision on the no-op button :462-464 (recommended: add `disabled` so it no longer looks actionable; do not remove the heading).
+  - Tests: none
+  - Pins: Owner standard: unavailable/not-active notices
+  - Accessibility: A disabled button is announced as unavailable; today it is an operable control that does nothing.
+  - Why: Placeholder presents an unfinished feature as complete; owner rule forbids that.
+- **B6-120** · Retained · `src/pages/SuperAdminOrgDetail.tsx:432` — Super Admin › Agency detail retained notices
+  - Before: `:432 "Performance visualization coming soon"; :447 "Campaign history coming soon"; :478-482 suspend/reactivate/archive consequences`
+  - Why: Not-active notices and irreversible-action warnings.
+- **B6-121** · Still needed · `src/components/super-admin/provisioning/ProvisioningPanel.tsx:46` — Super Admin › Twilio Provisioning header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Outcome: Implemented as written. `ProvisioningPanel` is not mounted anywhere, so this has no runtime effect.
+  - Before: `Subaccount status per organization. Retry failed or stuck provisioning.`
+  - After: `Subaccount status per organization.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Second sentence repeats the Retry action.
+- **B6-122** · Still needed · `src/components/super-admin/system/SystemMonitoringTab.tsx:460` — Super Admin › System Monitoring › Service Status Ledger
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Live registry of cloud infrastructure, integrations, and daemon performance.`
+  - After: `(delete)`
+  - Markup: Remove CardDescription :459-461.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional and inaccurate (the ledger is a manually maintained registry).
+- **B6-123** · Still needed · `src/components/super-admin/system/SystemMonitoringTab.tsx:354` — Super Admin › System Monitoring overall status (outage)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Platform outages detected. Engineering is actively investigating.`
+  - After: `Platform outages detected.`
+  - Tests: none
+  - Accessibility: n/a
+  - Why: The second sentence asserts something the system cannot know; the outage status itself is kept. Other status descs (:340, :347, :361) retained.
+- **B6-124** · Still needed · `src/pages/control-center/ControlCenterOverviewPage.tsx:85` — Control Center › Overview header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Welcome back{, first_name}. Internal AgentFlow platform status.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :84-87; `realProfile`/useAuth (:18, :27) become unused (no-unused-vars is off in eslint.config.js:23) — optionally remove for tidiness.
+  - Tests: none
+  - Pins: AGENT_RULES.md:47-54 Control Center (no wording pin)
+  - Accessibility: n/a
+  - Why: Greeting/intro with no information.
+- **B6-125** · Still needed · `src/pages/control-center/ControlCenterFeaturesPage.tsx:103` — Control Center › Feature Tracker header and empty state
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:103 "Build status across the platform." :186 EmptyState description "Add the first feature to start tracking build status, ownership, and priorities."`
+  - After: `(delete both)`
+  - Markup: Remove the <p> and the description prop.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic intros.
+- **B6-126** · Still needed · `src/pages/control-center/ControlCenterIssuesPage.tsx:101` — Control Center › Issue Tracker header and empty state
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:100-102 "Broken areas, known problems, blockers, and risks." :167 "Log the first issue to start tracking severity, status, and source."`
+  - After: `(delete both)`
+  - Markup: Remove the <p> and the description prop.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic intros.
+- **B6-127** · Still needed · `src/pages/control-center/ControlCenterRuntimePage.tsx:109` — Control Center › Runtime Logs & Errors header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Track frontend crashes, unhandled rejections, and runtime system telemetry.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :108-110.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Generic intro.
+- **B6-128** · Still needed · `src/pages/control-center/ControlCenterTrackerPage.tsx:86` — Control Center › Tracker header
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Launch-readiness command center for AgentFlow — systems, items, issues, and marketing reality.`
+  - After: `(delete)`
+  - Markup: Remove the <p> :85-88.
+  - Tests: none
+  - Accessibility: n/a
+  - Why: Promotional intro repeating the tab names.
+- **B6-129** · Still needed · `src/pages/control-center/ControlCenterHealthPage.tsx:67` — Control Center › Health Checks header and empty state
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:67 "Registry of probes. Live execution is not wired in v1; status is manual." :85 "Add the first check to populate the registry. v1 records manual status only — no live probes."`
+  - After: `:67 "Live execution is not wired in v1; status is manual." :85 (delete description)`
+  - Markup: Edit the <p>; remove the EmptyState description prop.
+  - Tests: none
+  - Pins: Owner standard: keep not-active notices (kept in header)
+  - Accessibility: n/a
+  - Why: Keeps the not-active notice once (accurate: RunChecksButton.tsx:26 toasts "stub — no live probes in v1").
+- **B6-130** · Retained · `src/components/control-center/tracker/TrackerTechnicalTruthTab.tsx:55` — Control Center tracker tabs retained copy
+  - Before: `TechnicalTruthTab :55-58 sensitivity warning, :66-70 source-of-truth statement, :89-92 export description; tab subtitles with counts/legend (TrackerIssuesTab.tsx:99, TrackerItemsTab.tsx:114, TrackerSystemsTab.tsx:114, TrackerMarketingRealityTab.tsx:98); filtered-empty states; ControlCenterRuntimePage.tsx:190; ControlCenterOverviewPage.tsx:168; form-modal DialogDescriptions`
+  - Why: Sensitivity/confidentiality warning, counts, highlight legend, empty-vs-filtered distinction, dialog descriptions.
+  - Pins: AGENT_RULES.md:47-54
+- **MB6-01** (found by the verifier) · Still needed · `src/components/settings/CalendarSettings.tsx:876` — Calendar › Appointment Confirmation card (inactive)
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Outcome: CardDescription deleted; the not-active notice "Confirmation emails and calendar color coding are not active yet." and the row helpers stay. See §17.9 for the record conflict with B6-103.
+  - Before: `Automatically send a confirmation to contacts when an appointment is created`
+  - After: `(delete)`
+  - Markup: Remove the CardDescription at :876; CardHeader keeps CardTitle. The not-active notice (:879-881 'Confirmation emails and calendar color coding are not active yet.') and the row helpers :885/:893 stay.
+  - Tests: none — no test renders CalendarSettings
+  - Pins: Owner standard: keep not-active notices (the :880 notice is kept)
+  - Accessibility: Plain <p>; not a dialog description.
+  - Why: Duplicates the row helper at :885 ('Contact receives an email confirmation immediately after an appointment is saved') in the same card. It also describes only one of the card's two rows (Color Coding is the other). It is the same CardDescription pattern B6-100 deletes on the sibling cards.
+- **MB6-02** (found by the verifier) · Still needed · `src/components/settings/CalendarSettings.tsx:975` — Calendar › Personal Appointment Reminders › Enable Sound Notification helper
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `Play a chime when the reminder popup appears`
+  - After: `(delete)`
+  - Markup: Remove the <p> at :975; the space-y-0.5 div keeps the Label 'Enable Sound Notification'.
+  - Tests: none
+  - Pins: AGENT_RULES.md:228 personal-reminder behaviour (unchanged)
+  - Accessibility: The Label is not associated with the Switch (pre-existing, unchanged).
+  - Why: Restates its label inside the card where B6-102 already deletes the sibling helper at :951. Without it the two rows read consistently.
+- **MB6-03** (found by the verifier) · Still needed · `src/components/settings/DispositionsManager.tsx:663` — Dispositions › Add/Edit Disposition dialog › Automation Trigger and Campaign Action helpers
+  - **Implemented (2026-10-12):** `bdfe2b3` (C6b).
+  - Before: `:663 "Trigger an automation when this disposition is selected." / :726 "What happens to the lead in the campaign after this disposition."`
+  - After: `(delete both)`
+  - Markup: Remove the two <p> elements. Each label row keeps its heading <p>, and the :726 wrapper div keeps only the label. Keep the per-option consequence lines (:737-742), the workflow-empty guidance (:673) and the Auto-Add to DNC consequence (:752).
+  - Tests: none — no test renders DispositionsManager
+  - Pins: AGENT_RULES.md:486 DNC invariant (DNC consequence kept) · AGENT_RULES.md:91 counts_as_contacted (copy kept)
+  - Accessibility: Dialog keeps its DialogDescription (:536-538); switch and select accessible names unchanged.
+  - Why: Both restate their labels ('Automation Trigger', 'Campaign Action'). The real consequences are in the per-option lines shown on selection. This matches the treatment of B6-61 (PhoneNumberRoutingModal 'Determines who rings…').
+
+## Area 7 — Resources, Training and profiles
+
+Verified. Still needed: 21 · Retained: 34 · Already satisfied: 1 · pointer: 11.
+
+- **B7-01** · Still needed · `src/pages/Resources.tsx:87` — Resources sidebar header (under h1 'Resources')
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Fast Access Library`
+  - After: `(delete)`
+  - Markup: Delete the <p> at L86-88. The wrapper <div className="space-y-1"> at L81 then holds only the h1; leave it (space-y-1 does nothing) or unwrap it. No visual difference. The sidebar's p-6 pb-4 space-y-4 (L80) is unchanged.
+  - Tests: none: no test, gate, doc or rule asserts it (repo-wide grep of src, docs, scripts, e2e, AGENT_RULES.md, WORK_LOG.md)
+  - Pins: none
+  - Accessibility: The h1 'Resources' stays the page heading. The subtitle is not referenced by any aria-* attribute.
+  - Why: Ornamental subtitle; a named target. It carries no scope, state or guidance.
+- **B7-02** · Still needed · `src/pages/Resources.tsx:302` — Resources > Documents grid header (under h2 'All Documents'/folder name)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `{filteredDocuments.length} resources available`
+  - After: `(delete)`
+  - Markup: Delete the <p> at L301-303. Drop mb-1 from the h2 at L298, so its className is "text-2xl font-bold tracking-tight text-foreground" and the heading centres against the Add Document button in the items-center header (L296).
+  - Tests: none: no test or gate asserts it (repo-wide grep)
+  - Pins: none
+  - Accessibility: No accessible name or description depends on it. The h2 remains.
+  - Why: A repetitive count line, the Resources twin of the owner's 'Viewing X resources...' target. Per-folder counts already show in the sidebar badges (L167-169, L186-188), the grid shows the result, and zero has its own 'No documents found' state (L329). It also says 'resources' under a Documents heading.
+- **B7-03** · Still needed · `src/components/resources/AgencyResourceCard.tsx:80` — Resources > Documents card footer (every card)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `[FileText icon] DOCUMENT`
+  - After: `(delete)`
+  - Markup: Delete the <div> at L78-81 (icon and 'DOCUMENT'). Change L77 'justify-between' to 'justify-end' so the date (L82-84) stays right-aligned. FileText is still used at L36, so the import stays.
+  - Tests: none: no test references AgencyResourceCard
+  - Pins: none
+  - Accessibility: Decorative text only. The card's content (badge, title, date) is unchanged. No aria impact.
+  - Why: Every agency resource on this tab is a document. The label repeats on every card, and the thumbnail already shows the document icon (L36). This is ornamental text on the same surface, beyond the three named targets, so it is flagged for owner approval.
+- **B7-04** · Retained · `src/pages/Resources.tsx:156` — Resources > Documents sidebar
+  - Before: `Folders`
+  - Why: A useful group label for the folder navigation list and the admin Edit Categories control below it.
+  - Pins: none
+- **B7-05** · Retained · `src/pages/Resources.tsx:71` — Resources loading and Scripts-list empty state
+  - Before: `Loading resources... (L71); No scripts found. (L151)`
+  - Why: Loading and empty states, kept distinct as the standard requires.
+  - Pins: none
+- **B7-06** · Still needed · verifier: revise · `src/pages/Resources.tsx:242` — Resources > Scripts viewer empty state
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `No script selected / Select a script from the sidebar to view its contents.`
+  - After: `Delete the <p> at Resources.tsx:243-245 ('Select a script from the sidebar to view its contents.'). Keep the h3 'No script selected' at L242 and the icon block at L239-241 (mb-4 unchanged).`
+  - Pins: none
+  - Accessibility: none
+  - Why: Empty state. Observation: the effect at L40-44 auto-selects the first script, so in practice this state means the agency has no scripts and the guidance is inaccurate. Correcting it would be a rewrite, not a deletion, so it is not proposed (see decisions).
+  - Verifier correction: The effect at L40-44 auto-selects scripts[0] whenever scripts exist, so this pane persists only when the agency has no scripts. The sidebar already says 'No scripts found.' (L151). The sentence is unnecessary and points to a selection that does not exist. Deleting it is a pure deletion, not a rewrite, and keeps the empty state distinct. No test references Resources.tsx, and no aria attribute references the text.
+- **B7-07** · Retained · `src/pages/Resources.tsx:329` — Resources > Documents empty state
+  - Before: `No documents found / There are no agency documents uploaded yet. | There are no documents in this category. (L329-334)`
+  - Why: A valid-empty state that distinguishes the whole library from one folder. Observation only: with a search active, the same text claims nothing is uploaded. Fixing that needs wording or logic beyond Part B.
+  - Pins: none
+- **B7-08** · Retained · `src/pages/Resources.tsx:233` — Resources script viewer and document viewer
+  - Before: `{selectedScript.content} | This script is empty. (L233) | Back to Grid (L255) | Open Full Screen (L273) | No document file available. (L288)`
+  - Why: Script content is user-authored and untouchable. The rest are missing-content indicators and actions.
+  - Pins: Owner standard: scripts/templates are untouchable
+- **B7-09** · Retained · `src/components/resources/AddAgencyResourceModal.tsx:88` — Add Agency Resource dialog
+  - Before: `Link a new carrier document, form, or cheat sheet for your agents.`
+  - Why: This is the Radix DialogDescription, the dialog's accessible description. The owner's standard says it is not clutter, and it adds what kind of resource belongs here.
+  - Pins: none
+- **B7-10** · Retained · `src/components/resources/AddAgencyResourceModal.tsx:138` — Add Agency Resource dialog field help
+  - Before: `PDF or images up to 50MB. (L138) | Provide a direct link to the file. (L154)`
+  - Why: These are file-type and size requirements, and link guidance for the embedded viewer (the document opens in an iframe, Resources.tsx:281).
+  - Pins: none
+- **B7-11** · Retained · `src/components/resources/ResourceCategoryManager.tsx:47` — Manage Document Categories dialog
+  - Before: `Add or remove categories to organize your agency documents.`
+  - Why: DialogDescription (accessible description); not clutter per the owner's standard.
+  - Pins: none
+- **B7-12** · Still needed · `src/pages/Training.tsx:77` — Training sidebar header (under h1 'Training Center')
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Knowledge Library`
+  - After: `(delete)`
+  - Markup: Delete the <p> at L76-78. The wrapper <div className="space-y-1"> at L71 then holds only the h1; leave it or unwrap it. The aside's space-y-8 (L70) is unchanged.
+  - Tests: none: no test or gate asserts it (repo-wide grep)
+  - Pins: none
+  - Accessibility: The h1 'Training Center' remains.
+  - Why: Ornamental subtitle; a named target.
+- **B7-13** · Still needed · `src/pages/Training.tsx:136` — Training main header (under h2 activeCategoryName)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Viewing {filteredResources.length} resources in {activeCategoryName}`
+  - After: `(delete)`
+  - Markup: Delete the <p> at L135-137. The wrapper <div className="space-y-1"> at L133 then holds only the h2; leave it or unwrap it. The header (L132, md:items-center) keeps the h2 aligned with the search box and Add Resource.
+  - Tests: none: no test or gate asserts it (repo-wide grep)
+  - Pins: none
+  - Accessibility: The h2 remains.
+  - Why: The owner's named target. It repeats the h2 (L134, the same activeCategoryName) and a count the grid already shows. Zero has its own state (L173-181).
+- **B7-14** · Still needed · verifier: revise · `src/pages/Training.tsx:179` — Training empty or no-match state
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `We couldn't find any resources matching your criteria in this category.`
+  - After: `(delete) the <p> at Training.tsx:178-180; the h3 'No results found' at L177 stays.`
+  - Markup (as mapped; the verifier correction below wins where they differ): Delete the <p> at L178-180. The h3 'No results found' (L177) stays; the icon's mb-4 spacing is unchanged.
+  - Tests (as mapped; the verifier correction below wins where they differ): none: no test references Training.tsx
+  - Pins: none
+  - Accessibility: The h3 remains the empty-state text.
+  - Why: It restates the h3. 'We couldn't find' also reads like a failure, though this is a valid-empty state. The heading alone keeps the empty state distinct.
+  - Verifier correction: Deleting it is acceptable, but the item is not one of the three named targets and is missing from decisions_for_owner, unlike B7-03 and B7-17. It is also inconsistent with retaining the parallel empty-state descriptions in B7-07 and B7-46, so the owner should choose one policy. Correct the rationale too. This block is not only a valid-empty state. useTraining throws on query error (useTraining.ts:24, 43, 50) and Training.tsx has no error branch, so this block is also what a failed load renders. Deleting the paragraph neither creates nor fixes that pre-existing gap. No test references Training.tsx.
+- **B7-15** · Retained · `src/pages/Training.tsx:62` — Training loading state, title and category label
+  - Before: `Loading training center... (L62) | Training Center (L74) | Categories (L83) | All Resources (L104)`
+  - Why: Loading state, page title and navigation labels.
+  - Pins: none
+- **B7-16** · Retained · `src/components/training/ResourceCard.tsx:114` — Training resource card
+  - Before: `{resource.description} (CardDescription, L113-115)`
+  - Why: A real, admin-authored resource description (AddResourceModal.tsx:170-177). The owner says to keep these.
+  - Pins: Owner standard: keep real resource descriptions
+- **B7-17** · Still needed · verifier: revise · `src/components/training/ResourceCard.tsx:107` — Training resource card meta line
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `{resource.file_size || resource.duration || "5 min"}`
+  - After: `Remove the "5 min" fallback. Render the meta <span> (L105-108) only when a value exists: {(resource.file_size || resource.duration) && (<span ...existing classes...>{icon}{resource.file_size || resource.duration}</span>)}.`
+  - Markup (as mapped; the verifier correction below wins where they differ): Wrap the existing <span> at L105-108 in that conditional. Classes are unchanged, and the badge (L102-104) stays in the same flex row.
+  - Tests (as mapped; the verifier correction below wins where they differ): none: no test references ResourceCard
+  - Pins: none
+  - Accessibility: No accessible-name impact. Removes false information.
+  - Why: A fabricated value. Neither useTraining nor AddResourceModal ever sets duration or file_size (only optional types in src/types/training.ts:14-15), so effectively every card claims '5 min'. Deleting it leaves a truthful absence. This is beyond the three named targets and flagged for owner approval.
+  - Verifier correction: The proposal is right, but the rationale overstates. duration and file_size are not 'only optional types'. They are real text columns on public.training_resources (baseline schema 20260806000000_baseline_production_schema.sql:8404-8405), and useTraining selects '*' (useTraining.ts:36-39). Values written outside the app would render. The app's own writers (AddResourceModal.tsx:59-67, useTraining addResource) never set them, so '5 min' appears on every app-created card. How widespread that is in production cannot be checked read-only. Pre-existing and not changed: when duration is set it already shows in the thumbnail overlay (L93-97), so it would appear twice. No test references ResourceCard.
+- **B7-18** · Retained · `src/components/training/ResourceCard.tsx:103` — Training resource card badges and labels
+  - Before: `Uncategorized (L103) | Completed (L66) | {resource.type.toUpperCase()} (L121) | Delete Resource (L86)`
+  - Why: Missing-category indicator, completion state, a type label that matters in a mixed video/script/document grid, and an admin action.
+  - Pins: none
+- **B7-19** · Retained · `src/components/training/ResourceDetail.tsx:55` — Training resource detail dialog
+  - Before: `DialogDescription {resource.description} (L54-56) | No Video Available / This resource does not have a video URL attached. (L77-78) | No Document Available / This resource does not have a document URL attached. (L103-104) | Your browser does not support the video tag. (L69) | Added on {date} (L114) | Mark as Complete / Completed (L128-131)`
+  - Why: The description is admin-authored and is also the accessible description. The second lines name the cause (no URL attached), which separates missing content from a playback failure. The rest is data, fallback and action.
+  - Pins: none
+- **B7-20** · Retained · `src/components/training/AddResourceModal.tsx:107` — Add Training Resource dialog
+  - Before: `Upload a new script, guide, or video link for your agency. (DialogDescription L106-108) | MP4, WebM, or MOV up to 100MB. / PDF or images up to 50MB. (L209)`
+  - Why: Accessible description, plus file-format and size requirements.
+  - Pins: none
+- **B7-21** · Retained · `src/components/training/CategoryManager.tsx:49` — Manage Training Categories dialog
+  - Before: `Add or remove categories to organize your training materials.`
+  - Why: DialogDescription (accessible description).
+  - Pins: none
+- **B7-22** · Already satisfied · `src/pages/AgentProfile.tsx:56` — Agent Profile page chrome
+  - Before: `Agent Profile | Team Profile (tabs only, L56/L62)`
+  - Why: The page has no ornamental subtitle and no 'Viewing N' count. The rebuild (b3c0839 lineage; WORK_LOG ~2704) replaced the earlier page, so any older-audit targets on the pre-rebuild page are superseded by the agent-profile/* components listed here.
+  - Pins: none
+- **B7-23** · Still needed · `src/components/agent-profile/AgentProfileTab.tsx:89` — Agent Profile > Business snapshot section description
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Lifetime totals across everything you have written.`
+  - After: `Lifetime totals across your book of business.`
+  - Tests: none assert it; profileStates.test.tsx passes its own title and no description
+  - Pins: Owner standard: keep scope and lifetime distinctions ('Lifetime', 'current book'). Preserved.
+  - Accessibility: Visible section description only; not an aria description.
+  - Why: Paired with B7-24. Once the duplicate footer is deleted, this one line carries both the lifetime and the current-book scope, matching the Team wording (TeamProfileTab.tsx:123). It is also more accurate: get_profile_book_stats counts clients currently assigned (supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql:333 'c.assigned_agent_id = ANY (v_scope)'; AGENT_RULES.md:495 current-owner contract), not everything the agent ever wrote.
+- **B7-24** · Still needed · `src/components/agent-profile/BusinessSnapshot.tsx:135` — Business snapshot footer (Agent and Team tabs)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Lifetime totals from the [book of business, with DefinitionHint tooltip: 'A policy is the primary policy stored on a client record, plus any additional policies recorded against that client. There is no separate policies table, and policy sale events (wins) are not used here — they freeze values at the moment of sale and miss manually created or imported clients.']. For performance over a date range, see Reports. (L133-141)`
+  - After: `(delete)`
+  - Markup: Delete L133-141. Remove DefinitionHint from the import list at L17-22. It stays exported from ProfilePrimitives.tsx:84 but is then unused; deleting that export is optional and not required. The footer's mt-4 goes with it; nothing else moves.
+  - Tests: none assert it. profileStates.test.tsx:139-150 (failed) and :188-195 (loading) render where the footer is already hidden. profileContracts.test.ts:192 (<200 lines) still passes.
+  - Pins: none
+  - Accessibility: The DefinitionHint trigger is a non-focusable <span> (ProfilePrimitives.tsx:90-93), so its tooltip was mouse-only. Removing it takes away no keyboard-reachable content.
+  - Why: It repeats the section description on both tabs; on Team the footer echoes 'Lifetime totals across the team's book of business.' almost word for word. The tooltip is an implementation explanation (wins, 'no separate policies table'), and the user-relevant policy definition is already on the Policies tile ('Includes N additional policies...'). The Reports pointer is navigation, not essential. The current-book scope moves into the description (B7-23).
+- **B7-25** · Retained · `src/components/agent-profile/team/TeamProfileTab.tsx:123` — Team Profile > Team business snapshot description
+  - Before: `Lifetime totals across the team's book of business.`
+  - Why: Lifetime and current-book scope distinction; the owner says keep it.
+  - Pins: Owner standard: keep 'Lifetime' / 'current book'
+- **B7-26** · Retained · verifier: revise · `src/components/agent-profile/team/TeamProfileTab.tsx:116` — Team Profile summary section
+  - Before: `Business figures are lifetime totals, not activity.`
+  - Why: This is the third 'lifetime' statement on the Team tab. The Team business snapshot description directly below (L123) says it, and so do B7-24's footer and the carrier production description. The scope sentence before it is retained (B7-27).
+  - Pins: none
+  - Verifier correction: Under the mapper's full set (B7-24, B7-26, B7-36, B7-40), the Team tab's 'Team policy type mix' and 'Team achievements' cards lose every lifetime/book scope cue. 'Team achievements' (AchievementsCard.tsx:158), unlike the Agent title 'Lifetime achievements', has no 'Lifetime'. This one sentence is the Team tab's page-level statement covering every business card. 'not activity' also states the deliberate absence of telemetry (AgentProfileTab.tsx:7-10). The owner standard keeps lifetime/scope distinctions. If the owner still prefers deletion, B7-40 must keep its description on the Team variant instead.
+- **B7-27** · Retained · `src/components/agent-profile/team/TeamProfileTab.tsx:113` — Team Profile header and summary
+  - Before: `{leaderName} · {leaderRole} · agency-wide view of {organizationName} | {leaderName} · {leaderRole} · {organizationName} (L89-93) | As an administrator this covers every active member of the organization. / This covers you and everyone in your downline. (L113-115) | N of M fully set up (L96-105) | Team summary couldn't load (L110)`
+  - Why: Profile data, a meaningful scope statement (organization-wide versus downline, active members only), a readiness count and the failure state.
+  - Pins: AGENT_RULES.md:43-45 downline scoping (meaning preserved)
+- **B7-28** · Still needed · `src/components/agent-profile/BusinessSnapshot.tsx:71` — Business snapshot > Clients / Team Clients tile hint
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `People on the book.`
+  - After: `(delete the hint prop)`
+  - Markup: Remove the hint prop at L71. StatTile renders hint only when present (ProfilePrimitives.tsx:75), and the caveat (L72-76) then sits directly under the value with its existing mt-1.5.
+  - Tests: none assert it
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates the tile label. The 'N with no policy details recorded' caveat, which is the material part, is retained.
+- **B7-29** · Still needed · `src/components/agent-profile/BusinessSnapshot.tsx:88` — Business snapshot > Policies tile hint (no additional policies)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Primary policy per client, plus any additional policies recorded.`
+  - After: `hint={stats.additionalPolicyCount > 0 ? 'Includes ${...} beyond the primary one.' : undefined}`
+  - Markup: Expression change only. The conditional 'Includes N additional ...' at L85-87 is unchanged.
+  - Tests: profileStates.test.tsx:208 asserts /Includes 2 additional policies/ (FULL_BOOK) and is unchanged; nothing asserts the else text
+  - Pins: none
+  - Accessibility: none
+  - Why: With no additional policies, the count is simply primary policies, so the definition is moot. When additional policies exist, the retained 'Includes N additional policies beyond the primary one.' carries the definition.
+- **B7-30** · Still needed · `src/components/agent-profile/BusinessSnapshot.tsx:103` — Business snapshot > Monthly Premium / Team Monthly Premium tile hint
+  - **Implemented (2026-10-12):** `b7ab152` (C7); follow-up `9094a2d` (stale code comments corrected).
+  - Outcome: PB-33 override. The hint is deleted entirely, including "Not annualized."; the label names the unit. Monthly arithmetic (no ×12), the "{n} policies have no premium recorded" caveat and the lifetime-scope text are unchanged.
+  - Before: `Sum of the monthly premium recorded on each policy. Not annualized.`
+  - After: `Not annualized.`
+  - Tests: profileStates.test.tsx:206 getByText(/Not annualized\./) passes unchanged · profileContracts.test.ts:103-107 toContain('Monthly Premium') and toContain('Not annualized.') pass unchanged · profileContracts.test.ts:95-101 (no x12 arithmetic) unaffected
+  - Pins: docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md:320 (D11: decide in Part B). Record the decision there; no AGENT_RULES amendment is needed.
+  - Accessibility: none
+  - Why: This is D11's deferred profile hint. The first sentence restates the label 'Monthly Premium'. 'Not annualized.' is kept because, after Part A, Dashboard and Leaderboard show 'Annual Premium' (AGENT_RULES #34: premium is monthly and annualized only for Leaderboard/Dashboard), so the contrast is real. Recommended as a shortening, not a removal without replacement.
+- **B7-31** · Retained · `src/components/agent-profile/BusinessSnapshot.tsx:105` — Business snapshot tile caveats
+  - Before: `{n} with no policy details recorded (L72-76) | {n} additional-policy record(s) could not be read (L90-96) | {n} policy has / policies have no premium recorded (L104-110)`
+  - Why: Material missing-data indicators. The plan lists 'N policies have no premium recorded' among the genuine limitations to keep (implementation_plan.md:174).
+  - Pins: AGENT_RULES.md #34 (0 means not recorded; malformed additional_policies counted)
+- **B7-32** · Retained · `src/components/agent-profile/BusinessSnapshot.tsx:119` — Business snapshot > Carriers tile hint
+  - Before: `Distinct carriers represented across these policies.`
+  - Why: This is the only on-screen statement that 'Carriers' is derived from policy records, not appointments (decision D-4). The hero shows 'Carrier appointments' (ProfileHero.tsx:182), and the two numbers routinely differ (CarrierAppointmentsCard.tsx:4-11).
+  - Pins: WORK_LOG D-4 (Agent Profile rebuild)
+- **B7-33** · Retained · `src/components/agent-profile/BusinessSnapshot.tsx:126` — Business snapshot > Licensed States / States Covered tile hint
+  - Before: `Distinct states from recorded state licences.`
+  - Why: On the Team tab the label is 'States Covered', and the hint defines it as licence-derived rather than client geography. On both tabs it ties the figure to recorded (canonical) licences rather than the legacy onboarding list (AGENT_RULES.md:540), which explains a 0 for agents with only legacy states.
+  - Pins: AGENT_RULES.md:540 (canonical licensing source)
+- **B7-34** · Retained · `src/components/agent-profile/team/TeamProfileTab.tsx:135` — Team business snapshot > Total Downline tile hint
+  - Before: `Agents beneath you, at every level. Excludes you.`
+  - Why: A scope definition. The header's 'N of M fully set up' count includes the leader, so 'Excludes you' and 'every level' are material.
+  - Pins: none
+- **B7-35** · Still needed · `src/components/agent-profile/ReadinessCard.tsx:61` — Agent Profile > Business readiness card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `What it takes to be fully set up to write business.`
+  - After: `(delete the description prop)`
+  - Markup: Remove the description prop at L61. The action 'N of M complete' (L62-68) stays. See B7-44 for header alignment.
+  - Tests: none: profileStates.test.tsx:322-341 checks the check row and the 'Not applicable yet' label only
+  - Pins: none
+  - Accessibility: The h2 remains; the aria-label state chips (L100) are unchanged.
+  - Why: A card description that restates its heading 'Business readiness'. The readiness checks, states and count are retained.
+- **B7-36** · Still needed · `src/components/agent-profile/PolicyTypeMixCard.tsx:63` — Policy type mix card (Agent and Team)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Share of the book by product type.`
+  - After: `<ProfileSection title={title}>`
+  - Markup: Change L63 to <ProfileSection title={title}>. There is no action, so no alignment change.
+  - Tests: none assert it
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates the heading 'Policy type mix' / 'Team policy type mix'. The book scope is set by the Business snapshot description. The 'Other' and 'Not specified' notes (L151-161) are retained.
+- **B7-37** · Retained · `src/components/agent-profile/CarrierProductionCard.tsx:74` — Carrier production card (Agent and Team)
+  - Before: `Lifetime policies and monthly premium by carrier.`
+  - Why: It carries the lifetime scope and the monthly premium basis. In 'premium' mode the row value has no 'monthly' suffix (L130-132), so this is the card's only statement that the figures are monthly.
+  - Pins: Owner standard: keep 'Lifetime'; AGENT_RULES #34 monthly premium
+- **B7-38** · Still needed · `src/components/agent-profile/LicensingCard.tsx:95` — Agent Profile > State licensing card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Recorded state licences, the source of truth for where you can write.`
+  - After: `(delete the description prop)`
+  - Markup: Remove the description prop at L95. The 'Manage licences' action (L96-104) stays. See B7-44.
+  - Tests: none: profileStates.test.tsx:251-320 assert statuses, Resident and the legacy notice only
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates 'State licensing', and 'source of truth' is implementation phrasing. The licence statuses, the empty-state guidance (L115) and the legacy-states notice (L122-131) are retained.
+- **B7-39** · Still needed · `src/components/agent-profile/CarrierAppointmentsCard.tsx:39` — Agent Profile > Carrier appointments card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Carriers on file for you, with writing numbers where recorded.`
+  - After: `(delete the description prop)`
+  - Markup: Remove the description prop at L39. The 'Manage carriers' action stays. See B7-44.
+  - Tests: none
+  - Pins: Part A plan: 'Carrier appointments' label unchanged (implementation_plan.md:161)
+  - Accessibility: none
+  - Why: It restates the heading; the rows already show the writing number or 'No writing #' (L65-73). 'Carrier appointments' (Part A: excluded from the appointments vocabulary) is unchanged.
+- **B7-40** · Still needed · verifier: revise · `src/components/agent-profile/AchievementsCard.tsx:159` — Lifetime achievements / Team achievements card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Career records, derived from recorded policy and dialing history.`
+  - After: `(delete the description prop) — on the Agent tab unconditionally; on the Team tab only if B7-26's page-level lifetime sentence is retained. If B7-26 is deleted, use description={isTeam ? "Career records, derived from recorded policy and dialing history." : undefined}.`
+  - Markup (as mapped; the verifier correction below wins where they differ): Remove the description prop at L159; no action, so no alignment change.
+  - Tests (as mapped; the verifier correction below wins where they differ): none: profileStates.test.tsx:181-185, 231-249 assert the records, the tz, the undated note and the milestones only
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates the title; the agent title already says 'Lifetime'. The per-record facts are retained: the dial-day time zone (L138) and the undated-policy exclusion note (AchievementTiles.tsx:62-69).
+  - Verifier correction: Verified at AchievementsCard.tsx:157-160. The Agent title 'Lifetime achievements' carries the scope, but the Team title 'Team achievements' does not. With B7-24, B7-26 and B7-40 all applied, nothing on the Team tab states that these records are career/lifetime. The tz note (L138) and the undated note (AchievementTiles.tsx:62-69) stay. Tests :181-185 and :232-249 are unaffected.
+  - Decision: B7-26 is retained (verifier), so the description is deleted on both the Agent and Team variants.
+- **B7-41** · Still needed · `src/components/agent-profile/team/TeamReadinessCard.tsx:89` — Team Profile > Team readiness card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `How much of the team is fully set up to write business.`
+  - After: `(delete the description prop)`
+  - Markup: Remove the description prop at L89. The action 'N of M ready' (L90-96) stays. See B7-44.
+  - Tests: none: profileStates.test.tsx:135-137 renders the error state only
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates 'Team readiness'. The gap tiles and the no-expiration paragraph (L160-167) are retained.
+- **B7-42** · Still needed · `src/components/agent-profile/team/TeamCoverageCard.tsx:56` — Team Profile > Licensing coverage card
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `Where the team is licensed to write.`
+  - After: `(delete the description prop)`
+  - Markup: Remove the description prop at L56 (the ProfileSection then fits on one line). No action, so no alignment change.
+  - Tests: none
+  - Pins: none
+  - Accessibility: none
+  - Why: It restates 'Licensing coverage'. The summary counts, 'Top covered states' and the truncation notice (L101-106) are retained.
+- **B7-43** · Retained · `src/components/agent-profile/team/TeamDownlinePreview.tsx:86` — Team Profile > Organization card
+  - Before: `The team built beneath you.`
+  - Why: A scope statement. The title 'Organization' and the 'View full organization' button could be read as the whole agency; this says it is the viewer's downline.
+  - Pins: AGENT_RULES.md:43-45 downline scope (meaning)
+- **B7-44** · Still needed · `src/components/agent-profile/ProfilePrimitives.tsx:37` — ProfileSection header (shared by all profile cards)
+  - **Implemented (2026-10-12):** `b7ab152` (C7).
+  - Before: `(no copy) <div className="mb-5 flex flex-wrap items-start justify-between gap-3">`
+  - After: `<div className={cn("mb-5 flex flex-wrap justify-between gap-3", description ? "items-start" : "items-center")}>`
+  - Markup: Tailwind-only conditional; cn is already imported (L25). Only sections without a description change: after B7-35, B7-38, B7-39 and B7-41 the single-line h2 centres against its action (h-9 button or text-sm count) instead of top-aligning. Sections that keep a description render exactly as now.
+  - Tests: profileStates.test.tsx:344-366 (responsive classes; checks w-[NNNpx] only) unaffected · profileContracts.test.ts:192 (<200 lines) unaffected
+  - Pins: none
+  - Accessibility: none
+  - Why: This alignment change follows directly from the removed descriptions, as the owner's standard allows.
+- **B7-45** · Retained · `src/components/agent-profile/ProfilePrimitives.tsx:123` — MetricUnavailable (every profile card's failure state)
+  - Before: `{title} | The figures are unavailable right now, so none are shown. This is not a zero. | Try again`
+  - Why: Keeps the error state distinct from a zero, as required by AGENT_RULES #34's last bullet.
+  - Pins: AGENT_RULES.md #34: 'A failed aggregate is an ERROR STATE, never a zero.'
+- **B7-46** · Retained · `src/components/agent-profile/CarrierProductionCard.tsx:104` — Profile valid-empty states
+  - Before: `No policies on the book yet / Carrier production appears once policies are recorded against clients. (CarrierProductionCard:104-105) | ... / The product mix appears once policies are recorded against clients. (PolicyTypeMixCard:71-72) | No state licences recorded / Add your state licences so your profile reflects where you can write business. (LicensingCard:114-115) | No carrier appointments on file / Add the carriers you are appointed with so they appear on your profile. (CarrierAppointmentsCard:49-50) | No records yet / Records appear as policies are written and dialing history builds up. (AchievementsCard:170-171) | No state licences recorded across the team / Coverage appears once team members record their state licences. (TeamCoverageCard:74-75) | Your profile isn't in the team roster / This usually means your account has no organization set. Contact an administrator. (TeamDownlinePreview:103-104) | No direct reports yet / Agents appear here once they are placed beneath you in the hierarchy. (TeamDownlinePreview:109-110)`
+  - Why: Valid-empty states, kept distinct from failure, each with the guidance on what fills it. The roster message is an operator diagnostic. These are not section descriptions; trimming them is optional (see decisions).
+  - Pins: none
+- **B7-47** · Retained · `src/components/agent-profile/team/TeamProfileTab.tsx:78` — Team Profile no-team state
+  - Before: `You haven't built a team yet / When agents are placed beneath you in the hierarchy, this tab shows the business your organization has written, how ready your team is to operate, and your full org chart.`
+  - Why: Approved decision D-5 (WORK_LOG Agent Profile rebuild: 'Team tab always rendered, with NoTeamState') says the tab explains itself, and the 'placed beneath you in the hierarchy' guidance is essential. An optional shortening is listed in decisions.
+  - Pins: WORK_LOG D-5 (Agent Profile rebuild)
+- **B7-48** · Retained · `src/components/agent-profile/PolicyTypeMixCard.tsx:153` — Profile material notes
+  - Before: `'Other' groups the N least-used policy types. / 'Not specified' means the policy type was left blank on those records. (PolicyTypeMixCard:151-161) | N further policies across additional carriers are not shown. (CarrierProductionCard:146-152) | No carrier recorded (CarrierProductionCard:42) | Showing the N most-covered of M states. (TeamCoverageCard:101-106) | N team licence(s) have no expiration date on file, so they are neither current nor expired as far as AgentFlow can tell. (TeamReadinessCard:160-167) | N agents are in your team but could not be placed in the chart... (TeamDownlinePreview:173-181) | Progress to next milestone (AchievementTiles:39-41) | N policies have no sale date recorded and are excluded from the monthly records. (AchievementTiles:62-69) | measured in {timeZone} (AchievementsCard:138)`
+  - Why: Grouping, truncation, missing-data and time-zone disclosures (no silent truncation, licences with no expiration date reported), all material.
+  - Pins: AGENT_RULES.md:541 (report the count of no-expiration licences)
+- **B7-49** · Retained · `src/components/agent-profile/ProfileHero.tsx:136` — Agent Profile hero
+  - Before: `Fully set up / {n}% set up (L136) | NPN: Not on file (L162) | Resident state: Not set (L167) | Licensed states: Unavailable (L174) | Carrier appointments (L182) | Edit profile / Profile settings (L149, L153)`
+  - Why: Profile data, readiness state and missing-data indicators. 'Unavailable' already shows when the book aggregate fails (AgentProfileTab.tsx:80), the D14-consistent posture.
+  - Pins: Owner standard: profile data and readiness states
+- **B7-50** · Retained · `src/components/agent-profile/LicensingCard.tsx:44` — State licensing status pills and legacy notice
+  - Before: `Expired / Expiring Soon / Active / No expiration on file (L40-45) | Resident (L151) | No licence number (L162) | {n} states were listed on your onboarding profile but have not been recorded as licences yet. Add them in Settings to show them here. (L122-131)`
+  - Why: Licence status semantics, with a muted 'No expiration on file' for null dates, and a material legacy-data notice.
+  - Pins: AGENT_RULES.md:540-541
+- **B7-51** · Retained · `src/components/agent-profile/ReadinessCard.tsx:39` — Business readiness check states
+  - Before: `aria-labels Complete / Outstanding / Not applicable yet (L28, L33, L39); check labels and details from computeReadiness`
+  - Why: Readiness states, where unknown is neither passed nor failed.
+  - Pins: Owner standard: readiness states
+- **B7-52** · Retained · `src/components/agent-profile/team/FullOrganizationTreeDialog.tsx:78` — Full organization dialog
+  - Before: `Full organization (DialogTitle L70) | {N} people, {D} levels deep. Branches below the second level start collapsed. / Your organization chart. (DialogDescription L72-80) | Filter by name or role (L89) | No organization chart is available. (L109) | Not placed in the chart (L118)`
+  - Why: The DialogDescription carries real counts and is the dialog's accessible description. The other strings are an empty state and the unattached-agents disclosure.
+  - Pins: none
+- **B7-53** · Retained · `src/components/agent-profile/BusinessSnapshot.tsx:102` — Business snapshot 'Monthly Premium' when every policy lacks a premium (lifetime D14-adjacent issue)
+  - Before: `value formatMonthlyCurrency(stats.totalPremiumMonthly), which renders '—' for 0 (src/lib/profile/profile-format.ts:14-17), plus the caveat '{n} policies have no premium recorded' (L104-110). The milestone ladder renders 'Monthly premium $0 / $1,000' (team '$0 / $10,000') via src/lib/profile/profile-milestones.ts:66-71 in AchievementTiles.tsx:43-53.`
+  - Why: Recorded separately as the owner asked; D14 is not broadened. Correction to WORK_LOG.md:100: the tile does not show '$0.00'; it shows '—' with the missing-premium caveat (pinned for an empty book by profileStates.test.tsx:169-170). The only '$0' on the profile for an all-unknown book is the milestone ladder's Monthly premium row. The '—' also cannot tell a genuine $0 from unknown, under AGENT_RULES #34's rule that 0 means not recorded. Any change needs its own decision against get_profile_book_stats evidence (policiesMissingPremium vs totalPolicies).
+  - Pins: AGENT_RULES.md #34 ('0 MEANS NOT RECORDED') · implementation_plan.md:558,579 (reported, not expanded)
+- **B7-54** · see B6-05 · `src/components/settings/profile/ProfileInfoCard.tsx:156` — Settings > My Profile > Profile Information card header
+  - Settings › My Profile is owned by Area 6.
+- **B7-55** · see B6-06 · `src/components/settings/profile/ProfileInfoCard.tsx:256` — Profile Information fields
+  - Settings › My Profile is owned by Area 6. Area 7 proposed keeping the full availability helper; Area 6's verified shortening is used (the status list is in the top-bar menu itself).
+- **B7-56** · see B6-11 · `src/components/settings/profile/ProfileGoalsCard.tsx:136` — Settings > My Profile > My Goals collapsible trigger
+  - Settings › My Profile is owned by Area 6.
+- **B7-57** · see B6-13 · `src/components/settings/profile/ProfilePreferencesCard.tsx:128` — Settings > My Profile > Preferences collapsible trigger
+  - Settings › My Profile is owned by Area 6.
+- **B7-58** · see B6-12 · `src/components/settings/profile/ProfilePasswordCard.tsx:127` — Settings > My Profile > Change Password collapsible trigger
+  - Settings › My Profile is owned by Area 6.
+- **B7-59** · Retained · `src/components/settings/profile/ProfilePasswordCard.tsx:154` — Change Password requirements
+  - Before: `Password Requirements / At least 8 characters / At least one uppercase letter / At least one number / At least one special character (!@#$%^&*) / Passwords must match (L153-196)`
+  - Why: Requirements the Update button enforces (isPasswordValid). These are essential.
+  - Pins: none
+- **B7-60** · see B6-07 · `src/components/settings/profile/ProfileStateLicensesCard.tsx:326` — Settings > My Profile > State Licenses card header
+  - Settings › My Profile is owned by Area 6.
+- **B7-61** · see B6-08 · verifier: revise · `src/components/settings/profile/ProfileStateLicensesCard.tsx:444` — State Licenses card body, dialogs and footer
+  - Settings › My Profile is owned by Area 6. The admin sentence goes; the link button 'Go to Phone System → State Licenses' carries the destination, and the non-admin sentence stays.
+- **B7-62** · Retained · `src/components/settings/profile/ProfileStateLicensesCard.tsx:350` — State Licenses status pill for a licence with no expiration date
+  - Before: `Active (shown green for expirationStatus() === 'none')`
+  - Why: Not a copy deletion. This is a known semantic defect (AGENT_RULES.md:541: a null expiration is 'none', not 'Active'; LicensingCard renders the neutral 'No expiration on file'). Changing the label and colour changes status meaning and needs its own decision. Recorded here so Part B does not touch it by accident.
+  - Pins: AGENT_RULES.md:541
+- **B7-63** · see B6-10 · `src/components/settings/ProfileCarriersSection.tsx:109` — Settings > My Profile > Insurance Carriers card (rendered by settings/profile/ProfileCarriersCard.tsx)
+  - Settings › My Profile is owned by Area 6. Only the generic 'Writing numbers for each carrier.' / 'Configure your writing numbers.' lead-in goes; the carrier-source guidance stays.
+- **B7-64** · see B6-14 · verifier: revise · `src/components/settings/profile/ProfileNotificationsSection.tsx:87` — Preferences > Notifications
+  - Settings › My Profile is owned by Area 6. Retained by default (PB-31).
+- **B7-65** · see B6-17 · `src/components/settings/profile/ProfileCallForwardingSection.tsx:150` — Preferences > Call Forwarding
+  - Settings › My Profile is owned by Area 6.
+- **B7-66** · see B6-18 · `src/components/settings/profile/ConnectionDiagnostics.tsx:46` — Phone connection diagnostics (not mounted on My Profile)
+  - Settings › My Profile is owned by Area 6.
+- **B7-67** · Retained · `src/components/settings/profile/ProfileAvatarUploader.tsx:97` — Profile Information avatar upload
+  - Before: `Upload Photo (L83) | Crop Photo (L97) | Save Photo / Cancel (L108, L112) | Invalid file type / Please upload a JPG, PNG, or WebP image. (L29-30)`
+  - Why: Actions, a modal heading and a file-type error. There is no ornamental copy.
+  - Pins: none
+
+## Final targeted polish (2026-10-12): two approved presentation fixes
+
+Approved by Chris on 2026-10-12 on top of reviewed candidate `d4b7257`. The plan is §17.13; the code commit is `9010612`, with its tests. Copy and markup only: no enforcement, validation, import, query, route, layout or backend change.
+
+**1. Required Fields note** (`ContactManagement.tsx:68-69`, `REQUIRED_FIELDS_ACTIVE_NOTE`; it lived on as Retained context for B6-93 and B6-96).
+- **Before:** "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view)."
+- **After:** "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row."
+- **Why.** The old text contradicted the code in two places:
+  - the Dialer's inline lead edit, Personal and Team/Open, checks no required field;
+  - `import-contacts` rejects a row only for a blank first name, last name or phone.
+- **Unchanged:** the B6-93 Custom Fields helper.
+
+**2. Duplicate page titles** (the §17.9 screens).
+- **Permissions:** the inner h3 "Permissions" and its wrapper are removed (`Permissions.tsx:726-728`; see B6-24).
+- **Coming-soon card:** its h3 is removed (`SettingsRenderer.tsx:61`; see B6-02). That fixes both "Zapier & Webhooks" and the unknown-slug "Settings".
+
+**Recorded, not changed** (each needs its own decision):
+- Activity Log still shows h1 "Activity Log" directly above an inner h3 "Activity Log". Call Scripts and Carriers do the same for users who cannot manage them; for managers the inner heading anchors the Add action.
+- Lead-to-client conversion (`ConvertLeadModal`) does not check the client Required Fields; the note does not claim it does.
+- Permissions now steps from the page h1 to the h4 "System rules". That is no more level-skipping than before.

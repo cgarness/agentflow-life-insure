@@ -11,7 +11,7 @@ import type { LiveSummary } from "@/components/reports/ReportDataQuality";
 import { CAMPAIGN_ATTRIBUTION_NOTE, CURRENT_ASSIGNMENT_NOTE, POLICY_SOURCE_NOTE } from "@/lib/reports-policy-text";
 import { PREMIUM_BASIS, integrityExportNotes } from "@/lib/reports-integrity-text";
 import {
-  DATA_QUALITY_LOADING, DATA_QUALITY_UNAVAILABLE, INDEPENDENT_PANELS_NOTE, PERIOD_TOTALS_NOTE, dataBasisSections, liveQualityNotes, timeZoneNote,
+  DATA_QUALITY_LOADING, DATA_QUALITY_UNAVAILABLE, INDEPENDENT_PANELS_NOTE, PERIOD_TOTALS_NOTE, POLICY_RATIOS_NOTE, dataBasisSections, liveQualityNotes, timeZoneNote,
 } from "@/lib/reports-basis-text";
 import { AS_OF, policyQuality, reportSummary } from "@/lib/__tests__/reportsFixtures";
 
@@ -98,6 +98,9 @@ describe("Data basis wording", () => {
       expect(within(sheet()).getByText(text)).toBeInTheDocument();
     }
     expect(within(sheet()).getByText(`Converted by source isn't available: ${REASON}`)).toBeInTheDocument();
+    // PB-15: the per-policy ratios are defined once, in Policies sold, and nowhere else in the sheet.
+    expect(within(region("Policies sold")).getByText(POLICY_RATIOS_NOTE)).toBeInTheDocument();
+    expect(within(sheet()).getAllByText(/per policy sold/)).toHaveLength(1);
     const text = sheet().textContent ?? "";
     expect(text).not.toMatch(/(?<!call )contact rate/i);
     for (const m of text.matchAll(/conversion[\s-]+rate/gi)) expect(text.slice(Math.max(0, (m.index ?? 0) - 18), m.index).toLowerCase()).toMatch(/(^|\s)no (stage-to-stage )?$/);

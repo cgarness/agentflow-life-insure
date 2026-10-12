@@ -3,7 +3,7 @@ import type { LoadState } from "@/hooks/useReportsData";
 import type { ReportSummary } from "@/lib/reports-schemas";
 import { formatCount, formatPremium } from "@/lib/reports-format";
 import { heroValueSize, isLongPremium } from "@/lib/reports-hero-size";
-import { PRODUCTION_BASIS_BAR, PRODUCTION_BASIS_BAR_SHORT, policyLeaderText } from "@/lib/reports-basis-text";
+import { policyLeaderText } from "@/lib/reports-basis-text";
 import { policyQualityNote } from "@/lib/reports-policy-text";
 import { cn } from "@/lib/utils";
 import ReportPanelState from "./ReportPanelState";
@@ -43,15 +43,15 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
           const average = premium.known_count === 0 ? "—" : formatPremium(premium.average_annual_premium);
           const count = formatCount(policiesSold);
           const stacked = isLongPremium(annual);
-          // "Most policies — current assignments", from this same summary; never in the viewer's own scope.
+          // "Most policies sold" (the current-assignment ranking), from this same summary; never in the viewer's own scope.
           const leader = data.scope === "own" ? null : policyLeaderText(data.by_agent);
           const policyQuality = policyQualityNote(data.policy_quality);
 
           // Under the count beside the (taller) premium cell, so it adds no row on phones; full width when stacked.
           const leaderRow = leader && (
             <dl className={cn("flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-t border-border/60 py-2 pl-4 pr-2 text-xs md:px-6",
-              stacked && "col-span-full")}>
-              <dt className="text-muted-foreground">Most policies — current assignments</dt>
+              stacked ? "col-span-full" : "self-end")}>
+              <dt className="text-muted-foreground">Most policies sold</dt>
               <dd className="min-w-0 font-medium tabular-nums text-foreground [overflow-wrap:anywhere]">{leader}</dd>
             </dl>
           );
@@ -67,15 +67,13 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                   <p data-report-value="hero" className={cn("mt-1 text-foreground md:mt-2", heroValueSize("count", count, stacked), HERO)}>
                     {count}
                   </p>
-                  <p className="mt-2 text-xs text-muted-foreground md:text-sm">
-                    {policiesSold === 0 ? "No policies sold in this period." : "Primary + additional policies"}
-                  </p>
+                  {policiesSold === 0 && <p className="mt-2 text-xs text-muted-foreground md:text-sm">No policies sold in this period.</p>}
                 </article>
                 {stacked && leaderRow}
-                <article aria-label="Known annual premium"
+                <article aria-label="Annual premium"
                   className={cn("min-w-0 border-t border-border/60 p-4 md:p-6", !stacked && "min-[360px]:border-l min-[360px]:border-t-0",
                     !stacked && leader && "min-[360px]:row-span-2")}>
-                  <h2 className={LABEL}>Known annual premium</h2>
+                  <h2 className={LABEL}>Annual premium</h2>
                   <p data-report-value="hero" className={cn("mt-1 md:mt-2", annual === "Unavailable"
                     ? "text-2xl text-muted-foreground md:text-3xl"
                     : cn("text-foreground", heroValueSize("premium", annual, stacked)), HERO)}>
@@ -84,13 +82,13 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                   <PremiumCoverage premium={premium} />
                   <dl className="mt-3 grid gap-1 text-xs sm:flex sm:flex-wrap sm:gap-x-4">
                     <div className="flex justify-between gap-2 sm:justify-start">
-                      <dt className="text-muted-foreground">Known monthly</dt>
+                      <dt className="text-muted-foreground">Monthly premium</dt>
                       <dd className={AMOUNT}>{monthly}</dd>
                     </div>
                     <div className="flex justify-between gap-2 sm:justify-start">
                       <dt className="text-muted-foreground">
-                        <span className="sm:hidden">Avg / known policy</span>
-                        <span className="hidden sm:inline">Avg per known policy</span>
+                        <span className="sm:hidden">Avg annual premium</span>
+                        <span className="hidden sm:inline">Average annual premium</span>
                       </dt>
                       <dd className={AMOUNT}>{average}</dd>
                     </div>
@@ -104,13 +102,12 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
                   <span className="min-w-0">{policyQuality}</span>
                 </p>
               )}
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 bg-muted/20 px-4 py-2 text-xs text-muted-foreground md:px-6">
-                <p className="min-w-0">
-                  <span className="sm:hidden">{PRODUCTION_BASIS_BAR_SHORT}</span>
-                  <span className="hidden sm:inline">{PRODUCTION_BASIS_BAR}</span>
-                </p>
-                {dataBasis && <DataBasisButton {...dataBasis} className="shrink-0" />}
-              </div>
+              {/* The basis rules are only in the sheet; this row holds just the band's own trigger. */}
+              {dataBasis && (
+                <div className="flex items-center justify-end border-t border-border/60 bg-muted/20 px-4 py-2 md:px-6">
+                  <DataBasisButton {...dataBasis} />
+                </div>
+              )}
             </div>
           );
         }}

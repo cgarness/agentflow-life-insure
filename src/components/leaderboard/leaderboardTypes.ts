@@ -1,4 +1,5 @@
 import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 export type Period = "Today" | "This Week" | "This Month";
 export type Metric =
@@ -17,6 +18,19 @@ export const LEADERBOARD_METRICS: Metric[] = [
   "Policies per 100 Calls",
   "Premium Sold",
 ];
+
+/**
+ * What a viewer reads for each metric. The ids above stay the selected and stored values (selector state, the
+ * TV index, column keys); only the visible names change here. CSV headers are separate (leaderboardExport).
+ */
+export const METRIC_DISPLAY_LABEL: Record<Metric, string> = {
+  "Policies Sold": "Policies Sold",
+  "Calls Made": "Calls Made",
+  "Appointments Set": "Appointments",
+  "Talk Time": "Talk Time",
+  "Policies per 100 Calls": "Policies / 100 Calls",
+  "Premium Sold": "Annual Premium",
+};
 
 export const ANNUAL_PREMIUM_MULTIPLIER = 12;
 export type LeaderboardView = "org" | "group";
@@ -101,15 +115,22 @@ export const metricLabel = (m: Metric): string => {
     case "Calls Made":
       return "calls made";
     case "Appointments Set":
-      return "appointments set";
+      return "appointments";
     case "Talk Time":
       return "talk time";
     case "Policies per 100 Calls":
-      return "policies per 100 calls";
+      return "policies / 100 calls";
     case "Premium Sold":
-      return "annualized premium";
+      return "annual premium";
   }
 };
+
+/**
+ * The value a Leaderboard/TV cell shows for one agent: null ("—") when the agent sold policies in the period but
+ * every premium is unknown (D14), never a $0 sale. Sorting and ranks keep using the raw row values.
+ */
+export const displayedMetricValue = (m: Metric, agent: AgentStats): number | null =>
+  m === "Premium Sold" && isPremiumWhollyUnknown(agent.policiesSold, agent.unknownPremiums) ? null : (agent[metricKey(m)] as number);
 
 export const formatMetricValue = (m: Metric, val: number | null): string => {
   if (val === null) return "—";

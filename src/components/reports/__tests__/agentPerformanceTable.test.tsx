@@ -63,8 +63,8 @@ describe("Agent performance table", () => {
     summary.unattributed.inbound_calls = 2;
     render(<AgentPerformanceCards summary={summary} selectedAgentId={null} selectableAgentIds={new Set()} onSelectAgent={vi.fn()} />);
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "Agent", "Policies (current assignment)", "Known annual premium", "Calls made", "Contacted calls", "Call contact rate",
-      "Bookings created (all types)", "Talk time",
+      "Agent", "Policies sold", "Annual premium", "Calls made", "Contacted calls", "Call contact rate",
+      "Appointments", "Talk time",
     ]);
     const alice = screen.getByRole("row", { name: /Alice Agent/ });
     expect(alice.children[4]).toHaveTextContent(String(summary.by_agent[0].contacted));
@@ -72,7 +72,7 @@ describe("Agent performance table", () => {
     expect(unattributed).toHaveTextContent("2 inbound calls");
     expect([unattributed.children[3].textContent, unattributed.children[4].textContent, unattributed.children[5].textContent]).toEqual(["3", "", ""]);
     expect(unattributed).not.toHaveTextContent("—");
-    // The methodology lives in Data basis; the header carries "current assignment".
+    // The methodology, including the current-assignment credit, lives in Data basis.
     expect(screen.queryByText(/not the original seller/)).not.toBeInTheDocument();
   });
 });

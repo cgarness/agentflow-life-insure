@@ -16,7 +16,9 @@ try {
  await page.goto(url);
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('vite-error-overlay').count(),0);
- assert.match(await page.locator('body').innerText(),/Active agents · America\/Los_Angeles · As of/);
+ // Material-only notes (Part B): the fixture has 1 unknown premium and activity outside the roster, and no routine prefix.
+ assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').textContent(),'Annual premium (1 policies with unknown premium) · Outside active roster: 2 calls, 1 appointments, 0 policies');
+ assert.doesNotMatch(await page.locator('body').innerText(),/Active agents · |As of |Stored call duration|unknown provenance/);
  async function settleLayout() {
   await page.evaluate(async()=>{
    let previous='',stableSince=performance.now();const deadline=performance.now()+6000;
@@ -131,8 +133,16 @@ try {
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
   await page.screenshot({path:`${output}/normal-${width}.png`});
  }
+ // Routine snapshot (?routine=1): no caption line in the totals wrapper; the same geometry checks hold. Rotation off for a stable metric.
+ await page.evaluate(()=>{localStorage.setItem('leaderboardTvAutoRotate','0');localStorage.setItem('leaderboardTvMetricIndex','0');});
+ await page.goto(`${url}/?routine=1`);
+ await page.setViewportSize({width:1366,height:768});
+ await page.getByTestId('tv-podium').waitFor();
+ assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').count(),0,'routine snapshot: no caption line above the totals');
+ assert.doesNotMatch(await page.locator('body').innerText(),/policies with unknown premium|Talk time includes|Outside active roster|Active agents · |As of /);
+ await measure('routine-1366x768');
  assert.deepEqual(errors,[],'browser console errors');
- console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit and timer checks');
+ console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit, timer and routine-caption checks');
 } catch(error) {
  console.error('Browser errors:',JSON.stringify(errors));
  console.error('Visible state:',(await page.locator('body').innerText()).slice(0,4000));

@@ -136,9 +136,6 @@ export const PhoneNumberRoutingModal: React.FC<PhoneNumberRoutingModalProps> = (
                 <SelectItem value="round_robin">Round Robin</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Determines who rings when this specific number is called.
-            </p>
           </div>
 
           <div className="h-px bg-border/50" />

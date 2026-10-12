@@ -7,7 +7,7 @@ import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlig
 import { tvTableRowLayoutTransition } from "@/components/leaderboard/leaderboardRankMotion";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
 import type { AgentStats, Metric } from "@/components/leaderboard/leaderboardTypes";
-import { formatMetricValue, metricKey } from "@/components/leaderboard/leaderboardTypes";
+import { METRIC_DISPLAY_LABEL, displayedMetricValue, formatMetricValue } from "@/components/leaderboard/leaderboardTypes";
 
 interface TVDeepRankPanelProps {
   agents: AgentStats[];
@@ -24,7 +24,6 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
   spotlightAgentId,
   newLeaderId,
 }) => {
-  const key = metricKey(metric);
 
   return (
     <div className={TV_PANEL_CLASS}>
@@ -33,7 +32,7 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
             <Hash className="h-4 w-4 text-slate-400" />
             Ranks 11+
           </h3>
-          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{metric}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{METRIC_DISPLAY_LABEL[metric]}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 py-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
@@ -42,7 +41,7 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
         ) : (
           <motion.ul layout className="space-y-1">
             {agents.map((a) => {
-              const metricNumeric = a[key] as number;
+              const metricNumeric = displayedMetricValue(metric, a);
               const rankDelta = rankDeltas.get(a.id) ?? 0;
 
               return (

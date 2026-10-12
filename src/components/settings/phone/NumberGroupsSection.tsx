@@ -103,10 +103,7 @@ export const NumberGroupsSection: React.FC<Props> = ({
           {groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <Users className="mb-3 h-10 w-10 text-muted-foreground" />
-              <p className="mb-1 text-sm font-medium text-foreground">No number groups yet</p>
-              <p className="mb-4 max-w-sm text-xs text-muted-foreground">
-                Group numbers by geography, team, or purpose to keep campaign caller IDs focused.
-              </p>
+              <p className={`${canManage ? "mb-4" : "mb-1"} text-sm font-medium text-foreground`}>No number groups yet</p>
               {canManage && (
                 <Button size="sm" onClick={() => setCreateOpen(true)}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> Create group

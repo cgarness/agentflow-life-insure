@@ -36,7 +36,6 @@ export const CarrierAppointmentsCard: React.FC<CarrierAppointmentsCardProps> = (
   return (
     <ProfileSection
       title="Carrier appointments"
-      description="Carriers on file for you, with writing numbers where recorded."
       action={
         <Button variant="outline" size="sm" onClick={() => navigate("/settings?section=my-profile")}>
           Manage carriers

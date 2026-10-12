@@ -85,14 +85,16 @@ describe("CSV Note rows (golden, unchanged for the existing fixtures)", () => {
 });
 
 const REASON = "Conversion removes the source lead and clients carry no lead source, so conversions cannot be attributed to a lead source.";
+/** PB-15: the one definition of the two per-policy strip ratios, which no longer carry formula subtitles. */
+const POLICY_RATIOS = "Dials per policy sold and Talk minutes per policy sold divide the period's calls made or talk minutes by the dated stored policies sold in the same period. They are period ratios, available only for the whole organization with no agent filter, not original-seller efficiency.";
 
 describe("Data basis wording (approved K/T/N rows)", () => {
   it("is exactly the traced wording, in sheet order", () => {
     expect([basis.DATA_BASIS_TITLE, basis.DATA_BASIS_DESCRIPTION]).toEqual(["Data basis", "How Reports counts and credits these numbers."]);
     expect(basis.dataBasisSections(REASON).map((s) => [s.title, s.paragraphs])).toEqual([
       ["Policies sold", [POLICY_SOURCE, "One client can hold several policies.", "Older additional policies with no sold-date field are dated by their issue date.",
-        "A policy without a readable sale date is not counted in any period."]],
-      ["Known annual premium", [PREMIUM, "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.",
+        "A policy without a readable sale date is not counted in any period.", POLICY_RATIOS]],
+      ["Annual premium", [PREMIUM, "Unknown premiums are left out of the amount, never counted as $0; if every premium is unknown, the amount shows Unavailable.",
         "The average divides by the number of policies with a known premium.",
         "An additional policy's premium comes only from that policy; a missing one is unknown and never borrows the primary premium.",
         "A $0 primary premium counts as a known zero only when the sale recorded an explicit $0; otherwise it is unknown."]],
@@ -102,7 +104,7 @@ describe("Data basis wording (approved K/T/N rows)", () => {
         "Call contact rate = contacted outbound calls ÷ outbound calls; with no outbound calls it shows —.",
         "Inbound calls are shown separately and are not in calls made, talk time or the call contact rate.",
         "Disposition shares are of all outbound calls in the period, including calls with no disposition."]],
-      ["Bookings created (all types)", ["Bookings created (all types) counts every booking, of any type, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user).",
+      ["Appointments", ["Appointments counts every booking of any type, including callbacks, by the date it was created and credits the person who created it (older bookings with no recorded creator credit the booking's user). Exports call it \"Bookings created (all types)\".",
         "A later status change, such as cancellation, does not remove a booking.", "Callback dispositions count calls, not callback bookings.",
         "Dials per booking = calls made ÷ bookings created (all types)."]],
       ["Converted leads/clients", ["Converted leads/clients counts distinct people given an outbound call with a converting disposition (one whose pipeline stage converts the lead to a client).",
@@ -151,6 +153,16 @@ describe("Data basis wording (approved K/T/N rows)", () => {
       .flatMap(([panel, data]) => notesFor(panel as string, data as object));
     for (const p of [...sheetOnly, CAMPAIGN_LINEAGE_NOTE, CAMPAIGN_VISIBILITY_NOTE]) expect(csv, p).not.toContain(p);
   });
+
+  it("the per-policy ratio definition is a screen-only sheet sentence in Policies sold, never a CSV Note (PB-15)", () => {
+    expect(basis.POLICY_RATIOS_NOTE).toBe(POLICY_RATIOS);
+    expect(basis.dataBasisSections(null).find((s) => s.key === "policies")!.paragraphs.at(-1)).toBe(POLICY_RATIOS);
+    expect(basis.dataBasisSections(null).filter((s) => s.paragraphs.includes(POLICY_RATIOS)).map((s) => s.title)).toEqual(["Policies sold"]);
+    const csv = [["summary", reportSummary()], ["summary", emptySummary()], ["volume", reportVolume()], ["dispositions", reportDispositions()],
+      ["campaigns", reportCampaigns()], ["leadSources", reportLeadSources()]].flatMap(([panel, data]) => notesFor(panel as string, data as object));
+    expect(csv.length).toBeGreaterThan(0);
+    for (const note of csv) expect(note).not.toMatch(/per policy sold|original-seller efficiency/);
+  });
 });
 
 describe("live data quality = the summary CSV's own sentences", () => {
@@ -169,12 +181,17 @@ describe("live data quality = the summary CSV's own sentences", () => {
   });
 });
 
-describe("production band and Period totals captions (C2, C3, C6, C7, C10, C29)", () => {
-  it("are the approved wording", () => {
-    expect(basis.PRODUCTION_BASIS_BAR).toBe("Current book · stored policies by sale date · monthly premium ×12 · client's current agent");
-    expect(basis.PRODUCTION_BASIS_BAR_SHORT).toBe("Current book · sale date · monthly ×12 · current agent");
-    expect(basis.PERIOD_TOTALS_LINE).toBe("Independent period totals, not one cohort.");
+describe("production band and Period totals captions (C6, C7, C10; C2, C3 and C29 removed in Part B)", () => {
+  it("the band's basis bar and the Period totals line are gone; the sheet keeps the cohort statement and the credit basis", () => {
+    expect(basis).not.toHaveProperty("PRODUCTION_BASIS_BAR");
+    expect(basis).not.toHaveProperty("PRODUCTION_BASIS_BAR_SHORT");
+    expect(basis).not.toHaveProperty("PERIOD_TOTALS_LINE");
     expect(basis.PERIOD_TOTALS_NOTE.startsWith("These are independent period totals, not one cohort")).toBe(true);
+    const sections = basis.dataBasisSections(null);
+    expect(sections.find((s) => s.key === "totals")!.paragraphs).toContain(basis.PERIOD_TOTALS_NOTE);
+    expect(sections.find((s) => s.key === "credit")!.paragraphs).toContain(CURRENT_ASSIGNMENT_NOTE);
+    expect(sections.find((s) => s.key === "premium")!.paragraphs).toContain(PREMIUM_BASIS);
+    expect(sections.find((s) => s.key === "policies")!.paragraphs).toContain(POLICY_SOURCE_NOTE);
   });
 
   it.each([

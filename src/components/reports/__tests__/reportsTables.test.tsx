@@ -74,7 +74,7 @@ describe("Campaign performance", () => {
     renderCampaigns(reportCampaigns(), onExport);
     const table = expectFramed("Campaign performance table");
     expect(headers(table)).toEqual([
-      "Campaign", "Policies (campaign-attributed)", "Known annual premium", "Known / total policies", "Calls made",
+      "Campaign", "Attributed policies", "Annual premium", "Premium coverage", "Calls made",
       "Contacted calls", "Call contact rate", "Leads dialed", "Contacted leads", "Converted leads", "Type",
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Export Campaign performance CSV" }));
@@ -98,11 +98,11 @@ describe("Campaign performance", () => {
     expect(row).toHaveTextContent("Missing, ambiguous or restricted");
     const cells = cellsByHeader(table, row);
     expect(cells).toMatchObject({
-      "Policies (campaign-attributed)": "3", "Known annual premium": "$1,200.00", "Known / total policies": "2/3", "Calls made": "13",
+      "Attributed policies": "3", "Annual premium": "$1,200.00", "Premium coverage": "2/3", "Calls made": "13",
       "Contacted calls": "", "Call contact rate": "", "Leads dialed": "", "Contacted leads": "", "Converted leads": "", Type: "",
     });
     const spring = cellsByHeader(table, within(table).getByRole("row", { name: /^Spring Team/ }));
-    expect(Number(spring["Policies (campaign-attributed)"]) + Number(cells["Policies (campaign-attributed)"])).toBe(campaigns.policies_in_period);
+    expect(Number(spring["Attributed policies"]) + Number(cells["Attributed policies"])).toBe(campaigns.policies_in_period);
     expect(screen.queryByText(/have unavailable campaign attribution/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Known annual premium in that subset/)).not.toBeInTheDocument();
   });
@@ -213,12 +213,14 @@ describe("Agent efficiency", () => {
     const table = expectFramed("Agent efficiency table");
     expect(headers(table)).toEqual([
       "Agent", "Calls made", "Session time", "Session-matched calls", "Calls per session hour", "Call contact rate", "Talk time",
-      "Policies (current assignment)",
+      "Policies sold",
     ]);
     const alice = cellsByHeader(table, within(table).getByRole("row", { name: /^Alice Agent/ }));
     // 9 matched calls over 9000 s (2.5 h) = 3.6 calls per session hour.
     expect(alice).toMatchObject({ "Calls made": "10", "Session time": "2h 30m 0s", "Session-matched calls": "9", "Calls per session hour": "3.6", "Talk time": "4m 24s" });
-    expect(screen.getByText("Calls per session hour = session-matched calls ÷ session hours.")).toBeInTheDocument();
+    // The Session-matched calls column explains the rate beside it; the formula footnote is gone (B3-26).
+    expect(screen.queryByText(/^Calls per session hour = /)).not.toBeInTheDocument();
+    expect(screen.getByText("Calls per session hour vs call contact rate")).toBeInTheDocument(); // the scatter still follows the table
     expect(screen.queryByText(CURRENT_ASSIGNMENT_NOTE, { exact: false })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Export Agent efficiency CSV" }));
     const [report, csvHeaders, rows] = onExport.mock.calls[0];

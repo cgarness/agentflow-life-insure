@@ -1,3 +1,29 @@
+## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
+
+**Final targeted polish (2026-10-12):** Chris approved two presentation fixes on top of `d4b7257`: the Contact Flow Required Fields note, and the duplicate Permissions and coming-soon Settings headings. The exact files and lines are in the detailed plan §17.13. Implemented in `9010612`, with its tests, and verified against `e11c8bea`. No backend change. Owner acceptance on the protected preview follows. The PR stays in draft.
+
+**Part B status (2026-10-12):** Chris approved the Part B plan with overrides (PB-10, PB-13, PB-15, PB-33, PB-1, PB-19/22, PB-21 and PB-26), recorded in the detailed plan §17.11 before any edit.
+- **Implemented** on the same branch and draft PR #440, in commits `208be52` to `022e7d1` (detailed plan §17.12).
+- **Records.** `reconciliation.md` names the implementing commit for each item.
+- **Verified** against base `e11c8bea`; one independent final review and a fixture-based visual review were done (WORK_LOG 2026-10-12).
+- **Not done:** signed-in acceptance, any backend change, and any production merge or deploy.
+- **Awaiting:** Chris's review of draft PR #440 and its protected preview, signed-in acceptance, and separate approval for merging and the production release.
+
+*The Part A entry below is kept as written on 2026-10-11.*
+
+**Status:** Chris approved the isolated Part A with D1–D14 on 2026-10-11. It is implemented and verified on local branch `claude/ui-copy-cleanup-v2-20261011` (base `origin/main` `e11c8bea`), in commits `5587d3a` (Reports labels), `9fd72ef` (CRM labels), `cb14cfa` (rule and Data basis wording), `74219dc` (D14), `f23a987` (D14 follow-up, Settings Goals), `0c62756` (D14 tests) and `cba9e94` (whitespace). It is published as draft PR #440 with its normal protected preview (CI green). Nothing is merged, and there is no production deploy or backend change. The onboarding series stays INACTIVE. **Full plan:** `docs/plans/2026-10-11-ui-copy-cleanup-v2/implementation_plan.md` (§16 and §16.1 for Part A; §17 and `reconciliation.md` for Part B). **Evidence:** the newest WORK_LOG entry.
+
+**Summary:**
+- **Labels.** Simple metric labels across Reports, Dashboard, Leaderboard/TV, settings and CampaignDetail. CSV headers, CSV Note constants, ids, payloads and calculations are unchanged.
+- **D14.** Display-only: a premium amount whose every policy has an unknown premium shows "Unavailable" or "—", never $0.00. Sorting, payloads and CSV are untouched.
+- **Part B.** A fresh, targeted plan against current code (§17): 410 items across seven areas, each mapped and adversarially verified. 187 are still needed, 188 retained, 28 already satisfied and 7 superseded. No Part B app or test edit has been made. Nothing was recovered from the sandbox or reconstructed from old files.
+
+**Awaiting:**
+- Chris's approval of the Part B plan (§17.5 decisions PB-1 to PB-35) before any app or test edit;
+- separate approval for merging and the production release.
+
+---
+
 ## 2026-10-10 — BUILT, INACTIVE, final review done (draft PR; not merged, not deployed, not applied): role-based onboarding email series
 
 **Final review (2026-10-10):** PR #438 was verified against production and merged with Chris's approval (`02ad8380`). The onboarding branch is rebased onto it, and only onboarding files change. The security review passed. One correction was approved and made: `sanitizeError` now redacts email addresses, unsubscribe tokens, `Bearer` values, Resend keys and JWTs from every logged or stored error. No merge or deploy mechanism activates the series while Supabase "Deploy to production" stays OFF. All local gates pass. Merge needs Chris's explicit approval; D12 still blocks activation. Details: detailed plan §16.

@@ -1221,7 +1221,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                      <div className="flex flex-col items-center justify-center py-12 text-center">
                         <FileText className="w-8 h-8 text-muted-foreground/50 mb-3" />
                         <p className="text-sm text-foreground font-medium">No Notes Yet</p>
-                        <p className="text-xs text-muted-foreground mt-1">Important details and context will be stored here.</p>
                      </div>
                    ) : (
                       <div className="space-y-4 pt-1">
@@ -1275,7 +1274,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                   {campaigns.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                        <p className="text-sm text-foreground font-medium">Not in any campaigns</p>
-                       <p className="text-xs text-muted-foreground mt-1">This lead is not currently part of any dialer campaigns.</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1327,10 +1325,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       </Dialog>
       
       <Dialog open={!!deleteNoteId} onOpenChange={() => setDeleteNoteId(null)}>
-        <DialogContent>
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Delete Note</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this note?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteNoteId(null)}>Cancel</Button>

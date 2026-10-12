@@ -58,7 +58,6 @@ export const ReadinessCard: React.FC<ReadinessCardProps> = ({
   return (
     <ProfileSection
       title="Business readiness"
-      description="What it takes to be fully set up to write business."
       action={
         summary && !error ? (
           <span className="text-sm font-medium tabular-nums text-muted-foreground">

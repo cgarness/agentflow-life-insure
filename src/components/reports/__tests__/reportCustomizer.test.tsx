@@ -33,7 +33,7 @@ describe("personal report customization", () => {
     expect(screen.getByRole("checkbox", { name: "Show Calls made" })).toBeDisabled();
     expect(screen.getByText(/6 of 6 metrics selected/)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /^Show Policies sold$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /^Show Known annual premium$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /^Show Annual premium$/i })).not.toBeInTheDocument();
   });
 
   it("reorders within a group without mutating input or moving other groups", () => {

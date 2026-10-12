@@ -1,0 +1,436 @@
+{
+ "url": "http://127.0.0.1:4182",
+ "fixedClock": "2026-10-09T04:00:00.000Z",
+ "paceMs": 1100,
+ "timezone": "America/Los_Angeles",
+ "errors": [],
+ "entries": [
+  {
+   "key": "Agency|summary",
+   "suggestedFilename": "report-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_summary__report-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2214,
+   "sha256": "7786d1642093e32c6604a241b4fb19f732969a2440631efc20c741971a53ad59"
+  },
+  {
+   "key": "Agency|policies_sold|Export Production trend CSV|Group trends by=Daily",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_policies_sold_Export_Production_trend_CSV_Group_trends_by=Daily__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1456,
+   "sha256": "7a2c822025df2dfe65b9f6afb459cbfa8b26e6bc711532ec9e3242fa2afa6db1"
+  },
+  {
+   "key": "Agency|policies_sold|Export Production trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_policies_sold_Export_Production_trend_CSV_Group_trends_by=Weekly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1456,
+   "sha256": "7a2c822025df2dfe65b9f6afb459cbfa8b26e6bc711532ec9e3242fa2afa6db1"
+  },
+  {
+   "key": "Agency|policies_sold|Export Production trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_policies_sold_Export_Production_trend_CSV_Group_trends_by=Monthly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1456,
+   "sha256": "7a2c822025df2dfe65b9f6afb459cbfa8b26e6bc711532ec9e3242fa2afa6db1"
+  },
+  {
+   "key": "Agency|call_volume|Export Calling trend CSV|Group trends by=Daily",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_volume_Export_Calling_trend_CSV_Group_trends_by=Daily__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1381,
+   "sha256": "375cc055a8153c186f8241a86bbba330a03e8fb1f391a0c087b77d46bfd97912"
+  },
+  {
+   "key": "Agency|call_volume|Export Calling trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_volume_Export_Calling_trend_CSV_Group_trends_by=Weekly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1381,
+   "sha256": "375cc055a8153c186f8241a86bbba330a03e8fb1f391a0c087b77d46bfd97912"
+  },
+  {
+   "key": "Agency|call_volume|Export Calling trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_volume_Export_Calling_trend_CSV_Group_trends_by=Monthly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1381,
+   "sha256": "375cc055a8153c186f8241a86bbba330a03e8fb1f391a0c087b77d46bfd97912"
+  },
+  {
+   "key": "Agency|agent_performance_cards|Export Agent performance CSV|",
+   "suggestedFilename": "agent-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_agent_performance_cards_Export_Agent_performance_CSV___agent-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2094,
+   "sha256": "0ab0abb729eef8f5a907704cb0c2aa1e66a147787075d39de02493cf1e8cb076"
+  },
+  {
+   "key": "Agency|agent_efficiency|Export Agent efficiency CSV|",
+   "suggestedFilename": "agent-efficiency-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_agent_efficiency_Export_Agent_efficiency_CSV___agent-efficiency-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1929,
+   "sha256": "69f38d765056c952822a72b05bdcf9a4f5de6c1afd753fc854f0110ab15b24bf"
+  },
+  {
+   "key": "Agency|campaign_performance|Export Campaign performance CSV|",
+   "suggestedFilename": "campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_campaign_performance_Export_Campaign_performance_CSV___campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2168,
+   "sha256": "99d3253909bd0e79a9d14b3ab3460a0df1c67c94671eaa9798db292ba35c3460"
+  },
+  {
+   "key": "Agency|lead_source_roi|Export Lead sources CSV|",
+   "suggestedFilename": "lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_lead_source_roi_Export_Lead_sources_CSV___lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1285,
+   "sha256": "00d2ff59de0b6ef53989a7f010a7121ef9d444701efc9fedfe652320630f370a"
+  },
+  {
+   "key": "Agency|conversion_funnel|Export Disposition breakdown CSV|",
+   "suggestedFilename": "disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_conversion_funnel_Export_Disposition_breakdown_CSV___disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1249,
+   "sha256": "59b956c5385204a5a2ea6f646b2ebb8232512b9f6e8f131df802183a85857f01"
+  },
+  {
+   "key": "Agency|communications_stats|Export Call summary CSV|",
+   "suggestedFilename": "call-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_communications_stats_Export_Call_summary_CSV___call-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2042,
+   "sha256": "d60cfcd4b45a0eeb6087a1aa41574d7d007bc4cb04b36d9cf4ef99550c24ecd4"
+  },
+  {
+   "key": "Agency|calling_heatmap|Export Calling heatmap CSV|Heatmap metric=Calls made",
+   "suggestedFilename": "calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_calling_heatmap_Export_Calling_heatmap_CSV_Heatmap_metric=Calls_made__calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "bytes": 4231,
+   "sha256": "e2159c8d5844fae9c3918ba1f818cef2ce8a866081991f8c85cee7cedc1ff5fb"
+  },
+  {
+   "key": "Agency|calling_heatmap|Export Calling heatmap CSV|Heatmap metric=Call contact rate",
+   "suggestedFilename": "calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_calling_heatmap_Export_Calling_heatmap_CSV_Heatmap_metric=Call_contact_rate__calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "bytes": 4231,
+   "sha256": "e2159c8d5844fae9c3918ba1f818cef2ce8a866081991f8c85cee7cedc1ff5fb"
+  },
+  {
+   "key": "Agency|call_flow_analysis|Export Call flow CSV|Call flow view=By hour",
+   "suggestedFilename": "call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_flow_analysis_Export_Call_flow_CSV_Call_flow_view=By_hour__call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1693,
+   "sha256": "5084c955150b5d05d873daad24e4a693c42a908da5572beed4a9f8402d9c20d4"
+  },
+  {
+   "key": "Agency|call_flow_analysis|Export Call flow CSV|Call flow view=By day",
+   "suggestedFilename": "call-flow-by-day-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_flow_analysis_Export_Call_flow_CSV_Call_flow_view=By_day__call-flow-by-day-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1440,
+   "sha256": "85f834c2620301ecca7befda295751ff71f533fcecae9d0a269a21456fc64ea7"
+  },
+  {
+   "key": "Agency|call_duration_analysis|Export Call duration CSV|Call duration view=By disposition",
+   "suggestedFilename": "call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_duration_analysis_Export_Call_duration_CSV_Call_duration_view=By_disposition__call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1154,
+   "sha256": "7d07a22105d5ebb9464092b45cc2621ae04bfb6f4286b0085e363fe8c576b000"
+  },
+  {
+   "key": "Agency|call_duration_analysis|Export Call duration CSV|Call duration view=Distribution",
+   "suggestedFilename": "call-duration-distribution-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_call_duration_analysis_Export_Call_duration_CSV_Call_duration_view=Distribution__call-duration-distribution-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1130,
+   "sha256": "7f0e1175dd451bb05cced439a9089f2491e1687bc0d5ac75c9fda432c5ce1160"
+  },
+  {
+   "key": "Agency|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=Count__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1143,
+   "sha256": "cf35216f97b933973da56bc65e4287a3e38f77e242246d5cf57e3d37eeb1b61d"
+  },
+  {
+   "key": "Agency|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=_of_row_total__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1143,
+   "sha256": "cf35216f97b933973da56bc65e4287a3e38f77e242246d5cf57e3d37eeb1b61d"
+  },
+  {
+   "key": "Agency|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=Count__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1166,
+   "sha256": "aaa895081372104f66194aabb9348c201322a024cf29c450ec7c0a54b77d7d39"
+  },
+  {
+   "key": "Agency|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Agency_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=_of_row_total__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1166,
+   "sha256": "aaa895081372104f66194aabb9348c201322a024cf29c450ec7c0a54b77d7d39"
+  },
+  {
+   "key": "Team|summary",
+   "suggestedFilename": "report-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_summary__report-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2187,
+   "sha256": "2bda3154f7c9c6a39464563525e9a0285883118b8f4daab111959113f1381e55"
+  },
+  {
+   "key": "Team|policies_sold|Export Production trend CSV|Group trends by=Daily",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_policies_sold_Export_Production_trend_CSV_Group_trends_by=Daily__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1444,
+   "sha256": "f7ceddc7dfa197c096d54bba1649980815c688bc6c5dacbaa9b8372b5af88f00"
+  },
+  {
+   "key": "Team|policies_sold|Export Production trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_policies_sold_Export_Production_trend_CSV_Group_trends_by=Weekly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1444,
+   "sha256": "f7ceddc7dfa197c096d54bba1649980815c688bc6c5dacbaa9b8372b5af88f00"
+  },
+  {
+   "key": "Team|policies_sold|Export Production trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_policies_sold_Export_Production_trend_CSV_Group_trends_by=Monthly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1444,
+   "sha256": "f7ceddc7dfa197c096d54bba1649980815c688bc6c5dacbaa9b8372b5af88f00"
+  },
+  {
+   "key": "Team|call_volume|Export Calling trend CSV|Group trends by=Daily",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_call_volume_Export_Calling_trend_CSV_Group_trends_by=Daily__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1375,
+   "sha256": "8591a459ec07e74b232651822a237b4f3b2d782520d76c83e248401ac4c4173f"
+  },
+  {
+   "key": "Team|call_volume|Export Calling trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_call_volume_Export_Calling_trend_CSV_Group_trends_by=Weekly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1375,
+   "sha256": "8591a459ec07e74b232651822a237b4f3b2d782520d76c83e248401ac4c4173f"
+  },
+  {
+   "key": "Team|call_volume|Export Calling trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_call_volume_Export_Calling_trend_CSV_Group_trends_by=Monthly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1375,
+   "sha256": "8591a459ec07e74b232651822a237b4f3b2d782520d76c83e248401ac4c4173f"
+  },
+  {
+   "key": "Team|agent_performance_cards|Export Agent performance CSV|",
+   "suggestedFilename": "agent-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_agent_performance_cards_Export_Agent_performance_CSV___agent-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2022,
+   "sha256": "9ec542f320293ce89a55b46a345f0ee37c6ddbf53ca3d64dbeb805359fc2752a"
+  },
+  {
+   "key": "Team|agent_efficiency|Export Agent efficiency CSV|",
+   "suggestedFilename": "agent-efficiency-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_agent_efficiency_Export_Agent_efficiency_CSV___agent-efficiency-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1878,
+   "sha256": "4367233282a091a4ab6e6c7047cc27e2f572958da8018aa69388e37c8f59a792"
+  },
+  {
+   "key": "Team|campaign_performance|Export Campaign performance CSV|",
+   "suggestedFilename": "campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_campaign_performance_Export_Campaign_performance_CSV___campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2050,
+   "sha256": "6edadc852da78eace4c44a8f7c6f6696b52cc7269d519022328e811854c8710f"
+  },
+  {
+   "key": "Team|lead_source_roi|Export Lead sources CSV|",
+   "suggestedFilename": "lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_lead_source_roi_Export_Lead_sources_CSV___lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1279,
+   "sha256": "7b12a17d9084a055c516929437db20581f1a67b9ce02629f9f91b6456668e646"
+  },
+  {
+   "key": "Team|conversion_funnel|Export Disposition breakdown CSV|",
+   "suggestedFilename": "disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_conversion_funnel_Export_Disposition_breakdown_CSV___disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1152,
+   "sha256": "36ef1380ce8d863bb4b63fc15f0e50e1bce47786dbc78a1139b981a4c73d8278"
+  },
+  {
+   "key": "Team|communications_stats|Export Call summary CSV|",
+   "suggestedFilename": "call-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_communications_stats_Export_Call_summary_CSV___call-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2020,
+   "sha256": "960aa74e19fe20d49bf98cb859c59f3330d216a4736bdb79183d590c73a0d026"
+  },
+  {
+   "key": "Team|calling_heatmap|Export Calling heatmap CSV|",
+   "suggestedFilename": "calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_calling_heatmap_Export_Calling_heatmap_CSV___calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "bytes": 3252,
+   "sha256": "1a97d82e02544a5118ed408da727817ec80073f82a0a3d73fbb4f293c3159417"
+  },
+  {
+   "key": "Team|call_flow_analysis|Export Call flow CSV|",
+   "suggestedFilename": "call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_call_flow_analysis_Export_Call_flow_CSV___call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1572,
+   "sha256": "71469cb4ae2afa9d7a1d64127b46d1af1a78f6573f25ba0955f0848786b4c9be"
+  },
+  {
+   "key": "Team|call_duration_analysis|Export Call duration CSV|",
+   "suggestedFilename": "call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_call_duration_analysis_Export_Call_duration_CSV___call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1104,
+   "sha256": "87782ca0ba9c810b203a1d2070582d977959c86a5017c8af8ddd36136c1dbcf4"
+  },
+  {
+   "key": "Team|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=Count__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1082,
+   "sha256": "bfbe5c11ff5369c1781bbb489c74c90fc0bb41a55f19863aca021dd18d5ebeab"
+  },
+  {
+   "key": "Team|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=_of_row_total__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1082,
+   "sha256": "bfbe5c11ff5369c1781bbb489c74c90fc0bb41a55f19863aca021dd18d5ebeab"
+  },
+  {
+   "key": "Team|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=Count__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1085,
+   "sha256": "e42a333783d6aad60422a36578cb16f024015abbcc2b600a131b2aa56d1f4d66"
+  },
+  {
+   "key": "Team|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Team_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=_of_row_total__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1085,
+   "sha256": "e42a333783d6aad60422a36578cb16f024015abbcc2b600a131b2aa56d1f4d66"
+  },
+  {
+   "key": "Personal|summary",
+   "suggestedFilename": "report-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_summary__report-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2196,
+   "sha256": "0d99b69f6b9fd0cffd9b28c5ad73dd04ee95d8e0485abbd43146e3aa72fa916e"
+  },
+  {
+   "key": "Personal|policies_sold|Export Production trend CSV|Group trends by=Daily",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_policies_sold_Export_Production_trend_CSV_Group_trends_by=Daily__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1453,
+   "sha256": "469da7cf5325da74dba1f025ef9fa4fecbaeea7a6af32b571db1f8bfd7f3cbcd"
+  },
+  {
+   "key": "Personal|policies_sold|Export Production trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_policies_sold_Export_Production_trend_CSV_Group_trends_by=Weekly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1453,
+   "sha256": "469da7cf5325da74dba1f025ef9fa4fecbaeea7a6af32b571db1f8bfd7f3cbcd"
+  },
+  {
+   "key": "Personal|policies_sold|Export Production trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "policies-sold-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_policies_sold_Export_Production_trend_CSV_Group_trends_by=Monthly__policies-sold-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1453,
+   "sha256": "469da7cf5325da74dba1f025ef9fa4fecbaeea7a6af32b571db1f8bfd7f3cbcd"
+  },
+  {
+   "key": "Personal|call_volume|Export Calling trend CSV|Group trends by=Daily",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_call_volume_Export_Calling_trend_CSV_Group_trends_by=Daily__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1384,
+   "sha256": "e53145fa9ff90e87b0b66e45cf7231d3057f296f88566664931d5f510c1535bf"
+  },
+  {
+   "key": "Personal|call_volume|Export Calling trend CSV|Group trends by=Weekly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_call_volume_Export_Calling_trend_CSV_Group_trends_by=Weekly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1384,
+   "sha256": "e53145fa9ff90e87b0b66e45cf7231d3057f296f88566664931d5f510c1535bf"
+  },
+  {
+   "key": "Personal|call_volume|Export Calling trend CSV|Group trends by=Monthly",
+   "suggestedFilename": "call-volume-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_call_volume_Export_Calling_trend_CSV_Group_trends_by=Monthly__call-volume-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1384,
+   "sha256": "e53145fa9ff90e87b0b66e45cf7231d3057f296f88566664931d5f510c1535bf"
+  },
+  {
+   "key": "Personal|campaign_performance|Export Campaign performance CSV|",
+   "suggestedFilename": "campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_campaign_performance_Export_Campaign_performance_CSV___campaign-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2059,
+   "sha256": "429772653d9071e4f46463182587e298da4f3959301229bee4b5f9d577f83d48"
+  },
+  {
+   "key": "Personal|lead_source_roi|Export Lead sources CSV|",
+   "suggestedFilename": "lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_lead_source_roi_Export_Lead_sources_CSV___lead-source-performance-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1288,
+   "sha256": "16e2f5edc88be7a504b6923f8fa26098cb4f02078c403a29260dee2fa6159d97"
+  },
+  {
+   "key": "Personal|conversion_funnel|Export Disposition breakdown CSV|",
+   "suggestedFilename": "disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_conversion_funnel_Export_Disposition_breakdown_CSV___disposition-breakdown-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1161,
+   "sha256": "e5a0c2b8d594c92f73cf8035218b6f3aac45e9089b6b79984ab38aa54b74f4b6"
+  },
+  {
+   "key": "Personal|communications_stats|Export Call summary CSV|",
+   "suggestedFilename": "call-summary-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_communications_stats_Export_Call_summary_CSV___call-summary-2026-10-01-to-2026-10-01.csv",
+   "bytes": 2029,
+   "sha256": "58e65ad6b7b450025dd21fc82bd7776b05824fcc2c2d588101e6cf3dbae2d62c"
+  },
+  {
+   "key": "Personal|calling_heatmap|Export Calling heatmap CSV|",
+   "suggestedFilename": "calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_calling_heatmap_Export_Calling_heatmap_CSV___calling-heatmap-2026-10-01-to-2026-10-01.csv",
+   "bytes": 3261,
+   "sha256": "65418b88f0526caafd70d8c859be586bcdf0e356b8d5d014a3ee26faad54304c"
+  },
+  {
+   "key": "Personal|call_flow_analysis|Export Call flow CSV|",
+   "suggestedFilename": "call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_call_flow_analysis_Export_Call_flow_CSV___call-flow-by-hour-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1581,
+   "sha256": "fa512c12b89cfa56d45d030cedb3002017a097b52cec3d23a2a3b1b7e31141d2"
+  },
+  {
+   "key": "Personal|call_duration_analysis|Export Call duration CSV|",
+   "suggestedFilename": "call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_call_duration_analysis_Export_Call_duration_CSV___call-duration-by-disposition-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1113,
+   "sha256": "2256d8a3a16943c99995b02e8903a92951a902a821a200492a0b6328c82276a6"
+  },
+  {
+   "key": "Personal|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=Count__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1091,
+   "sha256": "9989a53171944da3dd478bdc74c40c7078981e2eef6d0166831bab5e039d7b03"
+  },
+  {
+   "key": "Personal|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By agent,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_agent_Show_values_as=_of_row_total__disposition-deep-dive-by-agent-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1091,
+   "sha256": "9989a53171944da3dd478bdc74c40c7078981e2eef6d0166831bab5e039d7b03"
+  },
+  {
+   "key": "Personal|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=Count",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=Count__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1094,
+   "sha256": "5a15bc4d241ae1492e4856a5ae5ea5c2758dab704f8a3be6021240c3e5fb1b38"
+  },
+  {
+   "key": "Personal|disposition_deep_dive|Export Disposition deep dive CSV|Break down by=By campaign,Show values as=% of row total",
+   "suggestedFilename": "disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "saved": "Personal_disposition_deep_dive_Export_Disposition_deep_dive_CSV_Break_down_by=By_campaign_Show_values_as=_of_row_total__disposition-deep-dive-by-campaign-2026-10-01-to-2026-10-01.csv",
+   "bytes": 1094,
+   "sha256": "5a15bc4d241ae1492e4856a5ae5ea5c2758dab704f8a3be6021240c3e5fb1b38"
+  }
+ ]
+}

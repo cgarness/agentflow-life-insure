@@ -19,9 +19,6 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             </div>
             <h3 className="font-semibold">Create an Agency Group</h3>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            Link independent agents under your agency for shared visibility — without merging their data.
-          </p>
           <ul className="space-y-2 mb-5 text-sm">
             <li className="flex items-start gap-2.5 text-foreground/90">
               <Trophy className="w-4 h-4 text-primary mt-0.5 shrink-0" />
@@ -51,11 +48,8 @@ const AgencyGroupNoGroup: React.FC<Props> = ({ onCreated }) => {
             </div>
             <h3 className="font-semibold">Waiting for an invite?</h3>
           </div>
-          <p className="text-sm text-muted-foreground mb-3">
-            When a manager invites your agency to their group, you'll see the invitation here.
-          </p>
           <p className="text-sm text-muted-foreground">
-            Your manager will send an invitation to your admin email address. You can also accept via the link in the email.
+            Invitations appear here and are emailed to your agency's admin.
           </p>
         </div>
       </div>

@@ -34,7 +34,7 @@ export const ProfileSection: React.FC<{
 }> = ({ title, description, action, className, children }) => (
   <Card className={cn("border-border/60 bg-card shadow-sm", className)}>
     <CardContent className="p-5 sm:p-6">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div className={cn("mb-5 flex flex-wrap justify-between gap-3", description ? "items-start" : "items-center")}>
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
           {description && (
@@ -51,9 +51,9 @@ export const ProfileSection: React.FC<{
 /**
  * A premium stat tile.
  *
- * `hint` is not decoration. Several of these numbers have a definition that is not obvious from the
- * label — "Total Policies" counts additional policies, "Total Monthly Premium" is not annualized —
- * and stating it on the tile is what keeps the page honest rather than merely impressive.
+ * `hint` is not decoration. Some of these numbers have a definition that is not obvious from the
+ * label — "Total Policies" counts additional policies, "Carriers" come from policy records — and
+ * stating it on the tile is what keeps the page honest rather than merely impressive.
  */
 export const StatTile: React.FC<{
   label: string;

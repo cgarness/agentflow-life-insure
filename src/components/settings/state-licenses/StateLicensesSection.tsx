@@ -81,7 +81,7 @@ export const StateLicensesSection: React.FC = () => {
           )}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Track which states each agent is licensed in. Used by state-based inbound call routing.
+          Used by state-based inbound call routing.
         </p>
       </CardHeader>
       <CardContent className="pt-4">

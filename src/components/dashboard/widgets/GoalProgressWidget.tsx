@@ -1,6 +1,7 @@
 import { useBranding } from "@/contexts/BrandingContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { loadPerformanceSummary, summaryScopeKey } from "@/lib/performanceSummary";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import React from "react";
 import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,7 +23,8 @@ interface GoalData {
   callsTarget: number;
   policiesMonth: number;
   policiesTarget: number;
-  premiumSold: number;
+  /** Null when every premium this month is unknown (D14): progress is unavailable, not $0. */
+  premiumSold: number | null;
   premiumTarget: number;
   appointmentsMonth: number;
   appointmentsMonthTarget: number;
@@ -32,14 +34,14 @@ interface GoalData {
 }
 
 const ProgressBar: React.FC<{
-  current: number;
+  current: number | null;
   target: number;
   label: string;
   icon: React.ElementType;
   gradient: string;
   formatValue?: (v: number) => string;
 }> = ({ current, target, label, icon: Icon, gradient, formatValue }) => {
-  const pct = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+  const pct = current !== null && target > 0 ? Math.min((current / target) * 100, 100) : 0;
   const fmt = formatValue ?? ((v: number) => String(v));
 
   return (
@@ -52,18 +54,18 @@ const ProgressBar: React.FC<{
           <span className="text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
         </div>
         <span className="text-[10px] font-bold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
-          {fmt(current)} / {fmt(target)}
+          {current === null ? "Unavailable" : fmt(current)} / {fmt(target)}
         </span>
       </div>
       <div className="relative h-3 bg-muted/30 rounded-full overflow-hidden border border-white/5 shadow-inner">
-        <motion.div
+        {current !== null && <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 1, ease: "easeOut" }}
           className={`h-full rounded-full ${gradient} relative shadow-[0_0_10px_rgba(0,0,0,0.1)]`}
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent w-full animate-shimmer" style={{ backgroundSize: "200% 100%" }} />
-        </motion.div>
+        </motion.div>}
       </div>
     </div>
   );
@@ -95,7 +97,7 @@ async function loadGoalProgress(userId: string, signal: AbortSignal): Promise<Go
     callsTarget,
     policiesMonth: summary.current.policies,
     policiesTarget,
-    premiumSold: summary.current.monthly_premium,
+    premiumSold: isPremiumWhollyUnknown(summary.current.policies, summary.current.unknown_premiums) ? null : summary.current.monthly_premium,
     premiumTarget,
     appointmentsMonth: summary.current.bookings,
     appointmentsMonthTarget,
@@ -159,7 +161,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
   return (
     <div className="space-y-6">
       {notice}
-      <p className="text-xs text-muted-foreground">{data.timeZone} · {data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
+      <p className="text-xs text-muted-foreground">{data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
       {data.callsTarget > 0 && (
         <ProgressBar
           current={data.callsMonth}

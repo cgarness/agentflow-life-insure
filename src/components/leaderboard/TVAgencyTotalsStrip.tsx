@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import OdometerValue from "@/components/leaderboard/OdometerValue";
 import type { AgentStats, Metric, Period } from "@/components/leaderboard/leaderboardTypes";
 import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: "Today", label: "Today" },
@@ -37,6 +38,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
       calls: agents.reduce((sum, a) => sum + a.callsMade, 0),
       policies: agents.reduce((sum, a) => sum + a.policiesSold, 0),
       premium: agents.reduce((sum, a) => sum + a.premiumSold, 0),
+      unknownPremiums: agents.reduce((sum, a) => sum + (a.unknownPremiums ?? 0), 0),
       appts: agents.reduce((sum, a) => sum + a.appointmentsSet, 0),
     }),
     [agents],
@@ -47,7 +49,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
   const cells: {
     key: "calls" | "policies" | "premium" | "appts";
     label: string;
-    value: number;
+    value: number | null;
     format: (n: number) => string;
     valueClass: string;
   }[] = [
@@ -68,7 +70,8 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
     {
       key: "premium",
       label: "Annual Premium",
-      value: totals.premium,
+      // The roster sold policies but every premium is unknown: "—", never $0 (D14).
+      value: isPremiumWhollyUnknown(totals.policies, totals.unknownPremiums) ? null : totals.premium,
       format: formatPremiumSold,
       valueClass: "text-amber-300",
     },

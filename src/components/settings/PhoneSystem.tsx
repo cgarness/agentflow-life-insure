@@ -58,25 +58,15 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
 
   if (phone.loading) {
     return (
-      <div className="space-y-4">
-        <h3 className="flex items-center gap-2.5 text-lg font-semibold text-foreground">
-          <span className="h-6 w-1 shrink-0 rounded-full bg-border" aria-hidden />
-          <span className="text-foreground">Phone System</span>
-        </h3>
-        <div className="space-y-6">
-          <Skeleton className="h-48 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
-        </div>
+      <div className="space-y-6">
+        <Skeleton className="h-48 rounded-xl" />
+        <Skeleton className="h-64 rounded-xl" />
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="flex items-center gap-2.5 text-lg font-semibold text-foreground">
-        <span className="h-6 w-1 shrink-0 rounded-full bg-border" aria-hidden />
-        <span className="text-foreground">Phone System</span>
-      </h3>
       <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-muted/50 p-1.5">
           <TabsTrigger value="phone" className={tabTriggerClass}>

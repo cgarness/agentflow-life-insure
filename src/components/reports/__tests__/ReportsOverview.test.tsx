@@ -3,7 +3,8 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { AGENT_A, AGENT_B, emptySummary, policyQuality, premium, reportSummary } from "@/lib/__tests__/reportsFixtures";
 import type { LoadState } from "@/hooks/useReportsData";
 import type { ReportSummary } from "@/lib/reports-schemas";
-import { PERIOD_TOTALS_LINE, PRODUCTION_BASIS_BAR, PRODUCTION_BASIS_BAR_SHORT } from "@/lib/reports-basis-text";
+import { CURRENT_ASSIGNMENT_NOTE } from "@/lib/reports-policy-text";
+import type { LiveSummary } from "../ReportDataQuality";
 import ReportsOverview from "../ReportsOverview";
 import ReportsActivityFlow from "../ReportsActivityFlow";
 
@@ -13,10 +14,10 @@ import { ReportsQueryError } from "@/lib/reports-queries";
 const ready = (data: ReportSummary): LoadState<ReportSummary> => ({ status: "ready", data });
 const band = () => screen.getByRole("region", { name: "Production overview" });
 const policiesCell = () => within(screen.getByRole("article", { name: "Policies sold" }));
-const premiumCell = () => within(screen.getByRole("article", { name: "Known annual premium" }));
+const premiumCell = () => within(screen.getByRole("article", { name: "Annual premium" }));
 const meter = (container: HTMLElement) => container.querySelector('[role="progressbar"]');
 const heroes = () => Array.from(band().querySelectorAll('[data-report-value="hero"]'));
-const bandAmounts = () => [...heroes(), ...Array.from(screen.getByRole("article", { name: "Known annual premium" }).querySelectorAll("dl dd"))];
+const bandAmounts = () => [...heroes(), ...Array.from(screen.getByRole("article", { name: "Annual premium" }).querySelectorAll("dl dd"))];
 const layout = (container: HTMLElement) => container.querySelector("[data-hero-layout]")!.getAttribute("data-hero-layout");
 type AgentRow = ReportSummary["by_agent"][number];
 const agents = (...counts: [string, number][]): AgentRow[] => counts.map(([name, n], i) => ({ ...reportSummary().by_agent[i % 2], agent_id: i % 2 ? AGENT_B : AGENT_A, name, policies_sold: n }));
@@ -25,7 +26,8 @@ describe("Reports production band", () => {
   it("preserves cents and shows coverage in words with a meter and a Partial chip (no percentage)", () => {
     const { container } = render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
     expect(policiesCell().getByText("5")).toHaveAttribute("data-report-value", "hero");
-    expect(policiesCell().getByText("Primary + additional policies")).toBeInTheDocument();
+    expect(policiesCell().queryByText("Primary + additional policies")).not.toBeInTheDocument();
+    expect(policiesCell().queryByText("No policies sold in this period.")).not.toBeInTheDocument(); // only for a successful zero
     const value = premiumCell().getByText("$1,481.40");
     expect(value.tagName).toBe("P"); // the money-clipping guard scans leaf <p> values
     expect(value).toHaveAttribute("data-report-value", "hero");
@@ -34,11 +36,10 @@ describe("Reports production band", () => {
     expect(chip).toHaveAttribute("aria-describedby", coverage.id);
     expect(meter(container)).not.toBeNull();
     expect(meter(container)!.closest('[aria-hidden="true"]')).not.toBeNull(); // decorative; the words are read
-    expect(premiumCell().getByText("Known monthly").parentElement).toHaveTextContent("$123.45");
-    expect(premiumCell().getByText("Avg per known policy").closest("div")).toHaveTextContent("$370.35");
-    expect(premiumCell().getByText("Avg / known policy")).toBeInTheDocument(); // the phone label
-    expect(screen.getByText(PRODUCTION_BASIS_BAR)).toBeInTheDocument();
-    expect(screen.getByText(PRODUCTION_BASIS_BAR_SHORT)).toBeInTheDocument();
+    expect(premiumCell().getByText("Monthly premium").parentElement).toHaveTextContent("$123.45");
+    expect(premiumCell().getByText("Average annual premium").closest("div")).toHaveTextContent("$370.35");
+    expect(premiumCell().getByText("Avg annual premium")).toBeInTheDocument(); // the phone label
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/); // no basis sentence at any width (PB-13)
     expect(band().textContent).not.toMatch(/%/);
     expect(container.querySelector("svg.lucide-shield-check, svg.lucide-circle-dollar-sign")).toBeNull(); // no hero icons
     expect(screen.queryByText(/excluded from amount|have a known premium/)).not.toBeInTheDocument();
@@ -52,7 +53,7 @@ describe("Reports production band", () => {
     expect(heroes()[1]).toHaveClass("whitespace-nowrap", "text-2xl", "text-muted-foreground", "md:text-3xl");
     expect(premiumCell().queryByText("$0.00")).not.toBeInTheDocument();
     expect(premiumCell().getByText("0 of 5 premiums known · 5 unknown excluded")).toBeInTheDocument();
-    expect(premiumCell().getByText("Avg per known policy").closest("div")).toHaveTextContent("—"); // zero denominator
+    expect(premiumCell().getByText("Average annual premium").closest("div")).toHaveTextContent("—"); // zero denominator
     expect(meter(container)).toBeNull();
     expect(premiumCell().queryByText("Partial")).not.toBeInTheDocument();
   });
@@ -60,7 +61,7 @@ describe("Reports production band", () => {
   it("keeps a successful empty period and a known zero distinct from unknown", () => {
     const view = render(<ReportsOverview summary={ready(emptySummary())} onRetry={vi.fn()} />);
     expect(screen.getAllByText("$0.00")).toHaveLength(2); // annual + monthly; the average has no denominator
-    expect(premiumCell().getByText("Avg per known policy").closest("div")).toHaveTextContent("—");
+    expect(premiumCell().getByText("Average annual premium").closest("div")).toHaveTextContent("—");
     expect(screen.getAllByText("No policies sold in this period.")).toHaveLength(1);
     expect(meter(view.container)).toBeNull();
     expect(screen.queryByText(/premiums? known/)).not.toBeInTheDocument();
@@ -104,7 +105,7 @@ describe("Reports production band", () => {
     expect(heroes()[0]).toHaveClass("text-3xl", "md:text-5xl");
     for (const totals of [{ premium: long }, { premium: { ...long, annual_premium: 1234567890.12 } }, { premium: premium(5, 0) }]) {
       view.rerender(<ReportsOverview summary={ready(reportSummary(totals))} onRetry={vi.fn()} />);
-      expect(bandAmounts()).toHaveLength(4); // both values, Known monthly and Avg per known policy
+      expect(bandAmounts()).toHaveLength(4); // both values, Monthly premium and Average annual premium
       for (const node of heroes()) expect(node).toHaveClass("leading-none"); // kept after the size class
       for (const node of bandAmounts()) {
         expect(node).toHaveClass("whitespace-nowrap", "tabular-nums");
@@ -119,7 +120,7 @@ describe("Reports production band", () => {
     const view = render(<ReportsOverview summary={ready(reportSummary())} onRetry={retry} />);
     view.rerender(<ReportsOverview summary={{ status: "loading" }} onRetry={retry} />);
     expect(screen.queryByText("$1,481.40")).not.toBeInTheDocument();
-    expect(screen.queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Most policies sold")).not.toBeInTheDocument();
     expect(view.container.querySelector('[data-report-state="loading"]')).toBeInTheDocument();
     view.rerender(<ReportsOverview summary={{ status: "error", error: new ReportsQueryError("unavailable") }} onRetry={retry} />);
     expect(screen.getByRole("alert")).toHaveTextContent("This is not a zero");
@@ -136,15 +137,35 @@ describe("Reports production band", () => {
     const note = within(band()).getByText("Data quality across this scope, all dates (not only this period): 2 policies have no usable sale date and are not counted in any period; 1 additional-policy record could not be read.");
     expect(note.parentElement!.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
+
+  it("keeps only the band's own Data basis trigger, right-aligned in its footer row, and no basis sentence (PB-13)", () => {
+    const live: LiveSummary = { status: "ready", data: reportSummary() };
+    const view = render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
+    const card = () => band().firstElementChild!;
+    // Before the scope resolves there is no trigger and no empty footer row.
+    expect(within(band()).queryByRole("button", { name: "Data basis" })).not.toBeInTheDocument();
+    for (const row of Array.from(card().children)) expect(row.textContent).not.toBe("");
+    view.rerender(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} dataBasis={{ summary: live, timeZone: "America/Los_Angeles", today: "2026-07-20" }} />);
+    const trigger = within(band()).getByRole("button", { name: "Data basis" });
+    const footer = trigger.parentElement!;
+    expect(footer.parentElement).toBe(card());
+    expect(footer.lastElementChild).toBe(trigger);
+    expect(footer.textContent).toBe("Data basis");
+    expect(footer).toHaveClass("justify-end");
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/);
+    fireEvent.click(trigger);
+    const credit = within(screen.getByRole("dialog", { name: "Data basis" })).getByRole("region", { name: "Agent credit" });
+    expect(within(credit).getByText(CURRENT_ASSIGNMENT_NOTE)).toBeInTheDocument();
+  });
 });
 
-describe("Most policies — current assignments (from the same summary)", () => {
-  const leaderRow = () => within(band()).getByText("Most policies — current assignments").parentElement!;
+describe("Most policies sold (from the same summary)", () => {
+  const leaderRow = () => within(band()).getByText("Most policies sold").parentElement!;
 
   it("names the agent with the most policies by current assignment", () => {
     render(<ReportsOverview summary={ready(reportSummary())} onRetry={vi.fn()} />);
     expect(leaderRow()).toHaveTextContent("Bob Agent · 2 policies");
-    expect(within(band()).getAllByText("Most policies — current assignments")).toHaveLength(1);
+    expect(within(band()).getAllByText("Most policies sold")).toHaveLength(1);
   });
 
   it.each([
@@ -160,24 +181,27 @@ describe("Most policies — current assignments (from the same summary)", () => 
 
   it("is absent when no agent has a policy, and in personal scope", () => {
     const view = render(<ReportsOverview summary={ready(reportSummary({}, agents(["Alice Agent", 0], ["Bob Agent", 0])))} onRetry={vi.fn()} />);
-    expect(screen.queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Most policies sold")).not.toBeInTheDocument();
     view.rerender(<ReportsOverview summary={ready({ ...reportSummary(), scope: "own", requested_scope: "personal" })} onRetry={vi.fn()} />);
-    expect(screen.queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Most policies sold")).not.toBeInTheDocument();
     expect(screen.queryByText(/Bob Agent/)).not.toBeInTheDocument();
   });
 });
 
 describe("Period totals", () => {
-  it("shows five independent totals with their date basis, no arrows and no funnel rate", () => {
+  it("shows five independent totals, no arrows and no funnel rate", () => {
     const { container } = render(<ReportsActivityFlow summary={ready(reportSummary({ calls_made: 1, contacted: 1, appointments_set: 9, converted: 2, policies_sold: 15 }))} onRetry={vi.fn()} />);
     const section = screen.getByRole("region", { name: "Period totals" });
     expect(section).toHaveAttribute("aria-labelledby", "report-totals-title");
-    const labels = ["Calls made", "Contacted calls", "Bookings created (all types)", "Converted leads/clients", "Policies sold"];
+    const labels = ["Calls made", "Contacted calls", "Appointments", "Converted leads/clients", "Policies sold"];
     expect(Array.from(container.querySelectorAll("dt")).map((node) => node.textContent)).toEqual(labels);
     expect(Array.from(container.querySelectorAll("dt + dd")).map((node) => node.textContent)).toEqual(["1", "1", "9", "2", "15"]);
-    expect(Array.from(container.querySelectorAll("dd + dd")).map((node) => node.textContent))
-      .toEqual(["by call date", "by call date", "by date created", "distinct people · by call date", "by sale date"]);
-    expect(screen.getByText(PERIOD_TOTALS_LINE)).toBeInTheDocument();
+    // Only Appointments keeps its basis: the count is bookings created in the period, not appointments scheduled in it.
+    expect(Array.from(container.querySelectorAll("dd + dd")).map((node) => node.textContent)).toEqual(["by date created"]);
+    expect(screen.getByText("by date created").parentElement!.querySelector("dt")).toHaveTextContent("Appointments");
+    expect(container.textContent).not.toMatch(/by call date|by sale date|distinct people/);
+    expect(screen.queryByText("Independent period totals, not one cohort.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Period totals" })).toHaveAttribute("id", "report-totals-title");
     expect(screen.queryByText(/moving through a funnel/)).not.toBeInTheDocument(); // the full statement is in Data basis
     expect(container.querySelector("svg")).toBeNull(); // no ArrowRight between independent totals
     expect(container.textContent).not.toContain("%");

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Phone, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import CampaignSelectionTable from "./CampaignSelectionTable";
 import { CampaignTableSkeleton } from "./DialerSkeletons";
 import {
@@ -77,14 +77,7 @@ export default function CampaignSelection({
     <div className="flex min-h-full flex-col bg-background text-foreground">
       <div className="flex flex-1 flex-col items-start justify-start px-4 pb-8 pt-10">
         <div className="mb-8 max-w-lg">
-          <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
-            <Phone className="h-3 w-3" />
-            DIALER
-          </div>
-          <h1 className="mb-1 text-3xl font-extrabold text-foreground">Select a Campaign</h1>
-          <p className="text-base text-muted-foreground">
-            Choose an active campaign to start dialing.
-          </p>
+          <h1 className="text-3xl font-extrabold text-foreground">Select a Campaign</h1>
           {header.kind !== "unavailable" && (
             <div
               data-testid="presence-header"

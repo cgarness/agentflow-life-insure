@@ -17,6 +17,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 import CampaignDetail from "@/pages/CampaignDetail";
 
@@ -316,5 +317,35 @@ describe("CampaignDetail import-history retry (regression: select must include c
     expect(toast.success).not.toHaveBeenCalled();
     expect(state.fromCounts["import_history"] ?? 0).toBe(ihBefore);
     expect(screen.getByText("Retry attachment")).toBeTruthy();
+  });
+});
+
+describe("CampaignDetail Stats labels (V2: called leads are labelled as called leads)", () => {
+  it("labels the called-lead tile and chart 'Leads Called' and keeps the queue-status 'Called' row's own count", async () => {
+    const lead = (id: string, status: string, callAttempts: number, lastCalledAt: string | null) => ({
+      id: `cl-${id}`, campaign_id: CAMP_ID, lead_id: `lead-${id}`, status, call_attempts: callAttempts, last_called_at: lastCalledAt,
+      created_at: "2026-10-01T12:00:00.000Z", sort_order: 0,
+      lead: { id: `lead-${id}`, first_name: `Lead${id}`, last_name: "Test", phone: "+15550000000", state: "TX" },
+    });
+    state.tableData.campaign_leads = [
+      lead("1", "Called", 1, "2026-10-05T15:00:00.000Z"),
+      lead("2", "Completed", 2, "2026-10-06T15:00:00.000Z"),
+      lead("3", "Queued", 0, null),
+    ];
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={[`/campaigns/${CAMP_ID}`]}>
+          <Routes><Route path="/campaigns/:id" element={<CampaignDetail />} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByText("Stats"));
+    const tile = await screen.findByText("Leads Called");
+    expect(tile.parentElement).toHaveTextContent("Leads Called2"); // leads with at least one call attempt
+    expect(screen.queryByText("Calls", { selector: "p" })).not.toBeInTheDocument();
+    expect(screen.getByText("Leads Called Over Time")).toBeInTheDocument();
+    expect(screen.queryByText("Leads Contacted Over Time")).not.toBeInTheDocument();
+    const calledRow = screen.getByText("Called", { selector: "span" }).parentElement!;
+    expect(calledRow).toHaveTextContent("1 (33%)"); // queue status, a different count from the tile
   });
 });

@@ -12,8 +12,8 @@
  * dial-to-policy figure is explicitly named "Dials per policy sold".
  *
  * Policies Sold = normalized STORED policies by sale date (plan §20). Per-agent policy counts are the
- * client's CURRENT assignment, not original seller credit, so: the policy ranking is labelled "Most
- * policies — current assignments", and the two call/talk-per-policy ratios exist ONLY for the whole
+ * client's CURRENT assignment, not original seller credit, so: the policy ranking ("Most policies
+ * sold") is ranked by current assignment, and the two call/talk-per-policy ratios exist ONLY for the whole
  * organization with no agent filter (period activity ÷ dated stored policies) — never as an agent or
  * team efficiency figure.
  */
@@ -90,8 +90,8 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_dnc_rate", label: "DNC per 100 dials", category: "activity", invertTrend: true },
 
   // New optional metrics retain all existing layout ids/order.
-  { id: "stat_annual_premium", label: "Known annual premium", category: "results" },
-  { id: "stat_avg_premium", label: "Avg annual premium / known policy", category: "results" },
+  { id: "stat_annual_premium", label: "Annual premium", category: "results" },
+  { id: "stat_avg_premium", label: "Average annual premium", category: "results" },
   // Results
   { id: "stat_policies_sold", label: "Policies sold", category: "results" },
   { id: "stat_call_to_close", label: "Call to close rate", category: "results", unavailable: NO_CONVERSION },
@@ -101,7 +101,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_avg_days_to_close", label: "Avg days to close", category: "results", unavailable: NOT_TRACKED, invertTrend: true },
   { id: "stat_best_closing_hour", label: "Best closing hour", category: "results", unavailable: NOT_TRACKED },
   { id: "stat_best_closing_day", label: "Best closing day", category: "results", unavailable: NOT_TRACKED },
-  { id: "stat_appointments_set", label: "Bookings created (all types)", category: "results" },
+  { id: "stat_appointments_set", label: "Appointments", category: "results" },
   { id: "stat_appt_set_rate", label: "Appt set rate", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_contacted_to_appt", label: "Contacted to appt", category: "results", unavailable: NO_DEFINITION },
   { id: "stat_appts_kept", label: "Appointments kept", category: "results", unavailable: NOT_TRACKED },
@@ -119,7 +119,7 @@ export const STAT_DEFINITIONS: StatDefinition[] = [
   { id: "stat_lead_exhaustion", label: "Lead exhaustion rate", category: "pipeline", unavailable: NOT_TRACKED, invertTrend: true },
 
   // Team
-  { id: "stat_top_performer", label: "Most policies — current assignments", category: "team" },
+  { id: "stat_top_performer", label: "Most policies sold", category: "team" },
   { id: "stat_top_dialer", label: "Top dialer", category: "team" },
   { id: "stat_best_contact_agent", label: "Best call contact rate", category: "team" },
   { id: "stat_best_conv_agent", label: "Best conv rate", category: "team", unavailable: NO_CONVERSION },
@@ -212,7 +212,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
     case "stat_calls_per_day":
       return { value: num(ratio(t.calls_made, inputs.dayCount)), subtitle: `over ${inputs.dayCount} day${inputs.dayCount === 1 ? "" : "s"}` };
     case "stat_calls_per_hour":
-      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)), subtitle: "session-matched calls ÷ all session hours" };
+      return { value: num(ratio(sessionPop.calls, sessionPop.secs / 3600)) };
     case "stat_session_time":
       return { value: formatElapsed(t.session_seconds), ...sessionCaution(s.quality.sessions) };
     case "stat_total_contacted":
@@ -226,7 +226,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       return { value: formatElapsed(t.avg_talk_per_dial_seconds, 1), ...durationCaution(s.quality.duration) };
     case "stat_talk_time_ratio": {
       const r = ratio(sessionPop.talk, sessionPop.secs);
-      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%`, subtitle: "session-matched talk ÷ all session time" };
+      return { value: r === null ? DASH : `${(r * 100).toFixed(1)}%` };
     }
     case "stat_dnc_count":
       return { value: formatCount(t.dnc_calls) };
@@ -242,13 +242,13 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       return { value: formatCount(t.policies_sold), subtitle: "stored policies, by sale date" };
     case "stat_dials_per_sale":
       if (!orgWidePolicyRatio(s)) return { unknown: POLICY_RATIO_SCOPE_REASON };
-      return { value: num(ratio(t.calls_made, t.policies_sold)), subtitle: "calls in period ÷ dated stored policies in period" };
+      return { value: num(ratio(t.calls_made, t.policies_sold)) };
     case "stat_appointments_set":
       return { value: formatCount(t.appointments_set) };
     case "stat_leads_converted":
-      return { value: formatCount(t.converted), subtitle: "distinct people" };
+      return { value: formatCount(t.converted) };
     case "stat_callback_rate":
-      return { value: formatCount(t.callback_calls), subtitle: "callback dispositions" };
+      return { value: formatCount(t.callback_calls) };
     case "stat_top_performer": {
       // A ranking by CURRENT assignment — not original sales credit (clients can be reassigned). The same
       // ranking and tie rule as the band's leader row (D-5): a shared top count names no one.
@@ -256,7 +256,7 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       if (!top) return { value: DASH, subtitle: "no policies in this period" };
       return top.tied > 1
         ? { value: `${formatCount(top.tied)} agents tied`, subtitle: `${policyCount(top.policies)} each`, smallValue: true }
-        : { value: top.name, subtitle: `${top.policies} polic${top.policies === 1 ? "y" : "ies"} currently assigned`, smallValue: true };
+        : { value: top.name, subtitle: policyCount(top.policies), smallValue: true };
     }
     case "stat_top_dialer": {
       const best = leader(s.by_agent, (a) => a.calls_made, (a) => a.name);
@@ -274,10 +274,10 @@ function computeFromSummary(id: string, s: ReportSummary, inputs: StatInputs): C
       return { value: num(ratio(t.calls_made, t.contacted)) };
     case "stat_dials_per_appt":
       // Calls made ÷ Bookings created (all types): every booking kind, not appointments only.
-      return { value: num(ratio(t.calls_made, t.appointments_set)), subtitle: "all booking types" };
+      return { value: num(ratio(t.calls_made, t.appointments_set)) };
     case "stat_talk_mins_per_sale":
       if (!orgWidePolicyRatio(s)) return { unknown: POLICY_RATIO_SCOPE_REASON };
-      return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)), subtitle: "talk minutes in period ÷ dated stored policies in period" };
+      return { value: num(ratio(t.talk_time_seconds / 60, t.policies_sold)) };
     default:
       return { unknown: NOT_TRACKED };
   }
@@ -288,14 +288,14 @@ function computeFromVolume(id: string, v: ReportVolume, inputs: StatInputs): Com
   if (id === "stat_calls_today") {
     if (!inWindow(inputs.agencyToday)) return { unknown: "Today is outside the selected period" };
     const row = v.by_date.find((d) => d.date === inputs.agencyToday);
-    return { value: formatCount(row?.calls_made ?? 0), subtitle: "agency calendar day" };
+    return { value: formatCount(row?.calls_made ?? 0) };
   }
   // Week = Monday..Sunday of the agency today, and only when the whole week-to-date is in range.
   const today = new Date(`${inputs.agencyToday}T00:00:00Z`);
   const weekStart = addDays(inputs.agencyToday, -((today.getUTCDay() + 6) % 7));
   if (!inWindow(weekStart) || !inWindow(inputs.agencyToday)) return { unknown: "Select a period that includes this whole week" };
   const total = v.by_date.filter((d) => d.date >= weekStart && d.date <= inputs.agencyToday).reduce((a, d) => a + d.calls_made, 0);
-  return { value: formatCount(total), subtitle: "Monday to today, agency calendar" };
+  return { value: formatCount(total), subtitle: "Monday to today" };
 }
 
 const VOLUME_STATS = new Set(["stat_calls_today", "stat_calls_this_week"]);

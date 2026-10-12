@@ -31,7 +31,7 @@ interface Row {
 /** Screen columns. "Session-matched calls" explains the rate beside it; the CSV columns are unchanged. */
 const HEADERS = [
   "Agent", "Calls made", "Session time", "Session-matched calls", "Calls per session hour", "Call contact rate", "Talk time",
-  "Policies (current assignment)",
+  "Policies sold",
 ];
 const EXPORT_HEADERS = [
   "Agent",
@@ -130,7 +130,6 @@ const AgentEfficiency: React.FC<Props> = ({ summary, currentUserId, onExport }) 
               })}
             </tbody>
           </ReportTableFrame>
-          <p className="mt-3 text-xs text-muted-foreground">Calls per session hour = session-matched calls ÷ session hours.</p>
           <AgentEfficiencyScatter points={points} />
         </>
       )}

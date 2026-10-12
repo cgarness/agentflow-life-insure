@@ -40,23 +40,21 @@ const CommunicationsStats: React.FC<Props> = ({ summary, dayCount, onExport }) =
   ];
 
   const metrics: Metric[] = [
-    { label: "Calls made", value: formatCount(t.calls_made), subtitle: "Outbound dials", exportLabel: "Calls made (outbound)", raw: t.calls_made },
+    { label: "Calls made", value: formatCount(t.calls_made), exportLabel: "Calls made (outbound)", raw: t.calls_made },
     { label: "Inbound calls", value: formatCount(t.inbound_calls), exportLabel: "Inbound calls", raw: t.inbound_calls },
     {
       label: "Contacted calls",
       value: formatCount(t.contacted),
-      subtitle: "Outbound calls that reached a contact",
       exportLabel: "Contacted",
       raw: t.contacted,
     },
     {
       label: "Call contact rate",
       value: formatRate(t.contact_rate_pct),
-      subtitle: "Contacted calls ÷ calls made",
       exportLabel: "Call contact rate (%)",
       raw: t.contact_rate_pct,
     },
-    { label: "Talk time", value: formatElapsed(t.talk_time_seconds), subtitle: "On calls made", exportLabel: "Talk time (seconds)", raw: t.talk_time_seconds },
+    { label: "Talk time", value: formatElapsed(t.talk_time_seconds), exportLabel: "Talk time (seconds)", raw: t.talk_time_seconds },
     {
       label: "Avg talk time per dial",
       value: formatElapsed(t.avg_talk_per_dial_seconds, 1),

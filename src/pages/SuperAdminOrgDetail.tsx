@@ -5,7 +5,7 @@ import {
   ArrowLeft, Loader2, Mail, Shield, Calendar, Target,
   TrendingUp, Activity, Briefcase, ChevronRight,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -335,7 +335,6 @@ const SuperAdminOrgDetail: React.FC = () => {
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-6 bg-muted/5">
               <div>
                 <CardTitle>Agency team</CardTitle>
-                <CardDescription>Manage team members and their platform permissions</CardDescription>
               </div>
               <div className="relative w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -457,9 +456,9 @@ const SuperAdminOrgDetail: React.FC = () => {
               <Building2 className="w-12 h-12 text-muted-foreground/20 mb-4" />
               <h3 className="text-lg font-medium">Agency configuration</h3>
               <p className="text-sm text-muted-foreground max-w-xs mt-1">
-                Administrative settings and limits for {org.name}
+                Coming soon — agency configuration is not active yet.
               </p>
-              <Button variant="outline" className="mt-6 border-dashed">
+              <Button variant="outline" className="mt-6 border-dashed" disabled>
                 Configure agency
               </Button>
             </CardContent>

@@ -64,7 +64,7 @@ const DashboardRefreshButton: React.FC<DashboardRefreshButtonProps> = ({ onRefre
         <span className="sr-only"> dashboard</span>
       </Button>
       {!refreshing && !ready && (
-        <span id={hintId} className="hidden text-[10px] text-muted-foreground sm:inline">
+        <span id={hintId} className="sr-only">
           Available at {formatStatusTime(availableAt)}
         </span>
       )}

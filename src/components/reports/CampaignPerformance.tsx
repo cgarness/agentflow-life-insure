@@ -14,7 +14,7 @@ import { ROW_LABEL_WIDE, TD, TD_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./repo
 const CHART_TOP_N = 10;
 /** Screen order: production first, so policies and premium are visible without scrolling. */
 const COLUMNS = [
-  "Campaign", "Policies (campaign-attributed)", "Known annual premium", "Known / total policies", "Calls made",
+  "Campaign", "Attributed policies", "Annual premium", "Premium coverage", "Calls made",
   "Contacted calls", "Call contact rate", "Leads dialed", "Contacted leads", "Converted leads", "Type",
 ] as const;
 /** The CSV keeps its original column order and values. */

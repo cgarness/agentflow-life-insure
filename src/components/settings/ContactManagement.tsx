@@ -66,7 +66,7 @@ const DUPLICATE_DETECTION_ACTIVE_NOTE =
   "Duplicate Detection is enforced on manual contact saves and CSV imports.";
 
 const REQUIRED_FIELDS_ACTIVE_NOTE =
-  "Required fields are enforced on create/edit forms and CSV imports. Custom required fields are enforced where custom-field inputs are surfaced (e.g. the contact view).";
+  "Enforced on the Add and Edit forms in Contacts and in the contact view. Lead CSV imports check only first name, last name and phone on each row.";
 
 // ==================== PIPELINE STAGES TAB ====================
 
@@ -393,7 +393,7 @@ const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string |
     <div className="space-y-8">
       <StageList
         title="Lead Stages"
-        description="Manage the status options that appear on lead records and the Kanban board."
+        description="Status options on lead records and the Kanban board."
         pipelineType="lead"
         stages={leadStages}
         onReload={loadLead}
@@ -403,7 +403,7 @@ const PipelineStagesTab: React.FC<{ canManage: boolean; organizationId: string |
       <div className="border-t" />
       <StageList
         title="Recruit Stages"
-        description="Manage the pipeline stages for your recruit Kanban board."
+        description="Stages on the recruit Kanban board."
         pipelineType="recruit"
         stages={recruitStages}
         onReload={loadRecruit}
@@ -632,8 +632,7 @@ const CustomFieldsTab: React.FC = () => {
       {fields.length === 0 ? (
         <div className="bg-accent/50 rounded-xl p-8 text-center">
           <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-          <h4 className="font-medium text-foreground mb-1">No custom fields yet</h4>
-          <p className="text-sm text-muted-foreground mb-4">Add your first custom field to capture information specific to your agency.</p>
+          <h4 className="font-medium text-foreground mb-4">No custom fields yet</h4>
           {canManagePersonalFields && (
             <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Custom Field</Button>
           )}
@@ -719,7 +718,7 @@ const CustomFieldsTab: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Required</p>
-                <p className="text-xs text-muted-foreground">Enforcement on contact forms ships in a later release; this toggle saves your intent now.</p>
+                <p className="text-xs text-muted-foreground">Enforced in the contact view. Lead CSV imports must map a column to it.</p>
               </div>
               <Switch checked={form.required} onCheckedChange={v => setForm(f => ({ ...f, required: v }))} />
             </div>
@@ -935,7 +934,7 @@ const LeadSourcesTab: React.FC<{ canManage: boolean; organizationId: string | nu
       <div className="flex items-center justify-between">
         <div>
           <h4 className="text-base font-semibold text-foreground">Lead Sources</h4>
-          <p className="text-sm text-muted-foreground">Manage the lead source options that appear when adding or importing contacts.</p>
+          <p className="text-sm text-muted-foreground">Options shown when adding or importing contacts.</p>
         </div>
         {canManage && (
           <Button onClick={openAdd} size="sm" className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Lead Source</Button>
@@ -1150,7 +1149,6 @@ const DuplicateDetectionTab: React.FC<{
     <div className="space-y-4">
       <div>
         <h4 className="text-base font-semibold text-foreground">Duplicate Detection</h4>
-        <p className="text-sm text-muted-foreground">Control how the system identifies and handles duplicate contacts.</p>
       </div>
 
       {!canManage && <ContactFlowReadOnlyBanner />}
@@ -1163,7 +1161,6 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">Detection Rule</h5>
-          <p className="text-xs text-muted-foreground">Choose what field combination triggers a duplicate warning.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="rule" value="phone_only" current={detectionRule} onChange={setDetectionRule} label="Match on Phone Only" desc="Flag as duplicate if phone number already exists" />
@@ -1177,7 +1174,6 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">Detection Scope</h5>
-          <p className="text-xs text-muted-foreground">Define which contacts are checked when looking for duplicates.</p>
         </div>
         <div className="space-y-1">
           <RadioOption name="scope" value="all_agents" current={detectionScope} onChange={setDetectionScope} label="Check Across All Agents" desc="A duplicate is flagged regardless of which agent owns the contact" />
@@ -1189,7 +1185,6 @@ const DuplicateDetectionTab: React.FC<{
       <div className="bg-card border border-border rounded-lg p-5 space-y-3">
         <div>
           <h5 className="text-sm font-bold text-foreground">On Duplicate Found</h5>
-          <p className="text-xs text-muted-foreground">Choose what happens when a duplicate is detected.</p>
         </div>
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">When Adding Manually</p>
@@ -1313,7 +1308,6 @@ const RequiredFieldsTab: React.FC<{
     <div className="space-y-4">
       <div>
         <h4 className="text-base font-semibold text-foreground">Required Fields</h4>
-        <p className="text-sm text-muted-foreground">Choose which fields agents must fill in before a contact record can be saved.</p>
       </div>
 
       <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-start gap-2.5">
@@ -1366,10 +1360,6 @@ const RequiredFieldsTab: React.FC<{
           </div>
         </div>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Custom fields with their Required toggle on are also enforced where the form surfaces custom-field inputs (manage them in the Custom Fields tab).
-      </p>
 
       {canManage && (
         <Button onClick={handleSave} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Required Fields"}</Button>
@@ -1463,7 +1453,6 @@ const ContactManagementContent: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-foreground">Contact Management</h3>
-        <p className="text-sm text-muted-foreground">Configure pipeline stages, custom fields, lead sources, and contact behavior.</p>
       </div>
 
       {/* Tab bar */}

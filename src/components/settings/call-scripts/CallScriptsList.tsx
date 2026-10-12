@@ -91,7 +91,7 @@ export const CallScriptsList: React.FC<CallScriptsListProps> = ({
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <FileText className="w-10 h-10 text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground mb-4">
-              {canManage ? "No scripts yet. Click Add Script to get started." : "No scripts available yet."}
+              {canManage ? "No scripts yet." : "No scripts available yet."}
             </p>
             {canManage && (
               <Button size="sm" onClick={onAdd} className="gap-2">

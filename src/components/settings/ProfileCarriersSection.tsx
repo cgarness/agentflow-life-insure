@@ -105,8 +105,8 @@ const ProfileCarriersSection: React.FC<ProfileCarriersSectionProps> = ({
         <CardTitle className="text-lg">Insurance Carriers</CardTitle>
         <p className="text-xs text-muted-foreground">
           {adminEditing
-            ? "Writing numbers for each carrier. Only carriers listed under Settings → Carriers can be selected."
-            : "Configure your writing numbers. Only carriers your agency added under Settings → Carriers appear in the list."}
+            ? "Only carriers listed under Settings → Carriers can be selected."
+            : "Only carriers your agency added under Settings → Carriers appear in the list."}
         </p>
       </div>
     </div>

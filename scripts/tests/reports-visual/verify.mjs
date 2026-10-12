@@ -45,12 +45,12 @@ const customizeButton = () => page.getByRole('button', { name: 'Customize layout
 const periodSelect = () => page.getByRole('combobox', { name: 'Report period', exact: true });
 const dataBasis = () => page.getByRole('dialog', { name: 'Data basis', exact: true });
 const band = () => page.getByRole('region', { name: 'Production overview', exact: true });
-const premiumArticle = () => page.getByRole('article', { name: 'Known annual premium', exact: true });
+const premiumArticle = () => page.getByRole('article', { name: 'Annual premium', exact: true });
 const PERIOD_OPTIONS = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'This month', 'Last month', 'Custom range'];
 // Columns that must be visible without scrolling from 1024px, and reachable beside the pinned label below it.
 const IMPORTANT_COLUMNS = {
-  agent_performance_cards: ['Policies (current assignment)', 'Known annual premium'],
-  campaign_performance: ['Policies (campaign-attributed)', 'Known annual premium'],
+  agent_performance_cards: ['Policies sold', 'Annual premium'],
+  campaign_performance: ['Attributed policies', 'Annual premium'],
 };
 // axe findings this gate accepts, each with its reason; every other violation fails the run. Empty: the
 // base's color-contrast (unselected tabs and segmented buttons, 4.45:1) and svg-img-alt (recharts scatter
@@ -200,7 +200,7 @@ async function customize() {
   // Production anchors: an anchored, case-insensitive name check and a label-independent id check, each with
   // a positive control so neither can pass against an empty editor or a renamed attribute.
   assert.equal(await editor().getByRole('checkbox', { name: 'Show Calls made', exact: true }).count(), 1, 'editor lists registered metrics');
-  assert.equal(await editor().getByRole('checkbox', { name: /^Show (Policies sold|Known annual premium)$/i }).count(), 0, 'production anchors cannot be hidden');
+  assert.equal(await editor().getByRole('checkbox', { name: /^Show (Policies sold|Annual premium)$/i }).count(), 0, 'production anchors cannot be hidden');
   assert.equal(await editor().locator('[data-customizer-section="stat_total_dials"]').count(), 1, 'editor marks registered metrics by id');
   assert.equal(await editor().locator('[data-customizer-section="stat_policies_sold"],[data-customizer-section="stat_annual_premium"]').count(), 0, 'production anchors are not registered');
   assert.equal(await editor().getByRole('checkbox', { name: 'Show Contacted calls', exact: true }).count(), 1, 'contacted calls label');
@@ -292,17 +292,17 @@ async function scopes() {
   const personalPremium = await premiumArticle().innerText();
   assert.match(personalPremium, /Unavailable[\s\S]*0 of 1 premium known · 1 unknown excluded/);
   assert.ok(!personalPremium.includes('$0.00'), 'all-unknown premium never $0.00');
-  assert.match(personalPremium, /Avg (per|\/) known policy\s*—/, 'zero known premiums: the average has no denominator');
+  assert.match(personalPremium, /(Average|Avg) annual premium\s*—/, 'zero known premiums: the average has no denominator');
   assert.equal(await premiumArticle().getByText('Partial', { exact: true }).count(), 0, 'no Partial chip when nothing is known');
   assert.equal(await section('agent_performance_cards').count(), 0, 'personal view has no team performance panel');
-  assert.equal(await band().getByText('Most policies — current assignments', { exact: true }).count(), 0, 'no leader row in Personal');
+  assert.equal(await band().getByText('Most policies sold', { exact: true }).count(), 0, 'no leader row in Personal');
   for (const name of ['Team', 'Agency']) {
     await page.getByRole('tab', { name, exact: true }).click();
     await ready();
     assert.equal(await page.getByRole('tab', { name, exact: true }).getAttribute('aria-selected'), 'true');
     assert.match(await band().innerText(), name === 'Team'
-      ? /Most policies — current assignments[\s\S]*Synthetic admin · 1 policy\b/
-      : /Most policies — current assignments[\s\S]*Synthetic agent · 7 policies/, `${name} leader row from the same summary`);
+      ? /Most policies sold[\s\S]*Synthetic admin · 1 policy\b/
+      : /Most policies sold[\s\S]*Synthetic agent · 7 policies/, `${name} leader row from the same summary`);
   }
   assert.ok((await premiumArticle().innerText()).includes('$14,406.00'));
   const requests = await page.evaluate(() => window.reportsFixture.requests());
@@ -319,7 +319,7 @@ async function refreshNeverRepaintsStale() {
   // R-4: after Refresh, the previous summary must never be committed to the screen again.
   const sent = (await page.evaluate(() => window.reportsFixture.requests())).filter(request => request.panel === 'summary').length;
   await page.evaluate(() => {
-    const read = () => !!document.querySelector('[aria-label="Known annual premium"]')?.textContent.includes('$14,406.00');
+    const read = () => !!document.querySelector('[aria-label="Annual premium"]')?.textContent.includes('$14,406.00');
     window.__reportFrames = [read()];
     window.__reportObserver = new MutationObserver(() => window.__reportFrames.push(read()));
     window.__reportObserver.observe(document.getElementById('root'), { childList: true, subtree: true, characterData: true });
@@ -359,7 +359,7 @@ async function firstScreen(label) {
     const start = head.querySelector('button[aria-label="Start Date"]');
     // The fixture runs on a Custom range; its date row is measured so preset budgets can be checked too.
     const customBlock = start && box(start).top >= box(period).bottom - 1 ? box(start).bottom - box(period).bottom : 0;
-    const hero = ['Policies sold', 'Known annual premium'].map(name => box(document.querySelector(`[aria-label="${name}"] [data-report-value="hero"]`)));
+    const hero = ['Policies sold', 'Annual premium'].map(name => box(document.querySelector(`[aria-label="${name}"] [data-report-value="hero"]`)));
     const tablist = head.querySelector('[role="tablist"]');
     return {
       width: innerWidth, height: innerHeight, header: box(head).height, customBlock,
@@ -598,7 +598,7 @@ async function measure(label) {
       moneyChecked: money.length,
       monetaryClipping: clipped.map(node => node.textContent.trim()),
       moneyWrapped: money.filter(node => lines(node) > 1).map(node => node.textContent.trim()),
-      heroLines: ['Policies sold', 'Known annual premium'].map(name => {
+      heroLines: ['Policies sold', 'Annual premium'].map(name => {
         const value = document.querySelector(`[aria-label="${name}"] [data-report-value="hero"]`);
         return value ? lines(value) : 0;
       }),
@@ -683,21 +683,31 @@ try {
   const efficiencyToggle = section('agent_efficiency').getByRole('button', { name: 'Agent efficiency', exact: true });
   if (await efficiencyToggle.getAttribute('aria-expanded') === 'false') await efficiencyToggle.click();
   const content = await page.locator('body').innerText();
-  for (const text of ['Bookings created (all types)', '$14,406.00', '2h 0m 0s', '3m 21s']) {
+  for (const text of ['Appointments', '$14,406.00', '2h 0m 0s', '3m 21s']) {
     assert.ok(content.includes(text), `Rendered report contains ${text}`);
   }
   // Production band: exact cents, coverage in words, Partial only for 0 < known < count, never a percentage.
   const premium = await premiumArticle().innerText();
   assert.ok(premium.includes('3 of 8 premiums known · 5 unknown excluded'), 'premium coverage in words');
-  assert.match(premium, /Known monthly\s*\$1,200\.50/);
-  assert.match(premium, /Avg (per|\/) known policy\s*\$4,802\.00/);
+  assert.match(premium, /Monthly premium\s*\$1,200\.50/);
+  assert.match(premium, /(Average|Avg) annual premium\s*\$4,802\.00/);
   assert.equal(await premiumArticle().getByText('Partial', { exact: true }).count(), 1, 'Partial chip for a partly known premium');
   assert.ok(!/\d%/.test(await band().innerText()), 'no percentage in the production band');
-  assert.match(await page.getByRole('article', { name: 'Policies sold', exact: true }).innerText(), /8[\s\S]*Primary \+ additional policies/);
-  assert.match(await band().innerText(), /Most policies — current assignments[\s\S]*Synthetic agent · 7 policies/, 'agency leader row');
+  assert.equal((await page.getByRole('article', { name: 'Policies sold', exact: true }).locator('[data-report-value="hero"]').innerText()).trim(), '8', 'policies sold hero value');
+  assert.ok(!/Primary \+ additional/.test(await band().innerText()), 'no provenance line under the count');
+  // PB-13: no basis sentence in the band at any width (textContent includes width-hidden text); its footer row
+  // keeps only the band's own Data basis trigger, right-aligned.
+  assert.ok(!/Current book|×12|current agent/.test(await band().evaluate(node => node.textContent)), 'no basis sentence in the production band');
+  const bandFooter = await band().getByRole('button', { name: 'Data basis', exact: true }).evaluate(node => {
+    const row = node.parentElement, rowBox = row.getBoundingClientRect(), box = node.getBoundingClientRect();
+    return { text: row.textContent.trim(), gap: rowBox.right - box.right - parseFloat(getComputedStyle(row).paddingRight) };
+  });
+  assert.equal(bandFooter.text, 'Data basis', 'the band footer row holds only its Data basis trigger');
+  assert.ok(Math.abs(bandFooter.gap) <= 1, `the band's Data basis trigger is right-aligned ${JSON.stringify(bandFooter)}`);
+  assert.match(await band().innerText(), /Most policies sold[\s\S]*Synthetic agent · 7 policies/, 'agency leader row');
   // Six-metric strip: exact labels and values, one duration format, data-quality cautions in place.
   for (const [id, label, value] of [['stat_total_dials', 'Calls made', '5'], ['stat_total_contacted', 'Contacted calls', '1'], ['stat_contact_rate', 'Call contact rate', '20.0%'],
-    ['stat_appointments_set', 'Bookings created (all types)', '2'], ['stat_total_talk_time', 'Talk time', '3m 21s'], ['stat_session_time', 'Dialer session time', '2h 0m 0s']]) {
+    ['stat_appointments_set', 'Appointments', '2'], ['stat_total_talk_time', 'Talk time', '3m 21s'], ['stat_session_time', 'Dialer session time', '2h 0m 0s']]) {
     const [shownLabel, shownValue] = (await section(id).innerText()).split('\n').map(line => line.trim()).filter(Boolean);
     assert.deepEqual([shownLabel, shownValue], [label, value], `${id} tile`);
   }
@@ -706,7 +716,7 @@ try {
   assert.ok(!/0h 3m 21s|(^|[^\d:])3:21(?!\d)/.test(await page.locator('body').innerText()), 'one exact duration format');
   // Period totals: independent dt/dd tiles, value first; no arrows and no percentages.
   const totals = page.locator('section[aria-labelledby="report-totals-title"]');
-  assert.deepEqual(await totals.locator('dt').allInnerTexts(), ['Calls made', 'Contacted calls', 'Bookings created (all types)', 'Converted leads/clients', 'Policies sold']);
+  assert.deepEqual(await totals.locator('dt').allInnerTexts(), ['Calls made', 'Contacted calls', 'Appointments', 'Converted leads/clients', 'Policies sold']);
   assert.deepEqual(await totals.locator('dt + dd').allInnerTexts(), ['5', '1', '2', '0', '8']);
   assert.equal(await totals.locator('svg.lucide-arrow-right').count(), 0);
   assert.ok(!/%/.test(await totals.innerText()), 'no percentage in Period totals');
@@ -714,9 +724,9 @@ try {
   const unavailable = await rowByHeader('campaign_performance', 'Attribution unavailable', 'tfoot tr');
   assert.ok(unavailable, 'campaign Attribution unavailable row in tfoot');
   assert.equal(unavailable['Calls made'], '1');
-  assert.equal(unavailable['Policies (campaign-attributed)'], '8');
-  assert.ok(unavailable['Known annual premium'].includes('$14,406.00'));
-  assert.equal(unavailable['Known / total policies'], '3/8');
+  assert.equal(unavailable['Attributed policies'], '8');
+  assert.ok(unavailable['Annual premium'].includes('$14,406.00'));
+  assert.equal(unavailable['Premium coverage'], '3/8');
   assert.ok((await section('campaign_performance').innerText()).includes('Campaign-attributed policies use conversion lineage only'), 'campaign lineage note');
   assert.equal(await section('campaign_performance').locator('tr[role="link"]').count(), 0, 'U-3: real links, no tr[role=link]');
   const unlinked = await rowByHeader('lead_source_roi', 'Not linked to a current lead', 'tfoot tr');
@@ -734,7 +744,7 @@ try {
   const readout = section('policies_sold').locator('[data-chart-readout]');
   assert.deepEqual([await readout.getAttribute('role'), await readout.getAttribute('aria-live')], ['status', 'polite']);
   await page.waitForFunction(() => !!document.querySelector('[data-report-section="policies_sold"] [data-chart-readout]')?.textContent);
-  assert.equal(await readout.textContent(), '2026-10-01: 8 policies sold; known annual premium $14,406.00; 3 of 8 policies known, 5 unknown.', 'keyboard readout says the period values');
+  assert.equal(await readout.textContent(), '2026-10-01: 8 policies sold; annual premium $14,406.00; 3 of 8 policies known, 5 unknown.', 'keyboard readout says the period values');
   await productionChart.evaluate(node => node.blur());
   assert.equal((await sectionOrder('stats')).length, 6, 'six grouped default metrics');
   assert.deepEqual(await sectionOrder('trends'), ['policies_sold', 'call_volume'], 'fixed production and calling trends');

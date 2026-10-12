@@ -1,17 +1,15 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { AlertTriangle, CheckCircle2, Flag, Loader2, Phone, Globe, ShieldCheck, Zap, HelpCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Flag, Loader2, Phone, Globe, ShieldCheck, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AGENTFLOW_SUPABASE_PROJECT_REF } from "@/config/supabaseProject";
-import { ReputationAiScanner } from "./number-reputation/ReputationAiScanner";
 import { useOrganization } from "@/hooks/useOrganization";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 
 type PhoneNumber = {
   id: string;
@@ -276,6 +274,7 @@ function sanitizeError(msg: string): string {
 const NumberReputation: React.FC = () => {
   const [scanningIds, setScanningIds] = useState<string[]>([]);
   const [showGuide, setShowGuide] = useState(false);
+  const guideId = useId();
   const { organizationId } = useOrganization();
 
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
@@ -432,7 +431,7 @@ const NumberReputation: React.FC = () => {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
+            These are signals, not guarantees.
           </p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl border bg-card py-16 text-center">
@@ -458,28 +457,32 @@ const NumberReputation: React.FC = () => {
   }
 
   return (
-    <TooltipProvider>
+    <>
       <div className="space-y-6">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Number Reputation</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitor caller ID health, attestation, spam-label signals, and recent outbound activity. These are signals, not guarantees.
+            These are signals, not guarantees.
           </p>
         </div>
 
-        <ReputationAiScanner activeLineCount={phoneNumbers?.length || 0} />
-
         {/* Reputation Guide and Legend collapsible card */}
         <div className="rounded-xl border border-slate-200/60 bg-white/50 p-4 text-xs dark:border-white/10 dark:bg-[#0c1220]/80">
-          <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => setShowGuide(!showGuide)}>
-            <div className="flex items-center gap-2 text-foreground font-medium">
+          <button
+            type="button"
+            aria-expanded={showGuide}
+            aria-controls={guideId}
+            onClick={() => setShowGuide(!showGuide)}
+            className="flex w-full items-center justify-between cursor-pointer select-none rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <span className="flex items-center gap-2 text-foreground font-medium">
               <ShieldCheck className="h-4 w-4 text-primary" />
               <span>Reputation Signal Guide &amp; Legend</span>
-            </div>
+            </span>
             <span className="text-primary hover:underline text-[11px] font-semibold">{showGuide ? "Hide Guide" : "Show Guide"}</span>
-          </div>
+          </button>
           {showGuide && (
-            <div className="grid gap-4 sm:grid-cols-3 mt-3 pt-3 border-t border-border/40 text-muted-foreground animate-in fade-in duration-200">
+            <div id={guideId} className="grid gap-4 sm:grid-cols-3 mt-3 pt-3 border-t border-border/40 text-muted-foreground animate-in fade-in duration-200">
               <div className="space-y-1.5">
                 <p className="font-semibold text-foreground text-[11px] uppercase tracking-wider">Spam Heuristics</p>
                 <ul className="space-y-1 pl-1 list-none">
@@ -527,41 +530,11 @@ const NumberReputation: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
                       Attestation
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[260px] p-2 text-xs font-sans text-left">
-                          <p className="font-semibold mb-1">SHAKEN/STIR Attestation Levels:</p>
-                          <ul className="list-disc pl-3 space-y-1">
-                            <li><strong>A (Full):</strong> Strongest identity confidence. verified caller and number.</li>
-                            <li><strong>B (Partial):</strong> Verified caller but not number association.</li>
-                            <li><strong>C (Gateway):</strong> Call routed via gateway; unverified identity.</li>
-                            <li><strong>U (Unknown):</strong> Not enough data.</li>
-                          </ul>
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </th>
                   <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                     <div className="flex items-center gap-1.5">
                       Spam likely
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[260px] p-2 text-xs font-sans text-left">
-                          <p className="font-semibold mb-1">Spam Status Explanation:</p>
-                          <ul className="list-disc pl-3 space-y-1">
-                            <li><strong>Low / Clean:</strong> No strong negative signal.</li>
-                            <li><strong>Medium / At Risk:</strong> Possible risk signal.</li>
-                            <li><strong>High / Flagged:</strong> Strong negative signal.</li>
-                            <li><strong>Evaluating:</strong> Reputation check is in progress.</li>
-                            <li><strong>Insufficient Data:</strong> Low outbound volume. This is normal and NOT a negative mark.</li>
-                            <li><strong>Unknown:</strong> Not checked yet.</li>
-                          </ul>
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </th>
                   <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 text-center">
@@ -570,40 +543,16 @@ const NumberReputation: React.FC = () => {
                   <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                     <div className="flex items-center justify-center gap-1">
                       AT&amp;T
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
-                          AT&amp;T network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </th>
                   <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                     <div className="flex items-center justify-center gap-1">
                       Verizon
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
-                          Verizon network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </th>
                   <th className="px-3 py-4 text-center font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                     <div className="flex items-center justify-center gap-1">
                       T-Mobile
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[200px] p-2 text-xs font-sans text-left">
-                          T-Mobile network signal. A missing/unknown (?) signal is normal and NOT a negative mark.
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </th>
                   <th className="px-4 py-4 text-left font-mono text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
@@ -707,7 +656,7 @@ const NumberReputation: React.FC = () => {
           </div>
         </div>
       </div>
-    </TooltipProvider>
+    </>
   );
 };
 

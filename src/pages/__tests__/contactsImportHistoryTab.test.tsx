@@ -296,6 +296,20 @@ describe("errors are distinguishable from an empty history", () => {
 
     expect(await screen.findByText(/No imports yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/Couldn't load import history/i)).not.toBeInTheDocument();
+    // Part B (B5-18): heading plus the permitted Import CSV action, no helper sentence.
+    expect(screen.getByRole("button", { name: "Import CSV" })).toBeInTheDocument();
+    expect(screen.queryByText(/your history will appear here/i)).not.toBeInTheDocument();
+  });
+
+  it("the empty state withholds Import CSV while impersonating", async () => {
+    authState.isImpersonating = true;
+    authState.isSuperAdmin = true;
+    routerState.params = new URLSearchParams("tab=Import History");
+
+    render(<Contacts />);
+
+    expect(await screen.findByText(/No imports yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Import CSV" })).not.toBeInTheDocument();
   });
 });
 

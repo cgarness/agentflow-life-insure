@@ -143,7 +143,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "callbacks":
         return "Callbacks Detail";
       case "appointments":
-        return `Appointments Detail${rangeSuffix}`;
+        return `Scheduled Appointments${rangeSuffix}`;
       case "calls_today":
         return `Calls Made${rangeSuffix}`;
       case "policies_sold":
@@ -153,7 +153,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       case "anniversaries":
         return "Upcoming Anniversaries & Birthdays";
       case "premium_sold":
-        return `Annual Premium Sold Analysis${rangeSuffix}`;
+        return `Annual Premium${rangeSuffix}`;
       default:
         return "Details";
     }
@@ -271,7 +271,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           isFiltered ? userId : null, performanceAsOf.current!, from);
         if (isStale()) return;
         if (profile?.organization_id && detail.organization_id !== profile.organization_id) throw new Error("Organization changed");
-        setPerformanceSubtitle(`${detail.scope} · ${detail.time_zone} · As of ${new Date(detail.end_at).toLocaleString()}`);
+        setPerformanceSubtitle(detail.scope);
         const rows = detail.rows.map(row => ({ ...row, __idIsContact: false }));
         setHasMore(rows.length === BATCH_SIZE);
         if (isInitial) setData(rows); else setData(previous => [...previous, ...rows]);
@@ -446,7 +446,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       }
     } catch (err) {
       // A returned query error is a FAILURE, not a valid empty result. An initial failure
-      // must render the failure state, never "No intelligence found in this range". A
+      // must render the failure state, never the valid-empty state. A
       // pagination failure keeps the rows already on screen but says more failed to load.
       // Raw Supabase detail goes to the console only.
       console.error("Error loading detail modal feed:", err);
@@ -632,7 +632,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : formatPremiumSold(item.annual_premium)} annualized` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : `${formatPremiumSold(item.annual_premium)} annual premium`}` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );
@@ -668,13 +668,13 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             {/* Header */}
             <div className="relative p-8 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
               <div className="absolute top-6 right-6">
-                <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-muted text-muted-foreground hover:text-foreground h-10 w-10 transition-all">
+                <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" className="rounded-full hover:bg-muted text-muted-foreground hover:text-foreground h-10 w-10 transition-all">
                   <X className="w-5 h-5" />
                 </Button>
               </div>
 
               <div className="flex items-center gap-6">
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 ${
+                <div className={`w-16 h-16 shrink-0 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 ${
                   type === 'calls_today' || type === 'callbacks' ? 'from-blue-500 to-indigo-600' :
                   type === 'policies_sold' ? 'from-emerald-500 to-teal-600' :
                   type === 'appointments' ? 'from-violet-500 to-purple-600' :
@@ -684,7 +684,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     {getIcon()}
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0 pr-10">
                   <h3 className="text-2xl font-black text-foreground tracking-tight uppercase">{getTitle()}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
                     <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">{getSubtitle()}</p>
@@ -711,7 +711,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               {loading && page === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20">
                   <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                  <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Synchronizing Intelligence...</p>
+                  <p className="text-sm font-medium text-muted-foreground animate-pulse uppercase tracking-[0.2em]">Loading records...</p>
                 </div>
               ) : loadError ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10">
@@ -724,8 +724,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               ) : data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center px-10 text-muted-foreground">
                   <Loader2 className="w-10 h-10 mb-4 opacity-20" />
-                  <p className="text-lg font-bold opacity-80">No intelligence found in this range</p>
-                  <p className="text-sm mt-2">Activity will appear here as records are processed.</p>
+                  <p className="text-lg font-bold opacity-80">No records found</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3 py-2">
@@ -795,7 +794,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   {isFetchingNextPage && (
                     <div className="flex items-center justify-center py-6 gap-3">
                       <Loader2 className="w-5 h-5 text-primary animate-spin" />
-                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading next batch...</span>
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest animate-pulse">Loading more records...</span>
                     </div>
                   )}
                   
@@ -821,15 +820,9 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-black opacity-60">
-                  AgentFlow Analytics Engine • Batch Size: {BATCH_SIZE}
-                </span>
-              </div>
-              <button onClick={onClose} className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
-                Dismiss View
+            <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-end">
+              <button onClick={onClose} className="text-[10px] font-black text-foreground/70 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
+                Close
               </button>
             </div>
           </motion.div>

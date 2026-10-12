@@ -45,6 +45,8 @@ Line references: `B<n>` is the line in the base file. Every other `file:line` is
 | O21 | B78 `/independent period totals, not one cohort/` has "policies use their sale dates" | EQUIVALENT | ReportsOverview.test.tsx:180 (`PERIOD_TOTALS_LINE`), :178-179 caption "by sale date", :183 no "%" (unchanged line), :182 no arrows; full statement verbatim in Data basis: reportsBasisText.test.ts:110, :176-177; reportsDataBasis.test.tsx:97 | §5.6 ("the full cohort statement moves verbatim to Data basis"). `PERIOD_TOTALS_NOTE` (`reports-basis-text.ts:80`) is byte-equal to base `ReportsActivityFlow.tsx:43`. **Period-totals "no %" guard kept**; also verify.mjs:701-704 |
 | O22 | B79 `/campaign-lead or call identity/` | EQUIVALENT | reportsBasisText.test.ts:110; reportsDataBasis.test.tsx:97 | Same sentence, now in Data basis (§5.6) |
 
+*2026-10-11 (UI copy cleanup V2 Part B, approved by Chris):* the on-screen `PERIOD_TOTALS_LINE` and the "by sale date" caption that O21 cites are removed; O2 and O7 likewise cited the removed basis bar. O21's equivalence for B78 now rests on the Data basis sheet assertions (`reportsBasisText.test.ts`, the Period totals section paragraphs and `PERIOD_TOTALS_NOTE`; `reportsDataBasis.test.tsx`, the rendered sheet), and `ReportsOverview.test.tsx` pins the screen side: only "by date created" remains, with no period-totals line, no funnel sentence, no arrows and no %. The rows above are kept as written.
+
 ### 1.2 `src/components/reports/__tests__/agentPerformanceTable.test.tsx` (2). STRONGER 2
 
 | # | Removed assertion | Class | Replacement | Note |

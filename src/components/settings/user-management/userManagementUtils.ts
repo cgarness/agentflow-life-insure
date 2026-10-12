@@ -1,3 +1,5 @@
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
+
 export const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
   "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
@@ -45,4 +47,29 @@ export function goalColor(pct: number): string {
   if (pct >= 80) return "bg-success";
   if (pct >= 50) return "bg-warning";
   return "bg-destructive";
+}
+
+/** The month-to-date actuals the Goals tab compares with each goal; null shows the tab's unavailable "—". */
+export interface GoalActuals {
+  callsMonth: number | null;
+  policiesMonth: number | null;
+  appointmentsMonth: number | null;
+  premiumMonth: number | null;
+}
+
+/**
+ * Goal actuals from usersApi.getPerformance. A month whose every premium is unknown has no premium actual (D14):
+ * the summary's coalesced 0 is not a $0 sale, so it shows "—" rather than "$0.00 / goal" and 0%.
+ */
+export function goalActualsFrom(performance: {
+  callsMonthly?: number | null; policiesMonthly?: number | null; appsMonth?: number | null;
+  premiumMonthly?: number | null; unknownPremiums?: number | null;
+} | null | undefined): GoalActuals {
+  return {
+    callsMonth: performance?.callsMonthly ?? null,
+    policiesMonth: performance?.policiesMonthly ?? null,
+    appointmentsMonth: performance?.appsMonth ?? null,
+    premiumMonth: isPremiumWhollyUnknown(performance?.policiesMonthly, performance?.unknownPremiums)
+      ? null : performance?.premiumMonthly ?? null,
+  };
 }

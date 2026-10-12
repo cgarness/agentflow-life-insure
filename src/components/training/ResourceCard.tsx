@@ -102,10 +102,12 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick, onDelete
           <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-semibold py-0 h-4">
             {resource.category_name || "Uncategorized"}
           </Badge>
-          <span className="text-muted-foreground text-[10px] flex items-center gap-1">
-            {resource.type === 'document' ? <Download className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-            {resource.file_size || resource.duration || "5 min"}
-          </span>
+          {(resource.file_size || resource.duration) && (
+            <span className="text-muted-foreground text-[10px] flex items-center gap-1">
+              {resource.type === 'document' ? <Download className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+              {resource.file_size || resource.duration}
+            </span>
+          )}
         </div>
         <CardTitle className="text-base group-hover:text-primary transition-colors line-clamp-1">
           {resource.title}

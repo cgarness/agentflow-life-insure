@@ -43,7 +43,7 @@ const ProvisioningPanel: React.FC = () => {
           <div>
             <CardTitle className="text-lg">Twilio Provisioning</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Subaccount status per organization. Retry failed or stuck provisioning.
+              Subaccount status per organization.
             </p>
           </div>
           <Button

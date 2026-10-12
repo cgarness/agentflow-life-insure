@@ -57,6 +57,7 @@ vi.mock("recharts", async () => {
 
 import Reports from "@/pages/Reports";
 import { ReportsQueryError } from "@/lib/reports-queries";
+import { POLICY_RATIOS_NOTE } from "@/lib/reports-basis-text";
 import { resetUserLayout, saveUserLayout } from "@/lib/report-layout";
 import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
 
@@ -77,7 +78,7 @@ const openDataBasis = () => {
   return screen.getByRole("dialog", { name: "Data basis" });
 };
 const band = () => screen.getByRole("region", { name: "Production overview" });
-const leaderRow = () => within(band()).getByText("Most policies — current assignments").parentElement!;
+const leaderRow = () => within(band()).getByText("Most policies sold").parentElement!;
 /** Every panel answered for the viewer's own (Personal) scope, so nothing is withheld as scope drift. */
 const personal = () => {
   h.scopeState = ready(reportScope({ scope: "own", requested_scope: "personal", available_scopes: ["personal"], agents: [{ id: "11000000-0000-0000-0000-0000000000c1", name: "Alice Agent", status: "Active" }] }));
@@ -481,10 +482,10 @@ describe("exports", () => {
 describe("Policies Sold: stored policies, current assignment, lineage-only campaigns (plan §20)", () => {
   it("the band ranks by CURRENT assignment from the summary itself, never as seller credit", () => {
     renderPage();
-    expect(within(band()).getAllByText("Most policies — current assignments")).toHaveLength(1);
+    expect(within(band()).getAllByText("Most policies sold")).toHaveLength(1);
     expect(leaderRow()).toHaveTextContent("Bob Agent · 2 policies");
     // The default six-metric strip omits the ranking tile.
-    expect(within(screen.getByRole("group", { name: "Key metrics" })).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Key metrics" })).queryByText("Most policies sold")).not.toBeInTheDocument();
     expect(screen.queryByText("Top performer")).not.toBeInTheDocument();
     expect(screen.queryByText(/counted from wins/)).not.toBeInTheDocument();
     const sheet = openDataBasis();
@@ -505,13 +506,13 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     personal();
     const { unmount } = renderPage();
     expect(screen.queryByText("Your report access changed while this page was open.")).not.toBeInTheDocument(); // non-vacuous: the band rendered
-    expect(within(band()).getByText("Known annual premium")).toBeInTheDocument();
-    expect(within(band()).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(within(band()).getByText("Annual premium")).toBeInTheDocument();
+    expect(within(band()).queryByText("Most policies sold")).not.toBeInTheDocument();
     unmount();
     h.scopeState = ready(reportScope());
     h.panels = { ...allReady(), summary: ready(reportSummary({}, reportSummary().by_agent.map((a) => ({ ...a, policies_sold: 0 })))) };
     renderPage();
-    expect(within(band()).queryByText("Most policies — current assignments")).not.toBeInTheDocument();
+    expect(within(band()).queryByText("Most policies sold")).not.toBeInTheDocument();
   });
 
   it("shows the scope-wide, all-dates data-quality note in the band only when there is something to report", () => {
@@ -525,29 +526,35 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
 
   it("the band has its own Data basis trigger", () => {
     renderPage();
+    // PB-13: no basis sentence on the band at any width; the rules (and the current-agent credit) are in the sheet.
+    expect(band().textContent).not.toMatch(/Current book|×12|current agent/);
     fireEvent.click(within(band()).getByRole("button", { name: "Data basis" }));
-    expect(within(screen.getByRole("dialog", { name: "Data basis" })).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
+    const sheet = screen.getByRole("dialog", { name: "Data basis" });
+    expect(within(sheet).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
+    expect(within(within(sheet).getByRole("region", { name: "Agent credit" })).getByText(/^Agent policy counts and premiums use the client's current assigned agent/)).toBeInTheDocument();
   });
 
   it("Campaign performance shows campaign-attributed policies and, in its tfoot, the policies with no provable campaign", () => {
     renderPage();
-    const header = screen.getByRole("columnheader", { name: "Policies (campaign-attributed)" });
+    const header = screen.getByRole("columnheader", { name: "Attributed policies" });
     const table = header.closest("table")!;
     expect(within(table).queryByRole("columnheader", { name: "Policies sold" })).not.toBeInTheDocument();
     const unavailable = cellsByHeader(table, /^Attribution unavailable/);
     expect(within(table).getByRole("row", { name: /^Attribution unavailable/ }).closest("tfoot")).not.toBeNull();
     // 2 campaign-attributed + 3 unavailable = the 5 policies sold in the period, so the partition reconciles on screen.
-    expect(unavailable["Policies (campaign-attributed)"]).toBe("3");
-    expect(cellsByHeader(table, /^Spring Team/)["Policies (campaign-attributed)"]).toBe("2");
+    expect(unavailable["Attributed policies"]).toBe("3");
+    expect(cellsByHeader(table, /^Spring Team/)["Attributed policies"]).toBe("2");
     expect(unavailable["Calls made"]).toBe("13");
     expect(screen.queryByText(/policies sold in this\s+period have unavailable campaign attribution/)).not.toBeInTheDocument();
     expect(screen.getByText(/not complete campaign sales attribution and not proof the campaign caused the sale/)).toBeInTheDocument();
   });
 
-  it("agent views label policy counts as the current assignment", () => {
+  it("agent views label policy counts 'Policies sold' and Data basis states the current-assignment credit", () => {
     renderPage();
-    expect(screen.getByRole("columnheader", { name: "Policies (current assignment)" })).toBeInTheDocument();
-    expect(screen.getAllByText("Policies (current assignment)").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("columnheader", { name: "Policies sold" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("columnheader", { name: "Policies (current assignment)" })).not.toBeInTheDocument();
+    const credit = within(openDataBasis()).getByRole("region", { name: "Agent credit" });
+    expect(within(credit).getByText(/^Agent policy counts and premiums use the client's current assigned agent, not the original seller/)).toBeInTheDocument();
   });
 
   it("team scope withholds Dials per policy sold (no agent/team efficiency figure from current-owner credit)", () => {
@@ -555,6 +562,8 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     const tile = screen.queryAllByText("Dials per policy sold");
     for (const t of tile) expect(t.closest("[data-stat-state]")?.getAttribute("data-stat-state") ?? "unavailable").not.toBe("ready");
     expect(screen.queryByText("calls in period ÷ dated stored policies in period")).not.toBeInTheDocument();
+    // PB-15: the ratios' definition is in the Data basis sheet's Policies sold section instead.
+    expect(within(within(openDataBasis()).getByRole("region", { name: "Policies sold" })).getByText(POLICY_RATIOS_NOTE)).toBeInTheDocument();
   });
 
   it("CSV exports carry the policy basis as metadata notes", async () => {
@@ -564,6 +573,8 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(h.downloads[0].csv).toContain(`"Policies sold (stored, by sale date)",5`);
     expect(h.downloads[0].csv).toMatch(/"Note","Agent policy counts and premiums use the client's current assigned agent, not the original seller/);
     expect(h.downloads[0].csv).toMatch(/"Note","Policies are stored client policies/);
+    expect(h.downloads[0].csv).not.toContain(POLICY_RATIOS_NOTE); // a screen-only sheet sentence, never a CSV Note
+    expect(h.downloads[0].csv).not.toMatch(/per policy sold/);
   });
 
   it("Trends sits between the metric strip and Period totals with one grouping control for both charts", () => {
@@ -592,7 +603,7 @@ describe("Policies Sold: stored policies, current assignment, lineage-only campa
     expect(within(trends).getByText("Couldn't load production trend.")).toBeInTheDocument();
     expect(within(trends).queryByText("Policies sold")).not.toBeInTheDocument();
     expect(within(trends).queryByText(/premiums? known|inbound calls?/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Policies (campaign-attributed)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Attributed policies" })).not.toBeInTheDocument();
     const errors = Array.from(document.querySelectorAll('[data-report-state="error"]'));
     expect(errors.length).toBeGreaterThanOrEqual(2);
     for (const e of errors) {
@@ -612,7 +623,7 @@ describe("v2 quality and response integrity", () => {
     renderPage();
     const campaignTable = screen.getByRole("region", { name: "Campaign performance table" }).querySelector("table")!;
     const subset = cellsByHeader(campaignTable, /^Attribution unavailable/); // the known premium of that subset is a tfoot cell
-    expect([subset["Known annual premium"], subset["Known / total policies"]]).toEqual(["$0.00", "3/3"]);
+    expect([subset["Annual premium"], subset["Premium coverage"]]).toEqual(["$0.00", "3/3"]);
     const quality = within(openDataBasis()).getByRole("region", { name: "Data quality in this summary" });
     expect(within(quality).getByText("Known annual premium $1,481.40; 4/5 policies known, 1 unknown (0 invalid, 0 ambiguous legacy zero); 0 missing stable identities.")).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });

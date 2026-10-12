@@ -133,7 +133,6 @@ export const ProfileGoalsCard: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-lg">My Goals</CardTitle>
-                <p className="text-xs text-muted-foreground">Dialing and production targets</p>
               </div>
             </div>
             <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />

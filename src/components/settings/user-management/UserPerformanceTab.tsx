@@ -29,9 +29,9 @@ const UserPerformanceTab: React.FC<Props> = ({ performance, perfLoading, form })
   const stats = [
     { label: "Calls Made", value: performance.callsMonthly, icon: PhoneCall, color: "text-blue-500" },
     { label: "Policies Sold", value: performance.policiesMonthly, icon: ShieldCheck, color: "text-emerald-500" },
-    { label: "Appointments Set (month)", value: performance.appsMonth, icon: Users, color: "text-amber-500" },
+    { label: "Appointments", value: performance.appsMonth, icon: Users, color: "text-amber-500" },
     { label: "Talk Time", value: performance.totalTalkTime, icon: Clock, color: "text-purple-500" },
-    { label: "Policies per 100 Calls", value: performance.conversionRate, icon: Percent, color: "text-rose-500" },
+    { label: "Policies / 100 Calls", value: performance.conversionRate, icon: Percent, color: "text-rose-500" },
   ];
 
   const goals = [

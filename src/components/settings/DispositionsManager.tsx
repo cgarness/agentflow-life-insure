@@ -355,7 +355,6 @@ const DispositionsManager: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-foreground">Dispositions Manager</h3>
-          <p className="text-sm text-muted-foreground">Manage call outcome categories used after every call.</p>
         </div>
       </div>
 
@@ -660,7 +659,6 @@ const DispositionsManager: React.FC = () => {
                     <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5" /> Automation Trigger
                     </p>
-                    <p className="text-xs text-muted-foreground">Trigger an automation when this disposition is selected.</p>
                   </div>
                   <Switch
                     checked={form.automationTrigger}
@@ -723,7 +721,6 @@ const DispositionsManager: React.FC = () => {
                 <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" /> Campaign Action
                 </p>
-                <p className="text-xs text-muted-foreground">What happens to the lead in the campaign after this disposition.</p>
               </div>
               <select
                 value={form.campaignAction}

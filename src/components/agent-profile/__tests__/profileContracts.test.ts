@@ -95,15 +95,16 @@ describe("the book of business is clients, never wins", () => {
   it("performs no annualization arithmetic", () => {
     // Premium is MONTHLY in clients.premium, wins.premium_amount and additional_policies
     // (src/lib/policyPaymentFields.ts:5-9). The only x12 in the product is the Leaderboard's.
-    // The check is on the ARITHMETIC, not the word: the tile copy says "Not annualized" on purpose.
+    // The check is on the ARITHMETIC, not the word: the tile title "Monthly Premium" names the unit,
+    // and the "Not annualized." hint was deleted in Part B (PB-33), so no copy guards this.
     expect(FEATURE_SOURCE).not.toMatch(/\*\s*12\b/);
     expect(FEATURE_SOURCE).not.toMatch(/\b12\s*\*/);
   });
 
-  it("tells the reader on the tile that the premium total is monthly", () => {
+  it("tells the reader on the tile title that the premium total is monthly", () => {
     const snapshot = read("components/agent-profile/BusinessSnapshot.tsx");
     expect(snapshot).toContain("Monthly Premium");
-    expect(snapshot).toContain("Not annualized.");
+    expect(snapshot).not.toContain("Not annualized.");
   });
 });
 

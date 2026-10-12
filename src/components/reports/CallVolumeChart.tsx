@@ -35,7 +35,7 @@ function CallingTooltip({ active, payload }: { active?: boolean; payload?: Array
         <dt>Call contact rate</dt><dd className="text-right font-semibold tabular-nums">{formatRate(period.contact_rate_pct)}</dd>
         <dt>Inbound calls</dt><dd className="text-right tabular-nums">{formatCount(period.inbound_calls)}</dd>
       </dl>
-      <p className="mt-2 text-muted-foreground">{period.calls_made === 0 ? "No outbound calls; rate unavailable." : `${formatCount(period.contacted)} contacted ÷ ${formatCount(period.calls_made)} outbound calls`}</p>
+      {period.calls_made === 0 && <p className="mt-2 text-muted-foreground">No outbound calls; rate unavailable.</p>}
     </div>
   );
 }

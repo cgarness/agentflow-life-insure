@@ -48,20 +48,19 @@ describe("canonical stat values", () => {
     expect(STAT_DEFINITIONS.find((d) => d.id === "stat_total_contacted")!.label).toBe("Contacted calls");
   });
 
-  it("drops formula subtitles; keeps only the ones that change how a number reads (data-basis C12-C19)", () => {
-    for (const id of ["stat_total_dials", "stat_outbound", "stat_total_contacted", "stat_contact_rate", "stat_dials_per_contact", "stat_appointments_set"]) {
-      expect(v(id).subtitle).toBeUndefined();
+  it("drops formula subtitles; keeps only the ones that change how a number reads (data-basis C12-C19; Part B)", () => {
+    for (const id of ["stat_total_dials", "stat_outbound", "stat_total_contacted", "stat_contact_rate", "stat_dials_per_contact", "stat_appointments_set",
+      "stat_calls_per_hour", "stat_talk_time_ratio", "stat_leads_converted", "stat_callback_rate", "stat_dials_per_appt"]) {
+      expect(v(id).state, id).toBe("ready");
+      expect(v(id).subtitle, id).toBeUndefined();
     }
-    expect(v("stat_calls_per_hour").subtitle).toBe("session-matched calls ÷ all session hours");
-    expect(v("stat_talk_time_ratio").subtitle).toBe("session-matched talk ÷ all session time");
     expect(v("stat_dnc_rate").subtitle).toBe("DNC dispositions per 100 calls");
-    expect(v("stat_leads_converted").subtitle).toBe("distinct people");
     for (const id of ["stat_calls_per_hour", "stat_talk_time_ratio", "stat_dnc_rate", "stat_leads_converted"]) expect(v(id).noteTone).toBeUndefined();
   });
 
   it("Dials per booking divides calls made by every booking type (R-1); the id and value are unchanged", () => {
     expect(v("stat_dials_per_appt").label).toBe("Dials per booking");
-    expect(v("stat_dials_per_appt").subtitle).toBe("all booking types");
+    expect(v("stat_dials_per_appt").subtitle).toBeUndefined();
     expect(v("stat_dials_per_appt").value).toBe("4.8"); // 19 calls ÷ 4 bookings created (all types)
     expect(STAT_DEFINITIONS.some((d) => d.label === "Dials per appointment")).toBe(false);
   });
@@ -84,8 +83,8 @@ describe("canonical stat values", () => {
 
   it("derives team leaders from per-agent canonical rows", () => {
     expect(v("stat_top_performer").value).toBe("Bob Agent"); // 2 policies, current assignment
-    expect(v("stat_top_performer").label).toBe("Most policies — current assignments");
-    expect(v("stat_top_performer").subtitle).toBe("2 policies currently assigned");
+    expect(v("stat_top_performer").label).toBe("Most policies sold");
+    expect(v("stat_top_performer").subtitle).toBe("2 policies");
     expect(v("stat_top_dialer").value).toBe("Alice Agent"); // 10 calls
     expect(v("stat_agents_active").value).toBe("2");
   });
@@ -96,22 +95,30 @@ describe("canonical stat values", () => {
     const tied = base.map((a) => ({ ...a, policies_sold: 2 }));
     expect(policyLeaderText(tied)).toBe("2 agents tied · 2 policies each");
     const shared = tile(tied);
-    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies — current assignments", "2 agents tied", "2 policies each"]);
+    expect([shared.state, shared.label, shared.value, shared.subtitle]).toEqual(["ready", "Most policies sold", "2 agents tied", "2 policies each"]);
     expect(`${shared.value} · ${shared.subtitle}`).toBe(policyLeaderText(tied));
     expect(shared.value).not.toMatch(/Alice|Bob/); // never an alphabetical pick among the tied agents
     const ones = tile(base.map((a) => ({ ...a, policies_sold: 1 })));
     expect([ones.value, ones.subtitle]).toEqual(["2 agents tied", "1 policy each"]);
     // A clear leader is still named, with the unchanged subtitle; a lower shared count is not a tie at the top.
     const clear = tile([...base, { ...base[0], agent_id: "c3", name: "Cara Agent", policies_sold: 1 }]);
-    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies currently assigned"]);
+    expect([clear.value, clear.subtitle]).toEqual(["Bob Agent", "2 policies"]);
     expect(policyLeaderText(reportSummary().by_agent)).toBe("Bob Agent · 2 policies");
   });
 
   it("reads 'calls today' from the AGENCY calendar day", () => {
     expect(v("stat_calls_today").value).toBe("3"); // 2026-07-20 in the fixture
+    expect(v("stat_calls_today").subtitle).toBeUndefined(); // the zone is on the context line and in Data basis
     const outside = computeAllStats(inputs({ agencyToday: "2026-08-02" })).get("stat_calls_today")!;
     expect(outside.state).toBe("unavailable");
     expect(outside.value).toBe("—");
+    expect(outside.subtitle).toBe("Today is outside the selected period");
+  });
+
+  it("'calls this week' keeps its own window, Monday to today, and its whole-week reason", () => {
+    expect([v("stat_calls_this_week").state, v("stat_calls_this_week").subtitle]).toEqual(["ready", "Monday to today"]);
+    const outside = computeAllStats(inputs({ agencyToday: "2026-08-02" })).get("stat_calls_this_week")!;
+    expect([outside.state, outside.value, outside.subtitle]).toEqual(["unavailable", "—", "Select a period that includes this whole week"]);
   });
 });
 
@@ -134,7 +141,7 @@ describe("data-quality cautions on the strip (C14, C15)", () => {
     const some = withQuality({ duration: { estimated_calls: 0, unknown_calls: 1263, conflicting_calls: 484 } });
     expect(some.get("stat_total_talk_time")!.subtitle).toBe("Durations: 1,263 unknown source or amount · 484 conflicting");
     // Talk time share of session uses session-matched talk; the duration counts describe all calls made.
-    expect(stats.get("stat_talk_time_ratio")!.subtitle).toBe("session-matched talk ÷ all session time");
+    expect(stats.get("stat_talk_time_ratio")!.subtitle).toBeUndefined();
     expect(stats.get("stat_talk_time_ratio")!.noteTone).toBeUndefined();
   });
 
@@ -168,10 +175,13 @@ describe("data-quality cautions on the strip (C14, C15)", () => {
 describe("per-policy ratios are organization-period figures, never agent or team efficiency", () => {
   it("organization scope with no agent filter: calls / talk in the period ÷ dated stored policies in the period", () => {
     const stats = computeAllStats(inputs({ summary: ready(org(reportSummary())) }));
+    // The definition is the Data basis sheet's POLICY_RATIOS_NOTE (Policies sold section); the tiles carry no formula line.
+    expect(stats.get("stat_dials_per_sale")!.state).toBe("ready");
     expect(stats.get("stat_dials_per_sale")!.value).toBe("3.8"); // 19 calls ÷ 5 policies
-    expect(stats.get("stat_dials_per_sale")!.subtitle).toBe("calls in period ÷ dated stored policies in period");
+    expect(stats.get("stat_dials_per_sale")!.subtitle).toBeUndefined();
+    expect(stats.get("stat_talk_mins_per_sale")!.state).toBe("ready");
     expect(stats.get("stat_talk_mins_per_sale")!.value).toBe("2.5"); // 740 s = 12.33 min ÷ 5
-    expect(stats.get("stat_talk_mins_per_sale")!.subtitle).toBe("talk minutes in period ÷ dated stored policies in period");
+    expect(stats.get("stat_talk_mins_per_sale")!.subtitle).toBeUndefined();
   });
 
   it.each([
@@ -195,7 +205,7 @@ describe("per-policy ratios are organization-period figures, never agent or team
     const a = computeAllStats(inputs({ summary: ready(after) }));
     expect(b.get("stat_top_performer")!.value).toBe("Bob Agent");
     expect(a.get("stat_top_performer")!.value).toBe("Alice Agent");
-    expect(a.get("stat_top_performer")!.label).toBe("Most policies — current assignments");
+    expect(a.get("stat_top_performer")!.label).toBe("Most policies sold");
     expect(a.get("stat_policies_sold")!.value).toBe(b.get("stat_policies_sold")!.value);
     expect(a.get("stat_top_dialer")!.value).toBe("Alice Agent"); // 10 calls, unchanged
     for (const id of ["stat_dials_per_sale", "stat_talk_mins_per_sale"]) expect(a.get(id)!.state).toBe("unavailable");

@@ -105,9 +105,6 @@ const ControlCenterRuntimePage: React.FC = () => {
             <Terminal className="h-6 w-6 text-sky-500" />
             Runtime Logs & Errors
           </h1>
-          <p className="text-sm text-slate-400">
-            Track frontend crashes, unhandled rejections, and runtime system telemetry.
-          </p>
         </div>
       </header>
 

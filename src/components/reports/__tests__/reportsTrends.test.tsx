@@ -91,7 +91,7 @@ describe("Trends", () => {
     render(<Harness volume={reportVolume()} />);
     const charts = screen.getAllByTestId("trend-chart");
     expect(charts.map((c) => [c.dataset.name, c.dataset.focusable])).toEqual([
-      ["Policies sold by day", "true"], ["Known annual premium by day", "false"],
+      ["Policies sold by day", "true"], ["Annual premium by day", "false"],
       ["Outbound calls by day", "true"], ["Call contact rate by day", "false"],
     ]);
     for (const chart of charts.filter((c) => c.dataset.focusable === "true")) expect(chart.dataset.desc).toBe("Use the left and right arrow keys to move between periods.");
@@ -104,7 +104,7 @@ describe("Trends", () => {
     }
     const point = (chart: HTMLElement, index: number) => { chart.dataset.index = String(index); fireEvent.mouseMove(chart); };
     point(charts[0], 14);
-    expect(readout(production).textContent).toBe("2026-07-15: 2 policies sold; known annual premium $0.00; 2 of 2 policies known, 0 unknown.");
+    expect(readout(production).textContent).toBe("2026-07-15: 2 policies sold; annual premium $0.00; 2 of 2 policies known, 0 unknown.");
     point(charts[2], 9);
     expect(readout(calling).textContent).toBe("2026-07-10: 2 outbound calls, 1 contacted, call contact rate 50.0%; 0 inbound.");
     point(charts[2], 0);
@@ -113,7 +113,7 @@ describe("Trends", () => {
     expect(readout(calling).textContent).toBe("");
 
     fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
-    expect(screen.getAllByTestId("trend-chart").map((c) => c.dataset.name)).toEqual(["Policies sold by week", "Known annual premium by week", "Outbound calls by week", "Call contact rate by week"]);
+    expect(screen.getAllByTestId("trend-chart").map((c) => c.dataset.name)).toEqual(["Policies sold by week", "Annual premium by week", "Outbound calls by week", "Call contact rate by week"]);
   });
 
   it("renders the production card alone when no calling section was built", () => {

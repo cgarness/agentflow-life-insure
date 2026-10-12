@@ -283,9 +283,6 @@ export const InboundRoutingManager: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">Inbound Journey</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Configure how every inbound call is answered, routed, and handled when no agent picks up.
-          </p>
         </div>
         <Button onClick={handleSave} disabled={saving} className="min-w-[120px] shadow-sm">
           {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -307,7 +304,7 @@ export const InboundRoutingManager: React.FC = () => {
                   <Route className="w-5 h-5 text-primary" />
                   1. Routing Strategy
                 </CardTitle>
-                <CardDescription>How should incoming calls be distributed during business hours?</CardDescription>
+                <CardDescription>Applies during business hours.</CardDescription>
               </CardHeader>
               <CardContent>
                 <RadioGroup
@@ -418,7 +415,6 @@ export const InboundRoutingManager: React.FC = () => {
                   <ShieldAlert className="w-5 h-5 text-orange-500" />
                   2. Unanswered / Fallback
                 </CardTitle>
-                <CardDescription>If no agents are available, or the call goes unanswered, what happens next?</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 
@@ -531,7 +527,6 @@ export const InboundRoutingManager: React.FC = () => {
                   <Clock className="w-5 h-5 text-primary" />
                   Business Hours
                 </CardTitle>
-                <CardDescription>Set your organization's availability.</CardDescription>
               </CardHeader>
               <CardContent className="pt-6 space-y-5">
                 {hours.map((h, i) => (

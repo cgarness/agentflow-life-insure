@@ -1770,7 +1770,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
                   </>
                 )}
               </select>
-              <p className="text-xs text-muted-foreground mt-1">Every imported lead gets this pipeline stage.</p>
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">Source</label>
@@ -1894,7 +1893,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   const renderStep4 = () => (
     <div className="flex flex-col items-center justify-center h-full space-y-4">
       <Loader2 className="w-10 h-10 text-primary animate-spin" />
-      <p className="text-foreground text-lg font-medium">Importing your leads...</p>
       <p className="text-muted-foreground text-sm">Please don't close this window</p>
       <div className="w-64">
         <Progress value={importProgress} className="h-2" />
@@ -2144,12 +2142,12 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
     );
   };
 
-  const stepTitles: Record<number, { title: string; sub: string }> = {
-    1: { title: "Import Leads", sub: "Upload a CSV file to import leads into AgentFlow" },
-    2: { title: "Map Your Fields", sub: "Match your CSV columns to AgentFlow lead fields" },
-    3: { title: "Review Your Import", sub: "Review and confirm before importing" },
-    4: { title: "Importing...", sub: "" },
-    5: { title: "", sub: "" },
+  const stepTitles: Record<number, { title: string }> = {
+    1: { title: "Import Leads" },
+    2: { title: "Map Your Fields" },
+    3: { title: "Review Your Import" },
+    4: { title: "Importing..." },
+    5: { title: "" },
   };
 
   // Shared inner content — identical between modal and page modes.
@@ -2172,7 +2170,6 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
             )}
             <div>
               <h2 className="text-xl font-semibold text-foreground">{stepTitles[step].title}</h2>
-              {stepTitles[step].sub && <p className="text-sm text-muted-foreground mt-0.5">{stepTitles[step].sub}</p>}
             </div>
           </div>
           {step < 4 && (

@@ -115,8 +115,6 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
               </ResponsiveContainer>
             </>
           )}
-
-          <p className="mt-3 text-xs text-muted-foreground">Stored outbound call durations; estimates and unknown provenance are listed in Data basis.</p>
         </>
       )}
     </ReportSection>

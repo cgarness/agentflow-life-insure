@@ -6,8 +6,9 @@ import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "./tvPanelLayout";
 import { cn } from "@/lib/utils";
+import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type Metric, type RankMovement, formatPremiumSold } from "./leaderboardTypes";
+import { type AgentStats, type Metric, type RankMovement, METRIC_DISPLAY_LABEL, formatPremiumSold } from "./leaderboardTypes";
 import { type RankMotionKind, tvTableRowLayoutTransition } from "./leaderboardRankMotion";
 const TV_TABLE_ROW = "grid w-full grid-cols-[2.5rem_minmax(6rem,1.4fr)_repeat(6,minmax(2.5rem,1fr))] items-center gap-x-1 px-3";
 const rankMovementDisplay = (movement: RankMovement | undefined) => {
@@ -47,7 +48,7 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
             <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
                 <TrendingUp className="h-4 w-4" />
-                {live ? "Live Ranking" : "Ranking"}: {metric}
+                {live ? "Live Ranking" : "Ranking"}: {METRIC_DISPLAY_LABEL[metric]}
               </div>
             </div>
 
@@ -110,7 +111,7 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                             <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
+                            <OdometerValue value={isPremiumWhollyUnknown(a.policiesSold, a.unknownPremiums) ? null : a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
                             <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
