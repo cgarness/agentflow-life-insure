@@ -1005,7 +1005,7 @@ const FloatingDialer: React.FC = () => {
                 {!recentLoading && (recentError || recentCalls.length === 0) && (
                   <div className="flex flex-col items-center justify-center py-8 space-y-2">
                     <Phone className="w-8 h-8 text-muted-foreground" />
-                    <p className="font-medium text-foreground">{recentError ? "Couldn't load recent calls." : "No recent calls"}</p>
+                    <p role={recentError ? "alert" : undefined} className="font-medium text-foreground">{recentError ? "Couldn't load recent calls." : "No recent calls"}</p>
                   </div>
                 )}
                 {!recentLoading && !recentError && recentCalls.length > 0 && (

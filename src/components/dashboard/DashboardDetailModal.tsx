@@ -674,7 +674,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               </div>
 
               <div className="flex items-center gap-6">
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 ${
+                <div className={`w-16 h-16 shrink-0 rounded-2xl bg-gradient-to-br flex items-center justify-center shadow-2xl border border-white/10 ${
                   type === 'calls_today' || type === 'callbacks' ? 'from-blue-500 to-indigo-600' :
                   type === 'policies_sold' ? 'from-emerald-500 to-teal-600' :
                   type === 'appointments' ? 'from-violet-500 to-purple-600' :
@@ -684,7 +684,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     {getIcon()}
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0 pr-10">
                   <h3 className="text-2xl font-black text-foreground tracking-tight uppercase">{getTitle()}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
                     <p className="text-xs font-bold text-muted-foreground tracking-[0.15em] uppercase opacity-80">{getSubtitle()}</p>
@@ -821,7 +821,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
             {/* Footer */}
             <div className="px-8 py-5 border-t border-border bg-muted/40 flex items-center justify-end">
-              <button onClick={onClose} className="text-[10px] font-black text-foreground/50 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
+              <button onClick={onClose} className="text-[10px] font-black text-foreground/70 hover:text-foreground transition-all uppercase tracking-[0.2em] border border-border px-4 py-2 rounded-xl hover:bg-muted bg-card/50">
                 Close
               </button>
             </div>

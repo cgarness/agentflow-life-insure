@@ -130,7 +130,7 @@ const CallMonitoring: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h4 className="font-semibold text-foreground flex items-center gap-2">
+          <h4 className="font-semibold text-foreground flex items-center gap-2 whitespace-nowrap">
             Live Calls
             {!functionUnavailable && (
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />

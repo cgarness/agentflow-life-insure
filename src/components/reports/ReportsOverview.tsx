@@ -50,7 +50,7 @@ export default function ReportsOverview({ summary, onRetry, dataBasis }: Reports
           // Under the count beside the (taller) premium cell, so it adds no row on phones; full width when stacked.
           const leaderRow = leader && (
             <dl className={cn("flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-t border-border/60 py-2 pl-4 pr-2 text-xs md:px-6",
-              stacked && "col-span-full")}>
+              stacked ? "col-span-full" : "self-end")}>
               <dt className="text-muted-foreground">Most policies sold</dt>
               <dd className="min-w-0 font-medium tabular-nums text-foreground [overflow-wrap:anywhere]">{leader}</dd>
             </dl>

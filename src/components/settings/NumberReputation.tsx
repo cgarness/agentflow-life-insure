@@ -473,7 +473,7 @@ const NumberReputation: React.FC = () => {
             aria-expanded={showGuide}
             aria-controls={guideId}
             onClick={() => setShowGuide(!showGuide)}
-            className="flex w-full items-center justify-between cursor-pointer select-none rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex w-full items-center justify-between cursor-pointer select-none rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <span className="flex items-center gap-2 text-foreground font-medium">
               <ShieldCheck className="h-4 w-4 text-primary" />

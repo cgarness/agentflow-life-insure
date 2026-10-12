@@ -91,6 +91,7 @@ it("shows the failed state, not the empty state, when the recent-calls load fail
   h.callsReply = { data: null, error: { message: "private diagnostic" } };
   await openRecentTab();
   expect(await screen.findByText("Couldn't load recent calls.")).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load recent calls.");
   expect(screen.queryByText("No recent calls")).not.toBeInTheDocument();
   expect(screen.queryByText("private diagnostic")).not.toBeInTheDocument();
   expect(screen.queryByText("Your call history will appear here")).not.toBeInTheDocument();
@@ -99,6 +100,7 @@ it("shows the failed state, not the empty state, when the recent-calls load fail
 it("shows the empty state, not the failed state, after a successful empty load", async () => {
   await openRecentTab();
   expect(await screen.findByText("No recent calls")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(screen.queryByText("Couldn't load recent calls.")).not.toBeInTheDocument();
   expect(screen.queryByText("Your call history will appear here")).not.toBeInTheDocument();
   // The calls query is the existing one: own/org-inbound scope, newest first, 15 rows.
