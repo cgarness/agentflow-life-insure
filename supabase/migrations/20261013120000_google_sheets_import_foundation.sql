@@ -167,12 +167,15 @@ CREATE TABLE private.google_sheets_oauth_states (
 );
 
 -- Operational per-source ledger (cascades with the source). Permanent protection lives in receipts.
+-- Kinds: baseline (intentionally excluded), pending (not importable yet; counted once), done (row-position
+-- mode imported), approved (key 'approved:<id>': an explicit Review decision that this unseen Lead ID is a
+-- new lead; consumed when its receipt is written).
 CREATE TABLE private.google_sheets_source_rows (
   source_id      uuid NOT NULL REFERENCES public.google_sheets_sources(id) ON DELETE CASCADE,
   row_key        text NOT NULL,
   row_number     integer NOT NULL,
   fingerprint    text NOT NULL,
-  kind           text NOT NULL CHECK (kind IN ('baseline','pending','done')),
+  kind           text NOT NULL CHECK (kind IN ('baseline','pending','done','approved')),
   pending_reason text,
   updated_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (source_id, row_key)
@@ -324,6 +327,9 @@ AS $$
 $$;
 
 -- Locks and validates a source for a worker write. Raises 'stale' when anything moved underneath.
+-- Lock order everywhere a source and its connection are both locked: source FOR UPDATE, then connection
+-- FOR SHARE (ingest, finish, activate, review, resolve_identity). Connection operations lock only the
+-- connection row, so reconnect/disconnect serialise against these writes without a lock-order inversion.
 CREATE FUNCTION private.google_sheets_lock_for_work(p_source uuid, p_lease uuid, p_version integer, p_generation bigint)
  RETURNS public.google_sheets_sources
  LANGUAGE plpgsql
@@ -335,15 +341,16 @@ DECLARE
 BEGIN
   SELECT * INTO s FROM public.google_sheets_sources WHERE id = p_source FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'stale: source removed' USING ERRCODE = 'P0001'; END IF;
-  IF s.lease_owner IS DISTINCT FROM p_lease OR s.lease_expires_at IS NULL OR s.lease_expires_at <= now() THEN
+  SELECT * INTO c FROM public.google_sheets_connections WHERE id = s.connection_id FOR SHARE;
+  -- Evaluated after both lock waits, against the real clock (transaction-start now() could be stale).
+  IF s.lease_owner IS DISTINCT FROM p_lease OR s.lease_expires_at IS NULL OR s.lease_expires_at <= clock_timestamp() THEN
     RAISE EXCEPTION 'stale: lease lost' USING ERRCODE = 'P0001';
   END IF;
-  IF s.config_version <> p_version THEN RAISE EXCEPTION 'stale: configuration changed' USING ERRCODE = 'P0001'; END IF;
+  IF s.config_version IS DISTINCT FROM p_version THEN RAISE EXCEPTION 'stale: configuration changed' USING ERRCODE = 'P0001'; END IF;
   IF s.state <> 'enabled' OR s.health IN ('needs_review','access_lost') THEN
     RAISE EXCEPTION 'stale: source not active' USING ERRCODE = 'P0001';
   END IF;
-  SELECT * INTO c FROM public.google_sheets_connections WHERE id = s.connection_id FOR SHARE;
-  IF NOT FOUND OR c.status <> 'connected' OR c.auth_generation <> p_generation
+  IF c.id IS NULL OR c.status <> 'connected' OR c.auth_generation IS DISTINCT FROM p_generation
      OR c.user_id <> s.user_id OR c.organization_id <> s.organization_id THEN
     RAISE EXCEPTION 'stale: connection changed' USING ERRCODE = 'P0001';
   END IF;
@@ -413,7 +420,7 @@ BEGIN
   SELECT * INTO c FROM public.google_sheets_connections
    WHERE organization_id = p_org AND user_id = p_user FOR UPDATE;
 
-  IF c.auth_generation <> p_expected_generation THEN
+  IF c.auth_generation IS DISTINCT FROM p_expected_generation THEN
     RETURN QUERY SELECT c.id, c.auth_generation, 'superseded'::text; RETURN;
   END IF;
   SELECT EXISTS (SELECT 1 FROM public.google_sheets_sources s WHERE s.connection_id = c.id) INTO v_has_sources;
@@ -530,7 +537,7 @@ BEGIN
   SELECT * INTO s FROM public.google_sheets_sources
    WHERE id = p_source AND organization_id = p_org AND user_id = p_user FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002'; END IF;
-  IF s.config_version <> p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
+  IF s.config_version IS DISTINCT FROM p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
   IF s.state <> 'draft' AND (v_mode <> s.identity_mode OR v_id_header IS DISTINCT FROM s.id_header) THEN
     RAISE EXCEPTION 'identity_change_requires_review' USING ERRCODE = 'P0001';
   END IF;
@@ -576,9 +583,9 @@ BEGIN
   IF s.state <> 'draft' THEN
     RETURN QUERY SELECT 'already_active'::text, s.config_version, 0; RETURN;
   END IF;
-  IF s.config_version <> p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
+  IF s.config_version IS DISTINCT FROM p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
   SELECT * INTO c FROM public.google_sheets_connections WHERE id = s.connection_id FOR SHARE;
-  IF c.status <> 'connected' OR c.auth_generation <> p_generation THEN
+  IF c.status IS DISTINCT FROM 'connected' OR c.auth_generation IS DISTINCT FROM p_generation THEN
     RAISE EXCEPTION 'not_connected' USING ERRCODE = 'P0001';
   END IF;
   IF jsonb_typeof(p_rows) <> 'array' OR p_row_count IS NULL OR p_row_count < 0 OR p_row_count > 10000 THEN
@@ -651,82 +658,280 @@ BEGIN
   RETURN NEXT;
 END $$;
 
--- Recovery / identity change. p_rows: [{k,n,f,id}] under the NEW identity config from one fresh read.
--- "known" = an ID with a receipt/baseline, or a fingerprint matching a stored baseline/done fingerprint
--- of the current ledger (multiset: each stored fingerprint can vouch for one row). Unknown rows are
--- imported (left without a record) or excluded (baseline) per the agent's explicit choice.
+-- Canonical digest of the decision-relevant ledger (baseline/done/approved) for review snapshots.
+CREATE FUNCTION private.google_sheets_ledger_digest(p_source uuid)
+ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+  SELECT encode(sha256(convert_to(COALESCE(string_agg(
+           r.row_key || ':' || r.row_number::text || ':' || r.fingerprint || ':' || r.kind, ',' ORDER BY r.row_key), ''), 'UTF8')), 'hex')
+    FROM private.google_sheets_source_rows r
+   WHERE r.source_id = p_source AND r.kind IN ('baseline','done','approved');
+$$;
+
+-- Ledger + permanent ID receipt keys for one source (shared by the worker load and the owner's review read).
+CREATE FUNCTION private.google_sheets_ledger_json(s public.google_sheets_sources)
+ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+  SELECT jsonb_build_object(
+    'rows', COALESCE((SELECT jsonb_agg(jsonb_build_object('k', r.row_key, 'n', r.row_number, 'f', r.fingerprint,
+                                                          'kind', r.kind, 'reason', r.pending_reason))
+                        FROM private.google_sheets_source_rows r WHERE r.source_id = s.id), '[]'::jsonb),
+    'receipt_ids', CASE WHEN s.identity_mode = 'source_id' THEN
+       COALESCE((SELECT jsonb_agg(x.receipt_key)
+                   FROM private.google_sheets_receipts x
+                  WHERE x.organization_id = s.organization_id AND x.user_id = s.user_id
+                    AND x.spreadsheet_id = s.spreadsheet_id AND x.sheet_id = s.sheet_id
+                    AND x.receipt_key LIKE 'id:%'), '[]'::jsonb)
+       ELSE '[]'::jsonb END);
+$$;
+
+-- Validates the connection used for a review's Google read, under the connection lock (taken after the
+-- source lock). An unchanged Google account is NOT evidence of an unchanged authorisation generation.
+CREATE FUNCTION private.google_sheets_lock_review_connection(s public.google_sheets_sources, p_generation bigint)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+DECLARE c public.google_sheets_connections;
+BEGIN
+  SELECT * INTO c FROM public.google_sheets_connections WHERE id = s.connection_id FOR SHARE; -- review:connection-lock
+  IF c.id IS NULL OR c.status <> 'connected' OR c.user_id <> s.user_id OR c.organization_id <> s.organization_id THEN
+    RAISE EXCEPTION 'not_connected' USING ERRCODE = 'P0001';
+  END IF;
+  IF c.auth_generation IS DISTINCT FROM p_generation THEN
+    RAISE EXCEPTION 'connection_changed' USING ERRCODE = 'P0001';
+  END IF;
+END $$;
+
+-- Structural recovery / identity change. p_rows: [{k,n,f,id}] under the NEW identity config from one fresh read.
+-- Classification: established = an ID with a permanent receipt or ID baseline (definitive, never re-imported);
+-- matched = a core-fingerprint match to a stored baseline/done record (multiset: each record vouches for one
+-- row; an established row's own ID baseline never vouches for another row) — AMBIGUOUS, so the agent decides;
+-- unknown = everything else. The dry run returns counts + a snapshot digest over the source, version, the
+-- connection generation used for the read, identity config, mapping, decision-relevant ledger and the
+-- classification. Apply re-validates everything under the source + connection locks and refuses
+-- 'review_changed' unless the recomputed digest equals the previewed one. Explicit choices are required for
+-- every non-empty ambiguous class. ID-mode rows left for import are recorded as explicit approvals.
 CREATE FUNCTION private.google_sheets_review(
-  p_user uuid, p_org uuid, p_source uuid, p_expected_version integer, p_identity_mode text,
-  p_id_header text, p_mapping jsonb, p_rows jsonb, p_import_unknown boolean, p_dry_run boolean)
- RETURNS TABLE (known integer, unknown integer, config_version integer)
+  p_user uuid, p_org uuid, p_source uuid, p_expected_version integer, p_generation bigint, p_identity_mode text,
+  p_id_header text, p_mapping jsonb, p_rows jsonb, p_import_matched boolean, p_import_unknown boolean,
+  p_snapshot text, p_dry_run boolean)
+ RETURNS TABLE (established integer, matched integer, unknown integer, config_version integer, snapshot text)
  LANGUAGE plpgsql SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'pg_temp'
 AS $$
 #variable_conflict use_column
-DECLARE s public.google_sheets_sources; v_known integer; v_unknown integer;
+DECLARE s public.google_sheets_sources; v_est integer; v_mat integer; v_unk integer; v_digest text;
 BEGIN
   PERFORM private.google_sheets_require_owner(p_user, p_org);
   SELECT * INTO s FROM public.google_sheets_sources
    WHERE id = p_source AND organization_id = p_org AND user_id = p_user FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002'; END IF;
+  PERFORM private.google_sheets_lock_review_connection(s, p_generation);
   IF s.state = 'draft' THEN RAISE EXCEPTION 'invalid_state' USING ERRCODE = 'P0001'; END IF;
-  IF s.config_version <> p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
-  IF p_identity_mode NOT IN ('source_id','row_position') OR jsonb_typeof(p_rows) <> 'array'
+  IF s.config_version IS DISTINCT FROM p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
+  IF p_identity_mode IS NULL OR p_identity_mode NOT IN ('source_id','row_position') OR jsonb_typeof(p_rows) IS DISTINCT FROM 'array'
      OR (p_identity_mode = 'source_id' AND NULLIF(btrim(COALESCE(p_id_header, '')), '') IS NULL)
      OR jsonb_array_length(p_rows) > 10000 THEN
     RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
   END IF;
 
-  DROP TABLE IF EXISTS gs_review_rows, gs_review_fp, gs_review_cls;
-  CREATE TEMP TABLE gs_review_rows ON COMMIT DROP AS
-  SELECT (r->>'k') AS k, (r->>'n')::int AS n, (r->>'f') AS f, NULLIF(r->>'id', '') AS idv,
-         row_number() OVER (PARTITION BY r->>'f' ORDER BY (r->>'n')::int) AS fp_rank
-    FROM jsonb_array_elements(p_rows) r;
-
-  CREATE TEMP TABLE gs_review_fp ON COMMIT DROP AS
-  SELECT fingerprint AS f, count(*) AS cnt
-    FROM private.google_sheets_source_rows
-   WHERE source_id = s.id AND kind IN ('baseline','done')
-   GROUP BY fingerprint;
-
+  DROP TABLE IF EXISTS gs_review_cls;
   CREATE TEMP TABLE gs_review_cls ON COMMIT DROP AS
-  SELECT rr.*,
-         ( (rr.idv IS NOT NULL AND (
-               EXISTS (SELECT 1 FROM private.google_sheets_receipts x
-                        WHERE x.organization_id = s.organization_id AND x.user_id = s.user_id
-                          AND x.spreadsheet_id = s.spreadsheet_id AND x.sheet_id = s.sheet_id
-                          AND x.receipt_key = 'id:' || rr.idv)
-            OR EXISTS (SELECT 1 FROM private.google_sheets_source_rows b
-                        WHERE b.source_id = s.id AND b.kind = 'baseline' AND b.row_key = 'id:' || rr.idv)))
-           OR rr.fp_rank <= COALESCE((SELECT fp.cnt FROM gs_review_fp fp WHERE fp.f = rr.f), 0)
-         ) AS is_known
-    FROM gs_review_rows rr;
+  WITH rr AS (
+    SELECT (r->>'k') AS k, (r->>'n')::int AS n, (r->>'f') AS f, NULLIF(r->>'id', '') AS idv
+      FROM jsonb_array_elements(p_rows) r
+  ), est AS (
+    SELECT rr.*,
+           (rr.idv IS NOT NULL AND (
+              EXISTS (SELECT 1 FROM private.google_sheets_receipts x
+                       WHERE x.organization_id = s.organization_id AND x.user_id = s.user_id
+                         AND x.spreadsheet_id = s.spreadsheet_id AND x.sheet_id = s.sheet_id
+                         AND x.receipt_key = 'id:' || rr.idv)
+           OR EXISTS (SELECT 1 FROM private.google_sheets_source_rows b
+                       WHERE b.source_id = s.id AND b.kind = 'baseline' AND b.row_key = 'id:' || rr.idv))) AS is_est
+      FROM rr
+  ), vouchers AS (
+    SELECT b.fingerprint AS f, count(*) AS cnt
+      FROM private.google_sheets_source_rows b
+     WHERE b.source_id = s.id AND b.kind IN ('baseline','done')
+       AND NOT (b.row_key LIKE 'id:%' AND EXISTS (SELECT 1 FROM rr WHERE rr.idv IS NOT NULL AND 'id:' || rr.idv = b.row_key))
+     GROUP BY b.fingerprint
+  )
+  SELECT e.k, e.n, e.f, e.idv,
+         CASE WHEN e.is_est THEN 'established'
+              WHEN row_number() OVER (PARTITION BY e.f, e.is_est ORDER BY e.n) <= COALESCE(v.cnt, 0) THEN 'matched'
+              ELSE 'unknown' END AS cls
+    FROM est e LEFT JOIN vouchers v ON v.f = e.f;
 
-  SELECT count(*) FILTER (WHERE is_known), count(*) FILTER (WHERE NOT is_known)
-    INTO v_known, v_unknown FROM gs_review_cls;
+  SELECT count(*) FILTER (WHERE cls = 'established'), count(*) FILTER (WHERE cls = 'matched'),
+         count(*) FILTER (WHERE cls = 'unknown')
+    INTO v_est, v_mat, v_unk FROM gs_review_cls;
+  v_digest := encode(sha256(convert_to(concat_ws('|', 'review', s.id::text, s.config_version::text, p_generation::text,
+                p_identity_mode, COALESCE(btrim(p_id_header), ''), COALESCE(p_mapping, 'null'::jsonb)::text,
+                private.google_sheets_ledger_digest(s.id),
+                (SELECT COALESCE(string_agg(k || ':' || n::text || ':' || COALESCE(f, '') || ':' || COALESCE(idv, '') || ':' || cls,
+                                            ',' ORDER BY n, k), '') FROM gs_review_cls)), 'UTF8')), 'hex');
 
   IF p_dry_run THEN
-    RETURN QUERY SELECT v_known, v_unknown, s.config_version; RETURN;
+    RETURN QUERY SELECT v_est, v_mat, v_unk, s.config_version, v_digest; RETURN;
+  END IF;
+  IF p_snapshot IS DISTINCT FROM v_digest THEN RAISE EXCEPTION 'review_changed' USING ERRCODE = 'P0001'; END IF;
+  IF (v_mat > 0 AND p_import_matched IS NULL) OR (v_unk > 0 AND p_import_unknown IS NULL) THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';  -- an explicit choice is required
   END IF;
 
   DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id;
   INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
   SELECT DISTINCT ON (k) s.id, k, n, f, 'baseline'
     FROM gs_review_cls
-   WHERE is_known OR NOT p_import_unknown
+   WHERE cls = 'established' OR (cls = 'matched' AND NOT p_import_matched) OR (cls = 'unknown' AND NOT p_import_unknown)
    ORDER BY k, n;
+  IF p_identity_mode = 'source_id' THEN
+    INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
+    SELECT DISTINCT ON (idv) s.id, 'approved:' || idv, n, f, 'approved'
+      FROM gs_review_cls
+     WHERE idv IS NOT NULL AND ((cls = 'matched' AND p_import_matched) OR (cls = 'unknown' AND p_import_unknown))
+     ORDER BY idv, n
+    ON CONFLICT (source_id, row_key) DO NOTHING;
+  END IF;
 
   UPDATE public.google_sheets_sources g
      SET identity_mode = p_identity_mode,
          id_header = CASE WHEN p_identity_mode = 'source_id' THEN btrim(p_id_header) END,
          mapping = COALESCE(p_mapping, g.mapping),
          row_epoch = g.row_epoch + 1, health = 'ok', review_reason = NULL,
-         phase = CASE WHEN p_import_unknown AND v_unknown > 0 THEN 'initial' ELSE g.phase END,
+         phase = CASE WHEN (COALESCE(p_import_unknown, false) AND v_unk > 0) OR (COALESCE(p_import_matched, false) AND v_mat > 0)
+                      THEN 'initial' ELSE g.phase END,
          next_sync_at = now(), consecutive_failures = 0,
          config_version = g.config_version + 1, updated_at = now()
    WHERE g.id = s.id
   RETURNING g.config_version INTO s.config_version;
-  RETURN QUERY SELECT v_known, v_unknown, s.config_version;
+  RETURN QUERY SELECT v_est, v_mat, v_unk, s.config_version, v_digest;
+END $$;
+
+-- Owner's read of a source's ledger for the identity review (read-only; no lease).
+CREATE FUNCTION private.google_sheets_review_state(p_user uuid, p_org uuid, p_source uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+DECLARE s public.google_sheets_sources;
+BEGIN
+  PERFORM private.google_sheets_require_owner(p_user, p_org);
+  SELECT * INTO s FROM public.google_sheets_sources WHERE id = p_source AND organization_id = p_org AND user_id = p_user;
+  IF NOT FOUND THEN RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002'; END IF;
+  RETURN private.google_sheets_ledger_json(s) || jsonb_build_object('config_version', s.config_version);
+END $$;
+
+-- Identity review for 'identity_ambiguous' (ID mode, unresolved blank-ID exclusions). p_review is the Edge
+-- classification of ONE fresh read: {decide:[{k:'id:X'|'noid:<n>', n, f, s, hint}], retire:['blank:<n>'...],
+-- kept:['blank:<n>'...]}. Every blank baseline must be either kept (still safely anchored) or retired
+-- (unresolved). The dry run returns the snapshot digest (source, version, generation, identity config, mapping,
+-- decision-relevant ledger, classification). Apply refuses 'review_changed' unless the recomputed digest equals
+-- the previewed one, requires an explicit 'import' | 'exclude' for every decision row, then atomically:
+-- ID+exclude → ID baseline; ID+import → approved:<id>; blank+exclude → blank:<n> baseline (re-anchored);
+-- blank+import → nothing (it imports once it has an ID); unresolved baselines are retired; review cleared.
+CREATE FUNCTION private.google_sheets_resolve_identity(
+  p_user uuid, p_org uuid, p_source uuid, p_expected_version integer, p_generation bigint,
+  p_review jsonb, p_snapshot text, p_decisions jsonb, p_dry_run boolean)
+ RETURNS TABLE (snapshot text, config_version integer, decided integer)
+ LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+#variable_conflict use_column
+DECLARE
+  s public.google_sheets_sources; v_digest text; v_n integer := 0; d jsonb; v_key text; v_choice text;
+  v_blank text[]; v_retire text[]; v_kept text[];
+BEGIN
+  PERFORM private.google_sheets_require_owner(p_user, p_org);
+  SELECT * INTO s FROM public.google_sheets_sources
+   WHERE id = p_source AND organization_id = p_org AND user_id = p_user FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002'; END IF;
+  PERFORM private.google_sheets_lock_review_connection(s, p_generation);
+  IF s.state <> 'enabled' OR s.health <> 'needs_review' OR s.review_reason IS DISTINCT FROM 'identity_ambiguous'
+     OR s.identity_mode <> 'source_id' THEN
+    RAISE EXCEPTION 'invalid_state' USING ERRCODE = 'P0001';
+  END IF;
+  IF s.config_version IS DISTINCT FROM p_expected_version THEN RAISE EXCEPTION 'version_conflict' USING ERRCODE = 'P0001'; END IF;
+  IF jsonb_typeof(p_review) IS DISTINCT FROM 'object' OR jsonb_typeof(p_review->'decide') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(p_review->'retire') IS DISTINCT FROM 'array' OR jsonb_typeof(p_review->'kept') IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_review->'decide') > 10000 THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+  END IF;
+  -- Decision rows: unique keys, ID or position-keyed blank rows, never an established/approved ID.
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_review->'decide') e
+              WHERE jsonb_typeof(e) <> 'object' OR COALESCE(e->>'k', '') !~ '^(id:.+|noid:[0-9]+)$'
+                 OR COALESCE(e->>'f', '') = '' OR COALESCE(e->>'n', '') !~ '^[0-9]+$'
+                 OR (e->>'k' LIKE 'noid:%' AND substr(e->>'k', 6) <> e->>'n'))
+     OR (SELECT count(*) FROM jsonb_array_elements(p_review->'decide'))
+        <> (SELECT count(DISTINCT e->>'k') FROM jsonb_array_elements(p_review->'decide') e)
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_review->'decide') e
+                 WHERE e->>'k' LIKE 'id:%' AND (
+                       EXISTS (SELECT 1 FROM private.google_sheets_receipts x
+                                WHERE x.organization_id = s.organization_id AND x.user_id = s.user_id
+                                  AND x.spreadsheet_id = s.spreadsheet_id AND x.sheet_id = s.sheet_id
+                                  AND x.receipt_key = e->>'k')
+                    OR EXISTS (SELECT 1 FROM private.google_sheets_source_rows b
+                                WHERE b.source_id = s.id AND ((b.kind = 'baseline' AND b.row_key = e->>'k')
+                                   OR (b.kind = 'approved' AND b.row_key = 'approved:' || substr(e->>'k', 4)))))) THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+  END IF;
+  -- Every blank-ID baseline is accounted for exactly once: kept (anchored) or retired (unresolved).
+  SELECT COALESCE(array_agg(b.row_key ORDER BY b.row_key), '{}') INTO v_blank
+    FROM private.google_sheets_source_rows b WHERE b.source_id = s.id AND b.kind = 'baseline' AND b.row_key LIKE 'blank:%';
+  SELECT COALESCE(array_agg(x ORDER BY x), '{}') INTO v_retire FROM jsonb_array_elements_text(p_review->'retire') x;
+  SELECT COALESCE(array_agg(x ORDER BY x), '{}') INTO v_kept FROM jsonb_array_elements_text(p_review->'kept') x;
+  IF v_retire && v_kept
+     OR (SELECT COALESCE(array_agg(x ORDER BY x), '{}') FROM unnest(v_retire || v_kept) x) IS DISTINCT FROM v_blank THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+  END IF;
+
+  v_digest := encode(sha256(convert_to(concat_ws('|', 'identity', s.id::text, s.config_version::text, p_generation::text,
+                COALESCE(s.id_header, ''), s.mapping::text, private.google_sheets_ledger_digest(s.id), p_review::text), 'UTF8')), 'hex');
+  IF p_dry_run THEN
+    RETURN QUERY SELECT v_digest, s.config_version, 0; RETURN;
+  END IF;
+  IF p_snapshot IS DISTINCT FROM v_digest THEN RAISE EXCEPTION 'review_changed' USING ERRCODE = 'P0001'; END IF;
+  IF jsonb_typeof(p_decisions) IS DISTINCT FROM 'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_decisions)) <> jsonb_array_length(p_review->'decide')
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_review->'decide') e
+                 WHERE COALESCE(p_decisions->>(e->>'k'), '') NOT IN ('import','exclude')) THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';  -- an explicit choice for every row
+  END IF;
+
+  DELETE FROM private.google_sheets_source_rows
+   WHERE source_id = s.id AND kind = 'baseline' AND row_key = ANY (v_retire);
+  FOR d IN SELECT * FROM jsonb_array_elements(p_review->'decide') LOOP
+    v_key := d->>'k'; v_choice := p_decisions->>v_key;
+    IF v_key LIKE 'id:%' THEN
+      IF v_choice = 'exclude' THEN
+        DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = v_key AND kind = 'pending';
+        INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
+        VALUES (s.id, v_key, (d->>'n')::int, d->>'f', 'baseline') ON CONFLICT (source_id, row_key) DO NOTHING;
+      ELSE
+        INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
+        VALUES (s.id, 'approved:' || substr(v_key, 4), (d->>'n')::int, d->>'f', 'approved')
+        ON CONFLICT (source_id, row_key) DO NOTHING;
+      END IF;
+    ELSIF v_choice = 'exclude' THEN
+      DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = v_key AND kind = 'pending';
+      INSERT INTO private.google_sheets_source_rows AS t (source_id, row_key, row_number, fingerprint, kind)
+      VALUES (s.id, 'blank:' || (d->>'n'), (d->>'n')::int, d->>'f', 'baseline')
+      ON CONFLICT (source_id, row_key) DO UPDATE
+         SET row_number = EXCLUDED.row_number, fingerprint = EXCLUDED.fingerprint, kind = 'baseline',
+             pending_reason = NULL, updated_at = now();
+    END IF;
+    v_n := v_n + 1;
+  END LOOP;
+
+  UPDATE public.google_sheets_sources g
+     SET health = 'ok', review_reason = NULL, next_sync_at = now(), consecutive_failures = 0,
+         config_version = g.config_version + 1, updated_at = now()
+   WHERE g.id = s.id
+  RETURNING g.config_version INTO s.config_version;
+  RETURN QUERY SELECT v_digest, s.config_version, v_n;
 END $$;
 
 -- ---------------------------------------------------------------- worker: claim / load / ingest / finish
@@ -782,21 +987,12 @@ BEGIN
   IF NOT FOUND OR s.lease_owner IS DISTINCT FROM p_lease OR s.lease_expires_at <= now() THEN
     RAISE EXCEPTION 'stale: lease lost' USING ERRCODE = 'P0001';
   END IF;
-  RETURN jsonb_build_object(
-    'rows', COALESCE((SELECT jsonb_agg(jsonb_build_object('k', r.row_key, 'n', r.row_number, 'f', r.fingerprint,
-                                                          'kind', r.kind, 'reason', r.pending_reason))
-                        FROM private.google_sheets_source_rows r WHERE r.source_id = s.id), '[]'::jsonb),
-    'receipt_ids', CASE WHEN s.identity_mode = 'source_id' THEN
-       COALESCE((SELECT jsonb_agg(x.receipt_key)
-                   FROM private.google_sheets_receipts x
-                  WHERE x.organization_id = s.organization_id AND x.user_id = s.user_id
-                    AND x.spreadsheet_id = s.spreadsheet_id AND x.sheet_id = s.sheet_id
-                    AND x.receipt_key LIKE 'id:%'), '[]'::jsonb)
-       ELSE '[]'::jsonb END);
+  RETURN private.google_sheets_ledger_json(s);
 END $$;
 
 -- Atomic ingest. p_rows: [{k,n,f,lead:{...}}] valid candidates; p_pending: [{k,n,f,reason}] rows that
--- cannot be imported yet (invalid / blank ID / conflicting ID). Returns per-row outcomes and counts.
+-- cannot be imported yet (invalid 'id:'/'pos:', missing ID 'noid:<n>', conflicting ID 'dup:<n>'), plus
+-- {k,clear} and in-place blank-baseline carries {k,n,f,baseline,consume}. Returns per-row outcomes and counts.
 CREATE FUNCTION private.google_sheets_ingest(
   p_source uuid, p_lease uuid, p_version integer, p_generation bigint, p_rows jsonb, p_pending jsonb)
  RETURNS jsonb
@@ -821,19 +1017,19 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(
     'google_sheets_dup:' || s.organization_id::text || ':' ||
     CASE WHEN d.scope = 'assigned_only' THEN s.user_id::text ELSE '*' END, 0));
+  -- The advisory wait can be long: re-check the lease against the real clock before writing anything.
+  IF s.lease_expires_at <= clock_timestamp() THEN RAISE EXCEPTION 'stale: lease lost' USING ERRCODE = 'P0001'; END IF;
 
   -- Pending rows: counted as new errors only when new or changed (fingerprint/reason).
   FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_pending, '[]')) LOOP
     v_key := r->>'k';
-    IF v_key IS NULL OR (s.identity_mode = 'source_id' AND v_key !~ '^(id|blank|dup):')
-       OR (s.identity_mode = 'row_position' AND v_key !~ '^pos:[0-9]+$') THEN
-      RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
-    END IF;
-    -- A blank-ID baseline row that later received an ID stays excluded under its new key.
+    -- A blank-ID baseline row completed IN PLACE (safely accounted group; decided by the Edge planner) stays
+    -- excluded under its ID. The consumed baseline must exist with the same core fingerprint.
     IF COALESCE((r->>'baseline')::boolean, false) THEN
-      IF s.identity_mode <> 'source_id' OR v_key !~ '^id:.+' OR COALESCE(r->>'consume', '') !~ '^blank:[0-9]+$'
+      IF s.identity_mode <> 'source_id' OR v_key IS NULL OR v_key !~ '^id:.+' OR COALESCE(r->>'consume', '') !~ '^blank:[0-9]+$'
          OR NOT EXISTS (SELECT 1 FROM private.google_sheets_source_rows
-                         WHERE source_id = s.id AND row_key = r->>'consume' AND kind = 'baseline') THEN
+                         WHERE source_id = s.id AND row_key = r->>'consume' AND kind = 'baseline'
+                           AND fingerprint = r->>'f') THEN
         RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
       END IF;
       INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
@@ -841,9 +1037,19 @@ BEGIN
       DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = r->>'consume';
       CONTINUE;
     END IF;
+    -- Clearing can only remove pending/approved records (never a baseline or done record).
     IF COALESCE((r->>'clear')::boolean, false) THEN
-      DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = v_key AND kind = 'pending';
+      IF v_key IS NULL OR (s.identity_mode = 'source_id' AND v_key !~ '^(id|dup|noid|approved):')
+         OR (s.identity_mode = 'row_position' AND v_key !~ '^pos:[0-9]+$') THEN
+        RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+      END IF;
+      DELETE FROM private.google_sheets_source_rows
+       WHERE source_id = s.id AND row_key = v_key AND kind IN ('pending','approved');
       CONTINUE;
+    END IF;
+    IF v_key IS NULL OR (s.identity_mode = 'source_id' AND v_key !~ '^(id|dup|noid):')
+       OR (s.identity_mode = 'row_position' AND v_key !~ '^pos:[0-9]+$') THEN
+      RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
     END IF;
     v_prev := NULL;
     SELECT fingerprint || '|' || COALESCE(pending_reason, '') INTO v_prev
@@ -939,8 +1145,10 @@ BEGIN
         ON CONFLICT (source_id, row_key) DO UPDATE
            SET kind = 'done', fingerprint = EXCLUDED.fingerprint, pending_reason = NULL, updated_at = now();
       ELSE
+        -- The receipt now protects this ID: its pending error and any explicit approval are consumed.
         DELETE FROM private.google_sheets_source_rows
-         WHERE source_id = s.id AND kind = 'pending' AND (row_key = v_key OR row_key = 'blank:' || (r->>'n'));
+         WHERE source_id = s.id AND ((kind = 'pending' AND row_key = v_key)
+                                  OR (kind = 'approved' AND row_key = 'approved:' || substr(v_key, 4)));
       END IF;
       v_out := v_out || jsonb_build_object('k', v_key, 'o', v_outcome, 'lead_id', v_lead_id);
     EXCEPTION
@@ -958,29 +1166,44 @@ BEGIN
                             'errors', v_errors, 'new_pending', v_new_pending, 'rows', v_out);
 END $$;
 
--- Health/result write for a run. Releases the lease whenever it still belongs to this worker; writes
--- status ONLY if the configuration version is unchanged (an old worker never overwrites a newer state).
-CREATE FUNCTION private.google_sheets_finish(p_source uuid, p_lease uuid, p_version integer, p_trigger text, p_result jsonb)
- RETURNS boolean
+-- Health/result write for a run. Outcomes:
+--   completed  — the run is still the CURRENT, authorised run: lease ours and unexpired (real clock, read after
+--                the lock waits), same config_version, state enabled, connection connected with the same
+--                auth_generation and owner, owner still eligible → status, schedule, result and history written.
+--   released   — the lease is ours but the run is stale (expired lease, edited/paused source, reconnect or
+--                disconnect, permission removed) → ONLY our lease is cleared; nothing else is written.
+--   not_owner  — another worker holds the lease → nothing is written.
+--   not_found  — the source was removed.
+-- Leads and receipts committed by earlier batches are never touched here.
+CREATE FUNCTION private.google_sheets_finish(p_source uuid, p_lease uuid, p_version integer, p_generation bigint,
+  p_trigger text, p_result jsonb)
+ RETURNS text
  LANGUAGE plpgsql SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'pg_temp'
 AS $$
 DECLARE
-  s public.google_sheets_sources;
+  s public.google_sheets_sources; c public.google_sheets_connections;
   v_health text := COALESCE(p_result->>'health', 'ok');
   v_backoff boolean := COALESCE((p_result->>'backoff')::boolean, false);
   v_backlog boolean := COALESCE((p_result->>'backlog')::boolean, false);
   v_code text := left(p_result->>'error_code', 64);
-  v_fail int; v_next timestamptz;
+  v_fail int; v_next timestamptz; v_now timestamptz;
 BEGIN
   IF v_health NOT IN ('ok','needs_review','access_lost','error') OR p_trigger NOT IN ('schedule','manual','activation') THEN
     RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
   END IF;
   SELECT * INTO s FROM public.google_sheets_sources WHERE id = p_source FOR UPDATE;
-  IF NOT FOUND OR s.lease_owner IS DISTINCT FROM p_lease THEN RETURN false; END IF;
-  IF s.config_version <> p_version THEN
+  IF NOT FOUND THEN RETURN 'not_found'; END IF;
+  IF s.lease_owner IS DISTINCT FROM p_lease THEN RETURN 'not_owner'; END IF;
+  SELECT * INTO c FROM public.google_sheets_connections WHERE id = s.connection_id FOR SHARE; -- finish:connection-lock
+  v_now := clock_timestamp();
+  IF s.lease_expires_at IS NULL OR s.lease_expires_at <= v_now
+     OR s.config_version IS DISTINCT FROM p_version OR s.state <> 'enabled'
+     OR c.id IS NULL OR c.status <> 'connected' OR c.auth_generation IS DISTINCT FROM p_generation
+     OR c.user_id <> s.user_id OR c.organization_id <> s.organization_id
+     OR NOT private.google_sheets_owner_eligible(s.user_id, s.organization_id) THEN
     UPDATE public.google_sheets_sources SET lease_owner = NULL, lease_expires_at = NULL WHERE id = s.id;
-    RETURN false;
+    RETURN 'released';
   END IF;
 
   v_fail := CASE WHEN v_backoff OR v_health = 'error' THEN s.consecutive_failures + 1 ELSE 0 END;
@@ -1022,7 +1245,26 @@ BEGIN
   DELETE FROM public.google_sheets_sync_runs
    WHERE source_id = s.id AND id NOT IN (SELECT id FROM public.google_sheets_sync_runs
                                          WHERE source_id = s.id ORDER BY finished_at DESC LIMIT 50);
-  RETURN true;
+  RETURN 'completed';
+END $$;
+
+-- Picker re-check, called immediately before a freshly minted access token is returned: the SAME connection,
+-- generation and owner, still connected, owner still eligible. Read-only; never disables a newer connection.
+CREATE FUNCTION private.google_sheets_connection_current(p_user uuid, p_org uuid, p_connection uuid, p_generation bigint)
+ RETURNS text
+ LANGUAGE plpgsql STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$
+DECLARE c public.google_sheets_connections;
+BEGIN
+  SELECT * INTO c FROM public.google_sheets_connections WHERE id = p_connection;
+  IF NOT FOUND OR c.user_id IS DISTINCT FROM p_user OR c.organization_id IS DISTINCT FROM p_org
+     OR c.status <> 'connected' OR NOT c.has_refresh_token THEN
+    RETURN 'not_connected';
+  END IF;
+  IF c.auth_generation IS DISTINCT FROM p_generation THEN RETURN 'changed'; END IF;
+  IF NOT private.google_sheets_owner_eligible(p_user, p_org) THEN RETURN 'not_permitted'; END IF;
+  RETURN 'current';
 END $$;
 
 -- Preview / mapping context for the owner (read-only).
@@ -1153,11 +1395,28 @@ CREATE FUNCTION public.google_sheets_set_state(p_user uuid, p_org uuid, p_source
 AS $$ SELECT * FROM private.google_sheets_set_state(p_user, p_org, p_source, p_action) $$;
 
 CREATE FUNCTION public.google_sheets_review(p_user uuid, p_org uuid, p_source uuid, p_expected_version integer,
-  p_identity_mode text, p_id_header text, p_mapping jsonb, p_rows jsonb, p_import_unknown boolean, p_dry_run boolean)
- RETURNS TABLE (known integer, unknown integer, config_version integer)
+  p_generation bigint, p_identity_mode text, p_id_header text, p_mapping jsonb, p_rows jsonb,
+  p_import_matched boolean, p_import_unknown boolean, p_snapshot text, p_dry_run boolean)
+ RETURNS TABLE (established integer, matched integer, unknown integer, config_version integer, snapshot text)
  LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
-AS $$ SELECT * FROM private.google_sheets_review(p_user, p_org, p_source, p_expected_version, p_identity_mode,
-                                                 p_id_header, p_mapping, p_rows, p_import_unknown, p_dry_run) $$;
+AS $$ SELECT * FROM private.google_sheets_review(p_user, p_org, p_source, p_expected_version, p_generation,
+                                                 p_identity_mode, p_id_header, p_mapping, p_rows, p_import_matched,
+                                                 p_import_unknown, p_snapshot, p_dry_run) $$;
+
+CREATE FUNCTION public.google_sheets_review_state(p_user uuid, p_org uuid, p_source uuid)
+ RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$ SELECT private.google_sheets_review_state(p_user, p_org, p_source) $$;
+
+CREATE FUNCTION public.google_sheets_resolve_identity(p_user uuid, p_org uuid, p_source uuid, p_expected_version integer,
+  p_generation bigint, p_review jsonb, p_snapshot text, p_decisions jsonb, p_dry_run boolean)
+ RETURNS TABLE (snapshot text, config_version integer, decided integer)
+ LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$ SELECT * FROM private.google_sheets_resolve_identity(p_user, p_org, p_source, p_expected_version, p_generation,
+                                                           p_review, p_snapshot, p_decisions, p_dry_run) $$;
+
+CREATE FUNCTION public.google_sheets_connection_current(p_user uuid, p_org uuid, p_connection uuid, p_generation bigint)
+ RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$ SELECT private.google_sheets_connection_current(p_user, p_org, p_connection, p_generation) $$;
 
 CREATE FUNCTION public.google_sheets_claim(p_lease uuid, p_limit integer, p_source uuid DEFAULT NULL,
   p_user uuid DEFAULT NULL, p_org uuid DEFAULT NULL)
@@ -1176,9 +1435,10 @@ CREATE FUNCTION public.google_sheets_ingest(p_source uuid, p_lease uuid, p_versi
  RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
 AS $$ SELECT private.google_sheets_ingest(p_source, p_lease, p_version, p_generation, p_rows, p_pending) $$;
 
-CREATE FUNCTION public.google_sheets_finish(p_source uuid, p_lease uuid, p_version integer, p_trigger text, p_result jsonb)
- RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
-AS $$ SELECT private.google_sheets_finish(p_source, p_lease, p_version, p_trigger, p_result) $$;
+CREATE FUNCTION public.google_sheets_finish(p_source uuid, p_lease uuid, p_version integer, p_generation bigint,
+  p_trigger text, p_result jsonb)
+ RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
+AS $$ SELECT private.google_sheets_finish(p_source, p_lease, p_version, p_generation, p_trigger, p_result) $$;
 
 CREATE FUNCTION public.google_sheets_context(p_user uuid, p_org uuid)
  RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'

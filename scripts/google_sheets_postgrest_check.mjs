@@ -40,12 +40,19 @@ ok(r.status === 200 && r.json === true, `service_role owner_eligible → ${r.sta
 
 // 2. authenticated / anon are refused on every privileged wrapper
 for (const fn of ["google_sheets_claim", "google_sheets_get_refresh_token", "google_sheets_ingest",
-                  "google_sheets_store_connection", "google_sheets_consume_oauth_state", "google_sheets_owner_eligible"]) {
+                  "google_sheets_store_connection", "google_sheets_consume_oauth_state", "google_sheets_owner_eligible",
+                  "google_sheets_finish", "google_sheets_review_state", "google_sheets_resolve_identity",
+                  "google_sheets_connection_current"]) {
   const bodyFor = { google_sheets_claim: { p_lease: A1, p_limit: 1 }, google_sheets_get_refresh_token: { p_connection: A1 },
     google_sheets_ingest: { p_source: A1, p_lease: A1, p_version: 1, p_generation: 1, p_rows: [], p_pending: [] },
     google_sheets_store_connection: { p_user: A1, p_org: ORG, p_expected_generation: 0, p_google_sub: "x", p_google_email: "x",
                                       p_scopes: [], p_refresh_token: "x" },
-    google_sheets_consume_oauth_state: { p_state_hash: "0".repeat(64) }, google_sheets_owner_eligible: { p_user: A1, p_org: ORG } }[fn];
+    google_sheets_consume_oauth_state: { p_state_hash: "0".repeat(64) }, google_sheets_owner_eligible: { p_user: A1, p_org: ORG },
+    google_sheets_finish: { p_source: A1, p_lease: A1, p_version: 1, p_generation: 1, p_trigger: "schedule", p_result: {} },
+    google_sheets_review_state: { p_user: A1, p_org: ORG, p_source: A1 },
+    google_sheets_resolve_identity: { p_user: A1, p_org: ORG, p_source: A1, p_expected_version: 1, p_generation: 1,
+                                      p_review: {}, p_snapshot: null, p_decisions: null, p_dry_run: true },
+    google_sheets_connection_current: { p_user: A1, p_org: ORG, p_connection: A1, p_generation: 1 } }[fn];
   const a = await call(`/rpc/${fn}`, { token: AUTHED, body: bodyFor });
   ok(a.status === 401 || a.status === 403, `authenticated ${fn} → ${a.status}`);
   const n = await call(`/rpc/${fn}`, { body: bodyFor });
@@ -73,9 +80,17 @@ r = await call("/rpc/google_sheets_ingest", { token: SERVICE, body: {
   p_pending: [] } });
 ok(r.status === 200 && r.json.imported === 1, `ingest → ${r.status} ${JSON.stringify(r.json)}`);
 r = await call("/rpc/google_sheets_finish", { token: SERVICE, body: {
-  p_source: src.source_id, p_lease: lease, p_version: src.config_version, p_trigger: "schedule",
-  p_result: { imported: 1, health: "ok" } } });
-ok(r.status === 200 && r.json === true, `finish → ${r.status}`);
+  p_source: src.source_id, p_lease: lease, p_version: src.config_version, p_generation: src.auth_generation - 1,
+  p_trigger: "schedule", p_result: { imported: 1, health: "access_lost" } } });
+ok(r.status === 200 && r.json === "released", `finish with a stale generation → ${r.status} ${JSON.stringify(r.json)}`);
+r = await call("/rpc/google_sheets_claim", { token: SERVICE, body: { p_lease: lease, p_limit: 1, p_source: src.source_id,
+  p_user: src.user_id, p_org: src.organization_id } });
+r = await call("/rpc/google_sheets_finish", { token: SERVICE, body: {
+  p_source: src.source_id, p_lease: lease, p_version: src.config_version, p_generation: src.auth_generation,
+  p_trigger: "schedule", p_result: { imported: 1, health: "ok" } } });
+ok(r.status === 200 && r.json === "completed", `finish → ${r.status} ${JSON.stringify(r.json)}`);
+r = await call("/rpc/google_sheets_review_state", { token: SERVICE, body: { p_user: src.user_id, p_org: src.organization_id, p_source: src.source_id } });
+ok(r.status === 200 && Array.isArray(r.json.rows) && typeof r.json.config_version === "number", `review_state → ${r.status}`);
 
 // 5. authenticated reads only its own rows; cannot write
 r = await call(`/google_sheets_sources?select=user_id`, { token: AUTHED, method: "GET" });

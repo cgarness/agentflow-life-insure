@@ -5,7 +5,9 @@
 -- leads with its production triggers (sync_leads_user_id, workflow_on_lead_created and
 -- notify_lead_assignments copied verbatim; the workflow dispatcher is stubbed to a counting table),
 -- contact_management_settings, pipeline_stages, lead_sources, custom_fields, workflows, dnc_list,
--- a Vault stand-in, and the exact live _contacts_permission_default preimage (MD5-verified by the migration).
+-- a Vault stand-in (skipped where the real supabase_vault exists, e.g. the supabase/postgres image used by
+-- scripts/run_google_sheets_cron_check.sh), and the exact live _contacts_permission_default preimage
+-- (MD5-verified by the migration).
 -- No production data; never run against a hosted project (AGENT_RULES invariant #28).
 -- =====================================================================================================
 DO $$ BEGIN
@@ -18,16 +20,16 @@ DO $$ BEGIN
 END $$;
 GRANT anon, authenticated, service_role TO authenticator;
 
-CREATE SCHEMA auth;
-CREATE SCHEMA private;
-CREATE SCHEMA vault;
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE SCHEMA IF NOT EXISTS private;
+CREATE SCHEMA IF NOT EXISTS vault;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 -- Supabase grants broad defaults on public; the migration must revoke what it does not intend.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
 
-CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claims', true)::json->>'sub', '')::uuid
 $$;
 
@@ -273,19 +275,22 @@ CREATE TABLE public.dnc_list (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), phone_number text, organization_id uuid NOT NULL
 );
 
--- Vault stand-in with the supabase_vault 0.3.1 call signatures used by the migration.
-CREATE TABLE vault.secrets (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text UNIQUE, description text DEFAULT '',
-  secret text NOT NULL, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
-);
-CREATE FUNCTION vault.create_secret(new_secret text, new_name text DEFAULT NULL, new_description text DEFAULT '',
-  new_key_id uuid DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$
-  INSERT INTO vault.secrets (secret, name, description) VALUES (new_secret, new_name, new_description) RETURNING id
-$$;
-CREATE FUNCTION vault.update_secret(secret_id uuid, new_secret text DEFAULT NULL, new_name text DEFAULT NULL,
-  new_description text DEFAULT NULL, new_key_id uuid DEFAULT NULL) RETURNS void LANGUAGE sql AS $$
-  UPDATE vault.secrets SET secret = COALESCE(new_secret, secret), name = COALESCE(new_name, name),
-         description = COALESCE(new_description, description), updated_at = now() WHERE id = secret_id
-$$;
-CREATE VIEW vault.decrypted_secrets AS SELECT id, name, description, secret AS decrypted_secret FROM vault.secrets;
+-- Vault stand-in with the supabase_vault 0.3.1 call signatures used by the migration (only when no real Vault).
+DO $vault$
+BEGIN
+  IF to_regclass('vault.secrets') IS NOT NULL THEN RETURN; END IF;
+  EXECUTE $s$CREATE TABLE vault.secrets (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text UNIQUE, description text DEFAULT '',
+    secret text NOT NULL, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())$s$;
+  EXECUTE $s$CREATE FUNCTION vault.create_secret(new_secret text, new_name text DEFAULT NULL, new_description text DEFAULT '',
+    new_key_id uuid DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $f$
+    INSERT INTO vault.secrets (secret, name, description) VALUES (new_secret, new_name, new_description) RETURNING id
+  $f$$s$;
+  EXECUTE $s$CREATE FUNCTION vault.update_secret(secret_id uuid, new_secret text DEFAULT NULL, new_name text DEFAULT NULL,
+    new_description text DEFAULT NULL, new_key_id uuid DEFAULT NULL) RETURNS void LANGUAGE sql AS $f$
+    UPDATE vault.secrets SET secret = COALESCE(new_secret, secret), name = COALESCE(new_name, name),
+           description = COALESCE(new_description, description), updated_at = now() WHERE id = secret_id
+  $f$$s$;
+  EXECUTE $s$CREATE VIEW vault.decrypted_secrets AS SELECT id, name, description, secret AS decrypted_secret FROM vault.secrets$s$;
+END $vault$;
 REVOKE ALL ON SCHEMA vault FROM PUBLIC;
