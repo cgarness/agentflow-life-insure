@@ -1,4 +1,4 @@
-## 2026-10-13 — IMPLEMENTED on a draft PR, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
+## 2026-10-13 — IMPLEMENTED on draft PR #442, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
 
 **Status:** Chris approved implementation (D1–D11; "new row → create lead"; new rows by default) on 2026-10-13. The plan was revised first (§0 of the detailed plan).
 - **Done:** the foundation migration (one narrowly scoped permission-helper row), four new Edge functions, the Settings UI, and SQL/PostgREST, Deno, Vitest and browser verification.

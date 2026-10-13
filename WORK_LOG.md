@@ -1,4 +1,4 @@
-## 2026-10-13 — Google Sheets V1 ("new row → create lead") IMPLEMENTED on a draft PR; locally verified; NOT deployed, NOT applied, NOT released
+## 2026-10-13 — Google Sheets V1 ("new row → create lead") IMPLEMENTED on draft PR #442; locally verified; NOT deployed, NOT applied, NOT released
 
 **Request and approval.** On 2026-10-13 Chris approved implementation with decisions D1–D11:
 - the trigger/action model: a new row in a connected tab creates a lead for the connected agent;
@@ -47,6 +47,8 @@ The detailed plan was revised **before** any implementation edit, in `docs/plans
 - A fresh check of Google publishing status: the 2026-10-09 screenshots showed Testing, where grants expire after 7 days.
 - Privacy copy approval and publication.
 - Every production step, and the merge.
+
+**Draft PR:** https://github.com/cgarness/agentflow-life-insure/pull/442. The reviewed implementation head is `25f0ee908e860528c9cbed57248f38f46ce27d91`; this records-only commit follows it.
 
 **Next.** Chris reviews the draft PR and `release-package.md`, then approves each production step in the documented order.
 
