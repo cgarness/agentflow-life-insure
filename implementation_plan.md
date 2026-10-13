@@ -1,21 +1,19 @@
-## 2026-10-13 — CORRECTION PLAN, awaiting Chris's approval: Google Sheets PR #442 pre-release integrity fixes
+## 2026-10-13 — CORRECTION APPROVED WITH AMENDMENTS A–C, implementation in progress: Google Sheets PR #442 pre-release integrity fixes
 
-**Status:** plan only. No implementation file or backend state was changed. PR #442 stays draft at the reviewed head `8b675e5` plus this plan commit.
+**Status:** Chris approved the §0.9 correction plan on 2026-10-13, including decisions 1–4, with amendments:
+- **A:** end-to-end exclusion and recovery; ambiguous identity → Review with explicit per-row decisions and snapshot-bound apply.
+- **B:** generation-safe finalization, review and Picker, with real-time lease checks and engine outcome handling.
+- **C:** shutdown documentation that matches execution, with a tested admission gate.
 
-**Checked:**
-- `main` is still `f91e4ba`, with no overlapping PR.
-- The foundation migration is unapplied in production and there is no preview branch, so the candidate may be amended.
-- All three findings and the worker re-claim behaviour reproduce on `8b675e5`.
+The amended design and exact file list are in the detailed plan §0.9 (updated before any implementation edit). PR #442 stays draft.
 
-**Plan:** detailed plan §0.9, covering:
-- Finding 1: blank-ID baseline reconciliation with positional anchoring; ambiguous identity → Review;
-- Finding 2: a lease-, version-, generation- and eligibility-safe `google_sheets_finish` with a connection lock, plus a re-check in `picker_token`;
-- Finding 3: an all-mapped-values content signature and one shared ID classifier for processing and preview;
-- release-package stop controls, a tested shutdown sequence and a verified capacity statement;
-- a new Sheets CI workflow run against the exact head.
+**Approved:** implementation, isolated local testing, Sheets CI, branch pushes and the draft PR update.
+**Still gated:** merge, deploy, production migrations, Google Cloud, production secrets/settings, production cron, privacy publication and live imports.
 
-**Files:** exact list in §0.9.
-
+**Checked (read-only):**
+- `main` is still `f91e4ba`, and no PR overlaps.
+- The candidate migration is unapplied in production (`jncvvsvckxhqgqvkppmj`) and in PR #378's preview branch.
+- PR #294's preview branch is inactive and predates the feature. No branch exists for PR #442.
 ---
 
 ## 2026-10-13 — IMPLEMENTED on draft PR #442, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
