@@ -3,8 +3,9 @@
 // Invoked ONLY by pg_cron (google-sheets-sync-every-minute) with `Authorization: Bearer <Vault
 // google_sheets_worker_token>`, compared in constant time against GOOGLE_SHEETS_WORKER_TOKEN (≥ 32 chars).
 // verify_jwt=false (invariant #2); the body is ignored. Claims at most 10 sources per invocation, one at a
-// time (SKIP LOCKED leases), within a 45 s budget; each source processes at most 500 new rows per run.
-// GOOGLE_SHEETS_ENABLED unset → inert (200, no work). Works with no browser and no stored user session.
+// time (SKIP LOCKED leases), within a cooperative 45 s budget; each source processes at most 500 new rows per run.
+// GOOGLE_SHEETS_ENABLED is read ONCE, before the claim loop: unset → inert (200, no work); changing it does not
+// stop an invocation already past this check. Works with no browser and no stored user session.
 // =============================================================================
 import { LIMITS, readConfig } from "../_shared/googleSheets/config.ts";
 import { timingSafeEqual } from "../_shared/googleSheets/crypto.ts";
@@ -44,9 +45,12 @@ export async function handle(req: Request, dbOverride?: SheetsDb, fetchFn: typeo
     console.error(`google-sheets-sync-worker: ${sanitizeError(e)}`);
     return json({ ok: false, processed: results.length }, 500);
   }
+  // Counts are committed batches; "stale" runs (finish released / not_owner / not_found / failed) are reported
+  // separately and never as completed syncs.
   const summary = results.reduce((s, r) => ({
     processed: s.processed + 1, imported: s.imported + r.imported, skipped: s.skipped + r.skipped, errors: s.errors + r.errors,
-  }), { processed: 0, imported: 0, skipped: 0, errors: 0 });
+    stale: s.stale + (r.status === "stale" ? 1 : 0),
+  }), { processed: 0, imported: 0, skipped: 0, errors: 0, stale: 0 });
   if (summary.processed > 0) console.log(`google-sheets-sync-worker: ${JSON.stringify(summary)}`);
   return json({ ok: true, ...summary }, 200);
 }

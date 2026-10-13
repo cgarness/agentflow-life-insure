@@ -1,6 +1,6 @@
 // Run: deno test supabase/functions/_shared/googleSheets/
 import { assert, assertEquals } from "https://deno.land/std@0.190.0/testing/asserts.ts";
-import { buildLead, fingerprint, parseDOB, resolveColumns, resolveCustomFieldNames, splitFullName, validateMapping } from "./mapping.ts";
+import { buildLead, fingerprint, parseDOB, resolveColumns, resolveCustomFieldNames, splitFullName, validateMapping, rowSignature } from "./mapping.ts";
 
 const M = (cols: [string, string][]) => ({ v: 1 as const, columns: cols.map(([header, target]) => ({ header, target })) });
 
@@ -74,4 +74,22 @@ Deno.test("parseDOB / splitFullName parity cases", () => {
   assertEquals(parseDOB("25569"), "1970-01-01");
   assertEquals(parseDOB("2/30/1980"), null);
   assertEquals(splitFullName("  A  B   C "), { firstName: "A", lastName: "B C" });
+});
+
+Deno.test("rowSignature: every mapped value (standard, custom, Lead ID) counts; unmapped columns and outer spaces do not", async () => {
+  const header = ["Lead ID", "First", "Last", "Phone", "Notes", "Coverage", "Unmapped"];
+  const m = validateMapping({ v: 1, columns: [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" },
+    { header: "Phone", target: "phone" }, { header: "Notes", target: "notes" },
+    { header: "Coverage", target: "custom:33333333-3333-3333-3333-333333333333" }] });
+  if (!m.ok) throw new Error("mapping");
+  const cols = resolveColumns(header, m.mapping, "Lead ID");
+  const base = ["X", "Ann", "Lee", "5550001111", "call am", "100000", "a"];
+  const sig = (r: string[]) => rowSignature(r, cols);
+  const s0 = await sig(base);
+  assertEquals(await sig(["X", " Ann ", "Lee", "5550001111", "call am", "100000", "zzz"]), s0);
+  for (const i of [0, 1, 2, 3, 4, 5]) {
+    const changed = [...base];
+    changed[i] = changed[i] + "!";
+    assert((await sig(changed)) !== s0, `column ${header[i]} must change the signature`);
+  }
 });

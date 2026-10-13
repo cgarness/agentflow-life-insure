@@ -6,7 +6,7 @@ import { DbError, sheetsDb, type ClaimedSource } from "../_shared/googleSheets/d
 import { planRows, runSource } from "../_shared/googleSheets/engine.ts";
 import { GoogleApiError } from "../_shared/googleSheets/errors.ts";
 import { inspectSpreadsheet, readTab } from "../_shared/googleSheets/google.ts";
-import { identityRows } from "../_shared/googleSheets/identity.ts";
+import { classifySourceIdRows, identityReview, identityRows } from "../_shared/googleSheets/identity.ts";
 import { resolveColumns, resolveCustomFieldNames, validateMapping, type SheetMapping } from "../_shared/googleSheets/mapping.ts";
 import { checkScopes, inspectAccessToken, refreshAccessToken } from "../_shared/googleSheets/oauth.ts";
 
@@ -85,13 +85,24 @@ export async function context(c: Ctx) {
   return { ...ctx, custom_fields: (ctx.custom_fields ?? []).map((f) => ({ id: f.id, name: f.name, created_by: f.created_by, created_at: f.created_at })) };
 }
 
-/** Short-lived Picker token. ACTUAL token scopes are inspected; anything broader is refused. */
+/**
+ * Short-lived Picker token. ACTUAL token scopes are inspected; anything broader is refused. Immediately before the
+ * token is returned, the SAME connection must still be current (id, generation, owner, connected, owner eligible):
+ * a reconnect, disconnect or permission change during minting returns no token. A stale response never disables
+ * the newer connection (no mark_reconnect here). This does not revoke a token Google already minted — it is never
+ * returned and expires on its own (at most one hour).
+ */
 export async function pickerToken(c: Ctx) {
   if (!(await eligible(c))) throw new ActionError(403, "not_permitted");
   const a = await access(c);
   const info = await inspectAccessToken(c.fetchFn, a.token);
   if (info.aud && info.aud !== c.cfg.clientId) throw new ActionError(409, "reconnect_required");
   if (!checkScopes(info.scopes).ok) throw new ActionError(409, "reconnect_required");
+  const current = await db(c).connectionCurrent(c.userId, c.orgId, a.connectionId, a.generation);
+  if (current !== "current") {
+    throw current === "not_permitted" ? new ActionError(403, "not_permitted")
+      : new ActionError(409, current === "changed" ? "connection_changed" : "not_connected");
+  }
   const expiresIn = Math.max(0, Math.min(3600, info.expiresIn || 3600, a.expiresIn || 3600));
   return { access_token: a.token, expires_in: expiresIn };
 }
@@ -125,9 +136,13 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
   const spreadsheetId = str(body.spreadsheet_id, 200), sheetId = Number(body.sheet_id);
   const a = await access(c);
   const { tab, planned, ctx } = await readPlanned(c, a.token, spreadsheetId, sheetId, mapping, idHeader);
+  // ID mode: the SAME classifier as processing (missing_id → duplicate_id → repeat → invalid → policy → ready).
+  const cls = mode === "source_id" ? classifySourceIdRows(planned) : null;
+  const idOutcome = (n: number) => { const k = cls?.get(n); return k && k !== "ok" ? k : null; };
+  const importable = (r: (typeof planned)[number]) => r.valid && idOutcome(r.n) === null;
   const sample = planned.filter((r) => !r.empty).slice(0, LIMITS.previewRows);
   const dupFlags: boolean[] = await (async () => {
-    const valid = sample.filter((r) => r.valid);
+    const valid = sample.filter(importable);
     if (!valid.length) return [];
     const { data, error } = await c.svc.rpc("google_sheets_preview_duplicates", {
       p_user: c.userId, p_org: c.orgId, p_rows: valid.map((r) => ({ phone: r.lead?.phone ?? "", email: r.lead?.email ?? "" })) });
@@ -136,21 +151,25 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
   })();
   let vi = 0;
   const rows = sample.map((r) => {
-    const dup = r.valid ? dupFlags[vi++] === true : false;
+    const dup = importable(r) ? dupFlags[vi++] === true : false;
+    const idk = idOutcome(r.n);
     return {
-      row: r.n, first_name: r.lead?.first_name ?? "", last_name: r.lead?.last_name ?? "", phone: r.lead?.phone ?? "",
-      email: r.lead?.email ?? "", outcome: !r.valid ? "invalid" : dup ? `duplicate_${ctx.duplicate_action}` : "import",
-      reason: r.valid ? null : r.reason,
+      row: r.n, first_name: r.display?.first_name ?? "", last_name: r.display?.last_name ?? "", phone: r.display?.phone ?? "",
+      email: r.display?.email ?? "",
+      outcome: idk ?? (!r.valid ? "invalid" : dup ? `duplicate_${ctx.duplicate_action}` : "import"),
+      reason: idk ? null : r.valid ? null : r.reason,
     };
   });
   const nonEmpty = planned.filter((r) => !r.empty);
+  const repeats = nonEmpty.filter((r) => idOutcome(r.n) === "repeat").length;
   const ids = mode === "source_id" ? identityRows(planned, mode).map((r) => r.k).filter((k) => k.startsWith("id:")) : [];
   const { data: prior } = await c.svc.rpc("google_sheets_prior_receipt_count", {
     p_user: c.userId, p_org: c.orgId, p_spreadsheet: spreadsheetId, p_sheet: sheetId,
     p_fps: mode === "row_position" ? nonEmpty.map((r) => r.fp) : [], p_keys: ids });
   return {
-    title: tab.title, total_rows: nonEmpty.length, valid_rows: nonEmpty.filter((r) => r.valid).length,
-    invalid_rows: nonEmpty.filter((r) => !r.valid).length, imported_before: Number(prior ?? 0), rows,
+    title: tab.title, total_rows: nonEmpty.length, valid_rows: nonEmpty.filter(importable).length,
+    invalid_rows: nonEmpty.length - nonEmpty.filter(importable).length - repeats, repeat_rows: repeats,
+    imported_before: Number(prior ?? 0), rows,
     duplicate_action: ctx.duplicate_action, has_lead_created_workflows: ctx.has_lead_created_workflows,
   };
 }
@@ -208,7 +227,14 @@ export async function setState(c: Ctx, body: Record<string, unknown>, action: "p
   return (data ?? [])[0];
 }
 
-/** Recovery / identity change: classify the current rows under the NEW config, then apply on request. */
+const choice = (v: unknown): boolean | null => (v === true ? true : v === false ? false : null);
+const version = (v: unknown): number | null => (Number.isInteger(v) ? Number(v) : null);
+
+/**
+ * Structural recovery / identity change: classify the current rows under the NEW config (established by Lead ID /
+ * content-matched / unmatched), then apply ONLY the reviewed snapshot with the agent's explicit choices. The
+ * generation of the refresh token actually used for the read is re-validated in the apply transaction.
+ */
 export async function review(c: Ctx, body: Record<string, unknown>, dryRun: boolean) {
   const src = await ownSource(c, str(body.source_id, 64));
   const mapping = mappingOrThrow(body.mapping ?? src.mapping);
@@ -221,11 +247,65 @@ export async function review(c: Ctx, body: Record<string, unknown>, dryRun: bool
   const { planned } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping, idHeader ?? carryId);
   const rows = identityRows(planned, mode, true);
   const { data, error } = await c.svc.rpc("google_sheets_review", {
-    p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: Number(body.expected_version),
-    p_identity_mode: mode, p_id_header: idHeader, p_mapping: mapping, p_rows: rows,
-    p_import_unknown: body.import_unknown === true, p_dry_run: dryRun });
+    p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: version(body.expected_version),
+    p_generation: a.generation, p_identity_mode: mode, p_id_header: idHeader, p_mapping: mapping, p_rows: rows,
+    p_import_matched: choice(body.import_matched), p_import_unknown: choice(body.import_unknown),
+    p_snapshot: dryRun ? null : str(body.snapshot, 64) || null, p_dry_run: dryRun });
   if (error) throw new DbError(error.message, error.code);
   return (data ?? [])[0];
+}
+
+/** One fresh read + the owner's ledger → identity review classification (no writes). */
+async function identityClassify(c: Ctx, src: Record<string, any>) {
+  if (src.identity_mode !== "source_id" || !src.id_header) throw new ActionError(409, "invalid_state");
+  const a = await access(c);
+  const { planned } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mappingOrThrow(src.mapping), src.id_header);
+  const state = await db(c).reviewState(c.userId, c.orgId, src.id);
+  const cls = identityReview(planned, state.rows ?? [], new Set(state.receipt_ids ?? []));
+  const review = { decide: cls.decide.map((d) => ({ k: d.k, n: d.n, f: d.f, s: d.s, hint: d.hint })), retire: cls.retire, kept: cls.kept };
+  return { a, planned, cls, review };
+}
+
+async function resolveIdentity(c: Ctx, src: Record<string, any>, generation: number, review: unknown, snapshot: string | null,
+  decisions: Record<string, string> | null, dryRun: boolean) {
+  const { data, error } = await c.svc.rpc("google_sheets_resolve_identity", {
+    p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: src.config_version, p_generation: generation,
+    p_review: review, p_snapshot: snapshot, p_decisions: decisions, p_dry_run: dryRun });
+  if (error) throw new DbError(error.message, error.code);
+  return (data ?? [])[0] as { snapshot: string; config_version: number; decided: number };
+}
+
+/** Identity review preview: every row that could be an unaccounted excluded row, each needing a decision. */
+export async function identityReviewPreview(c: Ctx, body: Record<string, unknown>) {
+  const src = await ownSource(c, str(body.source_id, 64));
+  if (version(body.expected_version) !== src.config_version) throw new ActionError(409, "version_conflict");
+  const { a, planned, cls, review } = await identityClassify(c, src);
+  const r = await resolveIdentity(c, src, a.generation, review, null, null, true);
+  const byN = new Map(planned.map((p) => [p.n, p]));
+  return {
+    snapshot: r.snapshot, config_version: r.config_version, unresolved_rows: cls.unresolvedRows,
+    established: cls.established, approved: cls.approved, kept: cls.keptRows,
+    rows: cls.decide.map((d) => ({
+      key: d.k, row: d.n, lead_id: d.id, hint: d.hint, valid: d.valid, reason: d.reason, rows: d.rows,
+      ...(byN.get(d.n)?.display ?? { first_name: "", last_name: "", phone: "", email: "" }),
+    })),
+  };
+}
+
+/** Identity review apply: the fresh classification must equal the previewed snapshot, then decisions commit atomically. */
+export async function identityReviewApply(c: Ctx, body: Record<string, unknown>) {
+  const src = await ownSource(c, str(body.source_id, 64));
+  if (version(body.expected_version) !== src.config_version) throw new ActionError(409, "version_conflict");
+  const raw = body.decisions;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ActionError(422, "invalid_argument");
+  const decisions: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k !== "string" || k.length > 300 || (v !== "import" && v !== "exclude")) throw new ActionError(422, "invalid_argument");
+    decisions[k] = v;
+  }
+  const { a, review } = await identityClassify(c, src);
+  const r = await resolveIdentity(c, src, a.generation, review, str(body.snapshot, 64) || null, decisions, false);
+  return { config_version: r.config_version, decided: r.decided };
 }
 
 export async function disconnect(c: Ctx) {

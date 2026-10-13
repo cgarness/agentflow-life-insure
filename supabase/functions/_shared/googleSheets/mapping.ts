@@ -197,8 +197,35 @@ export function buildLead(row: string[], cols: ResolvedColumns, customNames: Map
   return { empty, valid: true, core, lead };
 }
 
-/** SHA-256 over the core identity values only (edits to optional/unmapped columns do not change it). */
-export async function fingerprint(core: string[]): Promise<string> {
-  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(core))));
+async function sha256Json(v: unknown): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(v))));
   return [...d].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+/** SHA-256 over the core identity values only (edits to optional/unmapped columns do not change it). */
+export function fingerprint(core: string[]): Promise<string> {
+  return sha256Json(core);
+}
+
+/**
+ * Content signature (Finding 3): SHA-256 over the trimmed raw cells of EVERY mapped column (standard fields in a
+ * fixed order, custom fields by id) plus the Lead ID column — exactly the values that would be imported. Two rows
+ * sharing a Lead ID are genuine repeats only when their signatures are equal; invalid rows keep their own values.
+ */
+export function rowSignature(row: string[], cols: ResolvedColumns): Promise<string> {
+  const cell = (i: number | undefined | null) => (i === undefined || i === null ? null : (row[i] ?? "").trim());
+  return sha256Json({
+    std: STANDARD_TARGETS.map((t) => cell(cols.std[t])),
+    custom: [...cols.custom].sort((a, b) => (a.customFieldId < b.customFieldId ? -1 : a.customFieldId > b.customFieldId ? 1 : 0))
+      .map((c) => [c.customFieldId, cell(c.idx)]),
+    id: cell(cols.idIdx),
+  });
+}
+
+/** Display values for review lists (raw, trimmed; never used for identity). */
+export function displayFields(row: string[], cols: ResolvedColumns): { first_name: string; last_name: string; phone: string; email: string } {
+  const get = (t: StandardTarget) => { const i = cols.std[t]; return i === undefined ? "" : (row[i] ?? "").trim(); };
+  let first = get("first_name"), last = get("last_name");
+  if (!first && !last && get("full_name")) { const s = splitFullName(get("full_name")); first = s.firstName; last = s.lastName; }
+  return { first_name: first, last_name: last, phone: get("phone"), email: get("email") };
 }

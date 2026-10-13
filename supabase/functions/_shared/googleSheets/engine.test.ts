@@ -11,7 +11,7 @@ const SRC: ClaimedSource = {
   lead_source_default: "Google Sheets", config_version: 3, phase: "steady", row_epoch: 1,
 };
 
-function fakeDb(ledger: LedgerRow[] = [], opts: { staleOnIngest?: boolean } = {}) {
+function fakeDb(ledger: LedgerRow[] = [], opts: { staleOnIngest?: boolean; finish?: string } = {}) {
   const calls: Record<string, unknown[]> = { ingest: [], finish: [], markReconnect: [] };
   const db = {
     claim: async () => [],
@@ -25,7 +25,7 @@ function fakeDb(ledger: LedgerRow[] = [], opts: { staleOnIngest?: boolean } = {}
       if (opts.staleOnIngest && rows.length) throw new DbError("stale: configuration changed");
       return { imported: rows.length, flagged: 0, skipped: 0, errors: 0, new_pending: pending.length, rows: [] };
     },
-    finish: async (_s: ClaimedSource, _l: string, _t: string, r: Record<string, unknown>) => { calls.finish.push(r); return true; },
+    finish: async (_s: ClaimedSource, _l: string, _t: string, r: Record<string, unknown>) => { calls.finish.push(r); return opts.finish ?? "completed"; },
   } as unknown as SheetsDb;
   return { db, calls };
 }

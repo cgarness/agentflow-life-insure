@@ -2,8 +2,9 @@
 // google-sheets-api — authenticated Settings → Google Sheets actions (verify_jwt=false; the JWT is
 // validated in code and the organization comes from public.profiles — never from the request body).
 // Actions: status, context, picker_token, inspect, headers, preview, save, activate, sync_now, pause,
-// resume, remove, review_preview, review_apply, disconnect. Responses are no-store; no credential is
-// ever returned except the short-lived, scope-inspected Picker access token.
+// resume, remove, review_preview, review_apply, identity_review_preview, identity_review_apply, disconnect.
+// Responses are no-store; no credential is ever returned except the short-lived, scope-inspected Picker
+// access token. GOOGLE_SHEETS_ENABLED is read per request: unset → 503 for everything but status/disconnect.
 // =============================================================================
 import { readConfig } from "../_shared/googleSheets/config.ts";
 import { DbError } from "../_shared/googleSheets/db.ts";
@@ -16,7 +17,8 @@ const DB_ERRORS: Record<string, [number, string]> = {
   not_permitted: [403, "not_permitted"], duplicate_source: [409, "duplicate_source"],
   version_conflict: [409, "version_conflict"], identity_change_requires_review: [409, "identity_change_requires_review"],
   not_connected: [409, "not_connected"], not_found: [404, "not_found"], invalid_state: [409, "invalid_state"],
-  invalid_argument: [422, "invalid_argument"],
+  invalid_argument: [422, "invalid_argument"], review_changed: [409, "review_changed"],
+  connection_changed: [409, "connection_changed"],
 };
 
 export function errorResponse(e: unknown, cors: Record<string, string>): Response {
@@ -64,6 +66,8 @@ export async function handle(req: Request): Promise<Response> {
       case "pause": case "resume": case "remove": return json(await A.setState(c, body, action), 200, cors);
       case "review_preview": return json(await A.review(c, body, true), 200, cors);
       case "review_apply": return json(await A.review(c, body, false), 200, cors);
+      case "identity_review_preview": return json(await A.identityReviewPreview(c, body), 200, cors);
+      case "identity_review_apply": return json(await A.identityReviewApply(c, body), 200, cors);
       case "disconnect": return json(await A.disconnect(c), 200, cors);
       default: return json({ error: "unknown_action" }, 400, cors);
     }
