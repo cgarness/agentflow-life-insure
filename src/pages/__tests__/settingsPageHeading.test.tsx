@@ -38,6 +38,7 @@ vi.mock("@/components/settings/CallScripts", () => ({ default: () => <div data-t
 vi.mock("@/components/settings/DispositionsManager", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/ContactManagement", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/CalendarSettings", () => ({ default: () => <div data-testid="section-body" /> }));
+vi.mock("@/components/settings/google-sheets/GoogleSheetsSettings", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/Permissions", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/EmailSetup", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/EmailSMSTemplates", () => ({ default: () => <div data-testid="section-body" /> }));

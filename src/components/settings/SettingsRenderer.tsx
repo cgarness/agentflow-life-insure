@@ -16,6 +16,7 @@ import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
 import AgencyGroupSettings from "@/components/settings/AgencyGroupSettings";
 import WorkflowBuilder from "@/components/settings/WorkflowBuilder";
+import GoogleSheetsSettings from "@/components/settings/google-sheets/GoogleSheetsSettings";
 import { Settings } from "lucide-react";
 import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
 
@@ -45,6 +46,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "calendar-settings": return <CalendarSettings />;
     case "permissions": return <Permissions />;
     case "email-settings": return <EmailSetup />;
+    case "google-sheets": return <GoogleSheetsSettings />;
     case "templates": return <EmailSMSTemplates />;
     case "carriers": return <Carriers />;
     case "dnc": return <DNCSettings />;
