@@ -255,6 +255,206 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
 
 **Not touched:** `import-contacts`, Gmail and Calendar functions, `_shared/google-token.ts`, workflows, dialer, Twilio, SMS, DNC, consent, `src/content/legal.ts` (privacy copy is proposed in the release package only).
 
+### 0.9 Pre-release integrity corrections — PLAN, AWAITING APPROVAL (review of `8b675e5`, 2026-10-13)
+
+**Status:** plan only. No implementation file, migration, deployment or backend state has been changed for these corrections. The product decisions in §0.1–§0.2 are unchanged.
+
+**State checked before planning**
+- **Code:** `main` is still `f91e4ba`. The PR #442 head is the reviewed `8b675e5`. No new overlapping PR.
+- **Database (read-only):** production has no `google_sheets` migration, table or function, and the `_contacts_permission_default` MD5 is still `a199d5dd…`. No Supabase preview branch exists for this PR (its "Supabase Preview" check was skipped). So `20261013120000_google_sheets_import_foundation.sql` is unapplied everywhere and may be **amended in place**; no superseding migration is needed.
+- **CI:** CI on `8b675e5` passed, but no workflow ran the Sheets suites. This correction adds one.
+
+**Reproductions on the reviewed code** (scratch scripts only; nothing committed)
+
+| Finding | Result on `8b675e5` |
+|---|---|
+| 1 | Baseline `blank:2` (fp A) + `id:B`; sort so B is row 2 and A is row 3; give A an ID → `planSourceId` returns `id:NEWID` as an import candidate. |
+| 3 | Two rows share ID `X` with identical core fields but `state` CA vs TX → no conflict; `id:X` is imported with CA (silent winner). |
+| 2a | Claim → reconnect Google → finish the old run with `access_lost` → returns `true` and the source health becomes `access_lost`. |
+| 2b | Claim → lease expires (not re-claimed) → finish → returns `true` and writes a new `last_success_at`. |
+| Capacity | Claims go oldest-due first. A backlogged run re-queues behind already-due sources, and the same source is claimed again in the same invocation (S1 → S2 → S1). |
+
+#### Finding 1 — excluded blank-ID rows must stay excluded after sorting and ID completion
+
+**Root cause.** `planSourceId` recognises an excluded blank-ID row only at its original position (`blank:<n>` with the same fingerprint at the same row). After a sort, the excluded row's new ID looks like a brand-new row.
+
+**Design** (`identity.ts`, pure; one pass per sync). Blank-ID baselines (`blank:<n>`, core fingerprint) are reconciled in three steps.
+
+1. **Positional anchor (strong evidence).** If the row now at `n` has the same core fingerprint:
+   - still blank → excluded silently;
+   - it now has an ID that has no receipt, baseline or conflict → carried to an ID baseline, as today (`{k:"id:X", baseline:true, consume:"blank:n"}`, validated by SQL).
+2. **Moved but still blank.** Unanchored baselines form a fingerprint multiset. Blank-ID rows matching it are excluded silently. Blank rows are never importable, so this is safe.
+3. **Unknown-ID rows** are rows whose ID has no receipt, baseline or conflict. If one has the core fingerprint of any **unanchored** blank baseline, or sits at the original position of an unanchored blank baseline (possibly the old row, edited and completed in place), its identity cannot be established safely. The plan returns `structural = "identity_ambiguous"`: the source goes to **Needs review** and nothing is imported that run. Progress, baselines, receipts and pending rows are preserved.
+
+**Resolution.** Recovery uses the existing Review dialog and `google_sheets_review` (multiset classification; the agent chooses "Import them as new leads" or "Skip them").
+
+**Effects**
+- A blank-ID row that matches no baseline stays a distinct **missing ID** error (pending `noid:<n>`, a new key namespace that avoids the current `blank:<n>` baseline/pending key collision). Once it gets an ID it becomes a normal candidate.
+- A genuinely new duplicate reaches the agency policy automatically when no unaccounted excluded row could be it, for example while the excluded twin is still blank in place.
+- When identity is ambiguous, the new duplicate reaches the policy through the agent's explicit Review choice. Content matches are never silently treated as old rows.
+
+**Documented limitation.** An excluded blank-ID row whose name/phone/email is edited AND which is moved AND given an ID cannot be told apart from a new row.
+
+**SQL** (amend the unapplied migration):
+- `google_sheets_ingest` accepts pending keys `^(id|blank|dup|noid):`;
+- on a successful import it clears the pending `noid:<n>` (instead of `blank:<n>`).
+
+Activation, baseline carry-over validation and review are unchanged.
+
+**Regression tests (Deno, `identity.test.ts`).** Each fails on `8b675e5` and passes after.
+- Completed without moving → carried.
+- Completed after sorting (the exact repro) → `identity_ambiguous`.
+- Several blank baselines (duplicates plus distinct; moved and still blank → silent; one completed → review).
+- An identical-looking new row: twin still blank in place → candidate; twin unaccounted → review.
+- New incomplete rows (blank ID, or missing phone) become candidates once corrected.
+
+#### Finding 2 — finalization must be lease-, version-, generation- and eligibility-safe
+
+**Change.** `private/public.google_sheets_finish(p_source, p_lease, p_version, p_generation, p_trigger, p_result)` now returns text: `completed | released | not_owner | not_found`.
+1. Lock the source FOR UPDATE. If `lease_owner ≠ p_lease`, return `not_owner` and write **nothing**; another worker's lease is never touched.
+2. Lock the connection row FOR SHARE (marked `-- finish:connection-lock`). A concurrent reconnect or disconnect then serialises against finish, and a stale generation cannot be read before the reconnect commits.
+3. **Valid only if all hold:**
+   - the lease is unexpired;
+   - `config_version = p_version` and `state = 'enabled'`;
+   - the connection is `connected` with `auth_generation = p_generation` and belongs to the same user and org;
+   - the owner is still eligible.
+4. **Valid →** the current writes (health, review reason, phase, failures, `next_sync_at`, `last_success_at`, error fields, `last_result`, run history) and `completed`.
+5. **Not valid but lease still ours →** clear only our lease and return `released`. No status, health, success-time, error, scheduling or history write. Leads and receipts from batches that committed earlier stay, as they always do.
+
+**Edge**
+- `db.finish` passes `s.auth_generation`; the engine is otherwise unchanged.
+- **Audit of related paths:**
+  - `review` is version-guarded and owner-checked, and the Google account cannot change while sources exist (`account_mismatch`) → no gap.
+  - `save_source`, `activate` and `set_state` are version- or state-checked under a row lock, and `activate` is generation-checked → no gap.
+  - The worker token check, `mark_reconnect` and the callback store are generation-guarded → no gap.
+  - **`picker_token` has a confirmed gap:** it returns a freshly minted token without re-checking the connection after minting. Fix: re-read the connection after minting and inspecting; return the token only if it is still `connected` with the same `auth_generation`, otherwise 409 `reconnect_required`.
+
+**Regression tests.** These fail on `8b675e5` (through a call adapter for the old 5-argument finish) and pass after.
+- **SQL T15, interleaved:** claim → reconnect → finish the old run with `access_lost`, then `needs_review`, then `error`, then success. Each must return `released` with the source snapshot unchanged (health, review reason, `last_success_at`, error fields, `next_sync_at`, failures, `last_result`).
+- Claim → disconnect → finish → `released`.
+- Lease expired and not re-claimed → `released`, no writes.
+- Takeover: old lease expires → newer worker claims and completes → old finish → `not_owner`; the newer state and lease are intact.
+- Old finish while a third worker holds the lease → `not_owner`, and the third lease is intact.
+- Permission revoked mid-run → `released`.
+- **Two-session concurrency** (`run_google_sheets_tests.sh`): session A reconnects and holds the connection lock 2 s; session B finishes the stale run → `released`, health unchanged. **Negative control:** the same run with the `FOR SHARE` marker removed → `completed` plus the stale `access_lost`, proving the lock matters.
+- **Deno:** the engine passes the claimed generation to finish; `picker_token` refuses when the generation changes between mint and return (new `google-sheets-api/actions.test.ts` with a fake service client).
+
+#### Finding 3 — duplicate-ID conflicts compare all mapped values
+
+**Change.**
+- **New content signature.** `mapping.ts` adds `rowSignature(row, cols)`: SHA-256 over the trimmed raw cells of **every mapped column** (standard and custom), in a stable order. These are exactly the strings that would be imported, and invalid rows keep their own raw values.
+- **Unchanged structural fingerprint.** The core fingerprint is still used for no-ID prefix validation, baselines, receipts and the Finding 1 pool.
+- **Shared classifier.** `identity.ts` adds `classifySourceIdRows(rows)`, used by both `planSourceId` and the preview:
+  - blank ID → `missing_id`;
+  - same ID with different signatures → `duplicate_id` for every row, nothing imported;
+  - same ID with identical signatures → first `ok`, the rest `repeat` (import once, as approved);
+  - otherwise `ok`.
+- **Preview** (`actions.ts`): ID-mode sample outcomes and counts use the classifier, so preview and processing agree. Per-row precedence: `missing_id` → `duplicate_id` → `repeat` → `invalid` → duplicate policy → ready. `SheetPreviewStep` gets labels for the new outcomes.
+
+**Regression tests (Deno).** Fail on `8b675e5`, pass after:
+- same ID and core, different state;
+- different DOB;
+- different notes;
+- different custom-field value;
+- one invalid and one valid row sharing an ID → conflict;
+- genuinely identical repeats → imported once.
+
+Plus a preview/processing agreement test over the same rows, and `rowSignature` unit tests.
+
+#### Release package corrections
+
+**Remove** the "independently sufficient kill switches" claim. Document four separate controls, with their actual effect:
+- **Frontend flag** `VITE_GOOGLE_SHEETS_ENABLED`: UI availability only (needs a frontend redeploy). It does not stop scheduled syncs or direct API calls.
+- **Cron removal** `cron.unschedule('google-sheets-sync-every-minute')`: no future scheduled invocations. A pg_net request already queued can still arrive within seconds, and an in-flight invocation runs to its 45 s budget.
+- **Backend flag** `GOOGLE_SHEETS_ENABLED` unset:
+  - the worker returns `{"disabled":true}` before claiming;
+  - the API returns 503 `disabled` for every action except `status` and `disconnect`;
+  - OAuth start returns 503 and the callback redirects `error`;
+  - an invocation that already passed the check finishes its current source (each batch atomic, at most 500 rows per run, lease at most 3 min);
+  - the flag is read per request, but secret changes reach new isolates, so the sequence verifies until consistently disabled.
+- **Pause / disconnect:** per source or per agent, with the tested boundaries. Pause bumps `config_version` and clears the lease; disconnect bumps `auth_generation` and deletes the Vault secret. In both cases the in-flight run's next ingest batch and its finish are rejected, and leads, receipts and baselines are kept. Disconnect requires a reconnect.
+
+**Non-destructive shutdown sequence** (record a timestamp and counts first):
+1. Unschedule the cron job and verify that `cron.job` has no row.
+2. Unset `GOOGLE_SHEETS_ENABLED`. Poll the worker (`disabled`) and the API (`sync_now` → 503) until consistent.
+3. Wait for drain: the active-lease count reaches 0 within 3 minutes.
+4. Verify nothing moves for 5 minutes: the latest `google_sheets_sync_runs.finished_at` and the latest receipt do not advance.
+5. Confirm that leads and receipts are not reduced, and that source state/health and connections are unchanged.
+6. Optionally hide the UI.
+
+Resume is the reverse.
+
+**How it is tested:**
+- the worker and API disabled paths (Deno; new `google-sheets-api/index.test.ts`);
+- the drain and stopped queries on synthetic data (SQL T17);
+- pause/disconnect boundaries (T9 and T15);
+- the pending cron migration guard and the exact `cron.unschedule` against **real pg_cron/pg_net** in the `supabase/postgres` image, in CI and locally when the image is available. Stub `google_sheets_*` tables stay empty there, so the job's due-work guard never issues an HTTP call, and the job is unscheduled within the test.
+
+**Capacity statement**, replaced with the verified behaviour:
+- **Per invocation:** at most 10 claims, one source each, within a 45 s budget; no new claim when fewer than 8 s remain. Each run is at most 500 rows in batches of 50, and stops starting batches when its budget is used.
+- **Fairness:** oldest `next_sync_at` first. A backlogged run re-queues at `now()` behind already-due sources, and may run again in the same invocation if nothing older is due. So one source can process up to 5,000 rows per invocation when alone.
+- **Steady state:** about `max(5, N/10)` minutes per source for N active sources, assuming runs finish fast enough for 10 per invocation; slow Google reads reduce this.
+- **Overlap:** an invocation that overruns a cron tick can overlap the next; leases keep them on different sources.
+- **No limit or behaviour change is proposed.** The same-source repeat stays as is; changing it would slow backlogs.
+
+#### CI against the exact candidate head
+
+New workflow `.github/workflows/google-sheets.yml`, triggered on `pull_request` for Sheets paths and on `workflow_dispatch`. It checks out `github.event.pull_request.head.sha`.
+
+| Job | Runs |
+|---|---|
+| `sql` | Docker `postgres:16` (host network) → `scripts/run_google_sheets_tests.sh`: the suite, concurrency plus negative controls, rollback, PostgREST role checks |
+| `cron` | Docker `supabase/postgres` → `scripts/run_google_sheets_cron_check.sh` (pending schedule migration guard, schedule, refusal to replay, unschedule; no outbound call possible) |
+| `edge` | Deno 2.5.x from npm → `deno test --allow-env` (Sheets tests) and `deno check` on the four entry points |
+| `frontend` | `npm ci` → focused Vitest; ESLint on Sheets files; `npx tsc --noEmit`; app tsc compared with the PR base (zero new diagnostics); `npm run build` |
+| `ui` | Playwright Chromium → Vite with mock env → `scripts/tests/google-sheets-ui/verify.mjs`; screenshots uploaded as an artifact |
+
+**Risk:** pushing a workflow file needs `workflows` permission on the push credential. If the push is refused, I report it as a blocker with the file ready for Chris to add, and do not claim CI coverage.
+
+#### Exact files (this correction)
+
+**Modified**
+- `supabase/migrations/20261013120000_google_sheets_import_foundation.sql` (unapplied candidate): `google_sheets_finish` (private and public), the ingest pending-key namespace and cleanup.
+- `supabase/functions/_shared/googleSheets/{identity,mapping,engine,db}.ts`
+- `supabase/functions/google-sheets-api/actions.ts`
+- `src/lib/google-sheets/status.ts` (Review reason `identity_ambiguous`, routed to the Review dialog)
+- `src/components/settings/google-sheets/SheetPreviewStep.tsx` (new outcome labels)
+- **Tests:**
+  - `supabase/functions/_shared/googleSheets/{identity,mapping,engine}.test.ts`;
+  - `supabase/tests/google_sheets_import.sql` (new finish signature; T15–T17);
+  - `scripts/run_google_sheets_tests.sh` (reconnect-versus-finish concurrency and negative control);
+  - `scripts/google_sheets_postgrest_check.mjs` (finish arguments);
+  - `src/lib/google-sheets/__tests__/googleSheets.test.ts`;
+  - `scripts/tests/google-sheets-ui/verify.mjs` (preview outcome labels).
+- **Docs:** this plan; `release-package.md`, `verification.md` (checksums); `WORK_LOG.md`; `AGENT_RULES.md` (correct the overstated finalization/kill-switch claims and record the blank-ID and conflict rules); root `implementation_plan.md`.
+
+**New**
+- `supabase/functions/google-sheets-api/{actions,index}.test.ts`
+- `supabase/tests/google_sheets_cron_check.sql`, `scripts/run_google_sheets_cron_check.sh`
+- `.github/workflows/google-sheets.yml`
+
+**Not touched:** the rollback (it drops functions by name pattern), the pending cron migration, OAuth start/callback, the worker entry point, Gmail, Calendar, `import-contacts`, workflows, telephony, SMS, DNC and consent.
+
+#### Verification plan
+- **Regression evidence:** run the new tests against `8b675e5` in a temporary worktree (Deno with `--no-check` where types changed; SQL through the old-signature adapter) and record the failures. Then run them on the candidate and record the passes.
+- **Local commands:**
+  - `npx tsc --noEmit`;
+  - `npx tsc -p tsconfig.app.json --noEmit` against a fresh baseline (re-captured from `main`);
+  - focused Vitest and changed-file ESLint;
+  - `npm run build`;
+  - `deno check` and `deno test`;
+  - `run_google_sheets_tests.sh` and `run_google_sheets_cron_check.sh`;
+  - the UI flow.
+- **CI:** report the check runs for the exact pushed head.
+
+**Unchanged release gate:** the real Google-account test (Picker → server read → fresh access token from the stored refresh token → server read). Mocked Picker checks are not that test.
+
+**Decisions this plan applies (flagged for confirmation)**
+1. Ambiguous blank-ID identity puts the whole source in Needs review, so nothing imports until the agent reviews. This is consistent with no-ID structural review.
+2. A stale run's finish releases only its own lease and records no run history.
+3. Same-source repeat runs within one invocation are kept and documented, not throttled.
+4. The cron shutdown check runs against the `supabase/postgres` image, with no outbound call possible.
+
 ---
 
 *Original Phase 1 plan follows (history; superseded where §0 differs).*

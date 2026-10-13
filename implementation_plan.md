@@ -1,3 +1,23 @@
+## 2026-10-13 — CORRECTION PLAN, awaiting Chris's approval: Google Sheets PR #442 pre-release integrity fixes
+
+**Status:** plan only. No implementation file or backend state was changed. PR #442 stays draft at the reviewed head `8b675e5` plus this plan commit.
+
+**Checked:**
+- `main` is still `f91e4ba`, with no overlapping PR.
+- The foundation migration is unapplied in production and there is no preview branch, so the candidate may be amended.
+- All three findings and the worker re-claim behaviour reproduce on `8b675e5`.
+
+**Plan:** detailed plan §0.9, covering:
+- Finding 1: blank-ID baseline reconciliation with positional anchoring; ambiguous identity → Review;
+- Finding 2: a lease-, version-, generation- and eligibility-safe `google_sheets_finish` with a connection lock, plus a re-check in `picker_token`;
+- Finding 3: an all-mapped-values content signature and one shared ID classifier for processing and preview;
+- release-package stop controls, a tested shutdown sequence and a verified capacity statement;
+- a new Sheets CI workflow run against the exact head.
+
+**Files:** exact list in §0.9.
+
+---
+
 ## 2026-10-13 — IMPLEMENTED on draft PR #442, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
 
 **Status:** Chris approved implementation (D1–D11; "new row → create lead"; new rows by default) on 2026-10-13. The plan was revised first (§0 of the detailed plan).
