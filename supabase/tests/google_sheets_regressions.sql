@@ -226,7 +226,8 @@ BEGIN
   PERFORM * FROM pg_temp.review_any(pg_temp.u(), pg_temp.o(), src, v, pg_temp.gen(), 'row_position', NULL, NULL, rows, true, true, r.snap, false);
   PERFORM pg_temp.rec('A2 the agent''s explicit "import" for a content-matched row is honoured (it is not silently baselined)', 'REGRESSION',
     NOT EXISTS (SELECT 1 FROM private.google_sheets_source_rows WHERE source_id = src AND row_key = 'pos:3'),
-    format('ledger after apply: %s', (SELECT string_agg(row_key || '=' || kind, ',') FROM private.google_sheets_source_rows WHERE source_id = src)));
+    format('ledger after apply: %s', coalesce((SELECT string_agg(row_key || '=' || kind, ',') FROM private.google_sheets_source_rows WHERE source_id = src),
+      '(empty: both rows stay import candidates)')));
 EXCEPTION WHEN OTHERS THEN PERFORM pg_temp.rec('A2 explicit import of a content match', 'REGRESSION', false, 'error: ' || SQLERRM);
 END $$;
 

@@ -154,7 +154,7 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   // Preview (read-only) → new rows default → Enable
   const before = state.calls.length;
   await page.getByRole("button", { name: "Preview" }).click();
-  await page.getByText(/2 ready · 4 need fixes · 1 repeats/).waitFor();
+  await page.getByText(/2 ready · 4 need fixes · 1 repeat$/).waitFor();
   check(await page.getByText("No Lead ID", { exact: true }).isVisible() && await page.getByText("Lead ID conflict").first().isVisible()
         && await page.getByText("Repeat · imported once").isVisible(), `${vp.name}: preview shows the shared ID classifier outcomes`);
   check(!state.calls.slice(before).some((c) => c === "save" || c === "activate"), `${vp.name}: preview makes no save/activate call`);

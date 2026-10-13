@@ -37,7 +37,7 @@ const SheetPreviewStep: React.FC<Props> = ({ pick, draft, onChange, showExisting
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {data.total_rows} rows now · {data.valid_rows} ready · {data.invalid_rows} need fixes{data.repeat_rows ? ` · ${data.repeat_rows} repeats` : ""}
+        {data.total_rows} rows now · {data.valid_rows} ready · {data.invalid_rows} need fixes{data.repeat_rows ? ` · ${data.repeat_rows} ${data.repeat_rows === 1 ? "repeat" : "repeats"}` : ""}
       </p>
       <div className="max-h-56 overflow-auto rounded-lg border">
         <table className="w-full text-xs">

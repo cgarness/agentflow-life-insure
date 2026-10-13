@@ -263,7 +263,9 @@ psql "$PGURL/$DB_SD" -qtAc "SET ROLE service_role; SELECT public.google_sheets_i
 DRAIN2="$(psql "$PGURL/$DB_SD" -qtA -F '|' -f "$OPS/google_sheets_drain_check.sql")"
 echo "   drain check: wrappers_executable=$(echo "$DRAIN1" | cut -d'|' -f2) active_backends=$(echo "$DRAIN1" | cut -d'|' -f3) receipts=$(echo "$DRAIN1" | cut -d'|' -f6) sheets_leads=$(echo "$DRAIN1" | cut -d'|' -f8) unexpired_leases(informational)=$(echo "$DRAIN1" | cut -d'|' -f15)"
 [ "$(echo "$DRAIN1" | cut -d'|' -f2)" = 0 ] && [ "$(echo "$DRAIN1" | cut -d'|' -f3)" = 0 ] || { echo "   BLOCKED: admission open or a Sheets RPC still active"; exit 1; }
-[ "$(echo "$DRAIN1" | cut -d'|' -f2-)" = "$(echo "$DRAIN2" | cut -d'|' -f2-)" ] || { echo "   BLOCKED: markers moved between drain reads"; echo "$DRAIN1"; echo "$DRAIN2"; exit 1; }
+# Columns 2-14 must not move (column 1 is the read time; column 15, unexpired leases, is informational and may fall as
+# leases expire, which proves nothing either way) — the same comparison release-package.md §5 step 5 prescribes.
+[ "$(echo "$DRAIN1" | cut -d'|' -f2-14)" = "$(echo "$DRAIN2" | cut -d'|' -f2-14)" ] || { echo "   BLOCKED: markers moved between drain reads"; echo "$DRAIN1"; echo "$DRAIN2"; exit 1; }
 psql "$PGURL/$DB_SD" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null || { echo "   FAIL: data or intent not preserved"; exit 1; }
 DO $$ BEGIN
   IF (SELECT count(*) FROM public.leads WHERE first_name IN ('W1','F1')) <> 2 OR EXISTS (SELECT 1 FROM public.leads WHERE first_name = 'W2') THEN

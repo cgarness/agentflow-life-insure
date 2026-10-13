@@ -23,6 +23,7 @@ on:
       - 'supabase/config.toml'
       - 'package*.json'
       - '.github/workflows/google-sheets.yml'
+      - 'docs/plans/2026-10-13-google-sheets-import/**'
   workflow_dispatch:
 permissions:
   contents: read
