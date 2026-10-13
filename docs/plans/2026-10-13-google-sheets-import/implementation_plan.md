@@ -1,21 +1,263 @@
 # Google Sheets lead import V1 — implementation plan
 
-**Status: PLAN ONLY — awaiting Chris's explicit approval.** Date: 2026-10-13. Branch `claude/keen-brown-e4u3ht`, base `main` `f91e4ba`.
+**Status (2026-10-13): APPROVED FOR IMPLEMENTATION, revised in §0.** Chris approved implementation with decisions D1–D11, the trigger/action model ("a new row in a connected tab → create a lead for the connected agent"), and new-rows-by-default activation.
 
-Phase 1 authorised read-only inspection and plan preparation only. No implementation file, migration, Edge function, secret, cron job, Google Cloud setting, Vercel setting or production row was changed.
+§0 is authoritative: where it differs from §1–§14 (the original Phase 1 plan, kept below for history), §0 wins.
 
-Each later step needs its own approval of the exact action:
+**Approved under this revision:**
 - implementation;
-- push or draft PR;
-- Google Cloud configuration;
-- secrets;
-- migration apply;
-- Edge deploy;
-- cron activation;
-- privacy-copy publication;
-- merge or release.
+- local verification;
+- branch commits and pushes;
+- a draft PR.
+
+**Still gated** on review of the release package in `release-package.md`:
+- production mutations;
+- Google Cloud changes and secrets;
+- migration apply and Edge deploy;
+- live imports and cron activation;
+- privacy publication;
+- merge and release.
 
 ---
+
+## 0. Approved revision (supersedes conflicting text below)
+
+### 0.1 Resolved decisions
+
+| # | Resolution |
+|---|---|
+| D1 | New capability `contacts.leads.import_google_sheets` defaults **ON for Agent and Team Leader**; Admin and Super Admin are always allowed. A stored explicit `false` wins. No other permission changes. Settings-section visibility (`role_permissions.s`) and import permission are separate controls: a user who can see the section but lacks the capability sees a one-line notice. |
+| D2 | Dedicated "AgentFlow Sheets" OAuth client in project 87346168200. Sheets never calls `revoke`. |
+| D3 | Refresh tokens are stored in Supabase Vault. |
+| D4 | Per-sheet default Lead Source, initially "Google Sheets", used when no source column is mapped or the cell is blank. The dropdown offers the agency's existing lead sources plus "Google Sheets". Nothing is created in `lead_sources`. |
+| D5 | Status is resolved on the server at insert time: the agency default lead stage, else the first by sort order, else `New`. This is the same rule as the CSV modal. |
+| D6 | The existing `trg_workflow_lead_created` trigger fires once per inserted lead; the worker dispatches nothing itself. The "Also import existing rows" preview shows the concise existing-workflow warning when active Lead Created workflows exist. |
+| D7 | Dedicated sync history (`google_sheets_sync_runs`). No Import History rows and no Undo. |
+| D8 | Core contract only: first name, last name, phone. Full name is split with the CSV `splitFullName` rule, only when first and last are both unmapped or blank. A one-word Full name leaves last name blank, so the row is invalid; phone is always required. |
+| D9 | 10,000 data rows per tab (exceeded → Needs review, never truncated); 500 new rows per source per run; 10 sources per worker tick. These are processing limits, not a cap on the number of sheets. |
+| D10 | Prepared for a controlled pilot. Publishing status must be re-verified freshly in the release package; moving to In production is out of scope. |
+| D11 | Sheets without a Source Lead ID are allowed, with full-prefix structural validation (§0.4). |
+
+### 0.2 Activation: new rows by default
+
+**Setup:** Connect → Add spreadsheet (Picker) → Tab → Map → Preview → **Enable**. The checkbox "Also import existing rows" is unchecked by default.
+- Preview and draft save never create leads or start workflows. The preview is read-only; draft save writes only the source configuration.
+- `activate` (server):
+  1. performs one consistent server read of the tab (header plus all data rows, capped at 10,000 + 1 to detect overflow);
+  2. validates the header and mapping;
+  3. computes row identities and fingerprints;
+  4. calls `google_sheets_activate`, which runs as **one transaction**.
+- `google_sheets_activate` does all of the following:
+  - locks the source row and requires `state='draft'` or a matching retry;
+  - checks `expected_config_version`, owner eligibility, and connection status and `auth_generation`;
+  - **unchecked:** writes a baseline record (kind `baseline`) for every data row of that read. **checked:** writes no baseline, and phase `initial` makes those rows candidates;
+  - sets `state='enabled'`, `activated_at`, `baseline_row_count` and `next_sync_at=now()`.
+- **Baseline records are distinct from receipts.** A baseline row was excluded on purpose, not imported. In no-ID mode a baselined row stays excluded even if edited. In ID mode an excluded ID stays excluded whatever its content.
+- **Rows that arrive after the baseline read** have no record, so they are candidates.
+- **Repeated or concurrent activation:** the second call sees `state<>'draft'` and returns the current state; it never takes a second baseline.
+- **Failed activation** rolls back the transaction and leaves the same draft row (same id). A retry reuses it.
+- **"Also import existing rows" with a re-added tab:** in ID mode, IDs with permanent receipts are skipped automatically. In no-ID mode, rows whose core fingerprint equals a permanent receipt of an earlier source for the same org, owner, spreadsheet and tab are baselined instead of imported. The preview shows this count ("N imported before"), so the exclusion is explicit and visible, not automatic classification of appended rows.
+
+### 0.3 Data model
+
+All new objects are in migration `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`; the version is re-stamped on apply per invariant #35. The cron schedule is in `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql`.
+
+**`public.google_sheets_connections`**
+- Columns:
+  - `organization_id`, `user_id` (FK cascade), `UNIQUE(organization_id, user_id)`;
+  - `google_sub`, `google_email`, `granted_scopes`;
+  - `status` ∈ connected | reconnect_required | disconnected;
+  - **`auth_generation` bigint**, incremented on every connect, disconnect and reconnect-required transition;
+  - `has_refresh_token`, `last_error_code`, timestamps.
+- RLS: SELECT own (`user_id=auth.uid() AND organization_id=get_org_id()`); there are no client write grants.
+
+**`public.google_sheets_sources`**
+- Identity: `organization_id`, `user_id`, `connection_id`, `spreadsheet_id`, `sheet_id` (numeric gid).
+- Names: `spreadsheet_name`, `sheet_title`, `display_name`.
+- Configuration:
+  - `mapping` jsonb (validated server-side);
+  - `identity_mode` ∈ source_id | row_position; `id_header`;
+  - `lead_source_default` (default `'Google Sheets'`);
+  - `include_existing`;
+  - **`config_version` int**, bumped on every configuration, identity or state change.
+- Lifecycle:
+  - `state` ∈ draft | enabled | paused (user intent);
+  - `health` ∈ ok | needs_review | access_lost | error (system); `review_reason`;
+  - `phase` ∈ initial | steady.
+- Progress and scheduling: `row_epoch`, `activated_at`, `baseline_row_count`, `next_sync_at`, `lease_owner`, `lease_expires_at`, `consecutive_failures`.
+- Results: `last_checked_at`, `last_success_at`, `last_result`, `last_error_code`, `last_error_message`.
+- Constraints: `UNIQUE(organization_id, user_id, spreadsheet_id, sheet_id)`, which prevents duplicate configuration of the same tab. RLS: SELECT own.
+
+**Operational row ledger: `private.google_sheets_source_rows`** (`source_id`, `row_key`)
+- Columns: `row_number`, `fingerprint`, `kind` ∈ baseline | pending | done, `pending_reason`, `updated_at`.
+- It cascades with the source; permanent protection lives in receipts.
+- Uses by mode:
+  - **ID mode:** baselines (`id:<value>`, plus `blank:<row>` for baseline rows with no ID) and pending rows (invalid, blank-ID, conflicting-ID).
+  - **No-ID mode:** a record for every observed position (`pos:<row>`) with its fingerprint. This is the prefix used for structural validation.
+
+**Permanent receipts: `private.google_sheets_receipts`**
+- Key: `UNIQUE(organization_id, user_id, spreadsheet_id, sheet_id, receipt_key)`.
+  - ID mode: `receipt_key='id:<value>'`. It is stable across sources, reconnects and remove/re-add.
+  - No-ID mode: `'pos:<source_id>:<epoch>:<row>'`.
+- Other columns: `outcome` ∈ imported | imported_flagged | skipped_duplicate; `lead_id` and `source_id` as lineage only (no FKs); `fingerprint`, `row_number`.
+- Written in the same subtransaction as the lead insert, and never updated or deleted by this feature. It survives lead deletion, conversion, reconnects and source removal.
+- Invalid rows never get a receipt, so a receipt never blocks a corrected row.
+
+**Other tables**
+- `private.google_sheets_oauth_states`: state hash, user, org, `auth_generation` at start, return origin, AES-GCM-encrypted PKCE verifier, `expires_at` (10 min), `consumed_at`.
+- `public.google_sheets_sync_runs`: per-run results; SELECT own; pruned to 50 per source.
+
+**Row fingerprint:** SHA-256 over the *core* normalised values (first name, last name, phone digits, lowercased email, after the Full name split). Edits to unmapped or optional columns therefore do not trip structural checks, and header renames or optional remaps do not invalidate the prefix.
+
+### 0.4 Identity, retries and recovery
+
+**Source Lead ID mode** (case-sensitive, trimmed)
+- A row is a candidate when its ID has no receipt, no baseline and no conflict.
+- Sorting and moving rows change nothing.
+- **Conflicting duplicate IDs** (the same ID with different fingerprints): every unreceipted row of that ID is pending `duplicate_id`, reported as a row error, and nothing is imported until the conflict is resolved. There is no first-row-wins. Identical copies import once; the extra copies count as skipped.
+- **Blank ID:** the row is pending `blank:<row>` ("Missing Lead ID") and is revisited every sync. Once an ID is entered it becomes a normal candidate. The one exception: if a baseline `blank:<row>` exists at the same row with the same fingerprint, the new ID is baselined, so editing an excluded row cannot create a lead.
+
+**No-ID mode** (row position, with full-prefix validation)
+- **One consistent read per sync:** a single `values.get` covering the header and all data rows up to the cap. The prefix and the new candidates are evaluated from that one snapshot.
+- **Structural check:**
+  - every `baseline` and `done` position 1..cursor must still match its stored fingerprint;
+  - the data-row count must not fall below the cursor;
+  - the header must resolve.
+- **Pending positions are exempt from the fingerprint check,** because corrections are expected. They are revisited each sync even though they are behind the cursor.
+- **Any mismatch** sets `health='needs_review'` with a reason, and **nothing is imported**. Progress, baseline, receipts and pending rows are preserved.
+- This detects an insertion plus a compensating deletion above the tail, because every shifted position mismatches. A 25-row window would not.
+- **Appended rows are never classified by content.** An identical-looking new row is a new position, so it reaches the duplicate policy.
+- **Recovery (`review`):**
+  1. a fresh read classifies the current rows: positions whose fingerprint matches a stored baseline or done fingerprint (multiset) are "known";
+  2. the agent sees the counts and chooses **Import new rows** or **Skip them**;
+  3. one transaction bumps `row_epoch` and `config_version`, rebuilds the positions (known → baseline-kind; unknown → pending `review_import` or baseline), and clears `needs_review`.
+
+  The same review path applies whenever an activated source changes identity configuration (mode or ID column).
+
+**Retries**
+- The cursor advances only past positions that have a durable record (done or pending).
+- An invalid or new incomplete row is stored as pending with its fingerprint. It counts as an error only when it is new or its fingerprint changed, and it is retried every sync until valid.
+- A transient insert failure leaves no record, so the row is retried.
+
+**Lifecycle**
+- Pause/resume, edits that do not change identity, reconnect, and permission restoration all keep baselines, receipts and pending rows.
+- Reconnect clears only the connection state. It never changes a source's `state`, so draft, paused and needs_review sources stay as they were.
+
+### 0.5 Atomic ingest and concurrency
+
+`private.google_sheets_ingest_batch` (called through a public, service-role-only wrapper) handles at most 50 rows per call, inside one transaction.
+
+**Checks before anything is written** (with the source row locked FOR UPDATE):
+- owner and organization match;
+- `state='enabled'` and `health='ok'`;
+- `config_version` is as expected;
+- the lease matches and has not expired;
+- the connection is `connected` with the expected `auth_generation`;
+- the owner is eligible: an Active profile in that org, the org not suspended or archived, and the capability allowed.
+
+If any check fails, it raises `stale` and nothing is written.
+
+**Duplicate settings** are read from `contact_management_settings` on the server, with the CSV defaults: `phone_or_email`, `all_agents`, `flag`.
+
+**Serialization:** `pg_advisory_xact_lock` on `(org)`, or `(org, owner)` when the scope is `assigned_only`, taken before evaluating duplicates. This serializes concurrent Sheets imports, including two sources importing the same person. It does not claim to fix CSV races.
+
+**Per row (subtransaction):**
+1. insert the receipt with ON CONFLICT DO NOTHING; a conflict means the row is already done, so count nothing;
+2. evaluate duplicates with exact `import-contacts` semantics:
+   - digits-only phone, and email lowercased and trimmed;
+   - all four rules, with the candidate predicate matching the rule (phone OR email for `phone_or_email`; no phone-only prefilter);
+   - `assigned_only` compares against the owner's leads;
+   - rows inserted earlier in this batch or run count as existing;
+3. skip → receipt `skipped_duplicate`; flag → insert with the `__agentflow.duplicateImport` and `tags:["Duplicate"]` marker; import → plain insert;
+4. insert the lead:
+   - `assigned_agent_id = user_id = imported_by_user_id = owner`, and `organization_id = org`;
+   - `lead_score` 5, `status` per D5, `lead_source` per D4;
+   - `state` via `normalize_us_state`;
+   - the age and DOB rules from CSV;
+5. set the receipt's `lead_id`, and the no-ID `done` position, in the same subtransaction;
+6. a failure rolls back the receipt with it, and the row is counted as an error.
+
+The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch per insert, history, and no self-assignment notification. Skipped and invalid rows insert nothing, so no workflow fires for them. DNC, STOP, suppression and consent tables are never touched. Existing leads are never updated, merged or reassigned.
+
+`google_sheets_finish_run` and every status or error write use the same lease plus `config_version` conditions, so an old worker cannot overwrite a newer run.
+
+### 0.6 OAuth and Picker (amends §4)
+
+**Start**
+- Scopes: `openid email https://www.googleapis.com/auth/drive.file`; `include_granted_scopes=false`; PKCE S256; `access_type=offline`; `prompt=consent`.
+- State: 32 random bytes, SHA-256-hashed at rest, single-use with an atomic consume and a 10-minute expiry. It is bound to the user, org and `auth_generation` at start.
+- The return origin must be in a fixed allowlist (Edge secret), and the path is fixed.
+
+**PKCE verifier:** encrypted with **AES-256-GCM in Edge** (key `GOOGLE_SHEETS_STATE_KEY`, AAD = state hash). This replaces the pgcrypto idea in §4.3, so the key never appears in SQL text or parameters.
+
+**Callback**
+- Identity: the id_token comes straight from Google's token endpoint over TLS, so the checks are `iss`, `aud` = Sheets client id, `exp`, `sub` and `email_verified`. The `userinfo` `sub` must match.
+- Scopes: the granted `scope` is normalised (`email` ≡ `.../userinfo.email`). It must include `drive.file`, and anything outside {openid, email, drive.file} is rejected.
+- Refresh token: a usable one is required. One that is absent never overwrites a stored one; the stored token is retained only for the same `sub`.
+- `google_sheets_store_connection` writes the Vault secret and the connection row in one transaction, conditioned on the `auth_generation` captured at start. A late callback after a disconnect, or a superseded attempt, fails with "expired".
+
+**Picker token:** a fresh access token is minted from the refresh token, and its **actual scopes are inspected** with Google `tokeninfo`. It is refused if any scope falls outside the allowlist. The returned `expires_in` is capped at the real expiry and at most 3,600 s. The token is held in memory only.
+
+**Disconnect:** one transaction deletes the Vault secret, sets the connection to disconnected and bumps the generation. Sources stop; leads, receipts and baselines remain. It never calls `revoke`.
+
+**Stale failures:** `invalid_grant` marks `reconnect_required` only `WHERE auth_generation = <generation used>`, so an old failure cannot disable a newer connection.
+
+**Failure classification:**
+- quota (`rateLimitExceeded` / `RESOURCE_EXHAUSTED` / 429) → backoff;
+- `accessNotConfigured` / `SERVICE_DISABLED` → `error` `api_not_enabled`;
+- `insufficientPermissions` / scope errors → reconnect;
+- 404 or file-level `PERMISSION_DENIED` → `access_lost`.
+
+**Callback hostname:** MCP `get_project_url` returns `https://jncvvsvckxhqgqvkppmj.supabase.co`, and no branded Supabase domain exists in the repository, its branches or the plans. The callback is `https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/google-sheets-oauth-callback`. The release package requires re-confirming that no custom domain is configured.
+
+### 0.7 Worker, throughput and status
+
+**Schedule:** pg_cron runs every minute and posts only while a source is due, authenticated with a Vault bearer token compared in constant time.
+
+**Per invocation:** at most 10 sources are claimed with SKIP LOCKED and a 3-minute lease, within a 45 s budget, processing at most 500 rows per source.
+- Steady state: `next_sync_at = finish + 5 min ± 30 s`.
+- A source with remaining backlog (initial import, or more than 500 new rows) gets `next_sync_at = now()`, so it is picked up on the next one-minute tick with no 5-minute wait.
+
+**Throughput (honest):**
+- At most 10 source-checks per minute per worker invocation, so about 50 active sources are each checked about every 5 minutes.
+- With N > 50 active sources, the interval stretches to about N/10 minutes.
+- A 10,000-row backfill needs 20 runs, about 20 minutes.
+- Google quota (300 reads/min per project) is not the binding limit; one check costs 2–3 reads.
+- Raising capacity later means more concurrent invocations (leases make that safe), not changing the quota.
+
+**Sync now** uses the same engine and checks, claims only that source, and has a 30 s cooldown.
+
+**UI:** React Query polls every 10 s while any source is importing or syncing and the page is visible, and every 60 s otherwise. Processing never depends on the browser being open.
+
+### 0.8 Exact files (this revision)
+
+**New**
+- `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`
+- `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql`
+- `supabase/migrations/rollback/20261013120000_google_sheets_import_foundation.rollback.sql`
+- `supabase/tests/google_sheets_harness.sql`, `supabase/tests/google_sheets_import.sql`
+- `scripts/run_google_sheets_tests.sh` (native PostgreSQL plus a PostgREST role-access check)
+- `supabase/functions/google-sheets-oauth-start/index.ts`
+- `supabase/functions/google-sheets-oauth-callback/index.ts`
+- `supabase/functions/google-sheets-api/index.ts`
+- `supabase/functions/google-sheets-sync-worker/index.ts`
+- `supabase/functions/_shared/googleSheets/`: `config.ts`, `http.ts`, `crypto.ts`, `oauth.ts`, `google.ts`, `mapping.ts`, `identity.ts`, `db.ts`, `engine.ts`, `errors.ts`, plus `*.test.ts`
+- `src/lib/google-sheets/api.ts`, `schema.ts`, `picker.ts`, `status.ts`, plus tests
+- `src/hooks/useGoogleSheets.ts`
+- `src/components/settings/google-sheets/`: `GoogleSheetsSettings.tsx`, `GoogleConnectionCard.tsx`, `SheetSourceList.tsx`, `SheetSourceRow.tsx`, `AddSheetDialog.tsx`, `SheetPickStep.tsx`, `SheetMappingStep.tsx`, `SheetPreviewStep.tsx`, `SheetReviewDialog.tsx`, plus tests
+- `docs/plans/2026-10-13-google-sheets-import/release-package.md`, `verification.md`
+
+**Modified**
+- `src/config/settingsConfig.ts`, `src/components/settings/SettingsRenderer.tsx`, `src/config/permissionDefaults.ts`
+- the contacts-permission parity test, if one pins the SQL defaults
+- `supabase/config.toml` (four new blocks)
+- `implementation_plan.md` (root status), `WORK_LOG.md`, `AGENT_RULES.md` (new Google Sheets invariant)
+
+**Not touched:** `import-contacts`, Gmail and Calendar functions, `_shared/google-token.ts`, workflows, dialer, Twilio, SMS, DNC, consent, `src/content/legal.ts` (privacy copy is proposed in the release package only).
+
+---
+
+*Original Phase 1 plan follows (history; superseded where §0 differs).*
 
 ## 1. Sources reviewed
 
