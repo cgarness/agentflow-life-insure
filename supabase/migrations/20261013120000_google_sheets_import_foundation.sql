@@ -825,9 +825,21 @@ BEGIN
   -- Pending rows: counted as new errors only when new or changed (fingerprint/reason).
   FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_pending, '[]')) LOOP
     v_key := r->>'k';
-    IF v_key IS NULL OR (s.identity_mode = 'source_id' AND v_key !~ '^(id|blank):')
+    IF v_key IS NULL OR (s.identity_mode = 'source_id' AND v_key !~ '^(id|blank|dup):')
        OR (s.identity_mode = 'row_position' AND v_key !~ '^pos:[0-9]+$') THEN
       RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+    END IF;
+    -- A blank-ID baseline row that later received an ID stays excluded under its new key.
+    IF COALESCE((r->>'baseline')::boolean, false) THEN
+      IF s.identity_mode <> 'source_id' OR v_key !~ '^id:.+' OR COALESCE(r->>'consume', '') !~ '^blank:[0-9]+$'
+         OR NOT EXISTS (SELECT 1 FROM private.google_sheets_source_rows
+                         WHERE source_id = s.id AND row_key = r->>'consume' AND kind = 'baseline') THEN
+        RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+      END IF;
+      INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind)
+      VALUES (s.id, v_key, (r->>'n')::int, r->>'f', 'baseline') ON CONFLICT (source_id, row_key) DO NOTHING;
+      DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = r->>'consume';
+      CONTINUE;
     END IF;
     IF COALESCE((r->>'clear')::boolean, false) THEN
       DELETE FROM private.google_sheets_source_rows WHERE source_id = s.id AND row_key = v_key AND kind = 'pending';
@@ -856,10 +868,11 @@ BEGIN
       ELSE
         IF v_key IS NULL OR v_key !~ '^pos:[0-9]+$' THEN RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023'; END IF;
         v_rkey := 'pos:' || s.id::text || ':' || s.row_epoch::text || ':' || substr(v_key, 5);
-        IF EXISTS (SELECT 1 FROM private.google_sheets_source_rows
-                    WHERE source_id = s.id AND row_key = v_key AND kind IN ('baseline','done')) THEN
-          v_out := v_out || jsonb_build_object('k', v_key, 'o', 'already'); CONTINUE;
-        END IF;
+      END IF;
+      -- Baseline (intentionally excluded) and done rows are never imported, in either mode.
+      IF EXISTS (SELECT 1 FROM private.google_sheets_source_rows
+                  WHERE source_id = s.id AND row_key = v_key AND kind IN ('baseline','done')) THEN
+        v_out := v_out || jsonb_build_object('k', v_key, 'o', 'already'); CONTINUE;
       END IF;
 
       -- Core contract (defence in depth; the Edge validator is the primary check).
@@ -1058,18 +1071,27 @@ BEGIN
                      FROM jsonb_array_elements(p_rows) WITH ORDINALITY AS t(r, o)), '[]'::jsonb);
 END $$;
 
--- Preview count of rows previously imported for this tab (no-ID re-add with "include existing").
-CREATE FUNCTION private.google_sheets_prior_receipt_count(p_user uuid, p_org uuid, p_spreadsheet text, p_sheet bigint, p_fps jsonb)
+-- Preview count of rows previously imported for this tab when re-adding with "include existing":
+-- by core fingerprint (no-ID mode) or by stable receipt key (ID mode).
+CREATE FUNCTION private.google_sheets_prior_receipt_count(p_user uuid, p_org uuid, p_spreadsheet text, p_sheet bigint,
+  p_fps jsonb, p_keys jsonb DEFAULT '[]'::jsonb)
  RETURNS integer
  LANGUAGE plpgsql STABLE SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'pg_temp'
 AS $$
 BEGIN
   PERFORM private.google_sheets_require_owner(p_user, p_org);
+  IF jsonb_array_length(COALESCE(p_fps, '[]')) + jsonb_array_length(COALESCE(p_keys, '[]')) > 20000 THEN
+    RAISE EXCEPTION 'invalid_argument' USING ERRCODE = '22023';
+  END IF;
   RETURN (SELECT count(*) FROM jsonb_array_elements_text(COALESCE(p_fps, '[]')) f
            WHERE EXISTS (SELECT 1 FROM private.google_sheets_receipts x
                           WHERE x.organization_id = p_org AND x.user_id = p_user AND x.spreadsheet_id = p_spreadsheet
-                            AND x.sheet_id = p_sheet AND x.fingerprint = f));
+                            AND x.sheet_id = p_sheet AND x.fingerprint = f))
+       + (SELECT count(*) FROM jsonb_array_elements_text(COALESCE(p_keys, '[]')) k
+           WHERE EXISTS (SELECT 1 FROM private.google_sheets_receipts x
+                          WHERE x.organization_id = p_org AND x.user_id = p_user AND x.spreadsheet_id = p_spreadsheet
+                            AND x.sheet_id = p_sheet AND x.receipt_key = k));
 END $$;
 
 DO $acl$
@@ -1166,9 +1188,10 @@ CREATE FUNCTION public.google_sheets_preview_duplicates(p_user uuid, p_org uuid,
  RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
 AS $$ SELECT private.google_sheets_preview_duplicates(p_user, p_org, p_rows) $$;
 
-CREATE FUNCTION public.google_sheets_prior_receipt_count(p_user uuid, p_org uuid, p_spreadsheet text, p_sheet bigint, p_fps jsonb)
+CREATE FUNCTION public.google_sheets_prior_receipt_count(p_user uuid, p_org uuid, p_spreadsheet text, p_sheet bigint,
+  p_fps jsonb, p_keys jsonb DEFAULT '[]'::jsonb)
  RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp'
-AS $$ SELECT private.google_sheets_prior_receipt_count(p_user, p_org, p_spreadsheet, p_sheet, p_fps) $$;
+AS $$ SELECT private.google_sheets_prior_receipt_count(p_user, p_org, p_spreadsheet, p_sheet, p_fps, p_keys) $$;
 
 -- Owner-eligibility probe for the Edge layer (status + gating of user actions).
 CREATE FUNCTION public.google_sheets_owner_eligible(p_user uuid, p_org uuid)

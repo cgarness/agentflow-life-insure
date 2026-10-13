@@ -296,6 +296,22 @@ BEGIN
     jsonb_build_array(jsonb_build_object('k','id:L2','n',4,'f','x','lead', pg_temp.lead('NoLast','','5553330002',''))), '[]');
   PERFORM pg_temp.ok(res->'rows'->0->>'o' = 'error' AND NOT EXISTS (SELECT 1 FROM private.google_sheets_receipts WHERE receipt_key = 'id:L2'),
                      'invalid row: no lead, no receipt');
+  -- conflicting duplicate IDs are pending 'dup:' rows; a blank-ID baseline row that gains an ID stays excluded
+  res := public.google_sheets_ingest(src, c.lease, c.ver, c.gen, '[]',
+    '[{"k":"dup:5","n":5,"f":"d1","reason":"duplicate_id"},{"k":"dup:6","n":6,"f":"d2","reason":"duplicate_id"}]');
+  PERFORM pg_temp.ok((res->>'new_pending')::int = 2, 'dup pending');
+  INSERT INTO private.google_sheets_source_rows (source_id, row_key, row_number, fingerprint, kind) VALUES (src, 'blank:9', 9, 'bf', 'baseline');
+  res := public.google_sheets_ingest(src, c.lease, c.ver, c.gen, '[]', '[{"k":"id:LATE","n":9,"f":"bf","baseline":true,"consume":"blank:9"}]');
+  PERFORM pg_temp.ok(EXISTS (SELECT 1 FROM private.google_sheets_source_rows WHERE source_id = src AND row_key = 'id:LATE' AND kind = 'baseline')
+                     AND NOT EXISTS (SELECT 1 FROM private.google_sheets_source_rows WHERE source_id = src AND row_key = 'blank:9'),
+                     'blank baseline carried to its new ID');
+  res := public.google_sheets_ingest(src, c.lease, c.ver, c.gen,
+    jsonb_build_array(jsonb_build_object('k','id:LATE','n',9,'f','bf','lead', pg_temp.lead('Late','Id','5553330009',''))), '[]');
+  PERFORM pg_temp.ok(res->'rows'->0->>'o' = 'already' AND (res->>'imported')::int = 0, 'baselined ID never imported');
+  BEGIN
+    PERFORM public.google_sheets_ingest(src, c.lease, c.ver, c.gen, '[]', '[{"k":"id:FORGED","n":1,"f":"x","baseline":true,"consume":"blank:77"}]');
+    RAISE EXCEPTION 'FAIL forged baseline';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
   PERFORM public.google_sheets_finish(src, c.lease, c.ver, 'schedule', '{"health":"ok"}');
   RAISE NOTICE 'PASS T7 pending/correction';
 END $$;
@@ -448,6 +464,8 @@ BEGIN
   src := pg_temp.mk_source(pg_temp.id('a2'), pg_temp.id('orgA'), 8000, 'source_id', true, '[]');
   c := pg_temp.claim(src);
   PERFORM pg_temp.ok((public.google_sheets_load_state(src, c.lease)->'receipt_ids') @> '["id:X-1"]', 'load_state exposes receipt ids');
+  PERFORM pg_temp.ok(public.google_sheets_prior_receipt_count(pg_temp.id('a2'), pg_temp.id('orgA'), 'SPREADSHEET_ABCDEFGHIJ', 8000,
+                     '[]', '["id:X-1","id:X-2"]') = 1, 'prior count by receipt key');
   res := public.google_sheets_ingest(src, c.lease, c.ver, c.gen, jsonb_build_array(
     jsonb_build_object('k','id:X-1','n',2,'f','f1','lead', pg_temp.lead('Re','Add','5554440001',''))), '[]');
   PERFORM pg_temp.ok(res->'rows'->0->>'o' = 'already' AND (SELECT count(*) FROM public.leads) = n_leads, 're-add does not replay');

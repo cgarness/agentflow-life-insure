@@ -237,3 +237,18 @@ verify_jwt = false
 # Onboarding email unsubscribe — NOT DEPLOYED. The signed token is the authorization (handler.ts).
 [functions.email-unsubscribe]
 verify_jwt = false
+
+# Google Sheets lead import V1 — NOT DEPLOYED (release package: docs/plans/2026-10-13-google-sheets-import/).
+# User-facing functions validate the JWT in code (invariant #2); the callback is a Google redirect; the
+# worker is invoked only by pg_cron with the dedicated Vault token google_sheets_worker_token.
+[functions.google-sheets-oauth-start]
+verify_jwt = false
+
+[functions.google-sheets-oauth-callback]
+verify_jwt = false
+
+[functions.google-sheets-api]
+verify_jwt = false
+
+[functions.google-sheets-sync-worker]
+verify_jwt = false
