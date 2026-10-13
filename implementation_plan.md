@@ -1,3 +1,48 @@
+## 2026-10-13 — PILOT PREPARED; GOOGLE SETUP LEFT TO THE OWNER (no authenticated Google access); disabled-backend deployment awaiting approval: Google Sheets PR #442 (setup gate; code `b66c44f` unchanged; nothing deployed or applied)
+
+**Outcome:**
+- **Google Cloud setup:** not performed. This session has no authenticated Google access (gcloud UNAUTHENTICATED, no connector, no browser). The exact owner checklist is release package §1 (G0–G7).
+- **Callback:** live Supabase traffic shows only `jncvvsvckxhqgqvkppmj.supabase.co`. The specified callback stands; Chris confirms the Custom Domains page (G2).
+- **Pilot:**
+  - **Account:** Chris (`ecf2bb91…`, Admin), on the protected branch preview.
+  - **Data:** two synthetic sheets, with exactly 4 leads allowed.
+  - **Exposure:** limited, not private. The 8 active users of the only active org could call the API once the backend flag is set.
+  - **Workflows:** none exist in production.
+- **Next approval:** release package §10, disabled-backend deployment (secrets, migration, four functions, flags off, cron absent).
+- **Evidence:** `verification.md` §12.
+
+**Approved by Chris on 2026-10-13:**
+- the read-only release preflight;
+- the listed Google Cloud setup actions (A–H);
+- updating release documentation and status on `claude/keen-brown-e4u3ht`.
+
+**Not approved in this gate:**
+- production database writes or migration application;
+- Supabase or Vercel secrets and environment variables;
+- Edge Function deploys, and frontend merge or deploy;
+- cron, live imports or workflow execution, and privacy publication;
+- Google publishing status, branding, or the existing Gmail/Calendar clients;
+- deleting preview branches or buying capacity.
+
+PR #442 stays draft.
+
+**Preflight (read-only, 2026-10-13):**
+- `main` is still `f91e4ba`; the PR head is `b66c44f`. Every check on that head passed (Supabase Preview skipped: preview-branch limit reached). No new overlapping PR.
+- **Production `jncvvsvckxhqgqvkppmj`:**
+  - latest migration `20261010172702`;
+  - no Sheets migration, relation, function, cron job, Vault secret or Edge function;
+  - permission helper MD5 still `a199d5dd…b8`.
+- Security-advisor baseline recorded: 224 findings, none Sheets-related.
+
+**Documentation this gate will touch:**
+- this file;
+- `docs/plans/2026-10-13-google-sheets-import/release-package.md`: Google setup results or owner checklist, callback evidence, pilot plan, real Google test, privacy copy, and the disabled-backend deployment request;
+- `docs/plans/2026-10-13-google-sheets-import/verification.md`: a separate release-preflight evidence section;
+- `WORK_LOG.md`: a newest-first entry.
+
+**Not planned:** any change to application code, migrations, tests, workflows or `AGENT_RULES.md`. Any implementation change found necessary needs an updated file list and Chris's approval first.
+---
+
 ## 2026-10-13 — CORRECTIONS IMPLEMENTED on draft PR #442, verified locally and in exact-head CI (not deployed, not applied, not released): Google Sheets pre-release integrity fixes
 
 **Outcome:**

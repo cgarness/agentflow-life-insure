@@ -1,3 +1,66 @@
+## 2026-10-13 — Google Sheets PR #442: setup gate — read-only preflight done, pilot and real Google test prepared; Google Cloud setup NOT performed (no authenticated Google access); nothing deployed, applied or released
+
+**Request and approval.** Chris accepted the corrections at `b66c44f` and approved:
+- a read-only release preflight;
+- the listed Google Cloud setup actions (A–H);
+- release documentation updates on `claude/keen-brown-e4u3ht`.
+
+**Explicitly not approved:** production database writes or migration application, secrets or environment variables, deploys, merge, cron, live imports, privacy publication, and any change to Google publishing, branding or the Gmail/Calendar clients. The reviewed application code stayed unchanged. PR #442 stays draft.
+
+**Evidence: what was checked (all read-only; details in `docs/plans/2026-10-13-google-sheets-import/verification.md` §12)**
+- **Code:** `main` is still `f91e4ba`; the PR head is `b66c44f`. Every check on that head passed (Supabase Preview skipped: preview-branch limit). No new overlapping PR.
+- **Production `jncvvsvckxhqgqvkppmj`:**
+  - latest migration `20261010172702`;
+  - no Sheets migration, relation, function, cron job, Vault secret or Edge function;
+  - helper MD5 `a199d5dd…b8`;
+  - PostgreSQL 17.6.1.063 with pg_cron 1.6.4, pg_net 0.19.5 and supabase_vault 0.3.1; `pg_graphql` is not installed.
+- **Advisor baselines:** security 224 findings, performance 410; none Sheets-related.
+- **Expected delta after the migration** (splinter run before and after in `supabase/postgres:17.6.1.063` with `--network none`):
+  - security: +3 INFO `rls_enabled_no_policy` on the three private tables;
+  - performance: +7 unindexed FKs, +4 unused indexes, +3 `auth_rls_initplan`;
+  - helper MD5 after: `bc6356dd…6d01e`.
+- **Callback host:** `get_project_url`, and Supabase logs from three windows (Oct 6–7, Oct 11–13), show only `jncvvsvckxhqgqvkppmj.supabase.co`. No custom-domain evidence was found. The dashboard and Management API were not reachable, and public DNS and `www.fflagent.com` are blocked by egress policy.
+- **Production frontend:** Vercel `agentflow`, `www.fflagent.com`, `main` `f91e4ba`, with no Sheets code. SSO protection is on for every deployment except custom domains. The branch preview alias `agentflow-git-claude-keen-brown-e4u3ht-cgarness-projects.vercel.app` is READY at `b66c44f`. Environment variables could not be listed (403).
+- **Pilot facts:**
+  - Chris Garness: profile `ecf2bb91…`, Admin (eligible), in organization `a0000000-…-0001`.
+  - That is the only active organization: 8 active users, with 3 suspended organizations.
+  - 0 workflows in production.
+  - Duplicate settings: `phone_or_email` / `assigned_only` / `flag`.
+  - The planned synthetic phones and emails match no lead. Chris has 3 assigned leads.
+  - His only Google connection is Gmail; its Google account matches his login email (boolean check). It is the candidate pilot account, which Chris confirms.
+- **Self-correction:** a draft line said the login email differed. The boolean check showed it matches, and the docs were fixed before commit.
+
+**Blocked: not performed**
+- **Google Cloud setup A–H.** gcloud rejects the session token (UNAUTHENTICATED), no Google connector is connected, and no browser tool is available. No Google state was observed or changed. The exact owner checklist is release package §1 (G0–G7).
+- **Owner checks:**
+  - the Custom Domains page (G2);
+  - Vercel environment values: `VITE_GOOGLE_SHEETS_ENABLED` absent, and Preview's Supabase URL;
+  - GitHub → Supabase "Deploy to production" still OFF.
+
+**Prepared, not executed** (`docs/plans/2026-10-13-google-sheets-import/release-package.md`)
+- **§2:** secret names, destinations and gates, with the handoff method (Chris enters values directly; none in chat or Git).
+- **§3/§4:** the migration (SHA-256 `fc68da86…6efed`, MD5 `94c7be79…838b`), expected read-backs, and the advisor delta. Also the four exact Edge bundles with reproducible digests, and the HTTP checks to run while disabled.
+- **§5.0:** the controlled pilot.
+  - **Where:** Chris's account on the protected branch preview, against the production backend.
+  - **Data:** two synthetic sheets (A with Lead IDs, B by row position); exactly 4 leads may be created.
+  - **Exposure:** limited, not private. Once enabled, the backend flag is project-wide; there is no per-user allowlist in the reviewed code.
+- **§6:** the 10-step real Google test. The refresh-token proof uses unchanged `auth_generation`/`connected_at` and Vault metadata, a separate Sync-now invocation, and the code path (no access token is ever stored). No tokens are exposed.
+- **§7:** exact privacy copy: a new Sheets section plus four sentence-level edits.
+- **§10:** the disabled-backend deployment approval request.
+
+**Files changed (docs only):**
+- `implementation_plan.md`;
+- `docs/plans/2026-10-13-google-sheets-import/release-package.md`;
+- `docs/plans/2026-10-13-google-sheets-import/verification.md`;
+- this file.
+
+**Next:**
+1. Chris completes and reports G0–G7.
+2. He approves (or amends) release package §10: secrets, migration, the four Edge Functions with flags off, and cron absent.
+3. Pilot activation, the privacy text, cron and agency rollout are separate approvals after that.
+
+---
+
 ## 2026-10-13 — Google Sheets PR #442 pre-release integrity corrections IMPLEMENTED (findings 1–3, amendments A–C); verified locally and in exact-head CI; NOT deployed, NOT applied, NOT released
 
 **Request and approval.** Review of head `8b675e5` found three defects:

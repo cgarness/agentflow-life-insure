@@ -15,6 +15,8 @@
 
 **Local and CI verification only.** There was no production mutation, Google account, live import or deployment.
 
+**Setup gate (2026-10-13).** §12 records the read-only release preflight for the Google setup and pilot-preparation gate. That gate changed no application code, migration or test.
+
 ## 1. Results
 
 | Check | Result |
@@ -241,5 +243,99 @@ fb671d3e49f98476e74fd2b56ec9f0d7e2ac69d5c6fa2264b617ec378d1c27d4  supabase/funct
 
 - **The real Google-account test** (release package §6): Picker selection → server read → a fresh access token from the stored refresh token → the server read succeeds again. **The mocked Picker checks above are not that test.**
 - Production migration, Edge deployment, secrets, Google Cloud setup, cron, Vercel flags, privacy publication, merge and release.
-- A fresh check of Google publishing status (Testing vs In production).
+- **Google Cloud setup (release package §1 G0–G7):** not performed in the setup gate. This session has no authenticated Google access (§12.6). The steps remain owner actions.
+- A fresh check of Google publishing status, branding verification, OAuth clients, enabled APIs and test users (§1 G1, owner).
+- Confirming on the Supabase Custom Domains page that no custom domain is active (§1 G2, owner). Only live-traffic evidence was available (§12.5).
 - A hosted authenticated walkthrough, real Lead Created workflow execution, and real Gmail/Calendar regression checks beyond the code isolation shown here.
+
+## 12. Setup-gate release preflight (2026-10-13, about 07:30–08:00 UTC; read-only)
+
+This section is evidence only. Planned and blocked work is in release package §1, §5.0, §6 and §10. No production row, setting, secret, function or Google resource was changed.
+
+### 12.1 Code and CI
+- `main` = `f91e4ba` (re-fetched). PR #442 head = `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`: draft, no conflicts, no review threads.
+- **Checks on that head:** 14 passed and Supabase Preview was skipped (preview-branch limit). They include the five Sheets jobs (run 38358513920) and Reports frontend verification.
+- No open PR newer than #441, which is docs-only. #378 (Google OAuth review) is still draft and unmerged.
+
+### 12.2 Production database `jncvvsvckxhqgqvkppmj` (read-only SQL)
+| Probe | Result |
+|---|---|
+| Latest migration | `20261010172702` |
+| Sheets migrations, relations, functions, cron jobs, Vault secrets | 0, 0, 0, 0, 0 |
+| `_contacts_permission_default` MD5 | `a199d5ddfb9a56070aeb7706d3e9a4b8` (the preimage the migration requires) |
+| Server and extensions | PostgreSQL 17.6 (`17.6.1.063`); pg_cron 1.6.4, pg_net 0.19.5, supabase_vault 0.3.1, pgcrypto 1.3. `pg_graphql` is available but **not installed**. |
+| Edge Functions (`list_edge_functions`) | no `google-sheets-*` function |
+| Organizations and users | 1 active organization with 13 profiles, 8 of them Active (1 Admin, 1 Team Leader, 6 Agents); 3 suspended organizations with 3 profiles (ineligible) |
+| Stored `role_permissions` rows for `contacts.leads.import_google_sheets` | 0 |
+| Workflows (all organizations) | 0 |
+| Triggers on `public.leads` | `tr_sync_leads_user_id` (before insert/update), `contact_history_capture`, `trg_notify_lead_assignments_ins`/`_upd`, `trg_workflow_lead_created`, `trg_workflow_lead_updated`, all enabled. `notify_lead_assignments` skips self-imports. `workflow_on_lead_created` posts one pg_net request to `workflow-trigger-evaluator`. |
+| Google connections | `user_email_connections` (provider google): 1 row, connected (Chris); `calendar_integrations` (google): 0 |
+
+### 12.3 Pilot account (read-only)
+- Chris Garness: profile `ecf2bb91-0350-4542-85ec-14d914311e99`, Admin, Active, super admin and platform admin. Organization `a0000000-0000-0000-0000-000000000001` ("Family First Life - Chris Garness"), active.
+- His Gmail connection's Google account matches his AgentFlow login email (a boolean check; neither address is printed here). The candidate pilot Google account comes from that live connection, not from the login, and Chris confirms it.
+- A second Active profile in the same organization ("chris test", Agent) exists. It is not the pilot account.
+- **Organization duplicate settings:** rule `phone_or_email`, scope `assigned_only`, import action `flag`.
+- **Synthetic-data collision check:** 0 leads match the planned phones (702-555-0101…0104, 0111…0114, with or without a leading 1); 0 have an `example.test` email; 0 have lead source "Google Sheets".
+- **Baseline:** Chris has 3 assigned leads.
+
+### 12.4 Advisor baselines (`get_advisors`, before any Sheets object exists)
+| Advisor | Findings by lint | Total | Fingerprint (SHA-256 of sorted `name\|level\|metadata`) |
+|---|---|---|---|
+| Security | rls_enabled_no_policy 25, function_search_path_mutable 22, rls_disabled_in_public 2, extension_in_public 3, anon_security_definer_function_executable 58, authenticated_security_definer_function_executable 113, auth_leaked_password_protection 1 | 224 | `6dad3ab98a6d8f5fe91896c6e8c9cfc2e5dc082817c448b6189bc3270341f1ff` |
+| Performance | unindexed_foreign_keys 81, auth_rls_initplan 112, unused_index 123, multiple_permissive_policies 86, duplicate_index 6, table_bloat 1, auth_db_connections_absolute 1 | 410 | `9a1674ecc2168bb231467e126a713a61d6027fb14afad73701b5ea5e5c0cb9b7` |
+
+None of these findings mentions `google_sheets`.
+
+**Expected delta (production image, local):**
+- **Set-up:** the harness and splinter (`d8d558baad3e03832e521c527907fa50a9a172fabd899dd0f5c2504a5a0e9349`) ran in `supabase/postgres:17.6.1.063` with `--network none`, before and after the foundation migration.
+- **Added:** 20 lint rows; **none removed**.
+  - **Security:** 3 INFO `rls_enabled_no_policy` on `private.google_sheets_{oauth_states,receipts,source_rows}`.
+  - **Also security, but not applicable to production:** 3 WARN `pg_graphql_authenticated_table_exposed`. This lint only fires when `pg_graphql` is installed, and production does not have it.
+  - **Performance:** 7 INFO `unindexed_foreign_keys`, 4 INFO `unused_index`, 3 WARN `auth_rls_initplan`.
+- **Helper MD5:** `a199d5dd…b8` before, `bc6356dde683e628b88b631dd5f6d01e` after.
+- **Read-backs:** 52 functions; 0 anon/authenticated EXECUTE on the public wrappers; defaults `t`/`f`; RLS true on all six tables.
+
+### 12.5 Callback host evidence
+| Source | Result |
+|---|---|
+| `get_project_url` | `https://jncvvsvckxhqgqvkppmj.supabase.co` |
+| `edge_logs`, last 24 h | 30,658 requests, all with `request.host = jncvvsvckxhqgqvkppmj.supabase.co` |
+| `function_edge_logs`, last 24 h | 3,149 requests on that host (host header identical); none on another host |
+| `function_edge_logs`, 2026-10-11 07:40 → 10-12 07:40 | 3,609 requests, same single host |
+| `function_edge_logs`, 2026-10-06 07:40 → 10-07 07:40 | 1,225 requests, same single host |
+| Gmail/Calendar OAuth callbacks in those windows | 0 (no connects happened). Their redirect URIs come from secrets, so the repository cannot show their host. |
+| Supabase Custom Domains page / Management API | not reachable from this session (no management token) → owner check G2 |
+| Public DNS (`dns.google`) and `www.fflagent.com` | blocked by the egress policy (403 on CONNECT); not retried |
+
+**Conclusion:** no custom or vanity domain appears in live traffic. The specified callback is used.
+
+### 12.6 Google Cloud access
+- `gcloud projects describe project-b7e9b5b4-d066-48c9-b36` → `UNAUTHENTICATED` / `CREDENTIALS_MISSING`. The session's `CLOUDSDK_AUTH_ACCESS_TOKEN` is not a valid credential.
+- The Google Drive and Google Calendar connectors are installed but not connected, and no browser or computer-use tool is available.
+- **Nothing in release package §1 was performed or observed.**
+- **Google documentation used for the checklist:** the Picker guide says a website-restricted key must also allow `https://docs.google.com/*` (the Picker iframe), and that `setAppId` takes the project number. Google's OAuth guidance says refresh tokens issued while an app is in Testing expire after 7 days.
+
+### 12.7 Vercel (read-only)
+- **Project `agentflow`** (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`):
+  - domains `www.fflagent.com`, `fflagent.com` (redirects to www), `agentflow-eta.vercel.app`, `agentflow-cgarness-projects.vercel.app` and `agentflow-git-main-cgarness-projects.vercel.app`;
+  - SSO protection enabled for `all_except_custom_domains`.
+- **Production deployment:** `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`, READY, `main` `f91e4ba`.
+- **Branch preview:** `dpl_6ncQHEs8yxNBdGjU4TFRfvvzcRQM`, READY at `b66c44f`, alias `agentflow-git-claude-keen-brown-e4u3ht-cgarness-projects.vercel.app`.
+- **Environment variables:** listing them was refused (403), so their values are an owner check.
+
+### 12.8 Edge bundles (reproducible)
+Run from the repository root:
+
+`sha256sum <files in C-locale order> | sha256sum`
+
+The file lists come from tracing each entry's relative imports:
+
+| Function | Files | Digest |
+|---|---|---|
+| `google-sheets-sync-worker` | 12 | `3097c65fdd8106407f3bcddbc12386eb88e20b593c23045a5d3fa8a2c0f3c3d0` |
+| `google-sheets-api` | 12 | `6ab61569c8d53c7347a737214330768db04a4bdb5ae0c550004c53332d8b6308` |
+| `google-sheets-oauth-callback` | 8 | `0fe3970b9896952fe2d940ff5387daa5b868a83689e4a41acf2d6fa492848a60` |
+| `google-sheets-oauth-start` | 8 | `7105438ef4d2d33f0cc62a45eb208c0338a618758b9aa2212569d67950a91591` |
+
+Per-file checksums are unchanged from §10.
