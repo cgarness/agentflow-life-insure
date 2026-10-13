@@ -8,6 +8,7 @@ import type { PickResult } from "./SheetPickStep";
 
 const OUTCOME: Record<string, string> = {
   import: "Ready", invalid: "Needs fixes", duplicate_flag: "Duplicate · flagged", duplicate_skip: "Duplicate · skipped", duplicate_import: "Duplicate",
+  missing_id: "No Lead ID", duplicate_id: "Lead ID conflict", repeat: "Repeat · imported once",
 };
 
 interface Props { pick: PickResult; draft: SourceDraft; onChange: (d: SourceDraft) => void; showExisting: boolean }
@@ -36,7 +37,7 @@ const SheetPreviewStep: React.FC<Props> = ({ pick, draft, onChange, showExisting
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {data.total_rows} rows now · {data.valid_rows} ready · {data.invalid_rows} need fixes
+        {data.total_rows} rows now · {data.valid_rows} ready · {data.invalid_rows} need fixes{data.repeat_rows ? ` · ${data.repeat_rows} repeats` : ""}
       </p>
       <div className="max-h-56 overflow-auto rounded-lg border">
         <table className="w-full text-xs">

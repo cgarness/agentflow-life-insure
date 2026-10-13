@@ -33,11 +33,15 @@ function apiResponse(body) {
       { sheetId: 0, title: "Leads", rowCount: 100, columnCount: 6, index: 0, configured: false },
       { sheetId: 7, title: "Archive", rowCount: 100, columnCount: 6, index: 1, configured: state.sources.some((s) => s.sheet_id === 7) }] };
     case "headers": return { title: "Leads", spreadsheet_name: "Facebook Leads", header: ["Lead ID", "First Name", "Last Name", "Phone", "Email", "Coverage Amount"], row_count: 3, overflow: false, sample: [] };
-    case "preview": return { title: "Leads", total_rows: 3, valid_rows: 2, invalid_rows: 1, imported_before: 0, duplicate_action: "flag",
+    case "preview": return { title: "Leads", total_rows: 7, valid_rows: 2, invalid_rows: 4, repeat_rows: 1, imported_before: 0, duplicate_action: "flag",
       has_lead_created_workflows: true, rows: [
         { row: 2, first_name: "Ann", last_name: "Lee", phone: "(555) 010-2000", email: "ann@example.test", outcome: "import", reason: null },
         { row: 3, first_name: "Bo", last_name: "Diaz", phone: "555-010-3000", email: "", outcome: "duplicate_flag", reason: null },
-        { row: 4, first_name: "Cy", last_name: "", phone: "", email: "", outcome: "invalid", reason: "missing_phone" }] };
+        { row: 4, first_name: "Cy", last_name: "", phone: "", email: "", outcome: "invalid", reason: "missing_phone" },
+        { row: 5, first_name: "Dee", last_name: "Ray", phone: "555-010-5000", email: "", outcome: "missing_id", reason: null },
+        { row: 6, first_name: "Eli", last_name: "Fox", phone: "555-010-6000", email: "", outcome: "duplicate_id", reason: null },
+        { row: 7, first_name: "Eli", last_name: "Fox", phone: "555-010-6000", email: "", outcome: "duplicate_id", reason: null },
+        { row: 8, first_name: "Gia", last_name: "Hu", phone: "555-010-8000", email: "", outcome: "repeat", reason: null }] };
     case "save": {
       const p = body.payload;
       let s = state.sources.find((x) => x.id === body.source_id);
@@ -53,9 +57,25 @@ function apiResponse(body) {
     case "activate": { const s = state.sources.find((x) => x.id === body.source_id); s.state = "enabled"; s.config_version++;
       s.phase = s.include_existing ? "initial" : "steady"; return { outcome: "activated", config_version: s.config_version, baselined: 3 }; }
     case "sync_now": { const s = state.sources.find((x) => x.id === body.source_id);
+      state.syncs = (state.syncs ?? 0) + 1;
+      // the second check is interrupted by a concurrent change (finish released): committed imports only, no success time
+      if (state.syncs === 2) return { sourceId: s.id, status: "stale", imported: 1, flagged: 0, skipped: 0, errors: 0, backlog: false, finalized: "released" };
       s.last_success_at = now(); s.last_checked_at = now(); s.phase = "steady";
       s.last_result = { imported: 2, flagged: 1, skipped: 0, errors: 1, pending: 1 };
       return { sourceId: s.id, status: "ok", imported: 2, flagged: 1, skipped: 0, errors: 1, backlog: false }; }
+    case "identity_review_preview": {
+      state.previews = (state.previews ?? 0) + 1;
+      return { snapshot: "s".repeat(63) + state.previews, config_version: 9, unresolved_rows: [2], established: 1, approved: 0, kept: 0, rows: [
+        { key: "id:NEWID", row: 3, lead_id: "NEWID", hint: "content", valid: true, reason: null, rows: 1, first_name: "Ann", last_name: "Lee", phone: "(555) 010-2000", email: "" },
+        ...(state.previews > 1 ? [{ key: "id:Q1", row: 4, lead_id: "Q1", hint: null, valid: true, reason: null, rows: 1, first_name: "Quin", last_name: "New", phone: "555-010-4000", email: "" }] : [])] };
+    }
+    case "identity_review_apply": {
+      state.applies = (state.applies ?? 0) + 1;
+      if (state.applies === 1) return { error: "review_changed" };   // a row arrived after the preview
+      state.lastDecisions = body.decisions; state.lastSnapshot = body.snapshot;
+      const s = state.sources.find((x) => x.id === body.source_id); s.health = "ok"; s.review_reason = null; s.config_version++;
+      return { config_version: s.config_version, decided: Object.keys(body.decisions).length };
+    }
     case "pause": { const s = state.sources.find((x) => x.id === body.source_id); s.state = "paused"; return { state: "paused" }; }
     case "resume": { const s = state.sources.find((x) => x.id === body.source_id); s.state = "enabled"; return { state: "enabled" }; }
     case "remove": state.sources = state.sources.filter((x) => x.id !== body.source_id); return { state: "removed" };
@@ -64,12 +84,13 @@ function apiResponse(body) {
   }
 }
 
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+// CHROMIUM_PATH selects a preinstalled browser; otherwise Playwright's own installed Chromium is used (CI).
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const results = [];
 const check = (ok, name) => { results.push(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) console.error("FAIL", name); };
 
 for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
-  state.connected = true; state.sources = []; state.calls = [];
+  Object.assign(state, { connected: true, sources: [], calls: [], syncs: 0, previews: 0, applies: 0, lastDecisions: null, lastSnapshot: null });
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height } });
   await ctx.addInitScript(([key, session]) => { localStorage.setItem(key, session); },
     ["sb-mock-auth-token", JSON.stringify({ access_token: JWT, refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: exp, user })]);
@@ -133,7 +154,9 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   // Preview (read-only) → new rows default → Enable
   const before = state.calls.length;
   await page.getByRole("button", { name: "Preview" }).click();
-  await page.getByText(/2 ready/).waitFor();
+  await page.getByText(/2 ready · 4 need fixes · 1 repeats/).waitFor();
+  check(await page.getByText("No Lead ID", { exact: true }).isVisible() && await page.getByText("Lead ID conflict").first().isVisible()
+        && await page.getByText("Repeat · imported once").isVisible(), `${vp.name}: preview shows the shared ID classifier outcomes`);
   check(!state.calls.slice(before).some((c) => c === "save" || c === "activate"), `${vp.name}: preview makes no save/activate call`);
   check(!(await page.getByLabel("Also import existing rows").isChecked()), `${vp.name}: "Also import existing rows" unchecked by default`);
   check(await page.getByText("Only rows added after you enable this sheet are imported.").isVisible(), `${vp.name}: new-rows-only copy`);
@@ -150,6 +173,31 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   await page.getByText(/2 imported \(1 flagged\) · 1 error/).waitFor({ timeout: 10000 });
   check(true, `${vp.name}: Sync now shows imported (flagged subset) and errors`);
   await page.screenshot({ path: `${OUT}/gs-${vp.name}-4-active.png`, fullPage: true });
+
+  // A check interrupted by a concurrent change (stale finish) is never reported as "Checked"
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await page.getByText(/Sync stopped because the sheet or its Google connection changed · 1 imported before it stopped/).waitFor({ timeout: 10000 });
+  check(true, `${vp.name}: interrupted sync reported truthfully with committed count`);
+
+  // Identity review: excluded blank-ID rows can't be located → every candidate row needs an explicit decision
+  Object.assign(state.sources[0], { health: "needs_review", review_reason: "identity_ambiguous", identity_mode: "source_id", id_header: "Lead ID" });
+  await page.reload();
+  await page.getByRole("button", { name: "Review" }).click();
+  await page.getByText(/originally row 2/).waitFor();
+  check(await page.getByText("Same name, phone and email as a row that was left out").isVisible(), `${vp.name}: identity review shows why a row is listed`);
+  const resume = page.getByRole("button", { name: "Resume" });
+  check(await resume.isDisabled(), `${vp.name}: identity review has no preselected decision`);
+  await page.getByRole("button", { name: "Keep all out" }).click();
+  await page.screenshot({ path: `${OUT}/gs-${vp.name}-5-identity-review.png`, fullPage: true });
+  await resume.click();
+  await page.getByText(/changed since you opened this review/).waitFor();
+  await page.getByText(/1 of 2 chosen/).waitFor();
+  check(await resume.isDisabled(), `${vp.name}: a row arriving before apply needs its own decision; earlier choice kept`);
+  await page.getByRole("radiogroup", { name: "Row 4" }).getByLabel("Import").click();
+  await resume.click();
+  await page.getByRole("button", { name: "Sync now" }).waitFor();
+  check(JSON.stringify(state.lastDecisions) === JSON.stringify({ "id:NEWID": "exclude", "id:Q1": "import" }) && state.lastSnapshot?.endsWith("2"),
+        `${vp.name}: decisions applied to the refreshed snapshot only`);
   await page.getByRole("button", { name: /More actions for/ }).click();
   await page.getByRole("menuitem", { name: "Pause" }).click();
   await page.getByText("Paused", { exact: true }).first().waitFor();

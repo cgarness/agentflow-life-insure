@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { autoMap, customFieldOptions } from "../autoMap";
-import { sourceDraftSchema, toPayload } from "../schema";
-import { resultSummary, sourceStatus, isBusy } from "../status";
+import { identityDecisionsSchema, sourceDraftSchema, toPayload } from "../schema";
+import { resultSummary, sourceStatus, isBusy, reviewKind, syncToast, REVIEW_REASONS } from "../status";
 import type { SheetSourceRow } from "../schema";
 import { splitFullName as sheetsSplit, parseDOB as sheetsParseDOB, normalizeFieldName as sheetsNorm } from "../../../../supabase/functions/_shared/googleSheets/mapping";
 import { parseDOB } from "@/utils/dobUtils";
@@ -65,6 +65,31 @@ describe("status and results", () => {
     expect(sourceStatus(src({}), conn).label).toBe("Active");
     expect(isBusy([src({ phase: "initial" })])).toBe(true);
     expect(isBusy([src({ state: "paused", phase: "initial" })])).toBe(false);
+  });
+});
+
+describe("review routing, sync outcomes and identity decisions", () => {
+  it("each review reason opens the dialog that resolves it", () => {
+    expect(reviewKind("identity_ambiguous")).toBe("identity");
+    expect(reviewKind("rows_changed")).toBe("structural");
+    expect(reviewKind("rows_removed")).toBe("structural");
+    expect(reviewKind("header_changed")).toBe("mapping");
+    expect(REVIEW_REASONS.identity_ambiguous).toMatch(/Lead ID/);
+  });
+  it("a stale run is never reported as a completed check; committed imports stay truthful", () => {
+    expect(syncToast({ status: "ok", imported: 2 })).toEqual({ ok: true, text: "Checked · 2 imported" });
+    const stale = syncToast({ status: "stale", imported: 3 });
+    expect(stale.ok).toBe(false);
+    expect(stale.text).toMatch(/stopped because the sheet or its Google connection changed · 3 imported before it stopped/);
+    expect(syncToast({ status: "stale", imported: 0 }).text).not.toMatch(/imported/);
+    expect(syncToast({ status: "needs_review" }).ok).toBe(false);
+  });
+  it("identity decisions require an explicit choice for every listed row, and only listed rows", () => {
+    const keys = ["id:A", "noid:5"];
+    expect(identityDecisionsSchema(keys).safeParse({ "id:A": "import" }).success).toBe(false);
+    expect(identityDecisionsSchema(keys).safeParse({ "id:A": "import", "noid:5": "maybe" }).success).toBe(false);
+    expect(identityDecisionsSchema(keys).safeParse({ "id:A": "import", "noid:5": "exclude", "id:Z": "import" }).success).toBe(false);
+    expect(identityDecisionsSchema(keys).safeParse({ "id:A": "import", "noid:5": "exclude" }).success).toBe(true);
   });
 });
 

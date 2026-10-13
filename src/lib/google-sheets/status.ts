@@ -33,10 +33,34 @@ export const REVIEW_REASONS: Record<string, string> = {
   too_large: "The tab has more than 10,000 rows.",
   tab_missing: "The tab was deleted.",
   mapping_invalid: "The mapping needs to be updated.",
+  identity_ambiguous: "Rows without a Lead ID that were left out can't be found. Confirm which rows are new leads.",
 };
 
-/** Structural reasons are resolved through the review dialog, not a plain mapping save. */
-export const isStructuralReview = (reason: string | null) => reason === "rows_changed" || reason === "rows_removed";
+/** Which dialog resolves a review: identity decisions, structural recovery, or a plain mapping save. */
+export type ReviewKind = "identity" | "structural" | "mapping";
+export function reviewKind(reason: string | null): ReviewKind {
+  if (reason === "identity_ambiguous") return "identity";
+  if (reason === "rows_changed" || reason === "rows_removed") return "structural";
+  return "mapping";
+}
+export const isStructuralReview = (reason: string | null) => reviewKind(reason) === "structural";
+
+/**
+ * Sync now result → toast. Counts are batches that committed. A "stale" run (another change won: the sheet was
+ * edited, paused or reconnected meanwhile) is never reported as a completed check.
+ */
+export function syncToast(res: { status?: string; imported?: number } | null | undefined): { ok: boolean; text: string } {
+  const n = res?.imported ?? 0;
+  switch (res?.status) {
+    case "ok": return { ok: true, text: `Checked · ${n} imported` };
+    case "stale": return { ok: false, text: `Sync stopped because the sheet or its Google connection changed${n ? ` · ${n} imported before it stopped` : ""}.` };
+    case "needs_review": return { ok: false, text: "This sheet needs review." };
+    case "access_lost": return { ok: false, text: "AgentFlow can't open this sheet. Pick it again." };
+    case "reconnect": return { ok: false, text: "Google access expired. Reconnect to continue." };
+    case "backoff": return { ok: false, text: "Google is busy. AgentFlow will try again shortly." };
+    default: return { ok: false, text: "The check didn't finish. AgentFlow will try again." };
+  }
+}
 
 export function isBusy(sources: SheetSourceRow[]): boolean {
   return sources.some((s) => s.state === "enabled" && (s.phase === "initial" || s.lease_owner !== null));

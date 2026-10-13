@@ -12,6 +12,7 @@ import GoogleConnectionCard from "./GoogleConnectionCard";
 import SheetSourceList from "./SheetSourceList";
 import AddSheetDialog from "./AddSheetDialog";
 import SheetReviewDialog, { type ReviewOverride } from "./SheetReviewDialog";
+import SheetIdentityReviewDialog from "./SheetIdentityReviewDialog";
 
 const flagOn = () => import.meta.env.VITE_GOOGLE_SHEETS_ENABLED === "true";
 
@@ -26,6 +27,7 @@ const GoogleSheetsSettings: React.FC = () => {
   const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState<SheetSourceRow | "new" | null>(null);
   const [review, setReview] = useState<{ source: SheetSourceRow; override?: ReviewOverride } | null>(null);
+  const [identityReview, setIdentityReview] = useState<SheetSourceRow | null>(null);
   const { refresh } = gs;
 
   // OAuth return: show the outcome, strip the flag, then re-read saved status from the server.
@@ -41,7 +43,7 @@ const GoogleSheetsSettings: React.FC = () => {
   }, [params, setParams, refresh]);
 
   // A new identity never sees the previous identity's dialogs.
-  useEffect(() => { setEditing(null); setReview(null); }, [gs.identityKey]);
+  useEffect(() => { setEditing(null); setReview(null); setIdentityReview(null); }, [gs.identityKey]);
 
   if (isImpersonating) return <Notice>Google Sheets isn't available during View As.</Notice>;
   if (!flagOn()) return <Notice>Google Sheets is not available yet.</Notice>;
@@ -72,6 +74,7 @@ const GoogleSheetsSettings: React.FC = () => {
           onAdd={() => setEditing("new")}
           onEdit={(s) => setEditing(s)}
           onReview={(s) => setReview({ source: s })}
+          onIdentityReview={(s) => setIdentityReview(s)}
           onChanged={refresh}
         />
       )}
@@ -91,6 +94,14 @@ const GoogleSheetsSettings: React.FC = () => {
           source={review.source}
           override={review.override}
           onClose={() => setReview(null)}
+          onDone={refresh}
+        />
+      )}
+      {identityReview && gs.identityKey && (
+        <SheetIdentityReviewDialog
+          key={`${gs.identityKey}:identity:${identityReview.id}`}
+          source={identityReview}
+          onClose={() => setIdentityReview(null)}
           onDone={refresh}
         />
       )}

@@ -73,7 +73,28 @@ export interface SheetsContext {
   custom_fields: { id: string; name: string; created_by: string | null; created_at: string | null }[];
 }
 export interface PreviewResult {
-  title: string; total_rows: number; valid_rows: number; invalid_rows: number; imported_before: number;
+  title: string; total_rows: number; valid_rows: number; invalid_rows: number; repeat_rows?: number; imported_before: number;
   duplicate_action: string; has_lead_created_workflows: boolean;
   rows: { row: number; first_name: string; last_name: string; phone: string; email: string; outcome: string; reason: string | null }[];
+}
+
+/** Structural / identity-change review preview: established by Lead ID, matched by content only, unmatched. */
+export interface StructuralReview { established: number; matched: number; unknown: number; config_version: number; snapshot: string }
+
+export type IdentityHint = "same_row" | "content" | "position" | null;
+export interface IdentityReviewRow {
+  key: string; row: number; lead_id: string | null; hint: IdentityHint; valid: boolean; reason: string | null; rows: number;
+  first_name: string; last_name: string; phone: string; email: string;
+}
+export interface IdentityReviewPreview {
+  snapshot: string; config_version: number; unresolved_rows: number[]; established: number; approved: number; kept: number;
+  rows: IdentityReviewRow[];
+}
+export type IdentityDecision = "import" | "exclude";
+
+/** Identity review form (Zod): every listed row needs an explicit choice, and only listed rows. */
+export function identityDecisionsSchema(keys: string[]) {
+  return z.record(z.enum(["import", "exclude"])).refine(
+    (d) => keys.every((k) => d[k] === "import" || d[k] === "exclude") && Object.keys(d).every((k) => keys.includes(k)),
+    { message: "Choose what to do with every row" });
 }

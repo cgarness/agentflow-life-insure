@@ -29,6 +29,9 @@ vi.mock("@/hooks/useGoogleSheets", () => ({
 import GoogleSheetsSettings from "../GoogleSheetsSettings";
 import AddSheetDialog from "../AddSheetDialog";
 import SheetPickStep from "../SheetPickStep";
+import SheetReviewDialog from "../SheetReviewDialog";
+import SheetIdentityReviewDialog from "../SheetIdentityReviewDialog";
+import SheetSourceRowItem from "../SheetSourceRow";
 import { SheetsApiError } from "@/lib/google-sheets/api";
 import type { SheetSourceRow } from "@/lib/google-sheets/schema";
 
@@ -132,5 +135,109 @@ describe("Picker token handling", () => {
     expect(pickSpreadsheet).toHaveBeenCalledWith("ya29.SECRET-TOKEN");
     const stored = JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.body.innerHTML;
     expect(stored).not.toContain("ya29");
+  });
+});
+
+const activeSource: SheetSourceRow = { ...draftSource, state: "enabled", health: "needs_review", review_reason: "identity_ambiguous",
+  identity_mode: "source_id", id_header: "Lead ID", config_version: 7 };
+const idPreview = (keys: string[]) => ({ snapshot: "s".repeat(64), config_version: 7, unresolved_rows: [2], established: 1, approved: 0, kept: 0,
+  rows: keys.map((k, i) => ({ key: k, row: 3 + i, lead_id: k.startsWith("id:") ? k.slice(3) : null, hint: i === 0 ? "content" : null, valid: true,
+    reason: k.startsWith("noid:") ? "missing_id" : null, rows: 1, first_name: "Row", last_name: String(i), phone: "555", email: "" })) });
+
+describe("Review dialogs", () => {
+  it("structural review: content matches need an explicit choice; apply is bound to the snapshot", async () => {
+    sheetsApi.mockImplementation(async (action: string) => {
+      if (action === "review_preview") return { established: 2, matched: 3, unknown: 1, config_version: 7, snapshot: "a".repeat(64) };
+      if (action === "review_apply") return { config_version: 8 };
+      throw new Error("unexpected " + action);
+    });
+    const onDone = vi.fn();
+    render(<SheetReviewDialog source={{ ...activeSource, review_reason: "rows_changed", identity_mode: "row_position", id_header: null }} onClose={vi.fn()} onDone={onDone} />);
+    expect(await screen.findByText(/2 rows already imported or left out \(matched by Lead ID\)/)).toBeInTheDocument();
+    const resume = screen.getByRole("button", { name: "Resume" });
+    expect(resume).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Skip them"));
+    expect(resume).toBeDisabled();                       // content-matched rows still undecided
+    fireEvent.click(screen.getByLabelText("Keep them out"));
+    expect(resume).toBeEnabled();
+    fireEvent.click(resume);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    const body = sheetsApi.mock.calls.find((c) => c[0] === "review_apply")?.[1] as Record<string, unknown>;
+    expect(body).toMatchObject({ snapshot: "a".repeat(64), import_matched: false, import_unknown: false, expected_version: 7 });
+  });
+
+  it("structural review: a changed sheet refreshes the preview and keeps the choices", async () => {
+    let previews = 0;
+    sheetsApi.mockImplementation(async (action: string) => {
+      if (action === "review_preview") { previews++; return { established: 0, matched: 1, unknown: 1, config_version: 7, snapshot: String(previews).repeat(64) }; }
+      if (action === "review_apply") throw new SheetsApiError("review_changed");
+      throw new Error("unexpected " + action);
+    });
+    render(<SheetReviewDialog source={{ ...activeSource, review_reason: "rows_changed" }} onClose={vi.fn()} onDone={vi.fn()} />);
+    await screen.findByText(/1 rows are new or changed/);
+    fireEvent.click(screen.getByLabelText("Keep them out"));
+    fireEvent.click(screen.getByLabelText("Import them as new leads", { selector: "#gs-unknown-import" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(await screen.findByText(/changed since you opened this review/)).toBeInTheDocument();
+    await waitFor(() => expect(previews).toBe(2));
+    expect(screen.getByLabelText("Keep them out")).toBeChecked();
+  });
+
+  it("identity review: every row needs an explicit choice; decisions + snapshot are sent", async () => {
+    sheetsApi.mockImplementation(async (action: string) => {
+      if (action === "identity_review_preview") return idPreview(["id:NEWID", "noid:4"]);
+      if (action === "identity_review_apply") return { config_version: 8, decided: 2 };
+      throw new Error("unexpected " + action);
+    });
+    const onDone = vi.fn();
+    render(<SheetIdentityReviewDialog source={activeSource} onClose={vi.fn()} onDone={onDone} />);
+    expect(await screen.findByText(/originally row 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Same name, phone and email as a row that was left out/)).toBeInTheDocument();
+    expect(screen.getByText(/Could be a left-out row that was edited/)).toBeInTheDocument();
+    const resume = screen.getByRole("button", { name: "Resume" });
+    expect(resume).toBeDisabled();                       // nothing is preselected
+    fireEvent.click(screen.getByLabelText("Import"));
+    expect(resume).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Keep out", { selector: "#gs-id-noid_4-exclude" }));
+    expect(resume).toBeEnabled();
+    fireEvent.click(resume);
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(sheetsApi.mock.calls.find((c) => c[0] === "identity_review_apply")?.[1]).toEqual({
+      source_id: "s1", expected_version: 7, snapshot: "s".repeat(64), decisions: { "id:NEWID": "import", "noid:4": "exclude" } });
+  });
+
+  it("identity review: a row arriving before apply refreshes the list, keeps surviving choices, asks about the new row", async () => {
+    let previews = 0;
+    sheetsApi.mockImplementation(async (action: string) => {
+      if (action === "identity_review_preview") { previews++; return previews === 1 ? idPreview(["id:NEWID"]) : idPreview(["id:NEWID", "id:Q1"]); }
+      if (action === "identity_review_apply") throw new SheetsApiError("review_changed");
+      throw new Error("unexpected " + action);
+    });
+    render(<SheetIdentityReviewDialog source={activeSource} onClose={vi.fn()} onDone={vi.fn()} />);
+    await screen.findByText(/originally row 2/);
+    fireEvent.click(screen.getByRole("button", { name: "Keep all out" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(await screen.findByText(/changed since you opened this review/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 of 2 chosen/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
+  });
+
+  it("source row: Review opens the dialog that resolves the reason; a stale sync is not reported as checked", async () => {
+    const onIdentityReview = vi.fn(), onReview = vi.fn(), onEdit = vi.fn();
+    const conn = { status: "connected" as const, google_email: null, connected_at: null, last_error_code: null };
+    const { unmount } = render(<SheetSourceRowItem source={activeSource} connection={conn} onEdit={onEdit} onReview={onReview}
+      onIdentityReview={onIdentityReview} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(onIdentityReview).toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
+    unmount();
+    sheetsApi.mockResolvedValue({ status: "stale", imported: 2 });
+    const toastMod = await import("sonner");
+    const msg = vi.spyOn(toastMod.toast, "message"), success = vi.spyOn(toastMod.toast, "success");
+    render(<SheetSourceRowItem source={{ ...activeSource, health: "ok", review_reason: null }} connection={conn} onEdit={onEdit} onReview={onReview}
+      onIdentityReview={onIdentityReview} onChanged={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(msg).toHaveBeenCalledWith(expect.stringMatching(/Sync stopped because the sheet or its Google connection changed · 2 imported/)));
+    expect(success).not.toHaveBeenCalled();
   });
 });

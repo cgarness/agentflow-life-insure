@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
 import type { ConnectionStatus, SheetSourceRow as Row } from "@/lib/google-sheets/schema";
-import { isStructuralReview, resultSummary, REVIEW_REASONS, sourceStatus, type Tone } from "@/lib/google-sheets/status";
+import { resultSummary, REVIEW_REASONS, reviewKind, sourceStatus, syncToast, type Tone } from "@/lib/google-sheets/status";
 
 const TONE: Record<Tone, "default" | "secondary" | "destructive" | "outline"> = {
   default: "default", success: "secondary", warning: "outline", destructive: "destructive", muted: "outline",
@@ -22,22 +22,26 @@ interface Props {
   connection: ConnectionStatus["connection"];
   onEdit: (s: Row) => void;
   onReview: (s: Row) => void;
+  onIdentityReview: (s: Row) => void;
   onChanged: () => void;
 }
 
-const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, onEdit, onReview, onChanged }) => {
+const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, onEdit, onReview, onIdentityReview, onChanged }) => {
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const st = sourceStatus(s, connection);
   const connected = connection?.status === "connected";
-  const structural = s.health === "needs_review" && isStructuralReview(s.review_reason);
+  const kind = reviewKind(s.review_reason);
+  const openReview = () => (kind === "identity" ? onIdentityReview(s) : kind === "structural" ? onReview(s) : onEdit(s));
 
   const act = async (action: "sync_now" | "pause" | "resume" | "remove", ok: string) => {
     setBusy(true);
     try {
       const res = await sheetsApi<{ imported?: number; status?: string }>(action, { source_id: s.id });
-      if (action === "sync_now" && res?.status && res.status !== "ok") toast.message("Check finished — see status");
-      else toast.success(action === "sync_now" ? `Checked · ${res?.imported ?? 0} imported` : ok);
+      if (action === "sync_now") {
+        const t = syncToast(res);
+        if (t.ok) toast.success(t.text); else toast.message(t.text);
+      } else toast.success(ok);
       onChanged();
     } catch (e) {
       toast.error(e instanceof SheetsApiError ? e.message : "Something went wrong. Try again.");
@@ -68,7 +72,7 @@ const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, onEdit, on
       <div className="flex items-center gap-2 shrink-0">
         {s.state === "draft" && <Button size="sm" variant="outline" onClick={() => onEdit(s)} disabled={busy}>Finish setup</Button>}
         {s.state === "enabled" && s.health === "needs_review" && (
-          <Button size="sm" variant="outline" onClick={() => (structural ? onReview(s) : onEdit(s))} disabled={busy}>Review</Button>
+          <Button size="sm" variant="outline" onClick={openReview} disabled={busy}>Review</Button>
         )}
         {s.state === "enabled" && s.health !== "needs_review" && connected && (
           <Button size="sm" variant="outline" onClick={() => act("sync_now", "Checked")} disabled={busy}>Sync now</Button>
