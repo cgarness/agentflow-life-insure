@@ -679,3 +679,39 @@ PR #433 (merge `d88982d`, released to production 2026-10-09) replaced the Campai
 **Scope.** Read campaigns by `organization_id` under RLS, then apply `filterCampaignsForManagement` at render; never cache a filtered set. `campaignsTable` query keys carry org and user, placeholder data is same-owner only, and a missing org never sends an unscoped read. The management table has no dial action. New Campaign keeps `PermissionGate "Create Campaigns"`; Duplicate keeps the old payload and the admin / team-leader owner-or-assignee rule; both are blocked when the agency is suspended or archived.
 
 **Column preferences.** Store them only in `user_preferences.settings.campaigns_table = {v:1, orgs:{[orgId]:{order,hidden}}}` for the real signed-in user; a write changes only the current org's entry and preserves every other settings key. Opening the page only reads. Save/Reset update with compare-and-set on the exact `updated_at`, retry once and then report a conflict; a missing row is inserted, and a 23505 race re-reads and compare-and-sets. A stored `campaigns_table` object whose `v` is present and not 1 renders the default columns and refuses Save/Reset; never overwrite it. Editing is disabled during View As. Campaign and Actions are locked; unknown ids are dropped and new columns join at their default position.
+
+
+## Google Sheets lead import invariant — October 13, 2026 (implemented on a draft PR; NOT deployed)
+
+Settings → Google Sheets uses a **dedicated** Google OAuth client and its own tables, Vault secrets and Edge functions. Never reuse the Gmail/Calendar client, `_shared/google-token.ts` Base64 storage, `user_email_connections` or `calendar_integrations` for it.
+
+**OAuth and credentials**
+- Scopes are exactly `openid email drive.file` with `include_granted_scopes=false` and PKCE S256.
+- OAuth state is SHA-256-hashed, single-use, consumed atomically, expires in 10 minutes and is bound to `auth_generation`.
+- Return origins come from a fixed allowlist.
+- The refresh token lives only in Vault. It is never overwritten by an absent token, and is retained only for the same Google `sub`.
+- The Picker token's ACTUAL scopes are inspected and the token is never persisted.
+- **Sheets disconnect never calls Google revoke**, because revocation can span the whole project and break Gmail/Calendar.
+
+**Identity and receipts**
+- A Source Lead ID (case-sensitive) or row position with **full-prefix** fingerprint validation from one consistent read. A 25-row window is not acceptable.
+- Ambiguity → Needs review, with nothing imported.
+- Appended rows are never classified by content.
+- Baseline records (intentionally excluded) are distinct from permanent receipts.
+- Receipts are written in the same subtransaction as the lead and are never deleted by the feature.
+
+**Writes and authorization**
+- Every write re-checks, inside the transaction: owner eligibility (`private.google_sheets_owner_eligible`, which mirrors `has_contacts_permission` for an explicit user and adds an Active profile and a non-suspended org), state/health, `config_version`, connection `auth_generation`, and lease.
+- Finalization never overwrites a newer version.
+- Edge code reaches PostgreSQL only through `public.google_sheets_*` SECURITY DEFINER wrappers that only `service_role` may EXECUTE. Private helpers are not HTTP-exposed. Verify access through PostgREST, not only native SQL.
+
+**Duplicates and side effects**
+- Duplicate rule, scope and action are read on the server (`contact_management_settings`), with exact `import-contacts` semantics.
+- A Sheets-only advisory lock serializes duplicate evaluation and insertion. It does not fix CSV races.
+- New leads: `assigned_agent_id = user_id = imported_by_user_id` = the connection owner.
+- The existing `trg_workflow_lead_created` is the only workflow dispatch.
+- Never read or write DNC, STOP, suppression or consent records from this feature.
+
+**Permissions:** `contacts.leads.import_google_sheets` defaults ON for Agent and Team Leader. SQL and app defaults are pinned equal by `src/lib/google-sheets/__tests__/googleSheets.test.ts`. Settings visibility (`role_permissions.s`) and import permission are separate controls.
+
+**Status.** Draft PR only: the migration is not applied, the functions are not deployed, and cron is pending. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.

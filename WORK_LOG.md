@@ -1,3 +1,57 @@
+## 2026-10-13 — Google Sheets V1 ("new row → create lead") IMPLEMENTED on a draft PR; locally verified; NOT deployed, NOT applied, NOT released
+
+**Request and approval.** On 2026-10-13 Chris approved implementation with decisions D1–D11:
+- the trigger/action model: a new row in a connected tab creates a lead for the connected agent;
+- new rows by default, with "Also import existing rows" unchecked by default.
+
+The detailed plan was revised **before** any implementation edit, in `docs/plans/2026-10-13-google-sheets-import/implementation_plan.md` §0 (authoritative). Production work stays gated on review of `release-package.md`: migration, Edge deploy, secrets, Google Cloud, cron, live imports, privacy publication, merge and release.
+
+**Base and concurrency.**
+- `origin/main` is still `f91e4ba`. AGENT_RULES, VISION and WORK_LOG were reread; there is no AGENTS.md.
+- No open PR overlaps. #378 is not deployed and is not relied on. #425 also edits `supabase/config.toml`; only new blocks were appended here.
+- No branded Supabase callback host exists (MCP project URL plus a repository/branch search).
+
+**What the agent can now do (Settings → Automation & API → Google Sheets)**
+1. Connect one Google account through a dedicated Sheets OAuth flow.
+2. Add any number of spreadsheet tabs: Picker → tab → map → read-only preview → Enable.
+3. By default only rows added after Enable are imported. A server-read baseline is committed atomically at activation; ticking "Also import existing rows" imports them, with the Lead Created warning.
+4. Each tab has its own name, mapping, default Lead Source, status, last check, results ("12 imported (2 flagged) · 3 skipped · 1 error"), and Sync now / Pause / Resume / Edit mapping / Review / Remove.
+5. A background worker checks each active tab about every 5 minutes, with the browser closed.
+
+**Files.** 58 changed vs `main`, plus the docs/evidence in this commit. The exact list is in the PR description.
+- **New migration:** `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`.
+  - Tables, RLS, Vault storage, 25 private helpers and 18 service-role-only public wrappers.
+  - The ONLY change to an existing object is one new row in `public._contacts_permission_default`, after an MD5 preimage check.
+  - It comes with `pending/20261013120100_google_sheets_sync_schedule.sql` (cron, inactive) and a rollback.
+- **Four new Edge functions** — `google-sheets-oauth-start`, `google-sheets-oauth-callback`, `google-sheets-api`, `google-sheets-sync-worker` — plus `_shared/googleSheets/*`. No existing function was modified.
+- **Frontend:** `src/components/settings/google-sheets/*` (9 components, all under 200 lines), `src/lib/google-sheets/*`, `src/hooks/useGoogleSheets.ts`, and wiring in `settingsConfig`, `SettingsRenderer` and `permissionDefaults`.
+- **Tests:** SQL harness and suite, a PostgREST check, Deno tests, Vitest, and the browser flow `scripts/tests/google-sheets-ui/verify.mjs`.
+
+**Key behaviour**
+- **Identity:** a Source Lead ID (case-sensitive; sort-safe; conflicting duplicates are row errors) or row position (full-prefix fingerprint validation from one consistent read; any ambiguity sets Needs review and imports nothing; agent-chosen recovery).
+- **Receipts:** a permanent receipt is saved atomically with each lead. Baseline records are separate from receipts.
+- **Duplicates:** the agency rule, scope and action are read on the server and ported exactly from `import-contacts` (all 24 combinations tested). An advisory lock serializes concurrent Sheets imports.
+- **Ownership and side effects:** `assigned_agent_id = user_id = imported_by_user_id` = the connection owner. The existing trigger fires Lead Created once per lead. Nothing touches DNC, STOP or consent.
+- **Concurrency:** leases, `config_version` and `auth_generation` are checked inside every write, so stale workers, late callbacks and stale `invalid_grant` responses cannot commit or overwrite.
+- **OAuth:** scopes are exactly `openid email drive.file`, with `include_granted_scopes=false`, PKCE S256 and an atomic single-use 10-minute state. The ID token and userinfo `sub` are verified and the granted scopes are checked. The Picker token's ACTUAL scopes are inspected, and it is held in memory only. Disconnect never calls Google revoke.
+
+**Verification (local only; see `verification.md`)**
+- `npx tsc --noEmit` passes. The app tsc is 85/85 with byte-identical diagnostics (zero new).
+- ESLint is clean on all changed files; the production build passes.
+- SQL/PostgREST suite: T1–T14 all pass. Two-session concurrency `imported flagged`, with the negative control `imported imported`. SKIP LOCKED claims never overlap. Rollback restores the exact preimage. 23 PostgREST role checks pass.
+- Deno 42/42. Vitest: 15 new tests, plus the existing suites. The 10 full-suite failures fail identically on untouched `main`.
+- Browser flow: 36/36 at 1440 and 390 px.
+
+**Not done / pending**
+- The real Google-account test (Picker → server read, and still readable after a fresh token from the stored refresh token).
+- A fresh check of Google publishing status: the 2026-10-09 screenshots showed Testing, where grants expire after 7 days.
+- Privacy copy approval and publication.
+- Every production step, and the merge.
+
+**Next.** Chris reviews the draft PR and `release-package.md`, then approves each production step in the documented order.
+
+---
+
 ## 2026-10-12 — UI copy cleanup V2: final targeted polish (Required Fields note, duplicate Settings headings) on draft PR #440; awaiting owner acceptance (not merged, not released)
 
 **Request and approval.** On 2026-10-12 Chris approved exactly two presentation fixes on reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.

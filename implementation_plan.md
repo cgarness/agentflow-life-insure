@@ -1,3 +1,20 @@
+## 2026-10-13 — IMPLEMENTED on a draft PR, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
+
+**Status:** Chris approved implementation (D1–D11; "new row → create lead"; new rows by default) on 2026-10-13. The plan was revised first (§0 of the detailed plan).
+- **Done:** the foundation migration (one narrowly scoped permission-helper row), four new Edge functions, the Settings UI, and SQL/PostgREST, Deno, Vitest and browser verification.
+- **Not done:** no production change.
+
+**Detailed plan:** `docs/plans/2026-10-13-google-sheets-import/implementation_plan.md` (§0 authoritative). **Release package:** `release-package.md`. **Evidence:** `verification.md` and the newest WORK_LOG entry.
+
+**Awaiting:**
+- review of the draft PR and the release package;
+- the real Google-account test;
+- a fresh check of Google publishing status;
+- privacy copy approval;
+- separately approved production steps.
+
+*The Phase 1 plan-only status line below is kept as written.*
+
 ## 2026-10-13 — PLAN ONLY, awaiting Chris's approval: Google Sheets lead import V1
 
 **Status:** Phase 1 review and plan only. No implementation file, migration, Edge function, secret, cron job, Google Cloud setting or production row was changed. Production was read-only.
