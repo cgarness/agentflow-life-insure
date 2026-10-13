@@ -1,3 +1,56 @@
+## 2026-10-13 — Google Sheets PR #442: pilot switched to live-production testing; release package re-sequenced into Phases A–E (documentation only; nothing deployed, applied, merged or enabled)
+
+**Request.** Chris approved changing the Google Sheets pilot from the protected Vercel preview to controlled testing directly in live production (`https://www.fflagent.com`). Application behaviour is unchanged, and no production mutation was approved.
+
+**State checked (read-only):**
+- `main` is still `f91e4ba`; the PR #442 head is `66deefa` (docs on top of the reviewed application head `b66c44f`), draft.
+- No new or overlapping PR.
+- `AGENT_RULES.md`, `VISION.md` and `WORK_LOG.md` on `main` are unchanged since the last read.
+- Every check passed on `66deefa`; Supabase Preview was skipped because of the branch limit.
+
+**What changed in the release documentation**
+- **Release sequence (each phase separately approved):**
+  - A: Google owner setup;
+  - B: backend deployed but disabled;
+  - C: merge and production release with the feature still disabled, plus health checks of dialer, contacts, Gmail, Calendar and reporting;
+  - D: live test activation, with both flags on, cron OFF, the manual real Google test using Sync now, and synthetic data;
+  - E: after the test passes, privacy publication, cron, the roughly five-minute checks, and final verification.
+- **Preview removed everywhere.**
+  - Picker referrers are production-only: `www.fflagent.com/*`, `fflagent.com/*`, `docs.google.com/*`.
+  - Return origins are `https://www.fflagent.com,https://fflagent.com`.
+  - No `*.vercel.app` origin.
+  - The callback is unchanged unless the G2 custom-domain check finds one.
+- **Owner checklist (G0–G7) updated.** G7 names the pilot Google account `cgarness.ffl@gmail.com`, and adds it as a test user if the project is in Testing.
+- **Report-back list:** non-secret items only. The never-send list covers the client secret, the Picker key, refresh and worker tokens, and authorization codes.
+
+**Found while re-checking Phase C, from the code; documented, no code change:**
+- With the frontend flag off, the merged code still adds a "Google Sheets" Settings entry, visible to all roles because new sections default to visible.
+- Its page shows "Google Sheets is not available yet."
+- While open, it makes two read-only requests: the API `status` call, which answers `enabled: false`, and an RLS-limited read of the user's own sources, which is empty and refreshes every 60 s.
+- Settings → Permissions gains "Import from own Google Sheets".
+- The release package's controls table previously said the UI flag "hides" the page; that is corrected.
+
+**Exposure stated for Phase D.**
+- Both flags are project-wide, and the reviewed code has no per-user allowlist.
+- **Recommendation (Chris's decision):** switch the permission OFF for Agent and Team Leader before enabling. The server refuses stored denials, and Admin stays eligible.
+- Without that limit, all 8 active users of the only active organization could use the feature during the test, subject to Google test users while the project is in Testing.
+
+**Privacy copy:** unchanged and still pending; it is published only in Phase E.
+
+**Files changed (documentation only):**
+- `docs/plans/2026-10-13-google-sheets-import/release-package.md`;
+- `docs/plans/2026-10-13-google-sheets-import/verification.md` (environment note only);
+- `implementation_plan.md`;
+- this file.
+
+**Not performed:** no deploy, merge, Supabase write, Vercel change, flag change or Google authorization. PR #442 stays draft.
+
+**Next:**
+1. Chris performs G0–G7 and reports the non-secret results.
+2. Then comes the Phase B approval request: secrets, foundation migration, four Edge Functions, with Sheets still disabled.
+
+---
+
 ## 2026-10-13 — Google Sheets PR #442: setup gate — read-only preflight done, pilot and real Google test prepared; Google Cloud setup NOT performed (no authenticated Google access); nothing deployed, applied or released
 
 **Request and approval.** Chris accepted the corrections at `b66c44f` and approved:

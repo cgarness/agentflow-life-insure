@@ -250,7 +250,9 @@ fb671d3e49f98476e74fd2b56ec9f0d7e2ac69d5c6fa2264b617ec378d1c27d4  supabase/funct
 
 ## 12. Setup-gate release preflight (2026-10-13, about 07:30–08:00 UTC; read-only)
 
-This section is evidence only. Planned and blocked work is in release package §1, §5.0, §6 and §10. No production row, setting, secret, function or Google resource was changed.
+This section is evidence only. Planned and blocked work is in the release package: the sequence table, §1, §5, §6 and §10. No production row, setting, secret, function or Google resource was changed.
+
+**Test environment (updated 2026-10-13):** Chris approved running the real Google test in live production at `https://www.fflagent.com`, in release Phases A–E. The protected branch preview recorded in §12.7 is evidence of what exists; it is **not** the test environment, and no preview or `*.vercel.app` origin is added to the Picker key or the Sheets return origins.
 
 ### 12.1 Code and CI
 - `main` = `f91e4ba` (re-fetched). PR #442 head = `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`: draft, no conflicts, no review threads.
@@ -321,7 +323,7 @@ None of these findings mentions `google_sheets`.
   - domains `www.fflagent.com`, `fflagent.com` (redirects to www), `agentflow-eta.vercel.app`, `agentflow-cgarness-projects.vercel.app` and `agentflow-git-main-cgarness-projects.vercel.app`;
   - SSO protection enabled for `all_except_custom_domains`.
 - **Production deployment:** `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`, READY, `main` `f91e4ba`.
-- **Branch preview:** `dpl_6ncQHEs8yxNBdGjU4TFRfvvzcRQM`, READY at `b66c44f`, alias `agentflow-git-claude-keen-brown-e4u3ht-cgarness-projects.vercel.app`.
+- **Branch preview:** `dpl_6ncQHEs8yxNBdGjU4TFRfvvzcRQM`, READY at `b66c44f`, alias `agentflow-git-claude-keen-brown-e4u3ht-cgarness-projects.vercel.app`. This is informational only; the test runs on `www.fflagent.com`.
 - **Environment variables:** listing them was refused (403), so their values are an owner check.
 
 ### 12.8 Edge bundles (reproducible)

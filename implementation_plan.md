@@ -1,3 +1,37 @@
+## 2026-10-13 — PILOT SWITCHED TO LIVE-PRODUCTION TESTING (documentation only; code `b66c44f` unchanged; nothing deployed, applied, merged or enabled): Google Sheets PR #442
+
+**Decision (Chris, 2026-10-13):** run the controlled test directly in live production at `https://www.fflagent.com`, not on the protected Vercel preview.
+
+**Release sequence** (each phase separately approved; details in `docs/plans/2026-10-13-google-sheets-import/release-package.md`):
+1. **A — Google owner setup:** owner checklist §1, G0–G7.
+2. **B — Backend deployed, disabled:** Edge secrets, foundation migration, four Edge Functions. `GOOGLE_SHEETS_ENABLED` unset, cron absent, no imports.
+3. **C — Production code release, still disabled:** merge PR #442 with `VITE_GOOGLE_SHEETS_ENABLED` unset, then health checks.
+4. **D — Live test activation:** both flags on and a frontend redeploy. Cron OFF; the manual real Google test with Sync now, on synthetic data.
+5. **E — Normal operation, only after the real test passes:** privacy publication, Vault token and cron migration, the roughly five-minute checks, final verification.
+
+**Production-only origins:**
+- Picker referrers: `https://www.fflagent.com/*`, `https://fflagent.com/*`, `https://docs.google.com/*`.
+- Return origins: `https://www.fflagent.com,https://fflagent.com`.
+- No preview domain and no `*.vercel.app` wildcard.
+- The callback is unchanged unless G2 finds an active Supabase custom domain.
+
+**Found while re-checking Phase C; documented, no code change:**
+- Merged with the flag off, the "Google Sheets" Settings entry is visible to all roles, because new sections default to visible.
+- Its page shows "Google Sheets is not available yet." It still makes two read-only requests while open: `status`, which answers `enabled: false`, and the user's own (empty) sources, refreshed every 60 s.
+- Settings → Permissions lists "Import from own Google Sheets".
+- The release package no longer says the UI flag "hides" the page.
+
+**Recommended for Phase D (Chris's decision):** switch that permission OFF for Agent and Team Leader before enabling. A stored denial wins, and Admin stays eligible. Without it, all 8 active users could use the feature during the test, subject to Google test users while the project is in Testing.
+
+**Docs touched:** `release-package.md`, `verification.md` (environment note only), this file, `WORK_LOG.md`.
+
+**Not approved or performed:** no production mutation, deploy, merge, Vercel change, flag change or Google authorization. PR #442 stays draft.
+
+**Next:**
+1. Chris completes §1 G0–G7 and reports only non-secret results.
+2. Then comes the Phase B approval request (release package §10).
+---
+
 ## 2026-10-13 — PILOT PREPARED; GOOGLE SETUP LEFT TO THE OWNER (no authenticated Google access); disabled-backend deployment awaiting approval: Google Sheets PR #442 (setup gate; code `b66c44f` unchanged; nothing deployed or applied)
 
 **Outcome:**
