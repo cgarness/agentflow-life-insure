@@ -1,0 +1,174 @@
+name: Google Sheets
+# Sheets-specific checks against the EXACT candidate head. Least privilege: read-only contents, no secrets, no
+# production URL or credential in any job (the cron job's production URL is unreachable: --network none).
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261013120000_google_sheets_import_foundation.sql'
+      - 'supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql'
+      - 'supabase/migrations/rollback/20261013120000_google_sheets_import_foundation.rollback.sql'
+      - 'supabase/functions/_shared/googleSheets/**'
+      - 'supabase/functions/google-sheets-*/**'
+      - 'supabase/tests/google_sheets_*.sql'
+      - 'supabase/ops/google_sheets_*.sql'
+      - 'scripts/run_google_sheets_*.sh'
+      - 'scripts/google_sheets_*'
+      - 'scripts/tests/google-sheets-ui/**'
+      - 'src/components/settings/google-sheets/**'
+      - 'src/lib/google-sheets/**'
+      - 'src/hooks/useGoogleSheets.ts'
+      - 'src/config/settingsConfig.ts'
+      - 'src/config/permissionDefaults.ts'
+      - 'src/components/settings/SettingsRenderer.tsx'
+      - 'supabase/config.toml'
+      - 'package*.json'
+      - '.github/workflows/google-sheets.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: google-sheets-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+jobs:
+  sql:
+    name: SQL, PostgREST, regressions, concurrency, shutdown, end-to-end Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55434:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Install isolated tools (Deno, PostgREST image)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gs-tools" --no-package-lock deno@2.5.6
+          docker pull postgrest/postgrest:v12.2.3
+      - name: run_google_sheets_tests.sh
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55434
+          DENO_BIN: ${{ runner.temp }}/gs-tools/node_modules/.bin/deno
+        run: bash scripts/run_google_sheets_tests.sh
+  cron:
+    name: Real pg_cron / pg_net (supabase/postgres 17.6.1.063, --network none)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+      - run: docker pull supabase/postgres:17.6.1.063
+      - run: bash scripts/run_google_sheets_cron_check.sh
+  edge:
+    name: Edge tests and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - run: npm install --prefix "$RUNNER_TEMP/gs-tools" --no-package-lock deno@2.5.6
+      - name: deno test (Sheets)
+        working-directory: supabase/functions
+        run: >-
+          "$RUNNER_TEMP/gs-tools/node_modules/.bin/deno" test --allow-env
+          _shared/googleSheets/ google-sheets-api/ google-sheets-oauth-start/ google-sheets-oauth-callback/ google-sheets-sync-worker/
+      - name: deno check (four entry points)
+        run: >-
+          "$RUNNER_TEMP/gs-tools/node_modules/.bin/deno" check
+          supabase/functions/google-sheets-api/index.ts
+          supabase/functions/google-sheets-oauth-start/index.ts
+          supabase/functions/google-sheets-oauth-callback/index.ts
+          supabase/functions/google-sheets-sync-worker/index.ts
+  frontend:
+    name: Frontend tests, lint, types, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Focused Vitest
+        run: >-
+          npx vitest run src/lib/google-sheets src/components/settings/google-sheets
+          src/lib/__tests__/contactsPermissions.test.ts src/lib/__tests__/reportsContracts.test.ts src/pages/__tests__/settingsPageHeading.test.tsx
+      - name: ESLint (Sheets files)
+        run: >-
+          npx eslint src/components/settings/google-sheets src/lib/google-sheets src/hooks/useGoogleSheets.ts
+          src/config/settingsConfig.ts src/config/permissionDefaults.ts src/components/settings/SettingsRenderer.tsx
+          scripts/tests/google-sheets-ui/verify.mjs scripts/google_sheets_postgrest_check.mjs
+      - run: npx tsc --noEmit
+      - name: App type-check against the exact PR base (zero new diagnostics)
+        if: github.event_name == 'pull_request'
+        env:
+          A2P_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/verify-a2p-types.mjs
+      - run: npm run build
+  ui:
+    name: Browser flow (mocked Supabase host + fake Picker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install pinned isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gs-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/gs-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: verify.mjs at 1440 and 390 px
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/gs-browser/node_modules/playwright/index.mjs
+          VITE_SUPABASE_URL: https://mock.supabase.co
+          VITE_SUPABASE_ANON_KEY: anon-test
+          VITE_GOOGLE_SHEETS_ENABLED: 'true'
+          VITE_GOOGLE_PICKER_API_KEY: test-picker-key
+          VITE_GOOGLE_CLOUD_PROJECT_NUMBER: '87346168200'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gs-shots"
+          npx vite --port 5179 --host 127.0.0.1 > "$RUNNER_TEMP/vite.log" 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID"' EXIT
+          for _ in $(seq 1 60); do curl -s http://127.0.0.1:5179/ >/dev/null && break; sleep 1; done
+          node scripts/tests/google-sheets-ui/verify.mjs "$RUNNER_TEMP/gs-shots"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: google-sheets-browser
+          path: ${{ runner.temp }}/gs-shots
