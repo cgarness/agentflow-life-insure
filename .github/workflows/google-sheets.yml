@@ -89,6 +89,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
+          cache: npm
+      # Deno type-checks with the repository's node_modules (esm.sh type files reference @types/node).
+      - run: npm ci --no-audit --no-fund
       - run: npm install --prefix "$RUNNER_TEMP/gs-tools" --no-package-lock deno@2.5.6
       - name: deno test (Sheets)
         working-directory: supabase/functions

@@ -324,7 +324,11 @@ docker run -d --rm --name "$PGRST_NAME" --network host \
   -e PGRST_DB_URI="postgres://authenticator:authenticator@${HOSTPART}/${DB_RS}" \
   -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon -e PGRST_JWT_SECRET="$SECRET" \
   -e PGRST_SERVER_PORT="$PORT" postgrest/postgrest:v12.2.3 >/dev/null
-for _ in $(seq 1 30); do curl -s "http://127.0.0.1:$PORT/" >/dev/null 2>&1 && break; sleep 0.5; done
+pgrst_ready() { # PostgREST answers 503 (PGRST002) until its schema cache is loaded: wait for HTTP 200
+  for _ in $(seq 1 120); do curl -sf -o /dev/null "http://127.0.0.1:$1/" && return 0; sleep 0.5; done
+  echo "   FAIL: PostgREST on port $1 did not become ready"; exit 1
+}
+pgrst_ready "$PORT"
 node "$ROOT/scripts/google_sheets_postgrest_check.mjs" "http://127.0.0.1:$PORT" "$SECRET"
 
 echo; echo "== 7. end-to-end Review harness (real actions + engine via PostgREST; Google faked) =="
@@ -337,7 +341,7 @@ docker run -d --rm --name "$PGRST_E2E" --network host \
   -e PGRST_DB_URI="postgres://authenticator:authenticator@${HOSTPART}/${DB_E2E}" \
   -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon -e PGRST_JWT_SECRET="$SECRET" \
   -e PGRST_SERVER_PORT="$PORT2" postgrest/postgrest:v12.2.3 >/dev/null
-for _ in $(seq 1 30); do curl -s "http://127.0.0.1:$PORT2/" >/dev/null 2>&1 && break; sleep 0.5; done
+pgrst_ready "$PORT2"
 (cd "$ROOT" && "$DENO_BIN" run --allow-net=127.0.0.1 --allow-env --allow-read ${DENO_IMPORT_MAP:+--import-map="$DENO_IMPORT_MAP"} \
   scripts/google_sheets_e2e.ts "http://127.0.0.1:$PORT2" "$SECRET")
 
