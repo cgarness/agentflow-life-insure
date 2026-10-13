@@ -1,3 +1,17 @@
+## 2026-10-13 — PLAN ONLY, awaiting Chris's approval: Google Sheets lead import V1
+
+**Status:** Phase 1 review and plan only. No implementation file, migration, Edge function, secret, cron job, Google Cloud setting or production row was changed. Production was read-only.
+
+**Full plan:** `docs/plans/2026-10-13-google-sheets-import/implementation_plan.md`. It contains the files to touch (§10), the new tables and functions (§5), the four new Edge functions (§7), pg_cron with a Vault worker token (§6.1), the Google Cloud requirements (§4.1) and the release sequence (§14).
+
+**Approval needed:** decisions D1–D11 (§12).
+
+**Separate gates:**
+- Google publishing status: Testing grants expire after 7 days.
+- Privacy copy for Sheets: proposed in §11.
+
+---
+
 ## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
 
 **Final targeted polish (2026-10-12):** Chris approved two presentation fixes on top of `d4b7257`: the Contact Flow Required Fields note, and the duplicate Permissions and coming-soon Settings headings. The exact files and lines are in the detailed plan §17.13. Implemented in `9010612`, with its tests, and verified against `e11c8bea`. No backend change. Owner acceptance on the protected preview follows. The PR stays in draft.
