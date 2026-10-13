@@ -1,3 +1,61 @@
+## 2026-10-13 — Google Sheets PR #442 pre-release integrity corrections IMPLEMENTED (findings 1–3, amendments A–C); verified locally and in exact-head CI; NOT deployed, NOT applied, NOT released
+
+**Request and approval.** Review of head `8b675e5` found three defects:
+1. a sorted, excluded blank-ID row could import once it received an ID;
+2. stale finalization could write status after a reconnect or lease expiry;
+3. duplicate Lead IDs were compared on core fields only.
+
+Chris approved the §0.9 correction plan with decisions 1–4 and amendments A–C. §0.9 was updated before any implementation edit (`1ab10a3`). PR #442 stays draft.
+
+**Base, concurrency and migration status.**
+- `origin/main` is still `f91e4ba`, re-fetched before the final push. The branch had no other pushes, no PR overlaps, and no concurrent WORK_LOG entry.
+- AGENT_RULES, VISION and WORK_LOG were reread first.
+- The candidate migration is unapplied in every environment checked: production `jncvvsvckxhqgqvkppmj` (latest `20261010172702`; no Sheets object) and PR #378's preview branch `yngxvmpzaccmaowpqggs`. PR #294's branch is inactive and predates the feature, and PR #442 has no branch. The migration was therefore amended in place.
+
+**Commits** (no force-push, no history rewritten):
+
+| Commit | Content |
+|---|---|
+| `1ab10a3` | §0.9 amended plan and file list (docs) |
+| `0ffbbba` | SQL: generation- and real-time-safe `finish` (`completed / released / not_owner / not_found`), generation- and snapshot-bound `review`, new `resolve_identity` / `review_state` / `connection_current`, the `approved` kind, `noid:` keys, carry fingerprint check; suite T15–T18 + regression file |
+| `34d1b4e` | Ops (NOT RUN): admission gate close/open, unschedule, drain check; tested multi-session shutdown; real pg_cron/pg_net check in `supabase/postgres:17.6.1.063` with `--network none` |
+| `d9ac96a` | Edge: blank-baseline accounting + `identity_ambiguous`, shared ID classifier on all mapped values, finish-outcome handling (`stale`, truthful counts), Picker re-check, identity-review actions; Deno regressions; end-to-end Review harness |
+| `3a0685f` | Frontend: explicit-choice structural Review, new identity Review dialog (both under 200 lines, Zod), truthful "sync stopped" toast, preview labels |
+| `1011a04`, `3e45be6` | `.github/workflows/google-sheets.yml` (least privilege, pinned, no secrets) and two CI fixes |
+| fix commit | The preview says "1 repeat" (singular). The shutdown test's drain comparison ignores the informational lease column (as release-package §5 now says), so an expiring lease no longer reads as BLOCKED. A2 regression detail made readable. Workflow `paths` include the plan folder |
+| this commit | Docs: verification, release package, plan status, this entry, AGENT_RULES invariant, refreshed screenshots |
+
+**Resolution**
+- **F1 + A.**
+  - Excluded blank-ID baselines are accounted on every sync. If any cannot be safely accounted and any row has an unseen Lead ID, the sheet waits in Needs review (`identity_ambiguous`), with nothing imported and nothing written. Content and position are hints only.
+  - The new identity Review lists every unseen ID and every non-kept blank row, with no preselection. The apply is bound to an SQL snapshot of the rows, mapping, version, generation and ledger.
+  - The structural Review now separates established rows from ambiguous content matches and requires an explicit choice.
+- **F2 + B.**
+  - Finish validates lease (on `clock_timestamp()` after lock waits), version, state, connection status, owner, generation and eligibility. Anything other than `completed` writes nothing except releasing its own lease.
+  - The engine reports `stale`; no success is manufactured.
+  - Both Review applies and the Picker re-check the generation, and a stale Picker response never disables a newer connection.
+- **F3.** `rowSignature` covers every mapped value. The planner and the preview share `classifySourceIdRows`.
+- **C.** The release package now separates the UI flag, future cron, queued pg_net requests, running invocations, in-flight RPCs and pause/disconnect. The tested non-destructive shutdown is admission gate → drain check, with markers stable for 2 minutes, or else BLOCKED. Leases are not proof of termination.
+
+**Verification** (`docs/plans/2026-10-13-google-sheets-import/verification.md`)
+- **Regression evidence** (`scripts/google_sheets_regression_evidence.sh 8b675e5`): **26 REGRESSION tests fail on `8b675e5` and pass here; 5 CONTROL tests pass on both.** Two-session races: reviewed `t` (access_lost written / success written); candidate `released` (nothing written).
+- **Local:**
+  - SQL suite T1–T18 (52 functions), 9 SQL regression cases, concurrency with three negative controls, the shutdown gate, rollback, 33 PostgREST checks and 40 end-to-end Review checks: all pass;
+  - real pg_cron/pg_net check: pass;
+  - Deno 78/78; focused Vitest 23/23; browser flow 48/48;
+  - `npx tsc --noEmit` passes; app tsc 85 = 85 against a fresh `main` (zero new); ESLint clean on 29 files; build passes;
+  - full Vitest: the same 10 pre-existing failing files as `main`.
+- **CI on `3e45be6`:** all five Sheets jobs (sql, cron, edge, frontend, ui) passed, and every other workflow that finished passed. The final head's CI is reported in the PR.
+
+**Not done / pending**
+- The real Google-account test: Picker selection → server read → fresh token from the stored refresh token → server read again. Mocked Picker checks are not that test.
+- A fresh check of Google publishing status, and privacy approval.
+- Every production step: migration, deploy, secrets, Google Cloud, cron, shutdown ops, merge and release.
+
+**Next.** Chris reviews draft PR #442 and the updated `release-package.md`, runs the real Google-account test gate, and approves each production step separately.
+
+---
+
 ## 2026-10-13 — Google Sheets V1 ("new row → create lead") IMPLEMENTED on draft PR #442; locally verified; NOT deployed, NOT applied, NOT released
 
 **Request and approval.** On 2026-10-13 Chris approved implementation with decisions D1–D11:

@@ -7,7 +7,18 @@ Nothing in this package has been run:
 - no Google Cloud change, cron job or Vercel environment change;
 - no live import, privacy publication or merge.
 
-Branch: `claude/keen-brown-e4u3ht`. Plan: `implementation_plan.md` §0 in this folder. Local evidence: `verification.md`.
+Branch: `claude/keen-brown-e4u3ht`. Plan: `implementation_plan.md` §0 in this folder (§0.9 for the pre-release corrections). Local and CI evidence: `verification.md`.
+
+**Revision 2026-10-13 (pre-release integrity corrections, §0.9 with amendments A–C).** This package now reflects:
+- stale-run finalization that is bound to the generation and the lease, and writes nothing when stale;
+- Review that is bound to the generation and the snapshot, with explicit choices;
+- accounting for excluded blank-ID rows;
+- duplicate-ID comparison over all mapped values;
+- a Picker re-check;
+- a tested non-destructive shutdown (§5);
+- an accurate capacity statement.
+
+The previous "independently sufficient kill switches" claim is withdrawn.
 
 ---
 
@@ -16,7 +27,10 @@ Branch: `claude/keen-brown-e4u3ht`. Plan: `implementation_plan.md` §0 in this f
 1. **`main` and the deploy integration.**
    - Confirm `main` has not moved past the PR base, or merge `main` into the branch and re-run §6 locally.
    - Confirm GitHub → Supabase "Deploy to production" is still **OFF**: merging must not deploy functions.
-2. **Migrations:** `list_migrations` shows no `google_sheets` entry.
+2. **Migrations and exact head.**
+   - `list_migrations` shows no `google_sheets` entry in production. Re-check every active preview branch too: on 2026-10-13, production `jncvvsvckxhqgqvkppmj` and PR #378's branch were checked, and PR #294's branch was inactive.
+   - The release deploys exactly the reviewed candidate head recorded in `verification.md`.
+   - The Sheets CI workflow (`.github/workflows/google-sheets.yml`) must be green on that head.
 3. **Permission helper preimage.** The live MD5 must still equal `a199d5ddfb9a56070aeb7706d3e9a4b8`:
    ```sql
    SELECT md5(pg_get_functiondef('public._contacts_permission_default(text,text)'::regprocedure));
@@ -67,7 +81,7 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
 ## 3. Database migration (exact SQL = the committed files)
 
 **Apply** `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`
-- SHA-256 `ac05db63274fd91766ef91d175dba11294226d6af112a8448587f56d1a81a7f6`.
+- SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed` (amended in place before any application; it was never applied anywhere).
 - Use one `apply_migration` call, with the file's exact bytes.
 - Afterwards (invariant #35), rename the file to the recorded version with identical bytes, and update `scripts/run_google_sheets_tests.sh`, the harness header and the `?raw` import in `src/lib/google-sheets/__tests__/googleSheets.test.ts`.
 
@@ -80,14 +94,24 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
   - `public.google_sheets_connections`, `public.google_sheets_sources`, `public.google_sheets_sync_runs`: RLS SELECT own only; no client writes; `service_role` ALL.
   - `private.google_sheets_oauth_states`, `private.google_sheets_source_rows`, `private.google_sheets_receipts`: no grants to anyone but the owner.
 - **Functions:**
-  - 25 `private.google_sheets_*` helpers: no EXECUTE for PUBLIC, anon, authenticated or service_role.
-  - 18 `public.google_sheets_*` wrappers: SECURITY DEFINER, `search_path` pinned, EXECUTE granted to **service_role only**. These are the PostgREST entry points the Edge code calls.
+  - 31 `private.google_sheets_*` helpers: no EXECUTE for PUBLIC, anon, authenticated or service_role.
+  - 21 `public.google_sheets_*` wrappers: SECURITY DEFINER, `search_path` pinned, EXECUTE granted to **service_role only**. These are the PostgREST entry points the Edge code calls.
+- **Corrections included:**
+  - **`google_sheets_finish(..., p_generation, ...)`:**
+    - returns `completed | released | not_owner | not_found`;
+    - locks the source and then the connection, and evaluates validity on the real clock after the lock waits;
+    - a stale run only releases its own lease.
+  - **Ledger and ingest:** the ledger kind `approved` (explicit Review decisions); `noid:<n>` missing-ID keys.
+  - **Review:**
+    - `google_sheets_review` splits rows into established, content-matched and unmatched;
+    - it requires explicit choices and is bound to the generation and the snapshot.
+  - **New functions:** `google_sheets_review_state`, `google_sheets_resolve_identity`, `google_sheets_connection_current`.
 - Vault is used through `vault.create_secret` / `vault.update_secret` / `vault.secrets` (as the Twilio token functions do).
 
 **Read-back after apply**
 ```sql
 SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
- WHERE p.proname LIKE 'google\_sheets\_%' AND n.nspname IN ('public','private');            -- expect 43
+ WHERE p.proname LIKE 'google\_sheets\_%' AND n.nspname IN ('public','private');            -- expect 52 (31 private + 21 public)
 SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public' AND p.proname LIKE 'google\_sheets\_%'
    AND (has_function_privilege('anon', p.oid, 'EXECUTE') OR has_function_privilege('authenticated', p.oid, 'EXECUTE')); -- expect 0
@@ -126,24 +150,77 @@ Full per-file SHA-256 values are in `verification.md`.
 **After deploy,** read back each function's `verify_jwt=false` and its entry path. Then:
 - POST the worker without a token → 403;
 - POST the worker with the token while disabled → `{"disabled":true}`;
-- POST `google-sheets-api` without a JWT → 401.
+- POST `google-sheets-api` while disabled → 503 `disabled` for import actions, before authentication;
+- POST `google-sheets-api` without a JWT, after enabling (§5) → 401.
 
-## 5. Pilot activation (separate approval)
+## 5. Pilot activation, operating controls and shutdown (separate approval)
 
+**Activation**
 1. Set `GOOGLE_SHEETS_ENABLED=true` (Edge) and `VITE_GOOGLE_SHEETS_ENABLED=true` (Vercel Production), then redeploy the frontend.
 2. Run the §6 real-account test with one pilot agent **before** enabling cron.
 3. Apply the pending cron migration (move it out of `pending/`, `apply_migration`, re-stamp per #35). Read back `cron.job`.
 
-**Capacity statement**
-- The worker checks at most 10 sources per minute, so about 50 active sources are each checked about every 5 minutes.
-- With N > 50 active sources, the interval grows to about N/10 minutes.
-- A 10,000-row "import existing rows" backlog needs about 20 one-minute runs.
-- Google's quota (300 reads/min/project) is not the binding constraint.
+**Capacity statement** (verified behaviour; no limit is changed)
 
-**Kill switches,** each independently sufficient:
-- unset `GOOGLE_SHEETS_ENABLED` (worker and API inert);
-- `SELECT cron.unschedule('google-sheets-sync-every-minute')`;
-- unset `VITE_GOOGLE_SHEETS_ENABLED` (section shows "not available").
+*Per invocation*
+- At most **10 claims**, one source each, within a cooperative **45 s** budget.
+- No new claim is made when fewer than 8 s remain.
+- Each run imports at most **500** new rows in atomic batches of 50, and stops starting batches when its budget is used.
+
+*Order and repeats*
+- The oldest `next_sync_at` goes first.
+- A source with a backlog re-queues at `now()`, behind sources that are already due, and **may run again in the same invocation** when nothing older is due.
+- **5,000 rows per invocation is a conditional arithmetic ceiling** (10 × 500, only when one source is alone and every Google read is fast). It is not verified throughput and not a guaranteed per-minute rate.
+
+*Steady state*
+- About `max(5, N/10)` minutes between checks of each source, for N active sources, when runs are fast. Slow Google reads lower this.
+- A 10,000-row "import existing rows" backlog needs at least 20 runs.
+- An invocation that overruns a cron tick can overlap the next one; leases keep them on different sources.
+- Google's quota (300 reads per minute per project) is not the binding constraint at pilot scale.
+
+**What each control actually does** (Amendment C; nothing below is "independently sufficient" on its own)
+
+| Control | Effect | Does NOT |
+|---|---|---|
+| UI flag `VITE_GOOGLE_SHEETS_ENABLED` unset + frontend redeploy | Hides Settings → Google Sheets | Stop scheduled syncs, queued requests, running invocations or direct API calls |
+| Future cron scheduling — `supabase/ops/google_sheets_unschedule.sql` | No new scheduled invocation | Remove a `net.http_post` already queued in `net.http_request_queue` (it can still be sent), or stop an invocation already running |
+| Backend flag `GOOGLE_SHEETS_ENABLED` unset | The worker reads it **once, before its claim loop**, and is inert when unset. The API reads it per request and answers 503 except `status` and `disconnect`. OAuth start answers 503. | Stop an invocation that has already passed the check: it keeps claiming until its 10-claim / 45 s cooperative budget ends. A cooperative budget is not proof that outstanding Google or database calls have finished. Secret changes reach later invocations only as the platform picks them up. |
+| In-flight database operations | Every RPC is one transaction: one that has started finishes or rolls back on its own | — |
+| Per-source **Pause** | Bumps `config_version` and clears the lease, so that source's next ingest batch and its finish are refused. Leads, receipts and baselines stay. | Affect other sources |
+| Per-connection **Disconnect** | Bumps `auth_generation` and deletes the Vault secret, so that connection's next batch, finish, Review apply and Picker token are refused. It never calls Google revoke. | Revoke an access token Google already minted (it expires within an hour, and the server never returns it after the change) |
+| **Admission gate** — `supabase/ops/google_sheets_admission_close.sql` | Revokes EXECUTE on every `public.google_sheets_*` wrapper from `service_role`, except `google_sheets_disconnect`. From then on, no invocation (scheduled, queued, already running, API, OAuth callback) can start another database operation: each new call fails with `42501`. | Interrupt an RPC that is already executing; it completes atomically and the drain check verifies it |
+
+**Non-destructive shutdown** (tested locally and in CI; each SQL step needs approval at the time, and gate changes are applied as migrations per the `supabase/ops` convention)
+1. **Record the markers:** run `supabase/ops/google_sheets_drain_check.sql` (read-only) and keep the row.
+2. **Stop future scheduling:** run `supabase/ops/google_sheets_unschedule.sql`. Confirm `cron_jobs = 0` in the drain check.
+3. **Close admission:** run `supabase/ops/google_sheets_admission_close.sql`. Confirm `wrappers_executable = 0`.
+4. **Drain:** repeat the drain check until `active_sheets_backends = 0` **and** `queued_worker_requests = 0`.
+   - A request still queued when the gate is closed can only fail with `42501`.
+   - Lease state (`unexpired_leases_informational`) is **not** proof that a process has terminated.
+5. **Verify quiescence:** wait at least 2 minutes and run the drain check again.
+   - Every column except `checked_at` and `unexpired_leases_informational` must be identical: receipts, Sheets leads, sync runs, ledger, and the source and connection digests. The lease count may fall as leases expire; that proves nothing either way.
+   - **If anything moved, the shutdown is BLOCKED, not complete.** Investigate before reporting it stopped.
+6. Optionally unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`, so that reopening the gate later does not immediately resume work.
+
+**What it preserves:**
+- every lead, receipt and baseline;
+- each source's state and health (the agent's recoverable intent);
+- each connection's Vault secret;
+- disconnect, which stays available to agents.
+
+**Resume:**
+1. Run `supabase/ops/google_sheets_admission_open.sql`. It restores the exact wrapper ACL; the T1 assertions are re-run in the test.
+2. Re-apply the schedule (the pending migration's `cron.schedule` statement, with approval).
+3. Set the flags.
+
+Leases interrupted by the gate expire within 3 minutes, after which those sources are claimed again. Receipts prevent any replay; this is tested.
+
+| Ops file (NOT RUN) | SHA-256 |
+|---|---|
+| `supabase/ops/google_sheets_unschedule.sql` | `9af0e1331d8410a43909d377bc1f03334ad4c090b50099eb09f8143ad90ee46f` |
+| `supabase/ops/google_sheets_admission_close.sql` | `4255a54f950a91ed0227f80caf62276b46b61a0dcdc82a7298ba207f0ba9c5c8` |
+| `supabase/ops/google_sheets_admission_open.sql` | `265fca871aee8c9aa51ea46996f7c3a11b1f3e35f83733e2b7d715524c676135` |
+| `supabase/ops/google_sheets_drain_check.sql` | `0465beed2466882564213029ec38b0c2beed02f1f3760ccd23cbaa04218d80ee` |
 
 ## 6. Controlled real-account test (required before release; NOT performed)
 
@@ -164,6 +241,12 @@ This uses one pilot agent account, a **test Google account listed as a test user
    - Confirm no lead was created for existing rows.
    - Add one new row → **Sync now** → exactly one lead appears, assigned to the agent; the run shows `1 imported`.
 5. **Idempotency and sorting.** Sync again (no new lead); sort the sheet and sync (no new lead).
+5b. **Excluded rows without a Lead ID** (recommended):
+   - Before Enable, leave one existing row's Lead ID blank.
+   - After Enable, sort the sheet and give that row a Lead ID.
+   - **Sync now** → the sheet shows **Needs review** and nothing imports.
+   - **Review** lists the row with "Same name, phone and email as a row that was left out" and no preselected choice.
+   - Choose **Keep out** → **Resume** → sync: no lead. A row added afterwards imports normally.
 6. **Duplicate policy.** Add a row repeating an existing lead's phone → it follows the agency's setting (CG Financial is currently `flag`), and the existing lead is unchanged.
 7. **Pause and disconnect.** Pause, add a row, sync is unavailable, and nothing imports. Resume → it imports. Disconnect → Gmail/Calendar status is unchanged (read-only check), and the sheet shows Reconnect.
 8. **Cleanup** of the test leads only with separate approval (invariant #28).
@@ -180,6 +263,7 @@ The Limited Use paragraph already covers "information received from Google APIs"
 
 ## 8. Production verification
 
+- Run `supabase/ops/google_sheets_drain_check.sql` once after activation (read-only) to record a marker baseline for any later shutdown.
 - Run the §6 steps, then read-only SQL. For the pilot org:
   - receipts count equals imported plus skipped test rows;
   - `contact_history_events` shows action `imported` for each test lead;
@@ -190,6 +274,8 @@ The Limited Use paragraph already covers "information received from Google APIs"
 
 ## 9. Rollback
 
-1. Unset `GOOGLE_SHEETS_ENABLED`; then `cron.unschedule('google-sheets-sync-every-minute')`; then unset `VITE_GOOGLE_SHEETS_ENABLED`. The feature is now inert, and existing leads are untouched.
+1. Run the §5 **non-destructive shutdown**: unschedule → close admission → drain → verify quiescence. Then unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`.
+   - Report the feature as stopped only when the quiescence check passes; otherwise it is BLOCKED.
+   - Existing leads, receipts and baselines are untouched.
 2. Optional, with separate approval: delete the four functions, then run the rollback SQL. This also drops receipts, so re-adding a sheet afterwards could re-import rows.
 3. Google: disable or delete the "AgentFlow Sheets" client. That does not affect Gmail/Calendar's client.

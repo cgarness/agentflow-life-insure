@@ -1,4 +1,10 @@
-## 2026-10-13 — CORRECTION APPROVED WITH AMENDMENTS A–C, implementation in progress: Google Sheets PR #442 pre-release integrity fixes
+## 2026-10-13 — CORRECTIONS IMPLEMENTED on draft PR #442, verified locally and in exact-head CI (not deployed, not applied, not released): Google Sheets pre-release integrity fixes
+
+**Outcome:**
+- The three findings and amendments A–C are implemented on `claude/keen-brown-e4u3ht`, PR #442 (still draft).
+- **Evidence:** 26 regressions fail on the reviewed `8b675e5` and pass here; 5 controls pass on both. Every Sheets CI job passed on `3e45be6`.
+- **Where to look:** the detailed plan §0.9 ("Implementation status"), `verification.md`, `release-package.md` and the newest WORK_LOG entry.
+- **Still gated:** the real Google-account test and every production step.
 
 **Status:** Chris approved the §0.9 correction plan on 2026-10-13, including decisions 1–4, with amendments:
 - **A:** end-to-end exclusion and recovery; ambiguous identity → Review with explicit per-row decisions and snapshot-bound apply.

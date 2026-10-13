@@ -261,6 +261,16 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
 
 **Status:** Chris approved §0.9 on 2026-10-13, including decisions 1–4, subject to amendments A–C. This section is the amended, authoritative design. Approved: implementation, isolated local testing, Sheets-specific CI, branch commits/pushes, and updating draft PR #442. Still gated: merge, deploy, production migrations, Google Cloud, production secrets/settings, production cron, privacy publication, live imports.
 
+**Implementation status (2026-10-13): IMPLEMENTED on `claude/keen-brown-e4u3ht`, draft PR #442. Nothing is applied, deployed or activated.**
+- **Commits:** `0ffbbba` (SQL), `34d1b4e` (ops + cron check), `d9ac96a` (Edge), `3a0685f` (frontend), `1011a04` + `3e45be6` (CI), then docs.
+- **Evidence:** `verification.md` — 26 regressions fail on `8b675e5` and pass here; 5 controls pass on both. Every Sheets CI job passed on `3e45be6`. The final head's CI is reported in the PR.
+- **Where the build differs from the text below** (the text has been corrected to match):
+  - an identical-looking new row next to its *anchored* excluded twin goes to review, as does one next to an unresolved twin. Content cannot tell the twin from the new row, so that is never a fast-path import. This follows from the "safely accounted" rule; only the test list said otherwise;
+  - the dialog labels are "Keep out" / "Keep all out" (not "Keep excluded");
+  - the end-to-end harness has 8 scenarios, including a reconnect between preview and apply;
+  - one extra test file, `supabase/tests/google_sheets_finish_fixture.sql`, holds the fixture shared by the two-session race tests;
+  - the workflow also triggers on this plan folder, so a docs-only head still gets exact-head Sheets CI.
+
 **State checked before amending** (2026-10-13, read-only)
 - **Code:** `main` is still `f91e4ba`. PR #442's head is `46445b7` (this plan's first version; docs only on top of the reviewed `8b675e5`). No open PR overlaps.
 - **Migration status — environments actually checked:**
@@ -323,9 +333,9 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
   - The snapshot token is computed **in SQL** by `google_sheets_resolve_identity(..., dry_run)`. It is SHA-256 over the source, `config_version`, generation, identity config, mapping, the **full ledger** and the classification.
 - **Dialog** (new `SheetIdentityReviewDialog` + row list, both under 200 lines, Zod-validated):
   - every decision row is shown with an explicit choice and **no preselection**:
-    - ID rows: "Import" or "Keep excluded";
-    - blank rows: "Keep excluded" or "New row (imports once it has a Lead ID)";
-  - "Import all" / "Keep all excluded" set every choice at once;
+    - ID rows: "Import" or "Keep out";
+    - blank rows: "Keep out" or "New row (imports once it has a Lead ID)";
+  - "Import all" / "Keep all out" set every choice at once;
   - Apply stays disabled until every row has a choice.
 - **`identity_review_apply`:**
   1. Repeats the fresh read and the classification.
@@ -333,9 +343,9 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
   3. It recomputes the snapshot and refuses with **`review_changed`** if anything material differs: rows, mapping, version, generation or ledger.
   4. It requires a decision for every decision row and that kept ∪ retired equals all blank baselines.
   5. Then, in one transaction:
-     - Keep excluded (ID) → ID baseline;
+     - Keep out (ID) → ID baseline;
      - Import (ID) → `approved:X`;
-     - Keep excluded (blank) → `blank:<n>` baseline at its current position and fingerprint;
+     - Keep out (blank) → `blank:<n>` baseline at its current position and fingerprint;
      - New row (blank) → nothing;
      - unresolved baselines are retired, because every row that could be them has been decided;
      - Needs review is cleared, the next check is set to now, and the version is bumped.
@@ -344,7 +354,7 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
 
 *Structural / identity-change review* (existing `review_preview` / `review_apply` and `google_sheets_review`, corrected):
 - **Classification** becomes **established** (ID receipt or baseline; definitive), **content-matched** (fingerprint multiset; ambiguous) and **unmatched**. Content-matched rows are no longer silently "already handled".
-- **Dialog:** an explicit choice is required for content-matched rows ("Keep them out — already handled" / "Import them as new leads") and for unmatched rows ("Skip" / "Import"), with no preselection.
+- **Dialog:** an explicit choice is required for content-matched rows ("Keep them out" / "Import them as new leads") and for unmatched rows ("Skip them" / "Import them as new leads"), with no preselection. Rows matched by Lead ID are shown only as a count.
 - **Apply** carries `p_generation` and the snapshot, with the same locks and validation.
 - **ID mode:** rows left for import that have an ID are recorded as `approved:X`, so the next sync does not ask again.
 
@@ -366,14 +376,15 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
 - `load_state` returns approvals automatically.
 
 **Tests** (all through real SQL):
-- **Planner unit tests (Deno):** the exact repro; edited+moved+ID'd; several excluded rows; an identical-looking new row (twin anchored vs unresolved); the standing-in residual; carry; and incomplete rows becoming candidates once corrected.
+- **Planner unit tests (Deno):** the exact repro; edited+moved+ID'd; several excluded rows; an identical-looking new row next to its excluded twin (review whether the twin is anchored or unresolved); the standing-in residual; carry; and incomplete rows becoming candidates once corrected.
 - **End to end:** a new Deno harness, `scripts/google_sheets_e2e.ts`, runs the real `actions.ts` and engine code against the migration through the local PostgREST. Only Google HTTP is faked. Each scenario runs planner → Review preview → Review apply → next sync:
-  1. the exact sorted blank-ID repro (explicit **Keep excluded** → never imported; repeated with explicit **Import** → imported once, no replay);
+  1. the exact sorted blank-ID repro (explicit **Keep out** → never imported; repeated with explicit **Import** → imported once, no replay);
   2. an excluded row edited, moved and then given an ID;
   3. several excluded blank-ID rows (some stay blank and move, one completed, one deleted);
-  4. a genuinely new identical-looking row (twin anchored → fast-path import; twin unresolved → review → Import);
+  4. a genuinely new identical-looking row next to its excluded twin → review → explicit Import, imported once (content cannot tell the twin from the new row, so this is never a fast-path import);
   5. a row arriving, and separately a row changing, between preview and apply → `review_changed`, nothing changed, a fresh preview includes it, then apply succeeds;
-  6. the structural review with explicit decisions for content-matched and unmatched rows.
+  6. a reconnect between preview and apply → the old snapshot is refused and nothing changes; a fresh review under the new generation applies;
+  7. the structural review with explicit decisions for content-matched and unmatched rows.
 
   It also checks that established rows are never offered and are never re-imported.
 - **SQL suite:** `resolve_identity` refusals (forged keys, missing decisions, a retire list that is not exactly the unresolved baselines, wrong state or version) and `review` snapshot refusal.
@@ -501,7 +512,7 @@ Leases are reported but never used as proof of termination.
 
 #### CI against the exact candidate head
 `.github/workflows/google-sheets.yml`:
-- **Triggers:** `pull_request` on Sheets paths, and `workflow_dispatch`.
+- **Triggers:** `pull_request` on Sheets paths (including this plan folder, so a docs-only head is still checked), and `workflow_dispatch`.
 - **Least privilege:** `permissions: contents: read`, no secrets, and no production URL or credential in any job.
 - **Checkout:** `github.event.pull_request.head.sha`.
 
@@ -550,7 +561,7 @@ If publishing the workflow file is refused, I report the exact blocker and conti
 - **Edge tests:**
   - `supabase/functions/_shared/googleSheets/regressions.test.ts`
   - `supabase/functions/google-sheets-api/{actions,index}.test.ts`
-- **SQL tests:** `supabase/tests/google_sheets_regressions.sql`
+- **SQL tests:** `supabase/tests/google_sheets_regressions.sql`, `supabase/tests/google_sheets_finish_fixture.sql` (fixture shared by the two-session race tests)
 - **Scripts:**
   - `scripts/google_sheets_e2e.ts` (+ `scripts/google_sheets_postgrest_client.ts`, a minimal PostgREST client for it)
   - `scripts/run_google_sheets_cron_check.sh` + `supabase/tests/google_sheets_cron_check.sql`
