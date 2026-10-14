@@ -237,3 +237,6 @@ verify_jwt = false
 # Onboarding email unsubscribe — NOT DEPLOYED. The signed token is the authorization (handler.ts).
 [functions.email-unsubscribe]
 verify_jwt = false
+
+[functions.clearpath-lead-alert]
+verify_jwt = false

@@ -1,3 +1,11 @@
+## 2026-10-14 — ClearPath saved-lead notification bridge
+
+Chris approved the API integration after Twilio browser handoff failed. Added a separate Ed25519-authenticated endpoint, fixed to Chris's home agency and selected 916 sender/909 recipient. It accepts only a request UUID, send/status operation and lead/test kind. No prospect contact or insurance data crosses this bridge. Public verification key only in source; private signing key stays in Sites runtime secrets.
+
+Uses the existing informational `dispatch` unchanged, preserving UV eligibility, confirmation, STOP/DNC, selected registered sender and atomic provider-attempt protection. All shared bundled files match the live twilio-sms v38 bundle. No manual impersonation, credential export, RLS/schema migration, A2P registration, voice/campaign or existing Edge deployment change. Test UUID is fixed and distinct from real leads; backend receipts prevent replays.
+
+Plan: `docs/plans/2026-10-14-clearpath-alerts/implementation_plan.md`. Root TypeScript and signed-request boundary test passed; Sites real-SQLite mocked-provider tests pass including failed-save exclusion, duplicate/callback protection and signature verification. Deployment and live delivery are pending at this commit; do not infer activation from source. Additional evidence will be recorded in the plan/release record.
+
 ## 2026-10-12 — UI copy cleanup V2: final targeted polish (Required Fields note, duplicate Settings headings) on draft PR #440; awaiting owner acceptance (not merged, not released)
 
 **Request and approval.** On 2026-10-12 Chris approved exactly two presentation fixes on reviewed candidate `d4b72576ebe734471a10d321d512963605101111`.
