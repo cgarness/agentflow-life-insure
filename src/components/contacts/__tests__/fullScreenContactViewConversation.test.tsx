@@ -15,19 +15,28 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
-import { render, screen, waitFor, cleanup, fireEvent, within } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent, within, act } from "@testing-library/react";
 
 const tableData: Record<string, unknown> = {};
 
 function makeQuery(table: string) {
   const result = { data: tableData[table] ?? null, error: null };
+  const filters: Record<string, unknown> = {};
   const query: Record<string, unknown> = {
     then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
   };
-  for (const method of ["select", "eq", "in", "or", "not", "order", "limit", "gte", "lt", "neq", "is"]) {
+  for (const method of ["select", "in", "or", "not", "order", "limit", "gte", "lt", "neq", "is"]) {
     query[method] = () => query;
   }
-  query.maybeSingle = () => Promise.resolve(result);
+  query.eq = (column: string, value: unknown) => { filters[column] = value; return query; };
+  // The sent SMS's targeted read: one saved `messages` row by id within the organization.
+  query.maybeSingle = () => table === "messages" && filters.id !== undefined
+    ? Promise.resolve({
+      data: ((tableData.messages ?? []) as Record<string, unknown>[])
+        .find((r) => r.id === filters.id && r.organization_id === filters.organization_id) ?? null,
+      error: null,
+    })
+    : Promise.resolve(result);
   query.single = () => Promise.resolve(result);
   return query;
 }
@@ -35,16 +44,25 @@ function makeQuery(table: string) {
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => makeQuery(table),
-    rpc: (fn: string, args: {p_filter?:string}) => ({abortSignal: async () => {
+    channel: () => {
+      const api = { on: () => api, subscribe: () => api };
+      return api;
+    },
+    removeChannel: () => {},
+    rpc: (fn: string, args: {p_filter?:string; p_cursor?:string}) => ({abortSignal: async () => {
+      h.rpcCalls.push(fn);
       if (h.emailsError) return { data: null, error: {message:"Unavailable"} };
       if (fn === 'get_contact_activity_page') return {data:{items:[],hasMore:false,nextCursor:null},error:null};
       const source = [...((tableData.calls ?? []) as Record<string,unknown>[]).map(payload=>({kind:'call',payload})),
         ...((tableData.messages ?? []) as Record<string,unknown>[]).map(payload=>({kind:'sms',payload})),
         ...(h.emails as Record<string,unknown>[]).map(payload=>({kind:'email',payload}))];
       const items=source.filter(x=>!args.p_filter||args.p_filter==='all'||x.kind===args.p_filter).map(x=>({...x,event_key:`${x.kind}:${x.payload.id}`,event_time:x.payload.started_at||x.payload.sent_at||x.payload.received_at||x.payload.created_at})).sort((a,b)=>Date.parse(String(b.event_time))-Date.parse(String(a.event_time)));
+      // Optional two-page feed: the newest item first, everything older behind "Load earlier".
+      if (h.paginate) return {data:args.p_cursor?{items:items.slice(1),hasMore:false,nextCursor:null}:{items:items.slice(0,1),hasMore:true,nextCursor:'page-2'},error:null};
       return {data:{items,hasMore:false,nextCursor:null},error:null};
     }}),
     auth: {
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
       getSession: async () => ({ data: { session: { access_token: "test-token", user: {id:"user-1"} } } }),
       getUser: async () => ({ data: { user: { id: "user-1" } } }),
     },
@@ -59,10 +77,12 @@ const h = vi.hoisted(() => ({
   sentEmails: [] as Array<Record<string, unknown>>,
   sendEmailResult: { success: true } as Record<string, unknown>,
   isImpersonating: false,
+  rpcCalls: [] as string[],
+  paginate: false,
 }));
 
 vi.mock("sonner", () => ({
-  toast: { error: (msg: string) => h.errorToasts.push(msg), success: vi.fn() },
+  toast: { error: (msg: string) => h.errorToasts.push(msg), success: vi.fn(), warning: vi.fn() },
 }));
 
 vi.mock("@/lib/supabase-notes", () => ({ notesSupabaseApi: { getByContact: vi.fn(async () => []) } }));
@@ -89,7 +109,7 @@ vi.mock("@/lib/supabase-email", () => ({
   },
 }));
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ user: { id: "user-1" }, profile: { id: "user-1", first_name: "Alexa", last_name: "Segura" }, isImpersonating: h.isImpersonating }),
+  useAuth: () => ({ user: { id: "user-1" }, profile: { id: "user-1", first_name: "Alexa", last_name: "Segura", organization_id: "org-1" }, isImpersonating: h.isImpersonating }),
 }));
 vi.mock("@/contexts/CalendarContext", () => ({ useCalendar: () => ({ addAppointment: vi.fn() }) }));
 vi.mock("@/contexts/SidebarContext", () => ({ useSidebarContext: () => ({ collapsed: false }) }));
@@ -116,6 +136,10 @@ vi.mock("@/components/voicemail/VoicemailPlayer", () => ({
 }));
 
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
+import { PendingSmsAuthorityBridge } from "@/components/messaging/PendingSmsAuthorityBridge";
+import ConversationThread from "@/components/conversations/ConversationThread";
+import { pendingSmsStore } from "@/lib/sms-send/pendingSmsStore";
+import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
 
 const CONTACT = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -214,6 +238,9 @@ beforeEach(() => {
   h.sentEmails = [];
   h.sendEmailResult = { success: true };
   h.isImpersonating = false;
+  h.rpcCalls = [];
+  h.paginate = false;
+  pendingSmsStore.reset();
 });
 
 afterEach(() => {
@@ -224,13 +251,16 @@ afterEach(() => {
 
 function renderView(contact: Record<string, unknown> = CONTACT) {
   return render(
-    <FullScreenContactView
-      contact={contact}
-      type="lead"
-      onClose={vi.fn()}
-      onUpdate={vi.fn(async () => {})}
-      onDelete={vi.fn(async () => {})}
-    />,
+    <>
+      <PendingSmsAuthorityBridge />
+      <FullScreenContactView
+        contact={contact}
+        type="lead"
+        onClose={vi.fn()}
+        onUpdate={vi.fn(async () => {})}
+        onDelete={vi.fn(async () => {})}
+      />
+    </>,
   );
 }
 
@@ -451,11 +481,20 @@ describe("B. channel visuals / recording preservation", () => {
 });
 
 describe("manual SMS composer", () => {
-  it("sends with no website enrollment, purpose or selected voice number and refreshes real history", async () => {
+  const SAVED_ID = "9e1f0a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+  const savedRow = (body: string, to: string) => ({
+    id: SAVED_ID, direction: "outbound", body, sent_at: "2026-10-08T15:00:00Z", created_at: "2026-10-08T15:00:00Z",
+    // The agency fallback sender, chosen by the server: no voice number was selected.
+    status: "queued", from_number: "+12162706473", to_number: to,
+    contact_id: CONTACT.id, lead_id: null, contact_type: "lead", created_by: "user-1", organization_id: "org-1", provider_message_id: "SM1",
+  });
+  const respond = (status: number, body: unknown) => ({ status, text: async () => JSON.stringify(body) }) as Response;
+
+  it("sends with no website enrollment, purpose or selected voice number and shows the saved row", async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       const payload = JSON.parse(String(init.body));
-      tableData.messages = [{ id: "provider-row", direction: "outbound", body: payload.body, sent_at: "2026-10-08T15:00:00Z", status: "queued", from_number: "+12162706473", to_number: payload.to }];
-      return { json: async () => ({ success: true, id: "provider-row", status: "queued" }) } as Response;
+      tableData.messages = [savedRow(payload.body, payload.to)];
+      return respond(200, { success: true, message_id: SAVED_ID, provider_message_id: "SM1", status: "queued" });
     });
     vi.stubGlobal("fetch", fetchMock);
     renderView();
@@ -465,8 +504,14 @@ describe("manual SMS composer", () => {
     expect(screen.getByTitle("Send SMS")).toBeEnabled();
     fireEvent.click(screen.getByTitle("Send SMS"));
 
-    await screen.findByText("Manual message");
+    // On screen and cleared from the composer before the request has even started.
+    expect(screen.getByText("Manual message")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Type SMS message…")).toHaveValue("");
+    expect(screen.getByTestId("pending-sms-status")).toHaveTextContent("Sending…");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.queryByTestId("pending-sms-status")).toBeNull());
+    expect(screen.getAllByText("Manual message")).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledOnce();
     const payload = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(payload).toMatchObject({ body: "Manual message", to: "+15125550123", contact_id: CONTACT.id, contact_type: "lead", actor_id: "user-1", organization_id: "org-1", view_as: false });
@@ -474,10 +519,12 @@ describe("manual SMS composer", () => {
     expect(payload).not.toHaveProperty("from");
     fireEvent.click(screen.getByRole("button", { name: "SMS details" }));
     expect(screen.getByText("queued")).toBeInTheDocument();
+    expect(screen.getByText("(216) 270-6473", { exact: false }), "the sender the server actually used").toBeInTheDocument();
+    expect(h.errorToasts).toEqual([]);
   });
 
-  it("preserves the draft and request ID after a server STOP refusal", async () => {
-    const fetchMock = vi.fn(async () => ({ json: async () => ({ success: false, error: "Recipient opted out" }) } as Response));
+  it("returns the draft and reuses the request ID after a proven refusal", async () => {
+    const fetchMock = vi.fn(async () => respond(409, { success: false, code: "PHONE", error: "This number can't receive texts." }));
     vi.stubGlobal("fetch", fetchMock);
     renderView();
     fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Keep this draft" } });
@@ -488,7 +535,20 @@ describe("manual SMS composer", () => {
     await waitFor(() => expect(h.errorToasts).toHaveLength(2));
     const requests = fetchMock.mock.calls as unknown as [string, RequestInit][];
     expect(JSON.parse(String(requests[1][1].body)).request_id).toBe(JSON.parse(String(requests[0][1].body)).request_id);
-    expect(h.errorToasts).toEqual(["Recipient opted out", "Recipient opted out"]);
+    expect(h.errorToasts).toEqual(["This number can't receive texts.", "This number can't receive texts."]);
+  });
+
+  it("a STOP or DNC block is Not confirmed: the text stays in its item, never back in the composer", async () => {
+    const fetchMock = vi.fn(async () => respond(409, { success: false, code: "SMS_STATE", error: "Recipient opted out" }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderView();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Opted out text" } });
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(screen.getByTestId("pending-sms-status")).toHaveTextContent("Not confirmed"));
+    expect(screen.getByPlaceholderText("Type SMS message…")).toHaveValue("");
+    expect(screen.getByText("Opted out text")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(h.errorToasts).toEqual(["Recipient opted out"]);
   });
 
   it("continues to refuse sending in View As", () => {
@@ -500,6 +560,151 @@ describe("manual SMS composer", () => {
     expect(screen.getByTitle("Send SMS")).toBeDisabled();
     fireEvent.keyDown(screen.getByPlaceholderText("Type SMS message…"), { key: "Enter" });
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(pendingSmsStore.getSnapshot()).toEqual([]);
+  });
+});
+
+describe("pending manual SMS on the contact record", () => {
+  const SAVED_ID = "9e1f0a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
+  const RECEIPT = { success: true, message_id: SAVED_ID, provider_message_id: "SM1", status: "queued" };
+  const respond = (status: number, body: unknown) => ({ status, text: async () => JSON.stringify(body) }) as Response;
+  const savedRow = (body: string) => ({
+    id: SAVED_ID, direction: "outbound", body, sent_at: "2026-10-08T15:00:00Z", created_at: "2026-10-08T15:00:00Z",
+    status: "queued", from_number: "+12162706473", to_number: "+15125550123", contact_id: CONTACT.id, lead_id: null,
+    contact_type: "lead", created_by: "user-1", organization_id: "org-1", provider_message_id: "SM1",
+  });
+  const smsInput = () => screen.getByPlaceholderText("Type SMS message…");
+  const sendSms = (text: string) => {
+    fireEvent.change(smsInput(), { target: { value: text } });
+    fireEvent.click(screen.getByTitle("Send SMS"));
+  };
+  const statusLine = () => screen.queryByTestId("pending-sms-status");
+  const historyReads = () => h.rpcCalls.filter((fn) => fn === "get_contact_conversation_page").length;
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("a failed saved-row read after a valid receipt stays accepted, then reads 'history pending'", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => respond(200, RECEIPT)));
+    renderView();
+    await waitFor(() => expect(historyReads()).toBeGreaterThan(0));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    sendSms("Accepted text");
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(statusLine()?.textContent, "accepted: no failure, no label").toBe("");
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(statusLine()?.textContent).toBe("");
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    expect(statusLine()).toHaveTextContent("Accepted · history pending");
+    expect(screen.getByText("Accepted text")).toBeInTheDocument();
+    expect(h.errorToasts).toEqual([]);
+  });
+
+  it("refreshes history after acceptance only while Activity is open", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      tableData.messages = [savedRow(JSON.parse(String(init.body)).body)];
+      return respond(200, RECEIPT);
+    }));
+    renderView();
+    await waitFor(() => expect(historyReads()).toBeGreaterThan(0));
+    let before = historyReads();
+    sendSms("With Activity open");
+    await waitFor(() => expect(statusLine()).toBeNull());
+    await waitFor(() => expect(historyReads() - before).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await new Promise((r) => setTimeout(r, 20));
+    before = historyReads();
+    tableData.messages = [];
+    vi.stubGlobal("fetch", vi.fn(async () => respond(200, { ...RECEIPT, message_id: "7f2c1a8e-7d3b-4c5a-9e1f-0a2b3c4d5e6f" })));
+    sendSms("With Notes open");
+    await waitFor(() => expect(pendingSmsStore.getSnapshot().filter((r) => r.state === "accepted")).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(historyReads() - before, "no history refresh behind the Notes tab").toBe(0);
+  });
+
+  it("an uncertain outcome refreshes history once, on any tab", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => respond(503, { success: false, code: "SEND_UNCERTAIN", error: "Delivery could not be confirmed." })));
+    renderView();
+    await waitFor(() => expect(historyReads()).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await new Promise((r) => setTimeout(r, 20));
+    const before = historyReads();
+    sendSms("Unsure text");
+    await waitFor(() => expect(statusLine()).toHaveTextContent("Not confirmed"));
+    await waitFor(() => expect(historyReads() - before).toBe(1));
+  });
+
+  it("a converted contact's refusal is proven: the draft comes back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => respond(409, { success: false, code: "CONTACT_CONVERTED", error: "This lead became a client." })));
+    renderView();
+    sendSms("Before conversion");
+    await waitFor(() => expect(h.errorToasts).toEqual(["This lead became a client."]));
+    expect(smsInput()).toHaveValue("Before conversion");
+    expect(statusLine()).toBeNull();
+  });
+
+  it("pagination reveals older identical texts without hiding any of them", async () => {
+    tableData.messages = [
+      { id: "older-1", direction: "outbound", body: "Same words", sent_at: "2026-08-01T10:00:00Z", status: "queued", from_number: "+15550000001", to_number: "+15125550123" },
+      { id: "newest", direction: "inbound", body: "Newest reply", sent_at: "2026-08-02T10:00:00Z", status: "received", from_number: "+15125550123", to_number: "+15550000001" },
+    ];
+    h.paginate = true;
+    vi.stubGlobal("fetch", vi.fn(async () => respond(503, { success: false, code: "SEND_UNCERTAIN", error: "Not confirmed." })));
+    renderView();
+    await screen.findByText("Newest reply");
+    sendSms("Same words");
+    await waitFor(() => expect(statusLine()).toHaveTextContent("Not confirmed"));
+    expect(screen.getAllByText("Same words")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
+    await waitFor(() => expect(screen.getAllByText("Same words")).toHaveLength(2));
+    expect(statusLine()).toHaveTextContent("Not confirmed");
+  });
+
+  it("both SMS composers in one app instance share one in-flight send per contact", async () => {
+    let answer!: () => void;
+    const fetchMock = vi.fn((_u: string, init: RequestInit) => new Promise<Response>((resolve) => {
+      answer = () => {
+        tableData.messages = [savedRow(JSON.parse(String(init.body)).body)];
+        resolve(respond(200, RECEIPT));
+      };
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const scope = { organizationId: "org-1", actorId: "user-1", viewerId: "user-1", contactType: "lead" as const, contactId: CONTACT.id };
+    render(
+      <>
+        <PendingSmsAuthorityBridge />
+        <FullScreenContactView contact={CONTACT} type="lead" onClose={vi.fn()} onUpdate={vi.fn(async () => {})} onDelete={vi.fn(async () => {})} />
+        <div data-testid="thread-surface">
+          <ConversationThread
+            contactId={CONTACT.id}
+            contactName="Charlotte Kearney"
+            contactType="lead"
+            smsScope={scope}
+            onSendMessage={async () => false}
+            onSubmitSms={(text, origin) => "localId" in manualSmsSender.submit({
+              ...scope, to: "+15125550123", body: text, senderPreference: null, contactLabel: "Charlotte Kearney", origin,
+            })}
+          />
+        </div>
+      </>,
+    );
+    const [recordInput, threadInput] = screen.getAllByPlaceholderText("Type SMS message…");
+    fireEvent.change(recordInput, { target: { value: "From the record" } });
+    fireEvent.click(screen.getAllByTitle("Send SMS")[0]);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    const thread = within(screen.getByTestId("thread-surface"));
+    expect(thread.getByTestId("pending-sms")).toHaveTextContent("From the record");
+    fireEvent.change(threadInput, { target: { value: "From the thread" } });
+    expect(thread.getByTitle("Send SMS"), "the other composer waits for this contact's send").toBeDisabled();
+    fireEvent.keyDown(threadInput, { key: "Enter" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(threadInput).toHaveValue("From the thread");
+
+    await act(async () => { answer(); await new Promise((r) => setTimeout(r, 0)); });
+    await waitFor(() => expect(thread.queryByTestId("pending-sms")).toBeNull());
+    expect(thread.getByText("From the record")).toBeInTheDocument();
+    expect(thread.getByTitle("Send SMS")).toBeEnabled();
   });
 });
 

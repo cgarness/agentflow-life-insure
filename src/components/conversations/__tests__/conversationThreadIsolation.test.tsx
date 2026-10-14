@@ -357,6 +357,8 @@ describe("a stale contact can never START a request for itself", () => {
   it("a stale post-send refresh cannot discard the current contact's response either", async () => {
     // handleSend captures its contact before awaiting onSendMessage; if the user switches while the
     // send is in flight, the refresh that follows is bound to a contact that is no longer active.
+    // Only EMAIL still refreshes after a send (an SMS shows its own saved row instead), so the
+    // send below is an email.
     apiState.threads[CONTACT_A] = [sms("a1", "ALPHA-BODY")];
     apiState.defer.add(CONTACT_B);
 
@@ -380,9 +382,11 @@ describe("a stale contact can never START a request for itself", () => {
     const { rerender } = render(tree(CONTACT_A));
     await screen.findByText("ALPHA-BODY");
 
+    fireEvent.click(screen.getByTestId("composer-to-email"));
     fireEvent.change(screen.getByTestId("composer"), { target: { value: "hello" } });
     // Start the send; it hangs on `sendGate`.
     fireEvent.click(screen.getByTestId("composer-send"));
+    expect(screen.getByTestId("composer-channel")).toHaveTextContent("email");
 
     rerender(tree(CONTACT_B));
     await waitFor(() => expect(apiState.pending.some((p) => p.contactId === CONTACT_B)).toBe(true));
