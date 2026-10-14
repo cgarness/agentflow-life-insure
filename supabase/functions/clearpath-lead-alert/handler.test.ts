@@ -12,8 +12,10 @@ Deno.test('signed alert boundary: valid, tampered, expired, scoped, bounded',asy
  const valid={id:TEST_ID,kind:'test',action:'send'};
  assert((await handle(await create(valid),run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status===200);
  assert((await handle(await create(valid,undefined,'/clearpath-lead-alert'),run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status===200);
- for(const req of [await create(valid,'1000000000'),await create(valid,undefined,PATH+'/evil'),await create({...valid,to:'+12025550100'}),await create({...valid,kind:'lead'}),await create({...valid,id:crypto.randomUUID()}),await create({...valid,action:'delete'}),await create({padding:'x'.repeat(600)})])assert((await handle(req,run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status>=400);
+ const lead={id:crypto.randomUUID(),kind:'lead',action:'send',details:{name:'Test Example',phone:'202-555-0100',coverage:'$50,000'}};
+ assert((await handle(await create(lead),run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status===200);
+ for(const req of [await create(valid,'1000000000'),await create(valid,undefined,PATH+'/evil'),await create({...valid,to:'+12025550100'}),await create({...valid,kind:'lead'}),await create({...valid,id:crypto.randomUUID()}),await create({...valid,action:'delete'}),await create({padding:'x'.repeat(4200)}),await create({...lead,details:{...lead.details,health:'excluded'}}),await create({...lead,details:{...lead.details,name:'x'.repeat(162)}}),await create({...lead,action:'status'}),await create({...valid,details:lead.details})])assert((await handle(req,run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status>=400);
  const tampered=await create(valid);tampered.headers.set('x-alert-signature',btoa('x'.repeat(64)));assert((await handle(tampered,run,pub as typeof import('./handler.ts').PUBLIC_KEY)).status===403);
  assert((await handle(new Request('https://example.test'+PATH,{method:'POST'}),run)).status===403);
- assert(invoked===2);
+ assert(invoked===3);
 });

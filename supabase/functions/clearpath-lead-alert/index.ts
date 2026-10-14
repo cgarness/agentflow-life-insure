@@ -4,6 +4,7 @@ import { dispatch } from '../_shared/sms/dispatch.ts';
 import { checked } from '../_shared/sms/consent.ts';
 import { SmsError } from '../_shared/sms/wire.ts';
 import { handle, type Alert } from './handler.ts';
+import {message} from './message.ts';
 
 // Owner-authorized, fixed-purpose integration. No arbitrary recipient/body/org.
 const ORG='a0000000-0000-0000-0000-000000000001';
@@ -12,9 +13,7 @@ const FROM='+19162998778', TO='+19097756963';
 async function run(a: Alert) {
   const db=database(), requestKey=`clearpath:${a.kind}:${a.id}`;
   if(a.action==='send') {
-    const body=a.kind==='test'
-      ? 'CG Financial / ClearPath TEST: New-lead alerts are connected. No new prospect was created. Reply STOP to opt out.'
-      : `CG Financial / ClearPath: A new verified website lead was saved. Request ${a.id.slice(0,8)}. Check your lead records. Reply STOP to opt out.`;
+    const body=message(a.id,a.kind,a.details);
     const receipt=await dispatch(db,{org:ORG,actor:ACTOR,key:requestKey,to:TO,from:FROM,body,purpose:'informational'});
     if(!receipt)throw new SmsError('ALERT_DISABLED','Agency alerts unavailable',503);
     return {success:true,status:receipt.status,message_sid:receipt.provider_message_id,replayed:receipt.replayed};
