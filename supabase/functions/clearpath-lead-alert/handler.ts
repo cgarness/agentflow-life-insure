@@ -2,7 +2,7 @@ import { boundedBody, json, SmsError, UUID, failure } from '../_shared/sms/wire.
 
 export const PATH = '/functions/v1/clearpath-lead-alert';
 export const TEST_ID = 'd8c26ad5-e53d-4780-9fd4-78567264c004';
-export const PUBLIC_KEY = { kty: 'OKP', crv: 'Ed25519', x: 'WPwXv8IluOp9WRSjgKedDNNdurhbnQvcb1W_7kSKFPc' };
+export const PUBLIC_KEY = { kty: 'OKP', crv: 'Ed25519', x: '8iZht2j_hahXdcEx1Na8YA8Z9EdP9q9Em9r-GrPdjro' };
 export type Alert = { id: string; action: 'send' | 'status'; kind: 'lead' | 'test' };
 export function signedContent(time: string, body: string) {
   return new TextEncoder().encode(`clearpath-alert-v1\nPOST\n${PATH}\n${time}\n${body}`);
