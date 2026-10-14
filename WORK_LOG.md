@@ -1,3 +1,9 @@
+## 2026-10-14 — ClearPath owner notification details
+
+Chris requested NEW VET LEAD followed by labeled contact/coverage lines and removal of the opt-out footer from his personal internal alert. The Site now reads an explicit allowlist from the saved verified lead and signs it server-side. The bridge validates bounded detail fields and renders name, phone, optional email, military connection, age range, ZIP, requested coverage/goal, preferred calling time and timezone, available callback, phone verification, ad source and submitted time. No arbitrary recipient/body, health, Meta click identifiers or credentials are accepted. Existing dispatch consent, STOP/DNC and duplicate protections are unchanged. Callbacks selected after the immediate notification do not resend it.
+
+Two focused Deno tests, Edge type checking, root TypeScript and Sites real-SQLite mocked-provider tests passed. Full build/publication recorded separately. No historical sends or new test prospects. Plan: docs/plans/2026-10-14-clearpath-alerts/message-details.md.
+
 ## 2026-10-14 — ClearPath saved-lead notification bridge
 
 Chris approved the API integration after Twilio browser handoff failed. Added a separate Ed25519-authenticated endpoint, fixed to Chris's home agency and selected 916 sender/909 recipient. It accepts only a request UUID, send/status operation and lead/test kind. No prospect contact or insurance data crosses this bridge. Public verification key only in source; private signing key stays in Sites runtime secrets.
