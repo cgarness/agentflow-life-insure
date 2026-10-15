@@ -1,3 +1,19 @@
+## 2026-10-15 — HOTFIX: Team Leaders can invite Agent users
+
+**Approval:** Chris requested an immediate fix and explicitly instructed ChatGPT to implement the proposed scope here: Team Leader Agent invitations into their own agency/direct downline, send/copy/resend, two Edge deployments and corresponding frontend release.
+
+**Changes:** `invite-user` authenticates the stored caller and permits Team Leaders to invite Agent accounts only; organization and upline are server-derived, and foreign upline/organization or arbitrary team assignments are rejected. `send-invite-email` permits a Team Leader to resend only their own pending, unexpired Agent invitation in their organization/direct downline. Shared organization-admin helpers are unchanged. The invitation form uses the real authenticated profile, Zod validation, locked Agent/self-upline for Team Leaders, one send/copy in-flight guard, truthful clipboard/email outcomes, and explicit pending-invite refresh.
+
+**Files:** `supabase/functions/invite-user/index.ts`, `supabase/functions/send-invite-email/index.ts`, `src/components/settings/user-management/InviteUserModal.tsx`, `src/components/settings/UserManagement.tsx`, two focused test files, `AGENT_RULES.md`, this log, and `docs/plans/2026-10-15-team-leader-invitations/implementation_plan.md`.
+
+**Verification:** 87 focused invitation/modal/acceptance/onboarding tests pass; 85 shared email/auth Deno tests pass; both Edge entrypoints pass Deno check; root `npx tsc --noEmit` passes; app TypeScript remains exactly baseline-equivalent (84 pre-existing diagnostics, none new); scoped lint has no errors; Vite build passes. Before the fix, the new handler suite had 15 failing tests and the modal suite had 11 failing tests. Tests use isolated fakes, never live mail/accounts.
+
+**Production backend:** deployed `invite-user` v232 (ezbr `243e1a351f9477611f7c01d590166a1d70906527e90873e35c3e9e05c48cc14b`) and `send-invite-email` v236 (ezbr `e91115e5937dab077b7c48da23d3cf3c62616f73ffd9cb2f696aa591a40b4eb4`) with `verify_jwt=false` and internal JWT auth preserved. Immediately preceding live versions were v231/v235 with unchanged original bundle hashes; the original inspection reported v225/v229. Existing live shared email dependencies are preserved.
+
+**Migrations/data:** none. No RLS/schema/config/secret changes; no production test invitations or accounts. `create-user` and its live self-service restriction were not changed or deployed. Existing broad invitation SELECT/revoke/delete policies are not altered by this targeted hotfix.
+
+**Release/limits:** frontend release requires the scoped PR merge and Ready Vercel verification; see PR release comment for final deployment evidence. Live recipient delivery and real-account acceptance are not tested. A temporary branch-only publishing helper may apply this exact checked patch and must remove itself before merge; it cannot write to main or access production secrets.
+
 ## 2026-10-15 — Instant manual SMS: production release (PR #445 merged; frontend only)
 
 **Approval.** Chris's owner-sent message approved:

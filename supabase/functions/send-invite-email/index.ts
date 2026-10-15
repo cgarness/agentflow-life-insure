@@ -1,7 +1,7 @@
 // send-invite-email — RESEND path for an existing pending team invitation.
 //
 // Contract: POST { "invitation_id": "<uuid>" } from an authenticated Org
-// Admin. The recipient, name, role, and token come ONLY from the invitations
+// Admin or authorized Team Leader. Recipient, role, and token come ONLY from invitations
 // row — never from the request body — and the email renders through the same
 // shared template as the initial send (invite-user), so the two paths cannot
 // diverge.
@@ -40,6 +40,9 @@ interface InvitationRow {
   organization_id: string | null;
   status: string | null;
   token: string | null;
+  invited_by: string | null;
+  upline_id: string | null;
+  expires_at: string | null;
 }
 
 serve(async (req: Request) => {
@@ -68,10 +71,11 @@ serve(async (req: Request) => {
     if (!auth.ok) {
       return jsonResponse(auth.status, { success: false, error: auth.error });
     }
-    if (!isOrgAdmin(auth.profile)) {
+    const isTeamLeader = auth.profile?.role === "Team Leader" && !auth.profile.is_super_admin;
+    if (!isOrgAdmin(auth.profile) && !isTeamLeader) {
       return jsonResponse(403, {
         success: false,
-        error: "Only Admins can resend invitations",
+        error: "Only Admins and Team Leaders can resend invitations",
       });
     }
 
@@ -94,7 +98,7 @@ serve(async (req: Request) => {
 
     const { data: invitationData, error: invitationError } = await adminClient
       .from("invitations")
-      .select("id, email, first_name, role, organization_id, status, token")
+      .select("id, email, first_name, role, organization_id, status, token, invited_by, upline_id, expires_at")
       .eq("id", invitationId)
       .maybeSingle();
 
@@ -113,14 +117,21 @@ serve(async (req: Request) => {
     // Org scoping BEFORE any status detail: a caller outside the invitation's
     // organization gets the same 404 as a missing row so this endpoint never
     // reveals whether an invitation exists in another org.
-    if (!canManageOrganization(auth.profile, invitation.organization_id)) {
+    const canResend = isTeamLeader
+      ? Boolean(auth.profile?.organization_id &&
+        auth.profile.organization_id === invitation.organization_id &&
+        invitation.invited_by === auth.user.id && invitation.upline_id === auth.user.id &&
+        invitation.role === "Agent")
+      : canManageOrganization(auth.profile, invitation.organization_id);
+    if (!canResend) {
       return jsonResponse(404, { success: false, error: "Invitation not found" });
     }
 
-    if (invitation.status !== "Pending") {
+    const expiresAt = Date.parse(invitation.expires_at ?? "");
+    if (invitation.status !== "Pending" || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
       return jsonResponse(409, {
         success: false,
-        error: "Invitation is no longer pending",
+        error: "Invitation is no longer pending or has expired",
       });
     }
 
