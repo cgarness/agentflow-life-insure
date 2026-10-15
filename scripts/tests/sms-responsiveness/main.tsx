@@ -39,6 +39,9 @@ const probe = {
   lastVisibility: null as Visibility | null,
   /** What the first visible change was: the outgoing text, or (base build) only the Send spinner. */
   firstChange: null as "text" | "spinner" | null,
+  /** Whether synthetic history was already on screen at the click and when the text became visible. */
+  historyAtClick: null as boolean | null,
+  historyAtVisible: null as boolean | null,
   events: [] as { name: string; startTime: number; duration: number; processingStart: number; processingEnd: number }[],
   arm(text: string, region: string) {
     this.text = text;
@@ -47,6 +50,8 @@ const probe = {
     this.firstRenderVisibility = null;
     this.lastVisibility = null;
     this.firstChange = null;
+    this.historyAtClick = null;
+    this.historyAtVisible = null;
   },
   mark(name: string) {
     if (this.text && this.marks[name] === undefined) this.marks[name] = performance.now();
@@ -122,6 +127,8 @@ function textElements(region: Element, text: string): Element[] {
   return found;
 }
 
+/** Synthetic history rows ("Synthetic text N") are on screen in the surface's region. */
+const historyShown = () => (document.querySelector(probe.region)?.textContent ?? "").includes("Synthetic text");
 const bubbleOf = (el: Element) => el.closest(".rounded-2xl") ?? el;
 const isPending = (el: Element) =>
   !!el.closest('[data-testid="pending-sms"]') || !!el.closest(".flex.flex-col.w-full")?.querySelector('[data-testid="pending-sms-status"]');
@@ -129,7 +136,10 @@ const isPending = (el: Element) =>
 // Only a real click on Send starts a measurement (never Enter, a forced click or DOM insertion).
 document.addEventListener("click", (event) => {
   const onSend = (event.target as Element | null)?.closest?.('button[title="Send SMS"]');
-  if (onSend && probe.text && probe.marks.click === undefined) probe.marks.click = event.timeStamp;
+  if (onSend && probe.text && probe.marks.click === undefined) {
+    probe.marks.click = event.timeStamp;
+    probe.historyAtClick = historyShown();
+  }
 }, true);
 
 let frameWatch = 0;
@@ -157,7 +167,13 @@ function check() {
     probe.firstChange = visible ? "text" : "spinner";
     afterPaint("firstChangeVisiblePaint");
   }
-  if (visible && m.outgoingVisible === undefined) { m.outgoingVisible = now; afterPaint("outgoingVisiblePaint"); }
+  // When synthetic history first appears after the click (the deferred-history case reads it).
+  if (m.historyShown === undefined && historyShown()) m.historyShown = now;
+  if (visible && m.outgoingVisible === undefined) {
+    m.outgoingVisible = now;
+    probe.historyAtVisible = historyShown();
+    afterPaint("outgoingVisiblePaint");
+  }
   const pendingLeft = document.querySelector('[data-testid="pending-sms"], [data-testid="pending-sms-status"]');
   if (m.receipt !== undefined && !pendingLeft) {
     const saved = matches.filter((el) => !isPending(el));

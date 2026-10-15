@@ -11,6 +11,7 @@
 // Env: SMS_PLAYWRIGHT_MODULE (playwright index.mjs), SMS_FIXTURE_URL, SMS_BUILD_LABEL (base|candidate),
 // SMS_SENDS (default 50), SMS_CPU_THROTTLE (default 1), SMS_EXPECT_PENDING (1 = candidate assertions),
 // SMS_SURFACES (conversations,contact), SMS_VIEWPORTS (1440x900,390x844), SMS_RESPONSIVENESS_OUT,
+// SMS_DEFERRED_HISTORY_MS (default 4000; blank = default; 0 = off, reported as a warning), SMS_DEFERRED_SENDS (default 3),
 // SMS_EXPECT_BLOCKED (default "conversations@390x844,contact@390x844": both surfaces' desktop-only
 // layouts, the same on base — Conversations covers Send with its 300 px contact pane; the contact
 // record leaves its message column, and all but a 29 px sliver of Send, off-screen inside
@@ -33,6 +34,22 @@ const REGION = { conversations: ".flex-1.overflow-y-auto.p-6", contact: ".flex-c
 const INPUT = 'input[placeholder="Type SMS message…"]';
 const SEND = 'button[title="Send SMS"]';
 const VISIBLE_WAIT_MS = 3_000;
+// Deferred-history case: history reads slowed to this many ms, Send clicked while the first load is
+// still pending (desktop, real clicks). 0 disables it.
+// Unset or blank takes the default, as for the other variables; only a literal "0" turns it off.
+const envInt = (name, fallback) => {
+  const raw = (process.env[name] ?? "").trim();
+  if (raw === "") return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a whole number, got "${raw}"`);
+  return Number(raw);
+};
+const deferredMs = envInt("SMS_DEFERRED_HISTORY_MS", 4000);
+const deferredSends = envInt("SMS_DEFERRED_SENDS", 3);
+if (deferredMs > 0 && (deferredMs < 1000 || deferredMs > 600_000)) throw new Error(`SMS_DEFERRED_HISTORY_MS must be 0 (off) or 1000–600000, got ${deferredMs}`);
+if (deferredSends < 1) throw new Error(`SMS_DEFERRED_SENDS must be >= 1, got ${deferredSends}`);
+// Reconciliation is required to land before history only when history is slow enough to allow it
+// (receipt 1,500 ms + targeted read 80 ms + page start-up).
+const reconcileBeforeHistory = deferredMs >= 3000;
 
 await mkdir(out, { recursive: true });
 
@@ -199,13 +216,125 @@ try {
       await page.close();
     }
   }
+
+  // Deferred-history case (2026-10-15 review): each send opens the surface afresh and clicks Send
+  // while its first history load is still pending. The candidate must show the outgoing text before
+  // that history arrives; base cannot, and its time to visible is reported as measured.
+  for (const surface of deferredMs > 0 ? surfaces : []) {
+    const key = `${surface}@1440x900+history${deferredMs}ms`;
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    const run = { surface, viewport: "1440x900", key, trigger: "click", status: "measured", sends: 0, raw: [], deferredHistoryMs: deferredMs };
+    try {
+      if (throttle > 1) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: throttle });
+      }
+      for (let i = 0; run.status === "measured" && i < deferredSends; i += 1) {
+        await page.goto(`${url}/?surface=${surface}&historyMs=${deferredMs}`, { waitUntil: "domcontentloaded" });
+        if (surface === "conversations") await page.getByText("Jordan Rivera").first().click();
+        await page.waitForSelector(INPUT, { timeout: 10_000 });
+        const text = `Probe ${label} ${surface} deferred #${i} ${Math.random().toString(36).slice(2, 8)}`;
+        await page.fill(INPUT, text);
+        await page.evaluate(([t, r]) => window.__smsProbe.arm(t, r), [text, REGION[surface]]);
+        // Shorter than the history delay: a Send that waits for history fails here, not as "clicked late".
+        const clicked = await page.click(SEND, { timeout: Math.floor(deferredMs / 2) }).then(() => true, () => false);
+        if (!clicked) { run.status = "failed"; run.reason = `send #${i}: Send could not be clicked while history was pending`; break; }
+        const visible = await page
+          .waitForFunction(() => window.__smsProbe.marks.outgoingVisiblePaint !== undefined, null, { timeout: deferredMs + 8_000 })
+          .then(() => true, () => false);
+        const sample = await page.evaluate(() => {
+          const p = window.__smsProbe;
+          return { marks: { ...p.marks }, historyAtClick: p.historyAtClick, historyAtVisible: p.historyAtVisible };
+        });
+        const m = sample.marks;
+        if (!visible) { run.status = "failed"; run.reason = `send #${i}: the sent text never became visible`; break; }
+        if (sample.historyAtClick) { run.status = "failed"; run.reason = `send #${i}: history had loaded before the click (scenario not exercised)`; break; }
+        if (expectPending && sample.historyAtVisible) {
+          run.status = "failed";
+          run.reason = `send #${i}: the outgoing text was not visible until history loaded`;
+          break;
+        }
+        await page.waitForFunction(() => window.__smsProbe.marks.receipt !== undefined, null, { timeout: 30_000 });
+        const receipt = await page.evaluate(() => window.__smsProbe.marks.receipt);
+        // Visible before history is not enough on its own: it must also come before the send's
+        // receipt, or the text only appeared as the saved row.
+        if (expectPending && !(m.outgoingVisiblePaint < receipt)) {
+          run.status = "failed";
+          run.reason = `send #${i}: the outgoing text was not visible before the send's receipt`;
+          break;
+        }
+        // Stay until the send is the saved row AND history has landed, so reconciliation and the
+        // history merge (same message_id) are checked in the browser and their page errors count.
+        const settled = await page
+          .waitForFunction(() => {
+            const k = window.__smsProbe.marks;
+            return k.savedVisiblePaint !== undefined && k.historyShown !== undefined;
+          }, null, { timeout: deferredMs + 8_000 })
+          .then(() => true, () => false);
+        const after = await page.evaluate(([t, r]) => {
+          const p = window.__smsProbe;
+          return {
+            marks: { ...p.marks },
+            shownTimes: (document.querySelector(r)?.textContent ?? "").split(t).length - 1,
+            composer: document.querySelector('input[placeholder="Type SMS message…"]')?.value ?? null,
+            pendingLeft: !!document.querySelector('[data-testid="pending-sms"], [data-testid="pending-sms-status"]'),
+          };
+        }, [text, REGION[surface]]);
+        const k = after.marks;
+        const problems = [];
+        if (!settled) problems.push("the saved row or history never became visible");
+        if (after.shownTimes !== 1) problems.push(`after history landed the sent text showed ${after.shownTimes} times`);
+        if (after.composer !== "") problems.push("the composer did not clear");
+        if (after.pendingLeft) problems.push("a pending item was left after reconciliation");
+        if (expectPending && reconcileBeforeHistory && !(k.savedVisiblePaint < k.historyShown)) {
+          problems.push("the saved row was not reconciled before history landed");
+        }
+        if (problems.length) {
+          run.status = "failed";
+          run.reason = `send #${i}: ${problems.join("; ")}`;
+          break;
+        }
+        run.sends += 1;
+        run.raw.push({
+          clickToOutgoingVisible: m.outgoingVisiblePaint - m.click,
+          historyAtVisible: sample.historyAtVisible,
+          visibleBeforeReceipt: m.outgoingVisiblePaint < receipt,
+          savedBeforeHistory: k.savedVisiblePaint < k.historyShown,
+        });
+      }
+      if (run.status === "measured" && run.sends !== deferredSends) {
+        run.status = "failed";
+        run.reason = `${run.sends} of ${deferredSends} sends measured`;
+      }
+    } catch (error) {
+      run.status = "failed";
+      run.reason = String(error.message).split("\n")[0];
+    }
+    if (errors.length) {
+      run.status = "failed";
+      run.reason = `page errors: ${errors.join(" | ").slice(0, 300)}`;
+    }
+    if (run.raw.length) {
+      run.metrics = { clickToOutgoingVisible: summary(run.raw.map((r) => r.clickToOutgoingVisible)) };
+      run.visibleBeforeHistory = run.raw.filter((r) => r.historyAtVisible === false).length;
+      run.visibleBeforeReceipt = run.raw.filter((r) => r.visibleBeforeReceipt).length;
+      run.savedBeforeHistory = run.raw.filter((r) => r.savedBeforeHistory).length;
+    }
+    run.expectedBlocked = expectBlocked.has(key);
+    runs.push(run);
+    const dm = run.metrics?.clickToOutgoingVisible;
+    console.log(`${label} x${throttle} ${key}: ${run.status.toUpperCase()}${run.reason ? ` — ${run.reason}` : ""}${dm ? ` — click → outgoing VISIBLE p50 ${dm.p50} p95 ${dm.p95} max ${dm.max} ms over ${run.sends} sends; visible before history in ${run.visibleBeforeHistory}, before the receipt in ${run.visibleBeforeReceipt}; saved row before history in ${run.savedBeforeHistory}` : ""}`);
+    await page.close();
+  }
 } finally {
   await browser.close();
 }
 
 const conditions = {
   build: "vite production build of the fixture", browser: "Playwright headless Chromium", cpuThrottle: throttle, trigger: "real click on Send only", startState: "no toast on screen before each send (waited for, never removed)",
-  thread: "100 SMS, 50 calls, 50 emails", contact: "90 history items loaded", receiptMs: 1500, rowReadMs: 80, listReadMs: 250,
+  thread: "100 SMS, 50 calls, 50 emails", contact: "90 history items loaded", deferredHistoryMs: deferredMs, deferredSends, receiptMs: 1500, rowReadMs: 80, listReadMs: 250,
   visible: "non-zero size, CSS-visible, >=50% inside viewport and clipping ancestors, not covered (elementFromPoint, where falling through a pointer-events:none target to its ancestor is not covering, plus toast rectangles)",
 };
 await writeFile(`${out}/${label}-x${throttle}.json`, JSON.stringify({ label, throttle, conditions, runs }, null, 2));
@@ -219,7 +348,9 @@ for (const r of runs) {
   const m = r.metrics?.clickToOutgoingVisible;
   lines.push(`| ${r.key} | ${r.status}${r.expectedBlocked && r.status === "blocked" ? " (expected: pre-existing layout)" : ""} | ${m ? `${m.p50} / ${m.p95} / ${m.max} (n=${r.sends})` : "—"} | ${(r.reason ?? "").replace(/\|/g, "/")} |`);
 }
+if (deferredMs === 0) lines.push("| deferred-history case | **OFF** (SMS_DEFERRED_HISTORY_MS=0) | — | not run |");
 if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n\n`);
+if (deferredMs === 0) console.log(`::warning title=SMS fixture deferred-history case OFF::${label}: SMS_DEFERRED_HISTORY_MS=0, so sending while history is pending was not checked.`);
 for (const r of runs.filter((x) => x.status === "blocked" && x.expectedBlocked)) {
   console.log(`::warning title=SMS fixture blocked (expected)::${r.key} ${label}: ${r.reason}`);
 }

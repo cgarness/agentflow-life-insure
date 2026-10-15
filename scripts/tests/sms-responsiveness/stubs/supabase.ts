@@ -17,6 +17,13 @@ export const FIXTURE = {
   receiptMs: 1_500,
 };
 
+/**
+ * `?historyMs=` slows only the history reads (the thread lists and the contact's history page), so a
+ * send can be made while the first history load is still pending (the deferred-history case). Single
+ * reads, such as the contact record's last-call read, keep listMs. Default: listMs.
+ */
+const historyMs = Number(new URLSearchParams(location.search).get("historyMs") ?? FIXTURE.listMs);
+
 type Row = Record<string, unknown>;
 type Probe = { mark: (name: string) => void };
 const probe = () => (window as unknown as { __smsProbe?: Probe }).__smsProbe;
@@ -76,7 +83,7 @@ function historyPage(args: Row) {
 
 async function resolveQuery(table: string, filters: Row, single: boolean, args: Row) {
   if (table === "rpc:get_contact_conversation_page") {
-    await sleep(FIXTURE.listMs);
+    await sleep(historyMs);
     return { data: historyPage(args), error: null };
   }
   if (table === "rpc:get_contact_activity_page") return { data: { items: [], hasMore: false, nextCursor: null }, error: null };
@@ -86,7 +93,7 @@ async function resolveQuery(table: string, filters: Row, single: boolean, args: 
     return { data: row, error: null };
   }
   if (table === "messages" || table === "calls" || table === "contact_emails") {
-    await sleep(FIXTURE.listMs);
+    await sleep(single ? FIXTURE.listMs : historyMs);
     const key = table === "calls" ? "started_at" : "sent_at";
     return { data: [...db[table]].sort(desc(key)).slice(0, 100), error: null };
   }

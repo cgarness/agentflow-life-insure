@@ -511,26 +511,24 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     <div className="flex-1 flex flex-col bg-background relative overflow-hidden min-h-0 h-full">
       {/* Messages Area */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
-        {/* The spinner is for the first load only; later reloads keep the rows on screen. */}
-        {loading && !hasRows ? (
+        {/* The spinner is for a first load with nothing to show yet; later reloads keep the rows on
+            screen, and this tab's own pending or just-saved texts never wait for history. */}
+        {loading && !hasRows && displayRows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-8 h-8 text-primary animate-spin opacity-20" />
           </div>
-        ) : loadError && !hasRows ? (
+        ) : loadError && !hasRows && displayRows.length === 0 ? (
           /* A failed load must never read as an empty conversation. */
-          <>
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <p className="text-sm font-medium text-foreground mb-1">Couldn't load this conversation</p>
-              <p className="text-xs text-muted-foreground mb-4">{loadError}</p>
-              <button
-                onClick={() => void loadThread(contactId)}
-                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-            {displayRows.map(renderMessage)}
-          </>
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+            <p className="text-sm font-medium text-foreground mb-1">Couldn't load this conversation</p>
+            <p className="text-xs text-muted-foreground mb-4">{loadError}</p>
+            <button
+              onClick={() => void loadThread(contactId)}
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         ) : displayRows.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 grayscale">
             <MessageSquare className="w-16 h-16 mb-4" />
@@ -538,8 +536,31 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
           </div>
         ) : (
           <>
+            {/* Until the first load succeeds, its state stays pinned in view above this tab's own
+                rows, which the view may have scrolled past. */}
+            {!hasRows && (loading || loadError) && (
+              <div
+                role="status"
+                className="sticky -top-6 z-10 flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground bg-background/90 backdrop-blur-sm"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Loading conversation…
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-foreground">Couldn't load this conversation</span>
+                    <span className="min-w-0 truncate" title={loadError ?? undefined}>{loadError}</span>
+                    <button type="button" onClick={() => void loadThread(contactId)} className="underline">
+                      Retry
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {displayRows.map(renderMessage)}
-            {loadError && (
+            {hasRows && loadError && (
               <p className="text-[11px] text-muted-foreground text-center mt-1">
                 Couldn't refresh this conversation.{" "}
                 <button type="button" onClick={() => void loadThread(contactId)} className="underline">

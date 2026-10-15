@@ -26,13 +26,17 @@ export function usePendingSmsRecords(scopeKey: string | null): readonly PendingS
 
 /** Recovery and acceptance notices for one mounted surface. Also marks the scope as on screen. */
 export function useSmsScopeEvents(scopeKey: string | null, onEvent: (event: ScopeEvent) => void) {
-  const handler = useRef(onEvent);
+  const handler = useRef({ scopeKey, onEvent });
   useLayoutEffect(() => {
-    handler.current = onEvent;
+    handler.current = { scopeKey, onEvent };
   });
   useEffect(() => {
     if (!scopeKey) return;
-    return pendingSmsStore.subscribeScope(scopeKey, (event) => handler.current(event));
+    // A scope change re-targets the handler in the layout phase, but this subscription is removed
+    // only in passive cleanup. An event for the old scope in between must not reach the new one.
+    return pendingSmsStore.subscribeScope(scopeKey, (event) => {
+      if (handler.current.scopeKey === scopeKey) handler.current.onEvent(event);
+    });
   }, [scopeKey]);
 }
 

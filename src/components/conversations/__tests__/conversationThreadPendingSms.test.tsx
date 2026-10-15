@@ -19,6 +19,9 @@ const s = vi.hoisted(() => ({
   threads: {} as Record<string, unknown[]>,
   threadCalls: [] as string[],
   threadError: null as string | null,
+  /** Contacts whose history read is held open until the test resolves or rejects it. */
+  deferThreads: new Set<string>(),
+  heldThreads: [] as { contactId: string; resolve: (rows: unknown[]) => void; reject: (e: Error) => void }[],
   realtimeHandlers: 0,
   realtimeFired: 0,
   /** Every twilio-sms POST, held until the test answers it. */
@@ -95,6 +98,9 @@ vi.mock("@/lib/supabase-messages", async (orig) => {
       resolveScopedContact: async () => null,
       getConversationThread: async (contactId: string) => {
         s.threadCalls.push(contactId);
+        if (s.deferThreads.has(contactId)) {
+          return new Promise<unknown[]>((resolve, reject) => { s.heldThreads.push({ contactId, resolve, reject }); });
+        }
         if (s.threadError) throw new Error(s.threadError);
         return s.threads[contactId] ?? [];
       },
@@ -148,6 +154,8 @@ beforeEach(() => {
   s.threads = { [CONTACT_A]: [row("r1", "Earlier text", "2026-10-13T10:00:00Z")] };
   s.threadCalls = [];
   s.threadError = null;
+  s.deferThreads = new Set();
+  s.heldThreads = [];
   s.realtimeHandlers = 0;
   s.posts = [];
   s.savedRow = null;
@@ -370,5 +378,352 @@ describe("quiet reloads and scrolling", () => {
     expect(screen.getByText("Earlier text")).toBeInTheDocument();
     expect(screen.getByText(/couldn't refresh this conversation/i)).toBeInTheDocument();
     expect(screen.queryByText("Couldn't load this conversation")).toBeNull();
+  });
+});
+
+describe("while the first history load is still pending (2026-10-15 review)", () => {
+  // The history read is a genuinely held Promise: nothing below resolves it until the test says so.
+  const hold = (contactId: string) => { s.deferThreads.add(contactId); };
+  const held = (contactId: string) => s.heldThreads.filter((h) => h.contactId === contactId);
+  const answer = (status: number, body: unknown) =>
+    act(async () => { s.posts[0].answer(status, body); await new Promise((r) => setTimeout(r, 0)); });
+
+  it("shows the bubble on Send before history or the send resolves; the receipt reconciles it; history then shows one saved row", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    expect(held(CONTACT_A), "the first history read is outstanding").toHaveLength(1);
+    fireEvent.change(composer(), { target: { value: "Before history" } });
+    expect(sendButton(), "Send is not gated on history").toBeEnabled();
+    fireEvent.click(sendButton());
+
+    // Nothing has resolved yet: not the history read, not the session read, not the POST.
+    expect(s.posts).toHaveLength(0);
+    expect(bubbles(), "the pending text is hidden behind the history spinner").toHaveLength(1);
+    expect(bubbles()[0]).toHaveTextContent("Before history");
+    expect(status()).toBe("Sending…");
+    expect(composer().value).toBe("");
+    expect(screen.getByText("Loading conversation…")).toBeInTheDocument();
+    expect(screen.queryByText("No messages yet"), "unknown history is never shown as empty").toBeNull();
+
+    await settle();
+    expect(s.posts).toHaveLength(1);
+    s.savedRow = saved("Before history");
+    await answer(200, RECEIPT);
+    // The receipt and the targeted read reconcile it while history is STILL pending.
+    expect(held(CONTACT_A)).toHaveLength(1);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getAllByText("Before history")).toHaveLength(1);
+    expect(screen.getByText("Loading conversation…")).toBeInTheDocument();
+
+    // History arrives holding the same message_id: exactly one saved row.
+    await act(async () => {
+      held(CONTACT_A)[0].resolve([
+        row("r1", "Earlier text", "2026-10-13T10:00:00Z"),
+        row(SAVED, "Before history", "2026-10-14T15:00:00Z"),
+      ]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("Earlier text")).toBeInTheDocument();
+    expect(screen.getAllByText("Before history"), "one saved row, never two").toHaveLength(1);
+    expect(screen.queryByText("Loading conversation…")).toBeNull();
+  });
+
+  it("a history failure never removes the pending text or its reconciled row", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Still mine");
+    expect(bubbles(), "the pending text is hidden behind the history spinner").toHaveLength(1);
+
+    await act(async () => {
+      held(CONTACT_A)[0].reject(new Error("history down"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(bubbles()).toHaveLength(1);
+    expect(bubbles()[0]).toHaveTextContent("Still mine");
+    expect(screen.getByText("Couldn't load this conversation")).toBeInTheDocument();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+
+    s.savedRow = saved("Still mine");
+    await answer(200, RECEIPT);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getAllByText("Still mine"), "the reconciled row survives the failed history").toHaveLength(1);
+    expect(screen.getByText("Couldn't load this conversation")).toBeInTheDocument();
+  });
+
+  it("reopening a contact shows its retained in-flight send before its history loads", async () => {
+    await open("Alpha");
+    send("Retained");
+    await settle();
+    expect(s.posts).toHaveLength(1);
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+    expect(bubbles()).toHaveLength(0);
+
+    hold(CONTACT_A);
+    fireEvent.click(screen.getByText("Alpha"));
+    // Alpha's history read is outstanding and the POST is unanswered.
+    expect(held(CONTACT_A)).toHaveLength(1);
+    expect(bubbles(), "the retained send is hidden behind the history spinner").toHaveLength(1);
+    expect(bubbles()[0]).toHaveTextContent("Retained");
+    expect(status()).toBe("Sending…");
+  });
+
+  it("reopening a contact shows its retained Not confirmed send before its history loads", async () => {
+    await open("Alpha");
+    send("Unsure one");
+    await settle();
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+    await answer(503, { success: false, code: "SEND_UNCERTAIN", error: "Delivery could not be confirmed." });
+
+    hold(CONTACT_A);
+    fireEvent.click(screen.getByText("Alpha"));
+    expect(held(CONTACT_A)).toHaveLength(1);
+    expect(bubbles(), "the retained send is hidden behind the history spinner").toHaveLength(1);
+    expect(bubbles()[0]).toHaveTextContent("Unsure one");
+    expect(status()).toMatch(/^Not confirmed/);
+    expect(screen.queryByText("No messages yet")).toBeNull();
+  });
+
+  const bigSpinner = () => document.querySelector(".animate-spin.w-8");
+
+  it("a reconciled row survives a later history failure, and Retry then loads history around it", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Saved first");
+    await settle();
+    s.savedRow = saved("Saved first");
+    await answer(200, RECEIPT);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getAllByText("Saved first")).toHaveLength(1);
+
+    await act(async () => {
+      held(CONTACT_A)[0].reject(new Error("history down"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getAllByText("Saved first"), "the failure never removes the reconciled row").toHaveLength(1);
+    expect(screen.getByText("Couldn't load this conversation")).toBeInTheDocument();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+
+    s.deferThreads.delete(CONTACT_A);
+    s.threads[CONTACT_A] = [row("r1", "Earlier text", "2026-10-13T10:00:00Z"), row(SAVED, "Saved first", "2026-10-14T15:00:00Z")];
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("Earlier text")).toBeInTheDocument();
+    expect(screen.getAllByText("Saved first"), "one saved row, never two").toHaveLength(1);
+    expect(screen.queryByText("Couldn't load this conversation")).toBeNull();
+  });
+
+  it("a proven refusal while history is pending returns the draft and goes back to the spinner, never to an empty thread", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Refused text");
+    expect(bubbles()).toHaveLength(1);
+    expect(bigSpinner(), "the pending text replaces the first-load spinner").toBeNull();
+    await settle();
+    await answer(409, { success: false, code: "PHONE", error: "This number can't receive texts." });
+
+    expect(bubbles()).toHaveLength(0);
+    expect(composer().value, "the unsent text is back in the composer").toBe("Refused text");
+    expect(bigSpinner(), "nothing to show yet: the first-load spinner again").not.toBeNull();
+    expect(screen.queryByText("No messages yet"), "unknown history is never shown as empty").toBeNull();
+    expect(held(CONTACT_A)).toHaveLength(1);
+  });
+
+  it("one send in flight while history is pending: no second dispatch, the newer draft is kept, nothing is resent on reopen", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Only once");
+    expect(sendButton(), "one SMS in flight per contact").toBeDisabled();
+    fireEvent.change(composer(), { target: { value: "Typed next" } });
+    fireEvent.click(sendButton());
+    fireEvent.keyDown(composer(), { key: "Enter" });
+    await settle();
+    expect(s.posts).toHaveLength(1);
+    expect(bubbles()).toHaveLength(1);
+
+    await act(async () => {
+      held(CONTACT_A)[0].resolve([row("r1", "Earlier text", "2026-10-13T10:00:00Z")]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("Earlier text")).toBeInTheDocument();
+    expect(bubbles()).toHaveLength(1);
+    expect(composer().value, "history arriving never touches the draft").toBe("Typed next");
+
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+    hold(CONTACT_A);
+    fireEvent.click(screen.getByText("Alpha"));
+    expect(bubbles()).toHaveLength(1);
+    await settle();
+    expect(s.posts, "reopening never resends").toHaveLength(1);
+  });
+
+  it("the thread opens at the newest row when history arrives after the agent's own send; a reader is then left alone", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    const el = bigSpinner()!.closest(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(el, "clientHeight", { configurable: true, value: 500 });
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: 800 });
+    send("Jump here");
+    expect(el.scrollTop, "the agent's own send shows at the newest").toBe(800);
+    await settle();
+
+    Object.defineProperty(el, "scrollHeight", { configurable: true, value: 9000 });
+    await act(async () => {
+      held(CONTACT_A)[0].resolve(Array.from({ length: 200 }, (_, i) =>
+        row(`h${i}`, `History ${i}`, new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString())));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(el.scrollTop, "the first load still lands at the newest").toBe(9000);
+
+    el.scrollTop = 1000;
+    fireEvent.scroll(el);
+    s.savedRow = saved("Jump here");
+    await answer(200, RECEIPT);
+    expect(bubbles()).toHaveLength(0);
+    expect(el.scrollTop, "a reader in history is not moved by the receipt").toBe(1000);
+  });
+
+  it("the first-load status, and its failure with Retry, are pinned above this tab's rows instead of being scrolled away", async () => {
+    // jsdom has no layout: this pins the structure; the browser fixture's evidence covers the rest.
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Pinned");
+    const line = () => screen.getByText("Loading conversation…").closest("[role=status]") as HTMLElement;
+    expect(line().className).toMatch(/\bsticky\b/);
+    expect(line().className).toMatch(/(^|\s)-top-6(\s|$)/);
+    expect(line().compareDocumentPosition(bubbles()[0]) & Node.DOCUMENT_POSITION_FOLLOWING, "the line sits above the rows").toBeTruthy();
+
+    await act(async () => {
+      held(CONTACT_A)[0].reject(new Error("history down"));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const failure = screen.getByText("Couldn't load this conversation").closest("[role=status]") as HTMLElement;
+    expect(failure.className, "the failure takes the same pinned place").toMatch(/\bsticky\b/);
+    expect(failure).toHaveTextContent("history down");
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    expect(bubbles()).toHaveLength(1);
+    expect(bigSpinner()).toBeNull();
+  });
+
+  it("reopening a contact shows its retained reconciled row before its history loads, then exactly one row", async () => {
+    await open("Alpha");
+    send("Already saved");
+    await settle();
+    s.savedRow = saved("Already saved");
+    await answer(200, RECEIPT);
+    expect(bubbles()).toHaveLength(0);
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+    expect(screen.queryByText("Already saved")).toBeNull();
+
+    hold(CONTACT_A);
+    fireEvent.click(screen.getByText("Alpha"));
+    expect(held(CONTACT_A)).toHaveLength(1);
+    expect(screen.getAllByText("Already saved"), "the reconciled row waits for nothing").toHaveLength(1);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getByText("Loading conversation…")).toBeInTheDocument();
+
+    await act(async () => {
+      held(CONTACT_A)[0].resolve([row("r1", "Earlier text", "2026-10-13T10:00:00Z"), row(SAVED, "Already saved", "2026-10-14T15:00:00Z")]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("Earlier text")).toBeInTheDocument();
+    expect(screen.getAllByText("Already saved")).toHaveLength(1);
+  });
+
+  it("reopening a contact shows its accepted, not-yet-matched send before its history loads; history with its message_id merges it", async () => {
+    await open("Alpha");
+    send("Accepted one");
+    await settle();
+    // The targeted read finds a row that does not belong to this send: accepted, history pending.
+    s.savedRow = { ...saved("Accepted one"), lead_id: CONTACT_B };
+    await answer(200, RECEIPT);
+    await waitFor(() => expect(status()).toMatch(/^Accepted · history pending/));
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+
+    hold(CONTACT_A);
+    fireEvent.click(screen.getByText("Alpha"));
+    expect(held(CONTACT_A)).toHaveLength(1);
+    expect(bubbles()).toHaveLength(1);
+    expect(status()).toMatch(/^Accepted · history pending/);
+    expect(screen.queryByText("No messages yet")).toBeNull();
+
+    await act(async () => {
+      held(CONTACT_A)[0].resolve([row(SAVED, "Accepted one", "2026-10-14T15:00:00Z")]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getAllByText("Accepted one"), "merged by message_id into one row").toHaveLength(1);
+    expect(s.posts).toHaveLength(1);
+  });
+
+  it("an uncertain result on the open contact while its first read is held: the newer read wins, the held one is discarded", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("Unsure now");
+    await settle();
+    await answer(503, { success: false, code: "SEND_UNCERTAIN", error: "Delivery could not be confirmed." });
+    expect(status()).toMatch(/^Not confirmed/);
+    expect(held(CONTACT_A), "the recovery reload started a second read").toHaveLength(2);
+
+    await act(async () => {
+      held(CONTACT_A)[0].resolve([row("old", "Stale history", "2026-10-12T10:00:00Z")]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.queryByText("Stale history"), "a superseded read never lands").toBeNull();
+    expect(screen.getByText("Loading conversation…")).toBeInTheDocument();
+    expect(bubbles()).toHaveLength(1);
+
+    await act(async () => {
+      held(CONTACT_A)[1].resolve([row("r1", "Earlier text", "2026-10-13T10:00:00Z")]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("Earlier text")).toBeInTheDocument();
+    expect(status(), "never relabelled, never resent").toMatch(/^Not confirmed/);
+    expect(s.posts).toHaveLength(1);
+  });
+
+  it("a Not sent bubble kept beside a newer draft while history is pending can be edited back into the composer", async () => {
+    hold(CONTACT_A);
+    await open("Alpha");
+    send("First text");
+    await settle();
+    fireEvent.change(composer(), { target: { value: "Newer draft" } });
+    await answer(409, { success: false, code: "PHONE", error: "This number can't receive texts." });
+    expect(composer().value).toBe("Newer draft");
+    expect(status()).toMatch(/^Not sent/);
+    expect(bigSpinner()).toBeNull();
+
+    fireEvent.change(composer(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(composer().value).toBe("First text");
+    expect(bubbles()).toHaveLength(0);
+    expect(bigSpinner(), "nothing to show yet: the first-load spinner again").not.toBeNull();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+  });
+
+  it("while B's first history read is held, A's retained send never shows under B", async () => {
+    await open("Alpha");
+    send("Only for Alpha");
+    await settle();
+    hold(CONTACT_B);
+    fireEvent.click(screen.getByText("Beta"));
+    expect(held(CONTACT_B)).toHaveLength(1);
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.queryByText("Only for Alpha")).toBeNull();
+    expect(bigSpinner(), "Beta has nothing to show yet").not.toBeNull();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+
+    await act(async () => {
+      held(CONTACT_B)[0].resolve([]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(screen.getByText("No messages yet"), "Beta's history is now known to be empty").toBeInTheDocument();
+    expect(screen.queryByText("Only for Alpha")).toBeNull();
   });
 });
