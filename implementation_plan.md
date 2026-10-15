@@ -1,3 +1,92 @@
+## 2026-10-15 — RECONCILE WITH MAIN `b5976e0`, THEN PHASE B THROUGH THE DOCUMENTED psql / CLI FALLBACK (approved): Google Sheets PR #442
+
+**Request (Chris, 2026-10-15, after Phase B attempt 1).** Chris approved:
+1. merging current `main` `b5976e0` into `claude/keen-brown-e4u3ht`;
+2. re-running the required verification against that `main`;
+3. completing Phase B through the documented recovery path:
+   - B2: the exact migration file through `psql --single-transaction`;
+   - verify production;
+   - only then record version `20261013120000` with `supabase migration repair`;
+   - B3: deploy only the four named Google Sheets functions, one at a time, with the Supabase CLI.
+
+This replaces further large requests through the Supabase MCP connector.
+
+**Not approved / never used:**
+- another MCP `apply_migration`;
+- splitting the migration across `execute_sql` calls;
+- the Dashboard SQL editor;
+- `supabase db push`;
+- an unscoped `supabase functions deploy`, or `--prune`;
+- direct edits to migration-history tables;
+- partial bundles.
+
+Also not approved: Phase C, D and E, merging PR #442, Vercel or flag changes, cron, the Vault worker token, a Google connection, imports and test leads. Any checksum mismatch, unexpected production state or out-of-scope need is a stop.
+
+**Phase B attempt 1 (2026-10-15, 17:45–18:25 UTC): stopped at B2; production unchanged.**
+- Two identical MCP `apply_migration` calls timed out at the 60 s tool limit.
+- Neither reached Postgres: no `statement:` line under `log_statement = ddl`, no error, no lock wait.
+- Read-only probes of the same SQL as a literal also stalled at 86, 68 and 30 KB, while small queries returned instantly.
+- Advisors at 18:23 UTC were identical to the pre-B2 baseline.
+- Evidence will go in `verification.md` §14.
+
+**Starting points.**
+- Branch head: `40ac439258be595f8206766fc034a2bcb7fa39f8` (clean, equal to origin).
+- `origin/main`: `b5976e0c141206e8b0f567984437358af4b1098b`.
+- Merge base: `03ef0cb` (the previous reconciliation).
+- One new `main` commit: `b5976e0` (#448), a squash merge with parent `03ef0cb`.
+
+**#448, HOTFIX: Team Leaders can invite Agent users (full diff checked).**
+- Files: `invite-user` and `send-invite-email` Edge functions, `InviteUserModal.tsx`, `UserManagement.tsx`, two new tests, its plan, one `AGENT_RULES.md` bullet (under invariant #20) and a WORK_LOG entry.
+- No migration, `config.toml`, permission default, shared Edge module, `package*.json` or build-config change.
+- No Sheets file imports anything it changed.
+- Production already runs its functions: `invite-user` v232 and `send-invite-email` v236 (deployed 17:29–17:30 UTC), and frontend `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `b5976e0`.
+
+| File | Git result (preview) | Resolution |
+|---|---|---|
+| `WORK_LOG.md` | Conflict: both sides prepend at the top. | Newest first: #448's 2026-10-15 entry first. `main`'s and the branch's other 2026-10-15 entries are already in time order. Every entry stays byte-identical to its side, and none is dropped or duplicated. |
+| `AGENT_RULES.md` | Auto-merges. #448 adds one bullet under #20; the Sheets section is at the end. | Accept. Check that the bullet and the Sheets section each appear exactly once. |
+
+**Semantic review.**
+- **Settings.** #448 changes only User Management's invite flow. The Sheets Settings entry, `settingsConfig.ts`, `SettingsRenderer.tsx` and `permissionDefaults.ts` are untouched by it.
+- **Edge.** The invitation functions share no module with the Sheets bundles, so the four Sheets bundles cannot change.
+- **Migrations.** None added, so the Sheets migration's bytes and version order are unaffected.
+
+**Steps.**
+1. Commit this plan, then `git merge --no-ff origin/main`. No rebase, amend or force-push.
+2. Confirm unchanged: migration SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`, the pending/rollback/ops files, and the four bundles; `git diff origin/main` must list only this PR's files.
+3. Verify the merged head, against a fresh `b5976e0` worktree wherever a baseline is needed:
+   - `npx tsc --noEmit`, and `npx tsc -p tsconfig.app.json --noEmit` compared with `main`;
+   - Sheets Vitest, Sheets Deno tests and type checks;
+   - the SQL/PostgREST suite and regression evidence;
+   - ESLint, `npm run build` and the browser Sheets flow.
+4. Update `verification.md` (§14), `release-package.md`, `WORK_LOG.md` and this file. Push only this branch and keep PR #442 in draft. Exact-head CI must be green and the PR mergeable before any production change.
+5. Run a fresh read-only Phase B preflight immediately before B2:
+   - zero Sheets objects and rows;
+   - helper MD5 `a199d5dd…`;
+   - migration checksum;
+   - advisor baselines;
+   - frontend deployment and Edge inventory, including the #448 versions, which are never touched.
+6. **Direct access.** Check `psql`, the Supabase CLI and a database connection held in an environment variable, never printed.
+   - If this environment cannot reach production, stop before any change.
+   - Then give Chris exact commands for his Mac, in gated stages, with Claude doing every read-only verification between them.
+   - The sequence is B2 `psql`, then read-backs and the advisor delta, then `migration repair` and `migration list`, then records and green CI, then B3 one function at a time with explicit names, then read-back and disabled-state smoke tests.
+7. Because the CLI records the authored version, there is no restamp unless `migration repair` records a different version.
+
+**Current production release state (read-only, 2026-10-15 ~18:10–18:25 UTC).**
+- Migration history: 324 rows, latest `20261010172702`.
+- Sheets: zero objects, zero Sheets Edge functions, helper MD5 `a199d5dd…`.
+- Frontend: `dpl_6LM8RRL2…` at `b5976e0`.
+- `GOOGLE_SHEETS_ENABLED`: absent, per Chris; this environment cannot list secret names.
+
+**Stop if:**
+- a conflict needs an approved behaviour to change;
+- the migration bytes or a Sheets bundle change;
+- a new diagnostic or test failure appears;
+- CI is red or the PR is not mergeable;
+- any production preflight value differs;
+- direct access is unavailable from here, in which case stop before mutation and hand over the commands.
+---
+
 ## 2026-10-15 — RECONCILIATION WITH CURRENT MAIN BEFORE PHASE B (approved; branch only; no production mutation): Google Sheets PR #442
 
 **Request (Chris, 2026-10-15).** Google Cloud owner setup (Phase A) is complete. Before any Phase B deployment, merge current `main` into `claude/keen-brown-e4u3ht`, keeping both sides' approved work, then re-verify the exact reconciled head.
