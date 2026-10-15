@@ -604,7 +604,7 @@ A read-only multi-agent review covered the uncommitted diff: four lenses, each v
 
 ### 15.6 Remaining limitations (not changed; outside the two approved items)
 
-1. **A failed refresh over a known-empty thread reads "No messages yet" and offers no Retry.** Confirmed by both reviews (low).
+1. **CLOSED by §15.8 (`3f9bac5`, approved 2026-10-15).** ~~A failed refresh over a known-empty thread reads "No messages yet" and offers no Retry.~~ Confirmed by both reviews (low).
    - Introduced on this branch by `c367457`. On `main` any load error showed the error panel.
    - **Reachable paths:**
      - this PR's own path: on a thread loaded as empty, send; the result is uncertain; the recovery reload fails; the agent dismisses the Not confirmed item;
@@ -627,3 +627,61 @@ Unchanged from §13.5:
 4. Merge and production deploy need separate approval.
 
 No migration, Edge deploy, Realtime change, backend command or live SMS was part of this work.
+
+### 15.8 Approved correction: a failed refresh over an empty thread (2026-10-15)
+
+**Approval.** Chris's owner-pasted message approved only:
+- this bounded fix;
+- its regression tests;
+- these records;
+- a normal push to draft PR #445.
+
+Not approved: merge, auto-merge, production deployment, live SMS, backend commands, migrations, Realtime changes. The starting head was `e75d8c8`; `main` was unchanged at `dacd921`.
+
+**Change** (`3f9bac5`, `3f9bac53557c4c4f90214b298dec2b38d8937e85`).
+- In `ConversationThread.tsx`, the "No messages yet" branch now requires no visible rows **and** no load error (one condition).
+- After a successful empty read, a failed refresh falls through to the existing "Couldn't refresh this conversation. Retry" line. No new UI, scroll change or other branch change.
+- A successful empty Retry clears the error and restores "No messages yet".
+- Unchanged:
+  - pending texts during the first load (§15.1);
+  - the scope-event guard (§15.2);
+  - pending and reconciled rows during failed refreshes;
+  - the empty state after a successful empty response.
+
+**Regression tests** (`conversationThreadPendingSms.test.tsx`, already in the `sms-consent` list; real `Conversations` page, synthetic transport):
+1. An empty load, then a failed refresh:
+   - the error and one Retry show, never "No messages yet";
+   - a failed Retry keeps the error;
+   - a successful empty Retry restores the empty state;
+   - no SMS POST is made.
+2. Empty history, an uncertain send, a failed recovery read, then Dismiss:
+   - the error and Retry show, never "No messages yet";
+   - each Retry is exactly one history read, and the POST count stays at **1** throughout;
+   - a successful empty Retry restores the empty state;
+   - the dismissed send keeps its request ID (equal to the POST's `request_id`), state `uncertain` and `hidden`;
+   - the newer draft typed before Dismiss is unchanged.
+
+**Evidence.**
+- Both tests fail with the `e75d8c8` application code ("the latest read failed: history is unknown": the "No messages yet" heading was present). That run: 2 failed, 25 passed.
+- After the fix: 27 passed in the file.
+
+**Gates.**
+- CI SMS list: 12 files, **280 passed** (278 + 2), no `act` warnings.
+- Other conversation, scope and View As tests: 72 passed.
+- `tsc --noEmit` exit 0; `tsc -p tsconfig.app.json`: 84 diagnostics, identical multiset to `e75d8c8`.
+- ESLint on the 2 changed files: 0 errors, 0 warnings.
+- Build passes (4,769 modules). `git diff --check` is clean.
+- Responsiveness fixture, CI mode: exit 0.
+  - Desktop measured: Conversations p50/p95 24.7/30.6 ms, contact 30.9/34.1 ms.
+  - Deferred-history case: 3/3 visible before history and before the receipt, and reconciled before history, on both surfaces.
+  - 390×844: the expected BLOCKED on both.
+- No new benchmark campaign was run.
+
+**Remaining note.**
+- While a Retry or any quiet reload is in flight, `loadThread` clears the error.
+- So a thread whose last successful read was empty shows "No messages yet" until that read settles; a failure brings the error and Retry back.
+- This in-flight state is unchanged by this fix (the same on `e75d8c8`).
+
+No `AGENT_RULES.md` amendment: the existing rule that every fetch-backed surface keeps "an error state distinct from the empty state" (§"A request that can reject needs a `.catch`…") already covers this.
+
+No migration, Edge deploy, Realtime change, backend command or live SMS. The §15.7 release gate is unchanged.

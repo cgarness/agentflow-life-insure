@@ -1,3 +1,42 @@
+## 2026-10-15 — Instant manual SMS: a failed refresh over an empty thread shows the error and Retry (draft PR #445; not a release)
+
+**Approval.** Chris's owner-pasted message approved only:
+- the prepared empty-thread refresh-error fix;
+- its regression tests;
+- these records;
+- a normal push to draft PR #445.
+
+Not approved: merge, auto-merge, production deployment, live SMS, backend commands, migrations, Realtime changes. The starting head was `e75d8c8`. `main` is unchanged at `dacd921`. `AGENT_RULES.md`, `VISION.md` and this log show no conflicting newer entries.
+
+**Change** (`3f9bac5`).
+- `src/components/conversations/ConversationThread.tsx`: "No messages yet" now requires no visible rows **and** no load error (one condition).
+- After a successful empty read, a failed refresh shows the existing "Couldn't refresh this conversation. Retry" line; a successful empty Retry restores the empty state.
+- No UI redesign, scroll change or other branch change.
+
+**Files.**
+- `src/components/conversations/ConversationThread.tsx`;
+- `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx` (2 regressions);
+- plan §15.6 (closed) and §15.8;
+- this entry.
+
+**Verification.**
+- **Regressions:** both fail with the `e75d8c8` application code ("No messages yet" shown over a failed refresh) and pass now.
+  - They cover a failed refresh after an empty load, and: empty → uncertain send → failed recovery read → Dismiss.
+  - Retry is a history read only, so the POST count stays at **1**.
+  - The dismissed send keeps its request ID, and the newer draft survives.
+- CI SMS list: 12 files, **280 passed**. Other conversation, scope and View As tests: 72 passed.
+- `tsc --noEmit` exit 0; app `tsc`: 84 diagnostics, identical to `e75d8c8`.
+- ESLint is clean. Build passes. `git diff --check` is clean.
+- Responsiveness fixture (CI mode): exit 0. The deferred case is 3/3 on both surfaces; 390×844 is the expected BLOCKED.
+
+**Blockers and remaining limits.**
+- No blockers.
+- While a Retry or quiet reload is in flight, a thread whose last good read was empty shows "No messages yet" until it settles. This is unchanged.
+- The other §15.6 limits stand: the newest-row jump after a failing first load, the pinned-status announcement, mobile BLOCKED, and the 4× contact p95.
+- No `AGENT_RULES.md` amendment: the existing rule that an error state stays distinct from the empty state covers it.
+
+Migrations, production deployments, Edge deploys, backend commands and live SMS: none.
+
 ## 2026-10-15 — Instant manual SMS: two review items before release (draft PR #445; not a release)
 
 **Approval.** Chris's owner-pasted reply approved only:
