@@ -1,3 +1,62 @@
+## 2026-10-15 — Instant manual SMS feedback: verification corrections and draft-PR publication (not a release)
+
+**Approval.** Chris approved limited verification corrections, a **draft** PR, isolated CI and frontend preview verification.
+- **This is not release approval.** Merge, production deployment, production migration, Edge deployment, production settings and live SMS are not approved.
+- Application changes and backend mutation commands need his separate approval. None were made.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md` §14 (new) and §13 (rewritten).
+
+**Preserved work.**
+- Base `main` `dacd921` was re-fetched twice and is unchanged. `AGENT_RULES.md`, `VISION.md` and this log were reread.
+- The implementation commit `c367457` is unchanged. No other branch was merged.
+- Draft PR #429 (START, out of scope) shares `sms-consent.yml`, `AGENT_RULES.md` and this log with this branch; whichever merges second reconciles them.
+- **Before first publication the never-pushed local branch was rebuilt once**, to keep the separate security item's remediation plan private. The original commits remain on a local backup ref; nothing shared was rewritten.
+
+**Commits (this stage).**
+- `14fd40f`: corrected fixture, CI coverage, bridge-mount guard test;
+- `ba6d405`: server-timing evidence, test mapping, corrected method;
+- `3582ea1`: user-visible results, screenshots, superseded results;
+- the records commit: regression evidence, plan §14, this entry.
+
+**Corrections.**
+1. **Fixture.** Real clicks only, after a Playwright actionability preflight. Nothing uses Enter, a forced click or DOM insertion.
+   - "Visible" means non-zero size, CSS-visible, at least half inside the viewport and every clipping ancestor, and not covered.
+   - Rendered (DOM) times are kept only as diagnostics.
+   - Each send starts with no toast on screen: base's success toast covers its own Send spinner.
+   - An unusable layout is BLOCKED, with its geometry and a screenshot. Unexpected blocks or failures fail CI.
+2. **Results** (desktop 1440×900, p50 / p95 ms).
+   - **1×:** click → outgoing text visible: Conversations 2,479.8 / 2,496.1 → **18.1 / 27.1**; contact record 2,282.7 / 2,290.4 → **24.4 / 35.4**.
+   - **4× CPU** (separate): 2,642.9 / 2,738.1 → **85.6 / 143.2**; 2,406.7 / 2,436.9 → **132.8 / 182.1**. The ≤100 ms p95 goal is **not met at 4×**.
+   - **Costs:** base's spinner-only first change is slightly faster (14.0 vs 18.1 ms p50 at 1×), and the click's Event Timing duration rises (p95 32 → 40 ms and 24 → 48 ms).
+3. **Mobile 390×844: BLOCKED on both builds** by the pre-existing desktop-only layouts.
+   - Conversations: the 300 px contact pane covers Send.
+   - Contact record: the message column sits off-screen inside overflow-hidden ancestors.
+   - The earlier 390 px figures were rendering-only (they used Enter). They are superseded and kept in `measurements/superseded-2026-10-14/`. No mobile timing is claimed. No mobile redesign, virtualization or broad memoization was done.
+4. **Server time** is now stated exactly (`evidence/server-latency.md`):
+   - Edge `execution_time_ms` 4,462–5,143 ms over the 4 successful `twilio-sms` POSTs in `function_edge_logs` (2026-10-08T15:15Z → 2026-10-14T18:51Z);
+   - the client round trip and carrier delivery are not measured;
+   - the previously quoted Twilio sub-timings are labelled as inferred from log gaps.
+5. **Regression evidence** (`evidence/regression.md`, `evidence/test-mapping.md`, `evidence/vitest-files-*.json`). The repo's `reports-frontend` verification ran at `dacd921` vs `3582ea1` and exited 0. It is **baseline-equivalent, not a clean pass**:
+   - `tsc -p tsconfig.app.json`: 85 → 84 diagnostics, none new.
+   - Vitest: 1 failing test on each side (the same pre-existing `recordingRetentionVoicemail`, a moving `origin/main` comparison); the same 10 files fail to load without Supabase env on each side; 34 skipped on each side with an identical inventory; no new failure and no unhandled errors.
+   - The 12 replaced SMS tests are mapped to their replacements.
+   - ESLint: 0 errors and the 1 pre-existing warning. The build passes.
+6. **CI coverage.** `src/App.tsx` was the only changed file missing from the `sms-consent` path filter; it is added. The new `pendingSmsBridgeMount.test.ts` guards the bridge mount, and was mutation-checked by removing the mount. `SMS_EXPECT_BLOCKED` is explicit.
+7. **Record corrections.** The plan claimed `smsConsent.test.tsx` was updated; it is unchanged. The 2026-10-14 entry's timing and server claims are corrected in place.
+
+**Publication preflight.** In progress at this commit; the result is recorded before the push.
+
+**Publication.** Recorded after the push, with the exact published head and its CI.
+
+**Security item.** The separate workflow-secret exposure (logged 2026-10-10) remains open and urgent. Its remediation plan was delivered to Chris privately on 2026-10-15, as a session attachment that is not in this repository. This task did not rotate, probe, redact, change cron or rewrite history.
+
+**Migrations/deploys:** none. **Production writes:** none. **Live SMS:** none. **Merge or production deploy:** not done, not approved.
+
+**Next release gate.**
+1. Chris reviews the draft PR.
+2. Merge and the production frontend deploy need his separate approval, and only on a green, exact head.
+3. The served bundle is then read back.
+4. No send from the preview: it is wired to production, so any send there is a live SMS.
+
 ## 2026-10-14 — Instant manual SMS feedback (frontend only; local branch, not published)
 
 **Request and approval.** Chris approved a frontend-only build with binding corrections D1–D9 and design corrections 1–7, plus bounded read-only Gate 0 checks.

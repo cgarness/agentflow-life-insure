@@ -379,3 +379,61 @@ All are documented in §9. In addition:
 3. Preview: build and served-asset check only. The preview is wired to production services, so **any send from it is a live SMS** and needs its own approval. Sends are exercised only in the fake-transport fixture.
 4. Merge and the Vercel production deploy (frontend only), separately approved. Then read back the served bundle.
 5. Backend B0 (§10) and the separate security item (private remediation plan) are separate approvals.
+
+## 14. Publication stage (2026-10-15)
+
+**Approval.** Chris approved limited verification corrections, publication as a **draft** PR, isolated CI and frontend preview verification.
+- **Not production release approval.**
+- **Not approved:**
+  - merge, auto-merge or promotion;
+  - a push to `main` or a force-push of shared history;
+  - a production deploy, production migration or Edge deploy, or a production setting change;
+  - live SMS (including from the preview);
+  - secret rotation, credential probing, cron changes, historical redaction or history rewriting.
+- **Application changes and backend mutation commands** need his separate approval.
+
+**Preserved work.**
+- **Base:** `main` `dacd921903a867de99276f8709f829995602c3bd`. Remote `main` was re-fetched (unchanged) before the corrections and again before publication.
+- **No restart:** the implementation (`c367457`) was not restarted or rewritten, and no other branch was merged.
+- **Concurrent work:** no open PR changed since the build. Draft PR #429 (START, out of scope) shares three files with this branch: `.github/workflows/sms-consent.yml`, `AGENT_RULES.md` and `WORK_LOG.md`. Whichever merges second must reconcile them. #429 was not touched.
+- **One local rebuild before first publication.** The never-published local branch was rebuilt once, so that the separate security item's remediation plan stays private and out of this public repository. The original local commits remain on a local backup ref; nothing shared was rewritten.
+
+**Corrections (files).**
+
+| File | Correction |
+|---|---|
+| `scripts/tests/sms-responsiveness/main.tsx` | A visibility probe: size, CSS visibility, at least 50% inside the viewport and clipping ancestors, and not covered (elementFromPoint plus toast rectangles; falling through a `pointer-events: none` target to its ancestor is not covering). Rendered and visible marks are kept separate; the first change is attributed to the text or the spinner; a click mark is taken only from a real click on Send. |
+| `scripts/tests/sms-responsiveness/measure.mjs` | Real clicks only, after a trial-click actionability preflight. Each send starts with no toast on screen. BLOCKED / FAILED / MEASURED per surface and viewport, with reasons, geometry and screenshots. `SMS_EXPECT_BLOCKED`, GitHub annotations and a step summary; exit 1 on any unexpected block or failure. |
+| `.github/workflows/sms-consent.yml` | `src/App.tsx` in the path filter; `pendingSmsBridgeMount.test.ts` in the SMS Vitest step; an explicit `SMS_EXPECT_BLOCKED`. |
+| `src/components/messaging/__tests__/pendingSmsBridgeMount.test.ts` | New source audit: the bridge is mounted once, inside `AuthProvider` and outside the router. Mutation-checked: removing the mount fails 2 of its 3 tests. |
+| This plan | §1 goal wording; §2 G0-3 and §3 with exact values and metric definitions; §6 file list (the `smsConsent` claim corrected); §8 method; §10 inferred attributions labelled; §13 rewritten; this section |
+| `WORK_LOG.md` | 2026-10-14 entry: claims corrected; new 2026-10-15 entry |
+| `evidence/test-mapping.md`, `evidence/server-latency.md`, `evidence/regression.md`, `evidence/vitest-files-*.json` | New auditable evidence |
+| `measurements/*.json`, `measurements/screenshots/*`, `measurements/superseded-2026-10-14/*` | Corrected results, screenshots, and the superseded rendering-only results (moved and labelled) |
+
+**Measurements.** See §13.2–13.3:
+- **Desktop at 1×:** p95 to visible is 27.1 ms (Conversations) and 35.4 ms (contact record).
+- **Desktop at 4×:** p95 is 143.2 ms and 182.1 ms, above the 100 ms goal.
+- **Mobile at 390×844:** BLOCKED on both builds by the pre-existing desktop-only layouts. No mobile timing is claimed.
+
+**Server-timing claim.** Kept, with its exact basis (`evidence/server-latency.md`):
+- Edge `execution_time_ms` of 4,462–5,143 ms, over the 4 successful `twilio-sms` POSTs in `function_edge_logs` from 2026-10-08T15:15Z to 2026-10-14T18:51Z;
+- the client round trip and carrier delivery are not measured.
+
+**Regression evidence.** See `evidence/regression.md`. Local run of the repository's own `reports-frontend` verification (`scripts/verify_reports_frontend.py`), base `dacd921903a867de99276f8709f829995602c3bd` against candidate `3582ea109caadcd752e61b7daea8d2e85492e80f`. Code is identical from `14fd40f` onward. **Exit 0.**
+- **`tsc --noEmit`:** exit 0 on both. The root config checks no files.
+- **`tsc -p tsconfig.app.json`:** 85 → 84 diagnostics. None is new; the one removed is the replaced contract-test mock. This is a baseline-equivalent result, **not a clean pass**: 84 pre-existing diagnostics remain.
+- **Vitest without Supabase env (as CI):**
+  - base 5,183 passed, candidate 5,350 passed;
+  - **1 failing test on each side, the same pre-existing `recordingRetentionVoicemail` case**;
+  - the same 10 files fail to load on each side (`supabaseUrl is required.`);
+  - 34 skipped on each side, with an identical inventory;
+  - 0 unhandled runtime errors.
+- **ESLint on the changed TypeScript files:** 0 errors; 1 pre-existing warning.
+- **Build and Reports tests:** both pass.
+
+The dummy-env run and its comparison are in `evidence/regression.md`.
+
+**Publication preflight.** In progress at this commit; the result is recorded before the push.
+
+**Publication.** Recorded after the push, with the exact published head and its CI, in the follow-up records commit.
