@@ -529,7 +529,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
               Retry
             </button>
           </div>
-        ) : displayRows.length === 0 ? (
+        ) : displayRows.length === 0 && !loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 grayscale">
             <MessageSquare className="w-16 h-16 mb-4" />
             <h3 className="text-lg font-bold">No messages yet</h3>

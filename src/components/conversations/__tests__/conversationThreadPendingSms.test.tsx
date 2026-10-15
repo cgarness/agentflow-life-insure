@@ -113,7 +113,7 @@ vi.mock("react-router-dom", () => ({ useSearchParams: () => [new URLSearchParams
 
 import Conversations from "@/pages/Conversations";
 import { PendingSmsAuthorityBridge } from "@/components/messaging/PendingSmsAuthorityBridge";
-import { pendingSmsStore } from "@/lib/sms-send/pendingSmsStore";
+import { pendingSmsStore, smsScopeKey } from "@/lib/sms-send/pendingSmsStore";
 
 const convo = (contactId: string, name: string) => ({
   contact_id: contactId, contact_name: name, contact_type: "lead", contact_phone: "5125550123",
@@ -726,4 +726,92 @@ describe("while the first history load is still pending (2026-10-15 review)", ()
     expect(screen.getByText("No messages yet"), "Beta's history is now known to be empty").toBeInTheDocument();
     expect(screen.queryByText("Only for Alpha")).toBeNull();
   });
+});
+
+describe("a failed refresh over a thread already loaded as empty (2026-10-15 approval)", () => {
+  // The last successful read was empty, then a refresh failed: history is unknown again, so the
+  // refresh error and its Retry must show — never "No messages yet". Retry is a history read only.
+  const keyA = smsScopeKey({ organizationId: ORG, actorId: AGENT, viewerId: AGENT, contactType: "lead", contactId: CONTACT_A });
+  const refreshError = () => screen.queryByText(/couldn't refresh this conversation/i);
+  const retry = () => act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it("an empty load, then a failed refresh: the error and Retry stay; a successful empty Retry restores the empty state", async () => {
+    s.threads[CONTACT_A] = [];
+    await open();
+    expect(screen.getByText("No messages yet"), "a successful empty read is a genuine empty thread").toBeInTheDocument();
+
+    const reads = s.threadCalls.length;
+    s.threadError = "network down";
+    await act(async () => {
+      pendingSmsStore.emitScope(keyA, "recovery");
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(s.threadCalls.length - reads).toBe(1);
+    expect(screen.queryByText("No messages yet"), "the latest read failed: history is unknown").toBeNull();
+    expect(refreshError()).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+
+    await retry();
+    expect(s.threadCalls.length - reads, "Retry is one history read").toBe(2);
+    expect(refreshError(), "a second failure keeps the error").toBeInTheDocument();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+
+    s.threadError = null;
+    await retry();
+    expect(s.threadCalls.length - reads).toBe(3);
+    expect(refreshError()).toBeNull();
+    expect(screen.getByText("No messages yet")).toBeInTheDocument();
+    expect(s.posts, "no SMS is ever sent here").toHaveLength(0);
+  });
+
+  it("empty history, an uncertain send, a failed recovery read, then Dismiss: the error and Retry stay, Retry never resends, and the send and the draft survive", async () => {
+    s.threads[CONTACT_A] = [];
+    await open();
+    send("Into the void");
+    await settle();
+    expect(s.posts).toHaveLength(1);
+    s.threadError = "network down";
+    const reads = s.threadCalls.length;
+    await answer503();
+    expect(s.threadCalls.length - reads, "the uncertain outcome's one recovery read").toBe(1);
+    expect(status()).toMatch(/^Not confirmed/);
+    const sent = pendingSmsStore.getSnapshot()[0];
+    expect(sent.snapshot.requestId).toBe(s.posts[0].body.request_id);
+
+    fireEvent.change(composer(), { target: { value: "Next draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.queryByText("No messages yet"), "the latest read failed: history is unknown").toBeNull();
+    expect(refreshError()).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+
+    await retry();
+    expect(s.threadCalls.length - reads, "Retry is one history read").toBe(2);
+    expect(s.posts, "Retry never sends the text again").toHaveLength(1);
+    expect(refreshError()).toBeInTheDocument();
+
+    s.threadError = null;
+    await retry();
+    expect(s.threadCalls.length - reads).toBe(3);
+    expect(s.posts, "still exactly one POST").toHaveLength(1);
+    expect(refreshError()).toBeNull();
+    expect(screen.getByText("No messages yet"), "the server holds no saved row for it").toBeInTheDocument();
+
+    // Dismiss only hid the item: the unresolved send keeps its identity, and the draft is untouched.
+    const kept = pendingSmsStore.getSnapshot().find((r) => r.localId === sent.localId);
+    expect(kept?.snapshot.requestId).toBe(sent.snapshot.requestId);
+    expect(kept?.state).toBe("uncertain");
+    expect(kept?.hidden).toBe(true);
+    expect(composer().value).toBe("Next draft");
+  });
+
+  async function answer503() {
+    await act(async () => {
+      s.posts[0].answer(503, { success: false, code: "SEND_UNCERTAIN", error: "Delivery could not be confirmed." });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
 });
