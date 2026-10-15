@@ -1,3 +1,73 @@
+## 2026-10-15 — RECONCILIATION WITH CURRENT MAIN BEFORE PHASE B (approved; branch only; no production mutation): Google Sheets PR #442
+
+**Request (Chris, 2026-10-15).** Google Cloud owner setup (Phase A) is complete. Before any Phase B deployment, merge current `main` into `claude/keen-brown-e4u3ht`, keeping both sides' approved work, then re-verify the exact reconciled head.
+- **Approved:** the merge and its conflict resolution.
+- **Not approved:** every Phase B action (secrets, migration, Edge deploys, Vault, Vercel env, flags, cron), merging PR #442, and test leads.
+
+**Starting points.**
+- Branch head: `52a91087c1baaa3012665462d5fa5341704a5c6b` (clean, equal to origin).
+- `origin/main`: `03ef0cbaecb1074655d568eb5a5a6a3d94d08866`.
+- Merge base: `f91e4ba62e0d4eeeb9baec5e296c3ec5d6beb325`.
+- Since the base: 19 commits on `main`, 18 on the branch.
+
+**`main` since the base: three merges, 19 commits.**
+- **`dacd921` (#443), ClearPath saved-lead SMS alerts.** A new Edge function `clearpath-lead-alert`, `[functions.clearpath-lead-alert] verify_jwt = false` in `supabase/config.toml`, a plan and a WORK_LOG entry.
+- **`26f9bc1` (#445; `488d4fc` … `6a2a3b2`), instant manual SMS, frontend only:**
+  - new: `src/lib/sms-send/*`, `usePendingSms`, `PendingSmsStatus`, and `PendingSmsAuthorityBridge`, mounted in `src/App.tsx`;
+  - changed: Conversations and contact-record SMS code, and its tests;
+  - CI: new `sms-consent.yml` paths and a responsiveness-fixture step;
+  - docs: the manual-SMS amendment and the View As SMS wording in `AGENT_RULES.md`, WORK_LOG entries, the plan and its evidence.
+- **`03ef0cb` (#446; `4b91c5e`), docs only.** The PR #445 production release record.
+
+**File sets.** `main` changed 69 files and the PR 88; three overlap:
+
+| File | Git result | Resolution |
+|---|---|---|
+| `AGENT_RULES.md` | Auto-merges. `main` edits the View As and send-result rules (about lines 379 and 391); the Sheets section is appended at the end. | Accept the auto-merge. Check that `main`'s two amendments and the Sheets section each appear exactly once and that nothing else moved. |
+| `WORK_LOG.md` | Conflict: both sides prepend at the top. | Newest first by date: `main`'s four 2026-10-15 entries and two 2026-10-14 entries, then the four Sheets entries (all dated and committed 2026-10-13 UTC), then the shared history from 2026-10-12. Every entry stays byte-identical to its side. |
+| `supabase/config.toml` | Conflict: both sides append after `email-unsubscribe`. | Keep `main`'s `clearpath-lead-alert` block where `main` put it, followed by the Sheets comment and the four Sheets blocks. No other function's block changes. |
+
+The root `implementation_plan.md` changed only on the branch, so it does not conflict.
+
+**Semantic review (checked even where Git reports no textual conflict).**
+- **Settings and permissions.** `main` changed nothing under `src/components/settings/`, `src/config/` or `src/pages/Settings*`, nor `src/hooks/usePermissions.ts`, and added no `role_permissions` SQL. The Sheets wiring in `settingsConfig.ts`, `SettingsRenderer.tsx` and `permissionDefaults.ts` applies unchanged. Two tests from the `main` side read PR files, and both re-run on the merged head:
+  - `reportsContracts.test.ts` pins `permissionDefaults.ts`. `main` did not touch the test, so the PR's updated pin applies.
+  - The onboarding `catalog.test.ts` requires its CTA routes in `App.tsx` and its section slugs in `settingsConfig.ts`. The PR only adds a section, and `main` only adds the bridge to `App.tsx`.
+- **Supabase client and auth.** `src/integrations/supabase/*` and `AuthContext` are unchanged. `main`'s `PendingSmsAuthorityBridge`, mounted above the router, only binds the memory-only SMS store to `useAuth()` and `onAuthStateChange`. The Sheets OAuth return is a full-page load of `/settings?section=google-sheets`, which the bridge does not touch.
+- **Contacts and lead creation.** `main`'s contact changes are SMS display only, and `main` added no migration, trigger or lead-insert hook. `clearpath-lead-alert` runs only on signed external requests, with a fixed organization, sender and recipient, and never reads `leads`, so a lead created by Sheets cannot fire it. Sheets creates leads only in the backend.
+- **Workflows and CI.**
+  - `sms-consent.yml` gained paths and a fixture step. It already ran on this PR through `src/components/settings/**`, so it will now run `main`'s new steps.
+  - `google-sheets.yml` is unchanged.
+  - `onboarding-emails` and `twilio-account-balance` (through `supabase/config.toml`) and `a2p-registration` (through `settingsConfig.ts`) also trigger on this PR.
+- **Build and runtime.** `main` changed none of these: `package*.json`, the Vite, TypeScript, ESLint or Vitest config, `deno.*`, `index.html`, `vercel.json`, `supabase/functions/_shared/**`. So the Sheets Edge bundles cannot change. `main` added no migration, so neither the Sheets migration's version order nor its bytes are affected.
+
+**Steps.**
+1. Commit this plan.
+2. Run `git merge --no-ff origin/main`: a merge commit, with no rebase, amend or force-push. Resolve the two conflicts as above, then check `AGENT_RULES.md`.
+3. Confirm unchanged:
+   - the migration (SHA-256 `fc68da86…6efed`, 86,193 bytes);
+   - the pending cron, rollback and ops checksums;
+   - the four bundle digests;
+   - no added cron objects or `cron.schedule` calls.
+
+   Also confirm that `git diff origin/main` lists only Sheets files.
+4. Verify the merged head, against a fresh `03ef0cb` worktree wherever a baseline is needed:
+   - `npx tsc --noEmit`, and app `tsc` against `03ef0cb` (`scripts/verify-a2p-types.mjs`);
+   - Sheets Vitest, and the full Vitest suite against `03ef0cb` (TZ=UTC, dummy Supabase env);
+   - Sheets Deno tests, plus every repository Deno test against `03ef0cb`;
+   - the SQL/PostgREST suite and the cron check;
+   - regression evidence against `8b675e5`;
+   - ESLint on changed files, `npm run build`, and the browser Sheets flow.
+5. Update the release package, which still names `main` `f91e4ba`, production deployment `dpl_E7C5…` and head `b66c44f`. Also update `verification.md` §13, `WORK_LOG.md` and this file.
+6. Push only `claude/keen-brown-e4u3ht` and keep PR #442 in draft. Confirm it is mergeable on base `03ef0cb`; if `main` has moved, repeat. Wait for all exact-head CI.
+7. Check read-only that production is unchanged.
+
+**Stop if:**
+- a conflict needs an approved behaviour to change;
+- the migration bytes or any Edge bundle change;
+- a new TypeScript diagnostic or a new unrelated test failure cannot be fixed without changing either side's approved behaviour.
+---
+
 ## 2026-10-13 — PILOT SWITCHED TO LIVE-PRODUCTION TESTING (documentation only; code `b66c44f` unchanged; nothing deployed, applied, merged or enabled): Google Sheets PR #442
 
 **Decision (Chris, 2026-10-13):** run the controlled test directly in live production at `https://www.fflagent.com`, not on the protected Vercel preview.
