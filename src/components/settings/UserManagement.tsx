@@ -26,6 +26,7 @@ const UserManagement: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invitationVersion, setInvitationVersion] = useState(0);
   const [selectedUser, setSelectedUser] = useState<UserWithProfile | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("users");
@@ -126,7 +127,7 @@ const UserManagement: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="invites">
-          <PendingInvitesTable organizationId={organizationId} active={activeTab === "invites"} />
+          <PendingInvitesTable key={invitationVersion} organizationId={organizationId} active={activeTab === "invites"} />
         </TabsContent>
 
         <TabsContent value="hierarchy" className="space-y-4 mt-6 animate-in fade-in-50 duration-500">
@@ -164,7 +165,7 @@ const UserManagement: React.FC = () => {
       <InviteUserModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        onSuccess={() => { fetchUsers(); }}
+        onSuccess={() => { fetchUsers(); setInvitationVersion(v => v + 1); }}
         managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
       />
 

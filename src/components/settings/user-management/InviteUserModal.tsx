@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
+import { z } from "zod";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +16,16 @@ import { UserRole } from "@/lib/types";
 import StateMultiSelect from "./StateMultiSelect";
 import type { LicensedStateEntry, UserWithProfile } from "./userManagementTypes";
 
+const invitationSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string().trim().min(1, "Last name is required"),
+  email: z.string().trim().email("Enter a valid email address"),
+  role: z.enum(["Agent", "Team Leader", "Admin"]),
+  licensedStates: z.array(z.object({ state: z.string(), licenseNumber: z.string() })),
+  commissionLevel: z.string().trim(),
+  uplineId: z.string().uuid().nullable(),
+});
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -24,8 +35,13 @@ interface Props {
 
 const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }) => {
   const { toast } = useToast();
-  const { user: currentUser, profile: currentProfile } = useAuth();
+  const { user: currentUser, realProfile: currentProfile } = useAuth();
   const { organizationId } = useOrganization();
+  const isTeamLeader = currentProfile?.role === "Team Leader" && !currentProfile.is_super_admin;
+  const canInvite = Boolean(currentProfile && currentUser?.id === currentProfile.id && organizationId &&
+    organizationId === currentProfile.organization_id && (currentProfile.is_super_admin ||
+      ["Admin", "Super Admin", "Team Leader"].includes(currentProfile.role)));
+  const inFlight = useRef(false);
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
   const [form, setForm] = useState({
@@ -41,77 +57,57 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
   const resetForm = () =>
     setForm({ firstName: "", lastName: "", email: "", role: "Agent", licensedStates: [], commissionLevel: "50%", uplineId: null });
 
-  const handleSubmit = async () => {
-    if (!form.firstName || !form.lastName || !form.email) {
-      toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
+  const submit = async (copyLink: boolean) => {
+    if (inFlight.current || !canInvite) return;
+    const parsed = invitationSchema.safeParse({ ...form,
+      role: isTeamLeader ? "Agent" : form.role,
+      uplineId: isTeamLeader ? currentUser?.id : form.uplineId,
+    });
+    if (!parsed.success) {
+      toast({ title: "Check invitation details", description: parsed.error.issues[0].message, variant: "destructive" });
       return;
     }
+    inFlight.current = true;
+    copyLink ? setCopying(true) : setSaving(true);
+    const data = parsed.data;
     try {
-      setSaving(true);
       const result = await usersApi.invite({
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        role: form.role,
-        uplineId: form.uplineId || undefined,
-        licensedStates: form.licensedStates,
-        commissionLevel: form.commissionLevel,
+        firstName: data.firstName, lastName: data.lastName, email: data.email, role: data.role,
+        uplineId: data.uplineId || undefined, licensedStates: form.licensedStates,
+        commissionLevel: data.commissionLevel,
       });
-      if (result.email_sent) {
-        toast({ title: "Invitation sent", description: `Invitation email sent to ${form.email}` });
+      if (copyLink) {
+        try {
+          await navigator.clipboard.writeText(await usersApi.generateInviteLink(result.token));
+          toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
+        } catch {
+          // The invitation already exists. Refresh it rather than invite twice.
+          toast({ title: "Invitation created", description: "Could not copy the link. Copy it from Pending Invites." });
+        }
+      } else if (result.email_sent) {
+        toast({ title: "Invitation sent", description: `Invitation email sent to ${data.email}` });
       } else {
-        toast({
-          title: "Invitation created",
-          description: "The email could not be sent. Use Resend from Pending Invites.",
-        });
+        toast({ title: "Invitation created", description: "The email could not be sent. Use Resend from Pending Invites." });
       }
       if (organizationId) {
-        void logActivity({
-          action: `Invited ${form.email} as ${form.role}`,
-          category: "user_management",
-          organizationId,
-          userId: currentUser?.id,
+        void logActivity({ action: `Invited ${data.email} as ${data.role}`, category: "user_management",
+          organizationId, userId: currentUser?.id,
           userName: currentProfile ? `${currentProfile.first_name} ${currentProfile.last_name}` : undefined,
-          metadata: { invitedEmail: form.email, role: form.role },
+          metadata: { invitedEmail: data.email, role: data.role },
         });
       }
       resetForm();
       onSuccess();
       onClose();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Could not create invitation", variant: "destructive" });
     } finally {
+      inFlight.current = false;
       setSaving(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    if (!form.firstName || !form.lastName || !form.email) {
-      toast({ title: "Missing fields", description: "Please fill in name and email first.", variant: "destructive" });
-      return;
-    }
-    setCopying(true);
-    try {
-      const result = await usersApi.invite({
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        role: form.role,
-        uplineId: form.uplineId || undefined,
-        licensedStates: form.licensedStates,
-        commissionLevel: form.commissionLevel,
-      });
-      const link = await usersApi.generateInviteLink(result.token);
-      await navigator.clipboard.writeText(link);
-      toast({ title: "Invite link copied", description: "Invite link copied to clipboard. Link expires after 7 days." });
-      onSuccess();
-      onClose();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
       setCopying(false);
     }
   };
+  const busy = saving || copying;
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -138,22 +134,24 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="invite-role">Role</Label>
-              <Select value={form.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
+              <Select disabled={isTeamLeader || busy} value={isTeamLeader ? "Agent" : form.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
                 <SelectTrigger id="invite-role"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Team Leader">Team Leader</SelectItem>
+                  {!isTeamLeader && <SelectItem value="Admin">Admin</SelectItem>}
+                  {!isTeamLeader && <SelectItem value="Team Leader">Team Leader</SelectItem>}
                   <SelectItem value="Agent">Agent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label htmlFor="invite-upline">Upline Manager</Label>
-              <Select value={form.uplineId || "_none"} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
+              <Select disabled={isTeamLeader || busy} value={isTeamLeader ? currentUser?.id : form.uplineId || "_none"} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
                 <SelectTrigger id="invite-upline"><SelectValue placeholder="Select manager" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">None</SelectItem>
-                  {managers.map(m => (
+                  {isTeamLeader ? (
+                    <SelectItem value={currentUser?.id || "_none"}>{currentProfile?.first_name} {currentProfile?.last_name}</SelectItem>
+                  ) : <SelectItem value="_none">None</SelectItem>}
+                  {!isTeamLeader && managers.map(m => (
                     <SelectItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</SelectItem>
                   ))}
                 </SelectContent>
@@ -171,15 +169,15 @@ const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }
         </div>
         <DialogFooter className="flex-col gap-3 sm:flex-col">
           <div className="flex gap-2 w-full justify-end">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={saving}>{saving ? "Sending..." : "Send Invitation"}</Button>
+            <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={() => submit(false)} disabled={busy || !canInvite}>{saving ? "Sending..." : "Send Invitation"}</Button>
           </div>
           <div className="flex items-center gap-3 w-full">
             <Separator className="flex-1" />
             <span className="text-xs text-muted-foreground">OR</span>
             <Separator className="flex-1" />
           </div>
-          <Button variant="outline" className="w-full" onClick={handleCopyLink} disabled={copying}>
+          <Button variant="outline" className="w-full" onClick={() => submit(true)} disabled={busy || !canInvite}>
             <Copy className="w-4 h-4 mr-2" />
             {copying ? "Copying..." : "Copy Invite Link"}
           </Button>
