@@ -6,7 +6,7 @@
 
 ## 1. Goal and scope
 
-When an agent presses Send, the outgoing SMS appears immediately with a compact pending indicator, the composer clears and stays editable, and the request finishes in the background. Measured frontend target: p95 click-to-painted-pending at or under 100 ms under the documented fixture conditions (§8). This is a frontend goal, not a server or handset-delivery claim.
+When an agent presses Send, the outgoing SMS appears immediately with a compact pending indicator, the composer clears and stays editable, and the request finishes in the background. Measured frontend target: p95 click → pending text **visible** at or under 100 ms under the documented fixture conditions (§8). This is a frontend goal, not a server or handset-delivery claim.
 
 - **In scope:** manual SMS from Conversations (`ConversationThread`) and from the contact record (`FullScreenContactView`, mounted by Contacts, Calendar, Dialer and the contact deep link).
 - **Callers inventoried:** those two are the only live manual senders. The Dialer's inline composer is a "coming soon" stub (`DialerPage.tsx:4045`). Workflow, ClearPath, the consent worker and the after-hours voice helper are automated server paths and are not touched.
@@ -18,14 +18,19 @@ Tools: Supabase MCP `execute_sql` (SELECT only), `list_edge_functions`, `get_edg
 
 - **G0-1 Realtime:** the `supabase_realtime` publication holds `call_scripts`, `calls`, `campaign_leads`, `campaigns`, `dnc_list`, `notifications`, `phone_numbers`, `phone_settings`, `wins`. `messages` and `contact_emails` are **not** published, matching the independent check and the baseline (`20260806000000_baseline_production_schema.sql:12780-12819`). The thread and sidebar `messages` subscriptions never fire in production; this build is designed and tested with Realtime disabled.
 - **G0-2 live contract:** `twilio-sms` v38, ACTIVE, `verify_jwt=false`, ezbr `1b14b60a…`, deployed 2026-10-08T15:15:56Z. All 13 bundled files are byte-identical (sha256 and git blob) to `dacd921`, and the bundle equals the relative-import closure of `index.ts`. The response contract inspected below is what production runs. (`clearpath-lead-alert` is live v2 from unmerged PR #444; untouched.)
-- **G0-3 server timing (logs):** retention reached at least 2026-09-29; the window used is v38's life, 2026-10-08T15:15Z–2026-10-14T~18:50Z. Six `twilio-sms` POSTs: 200 ×4 (4,462 / 4,518 / 5,143 / 4,622 ms execution), 503 ×1 (2,806 ms), 401 ×1 (283 ms). Each of the three most recent ran in a fresh isolate: boot 35–52 ms, CPU 52–64 ms, so about 99% of execution was waiting on network calls. The one complete gateway trace (4,622 ms) shows **19 sequential Supabase API calls** totalling 3,542 ms of gateway origin time (88–329 ms each, plus about 25 ms of client overhead per call), about 365 ms for credentials plus two Twilio checks, and about 234 ms for the Twilio Messages POST. Sample size is 4 successes: no percentiles are claimed.
+- **G0-3 server timing (logs).** Full evidence and queries: `evidence/server-latency.md`.
+  - **Source and window:** `function_edge_logs` for `twilio-sms` POSTs, 2026-10-08T15:15Z (the live deployment's `updated_at`) to 2026-10-14T18:51Z, read as 7 queries of 24 h each. Retention reached at least 2026-09-29.
+  - **Sample:** 6 POSTs. Four returned 200, with Edge execution times (`execution_time_ms`) of 4,462, 4,518, 5,143 and 4,622 ms. One returned 503 (2,806 ms) and one 401 (283 ms).
+  - **Cold starts:** the three most recent successes each booted a fresh isolate (boot 35–52 ms, CPU 52–64 ms), so almost all of the time was spent waiting on I/O.
+  - **One trace:** the 00:18Z send shows **19 sequential Supabase API calls** totalling 3,542 ms of gateway origin time (82–329 ms each). The Twilio request falls between the start and finish dispatch RPCs, about 0.3 s apart in log time. This is one send, not a breakdown.
+  - **What the metric is:** Edge execution time only. The production client round trip (network, TLS, the session read) and carrier/handset delivery are **not measured**. With 4 successes, no percentiles are claimed.
 - **G0-4 paths:** exactly one `sms_agency_policies` row (CG Financial: enforced, sending enabled, 5 senders). In the last 30 days every stored SMS belongs to that agency (12 outbound, 20 inbound), so the non-idempotent legacy path had no traffic.
 - **G0-5 outcomes:** `sms_dispatches` holds 8 rows, all `accepted` (5 manual, 3 informational). None prepared, attempting, uncertain or failed.
 
 ## 3. Confirmed current flow and causes of waiting
 
 1. **Nothing renders until the round trip ends.** `ConversationThread.handleSend` awaits the page (`ConversationThread.tsx:268-271`); the contact record awaits the same request (`FullScreenContactView.tsx:719-795`). Only the Send spinner changes.
-2. **The server takes multiple seconds** (G0-3): the dispatcher path runs about 17 database reads/RPCs, an auth call and three Twilio calls in sequence before replying.
+2. **The server takes multiple seconds** (G0-3: Edge execution 4,462–5,143 ms over 4 successful sends). In the one traced send, the dispatcher path made 19 sequential Supabase API calls plus the Twilio request before replying.
 3. **Conversations then reloads the whole thread with a spinner.** `loadThread` sets `loading: true` (`:176`), which replaces every row with a spinner (`:414-417`) while calls, SMS and email are re-read. A failed reload sets the rows to `[]` (`:185`), erasing the conversation, and every rows change smooth-scrolls to the bottom (`:260-266`).
 4. **The contact record refreshes every visible history page** (`:792`) before the SMS appears, and clears the composer on success (`:789`), destroying anything typed after pressing Send.
 5. **"Message sent" toasts** (`Conversations.tsx:256`, `FullScreenContactView.tsx:787`) report provider acceptance as if it were delivery.
@@ -139,6 +144,8 @@ Bodies are parsed with Zod. Only these exact (status, contract) pairs prove that
 | `src/components/messaging/PendingSmsAuthorityBridge.tsx` | Binds auth identity to the store (renders nothing) |
 | `src/lib/sms-send/__tests__/*`, `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx`, `src/components/messaging/__tests__/pendingSmsStatus.test.tsx` | Tests (§7). The contact-record cases were added to the existing `fullScreenContactViewConversation.test.tsx` (new describe block) instead of a new file, to reuse its harness. |
 | `scripts/tests/sms-responsiveness/*` | Browser fixture with stubbed services and a fake transport (§8) |
+| `src/components/messaging/__tests__/pendingSmsBridgeMount.test.ts` | Added 2026-10-15 (§14): source audit that `App.tsx` mounts the bridge exactly once, inside `AuthProvider` and outside the router |
+| `docs/plans/2026-10-14-sms-responsiveness/evidence/*`, `measurements/*` | Added 2026-10-15 (§14): test mapping, regression comparison, server-timing evidence, fixture results and screenshots |
 
 **Changed**
 
@@ -153,7 +160,7 @@ Bodies are parsed with Zod. Only these exact (status, contract) pairs prove that
 | `src/components/contacts/conversation-history/SmsHistoryItem.tsx` | Status slot |
 | `src/components/contacts/conversation-history/conversationTypes.ts` | Optional pending view on SMS items |
 | Existing suites: `conversationsSendContract`, `fullScreenContactViewConversation`, `smsConsent`, `conversationThreadIsolation` | Updated only where the SMS contract changed |
-| `.github/workflows/sms-consent.yml` | New paths/tests and the fixture step |
+| `.github/workflows/sms-consent.yml` | New paths/tests and the fixture step; on 2026-10-15 also `src/App.tsx` in the path filter, the bridge-mount guard in the test list, and an explicit `SMS_EXPECT_BLOCKED` |
 | This plan, `WORK_LOG.md`, `AGENT_RULES.md` (#31 SMS part) | Records (the separate security item's remediation plan is kept private, outside this public repository) |
 
 **Differences from the first draft:** the hold/hide rule and numeric status ranking are removed (corrections 2, 5); `SmsIntent`'s key keeps the sender preference (D2); `PROVIDER_REJECTED`, `SMS_SUPPRESSED` and all uncoded non-literal responses are uncertain (correction 1); the sidebar change and the `ThreadMessageItem` extraction are dropped (D5, correction 7); `App.tsx` and the bridge are added for authority cleanup (correction 4); Copy is not offered for uncertain items (D3).
@@ -168,19 +175,40 @@ All tests run with Realtime disabled (handlers registered but never fired) and a
 
 ## 8. Measurement
 
-- **Metrics:** click to painted pending feedback (Event Timing plus a frame probe on the bubble), click to request start, request round trip, receipt to saved row shown. Rendered feedback is measured in the browser, not store insertion.
+Corrected on 2026-10-15 (§14). The rules: only a real click on Send counts; a time is user-visible only when a person could see the text; a surface that cannot be used is reported as BLOCKED, never measured some other way.
+
+- **Metrics (per send):**
+  - click → first visible change (base: the Send spinner; candidate: the pending bubble);
+  - click → outgoing text **visible**;
+  - click → outgoing text **rendered** (in the DOM; diagnostic only, never a user-visible result);
+  - click → request start;
+  - request round trip (the fake transport);
+  - receipt → saved row visible;
+  - click → saved row visible;
+  - Event Timing `duration` of the click (entries of 16 ms or more).
+- **Visible** means:
+  - non-zero size;
+  - CSS-visible (`checkVisibility` with opacity and visibility);
+  - at least half of the element inside the viewport and inside every overflow-clipping ancestor;
+  - not covered (`elementFromPoint` at the centre of the visible part, plus every toast's rectangle).
+
+  A hit that falls through a `pointer-events: none` target (a disabled Send button and its spinner) to the target's own ancestor is not counted as covering.
+- **Timestamps:** "Visible"/"rendered" times are the first rAF-plus-posted-task after detection. The click time is the click event's `timeStamp`. The probe re-checks every frame while the text is rendered but not yet visible, because scrolling changes visibility without a DOM mutation.
 - **Conditions** (`scripts/tests/sms-responsiveness/`, synthetic data only):
-  - **Build and browser:** a production Vite build of the fixture, served statically. Only the Supabase client, auth, Twilio context and sidebar list are stubbed; everything else is the real page or contact record. Playwright 1.56.1, headless Chromium, no CPU throttling.
+  - **Build and browser:** a production Vite build of the fixture, served statically. Only the Supabase client, auth, Twilio context and sidebar list are stubbed; everything else is the real page or contact record. Playwright 1.56.1, headless Chromium.
   - **Viewports and data:** 1440×900 and 390×844. A Conversations thread with 100 SMS, 50 calls and 50 emails; a contact record with 90 history items (three pages loaded).
   - **Fake transport:** a 1,500 ms receipt, an 80 ms targeted row read, 250 ms list and history-page reads.
-  - **Runs:** 50 sends per surface per viewport, reported as p50/p95/max. A 4× CPU-throttled pass (20 sends each) is for information only.
-- **Driver details** (identical on both builds):
-  - Each surface settles for 1.5 s after opening, because the base build smooth-scrolls 200 rows.
-  - Toasts are made click-through: the base build's success toast lands on the Send button at 1440 px.
-  - At 390 px both existing layouts are desktop-only (a pre-existing limitation, identical on base). The Conversations thread pane collapses to zero width, and the Send button is covered. Sends there use Enter in the composer, and timings measure commit-to-paint of the same DOM, not on-screen visibility.
-- **Probe:** a MutationObserver checks the surface's own scroll region for the unique text. "Painted" is the first rAF-plus-posted-task after detection, and the input time is the event's `timeStamp`. Event Timing `duration` is recorded for entries of 16 ms or more.
-- **Before/after:** the same DOM-driven script runs against `dacd921`. The base has no pending bubble; its comparable metrics are click to first visible change (Send spinner) and click to outgoing message visible.
-- Fixture timings are reported separately from the server timings in §2; neither is a handset-delivery measurement.
+  - **Runs:** 50 sends per surface per viewport without CPU throttling, and separately 20 sends under 4× CPU throttling. The two are never pooled.
+- **Driver rules** (identical on both builds):
+  - Each surface settles for 1.5 s after opening (the base build smooth-scrolls 200 rows).
+  - **Preflight:** before any send, a Playwright trial click on Send must pass its actionability checks: visible, stable, enabled and receiving events. If it fails, the surface is BLOCKED, with the intercepting element, geometry and a screenshot.
+  - **Sends:** only `page.click` on Send — never Enter, a forced click or DOM insertion.
+  - **Start state:** each send starts with no toast on screen. The driver waits for any toast to leave and never removes one: the base build's "Message sent" toast covers its own Send spinner for about 4 s.
+  - **Toasts:** made click-through, so the driver can reach Send. They still count as covering a message beneath them.
+  - **Timeout:** a sent text that does not become visible within 3 s of being saved marks the surface BLOCKED, with its visibility data and a screenshot.
+- **Assertions:** each text shows exactly once and the composer clears. For the candidate only, the outgoing text is visible before the receipt.
+- **CI** (`sms-consent.yml`) runs the candidate with 5 sends. `SMS_EXPECT_BLOCKED` names the two known-blocked 390 px cases: they produce a warning, a screenshot and geometry. Any other block or failure fails the step. Timings are recorded, not gated.
+- **Scope of the numbers:** fixture timings are a synthetic UI comparison. They are reported separately from the server timings in §2, and neither is a handset-delivery measurement.
 
 ## 9. Risks and limits
 
@@ -196,8 +224,8 @@ All tests run with Realtime disabled (handlers registered but never fired) and a
 **Recommended next step: B0, timing instrumentation in `supabase/functions/twilio-sms/index.ts` only.** It is the smallest step that turns G0-3's single complete trace into per-stage evidence. It changes no behavior and no shared code.
 
 **Evidence.**
-- G0-3: four successful sends ran 4.5–5.1 s. About 99% of that was waiting.
-- The one complete trace shows 19 sequential Supabase calls (3.5 s of origin time), credentials plus two Twilio checks (about 365 ms) and the Twilio POST (about 234 ms).
+- G0-3: four successful sends had Edge execution times of 4,462–5,143 ms. Each of the three joined runs used 52–64 ms of CPU, so about 99% was waiting.
+- The one complete trace shows 19 sequential Supabase calls with 3,542 ms of origin time. Two gaps in that log timeline are **inferred, not measured**: about 365 ms (attributed by reading the code to credentials plus two Twilio checks) and about 234 ms (the Twilio POST). Each gap assumes the logged timestamp is a request's start. B0 exists to replace these inferences with measurements.
 - Duplicated reads, by reading the code: policy ×2, `phone_numbers` ×3, `a2p_registrations` ×2, `a2p_numbers` ×2, `profiles` ×2, and leads ×2 (the second is a deliberate final scope check).
 - Speed changes (B1) would edit `_shared/sms/*` and `_shared/a2p/sending.ts`. Those files are also bundled into `workflow-executor`, the consent worker and `clearpath-lead-alert`, so B1 should wait for measured attribution rather than a single trace.
 
