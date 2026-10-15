@@ -11,8 +11,9 @@ loses all commission base-table write grants. Those six public write RPCs are SE
 role; the role remains subject to RLS, and both policies and the first trigger re-resolve the real JWT/profile actor
 through the canonical helpers. The legacy custom-GUC authority is not used by migration 2.
 
-**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. The revised
-migration 2 and every later release step require a fresh exact production approval after CI/review.
+**Verified correction:** code head `215ab05c673b171b36b107d68c5f3fb7f9cedc35` passed every GitHub workflow. PostgreSQL 17.6 passed the full database runner, including production-style restricted-SET reproduction, non-super CREATEROLE ownership transfer, role/grant negative controls, 59 concurrency assertions, rollback and reapply. Corrected operations SHA-256: `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25`; operations rollback SHA-256: `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+
+**Production boundary:** migration 1 remains production history exactly as version `20261015211858`; all comp data/access/settings tables are empty and no operation role/write RPCs exist. Fresh exact approval is required before migration 2.
 
 # Commission Calculator + agency commission grids — verification record (local)
 
@@ -97,7 +98,7 @@ except the private re-run recorded under "Private FFL validation".
 | `npx tsc --noEmit` / `npx tsc -p tsconfig.app.json --noEmit` | exit 0 / exit 2 with the same 84 diagnostics as before. Against `main`, the only textual difference is the pre-existing `Sidebar.tsx` diagnostic, moved from line 131 to 135 by the branch's nav item |
 | ESLint, all 64 code files the branch changes (the concurrency script included) | 0 problems |
 | `vite build` | OK |
-| Checksums | schema `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` (was `84637cf3…`); operations `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10` (was `7e3caad6…`); reference import `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` (was `b8b2836b…`); schema rollback `4429ee9b…` (was `2adcf1cc…`); import rollback `aa943700…` (was `99cc1f24…`); new availability ops script `c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6`; activation ops script `46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c` (was `47f91f70…`, header only). Unchanged: the operations rollback `e8d64c67…`, the import ops script `d2825d41…`, the synthetic fixture `9bad2737…` |
+| Checksums | schema `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` (was `84637cf3…`); operations `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25` (was `7e3caad6…`); reference import `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` (was `b8b2836b…`); schema rollback `4429ee9b…` (was `2adcf1cc…`); import rollback `aa943700…` (was `99cc1f24…`); new availability ops script `c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6`; activation ops script `46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c` (was `47f91f70…`, header only). Unchanged: the operations rollback `593abb85…`, the import ops script `d2825d41…`, the synthetic fixture `9bad2737…` |
 
 The full Vitest suite was not re-run: no `src/` file changed in this correction.
 

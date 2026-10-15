@@ -11,10 +11,11 @@ loses all commission base-table write grants. Those six public write RPCs are SE
 role; the role remains subject to RLS, and both policies and the first trigger re-resolve the real JWT/profile actor
 through the canonical helpers. The legacy custom-GUC authority is not used by migration 2.
 
-**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. The revised
-migration 2 and every later release step require a fresh exact production approval after CI/review.
+**Verified correction:** exact code head `215ab05c673b171b36b107d68c5f3fb7f9cedc35` is green on all GitHub workflows. PostgreSQL 17.6 passed schema/access/operations/import/reconciliation, restricted-SET reproduction, non-super CREATEROLE ownership transfer, widened-grant/BYPASSRLS/membership negative controls, 59 concurrency assertions, rollback and reapply. Corrected operations SHA-256: `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25`; operations rollback: `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
 
-## 2026-10-15 — Commission Calculator + agency commission grids: DRAFT PR #447 (not merged, nothing applied; real-data validation passed locally; release awaits approval)
+**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. Production contains zero comp grid/import/availability/access/settings rows, no operation role and no commission write RPCs. The revised migration 2 and every later release step require a fresh exact production approval.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: DRAFT PR #447 (not merged; schema migration applied only; release paused)
 
 **Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. **Implemented locally** in commits `9b615f5` (plan), `fea545d` (database layer), `44d550a` (frontend), closeout records `fb27512`, and the pre-publication `service_role` correction `14d9fa4` (read-only on the comp tables) with its records; verified on synthetic data only (`docs/plans/2026-10-15-commission-calculator/verification.md`). **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only): first head `3971fd0` (after merging `main` twice, #445 and #446, to resolve `WORK_LOG.md` conflicts), then the approved CI correction `2db6de2` (A10f collation-independent ordering, one path-scoped `.gitattributes` rule for the CRLF synthetic fixture, one plan whitespace fix) and its status records, then the approved runner correction setting `NO_COLOR=1` on the editor save-contract Vitest call (on `10e1a73` the 17.6 job passed that test 2 of 2, but the runner's plain-text summary check missed Vitest's colored CI output) with its records. No merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized or was done; Supabase Preview did not run (concurrent preview-branch limit); production stays read-only (advisor reads included). **Real-data validation passed locally (2026-10-15):** Chris supplied the CSV, and the private import, reconciliation and source-backed acceptance passed on disposable local databases (value-free results in `verification.md`). **Shared-grid availability (D5, 2026-10-15):** a shared grid now reaches only the agencies AgentFlow makes it available to; at launch the FFL Compensation Grid is available to *Family First Life - Chris Garness* only (below). **Not yet released:** a durable private location must be named (D1), and the release needs Chris's separate, exact approval of the release package (plan §12). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 
@@ -47,7 +48,7 @@ The operations migration is unapplied on every hosted database: production's mig
 **Done and verified (release preparation; plan §10 and `verification.md`):**
 - **Private checks, all PASS.** Source checksum matched. Importer validation: 0 anomalies, 41/57/11. Independent source check: 49 PASS, 0 FAIL. Artifact `cf83d992…`: deterministic, verified, and equal to the CSV. Disposable import: `imported`, then `already_imported`. Reconciliation: 0 differences in both directions on C and `en_US.UTF-8`, and 7 negative controls fail as required. Activation rehearsal: 21 PASS. Source-backed acceptance: 49 of 49.
 - **Public changes.** The merge commit `9cfaf16` (`main` #448; `WORK_LOG.md` resolved additively) and the value-free records listed above. Nothing private is in Git.
-- **Release package.** Plan §12 was refreshed. Nothing in it was executed.
+- **Release package.** Plan §12 now reflects the actual partial release: schema migration `20261015211858` is applied and empty; every later action remains paused.
 
 **Shared-grid availability correction (Chris requested 2026-10-15; planned here before any edit; detailed plan §2 D5 and §10).**
 
@@ -110,7 +111,7 @@ They are therefore corrected in place (rule #25), and their new checksums replac
 - **Checks.** The full runner passes on C and `en_US.UTF-8` (66 checks each; CI runs PostgreSQL 17.6). The CI frontend command, root `tsc`, the app type-check (the same 84 diagnostics), ESLint on the 64 branch code files and the build all pass.
 - **Private re-run with the real artifact** (disposable loopback databases only). The fingerprint is unchanged and reconciliation passes. Activation is refused before availability. The availability and activation scripts then pass, followed by 4 + 28 + 7 rehearsal checks, and the MCP route passes too. Acceptance passes 49 of 49. No rate changed.
 - **Checksums.**
-  - Changed: schema `1f8e14fb…` (was `84637cf3…`), operations `4e86caac…` (was `7e3caad6…`), reference import `3cbe4d69…` (was `b8b2836b…`), activation ops `46c41c89…` (was `47f91f70…`, header only).
+  - Changed: schema `1f8e14fb…` (was `84637cf3…`), operations `dc0c524b…` (was `7e3caad6…`), reference import `3cbe4d69…` (was `b8b2836b…`), activation ops `46c41c89…` (was `47f91f70…`, header only).
   - New: the availability ops script `c484c040…`.
   - Unchanged: the import ops script `d2825d41…` and the fixture `9bad2737…`.
 

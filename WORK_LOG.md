@@ -11,5 +11,6 @@ loses all commission base-table write grants. Those six public write RPCs are SE
 role; the role remains subject to RLS, and both policies and the first trigger re-resolve the real JWT/profile actor
 through the canonical helpers. The legacy custom-GUC authority is not used by migration 2.
 
-**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. The revised
-migration 2 and every later release step require a fresh exact production approval after CI/review.
+**Verification:** corrected code head `215ab05c673b171b36b107d68c5f3fb7f9cedc35` is green on all workflows. PostgreSQL 17.6 passed the full commission runner, including the production-shaped restricted-SET and non-super CREATEROLE probes, privilege/role negatives, 59 concurrency assertions, rollback and reapply. Corrected operations SHA-256 is `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25`; rollback SHA-256 is `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+
+**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. Current production has zero comp grid/import/availability/access/settings rows, no operation role and no write RPCs. Fresh exact approval is required before migration 2.

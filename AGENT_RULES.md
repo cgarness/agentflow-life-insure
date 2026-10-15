@@ -702,7 +702,7 @@ PR #433 (merge `d88982d`, released to production 2026-10-09) replaced the Campai
 
 ## Commission grids invariant — October 15, 2026
 - **Production operation authority (D6):** do not use a custom GUC as commission write authority. Managed production's non-superuser postgres cannot SET `agentflow.comp_operation`. Agency writes run only through the six public SECURITY DEFINER write RPCs owned by `agentflow_comp_operator` (NOLOGIN, NOBYPASSRLS); only postgres is a member. `anon`, `authenticated` and `service_role` are not members. Authenticated has no commission base-table write grants. The operation role has only reviewed comp-table privileges, stays subject to RLS, and RLS/trigger checks re-resolve the real JWT/profile actor. postgres is separately trusted only for reviewed migrations/reference import. Never replace this with query-text/call-stack/application-name/client-token authority.
- (draft PR #447: not merged; nothing applied, imported, made available, activated or deployed)
+ (draft PR #447: not merged; schema migration `20261015211858` applied only; operations/import/availability/activation/frontend remain paused)
 
 An **estimate tool only**. Agents estimate first-year commission from their agency's selected grid and their own `profiles.commission_level`. Estimates never become payroll, booked commission, earned-commission records or reporting truth. Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 

@@ -405,7 +405,7 @@ plus vitest failures base vs branch, reported separately.
       reconciliation PASS, activation refused before availability, then the availability and activation
       scripts; 4 + 28 + 7 rehearsal checks PASS, and the MCP route passes too; acceptance 49 of 49. No rate
       changed.
-    - *Checksums* (§12): schema `1f8e14fb…`, operations `4e86caac…`, reference import `3cbe4d69…`, availability
+    - *Checksums* (§12): schema `1f8e14fb…`, operations `dc0c524b…`, reference import `3cbe4d69…`, availability
       ops `c484c040…` (new), activation ops `46c41c89…`.
 - **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
   stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
@@ -503,7 +503,7 @@ No later step ran. Production migration 1 remains the exact reviewed bytes. D6 r
 inside the still-unapplied operations migration; the reference-import migration is unchanged. A fresh exact approval
 is required before resuming production.
 
-## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation, the availability correction and the Vercel correction; NOTHING EXECUTED)
+## 12. Consolidated release continuation package (refreshed 2026-10-15 after production migration-2 failure and D6 correction; SCHEMA ONLY APPLIED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
 approved together as one release package. Local implementation approval is not release approval.
 Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the **canonical** Vercel production project
@@ -515,8 +515,9 @@ as part of this release.
 
 **State when this package was prepared (read-only, 2026-10-15).**
 - Production database:
-  - newest migration `20261010172702`, with no `20261015…` row;
-  - no comp tables, functions or schema;
+  - newest migration is `20261015211858 commission_grids_schema`; its stored SHA-256 is the reviewed `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70`;
+  - migration 2 failed atomically and is absent from history; migration 3 was never attempted;
+  - schema tables/authz helpers from migration 1 exist, but there are zero grid/import/availability/access/settings rows, no `agentflow_comp_operator` role and zero commission write RPCs;
   - exactly one organization named *Family First Life - Chris Garness*, and none using the nil UUID;
   - 4 organizations in total; 3 other organizations have an active Admin (see P6);
   - `private.campaign_actor()` and `public.get_org_id()` match the bodies used in testing;
@@ -542,40 +543,36 @@ as part of this release.
     - content fingerprint `273d0eb0fc144b21b812a5c6fa74daf44d18579fb3e0aa4a315439cc7ba3ffed`;
     - counts 41/57/11, 963 rate cells, 57 references;
     - reconciliation PASS; acceptance 49 of 49.
-  - *Open:* Chris names the durable private location and confirms both SHA-256 values there:
-    `ffl_comp_rates.csv` `998307b4…5ed631d08` and `ffl.comp_reference_grid.json` `cf83d992…53b78157`. The
-    artifact can be rebuilt byte-identically from the CSV with the committed importer (runbook §2); re-checked
-    on 2026-10-15 at head `885004e` (importer unchanged since `fea545d`).
-- P2. PR #447 reviewed and approved; CI green on the exact head, including PostgreSQL 17.6; no conflict with `main`.
-- P3. Read-only production prechecks, immediately before step 1:
-  - migration history (none newer than expected);
-  - no `comp_*` / `comp_authz` objects exist;
+  - *Satisfied:* Chris confirmed the durable private copies exist and both SHA-256 values match:
+    `ffl_comp_rates.csv` `998307b4…5ed631d08` and `ffl.comp_reference_grid.json` `cf83d992…53b78157`.
+    The importer remains unchanged and rebuilds the artifact byte-identically.
+- P2. Corrected code head `215ab05c673b171b36b107d68c5f3fb7f9cedc35` is green on all workflows, including PostgreSQL 17.6, and clean against `main` `b5976e0`. This records-only reconciliation commit must also be green before production continuation.
+- P3. Read-only production prechecks, immediately before continuation:
+  - migration history ends at the expected applied schema version `20261015211858`;
+  - migration-1 schema/authz objects exist; no operation role/write RPCs/data exist;
   - no organization uses the nil UUID;
   - the two resolver bodies match the tested copies;
   - exactly one organization has the home agency's exact name;
   - which roles hold "View Own Commission Percentage" (it gates the calculator, D3).
-- P4. The Supabase GitHub integration's "Deploy to production" is still OFF (AGENT_RULES #30), confirmed by Chris
-  in the dashboard (Project Settings › Integrations, `https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/settings/integrations`).
-  The agent cannot read this setting.
+- P4. **Satisfied:** Chris confirmed the Supabase GitHub integration's "Deploy to production" is OFF (AGENT_RULES #30).
 - P5. Baseline of the Supabase security and performance advisors (read-only).
 - P6. **Superseded by D5 (2026-10-15).** The grid becomes available only to the home agency (step 7a). The
   Admins of the 3 other organizations do not see it in their catalog and cannot enable, read or copy it, even
   by id. Making it available to any other agency is a separate, separately approved operation.
 
-**1–3. Migrations.** Apply each file through Supabase MCP `apply_migration` with the exact file bytes, one at a
-time, reading each back before the next. Do not change the file bytes or migration history to make an
-apply succeed.
+**1–3. Migrations / current continuation.** Do not rewrite migration history.
 
-| # | `name` | File | SHA-256 |
-|---|---|---|---|
-| 1 | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` |
-| 2 | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10` |
-| 3 | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` |
+| # | Status | `name` | File | SHA-256 |
+|---|---|---|---|---|
+| 1 | **DONE** as production version `20261015211858` | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` |
+| 2 | **NEXT — fresh approval required** | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25` |
+| 3 | pending after step 2 verification | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` |
 
-`apply_migration` stamps its own version. Record each one, and confirm the stored statement is byte-identical
-to the file: md5 of `statements[1]` equals md5 of the file bytes. These supersede `84637cf3…`, `7e3caad6…`
-(itself superseding `d7c20e17…`) and `b8b2836b…` (availability correction, D5); none was ever applied anywhere
-hosted. Re-verify all three on the approved head.
+Operations rollback SHA-256 is `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+For steps 2 and 3, use Supabase MCP `apply_migration` with the exact reviewed bytes, one at a time; record the
+assigned version and verify the stored statement's SHA-256 matches before continuing. The corrected step 2
+removes browser table writes and replaces the production-incompatible custom-GUC authority with D6's
+`agentflow_comp_operator` role.
 
 **4. Read-only verification.**
 - Objects, RLS, policies, grants and the SECURITY DEFINER inventory match the access suite (A10):
