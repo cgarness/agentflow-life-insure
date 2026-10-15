@@ -61,10 +61,11 @@ serve(async (req: Request) => {
 
     const isSuperAdmin = callerProfile.is_super_admin === true;
     const isAdmin = callerProfile.role === "Admin" || callerProfile.role === "Super Admin";
+    const isTeamLeader = !isSuperAdmin && callerProfile.role === "Team Leader";
 
-    if (!isSuperAdmin && !isAdmin) {
+    if (!isSuperAdmin && !isAdmin && !isTeamLeader) {
       return new Response(
-        JSON.stringify({ success: false, error: "Only Admins can send invitations" }),
+        JSON.stringify({ success: false, error: "Only Admins and Team Leaders can send invitations" }),
         { status: 403, headers }
       );
     }
@@ -77,7 +78,8 @@ serve(async (req: Request) => {
     }
 
     // 3. Parse request body
-    const { email, firstName, lastName, role, licensedStates, commissionLevel, uplineId, teamId } = await req.json();
+    const body = await req.json();
+    const { email, firstName, lastName, role, licensedStates, commissionLevel, uplineId, teamId } = body;
 
     if (!email || !firstName || !lastName || !role) {
       return new Response(
@@ -105,6 +107,21 @@ serve(async (req: Request) => {
       );
     }
 
+    // Team Leaders add Agents to their own direct downline, never grant agency
+    // administration or accept a browser-supplied tenant/team assignment.
+    if (isTeamLeader && (
+      role !== "Agent" ||
+      (uplineId != null && uplineId !== "" && uplineId !== caller.id) ||
+      (teamId != null && teamId !== "") ||
+      (body.organization_id != null && body.organization_id !== callerProfile.organization_id) ||
+      (body.organizationId != null && body.organizationId !== callerProfile.organization_id)
+    )) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Team Leaders can invite Agents to their own team only" }),
+        { status: 403, headers }
+      );
+    }
+
     // 4. Insert invitation into the invitations table
     const { data: invitation, error: insertError } = await adminClient
       .from("invitations")
@@ -116,7 +133,7 @@ serve(async (req: Request) => {
         role,
         licensed_states: licensedStates || [],
         commission_level: commissionLevel || "0%",
-        upline_id: uplineId || null,
+        upline_id: isTeamLeader ? caller.id : uplineId || null,
         team_id: teamId || null,
         invited_by: caller.id,
       })
