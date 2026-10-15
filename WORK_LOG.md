@@ -15,7 +15,7 @@
 **Gate 0** (read-only, plan §2):
 - `messages` and `contact_emails` are not in the Realtime publication;
 - the live `twilio-sms` v38 equals the repository;
-- 4 successful sends took 4.5–5.1 s. The one complete trace shows 19 sequential Supabase calls, about 3.5 s;
+- 4 successful sends had Edge execution times of 4,462–5,143 ms (`execution_time_ms` from `function_edge_logs`). The production client round trip and carrier delivery are not measured; evidence is in `evidence/server-latency.md` (corrected 2026-10-15). One traced send shows 19 sequential Supabase calls with 3,542 ms of origin time;
 - one enforced agency;
 - 8 `sms_dispatches` rows, all accepted.
 
@@ -38,18 +38,11 @@
 - **Vitest** (`TZ=UTC`, dummy `VITE_SUPABASE_*`): base 5,266 passed / 1 failed / 34 skipped; candidate **5,430 passed / 1 failed / 34 skipped**. The failure is the same pre-existing `recordingRetentionVoicemail` case. The CI SMS list passes without env: 11 files, 255 tests.
 - **ESLint** on all 31 changed files: 0 errors. The only warning is the pre-existing `FullScreenContactView` exhaustive-deps one.
 - **`npm run build`:** passes. **`git diff --check dacd921`:** clean.
-- **Browser fixture** (`scripts/tests/sms-responsiveness/`, synthetic data and a fake transport: 1,500 ms receipt, 80 ms row read, 250 ms list reads; 50 sends per surface per viewport). All functional assertions pass.
+- **Browser fixture** (`scripts/tests/sms-responsiveness/`, synthetic data and a fake transport: 1,500 ms receipt, 80 ms row read, 250 ms list reads). Corrected on 2026-10-15: desktop measured with all functional assertions passing; 390×844 BLOCKED on both builds.
 
-**Measurements** (p50 / p95 ms; fixture only, not server or handset). Base has no pending bubble, so its comparable figure is when the outgoing text first appears (after the round trip and reload).
-
-| Input → outgoing text painted | 1440×900 | 390×844 |
-|---|---|---|
-| Conversations | base 1,791.6 / 1,812.8 → **18.7 / 27.8** | 1,787.1 / 1,805.4 → **19.7 / 26.9** |
-| Contact record | 2,285.3 / 2,293.5 → **25.4 / 39.0** | 2,280.3 / 2,289.0 → **26.5 / 36.0** |
-
-- **Receipt → saved row shown:** 283 / 774 ms → about 104 ms.
-- **The ≤100 ms p95 goal** is met at 1× (highest p95 39.0 ms). It is **not** met under the informational 4× CPU throttle (110–176 ms p95), because the commit re-renders the unmemoized history list. Memoizing history items is a possible follow-up, not done.
-- **390×844:** both existing layouts are desktop-only, the same on base. The Conversations thread pane collapses to zero width, so sends there use Enter and the timings are commit-to-paint, not visibility.
+**Measurements: superseded on 2026-10-15.** The figures first recorded here were DOM rendering times, not visibility times. The 390×844 rows used Enter on layouts where the sent text never becomes visible. Neither is a user-visible result.
+- The originals are kept in `measurements/superseded-2026-10-14/`.
+- The corrected figures are in the 2026-10-15 entry and plan §13.2: desktop measured, mobile BLOCKED, and 4× throttling reported separately (p95 143–182 ms, above the 100 ms goal).
 
 **Limits.**
 - Exactly-once delivery is not claimed. A lost response stays "Not confirmed".
@@ -58,7 +51,7 @@
 - Realtime is still unpublished, so inbound replies do not appear live.
 - State is per tab, memory-only, and ends on reload or sign-out.
 - A second text to the same contact waits for the first.
-- Server time per send (4.5–5.1 s) is unchanged; only the waiting is hidden.
+- Server time is unchanged (Edge execution 4,462–5,143 ms over 4 sends). Only the waiting is hidden.
 - File growth: `ConversationThread.tsx` 474 → 585, `Conversations.tsx` 324 → 338, `FullScreenContactView.tsx` 1,435 → 1,461. New components are under 70 lines.
 
 **Release gates** (none performed):
@@ -76,7 +69,7 @@ B0 and the secret rotation are separate approvals.
 - **D8:** B0 (timing instrumentation, `twilio-sms/index.ts` only) is recommended as the next backend step. Not implemented (plan §10).
 - **Security:** the separate security item logged on 2026-10-10 has a remediation plan, delivered to Chris privately and not stored in this public repository. Nothing was rotated, redacted, probed or rewritten.
 
-**Migrations/deploys:** none. **Publication:** none; the branch is not pushed. **Live SMS:** none.
+**Migrations/deploys:** none. **Publication:** none as of 2026-10-14 (see the 2026-10-15 entry). **Live SMS:** none.
 
 ## 2026-10-14 — ClearPath saved-lead notification bridge
 

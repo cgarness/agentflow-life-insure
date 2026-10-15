@@ -159,7 +159,7 @@ Bodies are parsed with Zod. Only these exact (status, contract) pairs prove that
 | `src/components/contacts/conversation-history/ConversationTimeline.tsx` | Scroll rule; pending actions passthrough |
 | `src/components/contacts/conversation-history/SmsHistoryItem.tsx` | Status slot |
 | `src/components/contacts/conversation-history/conversationTypes.ts` | Optional pending view on SMS items |
-| Existing suites: `conversationsSendContract`, `fullScreenContactViewConversation`, `smsConsent`, `conversationThreadIsolation` | Updated only where the SMS contract changed |
+| Existing suites: `conversationsSendContract`, `fullScreenContactViewConversation`, `conversationThreadIsolation` | Updated only where the SMS contract changed (mapping: `evidence/test-mapping.md`). `smsConsent.test.tsx` is unchanged and still runs in CI. |
 | `.github/workflows/sms-consent.yml` | New paths/tests and the fixture step; on 2026-10-15 also `src/App.tsx` in the path filter, the bridge-mount guard in the test list, and an explicit `SMS_EXPECT_BLOCKED` |
 | This plan, `WORK_LOG.md`, `AGENT_RULES.md` (#31 SMS part) | Records (the separate security item's remediation plan is kept private, outside this public repository) |
 
@@ -260,7 +260,9 @@ Revert the commits (or use Vercel instant rollback after a future approved relea
 - `c367457`: implementation and tests;
 - the records commit: fixture, CI, this section and the measurement summaries.
 
-The publication-stage corrections follow in §14. The source tree is identical from `c367457` to HEAD.
+The publication-stage corrections and their commits follow in §14. Application source is identical from `c367457` to HEAD. The only later `src/` change is one added test file (`pendingSmsBridgeMount.test.ts`, §14).
+
+§13.1 is the 2026-10-14 gate record. The SHA-tied comparison at the publication commit is in §14 and `evidence/regression.md`.
 
 ### 13.1 Gates
 
@@ -275,71 +277,105 @@ Base `dacd921` was reproduced first, not assumed.
 | ESLint on every changed file (31) | 0 errors, 1 warning (`FullScreenContactView` exhaustive-deps) | 0 errors. The same warning, moved from line 305 to 328, plus an informational "ignored" notice for the `.mts` fixture config. |
 | `npm run build` | passes (22.6 s) | passes (27.0 s, run alongside the test suite) |
 | `git diff --check dacd921` | — | clean |
-| Browser fixture, 1440×900 and 390×844 (§8) | runs | runs. Every functional assertion passes: each text shows exactly once, the composer clears, and the candidate's outgoing text paints before the receipt. |
+| Browser fixture (§8, corrected 2026-10-15) | 1440×900 measured; 390×844 BLOCKED | 1440×900 measured: each text shows exactly once, the composer clears, and the outgoing text is visible before the receipt. 390×844 BLOCKED on both builds (§13.3). |
 
 **Mutation checks.**
 - Removing the thread's stale-start guard fails the email post-send isolation test (restored afterwards).
 - The new pending-SMS suites target modules and DOM states that do not exist at `dacd921`.
 
-### 13.2 Measurements (synthetic fixture; not server or handset timings)
+### 13.2 Measurements (synthetic fixture; corrected 2026-10-15)
 
-Base has **no pending bubble**. Its comparable metrics are input → first visible change (the Send spinner) and input → outgoing text visible (the saved row after the round trip and reload). Times are ms, shown as p50 / p95 / max. Summaries: `measurements/*.json`.
+**User-visible results only.**
+- Method: §8. Results: `measurements/{base,candidate}-x{1,4}.json`. Screenshots: `measurements/screenshots/`.
+- Times are ms, shown as p50 / p95 / max (nearest rank).
+- The 2026-10-14 figures were rendering times and the 390 px rows used Enter. They are kept in `measurements/superseded-2026-10-14/` (see its README) and are **not** user-visible results.
+- Base has no pending bubble. Its first visible change is the Send spinner; its outgoing text appears only after the round trip and a reload.
 
-**No CPU throttling, 50 sends per surface per viewport.**
+**Desktop 1440×900, CPU unthrottled, 50 real clicks per surface.**
 
-| Surface | Viewport | Metric | Base | Candidate |
-|---|---|---|---|---|
-| Conversations | 1440×900 (click) | input → outgoing text painted | 1,791.6 / 1,812.8 / 1,830.3 | **18.7 / 27.8 / 28.7** |
-| | | input → first visible change painted | 14.2 / 22.3 / 25.8 | 18.7 / 27.8 / 28.6 |
-| | | receipt → saved row shown | 282.7 / 302.5 / 322.8 | 104.5 / 107.1 / 107.7 |
-| | | input → saved row shown | 1,791.6 / 1,812.8 / 1,830.3 | 1,614.7 / 1,617.2 / 1,619.8 |
-| Conversations | 390×844 (Enter) | input → outgoing text painted | 1,787.1 / 1,805.4 / 1,816.1 | **19.7 / 26.9 / 35.0** |
-| | | receipt → saved row shown | 281.1 / 297.6 / 306.5 | 98.4 / 108.1 / 109.0 |
-| Contact record | 1440×900 (click) | input → outgoing text painted | 2,285.3 / 2,293.5 / 2,324.6 | **25.4 / 39.0 / 40.1** |
-| | | input → first visible change painted | 15.6 / 23.3 / 27.4 | 25.4 / 39.0 / 40.1 |
-| | | receipt → saved row shown | 773.6 / 781.5 / 811.7 | 104.8 / 110.0 / 115.9 |
-| | | input → saved row shown | 2,285.3 / 2,293.5 / 2,324.7 | 1,617.1 / 1,627.4 / 1,631.5 |
-| Contact record | 390×844 (Enter) | input → outgoing text painted | 2,280.3 / 2,289.0 / 2,294.8 | **26.5 / 36.0 / 37.7** |
-| | | receipt → saved row shown | 771.3 / 778.1 / 782.4 | 103.4 / 108.8 / 113.6 |
+| Surface | Metric | Base `dacd921` | Candidate |
+|---|---|---|---|
+| Conversations | click → first visible change | 14.0 / 17.0 / 18.1 (spinner, 50/50) | 18.1 / 27.0 / 27.3 (the text, 50/50) |
+| | click → outgoing text **visible** | 2,479.8 / 2,496.1 / 2,512.3 | **18.1 / 27.1 / 27.4** |
+| | click → outgoing text rendered (DOM, diagnostic) | 1,789.3 / 1,806.5 / 1,811.2 | 18.1 / 27.0 / 27.3 |
+| | click → request start | 7.3 / 11.9 / 14.1 | 10.2 / 15.0 / 16.3 |
+| | receipt → saved row visible | 972.9 / 988.6 / 1,001.5 | 103.4 / 105.7 / 106.9 |
+| | click → saved row visible | 2,479.8 / 2,496.1 / 2,512.3 | 1,613.9 / 1,617.7 / 1,631.0 |
+| | Event Timing click duration | 16 / 32 / 32 | 24 / 40 / 48 |
+| Contact record | click → first visible change | 15.9 / 23.2 / 24.3 (spinner, 50/50) | 24.4 / 35.4 / 50.5 (the text, 50/50) |
+| | click → outgoing text **visible** | 2,282.7 / 2,290.4 / 2,300.3 | **24.4 / 35.4 / 50.5** |
+| | click → outgoing text rendered (DOM, diagnostic) | 2,282.7 / 2,290.3 / 2,300.3 | 24.4 / 35.4 / 50.5 |
+| | click → request start | 11.2 / 17.6 / 18.3 | 13.0 / 18.5 / 27.0 |
+| | receipt → saved row visible | 771.0 / 778.2 / 782.5 | 102.4 / 110.8 / 111.4 |
+| | click → saved row visible | 2,282.7 / 2,290.4 / 2,300.4 | 1,615.9 / 1,626.4 / 1,634.7 |
+| | Event Timing click duration | 16 / 24 / 32 | 32 / 48 / 56 |
 
-- **Input → request start** is unchanged: base p95 9.3–16.6 ms, candidate 12.7–17.1 ms. The request round trip is the fixture's 1,500 ms.
-- **Event Timing click/key duration (p50 / p95 / max):**
-  - Conversations: 32 / 40 / 48 on both builds at 1440 px. At 390 px, 16 / 16 / 24 on base (17 of 50 entries under 16 ms) and 16 / 24 / 32 on the candidate.
-  - Contact record: 24 / 32 / 32 → 32 / 40 / 48 at 1440 px, and 24 / 32 / 40 → 24 / 40 / 40 at 390 px.
-- The candidate's first paint now carries the pending item, so it costs a few ms more than base's spinner-only paint.
+The fake transport's round trip is 1,500.3 ms p50 on every run.
 
-**4× CPU throttling, 20 sends each (informational).** Input → outgoing text painted:
+**Desktop 1440×900, 4× CPU throttle, 20 real clicks per surface** (separate run, never pooled with the above).
 
-| Surface | 1440×900 | 390×844 |
-|---|---|---|
-| Conversations | base 1,938.9 / 1,972.3 / 1,984.0 → candidate **83.9 / 129.0 / 146.9** | 1,942.3 / 2,004.0 / 2,049.9 → **69.3 / 109.8 / 111.8** |
-| Contact record | 2,409.0 / 2,437.6 / 2,463.4 → **130.8 / 176.3 / 180.2** | 2,397.2 / 2,478.1 / 2,482.5 → **113.7 / 142.5 / 158.9** |
+| Surface | Metric | Base `dacd921` | Candidate |
+|---|---|---|---|
+| Conversations | click → first visible change | 57.3 / 85.9 / 88.7 (spinner) | 85.6 / 143.2 / 178.8 (the text) |
+| | click → outgoing text **visible** | 2,642.9 / 2,738.1 / 2,738.2 | **85.6 / 143.2 / 178.8** |
+| | click → request start | 37.8 / 58.7 / 64.9 | 47.1 / 91.7 / 138.4 |
+| | receipt → saved row visible | 1,106.8 / 1,202.7 / 1,206.6 | 159.9 / 175.3 / 177.1 |
+| | click → saved row visible | 2,642.9 / 2,738.2 / 2,738.2 | 1,704.3 / 1,767.1 / 1,803.5 |
+| | Event Timing click duration | 64 / 96 / 104 | 96 / 152 / 192 |
+| Contact record | click → first visible change | 83.4 / 119.6 / 129.7 (spinner) | 132.8 / 181.2 / 217.8 (the text) |
+| | click → outgoing text **visible** | 2,406.7 / 2,436.9 / 2,459.7 | **132.8 / 182.1 / 218.6** |
+| | click → request start | 55.7 / 88.9 / 89.7 | 70.7 / 92.8 / 97.9 |
+| | receipt → saved row visible | 846.6 / 861.0 / 901.3 | 184.7 / 284.3 / 296.6 |
+| | click → saved row visible | 2,406.7 / 2,437.0 / 2,459.7 | 1,761.4 / 1,869.6 / 1,877.9 |
+| | Event Timing click duration | 88 / 120 / 120 | 136 / 184 / 216 |
 
-Base's spinner-only first paint at 4× is 65–122 ms p95.
+**Mobile 390×844: BLOCKED on both builds, at 1× and 4×.** Both are pre-existing desktop-only layouts; §13.3 has the details and screenshots. No mobile timing is claimed.
 
-**Against the ≤100 ms p95 goal.**
-- **Met** at 1× on both surfaces and both viewports; the highest p95 is 39.0 ms.
-- **Not met** under 4× CPU throttling: p95 110–176 ms. The commit that adds the pending item re-renders the whole unmemoized history list (the contact record is a 1,461-line component). Memoizing history items is a possible follow-up and was not done (narrow scope).
+**Against the ≤100 ms p95 goal** (click → pending text visible):
+- **Met on desktop at 1×.** p95 is 27.1 ms (Conversations) and 35.4 ms (contact record); the maximum is 50.5 ms.
+- **Not met at 4×:** p95 is 143.2 ms and 182.1 ms.
+- **Not assessable on mobile** (blocked).
+
+**Costs, stated plainly:**
+- **First visible change.** Base's spinner-only change is faster than the candidate's first change: 14.0 vs 18.1 ms p50 at 1×, and 57 vs 86 ms at 4×. The candidate's first paint carries the pending item. That item re-renders the unmemoized history list, which the contact record renders inside a 1,461-line component.
+- **Click handling.** The Event Timing click duration rises for the same reason: p95 32 → 40 ms and 24 → 48 ms at 1×.
+- **Follow-up, not done.** Memoizing history items is possible but was not in scope.
+
+**What changes for the agent:**
+- The outgoing text is visible about 2.3–2.5 s sooner (1×).
+- The saved row appears about 0.7–0.9 s sooner after the receipt, because there is no whole-thread reload.
+- The composer is usable at once.
 
 ### 13.3 Browser observations
 
-- **390×844.** Both existing layouts are desktop-only, and identical on base (a pre-existing limitation; no layout change was approved). The Conversations thread pane collapses to zero width, and the contact record's three columns clip inside their container. There is no document-level horizontal overflow on either build. Mobile timings measure commit-to-paint, not on-screen visibility.
-- **1440×900.** The pending bubble is dimmed with "Sending…", the composer is empty and Send shows its spinner (screenshots captured during the 1.5 s request).
-- **Base's success toast** sits over the Send button at 1440 px. The candidate shows no SMS success toast (D4).
+- **390×844, Conversations: BLOCKED** (both builds; the same layout as `main`).
+  - Playwright's actionability preflight fails: the 300 px contact pane (`div.w-[300px] … overflow-y-auto`) intercepts pointer events at Send.
+  - The thread pane collapses to 48 px at x = −125 (−82 under throttling).
+  - Screenshots: `screenshots/{base,candidate}-conversations-390-blocked.png`.
+- **390×844, contact record: BLOCKED** (both builds; the same layout as `main`).
+  - The three columns sit inside overflow-hidden containers. The message column is at x = −312 (357 px wide), and Send is at x = −57, so only a 29 px sliver is on screen.
+  - A real click on that sliver sends. The sent text renders (227×46 px, CSS-visible), but 0% of it is inside the viewport and its clipping ancestors. It never becomes visible within 3 s.
+  - Screenshots: `screenshots/{base,candidate}-contact-390-blocked.png`. Base also shows its "Message sent" toast.
+  - Neither layout causes document-level horizontal overflow.
+- **1440×900:**
+  - The candidate shows the dimmed pending bubble with "Sending…", an empty composer and the Send spinner during the 1.5 s request (`candidate-*-1440-in-flight.png`).
+  - Base shows only the spinner, with the text still in the composer (`base-*-1440-in-flight.png`).
+  - After 50 sends each text is shown once on both builds (`*-1440-after.png`).
+- **Base's success toast** covers its own Send spinner in Conversations at 1440 px for about 4 s. The driver therefore starts every send with no toast on screen (§8). The candidate shows no SMS success toast (D4).
 
 ### 13.4 Unresolved limits
 
 All are documented in §9. In addition:
 - STOP/DNC blocks read "Not confirmed" (`SMS_STATE`) until the server codes them separately (B3).
 - A lost response leaves "Not confirmed" beside any saved row until dismissed (B2 would resolve it).
-- Server time per send (4.5–5.1 s, G0-3) is unchanged. Only the waiting is hidden.
+- Server time is unchanged: Edge execution was 4,462–5,143 ms over 4 successful sends (G0-3). The production client round trip and carrier delivery are not measured. Only the waiting in the composer is hidden.
+- Mobile (390×844) feedback is unvalidated: both layouts are desktop-only and BLOCKED the fixture (§13.3). A mobile layout is separate work.
+- Under 4× CPU throttling, the p95 to visible is 143–182 ms, above the 100 ms goal (§13.2).
 
-### 13.5 Release gates (none performed)
+### 13.5 Release gates
 
-1. Chris reviews the local branch.
-2. Push and open a PR (publication; separate approval).
-3. CI `sms-consent` green, including the new suites and the fixture.
-4. Hosted preview: any real send there is a live SMS and needs its own approval.
-5. Merge and the Vercel production deploy (frontend only), separately approved.
-6. Read back the served bundle.
-7. Backend B0 (§10) and the separate security item (private remediation plan) are separate approvals.
+1. Chris reviews the branch. Publication as a **draft PR**, isolated CI and the protected Vercel preview were approved on 2026-10-15 (§14).
+2. CI green on the exact published head, including `sms-consent` (new suites, bridge-mount guard and fixture) and `reports-frontend` (full-suite base comparison).
+3. Preview: build and served-asset check only. The preview is wired to production services, so **any send from it is a live SMS** and needs its own approval. Sends are exercised only in the fake-transport fixture.
+4. Merge and the Vercel production deploy (frontend only), separately approved. Then read back the served bundle.
+5. Backend B0 (§10) and the separate security item (private remediation plan) are separate approvals.

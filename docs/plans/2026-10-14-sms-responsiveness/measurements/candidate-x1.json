@@ -1,225 +1,1511 @@
 {
- "label": "candidate",
- "build": "c367457 (src identical at HEAD)",
- "throttle": 1,
- "conditions": {
-  "build": "vite production build of the fixture",
-  "browser": "Playwright 1.56.1 headless Chromium",
-  "cpuThrottle": 1,
-  "thread": "100 SMS, 50 calls, 50 emails",
-  "contact": "90 history items loaded",
-  "receiptMs": 1500,
-  "rowReadMs": 80,
-  "listReadMs": 250
- },
- "runs": [
-  {
-   "surface": "conversations",
-   "viewport": "1440x900",
-   "trigger": "click",
-   "sends": 50,
-   "overflow": false,
-   "metrics": {
-    "clickToFirstChangePainted": {
-     "n": 50,
-     "p50": 18.7,
-     "p95": 27.8,
-     "max": 28.6
-    },
-    "clickToOutgoingPainted": {
-     "n": 50,
-     "p50": 18.7,
-     "p95": 27.8,
-     "max": 28.7
-    },
-    "clickToRequestStart": {
-     "n": 50,
-     "p50": 9,
-     "p95": 13.6,
-     "max": 17.7
-    },
-    "requestRoundTrip": {
-     "n": 50,
-     "p50": 1500.3,
-     "p95": 1500.6,
-     "max": 1501.1
-    },
-    "receiptToSavedPainted": {
-     "n": 50,
-     "p50": 104.5,
-     "p95": 107.1,
-     "max": 107.7
-    },
-    "clickToSavedPainted": {
-     "n": 50,
-     "p50": 1614.7,
-     "p95": 1617.2,
-     "max": 1619.8
-    },
-    "eventTimingDuration": {
-     "n": 50,
-     "p50": 32,
-     "p95": 40,
-     "max": 48,
-     "under16ms": 0
-    }
-   }
+  "label": "candidate",
+  "throttle": 1,
+  "conditions": {
+    "build": "vite production build of the fixture",
+    "browser": "Playwright headless Chromium",
+    "cpuThrottle": 1,
+    "trigger": "real click on Send only",
+    "startState": "no toast on screen before each send (waited for, never removed)",
+    "thread": "100 SMS, 50 calls, 50 emails",
+    "contact": "90 history items loaded",
+    "receiptMs": 1500,
+    "rowReadMs": 80,
+    "listReadMs": 250,
+    "visible": "non-zero size, CSS-visible, >=50% inside viewport and clipping ancestors, not covered (elementFromPoint, where falling through a pointer-events:none target to its ancestor is not covering, plus toast rectangles)"
   },
-  {
-   "surface": "conversations",
-   "viewport": "390x844",
-   "trigger": "Enter",
-   "sends": 50,
-   "overflow": false,
-   "metrics": {
-    "clickToFirstChangePainted": {
-     "n": 50,
-     "p50": 19.7,
-     "p95": 26.9,
-     "max": 35
+  "runs": [
+    {
+      "surface": "conversations",
+      "viewport": "1440x900",
+      "key": "conversations@1440x900",
+      "trigger": "click",
+      "status": "measured",
+      "sends": 50,
+      "raw": [
+        {
+          "clickToFirstChangeVisible": 21.5,
+          "clickToOutgoingVisible": 21.5,
+          "clickToOutgoingRendered": 21.5,
+          "clickToRequestStart": 13.399999999906868,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103.89999999990687,
+          "clickToSavedVisible": 1617.6999999997206,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 15.899999999906868,
+          "clickToOutgoingVisible": 15.899999999906868,
+          "clickToOutgoingRendered": 15.899999999906868,
+          "clickToRequestStart": 9,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 104.39999999990687,
+          "clickToSavedVisible": 1613.6999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 27.199999999720603,
+          "clickToOutgoingVisible": 27.399999999906868,
+          "clickToOutgoingRendered": 27.199999999720603,
+          "clickToRequestStart": 15,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 103.10000000009313,
+          "clickToSavedVisible": 1618.3999999999069,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.899999999906868,
+          "clickToOutgoingVisible": 17.899999999906868,
+          "clickToOutgoingRendered": 17.899999999906868,
+          "clickToRequestStart": 10.200000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 94.60000000009313,
+          "clickToSavedVisible": 1605.1000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.600000000093132,
+          "clickToOutgoingVisible": 17.600000000093132,
+          "clickToOutgoingRendered": 17.600000000093132,
+          "clickToRequestStart": 9.900000000372529,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103,
+          "clickToSavedVisible": 1613.3000000002794,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 15.399999999906868,
+          "clickToOutgoingVisible": 15.399999999906868,
+          "clickToOutgoingRendered": 15.399999999906868,
+          "clickToRequestStart": 8.899999999906868,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 98.39999999990687,
+          "clickToSavedVisible": 1607.5999999996275,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.700000000186265,
+          "clickToOutgoingVisible": 17.700000000186265,
+          "clickToOutgoingRendered": 17.700000000186265,
+          "clickToRequestStart": 9.300000000279397,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 104.10000000009313,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.200000000186265,
+          "clickToOutgoingVisible": 19.200000000186265,
+          "clickToOutgoingRendered": 19.200000000186265,
+          "clickToRequestStart": 10.100000000093132,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 105.39999999990687,
+          "clickToSavedVisible": 1615.8999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17,
+          "clickToOutgoingVisible": 17,
+          "clickToOutgoingRendered": 17,
+          "clickToRequestStart": 9.700000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 102.39999999990687,
+          "clickToSavedVisible": 1612.3999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 27,
+          "clickToOutgoingVisible": 27.100000000093132,
+          "clickToOutgoingRendered": 27,
+          "clickToRequestStart": 15,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 99.6999999997206,
+          "clickToSavedVisible": 1615,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.799999999813735,
+          "clickToOutgoingVisible": 17.799999999813735,
+          "clickToOutgoingRendered": 17.799999999813735,
+          "clickToRequestStart": 10,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103,
+          "clickToSavedVisible": 1613.3999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.300000000279397,
+          "clickToOutgoingVisible": 18.300000000279397,
+          "clickToOutgoingRendered": 18.300000000279397,
+          "clickToRequestStart": 9.900000000372529,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 103.29999999981374,
+          "clickToSavedVisible": 1613.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.700000000186265,
+          "clickToOutgoingVisible": 21.700000000186265,
+          "clickToOutgoingRendered": 21.700000000186265,
+          "clickToRequestStart": 12.899999999906868,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 104.29999999981374,
+          "clickToSavedVisible": 1617.5,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.5,
+          "clickToOutgoingVisible": 17.5,
+          "clickToOutgoingRendered": 17.5,
+          "clickToRequestStart": 10.199999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 102.6999999997206,
+          "clickToSavedVisible": 1613.1999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.200000000186265,
+          "clickToOutgoingVisible": 17.299999999813735,
+          "clickToOutgoingRendered": 17.200000000186265,
+          "clickToRequestStart": 9.799999999813735,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 105.10000000009313,
+          "clickToSavedVisible": 1615.2000000001863,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 20.09999999962747,
+          "clickToOutgoingVisible": 20.09999999962747,
+          "clickToOutgoingRendered": 20.09999999962747,
+          "clickToRequestStart": 10,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 103,
+          "clickToSavedVisible": 1613.1999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 16.899999999906868,
+          "clickToOutgoingVisible": 16.899999999906868,
+          "clickToOutgoingRendered": 16.899999999906868,
+          "clickToRequestStart": 9.299999999813735,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 103.5,
+          "clickToSavedVisible": 1613,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.700000000186265,
+          "clickToOutgoingVisible": 22.700000000186265,
+          "clickToOutgoingRendered": 22.700000000186265,
+          "clickToRequestStart": 13.900000000372529,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 98.8000000002794,
+          "clickToSavedVisible": 1612.9000000003725,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17,
+          "clickToOutgoingVisible": 17,
+          "clickToOutgoingRendered": 17,
+          "clickToRequestStart": 9.399999999906868,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 103.6999999997206,
+          "clickToSavedVisible": 1613.2999999998137,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.200000000186265,
+          "clickToOutgoingVisible": 21.200000000186265,
+          "clickToOutgoingRendered": 21.200000000186265,
+          "clickToRequestStart": 11.899999999906868,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 105.39999999990687,
+          "clickToSavedVisible": 1617.6000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.40000000037253,
+          "clickToOutgoingVisible": 19.40000000037253,
+          "clickToOutgoingRendered": 19.40000000037253,
+          "clickToRequestStart": 12,
+          "requestRoundTrip": 1500.1000000000931,
+          "receiptToSavedVisible": 104.89999999990687,
+          "clickToSavedVisible": 1617,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 15.5,
+          "clickToOutgoingVisible": 15.5,
+          "clickToOutgoingRendered": 15.5,
+          "clickToRequestStart": 8.799999999813735,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 105.39999999990687,
+          "clickToSavedVisible": 1614.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.100000000093132,
+          "clickToOutgoingVisible": 18.100000000093132,
+          "clickToOutgoingRendered": 18.100000000093132,
+          "clickToRequestStart": 11,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 102.39999999990687,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.200000000186265,
+          "clickToOutgoingVisible": 18.40000000037253,
+          "clickToOutgoingRendered": 18.200000000186265,
+          "clickToRequestStart": 9.5,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 104.39999999990687,
+          "clickToSavedVisible": 1614.2000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.899999999906868,
+          "clickToOutgoingVisible": 17.899999999906868,
+          "clickToOutgoingRendered": 17.899999999906868,
+          "clickToRequestStart": 10.299999999813735,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 100.3000000002794,
+          "clickToSavedVisible": 1610.8999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.299999999813735,
+          "clickToOutgoingVisible": 17.299999999813735,
+          "clickToOutgoingRendered": 17.299999999813735,
+          "clickToRequestStart": 9.699999999720603,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 104.60000000009313,
+          "clickToSavedVisible": 1614.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.100000000093132,
+          "clickToOutgoingVisible": 18.100000000093132,
+          "clickToOutgoingRendered": 18.100000000093132,
+          "clickToRequestStart": 9.900000000372529,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 106.89999999990687,
+          "clickToSavedVisible": 1617.1000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.200000000186265,
+          "clickToOutgoingVisible": 19.200000000186265,
+          "clickToOutgoingRendered": 19.200000000186265,
+          "clickToRequestStart": 10,
+          "requestRoundTrip": 1501.1000000000931,
+          "receiptToSavedVisible": 100.60000000009313,
+          "clickToSavedVisible": 1611.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.700000000186265,
+          "clickToOutgoingVisible": 22.799999999813735,
+          "clickToOutgoingRendered": 22.700000000186265,
+          "clickToRequestStart": 11.5,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 104.10000000009313,
+          "clickToSavedVisible": 1615.8999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 26.600000000093132,
+          "clickToOutgoingVisible": 26.700000000186265,
+          "clickToOutgoingRendered": 26.600000000093132,
+          "clickToRequestStart": 11.399999999906868,
+          "requestRoundTrip": 1516.3000000002794,
+          "receiptToSavedVisible": 103.29999999981374,
+          "clickToSavedVisible": 1631,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.300000000279397,
+          "clickToOutgoingVisible": 19.300000000279397,
+          "clickToOutgoingRendered": 19.300000000279397,
+          "clickToRequestStart": 10.300000000279397,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 103.39999999990687,
+          "clickToSavedVisible": 1614,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.100000000093132,
+          "clickToOutgoingVisible": 18.100000000093132,
+          "clickToOutgoingRendered": 18.100000000093132,
+          "clickToRequestStart": 10.200000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 105.8000000002794,
+          "clickToSavedVisible": 1616.3000000002794,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.600000000093132,
+          "clickToOutgoingVisible": 25.600000000093132,
+          "clickToOutgoingRendered": 25.600000000093132,
+          "clickToRequestStart": 14.399999999906868,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 102.60000000009313,
+          "clickToSavedVisible": 1617.2999999998137,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.899999999906868,
+          "clickToOutgoingVisible": 22.899999999906868,
+          "clickToOutgoingRendered": 22.899999999906868,
+          "clickToRequestStart": 13.799999999813735,
+          "requestRoundTrip": 1500.1000000000931,
+          "receiptToSavedVisible": 98.20000000018626,
+          "clickToSavedVisible": 1612.1000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17,
+          "clickToOutgoingVisible": 17,
+          "clickToOutgoingRendered": 17,
+          "clickToRequestStart": 9.699999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 103.89999999990687,
+          "clickToSavedVisible": 1613.8999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 16.59999999962747,
+          "clickToOutgoingVisible": 16.59999999962747,
+          "clickToOutgoingRendered": 16.59999999962747,
+          "clickToRequestStart": 9.5,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 104.60000000009313,
+          "clickToSavedVisible": 1614.3999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.299999999813735,
+          "clickToOutgoingVisible": 17.299999999813735,
+          "clickToOutgoingRendered": 17.299999999813735,
+          "clickToRequestStart": 9.600000000093132,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 103.60000000009313,
+          "clickToSavedVisible": 1613.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.799999999813735,
+          "clickToOutgoingVisible": 25.799999999813735,
+          "clickToOutgoingRendered": 25.799999999813735,
+          "clickToRequestStart": 16.299999999813735,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 99,
+          "clickToSavedVisible": 1615.6000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 27.299999999813735,
+          "clickToOutgoingVisible": 27.299999999813735,
+          "clickToOutgoingRendered": 27.299999999813735,
+          "clickToRequestStart": 15.099999999627471,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 98.39999999990687,
+          "clickToSavedVisible": 1613.7999999998137,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18.100000000093132,
+          "clickToOutgoingVisible": 18.100000000093132,
+          "clickToOutgoingRendered": 18.100000000093132,
+          "clickToRequestStart": 10.200000000186265,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 105.70000000018626,
+          "clickToSavedVisible": 1616.1000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.700000000186265,
+          "clickToOutgoingVisible": 17.700000000186265,
+          "clickToOutgoingRendered": 17.600000000093132,
+          "clickToRequestStart": 10,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 103.5,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.200000000186265,
+          "clickToOutgoingVisible": 19.200000000186265,
+          "clickToOutgoingRendered": 19.200000000186265,
+          "clickToRequestStart": 10.700000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 102.8000000002794,
+          "clickToSavedVisible": 1613.8000000002794,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.600000000093132,
+          "clickToOutgoingVisible": 21.699999999720603,
+          "clickToOutgoingRendered": 21.600000000093132,
+          "clickToRequestStart": 13.399999999906868,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 96.90000000037253,
+          "clickToSavedVisible": 1610.6000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 20.600000000093132,
+          "clickToOutgoingVisible": 20.600000000093132,
+          "clickToOutgoingRendered": 20.600000000093132,
+          "clickToRequestStart": 11.699999999720603,
+          "requestRoundTrip": 1500.4000000003725,
+          "receiptToSavedVisible": 102.59999999962747,
+          "clickToSavedVisible": 1614.6999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.5,
+          "clickToOutgoingVisible": 17.59999999962747,
+          "clickToOutgoingRendered": 17.5,
+          "clickToRequestStart": 10,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 104.1999999997206,
+          "clickToSavedVisible": 1614.5999999996275,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.399999999906868,
+          "clickToOutgoingVisible": 19.399999999906868,
+          "clickToOutgoingRendered": 19.399999999906868,
+          "clickToRequestStart": 11.100000000093132,
+          "requestRoundTrip": 1501,
+          "receiptToSavedVisible": 100.39999999990687,
+          "clickToSavedVisible": 1612.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18,
+          "clickToOutgoingVisible": 18,
+          "clickToOutgoingRendered": 17.899999999906868,
+          "clickToRequestStart": 10.100000000093132,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 103.59999999962747,
+          "clickToSavedVisible": 1613.8999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.300000000279397,
+          "clickToOutgoingVisible": 19.300000000279397,
+          "clickToOutgoingRendered": 19.300000000279397,
+          "clickToRequestStart": 10.800000000279397,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 102.70000000018626,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 18,
+          "clickToOutgoingVisible": 18,
+          "clickToOutgoingRendered": 18,
+          "clickToRequestStart": 10.100000000093132,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103.60000000009313,
+          "clickToSavedVisible": 1614.1000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 17.799999999813735,
+          "clickToOutgoingVisible": 17.799999999813735,
+          "clickToOutgoingRendered": 17.799999999813735,
+          "clickToRequestStart": 10.199999999720603,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 103.6999999997206,
+          "clickToSavedVisible": 1614.0999999996275,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        }
+      ],
+      "afterFirstClick": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentScrollWidth": 1440,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": 320,
+          "y": 0,
+          "width": 820,
+          "height": 743
+        },
+        "sendButton": {
+          "x": 1013,
+          "y": 826,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": "div.flex.items-center.gap-2"
+      },
+      "geometryBeforeSends": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentScrollWidth": 1440,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": 320,
+          "y": 0,
+          "width": 820,
+          "height": 743
+        },
+        "sendButton": {
+          "x": 1013,
+          "y": 826,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": "div.flex.items-center.gap-2"
+      },
+      "overflow": false,
+      "metrics": {
+        "clickToFirstChangeVisible": {
+          "n": 50,
+          "p50": 18.1,
+          "p95": 27,
+          "max": 27.3
+        },
+        "clickToOutgoingVisible": {
+          "n": 50,
+          "p50": 18.1,
+          "p95": 27.1,
+          "max": 27.4
+        },
+        "clickToOutgoingRendered": {
+          "n": 50,
+          "p50": 18.1,
+          "p95": 27,
+          "max": 27.3
+        },
+        "clickToRequestStart": {
+          "n": 50,
+          "p50": 10.2,
+          "p95": 15,
+          "max": 16.3
+        },
+        "requestRoundTrip": {
+          "n": 50,
+          "p50": 1500.3,
+          "p95": 1501,
+          "max": 1516.3
+        },
+        "receiptToSavedVisible": {
+          "n": 50,
+          "p50": 103.4,
+          "p95": 105.7,
+          "max": 106.9
+        },
+        "clickToSavedVisible": {
+          "n": 50,
+          "p50": 1613.9,
+          "p95": 1617.7,
+          "max": 1631
+        },
+        "eventTimingDuration": {
+          "n": 50,
+          "p50": 24,
+          "p95": 40,
+          "max": 48,
+          "under16ms": 0
+        }
+      },
+      "firstChangeKinds": {
+        "text": 50,
+        "spinner": 0
+      },
+      "expectedBlocked": false
     },
-    "clickToOutgoingPainted": {
-     "n": 50,
-     "p50": 19.7,
-     "p95": 26.9,
-     "max": 35
+    {
+      "surface": "conversations",
+      "viewport": "390x844",
+      "key": "conversations@390x844",
+      "trigger": "click",
+      "status": "blocked",
+      "sends": 0,
+      "raw": [],
+      "reason": "The composer or Send is not usable: - <div class=\"w-[300px] border-l border-border bg-card/20 flex flex-col overflow-y-auto\">…</div> intercepts pointer events",
+      "geometry": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentScrollWidth": 390,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": -125,
+          "y": 0,
+          "width": 48,
+          "height": 687
+        },
+        "sendButton": {
+          "x": 155,
+          "y": 770,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": "div.flex-1.overflow-y-auto"
+      },
+      "geometryBeforeSends": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentScrollWidth": 390,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": 241,
+          "y": 0,
+          "width": 48,
+          "height": 687
+        },
+        "sendButton": {
+          "x": 521,
+          "y": 770,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": null
+      },
+      "overflow": false,
+      "expectedBlocked": true
     },
-    "clickToRequestStart": {
-     "n": 50,
-     "p50": 7.7,
-     "p95": 12.7,
-     "max": 22.1
+    {
+      "surface": "contact",
+      "viewport": "1440x900",
+      "key": "contact@1440x900",
+      "trigger": "click",
+      "status": "measured",
+      "sends": 50,
+      "raw": [
+        {
+          "clickToFirstChangeVisible": 50.5,
+          "clickToOutgoingVisible": 50.5,
+          "clickToOutgoingRendered": 50.5,
+          "clickToRequestStart": 27,
+          "requestRoundTrip": 1500.0999999996275,
+          "receiptToSavedVisible": 107.60000000009313,
+          "clickToSavedVisible": 1634.6999999997206,
+          "eventTimingDuration": 56,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 30.800000000279397,
+          "clickToOutgoingVisible": 30.800000000279397,
+          "clickToOutgoingRendered": 30.800000000279397,
+          "clickToRequestStart": 15.300000000279397,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103,
+          "clickToSavedVisible": 1618.7000000001863,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 29.399999999906868,
+          "clickToOutgoingVisible": 29.399999999906868,
+          "clickToOutgoingRendered": 29.399999999906868,
+          "clickToRequestStart": 14.399999999906868,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 105.59999999962747,
+          "clickToSavedVisible": 1620.2999999998137,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 35.39999999990687,
+          "clickToOutgoingVisible": 35.39999999990687,
+          "clickToOutgoingRendered": 35.39999999990687,
+          "clickToRequestStart": 18.5,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 107.60000000009313,
+          "clickToSavedVisible": 1626.3999999999069,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.5,
+          "clickToOutgoingVisible": 22.5,
+          "clickToOutgoingRendered": 22.5,
+          "clickToRequestStart": 11.899999999906868,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 101.59999999962747,
+          "clickToSavedVisible": 1613.7999999998137,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 31.699999999720603,
+          "clickToOutgoingVisible": 31.699999999720603,
+          "clickToOutgoingRendered": 31.699999999720603,
+          "clickToRequestStart": 18.199999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 102,
+          "clickToSavedVisible": 1620.5,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.799999999813735,
+          "clickToOutgoingVisible": 25.799999999813735,
+          "clickToOutgoingRendered": 25.799999999813735,
+          "clickToRequestStart": 13.600000000093132,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 109.39999999990687,
+          "clickToSavedVisible": 1623.2999999998137,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 26.299999999813735,
+          "clickToOutgoingVisible": 26.299999999813735,
+          "clickToOutgoingRendered": 26.299999999813735,
+          "clickToRequestStart": 13.699999999720603,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 103.10000000009313,
+          "clickToSavedVisible": 1617.1999999997206,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 33.89999999990687,
+          "clickToOutgoingVisible": 33.89999999990687,
+          "clickToOutgoingRendered": 33.89999999990687,
+          "clickToRequestStart": 12.5,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 101.89999999990687,
+          "clickToSavedVisible": 1614.6000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 29,
+          "clickToOutgoingVisible": 29,
+          "clickToOutgoingRendered": 29,
+          "clickToRequestStart": 17.199999999720603,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 102.5,
+          "clickToSavedVisible": 1619.8999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.199999999720603,
+          "clickToOutgoingVisible": 25.199999999720603,
+          "clickToOutgoingRendered": 25.199999999720603,
+          "clickToRequestStart": 14.5,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 110.90000000037253,
+          "clickToSavedVisible": 1625.6000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.399999999906868,
+          "clickToOutgoingVisible": 22.399999999906868,
+          "clickToOutgoingRendered": 22.399999999906868,
+          "clickToRequestStart": 12.399999999906868,
+          "requestRoundTrip": 1500.1000000000931,
+          "receiptToSavedVisible": 101.5,
+          "clickToSavedVisible": 1614,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.600000000093132,
+          "clickToOutgoingVisible": 21.600000000093132,
+          "clickToOutgoingRendered": 21.600000000093132,
+          "clickToRequestStart": 11.799999999813735,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 102.20000000018626,
+          "clickToSavedVisible": 1614.3999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.100000000093132,
+          "clickToOutgoingVisible": 25.100000000093132,
+          "clickToOutgoingRendered": 25.100000000093132,
+          "clickToRequestStart": 12.900000000372529,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 103.60000000009313,
+          "clickToSavedVisible": 1616.7000000001863,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.199999999720603,
+          "clickToOutgoingVisible": 24.199999999720603,
+          "clickToOutgoingRendered": 24.199999999720603,
+          "clickToRequestStart": 13.699999999720603,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 101.5,
+          "clickToSavedVisible": 1615.3999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 27.600000000093132,
+          "clickToOutgoingVisible": 27.600000000093132,
+          "clickToOutgoingRendered": 27.600000000093132,
+          "clickToRequestStart": 17.100000000093132,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 100.60000000009313,
+          "clickToSavedVisible": 1618,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.200000000186265,
+          "clickToOutgoingVisible": 22.300000000279397,
+          "clickToOutgoingRendered": 22.200000000186265,
+          "clickToRequestStart": 12.899999999906868,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 102.29999999981374,
+          "clickToSavedVisible": 1615.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 23.300000000279397,
+          "clickToOutgoingVisible": 23.300000000279397,
+          "clickToOutgoingRendered": 23.300000000279397,
+          "clickToRequestStart": 13,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 100.89999999990687,
+          "clickToSavedVisible": 1614.2000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.799999999813735,
+          "clickToOutgoingVisible": 22.899999999906868,
+          "clickToOutgoingRendered": 22.799999999813735,
+          "clickToRequestStart": 12.699999999720603,
+          "requestRoundTrip": 1500.9000000003725,
+          "receiptToSavedVisible": 110.79999999981374,
+          "clickToSavedVisible": 1624.3999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.399999999906868,
+          "clickToOutgoingVisible": 24.399999999906868,
+          "clickToOutgoingRendered": 24.399999999906868,
+          "clickToRequestStart": 13.5,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 102.20000000018626,
+          "clickToSavedVisible": 1615.8999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.90000000037253,
+          "clickToOutgoingVisible": 24.90000000037253,
+          "clickToOutgoingRendered": 24.90000000037253,
+          "clickToRequestStart": 13.900000000372529,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 106,
+          "clickToSavedVisible": 1620.2000000001863,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.600000000093132,
+          "clickToOutgoingVisible": 22.600000000093132,
+          "clickToOutgoingRendered": 22.600000000093132,
+          "clickToRequestStart": 12,
+          "requestRoundTrip": 1500.5,
+          "receiptToSavedVisible": 102.10000000009313,
+          "clickToSavedVisible": 1614.6000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.299999999813735,
+          "clickToOutgoingVisible": 24.299999999813735,
+          "clickToOutgoingRendered": 24.299999999813735,
+          "clickToRequestStart": 12.899999999906868,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 102.5,
+          "clickToSavedVisible": 1615.6000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 28.199999999720603,
+          "clickToOutgoingVisible": 28.199999999720603,
+          "clickToOutgoingRendered": 28.199999999720603,
+          "clickToRequestStart": 15.799999999813735,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 103.39999999990687,
+          "clickToSavedVisible": 1619.5,
+          "eventTimingDuration": 48,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.100000000093132,
+          "clickToOutgoingVisible": 25.100000000093132,
+          "clickToOutgoingRendered": 25.100000000093132,
+          "clickToRequestStart": 13.299999999813735,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 106.79999999981374,
+          "clickToSavedVisible": 1620.2999999998137,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 35.8000000002794,
+          "clickToOutgoingVisible": 35.8000000002794,
+          "clickToOutgoingRendered": 35.700000000186265,
+          "clickToRequestStart": 18.700000000186265,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 104,
+          "clickToSavedVisible": 1622.9000000003725,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.700000000186265,
+          "clickToOutgoingVisible": 24.800000000279397,
+          "clickToOutgoingRendered": 24.700000000186265,
+          "clickToRequestStart": 14.200000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 99.20000000018626,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21,
+          "clickToOutgoingVisible": 21,
+          "clickToOutgoingRendered": 21,
+          "clickToRequestStart": 11.5,
+          "requestRoundTrip": 1501.1000000000931,
+          "receiptToSavedVisible": 102.39999999990687,
+          "clickToSavedVisible": 1615,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 34.60000000009313,
+          "clickToOutgoingVisible": 34.60000000009313,
+          "clickToOutgoingRendered": 34.60000000009313,
+          "clickToRequestStart": 18.199999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 98.6999999997206,
+          "clickToSavedVisible": 1617.1999999997206,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 23.799999999813735,
+          "clickToOutgoingVisible": 23.799999999813735,
+          "clickToOutgoingRendered": 23.799999999813735,
+          "clickToRequestStart": 11.899999999906868,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 102.89999999990687,
+          "clickToSavedVisible": 1615,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21,
+          "clickToOutgoingVisible": 21,
+          "clickToOutgoingRendered": 21,
+          "clickToRequestStart": 11.5,
+          "requestRoundTrip": 1500.6999999997206,
+          "receiptToSavedVisible": 102.20000000018626,
+          "clickToSavedVisible": 1614.3999999999069,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24,
+          "clickToOutgoingVisible": 24,
+          "clickToOutgoingRendered": 24,
+          "clickToRequestStart": 12.5,
+          "requestRoundTrip": 1500.9000000003725,
+          "receiptToSavedVisible": 108.59999999962747,
+          "clickToSavedVisible": 1622,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 26.199999999720603,
+          "clickToOutgoingVisible": 26.299999999813735,
+          "clickToOutgoingRendered": 26.199999999720603,
+          "clickToRequestStart": 14.099999999627471,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 100.5,
+          "clickToSavedVisible": 1614.7999999998137,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.799999999813735,
+          "clickToOutgoingVisible": 24.799999999813735,
+          "clickToOutgoingRendered": 24.799999999813735,
+          "clickToRequestStart": 14,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 104.8000000002794,
+          "clickToSavedVisible": 1619,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 23.700000000186265,
+          "clickToOutgoingVisible": 23.700000000186265,
+          "clickToOutgoingRendered": 23.700000000186265,
+          "clickToRequestStart": 12.300000000279397,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 100.8000000002794,
+          "clickToSavedVisible": 1613.3000000002794,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 20.700000000186265,
+          "clickToOutgoingVisible": 20.700000000186265,
+          "clickToOutgoingRendered": 20.700000000186265,
+          "clickToRequestStart": 11.600000000093132,
+          "requestRoundTrip": 1501.1999999997206,
+          "receiptToSavedVisible": 101.8000000002794,
+          "clickToSavedVisible": 1614.6000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.200000000186265,
+          "clickToOutgoingVisible": 24.299999999813735,
+          "clickToOutgoingRendered": 24.200000000186265,
+          "clickToRequestStart": 14.299999999813735,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 101.5,
+          "clickToSavedVisible": 1616.1000000000931,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.200000000186265,
+          "clickToOutgoingVisible": 22.200000000186265,
+          "clickToOutgoingRendered": 22.200000000186265,
+          "clickToRequestStart": 12.200000000186265,
+          "requestRoundTrip": 1500.3999999999069,
+          "receiptToSavedVisible": 101.89999999990687,
+          "clickToSavedVisible": 1614.5,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 33.59999999962747,
+          "clickToOutgoingVisible": 33.6999999997206,
+          "clickToOutgoingRendered": 33.59999999962747,
+          "clickToRequestStart": 17.899999999906868,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 108.40000000037253,
+          "clickToSavedVisible": 1626.5,
+          "eventTimingDuration": 40,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22,
+          "clickToOutgoingVisible": 22,
+          "clickToOutgoingRendered": 22,
+          "clickToRequestStart": 12,
+          "requestRoundTrip": 1500.6000000000931,
+          "receiptToSavedVisible": 102,
+          "clickToSavedVisible": 1614.6000000000931,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.200000000186265,
+          "clickToOutgoingVisible": 22.200000000186265,
+          "clickToOutgoingRendered": 22.200000000186265,
+          "clickToRequestStart": 11.700000000186265,
+          "requestRoundTrip": 1500.2999999998137,
+          "receiptToSavedVisible": 111.40000000037253,
+          "clickToSavedVisible": 1623.4000000003725,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 25.300000000279397,
+          "clickToOutgoingVisible": 25.300000000279397,
+          "clickToOutgoingRendered": 25.300000000279397,
+          "clickToRequestStart": 14.800000000279397,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 102.90000000037253,
+          "clickToSavedVisible": 1617.9000000003725,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.399999999906868,
+          "clickToOutgoingVisible": 21.399999999906868,
+          "clickToOutgoingRendered": 21.399999999906868,
+          "clickToRequestStart": 11.800000000279397,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 102.70000000018626,
+          "clickToSavedVisible": 1614.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.800000000279397,
+          "clickToOutgoingVisible": 24.800000000279397,
+          "clickToOutgoingRendered": 24.800000000279397,
+          "clickToRequestStart": 13.600000000093132,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 99.5,
+          "clickToSavedVisible": 1613.3000000002794,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 22.600000000093132,
+          "clickToOutgoingVisible": 22.600000000093132,
+          "clickToOutgoingRendered": 22.5,
+          "clickToRequestStart": 12.800000000279397,
+          "requestRoundTrip": 1500.1999999997206,
+          "receiptToSavedVisible": 100.70000000018626,
+          "clickToSavedVisible": 1613.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 24.5,
+          "clickToOutgoingVisible": 24.5,
+          "clickToOutgoingRendered": 24.399999999906868,
+          "clickToRequestStart": 12.699999999720603,
+          "requestRoundTrip": 1500.2000000001863,
+          "receiptToSavedVisible": 100.79999999981374,
+          "clickToSavedVisible": 1613.6999999997206,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 19.799999999813735,
+          "clickToOutgoingVisible": 19.799999999813735,
+          "clickToOutgoingRendered": 19.799999999813735,
+          "clickToRequestStart": 11.199999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 106.6999999997206,
+          "clickToSavedVisible": 1618.1999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 33.200000000186265,
+          "clickToOutgoingVisible": 33.200000000186265,
+          "clickToOutgoingRendered": 33.200000000186265,
+          "clickToRequestStart": 16.5,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 107.59999999962747,
+          "clickToSavedVisible": 1624.3999999999069,
+          "eventTimingDuration": 32,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 21.799999999813735,
+          "clickToOutgoingVisible": 21.799999999813735,
+          "clickToOutgoingRendered": 21.799999999813735,
+          "clickToRequestStart": 12.199999999720603,
+          "requestRoundTrip": 1500.3000000002794,
+          "receiptToSavedVisible": 101.1999999997206,
+          "clickToSavedVisible": 1613.6999999997206,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        },
+        {
+          "clickToFirstChangeVisible": 20.700000000186265,
+          "clickToOutgoingVisible": 20.700000000186265,
+          "clickToOutgoingRendered": 20.700000000186265,
+          "clickToRequestStart": 11.700000000186265,
+          "requestRoundTrip": 1501.2999999998137,
+          "receiptToSavedVisible": 102.70000000018626,
+          "clickToSavedVisible": 1615.7000000001863,
+          "eventTimingDuration": 24,
+          "firstChange": "text"
+        }
+      ],
+      "afterFirstClick": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentScrollWidth": 1440,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": 645,
+          "y": 221,
+          "width": 420,
+          "height": 521
+        },
+        "sendButton": {
+          "x": 963,
+          "y": 838,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": "div.flex.items-center.gap-2"
+      },
+      "geometryBeforeSends": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "documentScrollWidth": 1440,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": 645,
+          "y": 221,
+          "width": 420,
+          "height": 521
+        },
+        "sendButton": {
+          "x": 963,
+          "y": 838,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": "div.flex.items-center.gap-2"
+      },
+      "overflow": false,
+      "metrics": {
+        "clickToFirstChangeVisible": {
+          "n": 50,
+          "p50": 24.4,
+          "p95": 35.4,
+          "max": 50.5
+        },
+        "clickToOutgoingVisible": {
+          "n": 50,
+          "p50": 24.4,
+          "p95": 35.4,
+          "max": 50.5
+        },
+        "clickToOutgoingRendered": {
+          "n": 50,
+          "p50": 24.4,
+          "p95": 35.4,
+          "max": 50.5
+        },
+        "clickToRequestStart": {
+          "n": 50,
+          "p50": 13,
+          "p95": 18.5,
+          "max": 27
+        },
+        "requestRoundTrip": {
+          "n": 50,
+          "p50": 1500.3,
+          "p95": 1501.1,
+          "max": 1501.3
+        },
+        "receiptToSavedVisible": {
+          "n": 50,
+          "p50": 102.4,
+          "p95": 110.8,
+          "max": 111.4
+        },
+        "clickToSavedVisible": {
+          "n": 50,
+          "p50": 1615.9,
+          "p95": 1626.4,
+          "max": 1634.7
+        },
+        "eventTimingDuration": {
+          "n": 50,
+          "p50": 32,
+          "p95": 48,
+          "max": 56,
+          "under16ms": 0
+        }
+      },
+      "firstChangeKinds": {
+        "text": 50,
+        "spinner": 0
+      },
+      "expectedBlocked": false
     },
-    "requestRoundTrip": {
-     "n": 50,
-     "p50": 1500.2,
-     "p95": 1500.4,
-     "max": 1501.5
-    },
-    "receiptToSavedPainted": {
-     "n": 50,
-     "p50": 98.4,
-     "p95": 108.1,
-     "max": 109
-    },
-    "clickToSavedPainted": {
-     "n": 50,
-     "p50": 1606.9,
-     "p95": 1620.3,
-     "max": 1624.4
-    },
-    "eventTimingDuration": {
-     "n": 50,
-     "p50": 16,
-     "p95": 24,
-     "max": 32,
-     "under16ms": 0
+    {
+      "surface": "contact",
+      "viewport": "390x844",
+      "key": "contact@390x844",
+      "trigger": "click",
+      "status": "blocked",
+      "sends": 0,
+      "raw": [],
+      "afterFirstClick": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentScrollWidth": 390,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": -312,
+          "y": 221,
+          "width": 357,
+          "height": 465
+        },
+        "sendButton": {
+          "x": -57,
+          "y": 782,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": null
+      },
+      "reason": "The sent text rendered but never became visible to a person (size, clipping, viewport or covering element).",
+      "visibility": {
+        "firstRender": {
+          "width": 227,
+          "height": 46,
+          "cssVisible": true,
+          "visibleFraction": 0,
+          "occludedBy": null,
+          "ok": false
+        },
+        "last": {
+          "width": 227,
+          "height": 46,
+          "cssVisible": true,
+          "visibleFraction": 0,
+          "occludedBy": null,
+          "ok": false
+        }
+      },
+      "geometry": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentScrollWidth": 390,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": -312,
+          "y": 221,
+          "width": 357,
+          "height": 465
+        },
+        "sendButton": {
+          "x": -57,
+          "y": 782,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": null
+      },
+      "geometryBeforeSends": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentScrollWidth": 390,
+        "pageScroll": {
+          "x": 0,
+          "y": 0
+        },
+        "messageRegion": {
+          "x": -312,
+          "y": 221,
+          "width": 357,
+          "height": 465
+        },
+        "sendButton": {
+          "x": -57,
+          "y": 782,
+          "width": 86,
+          "height": 30
+        },
+        "atSendCenter": null
+      },
+      "overflow": false,
+      "expectedBlocked": true
     }
-   }
-  },
-  {
-   "surface": "contact",
-   "viewport": "1440x900",
-   "trigger": "click",
-   "sends": 50,
-   "overflow": false,
-   "metrics": {
-    "clickToFirstChangePainted": {
-     "n": 50,
-     "p50": 25.4,
-     "p95": 39,
-     "max": 40.1
-    },
-    "clickToOutgoingPainted": {
-     "n": 50,
-     "p50": 25.4,
-     "p95": 39,
-     "max": 40.1
-    },
-    "clickToRequestStart": {
-     "n": 50,
-     "p50": 12,
-     "p95": 17.1,
-     "max": 17.8
-    },
-    "requestRoundTrip": {
-     "n": 50,
-     "p50": 1500.3,
-     "p95": 1500.5,
-     "max": 1500.6
-    },
-    "receiptToSavedPainted": {
-     "n": 50,
-     "p50": 104.8,
-     "p95": 110,
-     "max": 115.9
-    },
-    "clickToSavedPainted": {
-     "n": 50,
-     "p50": 1617.1,
-     "p95": 1627.4,
-     "max": 1631.5
-    },
-    "eventTimingDuration": {
-     "n": 50,
-     "p50": 32,
-     "p95": 40,
-     "max": 48,
-     "under16ms": 0
-    }
-   }
-  },
-  {
-   "surface": "contact",
-   "viewport": "390x844",
-   "trigger": "Enter",
-   "sends": 50,
-   "overflow": false,
-   "metrics": {
-    "clickToFirstChangePainted": {
-     "n": 50,
-     "p50": 26.5,
-     "p95": 36,
-     "max": 37.7
-    },
-    "clickToOutgoingPainted": {
-     "n": 50,
-     "p50": 26.5,
-     "p95": 36,
-     "max": 37.7
-    },
-    "clickToRequestStart": {
-     "n": 50,
-     "p50": 8.9,
-     "p95": 13.9,
-     "max": 15.6
-    },
-    "requestRoundTrip": {
-     "n": 50,
-     "p50": 1500.3,
-     "p95": 1500.4,
-     "max": 1501
-    },
-    "receiptToSavedPainted": {
-     "n": 50,
-     "p50": 103.4,
-     "p95": 108.8,
-     "max": 113.6
-    },
-    "clickToSavedPainted": {
-     "n": 50,
-     "p50": 1613.4,
-     "p95": 1622.1,
-     "max": 1627.6
-    },
-    "eventTimingDuration": {
-     "n": 50,
-     "p50": 24,
-     "p95": 40,
-     "max": 40,
-     "under16ms": 0
-    }
-   }
-  }
- ]
+  ]
 }
