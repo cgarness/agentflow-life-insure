@@ -1,4 +1,5 @@
 import type { HistoryNames } from "@/lib/contact-history/types";
+import type { PendingSmsView } from "@/lib/sms-send/smsDisplayMerge";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
 
@@ -60,6 +61,8 @@ export interface SmsConversationItem extends ConversationItemBase {
   fromNumber: string | null;
   toNumber: string | null;
   status: string | null;
+  /** Present only on this tab's not-yet-saved manual send; saved history never carries it. */
+  pending?: PendingSmsView;
 }
 
 export interface EmailConversationItem extends ConversationItemBase {

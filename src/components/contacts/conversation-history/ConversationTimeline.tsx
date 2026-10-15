@@ -10,6 +10,7 @@ import {
   filterConversationItems,
   type ConversationFilter,
   type ConversationItem,
+  type SmsConversationItem,
 } from "./conversationTypes";
 
 const EMPTY_STATE_COPY: Record<ConversationFilter, string> = {
@@ -31,7 +32,12 @@ interface ConversationTimelineProps {
   onLoadEarlier?: () => void;
   onRefresh?: () => void;
   enrichmentUnavailable?: boolean;
+  /** Status line under an SMS item (this tab's pending sends); absent for saved history. */
+  renderSmsStatus?: (item: SmsConversationItem) => React.ReactNode;
 }
+
+/** New items are followed only while the reader is this close to the newest one. */
+const FOLLOW_WITHIN_PX = 120;
 
 /**
  * FullScreenContactView center-column Conversation History card: canonical
@@ -47,19 +53,27 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   filter,
   onFilterChange,
   dispositionColors,
-  hasMore, onLoadEarlier, onRefresh, enrichmentUnavailable,
+  hasMore, onLoadEarlier, onRefresh, enrichmentUnavailable, renderSmsStatus,
 }) => {
   const threadRef = useRef<HTMLDivElement>(null);
+  /** The reader is within FOLLOW_WITHIN_PX of the newest item (kept current by onScroll). */
+  const atNewestRef = useRef(true);
+  const shownFilterRef = useRef(filter);
 
   const filteredItems = useMemo(() => filterConversationItems(items, filter), [items, filter]);
   /** Newest-first for the dialer-aligned `flex-col-reverse` presentation. */
   const reversedItems = useMemo(() => [...filteredItems].reverse(), [filteredItems]);
 
-  const newestKey = items[items.length - 1]?.key;
+  const newest = items[items.length - 1];
+  const newestKey = newest?.key;
+  // An own pending send is always shown; other new items only while the reader is at the newest.
+  const ownSend = newest?.kind === "sms" && !!newest.pending;
   useEffect(() => {
     // flex-col-reverse keeps the newest row at scrollTop 0. Older pages must not reset it.
-    if (threadRef.current) threadRef.current.scrollTop = 0;
-  }, [newestKey, filter]);
+    const filterChanged = shownFilterRef.current !== filter;
+    shownFilterRef.current = filter;
+    if (threadRef.current && (filterChanged || ownSend || atNewestRef.current)) threadRef.current.scrollTop = 0;
+  }, [newestKey, filter, ownSend]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card border rounded-xl">
@@ -89,7 +103,11 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         </div>
       </div>
 
-      <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-2 min-h-0">
+      <div
+        ref={threadRef}
+        onScroll={(e) => { atNewestRef.current = Math.abs(e.currentTarget.scrollTop) < FOLLOW_WITHIN_PX; }}
+        className="flex-1 overflow-y-auto px-4 py-3 flex flex-col-reverse gap-2 min-h-0"
+      >
         {loading && items.length === 0 && <HistorySkeleton />}
 
         {!loading && loadError && (
@@ -107,7 +125,7 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
             if (item.kind === "call")
               return <CallHistoryItem key={item.key} item={item} dispositionColors={dispositionColors} />;
             if (item.kind === "email") return <EmailHistoryItem key={item.key} item={item} />;
-            return <SmsHistoryItem key={item.key} item={item} />;
+            return <SmsHistoryItem key={item.key} item={item} status={renderSmsStatus?.(item)} />;
           })}
         {enrichmentUnavailable && <p className="text-xs text-muted-foreground">Some agent or campaign names are unavailable. Refresh to retry.</p>}
         {hasMore && <button type="button" onClick={onLoadEarlier} disabled={loading} className="text-xs text-primary disabled:opacity-50">{loading ? "Loading…" : "Load earlier"}</button>}

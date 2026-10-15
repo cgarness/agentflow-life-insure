@@ -1,4 +1,3 @@
-import { SmsIntent } from "@/lib/sms-intent";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -19,6 +18,11 @@ import {
   type ConversationScope,
 } from "@/lib/conversationScope";
 import { isOrganizationWideViewer, AGENT_ROLE } from "@/lib/effectiveViewer";
+import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
+import type { SmsIdentityScope } from "@/lib/sms-send/pendingSmsStore";
+import { REFUSAL_MESSAGES, type SmsDraftOrigin } from "@/lib/sms-send/sendManualSms";
+
+const VIEW_AS_READ_ONLY = "View As is read-only — you can't send messages as another user.";
 
 const ConversationsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,6 +39,7 @@ const ConversationsPage = () => {
   // painted before the effect runs.
   const [selected, setSelected] = useState<{ key: string; contact: ConversationPreview | ScopedContact } | null>(null);
   const [deepLink, setDeepLink] = useState<{ key: string; state: "idle" | "resolving" | "denied" }>({ key: "", state: "idle" });
+  // EMAIL only. A manual SMS is single-flight per contact, in the shared pending-SMS store (D1).
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const { selectedCallerNumber } = useTwilio();
@@ -44,8 +49,7 @@ const ConversationsPage = () => {
   // always the real Super Admin while "View As" is active.
   const { viewer, key: viewerKey } = useEffectiveViewer();
   // READS are effective-viewer scoped and stay available under "View As"; WRITES do not.
-  const { isImpersonating, profile } = useAuth();
-  const smsIntent = useRef(new SmsIntent());
+  const { isImpersonating, profile, user } = useAuth();
   const [agentScope, setAgentScope] = useState<{ key: string; ids: string[] } | null>(null);
   const [scopeError, setScopeError] = useState<string | null>(null);
   const [scopeReloadToken, setScopeReloadToken] = useState(0);
@@ -109,6 +113,18 @@ const ConversationsPage = () => {
 
   const retryScope = useCallback(() => setScopeReloadToken((t) => t + 1), []);
 
+  // The SMS identity: the REAL actor sending as themselves, never under View As.
+  const smsScope = React.useMemo<SmsIdentityScope | null>(() => {
+    if (!selectedContact || isImpersonating || !user?.id || profile?.id !== user.id || !profile.organization_id) return null;
+    return {
+      organizationId: profile.organization_id,
+      actorId: user.id,
+      viewerId: profile.id,
+      contactType: selectedContact.contact_type,
+      contactId: selectedContact.contact_id,
+    };
+  }, [selectedContact, isImpersonating, user?.id, profile?.id, profile?.organization_id]);
+
   // ---- Deep link validation ----------------------------------------------------------------
   // A viewer change needs no clearing effect: `selectedContact` and `deepLinkState` above stop
   // matching the new `viewerKey` on the very render the identity changes.
@@ -153,12 +169,42 @@ const ConversationsPage = () => {
   };
 
   /**
-   * Send one message and report whether it actually went out.
+   * Start one manual SMS. Synchronous: no credential is read here, so the pending bubble renders
+   * from the same click. "View As" is refused FIRST, for the reason given in `handleSendMessage`.
+   * `true` means the send started (the composer was cleared through `origin`), not that it was sent.
+   */
+  const handleSubmitSms = (text: string, origin: SmsDraftOrigin): boolean => {
+    if (!selectedContact || !text.trim()) return false;
+    if (isImpersonating) {
+      toast.error(VIEW_AS_READ_ONLY);
+      return false;
+    }
+    if (!selectedContact.contact_phone) {
+      toast.error("This contact has no phone number.");
+      return false;
+    }
+    if (!smsScope || smsScope.contactId !== selectedContact.contact_id) {
+      toast.error(REFUSAL_MESSAGES.authority);
+      return false;
+    }
+    const started = manualSmsSender.submit({
+      ...smsScope,
+      to: toE164Plus(selectedContact.contact_phone),
+      body: text,
+      senderPreference: selectedCallerNumber ? toE164Plus(selectedCallerNumber) : null,
+      contactLabel: selectedContact.contact_name || null,
+      origin,
+    });
+    return "localId" in started;
+  };
+
+  /**
+   * Send one EMAIL and report whether it actually went out.
    *
    * The boolean is the contract, not a convenience. Every failure below used to `return` or be
    * swallowed by the `catch`, and the function resolved exactly as a success did — so
    * `ConversationThread` cleared the composer and the user's text was gone with nothing to retry.
-   * `true` is returned ONLY after a confirmed provider success.
+   * `true` is returned ONLY after a confirmed provider success. SMS never comes through here.
    */
   const handleSendMessage = async (text: string, channel: "sms" | "email", subject?: string): Promise<boolean> => {
     if (!selectedContact || !text.trim() || sendingRef.current) return false;
@@ -179,9 +225,10 @@ const ConversationsPage = () => {
      * operator's connected mailboxes while impersonating somebody else.
      */
     if (isImpersonating) {
-      toast.error("View As is read-only — you can't send messages as another user.");
+      toast.error(VIEW_AS_READ_ONLY);
       return false;
     }
+    if (channel !== "email") return false;
 
     sendingRef.current = true;
     setSending(true);
@@ -193,69 +240,34 @@ const ConversationsPage = () => {
         return false;
       }
 
-      if (channel === "email") {
-        const contactEmail = selectedContact.contact_email;
-        if (!contactEmail) {
-          toast.error("This contact has no email address.");
-          return false;
-        }
-
-        // Fetch first connected email if not already present
-        const connections = await emailSupabaseApi.getMyConnections();
-        const connection = connections.find(c => c.status === 'connected');
-        
-        if (!connection) {
-          toast.error("No connected email found. Go to Settings > Email Setup.");
-          return false;
-        }
-
-        const res = await emailSupabaseApi.sendContactEmail({
-          contact_id: selectedContact.contact_id,
-          to_email: contactEmail,
-          subject: subject || `Message from AgentFlow`,
-          body_text: text,
-          connection_id: connection.id,
-          from_email: connection.provider_account_email,
-          contact_type: selectedContact.contact_type
-        });
-
-        if (!res.success) throw new Error(res.error || "Failed to send email");
-        toast.success("Email sent");
-        return true;
-      } else {
-        const contactPhone = selectedContact.contact_phone;
-        if (!contactPhone) {
-          toast.error("This contact has no phone number.");
-          return false;
-        }
-
-        const base = import.meta.env.VITE_SUPABASE_URL as string;
-        const smsTo = toE164Plus(contactPhone);
-        const smsFrom = selectedCallerNumber ? toE164Plus(selectedCallerNumber) : undefined;
-        const intentPayload = [session.user.id,profile?.organization_id,selectedContact.contact_type,selectedContact.contact_id,smsTo,smsFrom,text];
-        const res = await fetch(`${base}/functions/v1/twilio-sms`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json", 
-            Authorization: `Bearer ${session.access_token}` 
-          },
-          body: JSON.stringify({
-            request_id:smsIntent.current.id(intentPayload), actor_id:session.user.id, organization_id:profile?.organization_id, view_as:isImpersonating,
-            to: smsTo,
-            from: smsFrom,
-            body: text,
-            contact_id: selectedContact.contact_id,
-            contact_type: selectedContact.contact_type,
-            lead_id: selectedContact.contact_id,
-          }),
-        });
-
-        const result = await res.json();
-        if (!result.success) throw new Error(result.error || "Failed to send SMS");
-        smsIntent.current.accepted(intentPayload);
-        toast.success("Message sent");
-        return true;
+      const contactEmail = selectedContact.contact_email;
+      if (!contactEmail) {
+        toast.error("This contact has no email address.");
+        return false;
       }
+
+      // Fetch first connected email if not already present
+      const connections = await emailSupabaseApi.getMyConnections();
+      const connection = connections.find(c => c.status === 'connected');
+
+      if (!connection) {
+        toast.error("No connected email found. Go to Settings > Email Setup.");
+        return false;
+      }
+
+      const res = await emailSupabaseApi.sendContactEmail({
+        contact_id: selectedContact.contact_id,
+        to_email: contactEmail,
+        subject: subject || `Message from AgentFlow`,
+        body_text: text,
+        connection_id: connection.id,
+        from_email: connection.provider_account_email,
+        contact_type: selectedContact.contact_type
+      });
+
+      if (!res.success) throw new Error(res.error || "Failed to send email");
+      toast.success("Email sent");
+      return true;
     } catch (err: unknown) {
       // A non-Error throw has no `.message`, and `toast.error(undefined)` tells the user nothing at
       // all — the one thing a failed send must not do now that it also keeps their draft.
@@ -299,6 +311,8 @@ const ConversationsPage = () => {
             // The RESOLVED type, from the table the contact was actually found in — never the URL.
             contactType={selectedContact.contact_type}
             onSendMessage={handleSendMessage}
+            onSubmitSms={handleSubmitSms}
+            smsScope={smsScope}
             sending={sending}
             readOnly={isImpersonating}
           />
