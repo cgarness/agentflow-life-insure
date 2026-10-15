@@ -7,7 +7,9 @@ and **implemented locally** on `feature/commission-calculator-agency-grids` (com
 **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only). The first published head was
 `3971fd0`, after merging `main` twice (#445, #446) to resolve `WORK_LOG.md` conflicts. Then came the approved CI
 corrections in §10, `2db6de2` (collation and whitespace) and the runner's `NO_COLOR` setting, each with its status
-records. Nothing is merged, deployed, imported or applied to any hosted
+records. After independent review came the approved two-finding correction in §10: unsaved drafts survive
+failed background reads, and deletion requires a revision. It changed the operations migration's checksum (§12).
+Nothing is merged, deployed, imported or applied to any hosted
 database; Supabase Preview did not run (the project is at its concurrent preview-branch limit). Production
 access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
 reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
@@ -235,7 +237,10 @@ settings entry), `src/config/settingsConfig.ts` (admin-only section list), `src/
 database). `AGENT_RULES.md` §3: the Control Center sentence "the one approved exception" now reads "an approved,
 named exception" so that adding the named Shared compensation grid exception keeps it accurate.
 `.gitattributes` (CI correction): one path-scoped rule keeps the synthetic CSV fixture's intentional CRLF bytes
-and stops `git diff --check` flagging its CRs.
+and stops `git diff --check` flagging its CRs. Independent-review correction (§10): the new
+`src/components/settings/commission-grids/LoadErrorNotice.tsx` (23 lines) and
+`src/components/settings/commission-grids/__tests__/draftPreservation.test.tsx`; the existing settings test's
+hook mock gained the access hook that the section now keys on.
 
 ### 8.2 Concurrent work
 Open PRs overlapping textually only: #442 (Google Sheets: settings config/renderer/heading test/docs), #445
@@ -297,6 +302,70 @@ plus vitest failures base vs branch, reported separately.
   GitHub Actions sets `CI`, so Vitest colored its summary and the text no longer matched. The runner now sets
   `NO_COLOR=1` on that one Vitest call. Its exit-code check and the two-passing-tests requirement are unchanged.
   No test, assertion, migration, grant or application change.
+- **Independent-review correction (approved by Chris, 2026-10-15; planned before editing).** Two findings on head
+  `c354895`. It is not a redesign: no change to grants, RLS, shared-grid access, agency authorization, the
+  importer or any other operation.
+  - **Finding 1: a background read error could destroy an unsaved draft.**
+    - *Cause.* `CommissionGridsSettings` returned an error paragraph whenever `overview.isError` or
+      `catalog.isError` was set. React Query sets these on a failed *background* refetch while keeping the last
+      good data, so an open `GridEditor` unmounted with its local draft. `GridEditor`'s own `snapshot.isError`
+      branch replaced its controls, its confirmation dialog and its Stay/Leave dialog, while
+      `useUnsavedNavigationGuard` stayed active, so a blocked navigation had nothing to answer it. After a
+      successful save, a failed refresh also left the editor disabled and still reporting unsaved changes.
+    - *Fix.* Only a failed initial load (no data) replaces a view, now with Retry. A failed background refresh
+      keeps the last good data and the mounted editor (same element position, so React keeps its state), its
+      draft, its dirty registration and both dialogs. It adds a compact alert with Retry (new
+      `LoadErrorNotice`).
+    - *Truthful saves.* `useGridEditorDraft` reports `dirty` as false while it waits for the saved snapshot,
+      because those changes are saved. A save followed by a failed refresh therefore reads "saved, the latest
+      version couldn't be loaded", with Retry. The editor is never stuck disabled.
+    - *Failed Reload.* Reload after a conflict no longer resets the draft to stale data when its refetch fails.
+    - *Scope.* The section's local state (the open editor or viewer and its draft) is keyed by user, agency and
+      access. Logout, permission loss and a user or agency change still deny access and reset it, so no
+      cached draft carries across. Drafts stay in memory only, never in browser storage.
+    - *Tests.* A new QueryClient-backed `draftPreservation.test.tsx` uses real React Query, the real hooks,
+      editor, guard and dialogs; only `adminApi`, auth and permissions are mocked. It covers:
+      - an overview refresh failure while dirty;
+      - a catalog refresh failure while dirty;
+      - a snapshot refresh failure while dirty, with the Stay/Leave dialog still answering;
+      - Retry keeping the draft;
+      - a save followed by a failed refresh, then a recovering Retry;
+      - logout, permission loss and identity change.
+
+      The tests run before the fix (expected to fail) and after it.
+  - **Finding 2: a NULL revision bypassed delete conflict protection.**
+    - *Cause.* `comp_delete_private_grid` compared `v_revision <> p_expected_revision`, which is NULL for a NULL
+      revision, so the stale check never raised.
+    - *Fix.* Refuse `p_grid_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision < 1` with 22023
+      before `comp_authz.begin_admin_operation()`, which writes and locks the agency settings row. This mirrors
+      `comp_save_grid_changes`. The locked comparison is unchanged.
+    - *Tests.* O7 gains tests as the real authenticated agency Admin. A null, zero or negative revision and a
+      null grid are refused; a stale revision is still PT409. Each refusal leaves the grid row and revision,
+      its content and references, the agency settings and the calculator selection unchanged. A shared grid
+      and agency B's private grid are refused at their current revision (PT404) and with a null revision
+      (22023). The correct revision still deletes. They run against the current migration first (expected to
+      fail) and after the fix.
+    - *Migration handling.* Production's migration history and catalog were checked read-only: no
+      `20261015…` row, no comp objects. The only Supabase preview branches (PRs #294 and #378) predate this
+      feature, and #447 has none. The pending migration is therefore corrected in place (AGENT_RULES #25), and
+      its new checksum replaces the old one in §12.
+  - **As built and verified locally** (disposable PostgreSQL 16.15 under C and `en_US.UTF-8`; synthetic data):
+    - *Finding 2, before.* With the published migration, a NULL revision deleted the agency's own grid
+      (`00000`), and a zero or negative revision fell through to a misleading PT409. The extended operations
+      suite stopped at O7f (`expected 22023 … got 00000 "ok"`).
+    - *Finding 2, after.* The new O7 tests pass: NULL, zero and negative revisions and a NULL grid return
+      22023 and change nothing, stale stays PT409, shared and foreign grids stay PT404, and the current
+      revision deletes.
+    - *Finding 1, before.* With the published frontend, 9 of the 10 new tests failed: the editor's controls
+      vanished on each refresh failure, there was no Retry and no truthful saved state, and after an identity
+      change the old editor re-opened. Permission loss already passed.
+    - *Finding 1, after.* All 10 pass.
+    - *Full checks.* The full runner passes (57 checks, CI settings). The CI frontend command: 12 files passed,
+      2 skipped by design; 168 tests passed, 2 skipped. Scoped ESLint is clean on all 62 branch source files.
+      `npx tsc --noEmit` exits 0; the app type-check has the same 84 diagnostics as at `c354895`, positions
+      included. The build, the secret-marker check and the bundle scan are clean.
+    - *Unchanged.* The access suite (`COLLATE "C"`), the runner (`NO_COLOR`, exit-code and two-tests checks),
+      `.gitattributes` and the workflows are untouched.
 - Not release-ready until those are resolved and §12 is approved.
 
 ## 11. Separate follow-up (not in this build)
@@ -335,10 +404,12 @@ Record the version each one is assigned next to its file name; never fabricate o
 | # | File | SHA-256 |
 |---|---|---|
 | 1 | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `84637cf30480ed41d529ab9f0902f4fb44a3fa0141c5c5792594898ce1f64b16` |
-| 2 | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `d7c20e1712c958d8af516884edd730004af72adc2f50f0e323adefd5b96e7bc3` |
+| 2 | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` |
 | 3 | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
 
-(Checksums are for the files at local commit `14d9fa4`. Re-verify them on the approved PR head.)
+(Files 1 and 3 are unchanged since local commit `14d9fa4`. File 2 changed in the independent-review correction
+(§10), which superseded `d7c20e1712c958d8af516884edd730004af72adc2f50f0e323adefd5b96e7bc3`; the migration had
+not been applied anywhere hosted. Re-verify all three on the approved PR head.)
 
 **4. Read-only verification.**
 - Objects, grants, policies and the SECURITY DEFINER inventory match the access-suite inventories (A10).

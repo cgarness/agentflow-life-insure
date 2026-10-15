@@ -34,7 +34,9 @@ export function useGridEditorDraft(snapshot: GridSnapshot | undefined) {
   const counter = useRef(0);
 
   const changes = useMemo(() => (base && draft ? buildChangeSet(base, draft) : {}), [base, draft]);
-  const dirty = !isEmptyChangeSet(changes);
+  // Once a save succeeded its draft IS the saved content, even while the saved snapshot is still loading
+  // (or that refresh failed): nothing is unsaved, so nothing is held or called unsaved.
+  const dirty = savedRevision === null && !isEmptyChangeSet(changes);
   const issues = useMemo(() => (draft ? validateDraft(draft) : []), [draft]);
 
   useEffect(() => {

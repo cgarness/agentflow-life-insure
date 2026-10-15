@@ -651,7 +651,9 @@ BEGIN
 END $$;
 
 -- Delete one of the caller's PRIVATE grids (cascade) at the revision the admin loaded. A calculator
--- selection pointing at it is cleared (FK ON DELETE SET NULL); nothing else is selected.
+-- selection pointing at it is cleared (FK ON DELETE SET NULL); nothing else is selected. A missing grid or
+-- a missing, zero or negative revision is refused before the operation starts (a NULL revision would
+-- otherwise skip the stale check below).
 CREATE FUNCTION public.comp_delete_private_grid(p_grid_id uuid, p_expected_revision bigint)
 RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER
@@ -663,6 +665,9 @@ DECLARE
   v_revision bigint;
   v_selected boolean;
 BEGIN
+  IF p_grid_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision < 1 THEN
+    RAISE EXCEPTION 'A grid and its current revision are required' USING ERRCODE = '22023';
+  END IF;
   v_org := comp_authz.begin_admin_operation();
   SELECT g.revision INTO v_revision FROM public.comp_grids g WHERE g.id = p_grid_id FOR UPDATE;
   IF NOT FOUND THEN

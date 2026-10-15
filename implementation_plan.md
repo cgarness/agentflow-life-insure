@@ -2,6 +2,27 @@
 
 **Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. **Implemented locally** in commits `9b615f5` (plan), `fea545d` (database layer), `44d550a` (frontend), closeout records `fb27512`, and the pre-publication `service_role` correction `14d9fa4` (read-only on the comp tables) with its records; verified on synthetic data only (`docs/plans/2026-10-15-commission-calculator/verification.md`). **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only): first head `3971fd0` (after merging `main` twice, #445 and #446, to resolve `WORK_LOG.md` conflicts), then the approved CI correction `2db6de2` (A10f collation-independent ordering, one path-scoped `.gitattributes` rule for the CRLF synthetic fixture, one plan whitespace fix) and its status records, then the approved runner correction setting `NO_COLOR=1` on the editor save-contract Vitest call (on `10e1a73` the 17.6 job passed that test 2 of 2, but the runner's plain-text summary check missed Vitest's colored CI output) with its records. No merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized or was done; Supabase Preview did not run (concurrent preview-branch limit); production stays read-only (advisor reads included). **Not release-ready:** the private FFL import, reconciliation and source-backed acceptance are BLOCKED on the CSV and a named durable private location, and the PostgreSQL 17.6 re-run on the corrected head is recorded in PR #447. Release needs separate approval of the consolidated release proposal (plan §12). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 
+**Independent-review correction (Chris approved 2026-10-15; planned here before any edit; details in plan §10).** Two findings on head `c354895`, fixed on the same draft PR:
+1. **A background read error could destroy an unsaved draft.** Settings › Commission Grids replaced the page when a background overview or catalog refresh failed, unmounting an open editor and its draft. The editor's own snapshot-error branch hid its controls and its Stay/Leave dialog while the navigation guard stayed active. **Fix:** only a failed *initial* load replaces a view. A failed background refresh keeps the last good data, the open editor, its draft, its dirty registration and its dialogs, and shows a compact error with Retry. A save followed by a failed refresh reads as saved, with Retry, not as unsaved or permanently disabled. Logout, permission loss and a user or agency change still remove access and reset the open editor, so no draft carries across. Drafts stay in memory only.
+2. **A NULL revision bypassed delete conflict protection.** `comp_delete_private_grid` will refuse a missing grid id or a missing, zero or negative revision (22023) before the admin operation starts. The locked revision comparison stays as it is.
+
+The operations migration is unapplied on every hosted database: production's migration history and catalog were checked read-only, and no preview branch has it. It is therefore corrected in place (rule #25), and its checksum is updated in the release records. **Intended files:**
+- `supabase/migrations/20261015120100_commission_grids_operations.sql`
+- `supabase/tests/commission_grids_operations.sql`
+- `src/components/settings/commission-grids/CommissionGridsSettings.tsx` and `GridEditor.tsx`
+- `src/hooks/useGridEditorDraft.ts`
+- a new `src/components/settings/commission-grids/LoadErrorNotice.tsx`
+- a new QueryClient-backed test, `src/components/settings/commission-grids/__tests__/draftPreservation.test.tsx`
+- records: this file, the detailed plan (§8.1, §10, §12), `verification.md`, `WORK_LOG.md`, and one line in the `AGENT_RULES.md` commission invariant
+
+`useCommissionGridsAdmin.ts` was reviewed and is not expected to change.
+
+**Implemented and verified locally** (plan §10):
+- **Regression tests:** before the fix, the new tests reproduced both findings; after it, they pass.
+- **Other checks:** the full database runner, the frontend job's tests, scoped ESLint, both type-checks (the same 84 app diagnostics as before) and the build all pass.
+- **Checksums:** the operations migration's checksum is now `7e3caad6…` (it was `d7c20e17…`). The other migrations, the ops scripts and the fixture are unchanged.
+- **CI:** results for the new revision go in the PR description.
+
 **Decisions:**
 - **D1:** the real FFL source stays private (never in Git, public CI, PR text, screenshots or public docs, including the carrier-specific acceptance expectations). Reference data loads through a documented private-import workflow; all DDL stays in committed migrations.
 - **D2:** `#APPROVE_RLS_CHANGE` for authoring and local testing of the new compensation tables' policies only, documented as the **Shared compensation grid exception**.

@@ -710,6 +710,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - Never grant direct table writes, to clients or to `service_role` (it holds SELECT only). Never add a shortcut around the operations.
 - Lock order: agency settings row → grid → access row → product → child rows. Privileged multi-agency deactivation locks the selecting settings rows (ordered) before the grid.
 - Edits are one atomic change set at the loaded `revision`. A stale save is refused (PT409) and never merged or overwritten.
+- An expected revision is mandatory: a NULL makes the stale comparison NULL and skips it. Save and delete refuse a NULL revision (22023) before `comp_authz.begin_admin_operation()`, which writes. Delete also refuses a zero or negative revision.
 
 **Exact values.**
 - `rate_percent` is unconstrained `numeric` with `CHECK (0 ≤ x ≤ 300 AND x = round(x, 2))`. Never use `numeric(6,2)`: it rounds before the check.
@@ -730,6 +731,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - Neither surface is a View As surface: no query is issued under View As.
 - Contract levels are parsed strictly and never defaulted, nearest-matched or written back.
 - Settings › Commission Grids is admin-only through `ADMIN_ONLY_SETTINGS_SECTIONS`. Never add it to `SETTINGS_CONFIG`: every section there inherits Agent / Team Leader access by default.
+- A failed background read never unmounts the grid editor or discards its draft. React Query keeps the last good data and sets `isError`, so only a failed *initial* load (no data) may replace a view. Otherwise keep the editor at the same element position, with its controls, dialogs and navigation guard, and show a compact error with Retry. The draft lives in memory only and resets on any user, agency or access change.
 
 **Verification.**
 - Run `scripts/run_commission_grids_tests.sh` on a disposable loopback cluster only (invariant #28).

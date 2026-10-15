@@ -10,6 +10,7 @@ import { CommissionApiError } from "@/lib/commission/errors";
 import ConfirmActionDialog, { type PendingConfirmation } from "./ConfirmActionDialog";
 import ContractLevelsSection from "./ContractLevelsSection";
 import GridDetailsSection from "./GridDetailsSection";
+import LoadErrorNotice from "./LoadErrorNotice";
 import { errorMessage, lastEdited } from "./gridFormat";
 import { draftRows } from "./matrixRows";
 import ProductsSection from "./ProductsSection";
@@ -54,7 +55,12 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
   const rows = useMemo(() => (draft ? draftRows(draft) : []), [draft]);
   const summary = [...new Set(issues.filter((i) => !i.ref || i.scope === "rate").map((i) => i.message))];
 
-  if (snapshot.isError) return <p role="alert" className="text-sm text-destructive">{errorMessage(snapshot.error)}</p>;
+  const retryRefresh = () => void snapshot.refetch();
+  // Only a failed INITIAL load (no draft yet, so nothing is held) replaces the editor. A failed background
+  // refresh keeps the draft, the controls and both dialogs below, with a compact error and Retry.
+  if (snapshot.isError && !snapshot.data) {
+    return <LoadErrorNotice message={errorMessage(snapshot.error)} onRetry={retryRefresh} retrying={snapshot.isFetching} />;
+  }
   if (!draft || !base) {
     return (
       <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -92,9 +98,13 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
   };
   const reload = async () => {
     const fresh = await snapshot.refetch();
-    if (fresh.data) editor.reset(fresh.data);
+    if (fresh.isError || !fresh.data) return; // keep the draft and the conflict; the refresh error offers Retry
+    editor.reset(fresh.data);
     setConflict(false);
   };
+  const refreshMessage = editor.awaitingSaved
+    ? "Your changes were saved, but the latest version of this grid couldn't be loaded."
+    : editor.dirty ? "Couldn't refresh this grid. Your unsaved changes are still here." : "Couldn't refresh this grid.";
   const ask = (pending: PendingConfirmation) => setConfirmation(pending);
   const leaveEditor = () =>
     editor.dirty
@@ -109,6 +119,7 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
         </Button>
         <p className="text-xs text-muted-foreground">{lastEdited(base.grid.updatedAt, base.grid.updatedByName)}</p>
       </div>
+      {snapshot.isError && <LoadErrorNotice message={refreshMessage} onRetry={retryRefresh} retrying={snapshot.isFetching} />}
       {(conflict || editor.newerRevision) && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm">
           <span className="flex items-center gap-2">

@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useCommissionGridsAdmin", () => ({
+  useCommissionGridsAdminAccess: () => ({ ...h.access, userId: "synthetic-admin", organizationId: "synthetic-agency" }),
   useCommissionGridsData: () => ({
     access: h.access,
     overview: { data: h.overview, isError: false, error: null },

@@ -398,15 +398,49 @@ BEGIN
   RAISE NOTICE 'O6 overview and snapshot: ok';
 END $$;
 
--- O7. Deletion.
+-- What a refused deletion must leave untouched (owner-level): the grid row with its revision, its content and
+-- references, and the agency's settings (calculator selection) and access rows.
+CREATE OR REPLACE FUNCTION comp_test.delete_state(p_grid uuid, p_org uuid) RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'grid', (SELECT to_jsonb(g) FROM public.comp_grids g WHERE g.id = p_grid),
+    'content', to_jsonb(comp_test.content(p_grid)),
+    'settings', (SELECT to_jsonb(s) FROM public.organization_comp_settings s WHERE s.organization_id = p_org),
+    'access', (SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.grid_id), '[]'::jsonb)
+                 FROM public.organization_comp_grids x WHERE x.organization_id = p_org))
+$$;
+
+-- O7. Deletion, as the real agency Admin. Only the current revision deletes; a missing grid or a missing,
+-- zero or negative revision is refused before the operation starts, and no refusal changes anything.
 DO $$
-DECLARE v jsonb; a uuid := comp_test.p('admin_a');
+DECLARE v jsonb; a uuid := comp_test.p('admin_a'); b uuid := comp_test.p('admin_b');
   org_a constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  org_b constant uuid := 'bbbbbbbb-0000-0000-0000-00000000000b';
   s1 constant uuid := '51000000-0000-0000-0000-000000000001';
   g uuid := comp_test.gid('Full one'); s1_content text[] := comp_test.content('51000000-0000-0000-0000-000000000001');
+  g_b uuid; before_a jsonb; before_s1 jsonb; before_b jsonb;
+  c_invalid constant text := 'A grid and its current revision are required';
 BEGIN
+  PERFORM comp_test.check('O7 setup: the grid under test is agency A''s calculator grid',
+    (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = org_a) = g);
+  before_a := comp_test.delete_state(g, org_a);
   PERFORM comp_test.op_refused('O7a deleting at a stale revision', a, format('SELECT public.comp_delete_private_grid(%L, %s)', g, comp_test.rev(g) - 1), 'PT409');
+  PERFORM comp_test.op_refused('O7f a null revision', a, format('SELECT public.comp_delete_private_grid(%L, NULL)', g), '22023', c_invalid);
+  PERFORM comp_test.op_refused('O7g a zero revision', a, format('SELECT public.comp_delete_private_grid(%L, 0)', g), '22023', c_invalid);
+  PERFORM comp_test.op_refused('O7h a negative revision', a, format('SELECT public.comp_delete_private_grid(%L, -1)', g), '22023', c_invalid);
+  PERFORM comp_test.op_refused('O7i no grid', a, 'SELECT public.comp_delete_private_grid(NULL, 1)', '22023', c_invalid);
+  PERFORM comp_test.check('O7j the refusals left the grid, its revision, content and references, the settings and the selection unchanged',
+    comp_test.delete_state(g, org_a) = before_a);
+  before_s1 := comp_test.delete_state(s1, org_a);
   PERFORM comp_test.op_refused('O7b a shared grid cannot be deleted by an agency', a, format('SELECT public.comp_delete_private_grid(%L, %s)', s1, comp_test.rev(s1)), 'PT404');
+  PERFORM comp_test.op_refused('O7k nor with a null revision', a, format('SELECT public.comp_delete_private_grid(%L, NULL)', s1), '22023', c_invalid);
+  v := comp_test.op_ok('O7l agency B creates a private grid', b, $q$SELECT public.comp_create_private_grid('blank', 'B private', '2025-06-01')$q$);
+  g_b := (v->>'grid_id')::uuid;
+  before_b := comp_test.delete_state(g_b, org_b);
+  PERFORM comp_test.op_refused('O7m another agency''s private grid at its current revision', a, format('SELECT public.comp_delete_private_grid(%L, %s)', g_b, comp_test.rev(g_b)), 'PT404');
+  PERFORM comp_test.op_refused('O7n nor with a null revision', a, format('SELECT public.comp_delete_private_grid(%L, NULL)', g_b), '22023', c_invalid);
+  PERFORM comp_test.check('O7o the shared grid, the other agency''s grid and agency A are unchanged',
+    comp_test.delete_state(s1, org_a) = before_s1 AND comp_test.delete_state(g_b, org_b) = before_b
+    AND comp_test.delete_state(g, org_a) = before_a);
   v := comp_test.op_ok('O7c delete the selected private grid', a, format('SELECT public.comp_delete_private_grid(%L, %s)', g, comp_test.rev(g)));
   PERFORM comp_test.check('O7d deleted with all content; selection cleared; the shared source untouched',
     v @> '{"deleted": true, "cleared_selection": true}'
