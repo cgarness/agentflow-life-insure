@@ -144,17 +144,25 @@ expect_failure 'ops availability fails closed while that grid has no verified im
 expect_failure 'ops activation fails closed while that grid has no verified import here' 'no verified reference import' -- \
   env PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 
+echo '== 3b. production-style restricted SET probe'
+sql -c "DROP ROLE IF EXISTS comp_restricted_set_probe; CREATE ROLE comp_restricted_set_probe NOLOGIN NOSUPERUSER; GRANT USAGE,CREATE ON SCHEMA public TO comp_restricted_set_probe; GRANT comp_restricted_set_probe TO postgres" >/dev/null
+expect_failure 'non-super function owner cannot use a restricted SET parameter' 'permission denied to set parameter' -- sql -c "SET ROLE comp_restricted_set_probe; CREATE FUNCTION public.comp_restricted_set_probe_fn() RETURNS void LANGUAGE plpgsql SET session_replication_role='replica' AS \\$\\$ BEGIN NULL; END \\$\\$"
+sql -c "REVOKE comp_restricted_set_probe FROM postgres; DROP ROLE comp_restricted_set_probe" >/dev/null
+
 echo '== 4. negative controls (each weakening must make a named assertion fail)'
 sed 's/,87\.50,/,87.5,/' "$FIXTURE" > "$TEMP/tampered.csv"
 cmp -s "$FIXTURE" "$TEMP/tampered.csv" && { echo 'FAIL: tampering did not change the CSV'; exit 1; }
 expect_failure 'reconciliation catches one changed source value' 'reconciliation FAIL' -- \
   sql -v grid_id="$GRID_ID" -f "$ROOT/scripts/comp_grids/reconcile_reference_grid.sql" < "$TEMP/tampered.csv"
-new_db neg_trigger
-sql -c "CREATE OR REPLACE FUNCTION private.comp_require_operation_context() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN IF TG_OP = 'DELETE' THEN RETURN OLD; END IF; RETURN NEW; END \$\$" >/dev/null
-expect_failure 'access suite detects a no-op operation-context trigger' 'A8a' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
 new_db neg_grant
 sql -c 'GRANT UPDATE (organization_id) ON public.comp_grids TO authenticated' >/dev/null
-expect_failure 'access suite detects a widened column grant' 'A8n' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+expect_failure 'access suite detects a widened browser grant' 'A10h' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+new_db neg_role
+sql -c 'ALTER ROLE agentflow_comp_operator BYPASSRLS' >/dev/null
+expect_failure 'access suite detects a BYPASSRLS operation role' 'A10e' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+new_db neg_membership
+sql -c 'GRANT agentflow_comp_operator TO authenticated' >/dev/null
+expect_failure 'access suite detects client membership in operation role' 'A10f' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
 new_db neg_availability
 weaken "$ROOT/supabase/migrations/${MIGRATIONS[0]}.sql" 'CREATE FUNCTION private.comp_access_rules()' \
   '\n  PERFORM 1 FROM public\.organization_comp_grid_availability v\n.*?FOR SHARE;\n  IF NOT FOUND THEN\n.*?\n  END IF;' > "$TEMP/neg_access_rules.sql"
@@ -194,7 +202,8 @@ sql -1 -f "$RB/${MIGRATIONS[0]}.rollback.sql" >/dev/null
 LEFT=$(sql -tA -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND (c.relname LIKE 'comp\_%' OR c.relname LIKE 'organization\_comp\_%')")
 LEFT=$((LEFT + $(sql -tA -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE (n.nspname IN ('public','private') AND (p.proname LIKE 'comp\_%' OR p.proname LIKE '%commission\_calculator%')) OR n.nspname = 'comp_authz'")))
 LEFT=$((LEFT + $(sql -tA -c "SELECT count(*) FROM pg_namespace WHERE nspname = 'comp_authz'")))
-[ "$LEFT" = 0 ] || { echo "FAIL: $LEFT commission object(s) left after rollback"; exit 1; }
+LEFT=$((LEFT + $(sql -tA -c "SELECT count(*) FROM pg_roles WHERE rolname = 'agentflow_comp_operator'")))
+[ "$LEFT" = 0 ] || { echo "FAIL: $LEFT commission object(s)/role(s) left after rollback"; exit 1; }
 echo '   ok   empty-database rollback leaves no commission object'
 for m in "${MIGRATIONS[@]}"; do sql -1 -f "$ROOT/supabase/migrations/$m.sql" >/dev/null; done
 echo '   ok   migrations re-apply cleanly after rollback'

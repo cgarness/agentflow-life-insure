@@ -1,6 +1,6 @@
 -- =====================================================================================================
 -- Commission grids — access suite: permission matrix as REAL non-bypass client roles (anon /
--- authenticated with JWT claims), direct table writes, forged claims, a forged operation context, peer
+-- authenticated with JWT claims), direct table writes, forged claims, operation-role isolation, peer
 -- agencies, and the function/table privilege and SECURITY DEFINER inventories.
 -- LOCAL disposable database only (invariant #28). Synthetic data only.
 -- =====================================================================================================
@@ -189,125 +189,47 @@ BEGIN
   RAISE NOTICE 'A6 super admin home org and forged claims: ok';
 END $$;
 
--- A7. Direct table writes are refused for every client, admins included (no operation context).
+-- A7. Browser roles have no base-table write privileges.
 DO $$
-DECLARE r record; who text; v_private uuid; v_product uuid; v_variant uuid;
+DECLARE r record; who text; v_private uuid; q text;
 BEGIN
-  SELECT id INTO v_private FROM public.comp_grids WHERE name = 'A private';
-  SELECT id INTO v_product FROM public.comp_products WHERE grid_id = v_private AND category = 'whole_life';
-  SELECT id INTO v_variant FROM public.comp_product_variants WHERE product_id = v_product AND label = '0-70';
-  FOREACH who IN ARRAY ARRAY['admin_a', 'agent_a'] LOOP
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'direct', '2025-01-01', ARRAY[100], 'blank') RETURNING to_jsonb(id)$q$);
-    PERFORM comp_test.refused('A7 ' || who || ' direct grid insert', r.out_state, r.out_message, '42501');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), format('INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES (%L, %L, %L, %L, %L) RETURNING to_jsonb(id)', v_private, 'aaaaaaaa-0000-0000-0000-00000000000a', 'term', 'Direct', 'Direct'));
-    PERFORM comp_test.refused('A7 ' || who || ' direct product insert', r.out_state, r.out_message, '42501');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), format('INSERT INTO public.comp_rates (grid_id, variant_id, organization_id, contract_level, rate_percent) VALUES (%L, %L, %L, 110, 1) RETURNING to_jsonb(id)', v_private, v_variant, 'aaaaaaaa-0000-0000-0000-00000000000a'));
-    PERFORM comp_test.refused('A7 ' || who || ' direct rate insert', r.out_state, r.out_message, '42501');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), $q$INSERT INTO public.organization_comp_grids (organization_id, grid_id) VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', '52000000-0000-0000-0000-000000000001') ON CONFLICT DO NOTHING RETURNING to_jsonb(grid_id)$q$);
-    PERFORM comp_test.refused('A7 ' || who || ' direct access insert', r.out_state, r.out_message, '42501');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), format('WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', v_private));
-    PERFORM comp_test.check('A7 ' || who || ' direct rate update touches nothing', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), format('WITH x AS (DELETE FROM public.comp_grids WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', v_private));
-    PERFORM comp_test.check('A7 ' || who || ' direct grid delete touches nothing', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), $q$WITH x AS (UPDATE public.organization_comp_settings SET calculator_grid_id = NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-    PERFORM comp_test.check('A7 ' || who || ' direct settings update touches nothing', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), $q$WITH x AS (DELETE FROM public.organization_comp_grids RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-    PERFORM comp_test.check('A7 ' || who || ' direct access delete touches nothing', r.out_state = '00000' AND r.out_result = '0'::jsonb);
+ SELECT id INTO v_private FROM public.comp_grids WHERE name='A private';
+ FOREACH who IN ARRAY ARRAY['admin_a','agent_a'] LOOP
+  FOREACH q IN ARRAY ARRAY[
+   format('INSERT INTO public.comp_grids (organization_id,name,effective_date,contract_levels,origin) VALUES (%L,%L,%L,ARRAY[100],%L) RETURNING to_jsonb(id)','aaaaaaaa-0000-0000-0000-00000000000a','direct','2025-01-01','blank'),
+   format('UPDATE public.comp_grids SET name=%L WHERE id=%L RETURNING to_jsonb(id)','direct update',v_private),
+   format('DELETE FROM public.comp_grids WHERE id=%L RETURNING to_jsonb(id)',v_private),
+   'UPDATE public.organization_comp_settings SET calculator_grid_id=NULL RETURNING to_jsonb(organization_id)',
+   'DELETE FROM public.organization_comp_grids RETURNING to_jsonb(grid_id)'] LOOP
+   SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who),q);
+   PERFORM comp_test.refused('A7 '||who||' direct write',r.out_state,r.out_message,'42501','permission denied%');
   END LOOP;
-  PERFORM comp_test.check('A7z selection unchanged after the attempts',
-    (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a') = '51000000-0000-0000-0000-000000000001');
-  RAISE NOTICE 'A7 direct table writes refused: ok';
+ END LOOP;
+ PERFORM comp_test.check('A7z selection unchanged',(SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id='aaaaaaaa-0000-0000-0000-00000000000a')='51000000-0000-0000-0000-000000000001');
+ RAISE NOTICE 'A7 browser base-table writes: ok';
 END $$;
 
--- A8. Defense in depth. PostgREST clients have no way to set agentflow.comp_operation; only the
--- operations set it (function-level SET). Here it is FORGED for the whole block, standing in for a
--- hypothetical buggy operation: the operation-context trigger (00) still refuses every row outside the
--- caller's own agency or by a non-admin BEFORE any SECURITY DEFINER trigger runs (so before any lock),
--- RLS hides other rows from UPDATE/DELETE, and column privileges keep ownership/audit columns fixed.
-DO $$
-DECLARE r record; v_b uuid; v_private uuid;
-BEGIN
-  SELECT id INTO v_b FROM public.comp_grids WHERE name = 'B private';
-  SELECT id INTO v_private FROM public.comp_grids WHERE name = 'A private';
-  PERFORM set_config('agentflow.comp_operation', 'on', true);
-
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES ('51000000-0000-0000-0000-000000000001', NULL, 'term', 'Forged', 'Forged') RETURNING to_jsonb(id)$q$);
-  PERFORM comp_test.refused('A8a shared product row (NULL org)', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES ('51000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-00000000000a', 'term', 'Forged', 'Forged') RETURNING to_jsonb(id)$q$);
-  PERFORM comp_test.refused('A8b own-org row under the shared grid (shared grid never locked)', r.out_state, r.out_message, '23503', 'Grid not found');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES (%L, %L, %L, %L, %L) RETURNING to_jsonb(id)', v_b, 'aaaaaaaa-0000-0000-0000-00000000000a', 'term', 'Forged', 'Forged'));
-  PERFORM comp_test.refused('A8c own-org row under another agency''s grid', r.out_state, r.out_message, '23503', 'Grid not found');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES (%L, %L, %L, %L, %L) RETURNING to_jsonb(id)', v_b, 'bbbbbbbb-0000-0000-0000-00000000000b', 'term', 'Forged', 'Forged'));
-  PERFORM comp_test.refused('A8d another agency''s row', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES (NULL, 'Manufactured', '2025-01-01', ARRAY[100], 'agentflow_reference') RETURNING to_jsonb(id)$q$);
-  PERFORM comp_test.refused('A8e an agency cannot manufacture a shared grid', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.organization_comp_grids (organization_id, grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '52000000-0000-0000-0000-000000000001') RETURNING to_jsonb(grid_id)$q$);
-  PERFORM comp_test.refused('A8f enabling for another agency', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.organization_comp_settings (organization_id, calculator_grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', NULL) RETURNING to_jsonb(organization_id)$q$);
-  PERFORM comp_test.refused('A8g settings for another agency', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.organization_comp_settings SET calculator_grid_id = %L WHERE organization_id = %L RETURNING to_jsonb(calculator_grid_id)', v_b, 'aaaaaaaa-0000-0000-0000-00000000000a'));
-  PERFORM comp_test.refused('A8h selecting another agency''s private grid', r.out_state, r.out_message, 'PT404');
-
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE grid_id = '51000000-0000-0000-0000-000000000001' RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-  PERFORM comp_test.check('A8i shared rates not updatable', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$WITH x AS (UPDATE public.comp_grids SET is_active = false WHERE id = '51000000-0000-0000-0000-000000000001' RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-  PERFORM comp_test.check('A8j shared grid cannot be deactivated by an agency', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$WITH x AS (DELETE FROM public.comp_products WHERE grid_id = '51000000-0000-0000-0000-000000000001' RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-  PERFORM comp_test.check('A8k shared products not deletable', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('WITH x AS (UPDATE public.comp_grids SET name = %L WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', 'Hijack', v_b));
-  PERFORM comp_test.check('A8l another agency''s private grid not updatable', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('WITH x AS (DELETE FROM public.comp_grids WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', v_b));
-  PERFORM comp_test.check('A8m another agency''s private grid not deletable', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.comp_grids SET organization_id = NULL WHERE id = %L RETURNING to_jsonb(id)', v_private));
-  PERFORM comp_test.refused('A8n ownership column not writable', r.out_state, r.out_message, '42501', 'permission denied%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.comp_grids SET revision = 1 WHERE id = %L RETURNING to_jsonb(id)', v_private));
-  PERFORM comp_test.refused('A8o revision not writable', r.out_state, r.out_message, '42501', 'permission denied%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.comp_grids SET updated_by = %L WHERE id = %L RETURNING to_jsonb(id)', 'bbbbbbbb-0000-0000-0000-0000000000ad', v_private));
-  PERFORM comp_test.refused('A8p audit actor not writable (spoofing)', r.out_state, r.out_message, '42501', 'permission denied%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.comp_rates SET contract_level = 90 WHERE grid_id = %L RETURNING to_jsonb(id)', v_private));
-  PERFORM comp_test.refused('A8q a rate cannot move level', r.out_state, r.out_message, '42501', 'permission denied%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('UPDATE public.comp_products SET grid_id = %L WHERE grid_id = %L RETURNING to_jsonb(id)', v_b, v_private));
-  PERFORM comp_test.refused('A8r a product cannot move grid', r.out_state, r.out_message, '42501', 'permission denied%');
-
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'Agent grid', '2025-01-01', ARRAY[100], 'blank') RETURNING to_jsonb(id)$q$);
-  PERFORM comp_test.refused('A8s an agent still cannot write', r.out_state, r.out_message, '42501', 'Only an agency admin%');
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), format('WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', v_private));
-  PERFORM comp_test.check('A8t an agent still cannot update', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), 'SELECT to_jsonb(count(*)) FROM public.comp_variant_references');
-  PERFORM comp_test.check('A8u an agent still cannot read references', r.out_state = '00000' AND r.out_result = '0'::jsonb);
-  PERFORM set_config('agentflow.comp_operation', '', true);
-  RAISE NOTICE 'A8 forged operation context still refused: ok';
-END $$;
-
--- A8 (layer independence). With the operation-context trigger DISABLED inside a probe that is always
--- rolled back, RLS alone still refuses the same forged writes. Proves the two layers do not depend on
--- each other.
+-- A8. Operation-role trigger and RLS independently enforce the real actor.
 DO $$
 DECLARE r record; v_b uuid;
 BEGIN
-  SELECT id INTO v_b FROM public.comp_grids WHERE name = 'B private';
-  BEGIN
-    ALTER TABLE public.comp_products DISABLE TRIGGER comp_00_operation_context;
-    ALTER TABLE public.comp_grids DISABLE TRIGGER comp_00_operation_context;
-    ALTER TABLE public.organization_comp_grids DISABLE TRIGGER comp_00_operation_context;
-    PERFORM set_config('agentflow.comp_operation', 'on', true);
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES ('51000000-0000-0000-0000-000000000001', NULL, 'term', 'Forged', 'Forged') RETURNING to_jsonb(id)$q$);
-    PERFORM comp_test.refused('A8v RLS alone: shared product row', r.out_state, r.out_message, '42501', '%row-level security%');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES (%L, %L, %L, %L, %L) RETURNING to_jsonb(id)', v_b, 'bbbbbbbb-0000-0000-0000-00000000000b', 'term', 'Forged', 'Forged'));
-    PERFORM comp_test.refused('A8w RLS alone: another agency''s row', r.out_state, r.out_message, '42501', '%row-level security%');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES (NULL, 'Manufactured', '2025-01-01', ARRAY[100], 'agentflow_reference') RETURNING to_jsonb(id)$q$);
-    PERFORM comp_test.refused('A8x RLS alone: manufactured shared grid', r.out_state, r.out_message, '42501', '%row-level security%');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'Agent grid', '2025-01-01', ARRAY[100], 'blank') RETURNING to_jsonb(id)$q$);
-    PERFORM comp_test.refused('A8y RLS alone: agent write', r.out_state, r.out_message, '42501', '%row-level security%');
-    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), $q$INSERT INTO public.organization_comp_grids (organization_id, grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '52000000-0000-0000-0000-000000000001') RETURNING to_jsonb(grid_id)$q$);
-    PERFORM comp_test.refused('A8z RLS alone: enabling for another agency', r.out_state, r.out_message, '42501', '%row-level security%');
-    RAISE EXCEPTION USING ERRCODE = 'P0099', MESSAGE = 'probe rollback';
-  EXCEPTION WHEN SQLSTATE 'P0099' THEN
-    NULL;
-  END;
-  PERFORM comp_test.check('A8 probe rolled back: triggers enabled again',
-    (SELECT bool_and(t.tgenabled = 'O') FROM pg_trigger t WHERE t.tgname = 'comp_00_operation_context'));
-  RAISE NOTICE 'A8 RLS alone (trigger layer removed in a rolled-back probe): ok';
+ SELECT id INTO v_b FROM public.comp_grids WHERE name='B private';
+ SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'),$q$WITH forged AS (SELECT set_config('agentflow.comp_operation','on',true)) INSERT INTO public.comp_grids(organization_id,name,effective_date,contract_levels,origin) SELECT 'aaaaaaaa-0000-0000-0000-00000000000a','forged','2025-01-01',ARRAY[100],'blank' FROM forged RETURNING to_jsonb(id)$q$);
+ PERFORM comp_test.refused('A8a forged legacy GUC irrelevant',r.out_state,r.out_message,'42501','permission denied%');
+ SELECT * INTO r FROM comp_test.run_as('agentflow_comp_operator',comp_test.claims(comp_test.p('admin_a'),'aaaaaaaa-0000-0000-0000-00000000000a','Admin'),$q$INSERT INTO public.comp_products(grid_id,organization_id,category,carrier,product_name) VALUES('51000000-0000-0000-0000-000000000001',NULL,'term','Forged','Forged') RETURNING to_jsonb(id)$q$);
+ PERFORM comp_test.refused('A8b trigger shared row',r.out_state,r.out_message,'42501','Only an agency admin%');
+ SELECT * INTO r FROM comp_test.run_as('agentflow_comp_operator',comp_test.claims(comp_test.p('admin_a'),'aaaaaaaa-0000-0000-0000-00000000000a','Admin'),format('INSERT INTO public.comp_products(grid_id,organization_id,category,carrier,product_name) VALUES(%L,%L,%L,%L,%L) RETURNING to_jsonb(id)',v_b,'bbbbbbbb-0000-0000-0000-00000000000b','term','Forged','Forged'));
+ PERFORM comp_test.refused('A8c trigger cross-org',r.out_state,r.out_message,'42501','Only an agency admin%');
+ SELECT * INTO r FROM comp_test.run_as('agentflow_comp_operator',comp_test.claims(comp_test.p('agent_a'),'aaaaaaaa-0000-0000-0000-00000000000a','Agent'),$q$INSERT INTO public.comp_grids(organization_id,name,effective_date,contract_levels,origin) VALUES('aaaaaaaa-0000-0000-0000-00000000000a','Agent forged','2025-01-01',ARRAY[100],'blank') RETURNING to_jsonb(id)$q$);
+ PERFORM comp_test.refused('A8d trigger non-admin',r.out_state,r.out_message,'42501','Only an agency admin%');
+ BEGIN
+  ALTER TABLE public.comp_products DISABLE TRIGGER comp_00_operation_context;
+  SELECT * INTO r FROM comp_test.run_as('agentflow_comp_operator',comp_test.claims(comp_test.p('admin_a'),'aaaaaaaa-0000-0000-0000-00000000000a','Admin'),format('INSERT INTO public.comp_products(grid_id,organization_id,category,carrier,product_name) VALUES(%L,%L,%L,%L,%L) RETURNING to_jsonb(id)',v_b,'bbbbbbbb-0000-0000-0000-00000000000b','term','Forged','Forged'));
+  PERFORM comp_test.refused('A8e RLS alone cross-org',r.out_state,r.out_message,'42501','%row-level security%');
+  RAISE EXCEPTION USING ERRCODE='P0099',MESSAGE='rollback';
+ EXCEPTION WHEN SQLSTATE 'P0099' THEN NULL; END;
+ PERFORM comp_test.check('A8f trigger restored',(SELECT bool_and(t.tgenabled='O') FROM pg_trigger t WHERE t.tgname='comp_00_operation_context'));
+ RAISE NOTICE 'A8 operation-role isolation: ok';
 END $$;
 
 -- A9. service_role: read-only. No client operations, no import, and no direct write to any comp table, so a
@@ -342,103 +264,26 @@ BEGIN
   RAISE NOTICE 'A9 service_role (read-only): ok';
 END $$;
 
--- A10. Privilege and SECURITY DEFINER inventories.
+-- A10. Privilege, role and SECURITY DEFINER inventories.
 DO $$
-DECLARE v_bad text;
+DECLARE v_bad text; v_role record;
 BEGIN
-  SELECT string_agg(n.nspname || '.' || p.proname, ', ') INTO v_bad
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE (p.proname LIKE 'comp\_%' OR n.nspname = 'comp_authz' OR p.proname LIKE '%commission_calculator%')
-     AND n.nspname IN ('public', 'private', 'comp_authz')
-     AND has_function_privilege('anon', p.oid, 'EXECUTE');
-  PERFORM comp_test.check('A10a anon executes no commission function (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
-
-  SELECT string_agg(p.proname, ', ') INTO v_bad
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'private' AND p.proname LIKE 'comp\_%'
-     AND (has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('service_role', p.oid, 'EXECUTE'));
-  PERFORM comp_test.check('A10b private commission functions are postgres-only (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
-
-  SELECT string_agg(n.nspname || '.' || p.proname, ', ' ORDER BY n.nspname, p.proname) INTO v_bad
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE p.prosecdef AND n.nspname IN ('public', 'private', 'comp_authz')
-     AND (p.proname LIKE 'comp\_%' OR n.nspname = 'comp_authz');
-  PERFORM comp_test.check('A10c SECURITY DEFINER inventory is exactly the reviewed set: ' || v_bad,
-    v_bad = 'comp_authz.actor_is_admin, comp_authz.actor_org_id, comp_authz.readable_grid_ids, '
-         || 'private.comp_access_revoked, private.comp_access_rules, private.comp_bump_grid_revision, '
-         || 'private.comp_child_rules, private.comp_grid_deactivated, private.comp_grid_rules, '
-         || 'private.comp_selection_rules, private.comp_variant_rules, public.comp_list_shared_grid_catalog');
-
-  SELECT string_agg(n.nspname || '.' || p.proname, ', ') INTO v_bad
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname IN ('public', 'private', 'comp_authz')
-     AND (p.proname LIKE 'comp\_%' OR n.nspname = 'comp_authz' OR p.proname LIKE '%commission_calculator%')
-     AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c = 'search_path=pg_catalog, pg_temp');
-  PERFORM comp_test.check('A10d every commission function pins search_path (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
-
-  SELECT string_agg(c.relname || ':' || g.privilege_type, ', ') INTO v_bad
-    FROM pg_class c
-    JOIN information_schema.table_privileges g ON g.table_schema = 'public' AND g.table_name = c.relname
-   WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                       'organization_comp_grids','organization_comp_settings','comp_reference_imports',
-                       'organization_comp_grid_availability')
-     AND (g.grantee IN ('anon', 'PUBLIC') OR (g.grantee = 'authenticated' AND g.privilege_type NOT IN ('SELECT', 'DELETE'))
-          OR (g.grantee = 'authenticated' AND c.relname IN ('comp_reference_imports', 'organization_comp_grid_availability')));
-  PERFORM comp_test.check('A10e table grants: no anon/PUBLIC; authenticated table-level SELECT/DELETE only, never the ledger or availability (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
-
-  -- Column-level write grants for authenticated: exactly the reviewed set (no id/scope/revision/audit
-  -- column, no ownership or parent column on UPDATE). comp_grids.id is insertable only so the create
-  -- operation can supply a server-generated id (no RETURNING through the not-yet-readable row).
-  SELECT string_agg(x, ', ' ORDER BY x COLLATE "C") INTO v_bad
-    FROM (SELECT c.relname || '.' || k.priv || '.' || a.attname AS x
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
-            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
-            CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) AS k(priv)
-           WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                               'organization_comp_grids','organization_comp_settings','comp_reference_imports',
-                               'organization_comp_grid_availability')
-             AND has_column_privilege('authenticated', c.oid, a.attnum, k.priv)) s;
-  PERFORM comp_test.check('A10f authenticated column write grants are exactly the reviewed set: ' || coalesce(v_bad, ''),
-    v_bad = (SELECT string_agg(x, ', ' ORDER BY x COLLATE "C") FROM unnest(ARRAY[
-      'comp_grids.INSERT.id', 'comp_grids.INSERT.organization_id', 'comp_grids.INSERT.name',
-      'comp_grids.INSERT.effective_date', 'comp_grids.INSERT.is_active', 'comp_grids.INSERT.contract_levels',
-      'comp_grids.INSERT.origin', 'comp_grids.INSERT.copied_from_grid_id',
-      'comp_grids.UPDATE.name', 'comp_grids.UPDATE.effective_date', 'comp_grids.UPDATE.is_active',
-      'comp_grids.UPDATE.contract_levels',
-      'comp_products.INSERT.grid_id', 'comp_products.INSERT.organization_id', 'comp_products.INSERT.category',
-      'comp_products.INSERT.carrier', 'comp_products.INSERT.product_name', 'comp_products.INSERT.is_active',
-      'comp_products.UPDATE.category', 'comp_products.UPDATE.carrier', 'comp_products.UPDATE.product_name',
-      'comp_products.UPDATE.is_active',
-      'comp_product_variants.INSERT.grid_id', 'comp_product_variants.INSERT.product_id',
-      'comp_product_variants.INSERT.organization_id', 'comp_product_variants.INSERT.label',
-      'comp_product_variants.INSERT.min_age', 'comp_product_variants.INSERT.max_age',
-      'comp_product_variants.INSERT.term_years',
-      'comp_product_variants.UPDATE.label', 'comp_product_variants.UPDATE.min_age',
-      'comp_product_variants.UPDATE.max_age', 'comp_product_variants.UPDATE.term_years',
-      'comp_rates.INSERT.grid_id', 'comp_rates.INSERT.variant_id', 'comp_rates.INSERT.organization_id',
-      'comp_rates.INSERT.contract_level', 'comp_rates.INSERT.rate_percent', 'comp_rates.UPDATE.rate_percent',
-      'comp_variant_references.INSERT.variant_id', 'comp_variant_references.INSERT.grid_id',
-      'comp_variant_references.INSERT.organization_id', 'comp_variant_references.INSERT.source',
-      'comp_variant_references.INSERT.notes', 'comp_variant_references.UPDATE.source',
-      'comp_variant_references.UPDATE.notes',
-      'organization_comp_grids.INSERT.organization_id', 'organization_comp_grids.INSERT.grid_id',
-      'organization_comp_settings.INSERT.organization_id', 'organization_comp_settings.INSERT.calculator_grid_id',
-      'organization_comp_settings.UPDATE.calculator_grid_id']) x));
-
-  -- service_role: SELECT on all nine comp tables and nothing else (table- or column-level).
-  SELECT string_agg(c.relname || ':' || k.priv, ', ') INTO v_bad
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
-    CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS k(priv)
-   WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                       'organization_comp_grids','organization_comp_settings','comp_reference_imports',
-                       'organization_comp_grid_availability')
-     AND (CASE WHEN k.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
-               THEN has_any_column_privilege('service_role', c.oid, k.priv)
-               ELSE has_table_privilege('service_role', c.oid, k.priv) END) <> (k.priv = 'SELECT');
-  PERFORM comp_test.check('A10g service_role privileges (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
-  RAISE NOTICE 'A10 privilege inventories: ok';
+ SELECT string_agg(n.nspname||'.'||p.proname,', ') INTO v_bad FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (p.proname LIKE 'comp\_%' OR n.nspname='comp_authz' OR p.proname LIKE '%commission_calculator%') AND n.nspname IN('public','private','comp_authz') AND has_function_privilege('anon',p.oid,'EXECUTE');
+ PERFORM comp_test.check('A10a anon executes none',v_bad IS NULL);
+ SELECT string_agg(p.proname,', ') INTO v_bad FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='private' AND p.proname LIKE 'comp\_%' AND (has_function_privilege('authenticated',p.oid,'EXECUTE') OR has_function_privilege('service_role',p.oid,'EXECUTE') OR has_function_privilege('agentflow_comp_operator',p.oid,'EXECUTE'));
+ PERFORM comp_test.check('A10b private functions postgres-only',v_bad IS NULL);
+ SELECT * INTO v_role FROM pg_roles WHERE rolname='agentflow_comp_operator';
+ PERFORM comp_test.check('A10e operation role narrow',v_role.rolname IS NOT NULL AND NOT v_role.rolcanlogin AND NOT v_role.rolsuper AND NOT v_role.rolcreatedb AND NOT v_role.rolcreaterole AND NOT v_role.rolinherit AND NOT v_role.rolreplication AND NOT v_role.rolbypassrls);
+ PERFORM comp_test.check('A10f only postgres member',NOT pg_has_role('anon','agentflow_comp_operator','MEMBER') AND NOT pg_has_role('authenticated','agentflow_comp_operator','MEMBER') AND NOT pg_has_role('service_role','agentflow_comp_operator','MEMBER') AND pg_has_role('postgres','agentflow_comp_operator','MEMBER') AND (SELECT count(*) FROM pg_auth_members WHERE roleid=(SELECT oid FROM pg_roles WHERE rolname='agentflow_comp_operator'))=1);
+ SELECT string_agg(c.relname||'.'||k.priv||'.'||a.attname,', ') INTO v_bad FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='public' JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped CROSS JOIN(VALUES('INSERT'),('UPDATE'))k(priv) WHERE c.relname IN('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references','organization_comp_grids','organization_comp_settings','comp_reference_imports','organization_comp_grid_availability') AND has_column_privilege('authenticated',c.oid,a.attnum,k.priv);
+ PERFORM comp_test.check('A10h authenticated no column writes',v_bad IS NULL);
+ SELECT string_agg(p.proname,', ' ORDER BY p.proname) INTO v_bad FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proowner=(SELECT oid FROM pg_roles WHERE rolname='agentflow_comp_operator');
+ PERFORM comp_test.check('A10j operator owns six write RPCs',v_bad='comp_create_private_grid, comp_delete_private_grid, comp_disable_shared_grid, comp_enable_shared_grid, comp_save_grid_changes, comp_select_calculator_grid');
+ SELECT string_agg(n.nspname||'.'||p.proname,', ' ORDER BY n.nspname,p.proname) INTO v_bad FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE p.prosecdef AND n.nspname IN('public','private','comp_authz') AND (p.proname LIKE 'comp\_%' OR n.nspname='comp_authz');
+ PERFORM comp_test.check('A10c SECURITY DEFINER exact',v_bad='comp_authz.actor_is_admin, comp_authz.actor_org_id, comp_authz.readable_grid_ids, private.comp_access_revoked, private.comp_access_rules, private.comp_bump_grid_revision, private.comp_child_rules, private.comp_grid_deactivated, private.comp_grid_rules, private.comp_selection_rules, private.comp_variant_rules, public.comp_create_private_grid, public.comp_delete_private_grid, public.comp_disable_shared_grid, public.comp_enable_shared_grid, public.comp_list_shared_grid_catalog, public.comp_save_grid_changes, public.comp_select_calculator_grid');
+ SELECT string_agg(n.nspname||'.'||p.proname,', ') INTO v_bad FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN('public','private','comp_authz') AND (p.proname LIKE 'comp\_%' OR n.nspname='comp_authz' OR p.proname LIKE '%commission_calculator%') AND NOT EXISTS(SELECT 1 FROM unnest(coalesce(p.proconfig,'{}'))c WHERE c='search_path=pg_catalog, pg_temp');
+ PERFORM comp_test.check('A10d search_path pinned',v_bad IS NULL);
+ RAISE NOTICE 'A10 privilege/role inventories: ok';
 END $$;
 
 -- A11. Availability (decision D5). S4 is a shared grid AgentFlow has made available to agency A only.

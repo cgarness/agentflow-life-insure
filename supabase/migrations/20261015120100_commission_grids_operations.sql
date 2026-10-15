@@ -3,11 +3,14 @@
 -- Plan: docs/plans/2026-10-15-commission-calculator/implementation_plan.md. Apply ONLY with Chris's
 -- separate, exact approval, after 20261015120000_commission_grids_schema.sql. Contains NO data.
 --
--- Every operation is SECURITY INVOKER: the caller's RLS applies inside it. Write operations carry the
--- function-level setting agentflow.comp_operation = 'on' (restored when the function returns), which is
--- the only way a client write can pass the comp tables' RLS write policies. Each write operation first
--- locks the caller's organization_comp_settings row (created on first use), so all comp writes of one
--- agency serialize in the order settings -> grid -> availability -> access -> product -> children.
+-- Read operations stay SECURITY INVOKER. The six agency-write operations are SECURITY DEFINER owned by
+-- the dedicated NOLOGIN/NOBYPASSRLS role agentflow_comp_operator. Authenticated clients have no base-table
+-- write grants; the operator role has only reviewed comp-table privileges, remains subject to RLS, and
+-- every write policy/trigger re-resolves the real JWT/profile actor through the canonical campaign_actor()
+-- chain. Only postgres is a member of the operation role so reviewed migrations/rollback can manage its
+-- owned functions. Each write operation first locks the caller's organization_comp_settings row (created
+-- on first use), so all comp writes of one agency serialize in the order settings -> grid -> availability
+-- -> access -> product -> children.
 -- The one SECURITY DEFINER function here is the metadata-only shared-grid catalog: RLS cannot expose
 -- four columns of a shared grid row while hiding its content from an agency that has not enabled it. It
 -- lists only grids AgentFlow has made available to the caller's agency (decision D5).
@@ -28,34 +31,162 @@ BEGIN
   END IF;
 END $guard$;
 
+
+-- ── Production-compatible write authority ────────────────────────────────────────────────────────────
+-- Managed Supabase production rejected the original function-level custom-GUC SET for its non-superuser
+-- postgres role. Migration 1 is already production history, so this still-unapplied migration forward-
+-- corrects that authority model without rewriting history.
+DO $role_guard$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='agentflow_comp_operator') THEN
+    RAISE EXCEPTION 'agentflow_comp_operator already exists; refusing an ambiguous authority role';
+  END IF;
+END $role_guard$;
+
+CREATE ROLE agentflow_comp_operator
+  NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+GRANT agentflow_comp_operator TO postgres;
+GRANT USAGE ON SCHEMA public, comp_authz TO agentflow_comp_operator;
+GRANT EXECUTE ON FUNCTION comp_authz.actor_org_id(), comp_authz.actor_is_admin(), comp_authz.readable_grid_ids()
+  TO agentflow_comp_operator;
+
+CREATE OR REPLACE FUNCTION private.comp_require_operation_context()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog, pg_temp
+AS $$
+DECLARE v_row_org uuid;
+BEGIN
+  IF current_user='agentflow_comp_operator' THEN
+    IF TG_OP='DELETE' THEN v_row_org:=OLD.organization_id; ELSE v_row_org:=NEW.organization_id; END IF;
+    IF v_row_org IS NULL OR v_row_org IS DISTINCT FROM comp_authz.actor_org_id()
+       OR NOT comp_authz.actor_is_admin() THEN
+      RAISE EXCEPTION 'Only an agency admin can change their own agency''s commission grids' USING ERRCODE='42501';
+    END IF;
+  ELSIF current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Commission grid data can only be changed through AgentFlow operations' USING ERRCODE='42501';
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$;
+
+ALTER POLICY comp_grids_select ON public.comp_grids TO authenticated,agentflow_comp_operator;
+ALTER POLICY comp_products_select ON public.comp_products TO authenticated,agentflow_comp_operator;
+ALTER POLICY comp_product_variants_select ON public.comp_product_variants TO authenticated,agentflow_comp_operator;
+ALTER POLICY comp_rates_select ON public.comp_rates TO authenticated,agentflow_comp_operator;
+ALTER POLICY comp_variant_references_select ON public.comp_variant_references TO authenticated,agentflow_comp_operator;
+ALTER POLICY organization_comp_grids_select ON public.organization_comp_grids TO authenticated,agentflow_comp_operator;
+ALTER POLICY organization_comp_settings_select ON public.organization_comp_settings TO authenticated,agentflow_comp_operator;
+
+ALTER POLICY comp_grids_insert ON public.comp_grids TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_grids_update ON public.comp_grids TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_grids_delete ON public.comp_grids TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_products_insert ON public.comp_products TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_products_update ON public.comp_products TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_products_delete ON public.comp_products TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_product_variants_insert ON public.comp_product_variants TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_product_variants_update ON public.comp_product_variants TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_product_variants_delete ON public.comp_product_variants TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_rates_insert ON public.comp_rates TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_rates_update ON public.comp_rates TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_rates_delete ON public.comp_rates TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_variant_references_insert ON public.comp_variant_references TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_variant_references_update ON public.comp_variant_references TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY comp_variant_references_delete ON public.comp_variant_references TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY organization_comp_grids_insert ON public.organization_comp_grids TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY organization_comp_grids_delete ON public.organization_comp_grids TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY organization_comp_settings_insert ON public.organization_comp_settings TO agentflow_comp_operator
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+ALTER POLICY organization_comp_settings_update ON public.organization_comp_settings TO agentflow_comp_operator
+  USING (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()))
+  WITH CHECK (organization_id=(SELECT comp_authz.actor_org_id()) AND (SELECT comp_authz.actor_is_admin()));
+
+REVOKE INSERT(id,organization_id,name,effective_date,is_active,contract_levels,origin,copied_from_grid_id) ON public.comp_grids FROM authenticated;
+REVOKE UPDATE(name,effective_date,is_active,contract_levels) ON public.comp_grids FROM authenticated;
+REVOKE DELETE ON public.comp_grids FROM authenticated;
+REVOKE INSERT(grid_id,organization_id,category,carrier,product_name,is_active) ON public.comp_products FROM authenticated;
+REVOKE UPDATE(category,carrier,product_name,is_active) ON public.comp_products FROM authenticated;
+REVOKE DELETE ON public.comp_products FROM authenticated;
+REVOKE INSERT(grid_id,product_id,organization_id,label,min_age,max_age,term_years) ON public.comp_product_variants FROM authenticated;
+REVOKE UPDATE(label,min_age,max_age,term_years) ON public.comp_product_variants FROM authenticated;
+REVOKE DELETE ON public.comp_product_variants FROM authenticated;
+REVOKE INSERT(grid_id,variant_id,organization_id,contract_level,rate_percent) ON public.comp_rates FROM authenticated;
+REVOKE UPDATE(rate_percent) ON public.comp_rates FROM authenticated;
+REVOKE DELETE ON public.comp_rates FROM authenticated;
+REVOKE INSERT(variant_id,grid_id,organization_id,source,notes) ON public.comp_variant_references FROM authenticated;
+REVOKE UPDATE(source,notes) ON public.comp_variant_references FROM authenticated;
+REVOKE DELETE ON public.comp_variant_references FROM authenticated;
+REVOKE INSERT(organization_id,grid_id) ON public.organization_comp_grids FROM authenticated;
+REVOKE DELETE ON public.organization_comp_grids FROM authenticated;
+REVOKE INSERT(organization_id,calculator_grid_id) ON public.organization_comp_settings FROM authenticated;
+REVOKE UPDATE(calculator_grid_id) ON public.organization_comp_settings FROM authenticated;
+
+GRANT SELECT ON public.comp_grids,public.comp_products,public.comp_product_variants,public.comp_rates,
+  public.comp_variant_references,public.organization_comp_grids,public.organization_comp_settings TO agentflow_comp_operator;
+GRANT INSERT(id,organization_id,name,effective_date,is_active,contract_levels,origin,copied_from_grid_id) ON public.comp_grids TO agentflow_comp_operator;
+GRANT UPDATE(name,effective_date,is_active,contract_levels) ON public.comp_grids TO agentflow_comp_operator;
+GRANT DELETE ON public.comp_grids TO agentflow_comp_operator;
+GRANT INSERT(grid_id,organization_id,category,carrier,product_name,is_active) ON public.comp_products TO agentflow_comp_operator;
+GRANT UPDATE(category,carrier,product_name,is_active) ON public.comp_products TO agentflow_comp_operator;
+GRANT DELETE ON public.comp_products TO agentflow_comp_operator;
+GRANT INSERT(grid_id,product_id,organization_id,label,min_age,max_age,term_years) ON public.comp_product_variants TO agentflow_comp_operator;
+GRANT UPDATE(label,min_age,max_age,term_years) ON public.comp_product_variants TO agentflow_comp_operator;
+GRANT DELETE ON public.comp_product_variants TO agentflow_comp_operator;
+GRANT INSERT(grid_id,variant_id,organization_id,contract_level,rate_percent) ON public.comp_rates TO agentflow_comp_operator;
+GRANT UPDATE(rate_percent) ON public.comp_rates TO agentflow_comp_operator;
+GRANT DELETE ON public.comp_rates TO agentflow_comp_operator;
+GRANT INSERT(variant_id,grid_id,organization_id,source,notes) ON public.comp_variant_references TO agentflow_comp_operator;
+GRANT UPDATE(source,notes) ON public.comp_variant_references TO agentflow_comp_operator;
+GRANT DELETE ON public.comp_variant_references TO agentflow_comp_operator;
+GRANT INSERT(organization_id,grid_id) ON public.organization_comp_grids TO agentflow_comp_operator;
+GRANT DELETE ON public.organization_comp_grids TO agentflow_comp_operator;
+GRANT INSERT(organization_id,calculator_grid_id) ON public.organization_comp_settings TO agentflow_comp_operator;
+GRANT UPDATE(calculator_grid_id) ON public.organization_comp_settings TO agentflow_comp_operator;
+
 -- ── Shared prologue for write operations ─────────────────────────────────────────────────────────────
--- Agency admin of the caller's home organization only; must run inside an operation; creates the
--- agency settings row on first use (safe under concurrency: ON CONFLICT DO NOTHING waits for a
--- concurrent first insert) and locks it as the agency's comp-write mutex. Returns the organization id.
+-- Agency admin of the caller's home organization only; callable only by the dedicated operation role.
 CREATE FUNCTION comp_authz.begin_admin_operation()
 RETURNS uuid
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER
-SET search_path = pg_catalog, pg_temp
+SET search_path=pg_catalog, pg_temp
 AS $$
-DECLARE v_org uuid := comp_authz.actor_org_id();
+DECLARE v_org uuid:=comp_authz.actor_org_id();
 BEGIN
+  IF current_user<>'agentflow_comp_operator' THEN
+    RAISE EXCEPTION 'Commission grid data can only be changed through AgentFlow operations' USING ERRCODE='42501';
+  END IF;
   IF v_org IS NULL OR NOT comp_authz.actor_is_admin() THEN
-    RAISE EXCEPTION 'Only an agency admin can change commission grids' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'Only an agency admin can change commission grids' USING ERRCODE='42501';
   END IF;
-  IF current_setting('agentflow.comp_operation', true) IS DISTINCT FROM 'on' THEN
-    RAISE EXCEPTION 'Commission grid data can only be changed through AgentFlow operations' USING ERRCODE = '42501';
-  END IF;
-  INSERT INTO public.organization_comp_settings (organization_id) VALUES (v_org)
-    ON CONFLICT (organization_id) DO NOTHING;
-  PERFORM 1 FROM public.organization_comp_settings s WHERE s.organization_id = v_org FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Agency commission settings are unavailable' USING ERRCODE = '42501';
-  END IF;
+  INSERT INTO public.organization_comp_settings(organization_id) VALUES(v_org) ON CONFLICT(organization_id) DO NOTHING;
+  PERFORM 1 FROM public.organization_comp_settings s WHERE s.organization_id=v_org FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Agency commission settings are unavailable' USING ERRCODE='42501'; END IF;
   RETURN v_org;
 END $$;
-
-REVOKE ALL ON FUNCTION comp_authz.begin_admin_operation() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION comp_authz.begin_admin_operation() TO authenticated;
+REVOKE ALL ON FUNCTION comp_authz.begin_admin_operation() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION comp_authz.begin_admin_operation() TO agentflow_comp_operator;
 
 -- ── Reads ────────────────────────────────────────────────────────────────────────────────────────────
 -- Light availability check for navigation and the route gate.
@@ -237,9 +368,8 @@ END $$;
 -- selection is kept and reported.
 CREATE FUNCTION public.comp_enable_shared_grid(p_grid_id uuid)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org     uuid;
@@ -268,9 +398,8 @@ END $$;
 -- it was this grid; private copies are untouched; no replacement is chosen.
 CREATE FUNCTION public.comp_disable_shared_grid(p_grid_id uuid)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org     uuid;
@@ -295,9 +424,8 @@ END $$;
 -- selection the admin last saw, so two admins cannot silently overwrite each other.
 CREATE FUNCTION public.comp_select_calculator_grid(p_grid_id uuid, p_expected_current uuid)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org     uuid;
@@ -331,9 +459,8 @@ END $$;
 CREATE FUNCTION public.comp_create_private_grid(p_mode text, p_name text, p_effective_date date,
                                                 p_source_grid_id uuid DEFAULT NULL)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org        uuid;
@@ -446,9 +573,8 @@ END $$;
 -- requires deleting its rates in the same save, and new levels exist before rates are written there.
 CREATE FUNCTION public.comp_save_grid_changes(p_grid_id uuid, p_expected_revision bigint, p_changes jsonb)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org      uuid;
@@ -663,9 +789,8 @@ END $$;
 -- otherwise skip the stale check below).
 CREATE FUNCTION public.comp_delete_private_grid(p_grid_id uuid, p_expected_revision bigint)
 RETURNS jsonb
-LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET agentflow.comp_operation = 'on'
 AS $$
 DECLARE
   v_org      uuid;
@@ -704,3 +829,9 @@ GRANT EXECUTE ON FUNCTION
   public.comp_select_calculator_grid(uuid, uuid), public.comp_create_private_grid(text, text, date, uuid),
   public.comp_save_grid_changes(uuid, bigint, jsonb), public.comp_delete_private_grid(uuid, bigint)
 TO authenticated;
+ALTER FUNCTION public.comp_enable_shared_grid(uuid) OWNER TO agentflow_comp_operator;
+ALTER FUNCTION public.comp_disable_shared_grid(uuid) OWNER TO agentflow_comp_operator;
+ALTER FUNCTION public.comp_select_calculator_grid(uuid,uuid) OWNER TO agentflow_comp_operator;
+ALTER FUNCTION public.comp_create_private_grid(text,text,date,uuid) OWNER TO agentflow_comp_operator;
+ALTER FUNCTION public.comp_save_grid_changes(uuid,bigint,jsonb) OWNER TO agentflow_comp_operator;
+ALTER FUNCTION public.comp_delete_private_grid(uuid,bigint) OWNER TO agentflow_comp_operator;
