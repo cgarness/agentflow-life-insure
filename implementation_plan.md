@@ -1,3 +1,17 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: LOCAL IMPLEMENTATION APPROVED with amendments (not pushed, nothing applied)
+
+**Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. No push, PR, merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized; production stays read-only (advisor reads included). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
+
+**Decisions:**
+- **D1:** the real FFL source stays private (never in Git, public CI, PR text, screenshots or public docs, including the carrier-specific acceptance expectations). Reference data loads through a documented private-import workflow; all DDL stays in committed migrations.
+- **D2:** `#APPROVE_RLS_CHANGE` for authoring and local testing of the new compensation tables' policies only, documented as the **Shared compensation grid exception**.
+- **D3:** the calculator's navigation and route gate respect "View Own Commission Percentage".
+- **D4:** the CSV is still required; the private import, reconciliation and source-backed acceptance are BLOCKED, and the feature is not release-ready.
+
+**Design proof first (C1):** authorization and locking proven in a disposable loopback PostgreSQL 16 database with real non-bypass roles before building on them (plan §4.5).
+
+---
+
 ## 2026-10-11 — Part A + D14 and Part B implemented on draft PR #440 (not merged, not released): UI copy cleanup takeover (V2 simple metric labels)
 
 **Final targeted polish (2026-10-12):** Chris approved two presentation fixes on top of `d4b7257`: the Contact Flow Required Fields note, and the duplicate Permissions and coming-soon Settings headings. The exact files and lines are in the detailed plan §17.13. Implemented in `9010612`, with its tests, and verified against `e11c8bea`. No backend change. Owner acceptance on the protected preview follows. The PR stays in draft.
