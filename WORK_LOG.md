@@ -50,7 +50,12 @@
 
 **Not done:**
 - Phase B and everything after it: no secrets, migration, Edge deploy, Vault, Vercel, flags, cron, merge or test leads.
-- CI for the pushed head is recorded in the next documentation commit.
+- **Exact-head CI on `a624eba` is all green** (`verification.md` §13.7), and PR #442 is `mergeable_state: clean` on base `03ef0cb`:
+  - Google Sheets: all five jobs;
+  - Reports frontend: base 5,374 passed and head 5,397 passed, with the same pre-existing failures and 84 = 84 app diagnostics;
+  - SMS consent, onboarding emails, A2P, Twilio balance, Dialer DNC and reporting integrity all pass;
+  - Supabase Preview is skipped (preview limit).
+- The docs commit that records this becomes the new head. Its CI is reported in the PR description.
 
 ---
 

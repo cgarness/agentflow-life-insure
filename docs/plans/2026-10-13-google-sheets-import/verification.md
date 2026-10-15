@@ -407,4 +407,26 @@ It was merged into the branch with a merge commit, `94e9bc18dde7b662939e6807cbb2
   - no Sheets UI code is deployed.
 
 ### 13.6 Exact-head CI
-Pushing the records commit that adds this section triggers the repository workflows on PR #442. A commit cannot record its own CI, so the results for that exact head go in the next documentation commit (§13.7) and in the PR description.
+Pushing the records commit that adds this section triggers the repository workflows on PR #442. A commit cannot record its own CI, so the results for that exact head are in §13.7 below and in the PR description.
+
+### 13.7 Exact-head CI on `a624ebaad4db5e5c591b11d575f703445821aa0b` (the records commit on top of merge `94e9bc1`)
+
+PR #442 is mergeable against base `main` `03ef0cb`: GitHub reports `mergeable_state: clean`, with no conflict and every check complete. Every workflow triggered on this head passed:
+
+| Workflow (run) | Jobs | Result |
+|---|---|---|
+| Google Sheets ([38770550907](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770550907)) | sql (SQL, PostgREST, regressions, concurrency, shutdown, end-to-end Review); cron (real pg_cron/pg_net); edge (Deno tests and types); frontend (focused Vitest, lint, types, base-relative app tsc, build); ui (browser flow) | **all five passed** |
+| Reports frontend verification ([38770550898](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770550898)) | frontend: the full Vitest run against the PR base `03ef0cb` | **passed**: `03ef0cb` 5,374 passed and this head 5,397 passed; the same 1 pre-existing failing test and 10 failing files on both sides; app tsc 84, none new; 0 unhandled errors; ESLint and build pass. These counts are 2 higher on each side than the local run because CI's full history lets git-object tests run. Artifact `reports-frontend-evidence-38770550898`. |
+| SMS consent integration ([38770550926](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770550926)) | consent, including `main`'s new pending-SMS tests and responsiveness fixture | passed |
+| Onboarding emails ([38770550936](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770550936)) | verify, postgres | passed |
+| A2P registration ([38770551018](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770551018)) | verify | passed |
+| Twilio account balance ([38770550875](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770550875)) | verify | passed |
+| Dialer DNC integrity ([38770551172](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770551172)) | postgres | passed |
+| Reporting integrity ([38770551087](https://github.com/cgarness/agentflow-life-insure/actions/runs/38770551087)) | native | passed |
+
+**Other checks:**
+- Vercel Preview Comments: passed.
+- Vercel previews READY for both projects: `agentflow` `ERe6uiLwvYoAUWfqCLoLvvdAYtTZ` and `agentflow-life-insure` `CSoQDBK2fYRP4dGxjp5owiLMWFS9`. They are protected previews; production is untouched.
+- Supabase Preview: **skipped**, as on every earlier head, because the preview-branch limit is reached.
+
+The documentation commit that adds this subsection becomes the new head. Its own CI is reported in the PR description and the handoff.

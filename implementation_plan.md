@@ -12,7 +12,8 @@
 - **Verification:** every step-4 check passed against a fresh `03ef0cb` baseline: zero new TypeScript diagnostics (84 = 84), no new test failure, Deno 340 = 262 + 78, SQL, cron, regression evidence, ESLint, build and browser 48/48. Evidence is in `docs/plans/2026-10-13-google-sheets-import/verification.md` §13.
 - **Records:** the release package was updated (reconciled head, §0.B, the Phase C rollback target, the Conversations health check, a fresh advisor capture before B2), along with `WORK_LOG.md`.
 - **Production:** unchanged, checked read-only.
-- **Next:** exact-head CI on PR #442, recorded in the next documentation commit. Then Chris's Phase B approval (release package §10).
+- **Exact-head CI:** all green on `a624eba`, recorded in `verification.md` §13.7. PR #442 is mergeable (`clean`) on base `03ef0cb` and stays in draft.
+- **Next:** Chris's Phase B approval (release package §10).
 
 **Starting points.**
 - Branch head: `52a91087c1baaa3012665462d5fa5341704a5c6b` (clean, equal to origin).
