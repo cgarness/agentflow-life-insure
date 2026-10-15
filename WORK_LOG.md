@@ -1,3 +1,62 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: published as draft PR #447, then the approved CI correction (not merged, nothing applied, not release-ready)
+
+**Approvals.**
+- Chris approved draft publication only (Step 0): push the branch and open ONE draft PR. Not approved: merging, marking ready, production migrations, real-data import, activation, deploys or permission changes.
+- Before publication he approved the Supabase preview branch, and fixing `service_role` write access first (`14d9fa4`, records `9ecbc9a`).
+- After the first CI run he approved the scoped CI correction below and these publication-status records.
+
+**Pre-publication checks.**
+- Commits verified, and every published commit scanned for private data.
+- The workflows this PR triggers use disposable containers and no secrets.
+- The import migration holds no data; its four `private.*` functions are postgres-only.
+- Test I1 now covers anon, an agent, an Agency Admin and `service_role`, also with both operator approval settings and a forged operation flag.
+
+**Publication.**
+- `main` moved twice after verification. The branch merged it at `b44c824` (#445) and `3971fd0` (#446, docs only); both merges kept every line of both sides of `WORK_LOG.md`.
+- Re-verified at `b44c824` against base `26f9bc1`: identical vitest failure set; `tsc -p tsconfig.app.json` 84 diagnostics, identical set; root `tsc` exit 0; runner PASS.
+- Draft PR #447 opened at head `3971fd04bdeff037dd6391ba5fdd68a17323781f`, base `03ef0cb`.
+- Supabase Preview did not run: the integration ignored the PR at the project's concurrent preview-branch limit. No hosted Supabase environment exists for it, and no integration setting was changed.
+- Vercel built its automatic protected previews only.
+
+**First CI run** (head `3971fd0`; merge-ref jobs ran on test-merge `209a8e7`, whose tree is identical to the head):
+
+| Job | Result |
+|---|---|
+| Commission grids / Calculator and grid editor tests | pass |
+| Commission grids / PostgreSQL 17.6 suites | fail at A10f |
+| Onboarding emails / verify | fail on `git diff --check` |
+| Onboarding emails / postgres, A2P, Reporting integrity, Dialer DNC, SMS consent, Reports frontend | pass |
+
+**Causes.**
+- **A10f** compared ordered strings: catalog `name` values (C collation) against literals in the database default collation. The 17.6 image defaults to `en_US.utf8`, so the order differed although the 51-grant sets matched. The run stopped there.
+- **`git diff --check`** flagged one trailing space in the plan, and the intentional CRLF endings of the synthetic CSV fixture.
+
+**CI correction `2db6de2`** (approved):
+- A10f orders both lists with `COLLATE "C"`. It is still an exact-set comparison with the same 51 expected grants.
+- One path-scoped `.gitattributes` rule: `/supabase/tests/fixtures/commission_grids/synthetic_reference_grid.csv -text whitespace=cr-at-eol`.
+- The plan's trailing space removed, and the correction recorded in plan §10.
+- No grant, RLS, migration, locale or application change.
+
+**Verification of the correction (local).**
+- Fixture SHA-256 `9bad2737…c89a3` before and after.
+- `git diff --cached --check` and the CI-style `git diff --check 03ef0cb...HEAD` both exit 0.
+- A throwaway probe shows the rule accepts the intentional CRLF but still flags a real trailing space, in that fixture and elsewhere.
+- The full runner on disposable loopback PostgreSQL 16.15 clusters: before, `3971fd0` failed A10f under `en_US.UTF-8`; after, `2db6de2` passes everything (57 checks) under both C and `en_US.UTF-8`.
+- A10f still rejects wrong sets (A10 run alone under `en_US.UTF-8`): one extra column grant reports 52 and fails, one missing grant reports 50 and fails, and the unchanged database passes.
+- `npx tsc --noEmit` exit 0; `npx tsc -p tsconfig.app.json --noEmit` exit 2, 84 diagnostics, identical set to base.
+- All three migrations, both ops scripts and the fixture are unchanged from `3971fd0` (schema `84637cf3…f64b16`).
+
+**Migrations and deploys.** None applied to any hosted database. No deploys and no import. Only the automatic protected Vercel previews were built.
+
+**Exact-head CI** for the corrected head is recorded in the PR #447 description. Recording it here would move the head.
+
+**Blockers.**
+1. PostgreSQL 17.6 must complete the full runner on the corrected head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Independent review, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: IMPLEMENTED LOCALLY on `feature/commission-calculator-agency-grids` (not pushed, nothing applied, not release-ready)
 
 **Status.**

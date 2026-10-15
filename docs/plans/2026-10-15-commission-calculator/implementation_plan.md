@@ -4,11 +4,14 @@
 and **implemented locally** on `feature/commission-calculator-agency-grids` (commits `9b615f5` plan,
 `fea545d` database layer, `44d550a` frontend, `fb27512` closeout records, `14d9fa4` pre-publication
 `service_role` correction, then its records). Evidence: `verification.md`.
-Nothing is pushed, published, merged, deployed, imported or applied to any hosted database. Production
+**Published 2026-10-15 as draft PR #447** (Chris approved draft publication only). The first published head was
+`3971fd0`, after merging `main` twice (#445, #446) to resolve `WORK_LOG.md` conflicts. Then came the approved CI
+correction `2db6de2` (§10) and its status records. Nothing is merged, deployed, imported or applied to any hosted
+database; Supabase Preview did not run (the project is at its concurrent preview-branch limit). Production
 access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
 reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
-location (D1), and the PostgreSQL 17.6 CI workflow has not run yet. Release needs a separate, exact approval
-of the consolidated release proposal (§12).
+location (D1); the PostgreSQL 17.6 re-run on the corrected head is recorded in the PR. Release needs a separate,
+exact approval of the consolidated release proposal (§12).
 
 **Base:** `origin/main` `dacd921903a867de99276f8709f829995602c3bd`. **Branch:** `feature/commission-calculator-agency-grids`
 (one branch, intended for one PR).
