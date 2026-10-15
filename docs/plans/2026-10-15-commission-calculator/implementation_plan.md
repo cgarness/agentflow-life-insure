@@ -6,7 +6,8 @@ and **implemented locally** on `feature/commission-calculator-agency-grids` (com
 `service_role` correction, then its records). Evidence: `verification.md`.
 **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only). The first published head was
 `3971fd0`, after merging `main` twice (#445, #446) to resolve `WORK_LOG.md` conflicts. Then came the approved CI
-correction `2db6de2` (§10) and its status records. Nothing is merged, deployed, imported or applied to any hosted
+corrections in §10, `2db6de2` (collation and whitespace) and the runner's `NO_COLOR` setting, each with its status
+records. Nothing is merged, deployed, imported or applied to any hosted
 database; Supabase Preview did not run (the project is at its concurrent preview-branch limit). Production
 access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
 reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
@@ -291,6 +292,11 @@ plus vitest failures base vs branch, reported separately.
   path-scoped `.gitattributes` rule for that fixture (`-text whitespace=cr-at-eol`; its bytes are unchanged). No
   grant, RLS, migration, locale or application change. Local proofs: PostgreSQL 16.15 under C and `en_US.UTF-8`;
   the 17.6 re-run is recorded in the PR.
+- **Contract-step output correction (approved by Chris, 2026-10-15).** The 17.6 re-run on head `10e1a73` passed
+  A10 and the editor save-contract test (2 of 2), then the runner exited at its plain-text `Tests  2 passed` check:
+  GitHub Actions sets `CI`, so Vitest colored its summary and the text no longer matched. The runner now sets
+  `NO_COLOR=1` on that one Vitest call. Its exit-code check and the two-passing-tests requirement are unchanged.
+  No test, assertion, migration, grant or application change.
 - Not release-ready until those are resolved and §12 is approved.
 
 ## 11. Separate follow-up (not in this build)

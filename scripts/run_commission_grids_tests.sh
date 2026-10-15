@@ -90,7 +90,8 @@ for suite in schema access operations; do
 done
 
 new_db contract
-(cd "$ROOT" && COMP_DB_URL="$DB_URL" npx vitest run src/lib/commission/__tests__/changeSetServer.integration.test.ts) > "$TEMP/contract.out" 2>&1 || { cat "$TEMP/contract.out"; exit 1; }
+# NO_COLOR keeps the summary plain: Vitest colors it whenever CI is set, which would break the check below.
+(cd "$ROOT" && NO_COLOR=1 COMP_DB_URL="$DB_URL" npx vitest run src/lib/commission/__tests__/changeSetServer.integration.test.ts) > "$TEMP/contract.out" 2>&1 || { cat "$TEMP/contract.out"; exit 1; }
 grep -q 'Tests  2 passed' "$TEMP/contract.out" || { cat "$TEMP/contract.out"; exit 1; }
 echo '   ok   editor change sets: real comp_save_grid_changes as an agency admin; read-back equals the draft; stale refused'
 
