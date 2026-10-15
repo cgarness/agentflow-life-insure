@@ -136,6 +136,8 @@ vi.mock("@/components/messaging/MessageComposePanel", () => ({
 vi.mock("@/components/ui/RecordingPlayer", () => ({ RecordingPlayer: () => null }));
 
 import ConversationThread from "@/components/conversations/ConversationThread";
+import { pendingSmsStore, smsScopeKey } from "@/lib/sms-send/pendingSmsStore";
+import { useSmsScopeEvents } from "@/hooks/usePendingSms";
 
 const sms = (id: string, body: string) => ({
   id, type: "sms", direction: "outbound", body, description: body,
@@ -357,6 +359,8 @@ describe("a stale contact can never START a request for itself", () => {
   it("a stale post-send refresh cannot discard the current contact's response either", async () => {
     // handleSend captures its contact before awaiting onSendMessage; if the user switches while the
     // send is in flight, the refresh that follows is bound to a contact that is no longer active.
+    // Only EMAIL still refreshes after a send (an SMS shows its own saved row instead), so the
+    // send below is an email.
     apiState.threads[CONTACT_A] = [sms("a1", "ALPHA-BODY")];
     apiState.defer.add(CONTACT_B);
 
@@ -380,9 +384,11 @@ describe("a stale contact can never START a request for itself", () => {
     const { rerender } = render(tree(CONTACT_A));
     await screen.findByText("ALPHA-BODY");
 
+    fireEvent.click(screen.getByTestId("composer-to-email"));
     fireEvent.change(screen.getByTestId("composer"), { target: { value: "hello" } });
     // Start the send; it hangs on `sendGate`.
     fireEvent.click(screen.getByTestId("composer-send"));
+    expect(screen.getByTestId("composer-channel")).toHaveTextContent("email");
 
     rerender(tree(CONTACT_B));
     await waitFor(() => expect(apiState.pending.some((p) => p.contactId === CONTACT_B)).toBe(true));
@@ -694,5 +700,151 @@ describe("the open thread subscribes to everything it reads", () => {
 
     expect(channels().find((c) => c.name === `thread-${CONTACT_A}`)!.removed).toBe(true);
     expect(channels().find((c) => c.name === `thread-${CONTACT_B}`)!.removed).toBe(false);
+  });
+});
+
+describe("a scope event fired inside the contact-switch commit reaches only its own scope (2026-10-15 review)", () => {
+  // `useSmsScopeEvents` re-targets its handler in a LAYOUT effect but drops the old scope's
+  // subscription in PASSIVE cleanup. `EmitInCommit` is a later sibling of the thread in the SAME
+  // tree, so its layout effect runs in the same commit as the switch: after the thread's layout
+  // effects (the new handler is installed) and before any passive cleanup (the old subscription is
+  // still registered). Nothing waits or settles between the switch and the emit.
+  const ORG = "11111111-1111-4111-8111-111111111111";
+  const AGENT = "00000000-0000-4000-8000-000000000001";
+  const scopeFor = (contactId: string) =>
+    ({ organizationId: ORG, actorId: AGENT, viewerId: AGENT, contactType: "lead" as const, contactId });
+  const keyOf = (contactId: string) => smsScopeKey(scopeFor(contactId));
+  const atEmit = { oldScopeSubscribed: false, requests: [] as string[] };
+
+  const EmitInCommit: React.FC<{ scopeKey: string | null }> = ({ scopeKey }) => {
+    React.useLayoutEffect(() => {
+      if (!scopeKey) return;
+      atEmit.oldScopeSubscribed = pendingSmsStore.isScopeMounted(scopeKey);
+      pendingSmsStore.emitScope(scopeKey, "recovery");
+      atEmit.requests = [...apiState.calls];
+    }, [scopeKey]);
+    return null;
+  };
+
+  const scoped = (contactId: string, opts: { readOnly?: boolean; emit?: string } = {}) => (
+    <>
+      <ConversationThread
+        contactId={contactId}
+        contactName={`Name-${contactId.slice(0, 4)}`}
+        contactType="lead"
+        onSendMessage={() => Promise.resolve(true)}
+        onSubmitSms={() => false}
+        smsScope={scopeFor(contactId)}
+        readOnly={opts.readOnly ?? false}
+      />
+      <EmitInCommit scopeKey={opts.emit ?? null} />
+    </>
+  );
+
+  beforeEach(() => {
+    pendingSmsStore.reset();
+    atEmit.oldScopeSubscribed = false;
+    atEmit.requests = [];
+    apiState.threads[CONTACT_A] = [sms("a1", "ALPHA-BODY")];
+    apiState.threads[CONTACT_B] = [sms("b1", "BETA-BODY")];
+  });
+
+  it("A's recovery event in the A→B commit never reaches B: no request for B; B's load and draft are untouched", async () => {
+    const { rerender } = render(scoped(CONTACT_A));
+    await screen.findByText("ALPHA-BODY");
+    fireEvent.change(screen.getByTestId("composer"), { target: { value: "draft for A" } });
+    apiState.calls = [];
+
+    rerender(scoped(CONTACT_B, { emit: keyOf(CONTACT_A) }));
+
+    expect(atEmit.oldScopeSubscribed, "A's subscription was still registered when its event fired").toBe(true);
+    expect(atEmit.requests, "B's handler ran A's recovery event").toEqual([]);
+    await screen.findByText("BETA-BODY");
+    expect(apiState.calls, "exactly B's own first load").toEqual([CONTACT_B]);
+    expect(screen.queryByText("ALPHA-BODY")).toBeNull();
+    expect((screen.getByTestId("composer") as HTMLTextAreaElement).value).toBe("");
+    expect(pendingSmsStore.isScopeMounted(keyOf(CONTACT_A)), "A unsubscribes in passive cleanup").toBe(false);
+  });
+
+  it("after the switch, B's own recovery event reloads B once, and A's events do nothing", async () => {
+    const { rerender } = render(scoped(CONTACT_A));
+    await screen.findByText("ALPHA-BODY");
+    rerender(scoped(CONTACT_B));
+    await screen.findByText("BETA-BODY");
+    apiState.calls = [];
+
+    expect(pendingSmsStore.isScopeMounted(keyOf(CONTACT_A)), "A's subscription is gone once the switch settles").toBe(false);
+    act(() => { pendingSmsStore.emitScope(keyOf(CONTACT_A), "recovery"); });
+    expect(apiState.calls).toEqual([]);
+    await act(async () => {
+      pendingSmsStore.emitScope(keyOf(CONTACT_B), "recovery");
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(apiState.calls).toEqual([CONTACT_B]);
+    expect(screen.getByText("BETA-BODY")).toBeInTheDocument();
+  });
+
+  it("View As starting in the same commit: A's recovery event does not reload the read-only thread", async () => {
+    const { rerender } = render(scoped(CONTACT_A));
+    await screen.findByText("ALPHA-BODY");
+    apiState.calls = [];
+
+    rerender(scoped(CONTACT_A, { readOnly: true, emit: keyOf(CONTACT_A) }));
+
+    expect(atEmit.oldScopeSubscribed, "A's subscription was still registered when its event fired").toBe(true);
+    expect(atEmit.requests, "the View As (null scope) handler ran A's recovery event").toEqual([]);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(apiState.calls).toEqual([]);
+    expect(screen.getByTestId("thread-readonly-notice")).toBeInTheDocument();
+    expect(screen.getByText("ALPHA-BODY")).toBeInTheDocument();
+    expect(pendingSmsStore.isScopeMounted(keyOf(CONTACT_A))).toBe(false);
+  });
+});
+
+describe("useSmsScopeEvents: an event for the old scope inside the switching commit (2026-10-15 review)", () => {
+  // The hook alone, so both callers (ConversationThread and FullScreenContactView) are covered.
+  // `Emit` is a later sibling: its layout effect runs after the probe's handler is re-targeted and
+  // before the probe's passive cleanup removes the old subscription.
+  const seen: string[] = [];
+  const Probe: React.FC<{ scopeKey: string | null; label: string }> = ({ scopeKey, label }) => {
+    useSmsScopeEvents(scopeKey, (event) => { seen.push(`${label}:${event}`); });
+    return null;
+  };
+  const Emit: React.FC<{ scopeKey: string | null }> = ({ scopeKey }) => {
+    React.useLayoutEffect(() => {
+      if (scopeKey) pendingSmsStore.emitScope(scopeKey, "recovery");
+    }, [scopeKey]);
+    return null;
+  };
+  const tree = (scopeKey: string | null, label: string, emit: string | null = null) => (
+    <><Probe scopeKey={scopeKey} label={label} /><Emit scopeKey={emit} /></>
+  );
+
+  beforeEach(() => { pendingSmsStore.reset(); seen.length = 0; });
+
+  it("A→B: A's event is dropped, and B's later events arrive", () => {
+    const { rerender } = render(tree("scope-a", "A"));
+    act(() => { pendingSmsStore.emitScope("scope-a", "recovery"); });
+    expect(seen).toEqual(["A:recovery"]);
+    seen.length = 0;
+
+    rerender(tree("scope-b", "B", "scope-a"));
+    expect(seen, "B's handler received A's event").toEqual([]);
+    expect(pendingSmsStore.isScopeMounted("scope-a")).toBe(false);
+
+    act(() => { pendingSmsStore.emitScope("scope-b", "accepted"); });
+    act(() => { pendingSmsStore.emitScope("scope-a", "recovery"); });
+    expect(seen).toEqual(["B:accepted"]);
+  });
+
+  it("A→null (View As): A's event is dropped and nothing stays subscribed", () => {
+    const { rerender } = render(tree("scope-a", "A"));
+    act(() => { pendingSmsStore.emitScope("scope-a", "recovery"); });
+    expect(seen, "A is subscribed before the switch").toEqual(["A:recovery"]);
+    seen.length = 0;
+
+    rerender(tree(null, "none", "scope-a"));
+    expect(seen, "the null-scope handler received A's event").toEqual([]);
+    expect(pendingSmsStore.isScopeMounted("scope-a")).toBe(false);
   });
 });

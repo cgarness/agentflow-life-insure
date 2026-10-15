@@ -11,6 +11,7 @@ import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
 import { TwilioProvider } from "@/contexts/TwilioContext";
+import { PendingSmsAuthorityBridge } from "@/components/messaging/PendingSmsAuthorityBridge";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import DialerPage from "./pages/DialerPage";
@@ -111,6 +112,7 @@ const App = () => (
                 <SidebarProvider>
                   <Toaster />
                   <Sonner />
+                  <PendingSmsAuthorityBridge />
                   <BrowserRouter>
                     <AppErrorBoundaryWrapper>
                       <Routes>

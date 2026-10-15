@@ -1,9 +1,14 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { MessageSquare, Mail, Phone, Info, MoreVertical, Play, Mic, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { messagesSupabaseApi } from "@/lib/supabase-messages";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
+import { PendingSmsStatus } from "@/components/messaging/PendingSmsStatus";
+import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
+import { pendingSmsStore, smsScopeKey, type SmsIdentityScope } from "@/lib/sms-send/pendingSmsStore";
+import type { SmsDraftOrigin } from "@/lib/sms-send/sendManualSms";
+import { mergeThreadRows, type PendingSmsView } from "@/lib/sms-send/smsDisplayMerge";
 import { RecordingPlayer } from "@/components/ui/RecordingPlayer";
 import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { format } from "date-fns";
@@ -13,11 +18,19 @@ interface ConversationThreadProps {
   contactName: string;
   contactType: string;
   /**
-   * Send the composed message. Resolves `true` ONLY on a confirmed provider success — the composer
-   * is cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
+   * Send the composed EMAIL. Resolves `true` ONLY on a confirmed provider success — the composer is
+   * cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
    * user's text exactly where they can retry it.
    */
   onSendMessage: (text: string, channel: "sms" | "email", subject?: string) => Promise<boolean>;
+  /**
+   * Start a manual SMS. Synchronous: `true` once the pending send exists, by which time the
+   * composer was cleared through `origin.clear()`; the pending bubble then reports the outcome.
+   */
+  onSubmitSms?: (text: string, origin: SmsDraftOrigin) => boolean;
+  /** This viewer's SMS identity for the open contact; null under View As or while unresolved. */
+  smsScope?: SmsIdentityScope | null;
+  /** An EMAIL send is in flight. SMS flight is per contact and comes from the pending store. */
   sending?: boolean;
   /**
    * Read-only preview: render the thread, but NO composer.
@@ -41,6 +54,9 @@ type ThreadRow = Record<string, unknown>;
 
 /** Stable empty reference so an unmatched key cannot churn identity on every render. */
 const EMPTY_THREAD: ThreadRow[] = [];
+
+/** New rows are followed only while the reader is this close to the newest one. */
+const FOLLOW_WITHIN_PX = 120;
 
 /**
  * Realtime coalescing window.
@@ -76,6 +92,8 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactName,
   contactType,
   onSendMessage,
+  onSubmitSms,
+  smsScope = null,
   readOnly = false,
   sending = false,
 }) => {
@@ -85,7 +103,8 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   //      so an unkeyed `messages` renders contact A's rows under contact B for a frame;
   //   2. a request issued for A that resolves AFTER B's would overwrite B's messages, loading flag
   //      and error state, because nothing tied a response to the request that asked for it.
-  const [loaded, setLoaded] = useState<{ key: string; rows: ThreadRow[] } | null>(null);
+  // `readSeq` orders this list read against the targeted read of a just-sent SMS (newer wins).
+  const [loaded, setLoaded] = useState<{ key: string; rows: ThreadRow[]; readSeq: number } | null>(null);
   const [status, setStatus] = useState<{ key: string; loading: boolean; error: string | null } | null>(null);
   // EVERY piece of contact-specific UI state is keyed by contact, for the same reason the thread
   // rows are. A draft written for one person must never be one click away from being sent to
@@ -93,7 +112,11 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   // to. See `activeComposer` / `activeExpanded` below.
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [expanded, setExpanded] = useState<ExpandedState | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** The reader is within FOLLOW_WITHIN_PX of the newest row (kept current by onScroll). */
+  const atNewestRef = useRef(true);
+  /** The next rendered change must show the newest row: first load, or the agent's own send. */
+  const jumpRef = useRef(true);
   /** Only the newest request may commit — see the note on `loaded` above. */
   const loadSeqRef = useRef(0);
   /**
@@ -121,10 +144,14 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     // time. Resetting makes the behaviour the same every time: a new contact, a blank composer.
     setComposer((prev) => (prev && prev.key === contactId ? prev : null));
     setExpanded((prev) => (prev && prev.key === contactId ? prev : null));
+    // A newly opened contact starts from its own first load, on the spinner, at its newest row.
+    setLoaded((prev) => (prev && prev.key === contactId ? prev : null));
+    jumpRef.current = true;
   }, [contactId]);
 
   // Render-time identity match: rows loaded for another contact do not exist for this render.
-  const messages = contactId && loaded?.key === contactId ? loaded.rows : EMPTY_THREAD;
+  const hasRows = !!contactId && loaded?.key === contactId;
+  const messages = hasRows ? loaded.rows : EMPTY_THREAD;
   const currentStatus = contactId && status?.key === contactId ? status : null;
   // No status for this contact yet means the request has not settled — that is loading, never an
   // empty thread.
@@ -161,6 +188,22 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   const setMessageText = useCallback((next: string) => patchComposer({ text: next }), [patchComposer]);
   const setSubjectText = useCallback((next: string) => patchComposer({ subject: next }), [patchComposer]);
 
+  // Manual SMS: this tab's pending sends for THIS identity and contact (none under View As).
+  const smsKey = !readOnly && smsScope && smsScope.contactId === contactId ? smsScopeKey(smsScope) : null;
+  const smsRecords = usePendingSmsRecords(smsKey);
+  const smsInFlight = smsRecords.some((r) => r.state === "sending");
+  const smsDraft = useComposerDraftSink(smsKey, channel, messageText, setMessageText);
+  const merged = useMemo(
+    () => mergeThreadRows(messages, hasRows ? loaded.readSeq : 0, smsRecords),
+    [messages, hasRows, loaded, smsRecords],
+  );
+  const displayRows = merged.items;
+  useMarkObserved(merged.observed);
+  const editPending = useCallback(
+    (localId: string) => { pendingSmsStore.editIntoComposer(localId, smsDraft.sinkId); },
+    [smsDraft.sinkId],
+  );
+
   /**
    * Load ONE contact's thread. The contact is an explicit argument, not a closure over the current
    * prop, so a realtime callback or a post-send refresh can never be re-pointed at whatever contact
@@ -173,16 +216,17 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     // in-flight response and stranded it on the loading spinner.
     if (targetContactId !== activeContactRef.current) return;
     const seq = (loadSeqRef.current += 1);
+    const readSeq = pendingSmsStore.nextReadSeq();
     setStatus({ key: targetContactId, loading: true, error: null });
     try {
       const data = await messagesSupabaseApi.getConversationThread(targetContactId);
       if (loadSeqRef.current !== seq) return; // superseded — another contact owns the screen
-      setLoaded({ key: targetContactId, rows: data });
+      setLoaded({ key: targetContactId, rows: data, readSeq });
       setStatus({ key: targetContactId, loading: false, error: null });
     } catch (err) {
       if (loadSeqRef.current !== seq) return;
       console.error("Error loading thread:", err);
-      setLoaded({ key: targetContactId, rows: EMPTY_THREAD });
+      // Rows already shown for this contact stay put; the failure is reported beside them.
       setStatus({
         key: targetContactId,
         loading: false,
@@ -257,16 +301,42 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     };
   }, [contactId, loadThread, scheduleReload]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // Recovery after an uncertain or accepted-but-unsaved SMS: one quiet reload, never polling.
+  useSmsScopeEvents(smsKey, (event) => {
+    if (event === "recovery") void loadThread(contactId);
+  });
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Jump to the newest row on first load and on the agent's own send. Otherwise follow new content
+  // only while the reader is already at the newest: a reader scrolled into history never moves.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !displayRows.length) return;
+    if (jumpRef.current || atNewestRef.current) el.scrollTop = el.scrollHeight;
+    if (hasRows) jumpRef.current = false;
+  }, [displayRows, hasRows]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) atNewestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_WITHIN_PX;
+  }, []);
 
   const handleSend = async () => {
-    if (!messageText.trim() || sending || readOnly) return;
+    if (!messageText.trim() || readOnly) return;
+    if (channel === "sms") {
+      // Synchronous: the pending bubble renders from this same click, before anything is awaited.
+      if (!onSubmitSms || smsInFlight) return;
+      const started = onSubmitSms(messageText, {
+        sinkId: smsDraft.sinkId,
+        clear: () => {
+          const revision = smsDraft.clearForSend();
+          setMessageText("");
+          return revision;
+        },
+      });
+      if (started) jumpRef.current = true;
+      return;
+    }
+    if (sending) return;
     const boundContactId = contactId;
     const sent = await onSendMessage(messageText, channel, subjectText);
     // NOTHING happens unless the message actually went out. A failed send that cleared the composer
@@ -307,7 +377,37 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     }
   };
 
+  /** This tab's own unsaved SMS: the outbound bubble, dimmed while in flight, and its status. */
+  const renderPending = (item: ThreadRow) => {
+    const view = item.pending as PendingSmsView;
+    return (
+      <div key={String(item.id)} data-testid="pending-sms" className="flex flex-col mb-4 items-end">
+        <div className="flex items-end gap-2 flex-row-reverse">
+          <div className="mb-2">{renderIcon("sms", true)}</div>
+          <div className="flex flex-col items-end min-w-0">
+            <div className={cn(
+              "px-4 py-2 rounded-2xl text-sm shadow-sm transition-all bg-[#007AFF] text-white rounded-tr-sm",
+              view.state === "sending" && "opacity-70",
+            )}>
+              <div className="whitespace-pre-wrap leading-relaxed">{String(item.body)}</div>
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-1 px-1 text-right">
+              {format(new Date(Number(item._ts)), "MM/dd/yyyy h:mm a")}
+            </div>
+            <PendingSmsStatus
+              view={view}
+              canEdit={channel === "sms" && !messageText}
+              onEdit={editPending}
+              onDismiss={pendingSmsStore.dismiss}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderMessage = (item: any) => {
+    if (item.type === "pending_sms") return renderPending(item);
     const isOutbound = item.type !== "call" ? item.direction !== "inbound" : !isCallsRowInboundDirection(item.direction);
     const ts = item._ts || new Date(item.created_at).getTime();
     const timeStr = format(new Date(ts), "MM/dd/yyyy h:mm a");
@@ -410,12 +510,14 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-background relative overflow-hidden min-h-0 h-full">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
-        {loading ? (
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
+        {/* The spinner is for a first load with nothing to show yet; later reloads keep the rows on
+            screen, and this tab's own pending or just-saved texts never wait for history. */}
+        {loading && !hasRows && displayRows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="w-8 h-8 text-primary animate-spin opacity-20" />
           </div>
-        ) : loadError ? (
+        ) : loadError && !hasRows && displayRows.length === 0 ? (
           /* A failed load must never read as an empty conversation. */
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <p className="text-sm font-medium text-foreground mb-1">Couldn't load this conversation</p>
@@ -427,15 +529,45 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
               Retry
             </button>
           </div>
-        ) : messages.length === 0 ? (
+        ) : displayRows.length === 0 && !loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center opacity-40 grayscale">
             <MessageSquare className="w-16 h-16 mb-4" />
             <h3 className="text-lg font-bold">No messages yet</h3>
           </div>
         ) : (
           <>
-            {messages.map(renderMessage)}
-            <div ref={messagesEndRef} />
+            {/* Until the first load succeeds, its state stays pinned in view above this tab's own
+                rows, which the view may have scrolled past. */}
+            {!hasRows && (loading || loadError) && (
+              <div
+                role="status"
+                className="sticky -top-6 z-10 flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground bg-background/90 backdrop-blur-sm"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Loading conversation…
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-foreground">Couldn't load this conversation</span>
+                    <span className="min-w-0 truncate" title={loadError ?? undefined}>{loadError}</span>
+                    <button type="button" onClick={() => void loadThread(contactId)} className="underline">
+                      Retry
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {displayRows.map(renderMessage)}
+            {hasRows && loadError && (
+              <p className="text-[11px] text-muted-foreground text-center mt-1">
+                Couldn't refresh this conversation.{" "}
+                <button type="button" onClick={() => void loadThread(contactId)} className="underline">
+                  Retry
+                </button>
+              </p>
+            )}
           </>
         )}
       </div>
@@ -453,7 +585,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
           </div>
         ) : (
           <MessageComposePanel
-            sendDisabled={!messageText.trim()}
+            sendDisabled={!messageText.trim() || (channel === "sms" && (!onSubmitSms || smsInFlight))}
             channel={channel}
             onChannelChange={setChannel}
             messageText={messageText}
@@ -462,7 +594,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
             onSubjectChange={setSubjectText}
             onOpenTemplates={() => {}}
             onSendMessage={handleSend}
-            sendLoading={sending}
+            sendLoading={channel === "sms" ? smsInFlight : sending}
             className="shadow-xl border-primary/10"
           />
         )}

@@ -1,0 +1,2896 @@
+{
+ "sha": "dacd921903a867de99276f8709f829995602c3bd",
+ "totals": {
+  "numTotalTestSuites": 1532,
+  "numPassedTestSuites": 1521,
+  "numFailedTestSuites": 11,
+  "numTotalTests": 5218,
+  "numPassedTests": 5183,
+  "numFailedTests": 1,
+  "numPendingTests": 34,
+  "numTodoTests": 0
+ },
+ "test_files": 332,
+ "failed": [
+  {
+   "file": "src/lib/caller-id-selection.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/custom-fields-settings.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/__tests__/contactName.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/__tests__/contactScope.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/__tests__/leadDisposition.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+   "test": "handler wiring the authentication and conversation-recording purge are byte-identical to deployed v29",
+   "first_line": "AssertionError: expected 'import { createClient } from \"https:/\u2026' to be 'import { createClient } from \"https:/\u2026' // Object.is equality"
+  },
+  {
+   "file": "src/lib/__tests__/userLocalDayBounds.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/lib/control-center/runtimeEventLogger.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  },
+  {
+   "file": "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts",
+   "test": "<file failed to run>",
+   "first_line": "supabaseUrl is required."
+  }
+ ],
+ "skipped": [
+  {
+   "file": "src/lib/__tests__/contactFollowUps.test.ts",
+   "test": "viewerTimeZoneLabel follows DST at the given instant: PDT before Nov 1 2026, PST after",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/recordingRetentionBaseline.test.ts",
+   "test": "baseline fixture fidelity is byte-identical to 411faf4 after the credential prologue",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/reportsIntegrity.test.ts",
+   "test": "Reports v2 integrity accepts all six actual PostgreSQL responses through runtime contracts",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/saveAppointmentPayload.test.ts",
+   "test": "saveAppointment payload PDT: 2:30 PM on 2026-10-15 is stored as 21:30Z, not the naive 14:30",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/saveAppointmentPayload.test.ts",
+   "test": "saveAppointment payload PST: 2:30 PM on 2026-12-15 is stored as 22:30Z",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/taskDates.test.ts",
+   "test": "parseLocalDateInput / localDateInputToIso in Los Angeles the persisted instant is 07:00Z (PDT midnight), not UTC midnight",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/taskDates.test.ts",
+   "test": "today / validation at noon PDT the default is the LOCAL date and today validates",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/taskDates.test.ts",
+   "test": "today / validation at 9:30 PM PDT the default is still today (the UTC date is already tomorrow)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/taskDates.test.ts",
+   "test": "getTaskDueStatus \u2014 TasksPanel's rule on the local day a date picked for 9/28 and stored as local midnight is 'today' on 9/28 in LA",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/__tests__/voicemailOwnership.test.ts",
+   "test": "the deployed v35 substitution, pinned is present in the source this pass corrects",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/contacts/__tests__/addTaskModalDueDate.test.tsx",
+   "test": "Los Angeles day boundaries at 9:30 PM PDT the default due date is still TODAY (the UTC date is already tomorrow)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/contacts/__tests__/addTaskModalDueDate.test.tsx",
+   "test": "Los Angeles day boundaries at noon PDT today's date validates and is stored as PDT midnight (07:00Z), not UTC midnight",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx",
+   "test": "Schedule \u2192 stored instants in the viewer's zone (America/Los_Angeles only) a PDT afternoon is stored as the matching UTC instant",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx",
+   "test": "Schedule \u2192 stored instants in the viewer's zone (America/Los_Angeles only) a late-evening slot lands on the next UTC day without shifting the local date",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx",
+   "test": "Schedule \u2192 stored instants in the viewer's zone (America/Los_Angeles only) the day after DST ends uses the PST offset",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day from 2026-03-07 midnight is 2026-03-08 00:00 local, not 01:00",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) +1 day ACROSS the transition is 2026-03-09 00:00 local",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) the naive fixed-millisecond approach DRIFTS \u2014 the bug being fixed",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles SPRING FORWARD \u2014 2026-03-08 (23-hour day) a -30 day overdue lookback stays local midnight across the transition",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day from 2026-10-31 midnight is 2026-11-01 00:00 local, not 23:00 on 10-31",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) +1 day ACROSS the transition is 2026-11-02 00:00 local",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) the naive fixed-millisecond approach DRIFTS the other way",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "America/Los_Angeles FALL BACK \u2014 2026-11-01 (25-hour day) a +4 day window keeps BOTH ends at 00:00 local across the transition",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "a 7-day window spans 7 calendar days even across a transition spring: 7 calendar days, not 6 or 8",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "a 7-day window spans 7 calendar days even across a transition fall: elapsed time is 7 days PLUS one hour",
+   "status": "skipped"
+  },
+  {
+   "file": "src/components/dashboard/__tests__/localCalendar.test.ts",
+   "test": "addLocalDays preserves wall-clock time keeps 09:00 as 09:00 across the spring transition",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso PDT summer: 2026-09-30 2:30 PM Los Angeles \u2192 21:30Z (UTC\u22127)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso PST winter: 2026-12-15 2:30 PM Los Angeles \u2192 22:30Z (UTC\u22128)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso late evening crosses the UTC day: 2026-10-31 11:30 PM \u2192 2026-11-01T06:30Z",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso day after fall-back uses PST: 2026-11-02 9:00 AM \u2192 17:00Z",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso DST gap: 2027-03-14 2:30 AM does not exist and rolls forward to 3:30 AM PDT (10:30Z)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso DST overlap: 2026-11-01 1:30 AM resolves to the first (PDT) occurrence (08:30Z)",
+   "status": "skipped"
+  },
+  {
+   "file": "src/lib/calendar/__tests__/localDateTime.test.ts",
+   "test": "localDateTimeToIso 12:00 AM and 12:45 PM edges in LA",
+   "status": "skipped"
+  }
+ ],
+ "files": {
+  "src/components/agent-profile/__tests__/profileContracts.test.ts": {
+   "status": "passed",
+   "passed": 35,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/agent-profile/__tests__/profileStates.test.tsx": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/auth/__tests__/authShell.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/calendar/__tests__/appointmentModalAssignee.test.tsx": {
+   "status": "passed",
+   "passed": 21,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/campaigns/__tests__/campaignColumnsMenu.test.tsx": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/campaigns/__tests__/campaignHeatmapStates.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/campaigns/__tests__/campaignStackedList.test.tsx": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/campaigns/__tests__/campaignsTable.test.tsx": {
+   "status": "passed",
+   "passed": 40,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/campaigns/__tests__/duplicateCampaignDialog.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/ContactKanbanBoard.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/ContactKanbanBoardConvert.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/DeleteConfirmModal.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/addClientSale.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/addTaskModalDueDate.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 2
+  },
+  "src/components/contacts/__tests__/agentModalGoalLabels.test.tsx": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/communicationHistoryPill.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/contactActivityTimeline.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/contactFollowUpsCard.test.tsx": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/contactHistoryMutationRefresh.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/conversationDispositionColors.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewFieldVisibility.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 3
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewScore.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/importLeadsCustomFields.test.tsx": {
+   "status": "passed",
+   "passed": 37,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/importLeadsModalCampaign.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/importLeadsModalResult.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/kanbanCardScore.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/recordPolicyModal.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/__tests__/redundantDialogDescriptions.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/contacts/conversation-history/__tests__/conversationTypes.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/conversations/__tests__/conversationThreadIsolation.test.tsx": {
+   "status": "passed",
+   "passed": 26,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/conversations/__tests__/sidebarStaleReload.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/conversations/__tests__/staleRenderIsolation.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/callbacksRequestLifetime.test.tsx": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardCallbacks.test.ts": {
+   "status": "passed",
+   "passed": 77,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardContactActions.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardContactIdentity.test.ts": {
+   "status": "passed",
+   "passed": 52,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardDateBounds.test.ts": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardDetailModalVoicemail.test.tsx": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardPremiumAvailability.test.tsx": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardPremiumLabels.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardRefresh.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/dashboardSections.test.tsx": {
+   "status": "passed",
+   "passed": 22,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/goalProgressAppointmentsSet.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/leaderboardWidget.test.tsx": {
+   "status": "passed",
+   "passed": 51,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dashboard/__tests__/localCalendar.test.ts": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 12
+  },
+  "src/components/dialer/__tests__/campaignSelectionInteractions.test.tsx": {
+   "status": "passed",
+   "passed": 21,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dialer/__tests__/campaignSelectionModel.test.ts": {
+   "status": "passed",
+   "passed": 34,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dialer/__tests__/campaignSelectionTable.test.tsx": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dialer/__tests__/queueExhaustedNotice.test.tsx": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dialer/__tests__/teamCampaignLeadCard.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/dialer/__tests__/teamOpenLeadCard.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/floatingDialerDisposition.test.tsx": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/floatingDialerRecentStates.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/reminderPopupRecipient.test.tsx": {
+   "status": "passed",
+   "passed": 35,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/topBarAvailabilityGating.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/topBarViewAsShell.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/viewAsCallerContract.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/viewAsRouteAllowlist.test.tsx": {
+   "status": "passed",
+   "passed": 30,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/layout/__tests__/viewAsSidebarNav.test.tsx": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/leaderboard/__tests__/leaderboardStatusSurfaces.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/leaderboard/__tests__/tvModeRegression.test.tsx": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/messaging/smsConsent.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/notifications/__tests__/notificationsDrawer.test.tsx": {
+   "status": "passed",
+   "passed": 22,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/onboarding/__tests__/licensedStatesMultiSelect.test.tsx": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/onboarding/__tests__/onboardingStepper.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/ReportsOverview.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/agentPerformanceTable.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportCustomizer.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportPresentation.test.tsx": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportTrendCharts.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsCallDuration.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsControls.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsDataBasis.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsDialerIntelligence.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsTables.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/reports/__tests__/reportsTrends.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/__tests__/contactFlowRequiredFieldsNote.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/__tests__/contactManagementFieldLayout.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/__tests__/inboundRoutingManagerGating.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/__tests__/numberReputationGuide.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/inbound-routing/__tests__/inboundV2Section.test.tsx": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/phone/a2p/A2pRegistration.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/profile/__tests__/myProfileSurface.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/profile/__tests__/onboardingEmailPreference.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/profile/__tests__/profileCallForwardingSection.test.tsx": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/profile/__tests__/profilePreferencesNotifications.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/user-management/__tests__/teamMembersImpersonate.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/user-management/__tests__/userGoalActuals.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/settings/user-management/__tests__/userPerformanceTab.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/shared/Logo.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/super-admin/__tests__/TwilioBalanceTile.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/training/__tests__/resourceCardMeta.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/components/voicemail/__tests__/voicemailPlayer.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/agentStatusContext.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/calendarAddAppointmentOwnership.test.tsx": {
+   "status": "passed",
+   "passed": 27,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/calendarViewAsIdentity.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/impersonationAuthority.test.tsx": {
+   "status": "passed",
+   "passed": 37,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/notificationContext.test.tsx": {
+   "status": "passed",
+   "passed": 29,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/sessionIdentityAuthority.test.tsx": {
+   "status": "passed",
+   "passed": 43,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/signupPayload.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/teamOpenRevealIntegration.test.tsx": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/twilioProviderLifecycle.test.tsx": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/contexts/__tests__/twilioViewAsIdentity.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/campaignSelectionLive.test.ts": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/dialerSessionCampaignScope.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useAppointmentsFreshness.test.tsx": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useCampaignsTablePrefs.test.tsx": {
+   "status": "passed",
+   "passed": 22,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useContactFollowUps.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useContactHistory.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useContactScopeViewAs.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useCustomMenuLinksEnabled.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useFloatingDialerDispositions.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useImportHistory.test.ts": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useLeaderboardAvatars.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useLeaderboardData.test.tsx": {
+   "status": "passed",
+   "passed": 56,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useReportLayout.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useReportsData.test.tsx": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useSmsConsentStatus.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useTeamCampaignLeadVisibility.test.tsx": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useTeamOpenLeadEdit.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/hooks/__tests__/useTeamOpenMasterLead.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/agentScopeTraversal.test.ts": {
+   "status": "passed",
+   "passed": 31,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/aiTestingDeepgramModels.test.ts": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/appointmentAttribution.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignAccessScope.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignCardStats.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignLeadsBatch.test.ts": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignsTableModel.test.ts": {
+   "status": "passed",
+   "passed": 205,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignsTablePrefs.test.ts": {
+   "status": "passed",
+   "passed": 58,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/campaignsTableQueries.test.ts": {
+   "status": "passed",
+   "passed": 39,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/claimIdentityFailClosed.test.ts": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/clientCustomFieldsWriteGuard.test.ts": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/clientMapping.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactDetailFields.test.ts": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactFieldLayout.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactFollowUps.test.ts": {
+   "status": "passed",
+   "passed": 45,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 1
+  },
+  "src/lib/__tests__/contactFollowUpsQueries.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactName.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactSavePolicy.test.ts": {
+   "status": "passed",
+   "passed": 37,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactScope.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsAgentsScope.test.tsx": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsApi.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsBulkSafety.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsDisplay.test.ts": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsFilterContract.test.ts": {
+   "status": "passed",
+   "passed": 27,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsGatingRender.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsKanban.test.ts": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsPermissions.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsRender.test.tsx": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/contactsSort.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/conversationScope.test.ts": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/conversionContract.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/customFieldErrors.test.ts": {
+   "status": "passed",
+   "passed": 30,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/customFieldsCreate.test.ts": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dashboardRefresh.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dashboardWidgetPrefs.test.ts": {
+   "status": "passed",
+   "passed": 29,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/deviceLifecycle.test.ts": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dialerAppointmentForcedLA.test.ts": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dialerLeadFields.test.ts": {
+   "status": "passed",
+   "passed": 31,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dialerPresence.test.ts": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/dialerQueuePreview.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/durationEvidence.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/edgePayloadVerification.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/emailSubscriptions.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/finalizeRpcTyping.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/floatingDialerRecent.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/forwardAnsweredProof.test.ts": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/impersonationProfile.test.ts": {
+   "status": "passed",
+   "passed": 29,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importCampaignCompatibility.test.ts": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importCampaignRpc.test.ts": {
+   "status": "passed",
+   "passed": 21,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importCampaignSchemas.test.ts": {
+   "status": "passed",
+   "passed": 44,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importFieldMatching.test.ts": {
+   "status": "passed",
+   "passed": 82,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importHistoryScope.test.ts": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/importUndo.test.ts": {
+   "status": "passed",
+   "passed": 21,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundBrowserLifecycleWrites.test.ts": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundBrowserZeroWrites.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundCallLabels.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundCallbackIdentity.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundClaimCallback.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundDeviceLifetime.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundEngineDecision.test.ts": {
+   "status": "passed",
+   "passed": 33,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundFailureNotification.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundForwardingFallback.test.ts": {
+   "status": "passed",
+   "passed": 22,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundOrphanSafety.test.ts": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundOwnershipUi.test.ts": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundRequestDeadline.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundRouting.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundSettingsBoundary.test.ts": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundStages.test.ts": {
+   "status": "passed",
+   "passed": 29,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundTwiml.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/inboundV2Twiml.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/leadDisposition.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/leaderboardAvatarCache.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/leaderboardRequestGate.test.ts": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/missedNotificationGuard.test.ts": {
+   "status": "passed",
+   "passed": 22,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/missedRecipientTier0.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/normalizedPolicy.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/notificationPresentation.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/notificationRecipients.test.ts": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/numberReconciliation.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/onboardingGating.test.ts": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/onboardingValidation.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/outboundAnswerSignalPinned.test.ts": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/outboundPathPinned.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/pageGuardContacts.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/performanceContract.test.ts": {
+   "status": "passed",
+   "passed": 43,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/permissionsSettingsContacts.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/phonePresence.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/policyIdentity.test.ts": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/policySaleRecording.test.ts": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/premiumAvailability.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/profileReadinessAndMix.test.ts": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/profileScopeAndOrgTree.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/profileSetupWizardRemoval.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/protectedRouteOnboarding.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/quickCall.test.ts": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/realtimeExactRowScope.test.ts": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recentConversationsScope.test.ts": {
+   "status": "passed",
+   "passed": 55,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recordingBlankPath.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recordingCleanupRetry.test.ts": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recordingIdempotency.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recordingRetentionBaseline.test.ts": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 1
+  },
+  "src/lib/__tests__/recordingRetentionHandler.test.ts": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/recordingRetentionVoicemail.test.ts": {
+   "status": "failed",
+   "passed": 79,
+   "failed": 1,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportLayoutNormalization.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportLayoutPersistence.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportStatComputations.test.ts": {
+   "status": "passed",
+   "passed": 26,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsBasisText.test.ts": {
+   "status": "passed",
+   "passed": 30,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsContracts.test.ts": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsExportFormat.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsFormatElapsed.test.ts": {
+   "status": "passed",
+   "passed": 33,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsHeroSize.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsIntegrity.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 1
+  },
+  "src/lib/__tests__/reportsPageState.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsPolicySource.test.ts": {
+   "status": "passed",
+   "passed": 17,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsQueries.test.ts": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/reportsRegistrySnapshot.test.ts": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/ringtoneOutputs.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/safeRedirect.test.ts": {
+   "status": "passed",
+   "passed": 33,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/saveAppointmentPayload.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 2
+  },
+  "src/lib/__tests__/spamStatusDb.test.ts": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/systemEmailLogoAsset.test.ts": {
+   "status": "passed",
+   "passed": 23,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/taskDates.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 4
+  },
+  "src/lib/__tests__/teamOpenLeadEdit.test.ts": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/teamOpenReveal.test.ts": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/twilioStatusDuration.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/twilioStatusTerminalGuard.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/twilioVoiceLifecycle.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/userLocalDayBounds.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/usersAllowedIdsQuery.test.ts": {
+   "status": "passed",
+   "passed": 21,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/usersGetPerformance.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/viewAsSurfaces.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/voiceStatusConvergence.test.ts": {
+   "status": "passed",
+   "passed": 25,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/voicemailCleanupStarvation.test.ts": {
+   "status": "passed",
+   "passed": 51,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/voicemailOwnership.test.ts": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 1
+  },
+  "src/lib/__tests__/voicemailOwnershipRecovery.test.ts": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/voicemailRecordingPipeline.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/__tests__/winTriggerIdempotency.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/aiTestingBilling.test.ts": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/calendar/__tests__/appointmentOwnership.test.ts": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/calendar/__tests__/localDateTime.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 7
+  },
+  "src/lib/calendar/__tests__/reminderEligibility.test.ts": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/calendar/appointmentFilters.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/call-recording-policy.test.ts": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/caller-id-selection.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/contact-history/__tests__/historyPresentation.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/contact-history/__tests__/historyQueries.test.ts": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/control-center/runtimeEventLogger.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/custom-fields-settings.test.ts": {
+   "status": "failed",
+   "passed": 0,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/dialer-api-attempt-cap.test.ts": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/dialer-disposition.test.ts": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/incomingCallAlerts.test.ts": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/profile-org-tree.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/twilio-dnc-admission.test.ts": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/voiceSdkNotificationBranch.test.ts": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/lib/webrtcInboundCaller.test.ts": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/acceptGroupInvite.test.tsx": {
+   "status": "passed",
+   "passed": 12,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/acceptInvitePage.test.tsx": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/authCallback.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/calendarContactIdentity.test.tsx": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/calendarPageAppointmentOwnership.test.tsx": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/calendarPageListFilter.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/campaignDetailImportRetry.test.tsx": {
+   "status": "passed",
+   "passed": 6,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/campaignDetailLeadFilterEmpty.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/campaignsPage.test.tsx": {
+   "status": "passed",
+   "passed": 62,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/confirmationPage.test.tsx": {
+   "status": "passed",
+   "passed": 10,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactDeepLinkQuickCall.test.tsx": {
+   "status": "passed",
+   "passed": 8,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsAgentsRenderIsolation.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx": {
+   "status": "passed",
+   "passed": 31,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsFullScreenSaveIntegrity.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsImportHistoryTab.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsQuickCallType.test.tsx": {
+   "status": "passed",
+   "passed": 5,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsViewAsFailClosed.test.tsx": {
+   "status": "passed",
+   "passed": 29,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/contactsViewAsPreferences.test.tsx": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/conversationsSendContract.test.tsx": {
+   "status": "passed",
+   "passed": 25,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/conversationsViewAs.test.tsx": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dashboardRefreshWiring.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dialerAppointmentSave.test.tsx": {
+   "status": "passed",
+   "passed": 28,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dialerAppointmentSaveContract.test.ts": {
+   "status": "passed",
+   "passed": 7,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dialerCallGate.test.ts": {
+   "status": "passed",
+   "passed": 15,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dialerRenderStability.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/dialerTeamOpenWiring.test.ts": {
+   "status": "passed",
+   "passed": 13,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/emailUnsubscribePage.test.tsx": {
+   "status": "passed",
+   "passed": 4,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/forgotPassword.test.tsx": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/leaderboardPage.test.tsx": {
+   "status": "passed",
+   "passed": 25,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/licensedStatesAdapter.test.ts": {
+   "status": "passed",
+   "passed": 36,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/loginPage.test.tsx": {
+   "status": "passed",
+   "passed": 20,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/onboardingFounderFlow.test.tsx": {
+   "status": "passed",
+   "passed": 9,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/onboardingInviteFlow.test.tsx": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/onboardingLicensedStates.test.tsx": {
+   "status": "passed",
+   "passed": 14,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/onboardingWizardBehavior.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/reportsPage.test.tsx": {
+   "status": "passed",
+   "passed": 51,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/reportsScopeIntegration.test.tsx": {
+   "status": "passed",
+   "passed": 3,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/resetPassword.test.tsx": {
+   "status": "passed",
+   "passed": 24,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/settingsPageHeading.test.tsx": {
+   "status": "passed",
+   "passed": 19,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/pages/__tests__/signupPage.test.tsx": {
+   "status": "passed",
+   "passed": 18,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/test/example.test.ts": {
+   "status": "passed",
+   "passed": 1,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/test/supabase-leads.test.ts": {
+   "status": "passed",
+   "passed": 2,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/utils/__tests__/normalizeUsState.test.ts": {
+   "status": "passed",
+   "passed": 59,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/utils/dncCheck.test.ts": {
+   "status": "passed",
+   "passed": 11,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  },
+  "src/utils/dobUtils.test.ts": {
+   "status": "passed",
+   "passed": 16,
+   "failed": 0,
+   "pending": 0,
+   "todo": 0,
+   "skipped": 0
+  }
+ }
+}

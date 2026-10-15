@@ -11,7 +11,7 @@ import type { SmsConversationItem } from "./conversationTypes";
  * chat alignment. Outbound = blue `#007AFF` (documented intentional literal);
  * inbound = token-based neutral surface (dark-mode-correct by construction).
  */
-export const SmsHistoryItem: React.FC<{ item: SmsConversationItem }> = ({ item }) => {
+export const SmsHistoryItem: React.FC<{ item: SmsConversationItem; status?: React.ReactNode }> = ({ item, status }) => {
   const { formatDateTime } = useBranding();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const panelId = useId();
@@ -37,6 +37,7 @@ export const SmsHistoryItem: React.FC<{ item: SmsConversationItem }> = ({ item }
               item.outbound
                 ? "bg-[#007AFF] text-white rounded-tr-sm"
                 : "bg-muted border border-border text-foreground rounded-tl-sm",
+              item.pending?.state === "sending" && "opacity-70",
             )}
           >
             {/* [overflow-wrap:anywhere] (unlike break-word) counts in min-content sizing, so an
@@ -57,6 +58,7 @@ export const SmsHistoryItem: React.FC<{ item: SmsConversationItem }> = ({ item }
               label="SMS details"
             />
           </div>
+          {status}
         </div>
       </div>
       {detailsOpen ? (
