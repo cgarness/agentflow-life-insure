@@ -25,6 +25,7 @@ TEMP=$(mktemp -d)
 DATABASES=()
 cleanup() {
   for db in "${DATABASES[@]}"; do psql "$ADMIN_URL" -qX -c "DROP DATABASE IF EXISTS $db WITH (FORCE)" >/dev/null 2>&1 || true; done
+  psql "$ADMIN_URL" -qX -c "DROP ROLE IF EXISTS agentflow_comp_operator" >/dev/null 2>&1 || true
   rm -rf "$TEMP"
 }
 trap cleanup EXIT
@@ -50,6 +51,13 @@ sql() { psql "$DB_URL" -qX -v ON_ERROR_STOP=1 "$@"; }
 # new_db NAME [bare]: a fresh database with the harness and actor resolver (and the migrations unless bare).
 new_db() {
   local db="${PREFIX}_$1"
+  # Roles are cluster-global, unlike databases. Each scenario must remove the previous disposable
+  # database first, then its operation role, or the next fresh migration would correctly see a collision.
+  for old_db in "${DATABASES[@]}"; do
+    psql "$ADMIN_URL" -qX -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $old_db WITH (FORCE)" >/dev/null
+  done
+  DATABASES=()
+  psql "$ADMIN_URL" -qX -v ON_ERROR_STOP=1 -c "DROP ROLE IF EXISTS agentflow_comp_operator" >/dev/null
   psql "$ADMIN_URL" -qX -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db" >/dev/null
   DATABASES+=("$db")
   DB_URL="${PGURL%/}/$db"

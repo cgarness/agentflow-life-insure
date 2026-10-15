@@ -13,4 +13,3 @@ through the canonical helpers. The legacy custom-GUC authority is not used by mi
 
 **Production boundary:** migration 1 remains production history exactly as version `20261015211858`. The revised
 migration 2 and every later release step require a fresh exact production approval after CI/review.
-
