@@ -700,7 +700,7 @@ PR #433 (merge `d88982d`, released to production 2026-10-09) replaced the Campai
 
 **Column preferences.** Store them only in `user_preferences.settings.campaigns_table = {v:1, orgs:{[orgId]:{order,hidden}}}` for the real signed-in user; a write changes only the current org's entry and preserves every other settings key. Opening the page only reads. Save/Reset update with compare-and-set on the exact `updated_at`, retry once and then report a conflict; a missing row is inserted, and a 23505 race re-reads and compare-and-sets. A stored `campaigns_table` object whose `v` is present and not 1 renders the default columns and refuses Save/Reset; never overwrite it. Editing is disabled during View As. Campaign and Actions are locked; unknown ids are dropped and new columns join at their default position.
 
-## Commission grids invariant — October 15, 2026 (branch only: nothing pushed, applied, imported or deployed)
+## Commission grids invariant — October 15, 2026 (draft PR #447: not merged; nothing applied, imported, activated or deployed)
 
 An **estimate tool only**. Agents estimate first-year commission from their agency's selected grid and their own `profiles.commission_level`. Estimates never become payroll, booked commission, earned-commission records or reporting truth. Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 

@@ -7,8 +7,8 @@
 publication; see "Corrections made during closeout".
 
 **Kept separate, per C5:**
-- This record covers synthetic data only.
-- The private FFL import, reconciliation and source-backed acceptance have **not run** (BLOCKED, D4). Nothing here verifies real rates, the 41/57/11 inventory or any carrier-specific example.
+- Every section except "Private FFL validation" covers synthetic data only.
+- "Private FFL validation" records the real-data run of 2026-10-15 as SHA-256 values, aggregate counts and PASS/FAIL only. It contains no rate, carrier or product name, source note or acceptance expectation (D1).
 - No hosted database or deployment was touched.
 
 ## Environments
@@ -146,9 +146,32 @@ Re-checked read-only on 2026-10-15, before the review correction edited the oper
 - the only Supabase preview branches (PRs #294 and #378) predate this feature;
 - PR #447 has none.
 
+Re-checked read-only again during release preparation (2026-10-15). The newest production migration is
+`20261010172702`, there is no `20261015…` row, and there are no comp tables, functions or schema.
+
+## Private FFL validation (real data; value-free; 2026-10-15)
+
+Kept apart from the synthetic results above (C5). It ran outside Git, against disposable loopback databases
+only, following runbook §1–3. The private files sat in an ephemeral session directory outside the repository,
+which is not durable storage (D1).
+
+| Check | Result |
+|---|---|
+| Source | SHA-256 `998307b4ebab7f3ed0e6dfdf30457d4bd2b5f967c80f0068e04aa4f5ed631d08`, equal to the value Chris expected. 8,402 bytes, 57 data rows, ASCII, LF line endings |
+| Importer 1.0.0 `validate --expect-products 41 --expect-variants 57 --expect-carriers 11` | PASS: 0 anomalies. 41 products, 57 variants, 11 carriers, 963 rate cells, 57 references |
+| Independent source check (does not use the importer) | 49 PASS, 0 FAIL, 9 informational. 6 blank cells and 0 explicit zeros; no duplicate or overlapping variants; no mixed term definitions; notes agree with values; no rate rises as the level falls |
+| Owner decision | Chris confirmed one source cell as authoritative. Recorded privately with its evidence |
+| Artifact | SHA-256 `cf83d9923a261c531c709acaa24656cddca9d77ca850d332417262c953b78157`. Content fingerprint `273d0eb0fc144b21b812a5c6fa74daf44d18579fb3e0aa4a315439cc7ba3ffed`. Grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`. Three byte-identical builds; `verify` ok |
+| Artifact against the CSV (independent comparison) | 16 PASS, 0 FAIL: products, variants, rate cells (exact text) and references equal in both directions; blank cells have no rate row |
+| Disposable import (PostgreSQL 16.15; C and `en_US.UTF-8`) | `imported`. The ledger row and the stored-row fingerprint equal the manifest. Re-import `already_imported`. A missing approval and a wrong checksum are refused |
+| Reconciliation | PASS on both clusters: 0 differences in products, variants, rate cells and references; levels equal; 0 inactive products |
+| Reconciliation negative controls | 7 of 7 mutated CSV streams fail (exit 3): changed value, same number written differently, blank to zero, extra cell, dropped row, changed note, changed age |
+| Activation rehearsal (synthetic people; agency resolved by name with a random id) | 21 PASS, 0 FAIL. Agent read, management denial and another agency's isolation all hold, and direct client writes to shared rows change nothing |
+| Source-backed acceptance (`privateAcceptance.test.ts`) | 49 of 49 PASS: Chris's 8 required cases, 39 age, term, level and blank-cell boundaries, and 2 more. A negative control with 4 wrong expectations fails exactly those 4 |
+
 ## Not verified
-- PostgreSQL 17.6 CI on the review-correction revision. It is recorded in the PR description once it runs; the `c354895` pass does not cover it.
+- CI on the head that carries this record (the merge with `main` plus the release-preparation records). It is recorded in the PR description. On the review-correction head `2447c1b`, all ten jobs passed, including PostgreSQL 17.6.
 - Any signed-in browser session against a real backend.
 - Supabase advisors after applying: nothing was applied.
 - Any production or preview behaviour.
-- All real-data checks (BLOCKED).
+- The real grid on any hosted database: nothing was imported, activated or applied anywhere hosted (release package, plan §12).

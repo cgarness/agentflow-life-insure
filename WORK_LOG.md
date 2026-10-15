@@ -1,3 +1,43 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: private FFL validation passed; release package prepared (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris asked for the final private FFL data validation and release preparation on draft PR #447 (reviewed head `2447c1b`). The phase ends with a release package for his approval. Not authorized: production migrations, the production import or activation, merge, deploy, RLS or migration-history changes, and any hosted-database mutation.
+
+**Source decision.** Chris confirmed one source cell, which a source note questions, as authoritative. The CSV is kept byte-for-byte. The decision and its evidence are recorded privately, not here.
+
+**Private validation** (outside Git; disposable loopback databases only; details in `verification.md`):
+- The source SHA-256 `998307b4…1d08` equals Chris's expected value.
+- Importer 1.0.0 validation: 0 anomalies; 41 products, 57 variants, 11 carriers, 963 rate cells. An independent check that does not use the importer: 49 PASS, 0 FAIL.
+- Artifact `cf83d992…8157`, content fingerprint `273d0eb0…ffed`, grid `6ad6d4e4-…`. Three builds are byte-identical, and the artifact equals the CSV in both directions.
+- PostgreSQL 16.15 (C and `en_US.UTF-8`): `imported`, then `already_imported`. Reconciliation PASS with 0 differences in both directions; 7 negative controls fail as required.
+- Activation rehearsal with synthetic people: 21 PASS. Source-backed acceptance: 49 of 49, including the 8 required cases; a 4-case negative control fails exactly those 4.
+
+**Public changes (value-free).**
+- Merge `9cfaf16`: `main` (#448) into the branch. `WORK_LOG.md` resolved additively, newest first; no line removed on either side.
+- `AGENT_RULES.md`: the commission-invariant heading now says draft PR #447, not merged, and nothing applied, imported, activated or deployed. The invariant itself is unchanged.
+- The manifest (hashes, counts, PASS), the runbook status, and the detailed plan: status, D4 note, §10, and the §12 release package.
+- `verification.md` (a separate real-data section), the root plan, and this entry.
+- No code, test, migration, ops-script, fixture or workflow change.
+
+**Verification of the new head (local).**
+- Runner PASS, 57 checks, on C and `en_US.UTF-8` under CI settings; identical output.
+- CI frontend command: 12 files passed, 2 skipped by design; 168 tests passed, 2 skipped. The merged #448 tests pass (48).
+- The full Vitest suite fails only in the same 10 files as on `main`.
+- ESLint is clean on all 64 branch source files.
+- `tsc`: root exit 0. The app type-check has 84 diagnostics, the same set as `main`; one moved 4 lines because of the branch's Sidebar lines.
+- The production build passes.
+- Safety scan: none of the source text, names, amounts or rate sequences appear in this phase's changes, the merge resolution, the staged diff or the build output. The only build-output hits are pre-existing placeholders and time constants. One older public item was reported to Chris privately for a decision.
+
+**Production (read-only only).** Newest migration `20261010172702`; no `20261015…` row; no comp objects; exactly one organization with the home agency's name; resolver bodies match the tested copies. Of 4 organizations, 3 others have an active Admin, who could self-enable the shared grid after release (C6); Chris is asked to confirm that (plan §12 P6). Vercel production (both projects) serves `b5976e0`, and every push to `main` deploys both.
+
+**Migrations and deploys.** None applied to any hosted database. No import, activation, merge or deploy. Only the automatic protected Vercel previews.
+
+**Blockers.**
+1. A durable private location for the CSV and the artifact (D1).
+2. CI on the new head (see the PR) and PR review.
+3. Chris's exact approval of the release package (plan §12).
+
+**Next steps.** Chris reviews the release package. Nothing reaches production without that approval.
+
 ## 2026-10-15 — HOTFIX: Team Leaders can invite Agent users
 
 **Approval:** Chris requested an immediate fix and explicitly instructed ChatGPT to implement the proposed scope here: Team Leader Agent invitations into their own agency/direct downline, send/copy/resend, two Edge deployments and corresponding frontend release.

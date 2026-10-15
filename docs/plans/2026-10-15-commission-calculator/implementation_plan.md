@@ -11,10 +11,12 @@ records. After independent review came the approved two-finding correction in §
 failed background reads, and deletion requires a revision. It changed the operations migration's checksum (§12).
 Nothing is merged, deployed, imported or applied to any hosted
 database; Supabase Preview did not run (the project is at its concurrent preview-branch limit). Production
-access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
-reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
-location (D1); the PostgreSQL 17.6 re-run on the corrected head is recorded in the PR. Release needs a separate,
-exact approval of the consolidated release proposal (§12).
+access stays read-only (advisor reads included). **Real-data validation passed locally (2026-10-15):** Chris
+supplied the CSV (D4). Validation, the deterministic artifact, import into disposable loopback databases,
+bidirectional reconciliation and source-backed acceptance all passed (§10; value-free results in
+`verification.md` and the manifest). `main` (#448) was merged into the branch to clear a `WORK_LOG.md`
+conflict. **Not yet released:** a durable private location (D1) must be named, and the release needs Chris's
+separate, exact approval of the release package (§12).
 
 **Base:** `origin/main` `dacd921903a867de99276f8709f829995602c3bd`. **Branch:** `feature/commission-calculator-agency-grids`
 (one branch, intended for one PR).
@@ -42,7 +44,7 @@ platform/Control Center surfaces.
 | **D1** | Real FFL source stays private. Never in Git, public CI logs/artifacts, PR text, screenshots or public docs — including the eight carrier-specific acceptance expectations. Commit schema/operation migrations, the reusable importer/validator, synthetic tests and a non-sensitive manifest. Reference DATA loads through a documented, transactional private-import workflow (§7); all DDL stays in ordinary committed migrations; no production-only migration, no public substitute for private SQL, no fabricated migration history. A durable private location for the original input and exact artifact must be named before release. Repository visibility unchanged. |
 | **D2** | `#APPROVE_RLS_CHANGE` for authoring and LOCAL TESTING of the new compensation tables' functions/triggers/grants/policies only. No existing policy/helper/role change; no production application. Exception documented by name: **Shared compensation grid exception**. |
 | **D3** | The calculator's navigation and route gate respect the existing "View Own Commission Percentage" permission (screen-level, like `CommissionGate`; not a database secrecy claim). The eligible-grid RLS model is unchanged. Grid management keeps its own Agency Admin gate. Neither surface joins View As. |
-| **D4** | The actual CSV is still required. Until it arrives: private import/reconciliation and source-backed acceptance are **BLOCKED**; the 57/41/11 inventory is unverified; the feature is not release-ready. Everything else proceeds on synthetic data. |
+| **D4** | The actual CSV is still required. Until it arrives: private import/reconciliation and source-backed acceptance are **BLOCKED**; the 57/41/11 inventory is unverified; the feature is not release-ready. Everything else proceeds on synthetic data. **Update 2026-10-15:** the CSV was supplied; the private checks passed locally (§10). |
 | C1 | Authorization and locking proven in a disposable loopback database before building on them (§4.5). |
 | C2 | Every write path covered, direct table operations included; deterministic concurrency tests (§9.2). |
 | C3 | Unsaved-editor data loss closed for settings-section changes, sidebar navigation, browser back/forward and reload/close (§8.3). |
@@ -286,8 +288,29 @@ diagnostics, exit 2 — full diagnostic text saved for set comparison. Final com
 plus vitest failures base vs branch, reported separately.
 
 ## 10. Status / blockers
-- **BLOCKED:** private FFL import/reconciliation and source-backed acceptance (CSV not supplied; D4); durable
-  private location for input/artifact (D1, before release).
+- **Private FFL validation: PASSED locally (2026-10-15; was BLOCKED on D4).** Chris supplied the CSV; its
+  SHA-256 equals the expected `998307b4…`. Everything ran outside Git, against disposable loopback databases
+  only. Public records carry hashes, counts and PASS/FAIL only (D1).
+  - *Validation.* Importer 1.0.0: 0 anomalies; 41 products, 57 variants, 11 carriers, 963 rate cells, 57
+    references. An independent check that does not use the importer: 49 PASS, 0 FAIL. It covers encoding,
+    the header and levels, categories, ages, terms, identities, blank versus zero (6 blank cells, 0 explicit
+    zeros), decimal places, range, duplicates, overlaps, mixed term definitions, notes against values, and the
+    product intentionally listed under two categories. No rate rises as the contract level falls.
+  - *Owner decision.* Chris confirmed one source cell, which a source note questions, as authoritative. It is
+    kept byte-for-byte; the decision and its evidence are recorded privately, never here.
+  - *Informational.* Some products pay above the contract level at some levels, some step unevenly between
+    levels, and a few rows cite a secondary guide. They are listed for Chris in the release closeout;
+    nothing was changed.
+  - *Artifact.* `cf83d992…` (content fingerprint `273d0eb0…`). Three builds are byte-identical, `verify`
+    passes, and an independent comparison finds the artifact equal to the CSV in both directions.
+  - *Disposable databases* (PostgreSQL 16.15, C and `en_US.UTF-8`). Import `imported`; re-import
+    `already_imported`; a missing approval or a wrong checksum is refused. The stored-row fingerprint equals
+    the manifest. Reconciliation PASS with 0 differences in both directions, and 7 mutated-CSV negative
+    controls fail as required. An activation rehearsal with synthetic people passed 21 checks: agent read,
+    management denial, another agency isolated, and direct writes changing nothing.
+  - *Source-backed acceptance.* 49 of 49 pass: Chris's 8 required cases plus age, term, level and blank-cell
+    boundaries. A negative control with 4 wrong expectations fails exactly those 4.
+- **Open before release:** the durable private location for the source and the artifact (D1).
 - **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
   stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
   with the expected literals (database default collation). The CI image defaults to `en_US.utf8`, so the order
@@ -376,90 +399,171 @@ The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An a
 level their own estimate uses. Needs its own approved change; nothing here alters profiles, onboarding or
 stored levels.
 
-## 12. Consolidated release proposal (prepared 2026-10-15; NOTHING EXECUTED)
+## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation; NOTHING EXECUTED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
 approved together as one release package. Local implementation approval is not release approval.
-Target: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the production Vercel project.
+Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the two Git-linked Vercel production
+projects, `agentflow` and `agentflow-life-insure`.
 
-**0. Publication (separate approval, before anything below).** Push `feature/commission-calculator-agency-grids`
-and open ONE pull request. This triggers automated previews and CI, including the PostgreSQL 17.6 workflow.
-No production effect.
+**State when this package was prepared (read-only, 2026-10-15).**
+- Production database:
+  - newest migration `20261010172702`, with no `20261015…` row;
+  - no comp tables, functions or schema;
+  - exactly one organization named *Family First Life - Chris Garness*, and none using the nil UUID;
+  - 4 organizations in total; 3 other organizations have an active Admin (see P6);
+  - `private.campaign_actor()` and `public.get_org_id()` match the bodies used in testing;
+  - PostgreSQL 17.6, `en_US.UTF-8`.
+- Vercel: both production projects serve `b5976e0` (`agentflow` `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`,
+  `agentflow-life-insure` `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`). Every push to `main` builds a production
+  deployment in both projects automatically.
+- Merge candidate: the PR #447 head recorded in the PR description. Recording it there does not move the head.
+
+**0. Publication:** done (draft PR #447).
 
 **Prerequisites. Every one must hold before step 1:**
-- P1. The CSV has been supplied and preserved byte-for-byte in the durable private location Chris names.
-  Locally on a disposable database: validated with zero anomalies; the inventory confirmed (41/57/11, or any
-  difference explicitly accepted by Chris, never edited away); the artifact built and verified; imported;
-  reconciliation PASS; private acceptance PASS. The manifest is updated with the non-sensitive values.
-- P2. PR reviewed and approved; CI green on the exact head, including PostgreSQL 17.6.
+- P1. Private data:
+  - *Done locally on 2026-10-15 (§10):*
+    - source `998307b4ebab7f3ed0e6dfdf30457d4bd2b5f967c80f0068e04aa4f5ed631d08`;
+    - artifact `cf83d9923a261c531c709acaa24656cddca9d77ca850d332417262c953b78157`;
+    - importer 1.0.0;
+    - content fingerprint `273d0eb0fc144b21b812a5c6fa74daf44d18579fb3e0aa4a315439cc7ba3ffed`;
+    - counts 41/57/11, 963 rate cells, 57 references;
+    - reconciliation PASS; acceptance 49 of 49.
+  - *Open:* Chris names the durable private location and confirms both SHA-256 values there.
+- P2. PR #447 reviewed and approved; CI green on the exact head, including PostgreSQL 17.6; no conflict with `main`.
 - P3. Read-only production prechecks, immediately before step 1:
-  - migration history (none newer than the comp files);
+  - migration history (none newer than expected);
   - no `comp_*` / `comp_authz` objects exist;
   - no organization uses the nil UUID;
-  - `private.campaign_actor()` and `public.get_org_id()` match the bodies used in testing;
-  - exactly one organization is named *Family First Life - Chris Garness*.
+  - the two resolver bodies match the tested copies;
+  - exactly one organization has the home agency's exact name;
+  - which roles hold "View Own Commission Percentage" (it gates the calculator, D3).
+- P4. The Supabase GitHub integration's "Deploy to production" is still OFF (AGENT_RULES #30), confirmed by Chris
+  in the dashboard.
+- P5. Baseline of the Supabase security and performance advisors (read-only).
+- P6. Chris confirms that agency self-service (C6) applies to this grid. Once it is imported, the Admins of the
+  3 other organizations can see its name, effective date and levels in their catalog, and can enable it. That
+  gives their agents the full rates. Restricting a shared grid to named agencies would need a separate design
+  change.
 
-**1–3. Migrations.** Apply these exact files, in this order, through the repository's migration workflow.
-Record the version each one is assigned next to its file name; never fabricate or repair history.
+**1–3. Migrations.** Apply each file through Supabase MCP `apply_migration` with the exact file bytes, one at a
+time, reading each back before the next. Do not change the file bytes or migration history to make an
+apply succeed.
 
-| # | File | SHA-256 |
-|---|---|---|
-| 1 | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `84637cf30480ed41d529ab9f0902f4fb44a3fa0141c5c5792594898ce1f64b16` |
-| 2 | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` |
-| 3 | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
+| # | `name` | File | SHA-256 |
+|---|---|---|---|
+| 1 | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `84637cf30480ed41d529ab9f0902f4fb44a3fa0141c5c5792594898ce1f64b16` |
+| 2 | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` |
+| 3 | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
 
-(Files 1 and 3 are unchanged since local commit `14d9fa4`. File 2 changed in the independent-review correction
-(§10), which superseded `d7c20e1712c958d8af516884edd730004af72adc2f50f0e323adefd5b96e7bc3`; the migration had
-not been applied anywhere hosted. Re-verify all three on the approved PR head.)
+`apply_migration` stamps its own version. Record each one, and confirm the stored statement is byte-identical
+to the file: md5 of `statements[1]` equals md5 of the file bytes. File 2 supersedes `d7c20e17…`, which was
+never applied anywhere hosted. Re-verify all three on the approved head.
 
 **4. Read-only verification.**
-- Objects, grants, policies and the SECURITY DEFINER inventory match the access-suite inventories (A10).
-- Run the Supabase security and performance advisors. New findings are triaged and reported separately.
+- Objects, RLS, policies, grants and the SECURITY DEFINER inventory match the access suite (A10):
+  - `service_role` holds SELECT only on the comp tables;
+  - `anon` holds nothing;
+  - the private import functions are postgres-only.
+- Advisors compared with P5. New findings are triaged and reported separately.
 
-**5. Private import.** Run `supabase/ops/commission_grids_import_reference_grid.sql`
-(SHA-256 `d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`):
-- who runs it, and from where, is decided in the release plan; the artifact's values are never printed into
-  logs, PR text or shared transcripts;
-- use the exact artifact from the private location, with `artifact_sha256` set to the manifest value;
-- set `agentflow.approve_comp_reference_import=yes`.
+**5. Private import.** Use the exact artifact `cf83d992…` from the durable location, re-checking its SHA-256
+first. The route is Chris's choice (recommendation first). Never use `apply_migration` for data: it would store
+the rates in the migration history.
+- (a) **Recommended.** Chris, or an operator he names, runs the reviewed ops script
+  (`d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`) with psql, from the machine holding the
+  private files, as `postgres` through the session pooler or a direct connection:
 
-Expected: `status = imported` for grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`. A re-run returns `already_imported`.
+  ```bash
+  psql "$PRODUCTION_SESSION_URL" -X -v ON_ERROR_STOP=1 \
+    -v artifact_path="$PRIVATE_DIR/ffl.comp_reference_grid.json" \
+    -v artifact_sha256=cf83d9923a261c531c709acaa24656cddca9d77ca850d332417262c953b78157 \
+    -c "SET agentflow.approve_comp_reference_import = 'yes'" \
+    -f supabase/ops/commission_grids_import_reference_grid.sql
+  ```
+
+  The `-c SET` form was tested locally; it works where `PGOPTIONS` startup options are not passed through.
+  The output is status, ids, counts and the fingerprint only. The artifact never passes through the agent
+  session, an MCP request, Git or CI.
+- (b) **Alternative.** The agent sends the same transaction through Supabase MCP `execute_sql`. It contains
+  `SET LOCAL agentflow.approve_comp_reference_import = 'yes'` and the artifact as one dollar-quoted literal (the
+  artifact contains no `$`). The full artifact then passes through the agent session and the MCP request,
+  though never Git, PR text or CI. The function's checksum refuses any altered text, and nothing is imported.
+
+Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, counts 41/57/11/963/57,
+`content_sha256 = 273d0eb0…`. A re-run returns `already_imported`.
 
 **6. Read-only verification.**
-- One ledger row.
-- `private.comp_grid_content_sha256('6ad6d4e4-4024-5dae-bef5-de0202ab1b6e')` equals the manifest `content_sha256`.
-- Counts equal the manifest.
+- Exactly one ledger row (`public.comp_reference_imports`): importer 1.0.0, source `998307b4…`, artifact
+  `cf83d992…`, content `273d0eb0…`.
+- `private.comp_grid_content_sha256('6ad6d4e4-4024-5dae-bef5-de0202ab1b6e')` equals `273d0eb0…`.
+- Counts equal the manifest, and the grid is active.
 
 **7. Activation.** Run `supabase/ops/commission_grids_activate_home_agency.sql`
-(SHA-256 `47f91f707e12e14c480a6f0e05d881139de92c5bb518973a9c258039150aa069`) with
-`agentflow.approve_comp_home_activation=yes`.
-- The agency is resolved by exact unique name at execution.
-- It selects the grid only if the agency has no selection. An existing selection is reported, never overwritten.
+(`47f91f707e12e14c480a6f0e05d881139de92c5bb518973a9c258039150aa069`) with
+`agentflow.approve_comp_home_activation = 'yes'`. Either route works: the agent through MCP `execute_sql`
+(the script carries no private data), or the operator with psql in the same `-c SET` form.
+- The agency is resolved by exact unique name at execution, never by a hardcoded id. Zero or several matches
+  are refused (PT409).
+- Expected on first run: `selected: true`, `existing_selection: null`.
+- A different existing selection is kept and reported, never overwritten. Stop and ask Chris.
 - No other agency is activated. Other Agency Admins may later opt in themselves (C6).
 
-**8. Frontend.** Merge the approved PR, then deploy that exact merge commit to production. Record the commit
-and the deployment id.
+**8. Filename reconciliation, before the merge (practice since 2026-10-10).** On the PR branch:
+- `git mv` the three migrations and their three rollback files to the recorded versions. SQL bytes are
+  unchanged, and byte-identity is re-verified.
+- The forward files keep their authored names in comments and messages, because their bytes may not change.
+- Update:
+  - `MIGRATIONS` in `scripts/run_commission_grids_tests.sh`;
+  - the path filters in `.github/workflows/commission-grids.yml`;
+  - the rollback header lines;
+  - the records.
+- One normal push. Exact-head CI, including 17.6, must be green before the merge.
 
-**9. Post-release verification.**
-- The served entry asset.
-- Signed-in checks:
-  - a home-agency agent sees "Commission Calculator" directly below Resources and gets an estimate;
-  - an agency admin sees Settings › Commission Grids;
-  - an agent whose role lacks "View Own Commission Percentage" sees neither;
-  - another agency sees nothing until its own admin enables a grid.
-- Advisors again.
+**9. Merge and frontend.**
+- Chris marks PR #447 ready and merges the reviewed head with a merge commit.
+- Both Vercel projects build production from it automatically. Record both deployment ids, READY and
+  `aliasError = null`.
+- Confirm the migration list is unchanged after the merge: nothing replayed.
+
+**10. Post-release verification.**
+- *Vercel.* Both production deployments are READY at the merge commit, with no runtime errors.
+- *Database, read-only.* Run role simulations inside `begin read only … rollback` with production JWT claims:
+  - **Agency Admin management access.** Chris's Admin profile sees the FFL Compensation Grid enabled and selected
+    (`comp_get_admin_overview`), and as enabled in the catalog.
+  - **Regular Agent denial.** A home-agency Agent is refused the overview, the catalog and grid snapshots
+    (42501).
+  - **Calculator data.** A home-agency Agent gets `ready` on grid `6ad6d4e4-…` with 41/57/963, no
+    source/notes text, and their own level as stored.
+  - **Contract levels.** Count the home-agency profiles whose level is on the grid, off the grid, missing or
+    malformed (counts only).
+  - **Real product/rate lookup.** A private spot check of the eight acceptance cases against the stored rows.
+    The values stay in the private session.
+  - **Disabled-agency isolation.** A profile of another agency, where one exists, gets `not_configured` and
+    sees 0 comp rows; it sees the catalog as metadata only.
+  - **RLS negatives.** `anon` has no EXECUTE on any comp operation and reads 0 comp rows. Direct client writes
+    to shared rows change nothing; this is proven by the suites and the local real-data rehearsal, not by
+    production writes.
+  - Advisors compared with P5.
+- *Signed in (Chris).*
+  - A home-agency agent sees "Commission Calculator" below Resources and gets the first required estimate.
+  - An Admin sees Settings › Commission Grids.
+  - A role without "View Own Commission Percentage" sees neither.
 
 **Non-destructive rollback (each step separately approved).**
-- (a) Frontend: redeploy or promote the previous production deployment, or revert the merge commit. The
-  calculator and settings UI disappear and data stays.
-- (b) Calculator off without code changes: an agency admin chooses "None — calculator off". For every agency:
-  `private.comp_set_reference_grid_active('6ad6d4e4-…', false)`. This clears every selection of that grid and
-  keeps all data and access rows. Reverse it with `true`; selections are then not restored automatically.
-- (c) Database: leave the tables dormant. The rollback files in `supabase/migrations/rollback/` run only in
-  reverse order. The two function rollbacks (120200, then 120100) drop functions only and delete no row. The
-  schema rollback refuses while any row exists. Never delete data to make it pass.
+- (a) Frontend: revert the merge commit on `main`; both projects redeploy. Alternatively, redeploy the
+  previous production deployments named above. Vercel reports `isRollbackCandidate: false` for them, so an
+  instant rollback is not confirmed.
+- (b) Calculator off without code changes: an agency admin chooses "None — calculator off". For every agency,
+  call `private.comp_set_reference_grid_active('6ad6d4e4-…', false)`. It clears every selection of that grid
+  and keeps all data and access rows. Reverse it with `true`; selections are then not restored automatically.
+- (c) Database: leave the tables dormant. The rollback files run only in reverse order. The two function
+  rollbacks (import, then operations) drop functions only and delete no row. The schema rollback refuses
+  while any row exists. Never delete data to make a rollback pass, and never repair migration history.
 
 **Not part of this release:**
 - profile, onboarding or contract-level changes (§11 follow-up);
 - any other agency's activation;
 - CI or Vercel configuration changes;
+- migration-history repair;
 - the CSV or any generated data in Git.

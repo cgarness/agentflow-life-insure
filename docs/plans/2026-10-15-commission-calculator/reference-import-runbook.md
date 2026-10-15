@@ -1,8 +1,10 @@
 # Commission grids — private reference-import runbook
 
-**Status (2026-10-15): BLOCKED.** The source `ffl_comp_rates.csv` has not been supplied (decision D4), and
-no durable private location for the source and the import artifact has been named (decision D1). Nothing
-below has run against real data or any hosted database.
+**Status (2026-10-15): VALIDATED LOCALLY; production NOT APPROVED.** Chris supplied the source
+`ffl_comp_rates.csv` (D4). Steps 1–3 ran on 2026-10-15 against disposable loopback databases only, and every
+check passed; the manifest records the hashes, counts and PASS/FAIL results. Step 4 has not run: it needs
+Chris's exact approval of the release package (plan §12). Still open: the durable private location for the
+source and the artifact (D1). No hosted database has been touched.
 
 This runbook is public. It contains no compensation data and must stay that way: no rates, no carrier or
 product names from the source, no source notes, no carrier-specific acceptance expectations (D1).
@@ -92,6 +94,9 @@ The test prints PASS/FAIL per case name only. Keep these real-data results separ
 results (C5).
 
 ## 4. Production (release step — only with Chris's exact approval of the consolidated release proposal)
+
+The exact order, the route by which the artifact reaches production, and the filename reconciliation after
+`apply_migration` are fixed in plan §12. This section summarizes the data steps.
 
 1. Apply the three reviewed migrations, in order.
 2. Import: run the same `supabase/ops/commission_grids_import_reference_grid.sql` against the approved target,
