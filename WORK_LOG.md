@@ -1,3 +1,46 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: independent-review correction on draft PR #447 (not merged, nothing applied, not release-ready)
+
+**Approval.** Chris approved a scoped local correction of two independent-review findings on head `c354895`, with testing and one normal push to draft PR #447. Not approved: production changes, hosted migrations or migration-history repair, import, activation, deployment, merge, or leaving draft.
+
+**Findings and fixes (`882a445`).**
+1. **A failed background read destroyed an unsaved draft.**
+   - Settings › Commission Grids and the grid editor replaced their view on any query error. React Query keeps the last good data on a failed background refetch, so an open editor unmounted with its draft.
+   - The editor's own snapshot error hid its controls and its Stay/Leave dialog while the navigation guard stayed active.
+   - Now only a failed initial load replaces a view, with Retry. A failed refresh keeps the editor, its draft, its dirty registration and its dialogs, and shows a compact error with Retry.
+   - A save followed by a failed refresh reads as saved, with Retry. A failed Reload keeps the draft.
+   - Logout, permission loss and a user or agency change still remove access and reset the editor. Drafts stay in memory only.
+2. **A NULL revision bypassed delete conflict protection.** `comp_delete_private_grid` now refuses a NULL grid, or a NULL, zero or negative revision (22023), before the admin operation starts. The locked comparison, grants, RLS and shared-grid access are unchanged.
+
+**Migration handling.**
+- Read-only checks: production's history has no `20261015…` row and no comp objects. The preview branches for #294 and #378 predate the feature, and #447 has none.
+- The pending operations migration was therefore corrected in place (rule #25).
+- Its new SHA-256 is `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` (was `d7c20e17…`), recorded in plan §12.
+
+**Before and after** (local, synthetic data, disposable databases):
+- **Delete probe, as the authenticated agency Admin.** Before: a NULL revision deleted the grid. After: NULL, 0 and −1 revisions and a NULL grid return 22023 and change nothing; a stale revision is PT409; shared and foreign grids are PT404; the current revision deletes.
+- **Operations suite.** Before: it stops at O7f (`got 00000 "ok"`). After: ALL PASSED.
+- **`draftPreservation.test.tsx`** (QueryClient-backed). Before: 9 of 10 fail; permission loss already passed. After: 10 of 10 pass.
+
+**Full verification.**
+- Runner PASS (57 checks) under CI settings, on both C and `en_US.UTF-8`.
+- CI frontend command: 168 tests passed, 2 skipped. The full Vitest suite fails only in the same 10 pre-existing files.
+- ESLint is clean on 62 files.
+- `tsc`: exit 0. The app type-check has the same 84 diagnostics as at `c354895`, positions included.
+- Build, secret-marker check and bundle scan are clean.
+- Unchanged: the schema and import migrations, the rollbacks, the ops scripts, the fixture, the access suite (`COLLATE "C"`), the runner (`NO_COLOR`, exit-code and two-tests checks), `.gitattributes` and the workflows.
+- `verification.md` now separates the historical `c354895` CI pass from this revision.
+
+**Migrations and deploys.** None applied to any hosted database. No deploy, import or activation; only the automatic protected Vercel previews.
+
+**Exact-head CI** is recorded in the PR #447 description.
+
+**Blockers.**
+1. PostgreSQL 17.6 and frontend CI on the new head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Review of this correction, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: approved NO_COLOR runner correction on draft PR #447 (not merged, nothing applied, not release-ready)
 
 **Approval.** Chris approved one runner change after the PostgreSQL 17.6 job failed on head `10e1a73`: set `NO_COLOR=1` on the editor save-contract Vitest call, verify it, update these records and push once. Merging, marking ready, production migrations, import, activation and deploys remain unapproved.

@@ -17,7 +17,10 @@ publication; see "Corrections made during closeout".
   - Data directory under the container's postgres home, removed after verification.
   - The runner refuses non-loopback URLs and clusters with Supabase platform roles.
 - **Tooling:** Node 22 and npm with the existing lockfile (`npm ci`); Python 3.13 standard library only; Chromium through Playwright 1.56.1 (preinstalled) for synthetic renders.
-- **PostgreSQL 17.6 (CI):** `.github/workflows/commission-grids.yml` is written, **but it has not run**, because the branch is not published. Do not call it verified until it runs.
+- **PostgreSQL 17.6 (CI):** `.github/workflows/commission-grids.yml` runs on draft PR #447.
+  - On head `c354895` (test-merge `bcd72e6`) it ran the complete runner and passed.
+  - That result is **historical**. It does not verify the independent-review correction below, which changed the operations migration and the editor; CI for that revision is recorded in the PR description.
+  - (This bullet previously said the workflow had not run; that was true only before publication.)
 
 ## Results
 
@@ -37,6 +40,25 @@ publication; see "Corrections made during closeout".
 - Nine fail at import with `supabaseUrl is required`. This container has no `VITE_SUPABASE_URL`, and those tests import the real client.
 - One compares a source file byte-for-byte with a deployed artifact (`recordingRetentionVoicemail.test.ts`, "deployed v29").
 - None of them touches this feature.
+
+## Independent-review correction (2026-10-15, after publication)
+
+Two findings on head `c354895` were fixed as an approved, scoped correction (plan §10). Each new regression test ran **before** the fix (it must fail) and **after** it. Synthetic data, disposable loopback databases only.
+
+| Check | Before the fix | After the fix |
+|---|---|---|
+| Finding 2: `comp_delete_private_grid` as the authenticated agency Admin (per-case probe, each case rolled back) | A NULL revision **deleted** the agency's own grid. Zero or negative fell through to PT409. A NULL grid gave PT404. | NULL, zero and negative revisions and a NULL grid: 22023, nothing changed. Stale: PT409. Shared or other-agency grid: PT404 at its revision, 22023 with NULL. Current revision deletes. |
+| Operations suite with the new O7 tests (O7f–O7o) | Stops at O7f: `expected 22023 "A grid and its current revision are required", got 00000 "ok"` | ALL PASSED. Every refusal leaves the grid row and revision, content, references, settings and calculator selection unchanged. |
+| Finding 1: new QueryClient-backed `draftPreservation.test.tsx` (real React Query, hooks, editor, guard and dialogs) | 9 of 10 fail. Overview, catalog and snapshot refresh failures remove the editor's controls and draft. No Retry. A save followed by a failed refresh has no truthful state. The old editor re-opens after an identity change. (Permission loss already passed.) | 10 of 10 pass |
+| `scripts/run_commission_grids_tests.sh`, CI settings (`CI=true`, `GITHUB_ACTIONS=true`), PostgreSQL 16.15, C and `en_US.UTF-8` | — | PASS, 57 checks on each, identical output, no color codes, no leftover databases |
+| CI frontend job's exact command | (at `c354895`: 11 files passed / 2 skipped; 158 tests passed / 2 skipped) | 12 files passed / 2 skipped; 168 tests passed / 2 skipped (the new file adds 10) |
+| Vitest, full suite | (at merged head `b44c824`: files 10 failed / 338 passed / 2 skipped; tests 1 failed / 5500 passed / 36 skipped) | files 10 failed / 339 passed / 2 skipped; tests 1 failed / 5510 passed / 36 skipped. The failing files are exactly the 10 pre-existing, environment-dependent ones listed below |
+| `npx tsc --noEmit` / `npx tsc -p tsconfig.app.json --noEmit` | exit 0 / exit 2, 84 diagnostics | exit 0 / exit 2, the same 84 diagnostics, line and column included |
+| ESLint `--max-warnings=0`, all 62 new or changed `src` files on the branch | — | 0 problems |
+| `vite build`, CI secret-marker check, bundle scan | — | OK, clean, clean |
+| Checksums | operations migration `d7c20e17…` | operations migration `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998`. Unchanged: schema, import migration, rollbacks, both ops scripts, the synthetic fixture. |
+
+The protections from the CI corrections are untouched: A10f `COLLATE "C"`, the CRLF fixture rule, and the runner's `NO_COLOR`, exit-code and two-tests checks.
 
 ## Corrections made during closeout
 1. **Synthetic data reproduced private examples.**
@@ -119,8 +141,13 @@ publication; see "Corrections made during closeout".
 | `20261015120100_commission_grids_operations.sql` | **No** (as above) |
 | `20261015120200_commission_grids_reference_import.sql` | **No** (as above) |
 
+Re-checked read-only on 2026-10-15, before the review correction edited the operations migration in place:
+- production's migration history has no `20261015…` row and its catalog has no comp objects;
+- the only Supabase preview branches (PRs #294 and #378) predate this feature;
+- PR #447 has none.
+
 ## Not verified
-- PostgreSQL 17.6 CI.
+- PostgreSQL 17.6 CI on the review-correction revision. It is recorded in the PR description once it runs; the `c354895` pass does not cover it.
 - Any signed-in browser session against a real backend.
 - Supabase advisors after applying: nothing was applied.
 - Any production or preview behaviour.
