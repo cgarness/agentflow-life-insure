@@ -1,3 +1,46 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: shared-grid availability correction (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris required that being an Agency Admin no longer make every AgentFlow shared grid available to an agency. At launch the FFL Compensation Grid may reach *Family First Life - Chris Garness* only. Other agencies must not see it in the catalog, enable it, read its products, variants, rates or references, or copy it. No platform role or Control Center path. Not authorized: merge, production migrations, import, availability, activation or deploy.
+
+**Finding (before).** On the published migrations, as real `authenticated` roles, another agency's Admin and A's Agency Group peer saw every active shared grid in the catalog. They could enable it by id, read its rates through the snapshot and copy it.
+
+**Design (decision D5; plan §2 and §10, planned before any edit).**
+- New server-only table `public.organization_comp_grid_availability` (`organization_id` NOT NULL, a shared `grid_id`). RLS is on with no policy and no `anon` or `authenticated` privilege; `service_role` holds SELECT only.
+- Access rows need availability: a foreign key (`ON DELETE CASCADE`) and the access trigger (PT404, for every writer). The catalog lists only available grids. Enable, snapshot, selection and copy refuse an unavailable grid even by id.
+- Postgres-only `private.comp_make_reference_grid_available` and `private.comp_remove_reference_grid_availability` work by exact unique agency name. Withdrawal locks the agency's settings row first, then removes access and clears that agency's selection of the grid. Private copies stay. Disabling keeps availability.
+- New ops script `supabase/ops/commission_grids_make_available_home_agency.sql`. The activation script now runs after it.
+- The three migrations are unapplied everywhere (production re-checked read-only; the only branches are the PR #294 and #378 previews), so they were corrected in place (rule #25). No new migration; no history change; no frontend change.
+
+**Tests.**
+- Access A4 changed and A11 added. The refused callers include another agency's Admin, its Super Admin with the `platform_admin` platform role, an agency-less platform admin, the peer agency, Agents, Team Leaders and `service_role`.
+- Import I1 and I6 changed and I8 added. Schema S1o–S1s and S6k–S6n.
+- Concurrency scenario 9: withdrawal against enable, select and copy, in both orders.
+- Ops-script fail-closed checks. Two negative controls: no availability gate fails A4m; an unfiltered catalog fails A4l.
+
+**Verification (local).**
+- Runner PASS on C and `en_US.UTF-8` under CI settings: 66 checks each, 59 concurrency assertions in 9 scenarios.
+- CI frontend command: 12 files passed, 2 skipped; 168 tests passed, 2 skipped.
+- Root `tsc` exit 0. The app type-check has the same 84 diagnostics as `main` (one moved 4 lines, as before). ESLint is clean on 64 files. The build passes.
+
+**Private re-run** (real artifact; disposable loopback databases only; value-free in `verification.md`):
+- Same fingerprint `273d0eb0…`; reconciliation PASS.
+- Activation is refused before availability. Then the availability and activation scripts pass.
+- 4 + 28 + 7 rehearsal checks PASS. The other agency's Admin sees an empty catalog and is refused by id; withdrawal clears access and the selection with the fingerprint and ledger unchanged.
+- The MCP route passes. Acceptance 49 of 49. No rate or private file changed.
+
+**Checksums.**
+- Schema `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70`.
+- Operations `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10`.
+- Reference import `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0`.
+- Availability ops `c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6` (new). Activation ops `46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c`.
+- The import ops script and the fixture are unchanged.
+
+**Records.** The root plan, the detailed plan (D5, §1, §3, §4, §7, §8.1, §10 and §12: P6 superseded, step 7 split into 7a availability and 7b activation, and a withdrawal rollback step), `verification.md`, the runbook, the manifest, and `AGENT_RULES.md` (the named exception and the commission invariant).
+
+**Migrations and deploys.** None applied to any hosted database. No import, availability, activation, merge or deploy. Only the automatic protected Vercel previews.
+
+**Next steps.** CI on the new head (see the PR), then Chris reviews the updated release package (plan §12).
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: private FFL validation passed; release package prepared (draft PR #447; not merged, nothing applied)
 
 **Request.** Chris asked for the final private FFL data validation and release preparation on draft PR #447 (reviewed head `2447c1b`). The phase ends with a release package for his approval. Not authorized: production migrations, the production import or activation, merge, deploy, RLS or migration-history changes, and any hosted-database mutation.

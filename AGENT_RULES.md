@@ -55,9 +55,9 @@ Current downline profile scoping is **query-enforced, not RLS-enforced**. Becaus
 
 ### Shared compensation grid exception (Commission Calculator; approved 2026-10-15, `#APPROVE_RLS_CHANGE`)
 
-- **What it is:** AgentFlow-maintained **shared** commission grids store `organization_id = NULL` on `comp_grids` and on every one of their products, variants, rates and references. That is the whole exception: private grids, `organization_comp_grids` access rows and `organization_comp_settings` are ordinary tenant rows.
+- **What it is:** AgentFlow-maintained **shared** commission grids store `organization_id = NULL` on `comp_grids` and on every one of their products, variants, rates and references. That is the whole exception: private grids, `organization_comp_grid_availability` rows, `organization_comp_grids` access rows and `organization_comp_settings` are ordinary tenant rows.
 - **Integrity:** each comp table has a database-generated `scope_key` (`COALESCE(organization_id, nil UUID)`), and composite foreign keys on `(parent, grid_id, scope_key)` force every child into its parent's grid and scope, NULL included. The nil UUID is reserved (CHECK) and can never be an organization; access rows can only reference shared grids.
-- **Reads:** a shared grid's content is readable only by an organization holding an access row for it. Agency admins additionally see a metadata-only catalog (id, name, effective date, levels).
+- **Reads:** a shared grid's content is readable only by an organization holding an access row for it, and an access row requires an availability row for that organization (decision D5). AgentFlow decides availability per organization; being an Agency Admin is not availability. Agency admins additionally see a metadata-only catalog (id, name, effective date, levels) of the grids available to their own agency only.
 - **Writes:** shared rows are **never writable by any client role**, and `service_role` holds SELECT only on the comp tables. They change only through the reviewed postgres-only reference-import functions or a reviewed migration.
 - **Not included:** no platform-role requirement, no Control Center surface, no cross-agency Super Admin bypass, no Agency Group peer access. Do not "fix" the NULL organization into a tenant, add client write paths to shared rows, or loosen the comp write policies to make a lock succeed.
 - Details: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md` §3–4 and the Commission grids invariant below.
@@ -700,7 +700,7 @@ PR #433 (merge `d88982d`, released to production 2026-10-09) replaced the Campai
 
 **Column preferences.** Store them only in `user_preferences.settings.campaigns_table = {v:1, orgs:{[orgId]:{order,hidden}}}` for the real signed-in user; a write changes only the current org's entry and preserves every other settings key. Opening the page only reads. Save/Reset update with compare-and-set on the exact `updated_at`, retry once and then report a conflict; a missing row is inserted, and a 23505 race re-reads and compare-and-sets. A stored `campaigns_table` object whose `v` is present and not 1 renders the default columns and refuses Save/Reset; never overwrite it. Editing is disabled during View As. Campaign and Actions are locked; unknown ids are dropped and new columns join at their default position.
 
-## Commission grids invariant — October 15, 2026 (draft PR #447: not merged; nothing applied, imported, activated or deployed)
+## Commission grids invariant — October 15, 2026 (draft PR #447: not merged; nothing applied, imported, made available, activated or deployed)
 
 An **estimate tool only**. Agents estimate first-year commission from their agency's selected grid and their own `profiles.commission_level`. Estimates never become payroll, booked commission, earned-commission records or reporting truth. Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 
@@ -709,9 +709,16 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - The `comp_00_operation_context` trigger runs first. It refuses any client write outside an operation, outside the caller's own agency, or by a non-admin, before any SECURITY DEFINER trigger runs or locks anything. RLS repeats the same predicate.
 - SECURITY DEFINER lock lookups are filtered to shared grids or the row's own scope, so a client can never cause a lock on another agency's row.
 - Never grant direct table writes, to clients or to `service_role` (it holds SELECT only). Never add a shortcut around the operations.
-- Lock order: agency settings row → grid → access row → product → child rows. Privileged multi-agency deactivation locks the selecting settings rows (ordered) before the grid.
+- Lock order: agency settings row → grid → availability row → access row → product → child rows. Privileged multi-agency deactivation locks the selecting settings rows (ordered) before the grid. Withdrawing availability locks the agency's settings row first.
 - Edits are one atomic change set at the loaded `revision`. A stale save is refused (PT409) and never merged or overwritten.
 - An expected revision is mandatory: a NULL makes the stale comparison NULL and skips it. Save and delete refuse a NULL revision (22023) before `comp_authz.begin_admin_operation()`, which writes. Delete also refuses a zero or negative revision.
+
+**Shared-grid availability (decision D5).**
+- A shared grid reaches an agency only through an `organization_comp_grid_availability` row (`organization_id` NOT NULL). The table is server-only: RLS with no policy, no `anon` or `authenticated` privilege, `service_role` SELECT only.
+- Only the postgres-only `private.comp_make_reference_grid_available` and `private.comp_remove_reference_grid_availability` write it, by exact unique agency name and each with separate approval. Never add a client, role, Super Admin, platform-role or Control Center path to it.
+- An access row requires availability (foreign key `ON DELETE CASCADE` plus the access trigger, PT404). The catalog lists only available grids, and enable, snapshot, selection and copy refuse an unavailable grid even by id.
+- Disabling keeps availability. Withdrawing it removes that agency's access and clears its selection of the grid; private copies are separate grids and stay.
+- At launch the FFL Compensation Grid is available only to *Family First Life - Chris Garness*.
 
 **Exact values.**
 - `rate_percent` is unconstrained `numeric` with `CHECK (0 ≤ x ≤ 300 AND x = round(x, 2))`. Never use `numeric(6,2)`: it rounds before the check.

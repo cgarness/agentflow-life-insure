@@ -19,7 +19,7 @@ publication; see "Corrections made during closeout".
 - **Tooling:** Node 22 and npm with the existing lockfile (`npm ci`); Python 3.13 standard library only; Chromium through Playwright 1.56.1 (preinstalled) for synthetic renders.
 - **PostgreSQL 17.6 (CI):** `.github/workflows/commission-grids.yml` runs on draft PR #447.
   - On head `c354895` (test-merge `bcd72e6`) it ran the complete runner and passed.
-  - That result is **historical**. It does not verify the independent-review correction below, which changed the operations migration and the editor; CI for that revision is recorded in the PR description.
+  - That result is **historical**. It does not verify the independent-review correction or the shared-grid availability correction below, which changed the migrations, tests and (for the review correction) the editor; CI for each revision is recorded in the PR description.
   - (This bullet previously said the workflow had not run; that was true only before publication.)
 
 ## Results
@@ -59,6 +59,31 @@ Two findings on head `c354895` were fixed as an approved, scoped correction (pla
 | Checksums | operations migration `d7c20e17…` | operations migration `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998`. Unchanged: schema, import migration, rollbacks, both ops scripts, the synthetic fixture. |
 
 The protections from the CI corrections are untouched: A10f `COLLATE "C"`, the CRLF fixture rule, and the runner's `NO_COLOR`, exit-code and two-tests checks.
+
+## Shared-grid availability correction (D5; 2026-10-15, after the release preparation)
+
+Chris required that a shared grid reach only the agencies AgentFlow makes it available to (plan §2 D5 and §10).
+The three unapplied migrations were corrected in place. Synthetic data, disposable loopback databases only,
+except the private re-run recorded under "Private FFL validation".
+
+| Check | Result |
+|---|---|
+| Finding, on the published migrations (`84637cf3…`, `7e3caad6…`, `b8b2836b…`), as real `authenticated` roles | The admins of agency B and of A's Agency Group peer C listed every active shared grid in their catalog, enabled one by id, read its rates through the snapshot and made a full copy |
+| The same probe after the correction | Catalog empty for B and C. Enabling by id: PT404 "That AgentFlow grid is not available". Snapshot: PT404. Copy: PT404 "Enable that AgentFlow grid for your agency before copying it" |
+| Access suite: A4 changed, A11 new, A1/A9/A10 extended | Another agency's admin, a Super Admin of that agency who also holds `platform_role = 'platform_admin'`, A's peer agency and an agency-less platform admin cannot list the grid, enable it by id, snapshot, copy (full or structure), select or read any of its rows; a forged organization claim is refused. Agents, team leaders, agency admins and Super Admins cannot read, grant or withdraw availability or run the availability functions (`permission denied`). Availability alone opens no content. The home agency's admin enables, selects and copies it; disabling keeps availability; withdrawal clears access and the selection; the private copy stays exact, selectable and editable; the other agency is unaffected; a repeat withdrawal is a no-op. On the availability table `anon` and `authenticated` hold nothing and `service_role` holds SELECT only |
+| Import suite: I1, I6 changed, I8 new | Availability and withdrawal by exact unique name (zero, two, case or space mismatch refused; a verified import required to make a grid available). Activation is refused until the grid is available. Withdrawal from agency B removes its access and selection, keeps its full private copy and leaves agency A, the grid fingerprint and the ledger unchanged; withdrawing what was never available writes nothing; re-granting restores the choice, not the old state |
+| Schema suite: S1o–S1s, S6k–S6n | Availability can name only an existing shared grid (23503); its scope column is not writable; enabling needs availability (PT404), and with the access trigger removed in a rolled-back probe the foreign key alone still refuses (23503). Withdrawing availability removes the access row and clears the selection; disabling keeps availability; deleting a shared grid removes its availability, access and selection |
+| Concurrency scenario 9 (new; waits proven via `pg_stat_activity`) | 18 assertions. Withdrawal racing a first-ever enable, a selection and a copy, in both orders: the later operation waits on the agency's settings row; enable, select and copy after a withdrawal are refused (PT404); a withdrawal after them reports and clears what they did; a copy made while available keeps every rate |
+| Negative controls | Removing the availability gate (trigger check and foreign key) makes the access suite fail at A4m; a catalog that ignores availability fails at A4l. By hand: removing only the trigger check still fails A4m, now on the foreign key's 23503 |
+| Ops scripts | The new availability script is refused without its approval setting, and fails closed where the agency does not exist (`found 0`) and while the grid has no verified import here; so does the activation script |
+| `scripts/run_commission_grids_tests.sh`, CI settings, PostgreSQL 16.15, C and `en_US.UTF-8` | PASS, 66 checks on each (59 concurrency assertions in 9 scenarios), no leftover databases |
+| CI frontend job's exact command | 12 files passed / 2 skipped; 168 tests passed / 2 skipped (no frontend file changed) |
+| `npx tsc --noEmit` / `npx tsc -p tsconfig.app.json --noEmit` | exit 0 / exit 2 with the same 84 diagnostics as before. Against `main`, the only textual difference is the pre-existing `Sidebar.tsx` diagnostic, moved from line 131 to 135 by the branch's nav item |
+| ESLint, all 64 code files the branch changes (the concurrency script included) | 0 problems |
+| `vite build` | OK |
+| Checksums | schema `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` (was `84637cf3…`); operations `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10` (was `7e3caad6…`); reference import `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` (was `b8b2836b…`); schema rollback `4429ee9b…` (was `2adcf1cc…`); import rollback `aa943700…` (was `99cc1f24…`); new availability ops script `c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6`; activation ops script `46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c` (was `47f91f70…`, header only). Unchanged: the operations rollback `e8d64c67…`, the import ops script `d2825d41…`, the synthetic fixture `9bad2737…` |
+
+The full Vitest suite was not re-run: no `src/` file changed in this correction.
 
 ## Corrections made during closeout
 1. **Synthetic data reproduced private examples.**
@@ -149,6 +174,10 @@ Re-checked read-only on 2026-10-15, before the review correction edited the oper
 Re-checked read-only again during release preparation (2026-10-15). The newest production migration is
 `20261010172702`, there is no `20261015…` row, and there are no comp tables, functions or schema.
 
+Re-checked read-only once more before the availability correction edited all three migrations in place
+(2026-10-15): the same newest migration, no `20261015…` row, no comp objects, and the only Supabase branches
+are the PR #294 and #378 previews.
+
 ## Private FFL validation (real data; value-free; 2026-10-15)
 
 Kept apart from the synthetic results above (C5). It ran outside Git, against disposable loopback databases
@@ -168,9 +197,11 @@ which is not durable storage (D1).
 | Reconciliation negative controls | 7 of 7 mutated CSV streams fail (exit 3): changed value, same number written differently, blank to zero, extra cell, dropped row, changed note, changed age |
 | Activation rehearsal (synthetic people; agency resolved by name with a random id) | 21 PASS, 0 FAIL. Agent read, management denial and another agency's isolation all hold, and direct client writes to shared rows change nothing |
 | Source-backed acceptance (`privateAcceptance.test.ts`) | 49 of 49 PASS: Chris's 8 required cases, 39 age, term, level and blank-cell boundaries, and 2 more. A negative control with 4 wrong expectations fails exactly those 4 |
+| Re-run with the availability correction (D5): same CSV and artifact, corrected migrations, fresh disposable databases (C and `en_US.UTF-8`) | Import `imported` with the same fingerprint `273d0eb0…`; reconciliation PASS. Before availability, 4 PASS: no catalog entry for either agency, and the home agency's own admin is refused. The activation script, approved, is refused ("That AgentFlow grid is not available"). The availability script: `newly_available: true`, then `false` on a retry. Activation: `selected: true`. With synthetic people, 28 PASS: the home agent reads 41/57/963; the other agency's admin sees an empty catalog, is refused enabling, full and structure copies and selection by id (PT404), and with its agent reads 0 rows of every comp table; agents and team leaders cannot enable or read availability. Direct client writes change nothing. Withdrawal, 7 PASS: access and the selection go, the fingerprint and ledger stay, re-enabling is refused, and a repeat is a no-op. Re-granting and activating again restore the calculator. The exact MCP `execute_sql` batches pass in the same order |
+| Re-checks with the same files | Acceptance 49 of 49; the acceptance cases regenerate byte-identically from the CSV; artifact against the CSV 16 PASS, 0 FAIL. No rate, source or artifact byte changed |
 
 ## Not verified
-- CI on the head that carries this record (the merge with `main` plus the release-preparation records). It is recorded in the PR description. On the review-correction head `2447c1b`, all ten jobs passed, including PostgreSQL 17.6.
+- CI on the head that carries this record (the availability correction). It is recorded in the PR description. On the release-preparation head `ae888d3`, all ten jobs passed, including PostgreSQL 17.6; on the review-correction head `2447c1b` as well.
 - Any signed-in browser session against a real backend.
 - Supabase advisors after applying: nothing was applied.
 - Any production or preview behaviour.

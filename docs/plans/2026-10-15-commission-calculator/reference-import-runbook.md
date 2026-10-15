@@ -105,18 +105,27 @@ The exact order, the route by which the artifact reaches production, and the fil
    of the same artifact is a no-op. Different content for an existing grid is refused (PT409) and never
    overwritten.
 3. Verify read-only: the ledger row and `private.comp_grid_content_sha256('6ad6d4e4-…')` equal the manifest.
-4. Activate: `supabase/ops/commission_grids_activate_home_agency.sql`
-   (`agentflow.approve_comp_home_activation=yes`). It resolves *Family First Life - Chris Garness* by exact
-   unique name at execution and refuses zero or several matches. It enables the grid and selects it only if
-   the agency has no selection. An existing selection is kept and reported.
+4. Make available (decision D5): `supabase/ops/commission_grids_make_available_home_agency.sql`
+   (`agentflow.approve_comp_home_availability=yes`). It resolves *Family First Life - Chris Garness* by exact
+   unique name at execution, refuses zero or several matches and a grid without a verified import, and makes
+   the grid available to that agency only. Nothing is enabled or selected by it.
+5. Activate: `supabase/ops/commission_grids_activate_home_agency.sql`
+   (`agentflow.approve_comp_home_activation=yes`). It resolves the same agency the same way and refuses zero
+   or several matches. It enables the grid and selects it only if the agency has no selection. An existing
+   selection is kept and reported. Without step 4 it is refused (PT404) and nothing changes.
 
-No migration-history entry is created for the data. The ledger is the record. Afterwards, other Agency
-Admins can enable the shared grid for their own agencies by design (C6).
+No migration-history entry is created for the data. The ledger is the record. No other agency can see,
+enable, read or copy the grid: availability is granted per agency, only by a separately approved operation
+(D5). Being an Agency Admin is not availability.
 
 ## 5. Rollback (non-destructive)
 
 - **Frontend:** revert the release commit.
 - **Calculator off for everyone:** with separate approval, call `private.comp_set_reference_grid_active(grid,
   false)`. It clears every selection of that grid and never picks a replacement. Access rows and data are kept.
+- **Withdraw the grid from one agency:** with separate approval, call
+  `private.comp_remove_reference_grid_availability(agency name, grid)`. That agency's availability and access go
+  and its selection of the grid is cleared; the grid, the ledger and private copies stay. Steps 4 and 5 reverse
+  it.
 - **Tables:** the schema rollback refuses while any row exists. Leave the tables dormant instead. Never delete
   live data to make a rollback pass.

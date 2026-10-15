@@ -1,6 +1,6 @@
 ## 2026-10-15 — Commission Calculator + agency commission grids: DRAFT PR #447 (not merged, nothing applied; real-data validation passed locally; release awaits approval)
 
-**Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. **Implemented locally** in commits `9b615f5` (plan), `fea545d` (database layer), `44d550a` (frontend), closeout records `fb27512`, and the pre-publication `service_role` correction `14d9fa4` (read-only on the comp tables) with its records; verified on synthetic data only (`docs/plans/2026-10-15-commission-calculator/verification.md`). **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only): first head `3971fd0` (after merging `main` twice, #445 and #446, to resolve `WORK_LOG.md` conflicts), then the approved CI correction `2db6de2` (A10f collation-independent ordering, one path-scoped `.gitattributes` rule for the CRLF synthetic fixture, one plan whitespace fix) and its status records, then the approved runner correction setting `NO_COLOR=1` on the editor save-contract Vitest call (on `10e1a73` the 17.6 job passed that test 2 of 2, but the runner's plain-text summary check missed Vitest's colored CI output) with its records. No merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized or was done; Supabase Preview did not run (concurrent preview-branch limit); production stays read-only (advisor reads included). **Real-data validation passed locally (2026-10-15):** Chris supplied the CSV, and the private import, reconciliation and source-backed acceptance passed on disposable local databases (value-free results in `verification.md`). **Not yet released:** a durable private location must be named (D1), and the release needs Chris's separate, exact approval of the release package (plan §12). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
+**Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. **Implemented locally** in commits `9b615f5` (plan), `fea545d` (database layer), `44d550a` (frontend), closeout records `fb27512`, and the pre-publication `service_role` correction `14d9fa4` (read-only on the comp tables) with its records; verified on synthetic data only (`docs/plans/2026-10-15-commission-calculator/verification.md`). **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only): first head `3971fd0` (after merging `main` twice, #445 and #446, to resolve `WORK_LOG.md` conflicts), then the approved CI correction `2db6de2` (A10f collation-independent ordering, one path-scoped `.gitattributes` rule for the CRLF synthetic fixture, one plan whitespace fix) and its status records, then the approved runner correction setting `NO_COLOR=1` on the editor save-contract Vitest call (on `10e1a73` the 17.6 job passed that test 2 of 2, but the runner's plain-text summary check missed Vitest's colored CI output) with its records. No merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized or was done; Supabase Preview did not run (concurrent preview-branch limit); production stays read-only (advisor reads included). **Real-data validation passed locally (2026-10-15):** Chris supplied the CSV, and the private import, reconciliation and source-backed acceptance passed on disposable local databases (value-free results in `verification.md`). **Shared-grid availability (D5, 2026-10-15):** a shared grid now reaches only the agencies AgentFlow makes it available to; at launch the FFL Compensation Grid is available to *Family First Life - Chris Garness* only (below). **Not yet released:** a durable private location must be named (D1), and the release needs Chris's separate, exact approval of the release package (plan §12). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
 
 **Independent-review correction (Chris approved 2026-10-15; planned here before any edit; details in plan §10).** Two findings on head `c354895`, fixed on the same draft PR:
 1. **A background read error could destroy an unsaved draft.** Settings › Commission Grids replaced the page when a background overview or catalog refresh failed, unmounting an open editor and its draft. The editor's own snapshot-error branch hid its controls and its Stay/Leave dialog while the navigation guard stayed active. **Fix:** only a failed *initial* load replaces a view. A failed background refresh keeps the last good data, the open editor, its draft, its dirty registration and its dialogs, and shows a compact error with Retry. A save followed by a failed refresh reads as saved, with Retry, not as unsaved or permanently disabled. Logout, permission loss and a user or agency change still remove access and reset the open editor, so no draft carries across. Drafts stay in memory only.
@@ -32,6 +32,71 @@ The operations migration is unapplied on every hosted database: production's mig
 - **Private checks, all PASS.** Source checksum matched. Importer validation: 0 anomalies, 41/57/11. Independent source check: 49 PASS, 0 FAIL. Artifact `cf83d992…`: deterministic, verified, and equal to the CSV. Disposable import: `imported`, then `already_imported`. Reconciliation: 0 differences in both directions on C and `en_US.UTF-8`, and 7 negative controls fail as required. Activation rehearsal: 21 PASS. Source-backed acceptance: 49 of 49.
 - **Public changes.** The merge commit `9cfaf16` (`main` #448; `WORK_LOG.md` resolved additively) and the value-free records listed above. Nothing private is in Git.
 - **Release package.** Plan §12 was refreshed. Nothing in it was executed.
+
+**Shared-grid availability correction (Chris requested 2026-10-15; planned here before any edit; detailed plan §2 D5 and §10).**
+
+*Decision.* An agency can see, enable, read or copy an AgentFlow shared grid only after AgentFlow makes that grid **available** to it. Being an Agency Admin is not availability. At launch, the FFL Compensation Grid is available only to *Family First Life - Chris Garness*. This supersedes C6's "other Agency Admins may self-enable after release". Platform roles and Control Center permissions are not used.
+
+*Design (smallest database-authoritative mechanism):*
+- **New table `public.organization_comp_grid_availability`.**
+  - Columns: `organization_id` (required), shared `grid_id`, `created_at` and `created_by`; primary key `(organization_id, grid_id)`.
+  - It can only name a shared grid (the same nil-scope foreign key as the access rows).
+  - It is server-only: RLS on, no client policy, no anon or authenticated privilege; `service_role` has SELECT only.
+  - Postgres-only functions write it. There is no Agency Group peer read and no platform or Super Admin bypass.
+- **Enabled access depends on availability.** `organization_comp_grids` gets a foreign key to availability, `ON DELETE CASCADE`.
+  - An access row cannot exist without availability.
+  - Removing availability removes the access row. The existing access-revoked trigger then clears that agency's calculator selection if it pointed at the grid.
+  - Private copies are separate grids and are untouched.
+- **Enable checks availability.** The access trigger `private.comp_access_rules` runs for every writer. It also requires availability for that agency and grid, locked `FOR SHARE`, and otherwise refuses PT404.
+  - So an enable, by any id, refuses a grid that is not available.
+  - Snapshot, content reads, selection and copy already require the access row, so they inherit the rule.
+- **Catalog filter.** `comp_list_shared_grid_catalog()` returns only active shared grids available to the caller's agency.
+- **New postgres-only functions:**
+  - `private.comp_make_reference_grid_available(agency name, grid)`: exact unique name; a verified import is required; retry-safe.
+  - `private.comp_remove_reference_grid_availability(agency name, grid)`: locks the agency's settings row first, then removes availability; the access row and the selection are cleaned up as above. It reports what it cleared.
+- **Unchanged behaviour:** disabling keeps availability. The lock order becomes settings → grid → availability → access → product → children.
+- **Release.** A new ops script, `commission_grids_make_available_home_agency.sql`, creates availability for the exact unique name only. The existing activation script (initial enable and select-if-empty) then runs for that agency, and it now needs availability first.
+
+*Migration handling.* The three commission migrations are unapplied everywhere:
+- production's migration history and catalog were re-checked read-only;
+- the only Supabase branches are the PR #294 and #378 previews, which predate this feature.
+
+They are therefore corrected in place (rule #25), and their new checksums replace the old ones in the release records. No new migration, and no change to migration history.
+
+*Files to touch:*
+- **Migrations:**
+  - `supabase/migrations/20261015120000_commission_grids_schema.sql`: the table, the access foreign key, the trigger check, RLS and grants;
+  - `supabase/migrations/20261015120100_commission_grids_operations.sql`: the catalog filter;
+  - `supabase/migrations/20261015120200_commission_grids_reference_import.sql`: the two functions;
+  - the schema and reference-import rollback files.
+- **Ops scripts:** the new `supabase/ops/commission_grids_make_available_home_agency.sql`; and `supabase/ops/commission_grids_activate_home_agency.sql`, whose header changes only.
+- **Tests and runner:**
+  - `supabase/tests/commission_grids_harness.sql`, `…_schema.sql`, `…_access.sql` and `…_import.sql`;
+  - `scripts/commission_grids_concurrency.mjs`;
+  - `scripts/run_commission_grids_tests.sh`.
+- **Records:** this file, the detailed plan, `AGENT_RULES.md` (the named exception and the commission invariant), `verification.md`, the runbook and `WORK_LOG.md`.
+- **Frontend:** no change expected. The settings card already describes the catalog as grids "available to this agency", and copy sources come from enabled catalog entries.
+
+*Tests to add (negative):*
+- The home agency's Admin sees and enables the grid once it is available.
+- Another agency's Admin cannot see it in the catalog, cannot enable it by id, and cannot snapshot, read or copy it.
+- Removing availability leaves no unauthorized selection.
+- Private copies stay independent.
+- Agents and Team Leaders cannot manage availability or enable shared grids.
+
+**Implemented and verified locally (availability correction; plan §10 and `verification.md`):**
+- **As built.** As designed above, plus one refinement found while writing the tests: withdrawing availability that does not exist returns `removed: false` and writes nothing.
+- **Tests.**
+  - Access A4 changed and A11 added. The refused callers include another agency's Admin, its Super Admin holding the `platform_admin` platform role, an agency-less platform admin, A's Agency Group peer, Agents, Team Leaders and `service_role`.
+  - Import I1 and I6 changed and I8 added. Schema S1o–S1s and S6k–S6n.
+  - Concurrency scenario 9: withdrawal against enable, select and copy, in both orders.
+  - Ops-script checks, and two negative controls: no availability gate fails A4m; an unfiltered catalog fails A4l.
+- **Checks.** The full runner passes on C and `en_US.UTF-8` (66 checks each; CI runs PostgreSQL 17.6). The CI frontend command, root `tsc`, the app type-check (the same 84 diagnostics), ESLint on the 64 branch code files and the build all pass.
+- **Private re-run with the real artifact** (disposable loopback databases only). The fingerprint is unchanged and reconciliation passes. Activation is refused before availability. The availability and activation scripts then pass, followed by 4 + 28 + 7 rehearsal checks, and the MCP route passes too. Acceptance passes 49 of 49. No rate changed.
+- **Checksums.**
+  - Changed: schema `1f8e14fb…` (was `84637cf3…`), operations `4e86caac…` (was `7e3caad6…`), reference import `3cbe4d69…` (was `b8b2836b…`), activation ops `46c41c89…` (was `47f91f70…`, header only).
+  - New: the availability ops script `c484c040…`.
+  - Unchanged: the import ops script `d2825d41…` and the fixture `9bad2737…`.
 
 **Decisions:**
 - **D1:** the real FFL source stays private (never in Git, public CI, PR text, screenshots or public docs, including the carrier-specific acceptance expectations). Reference data loads through a documented private-import workflow; all DDL stays in committed migrations.

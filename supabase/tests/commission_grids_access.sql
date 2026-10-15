@@ -12,7 +12,8 @@ DO $$
 DECLARE r record; t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                           'organization_comp_grids','organization_comp_settings','comp_reference_imports'] LOOP
+                           'organization_comp_grids','organization_comp_settings','comp_reference_imports',
+                           'organization_comp_grid_availability'] LOOP
     SELECT * INTO r FROM comp_test.run_as('anon', '{}'::jsonb, format('SELECT to_jsonb(count(*)) FROM public.%I', t));
     PERFORM comp_test.refused('A1 anon reads ' || t, r.out_state, r.out_message, '42501', 'permission denied%');
   END LOOP;
@@ -86,8 +87,9 @@ BEGIN
   RAISE NOTICE 'A3 enabled-agency reads: ok';
 END $$;
 
--- A4. Other agencies (including an ACTIVE Agency Group peer of A) read nothing of A's grids; agency B can
--- still enable the shared grid for itself (self-service by design).
+-- A4. Other agencies (including an ACTIVE Agency Group peer of A) read nothing of A's grids. Agency B can
+-- enable a shared grid only once AgentFlow has made it available to B (decision D5); being an agency
+-- admin is not enough.
 DO $$
 DECLARE r record; v_private uuid;
 BEGIN
@@ -114,10 +116,19 @@ BEGIN
   PERFORM comp_test.refused('A4j B cannot edit A''s private grid', r.out_state, r.out_message, 'PT404');
   SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_b'), format('SELECT public.comp_delete_private_grid(%L, 1)', v_private));
   PERFORM comp_test.refused('A4k B cannot delete A''s private grid', r.out_state, r.out_message, 'PT404');
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_b'), 'SELECT jsonb_agg(c.name ORDER BY c.name) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A4l B''s catalog lists only what is available to B (S2, not S1)',
+    r.out_state = '00000' AND r.out_result = '["Synthetic Shared Two"]'::jsonb);
   SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_b'), $q$SELECT public.comp_enable_shared_grid('51000000-0000-0000-0000-000000000001')$q$);
-  PERFORM comp_test.ok('A4l B self-enables the shared grid', r.out_state, r.out_message);
-  PERFORM comp_test.check('A4m agent B now reads it', comp_test.visible('A4m', comp_test.p('agent_b'), 'comp_rates') = 6);
-  PERFORM comp_test.check('A4n agent B still cannot read A''s private copy',
+  PERFORM comp_test.refused('A4m B cannot enable S1 by id while it is not available to B', r.out_state, r.out_message, 'PT404');
+  PERFORM comp_test.check('A4n the refusal created no access row for B',
+    NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b'));
+  INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id)
+    VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '51000000-0000-0000-0000-000000000001');
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_b'), $q$SELECT public.comp_enable_shared_grid('51000000-0000-0000-0000-000000000001')$q$);
+  PERFORM comp_test.ok('A4o once AgentFlow makes S1 available to B, B''s admin enables it', r.out_state, r.out_message);
+  PERFORM comp_test.check('A4p agent B now reads it', comp_test.visible('A4p', comp_test.p('agent_b'), 'comp_rates') = 6);
+  PERFORM comp_test.check('A4q agent B still cannot read A''s private copy',
     (SELECT out_result FROM comp_test.as_profile(comp_test.p('agent_b'), format('SELECT to_jsonb(count(*)) FROM public.comp_grids WHERE id = %L', v_private))) = '0'::jsonb);
   RAISE NOTICE 'A4 other and peer agencies: ok';
 END $$;
@@ -314,12 +325,20 @@ BEGIN
     $q$WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
     $q$WITH x AS (UPDATE public.comp_grids SET is_active = false WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
     $q$WITH x AS (DELETE FROM public.comp_variant_references WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
-    $q$WITH x AS (DELETE FROM public.organization_comp_settings RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
+    $q$WITH x AS (DELETE FROM public.organization_comp_settings RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES ('cccccccc-0000-0000-0000-00000000000c', '51000000-0000-0000-0000-000000000001') RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (DELETE FROM public.organization_comp_grid_availability RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
     SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, q);
     PERFORM comp_test.refused('A9c service_role cannot write: ' || left(q, 60), r.out_state, r.out_message, '42501', 'permission denied%');
   END LOOP;
   SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, $q$SELECT to_jsonb(count(*)) FROM public.comp_rates$q$);
   PERFORM comp_test.ok('A9d service_role can read', r.out_state, r.out_message);
+  FOREACH q IN ARRAY ARRAY[
+    $q$SELECT private.comp_make_reference_grid_available('Synthetic Agency C', '51000000-0000-0000-0000-000000000001')$q$,
+    $q$SELECT private.comp_remove_reference_grid_availability('Synthetic Agency A', '51000000-0000-0000-0000-000000000001')$q$] LOOP
+    SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, q);
+    PERFORM comp_test.refused('A9e service_role cannot run: ' || left(q, 60), r.out_state, r.out_message, '42501', 'permission denied%');
+  END LOOP;
   RAISE NOTICE 'A9 service_role (read-only): ok';
 END $$;
 
@@ -361,10 +380,11 @@ BEGIN
     FROM pg_class c
     JOIN information_schema.table_privileges g ON g.table_schema = 'public' AND g.table_name = c.relname
    WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                       'organization_comp_grids','organization_comp_settings','comp_reference_imports')
+                       'organization_comp_grids','organization_comp_settings','comp_reference_imports',
+                       'organization_comp_grid_availability')
      AND (g.grantee IN ('anon', 'PUBLIC') OR (g.grantee = 'authenticated' AND g.privilege_type NOT IN ('SELECT', 'DELETE'))
-          OR (g.grantee = 'authenticated' AND c.relname = 'comp_reference_imports'));
-  PERFORM comp_test.check('A10e table grants: no anon/PUBLIC; authenticated table-level SELECT/DELETE only, never the ledger (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
+          OR (g.grantee = 'authenticated' AND c.relname IN ('comp_reference_imports', 'organization_comp_grid_availability')));
+  PERFORM comp_test.check('A10e table grants: no anon/PUBLIC; authenticated table-level SELECT/DELETE only, never the ledger or availability (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
 
   -- Column-level write grants for authenticated: exactly the reviewed set (no id/scope/revision/audit
   -- column, no ownership or parent column on UPDATE). comp_grids.id is insertable only so the create
@@ -376,7 +396,8 @@ BEGIN
             JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
             CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) AS k(priv)
            WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                               'organization_comp_grids','organization_comp_settings','comp_reference_imports')
+                               'organization_comp_grids','organization_comp_settings','comp_reference_imports',
+                               'organization_comp_grid_availability')
              AND has_column_privilege('authenticated', c.oid, a.attnum, k.priv)) s;
   PERFORM comp_test.check('A10f authenticated column write grants are exactly the reviewed set: ' || coalesce(v_bad, ''),
     v_bad = (SELECT string_agg(x, ', ' ORDER BY x COLLATE "C") FROM unnest(ARRAY[
@@ -405,18 +426,222 @@ BEGIN
       'organization_comp_settings.INSERT.organization_id', 'organization_comp_settings.INSERT.calculator_grid_id',
       'organization_comp_settings.UPDATE.calculator_grid_id']) x));
 
-  -- service_role: SELECT on all eight comp tables and nothing else (table- or column-level).
+  -- service_role: SELECT on all nine comp tables and nothing else (table- or column-level).
   SELECT string_agg(c.relname || ':' || k.priv, ', ') INTO v_bad
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
     CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS k(priv)
    WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
-                       'organization_comp_grids','organization_comp_settings','comp_reference_imports')
+                       'organization_comp_grids','organization_comp_settings','comp_reference_imports',
+                       'organization_comp_grid_availability')
      AND (CASE WHEN k.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
                THEN has_any_column_privilege('service_role', c.oid, k.priv)
                ELSE has_table_privilege('service_role', c.oid, k.priv) END) <> (k.priv = 'SELECT');
   PERFORM comp_test.check('A10g service_role privileges (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
   RAISE NOTICE 'A10 privilege inventories: ok';
+END $$;
+
+-- A11. Availability (decision D5). S4 is a shared grid AgentFlow has made available to agency A only.
+-- Every other agency (its admins, a Super Admin who is also a platform admin, A's Agency Group peer) cannot
+-- list it, enable it by id, read, snapshot, copy or select it. Nobody but the postgres operator can grant
+-- or withdraw availability: not an agent, team leader, agency admin, Super Admin or service_role (A9).
+-- Availability alone opens no content; the home agency's admin still decides to enable it. Disabling
+-- keeps availability; withdrawing it removes that agency's enabled access and clears its selection,
+-- while a private copy made earlier stays intact, readable, selectable and editable.
+DO $$
+DECLARE
+  r record; who text; q text; t text; v jsonb; v_copy uuid; v_copy_content text[]; v_home_content text[]; v_prof uuid;
+  c_home  constant uuid := '54000000-0000-0000-0000-000000000001';
+  c_org_a constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  c_org_b constant uuid := 'bbbbbbbb-0000-0000-0000-00000000000b';
+  c_s1    constant uuid := '51000000-0000-0000-0000-000000000001';
+  c_super_b    constant uuid := 'bbbbbbbb-0000-0000-0000-0000000000b4';
+  c_platform   constant uuid := 'dddddddd-0000-0000-0000-0000000000a5';
+BEGIN
+  INSERT INTO public.comp_grids (id, organization_id, name, effective_date, contract_levels, origin) VALUES
+    (c_home, NULL, 'Synthetic Home Only', '2025-11-20', ARRAY[100,90], 'agentflow_reference');
+  INSERT INTO public.comp_products (id, grid_id, organization_id, category, carrier, product_name) VALUES
+    ('54000000-0000-0000-0000-000000000101', c_home, NULL, 'whole_life', 'Carrier East', 'Home Plan');
+  INSERT INTO public.comp_product_variants (id, grid_id, product_id, organization_id, label) VALUES
+    ('54000000-0000-0000-0000-000000000201', c_home, '54000000-0000-0000-0000-000000000101', NULL, '');
+  INSERT INTO public.comp_rates (grid_id, variant_id, organization_id, contract_level, rate_percent) VALUES
+    (c_home, '54000000-0000-0000-0000-000000000201', NULL, 100, 55.5),
+    (c_home, '54000000-0000-0000-0000-000000000201', NULL, 90, 0);
+  INSERT INTO public.comp_variant_references (variant_id, grid_id, organization_id, source, notes) VALUES
+    ('54000000-0000-0000-0000-000000000201', c_home, NULL, 'Synthetic home schedule', 'Synthetic home note');
+  INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES (c_org_a, c_home);
+  -- Agency B's Super Admin who also holds the platform_admin platform role, and a platform admin with no
+  -- agency at all: neither flag is availability.
+  INSERT INTO public.profiles (id, organization_id, role, status, is_super_admin, platform_role, commission_level, first_name, last_name) VALUES
+    (c_super_b,  c_org_b, 'Super Admin', 'Active', true, 'platform_admin', '100', 'Pat',  'Platform'),
+    (c_platform, NULL,    'Admin',       'Active', true, 'platform_admin', '100', 'Nora', 'Noagency');
+  v_home_content := comp_test.content(c_home);
+
+  -- Catalog: the home agency only.
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), 'SELECT jsonb_agg(c ORDER BY c.name) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11a the home agency''s admin sees the grid in its catalog, not yet enabled',
+    r.out_state = '00000' AND r.out_result @> jsonb_build_array(jsonb_build_object('id', c_home, 'is_enabled', false)));
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_b'), 'SELECT jsonb_agg(c.name ORDER BY c.name) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11b agency B''s admin sees only B''s available grids, not this one',
+    r.out_state = '00000' AND r.out_result = '["Synthetic Shared One", "Synthetic Shared Two"]'::jsonb);
+  SELECT * INTO r FROM comp_test.as_profile(c_super_b, 'SELECT jsonb_agg(c.name ORDER BY c.name) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11c agency B''s Super Admin / platform admin sees the same, not this one',
+    r.out_state = '00000' AND r.out_result = '["Synthetic Shared One", "Synthetic Shared Two"]'::jsonb);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_c'), 'SELECT coalesce(jsonb_agg(c.name), ''[]''::jsonb) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11d A''s Agency Group peer C has nothing available: empty catalog',
+    r.out_state = '00000' AND r.out_result = '[]'::jsonb);
+  SELECT * INTO r FROM comp_test.as_profile(c_platform, 'SELECT to_jsonb(count(*)) FROM public.comp_list_shared_grid_catalog()');
+  PERFORM comp_test.refused('A11e a platform admin without an agency has no catalog', r.out_state, r.out_message, '42501');
+
+  -- Enable by id: refused for every other agency; nothing is written.
+  FOREACH v_prof IN ARRAY ARRAY[comp_test.p('admin_b'), c_super_b, comp_test.p('admin_c')] LOOP
+    SELECT * INTO r FROM comp_test.as_profile(v_prof, format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+    PERFORM comp_test.refused('A11f another agency''s admin cannot enable it by id (' || v_prof || ')', r.out_state, r.out_message,
+      'PT404', 'That AgentFlow grid is not available');
+  END LOOP;
+  SELECT * INTO r FROM comp_test.as_profile(c_platform, format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+  PERFORM comp_test.refused('A11g a platform admin without an agency cannot enable it', r.out_state, r.out_message, '42501');
+  SELECT * INTO r FROM comp_test.run_as('authenticated', comp_test.claims(c_super_b, c_org_a, 'Super Admin', true),
+    format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+  PERFORM comp_test.refused('A11h B''s Super Admin claiming agency A in the token is refused', r.out_state, r.out_message, '42501');
+  PERFORM comp_test.check('A11i the refusals wrote no access row and no selection',
+    NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE grid_id = c_home)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE calculator_grid_id = c_home)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE organization_id = 'cccccccc-0000-0000-0000-00000000000c'));
+
+  -- Snapshot, copy (full and structure) and select: refused for every other agency, by id.
+  FOREACH v_prof IN ARRAY ARRAY[comp_test.p('admin_b'), c_super_b, comp_test.p('admin_c')] LOOP
+    SELECT * INTO r FROM comp_test.as_profile(v_prof, format('SELECT public.comp_get_grid_snapshot(%L)', c_home));
+    PERFORM comp_test.refused('A11j snapshot by id refused (' || v_prof || ')', r.out_state, r.out_message, 'PT404');
+    FOREACH q IN ARRAY ARRAY['full', 'structure'] LOOP
+      SELECT * INTO r FROM comp_test.as_profile(v_prof, format('SELECT public.comp_create_private_grid(%L, %L, %L, %L)', q, 'Taken ' || q, '2025-11-20', c_home));
+      PERFORM comp_test.refused('A11k ' || q || ' copy by id refused (' || v_prof || ')', r.out_state, r.out_message,
+        'PT404', 'Enable that AgentFlow grid for your agency before copying it');
+    END LOOP;
+    SELECT * INTO r FROM comp_test.as_profile(v_prof, format(
+      'SELECT public.comp_select_calculator_grid(%L, (SELECT s.calculator_grid_id FROM public.organization_comp_settings s))', c_home));
+    PERFORM comp_test.refused('A11l select by id refused (' || v_prof || ')', r.out_state, r.out_message,
+      'PT404', 'That grid is not available for the calculator');
+  END LOOP;
+  PERFORM comp_test.check('A11m no copy was made from it', NOT EXISTS (SELECT 1 FROM public.comp_grids WHERE copied_from_grid_id = c_home));
+
+  -- Direct reads: no row of the grid for any other agency's member, nor for the home agency before it enables.
+  FOREACH v_prof IN ARRAY ARRAY[comp_test.p('admin_b'), comp_test.p('agent_b'), c_super_b, comp_test.p('admin_c'),
+                                comp_test.p('agent_c'), comp_test.p('admin_a'), comp_test.p('agent_a')] LOOP
+    SELECT * INTO r FROM comp_test.as_profile(v_prof, format('SELECT to_jsonb(count(*)) FROM public.comp_grids WHERE id = %L', c_home));
+    PERFORM comp_test.check('A11n no grid row (' || v_prof || ')', r.out_state = '00000' AND r.out_result = '0'::jsonb);
+    FOREACH t IN ARRAY ARRAY['comp_products', 'comp_product_variants', 'comp_rates', 'comp_variant_references'] LOOP
+      SELECT * INTO r FROM comp_test.as_profile(v_prof, format('SELECT to_jsonb(count(*)) FROM public.%I WHERE grid_id = %L', t, c_home));
+      PERFORM comp_test.check('A11n no ' || t || ' row (' || v_prof || ')', r.out_state = '00000' AND r.out_result = '0'::jsonb);
+    END LOOP;
+  END LOOP;
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_get_grid_snapshot(%L)', c_home));
+  PERFORM comp_test.refused('A11o availability alone opens no content: the home admin cannot snapshot it before enabling',
+    r.out_state, r.out_message, 'PT404');
+
+  -- Availability is managed by nobody but the postgres operator: agents, team leaders, agency admins and
+  -- Super Admins cannot read, grant, withdraw, or run the private availability operations.
+  FOREACH v_prof IN ARRAY ARRAY[comp_test.p('agent_a'), comp_test.p('leader_a'), comp_test.p('admin_a'), comp_test.p('super_a'),
+                                comp_test.p('admin_b'), c_super_b] LOOP
+    FOREACH q IN ARRAY ARRAY[
+      'SELECT to_jsonb(count(*)) FROM public.organization_comp_grid_availability',
+      format('INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES (%L, %L) RETURNING to_jsonb(grid_id)', c_org_b, c_home),
+      format('INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES (%L, %L) ON CONFLICT DO NOTHING RETURNING to_jsonb(grid_id)', c_org_a, c_home),
+      format('WITH x AS (DELETE FROM public.organization_comp_grid_availability WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x', c_home),
+      format('SELECT private.comp_make_reference_grid_available(%L, %L)', 'Synthetic Agency B', c_home),
+      format('SELECT private.comp_remove_reference_grid_availability(%L, %L)', 'Synthetic Agency A', c_home),
+      format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency B', c_home)] LOOP
+      SELECT * INTO r FROM comp_test.as_profile(v_prof, q);
+      PERFORM comp_test.refused('A11p cannot manage availability (' || v_prof || '): ' || left(q, 70), r.out_state, r.out_message,
+        '42501', 'permission denied%');
+    END LOOP;
+  END LOOP;
+  FOREACH who IN ARRAY ARRAY['agent_a', 'leader_a'] LOOP
+    SELECT * INTO r FROM comp_test.as_profile(comp_test.p(who), format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+    PERFORM comp_test.refused('A11q ' || who || ' cannot enable even an available grid', r.out_state, r.out_message, '42501');
+  END LOOP;
+  PERFORM comp_test.check('A11r availability unchanged: agency A only',
+    (SELECT array_agg(organization_id) FROM public.organization_comp_grid_availability WHERE grid_id = c_home) = ARRAY[c_org_a]);
+
+  -- The home agency's admin enables it (the existing selection is kept), selects it, and copies it.
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+  PERFORM comp_test.ok('A11s the home agency''s admin enables it', r.out_state, r.out_message);
+  PERFORM comp_test.check('A11t the existing selection is kept', (r.out_result->>'kept_existing_selection')::boolean
+    AND r.out_result->>'calculator_grid_id' = c_s1::text);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_select_calculator_grid(%L, %L)', c_home, c_s1));
+  PERFORM comp_test.ok('A11u the home agency''s admin selects it', r.out_state, r.out_message);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), 'SELECT public.get_commission_calculator_context()');
+  PERFORM comp_test.check('A11v the home agency''s agent now reads it',
+    r.out_result->>'status' = 'ready' AND r.out_result#>>'{grid,id}' = c_home::text AND jsonb_array_length(r.out_result->'rates') = 2);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_create_private_grid(%L, %L, %L, %L)', 'full', 'A home copy', '2025-11-20', c_home));
+  PERFORM comp_test.ok('A11w the home agency''s admin makes a full private copy', r.out_state, r.out_message);
+  v_copy := (r.out_result->>'grid_id')::uuid;
+  v_copy_content := comp_test.content(v_copy);
+  PERFORM comp_test.check('A11x the copy is exact', v_copy_content = v_home_content);
+  PERFORM comp_test.check('A11y B and C still read nothing of it or of the copy',
+    comp_test.visible('A11y1', comp_test.p('agent_b'), 'comp_rates') = 6
+    AND (SELECT out_result FROM comp_test.as_profile(comp_test.p('admin_b'), format('SELECT to_jsonb(count(*)) FROM public.comp_grids WHERE id IN (%L, %L)', c_home, v_copy))) = '0'::jsonb
+    AND (SELECT out_result FROM comp_test.as_profile(comp_test.p('admin_c'), format('SELECT to_jsonb(count(*)) FROM public.comp_grids WHERE id IN (%L, %L)', c_home, v_copy))) = '0'::jsonb);
+
+  -- Disabling keeps availability (and clears the selection that pointed at it); re-enabling works.
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_disable_shared_grid(%L)', c_home));
+  PERFORM comp_test.ok('A11z the home agency''s admin disables it', r.out_state, r.out_message);
+  PERFORM comp_test.check('A11z1 disabling removed access and the selection, never availability',
+    (r.out_result->>'cleared_selection')::boolean
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = c_org_a AND grid_id = c_home)
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = c_org_a) IS NULL
+    AND EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE organization_id = c_org_a AND grid_id = c_home));
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), 'SELECT jsonb_agg(c ORDER BY c.name) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11z2 still in the home catalog, as not enabled',
+    r.out_result @> jsonb_build_array(jsonb_build_object('id', c_home, 'is_enabled', false)));
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_enable_shared_grid(%L)', c_home));
+  PERFORM comp_test.check('A11z3 re-enabling works and selects it (nothing was selected)',
+    r.out_state = '00000' AND (r.out_result->>'selected')::boolean);
+
+  -- Withdrawing availability (postgres operator): access and the selection go; the copy stays.
+  v := private.comp_remove_reference_grid_availability('Synthetic Agency A', c_home);
+  PERFORM comp_test.check('A11z4 withdrawal reports removed, disabled and the cleared selection: ' || v::text,
+    v = jsonb_build_object('organization_id', c_org_a, 'grid_id', c_home, 'removed', true, 'disabled', true, 'cleared_selection', true));
+  PERFORM comp_test.check('A11z5 no availability, no access and no selection of the grid remain',
+    NOT EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE grid_id = c_home)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE grid_id = c_home)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE calculator_grid_id = c_home)
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = c_org_a) IS NULL);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), 'SELECT public.get_commission_calculator_context()');
+  PERFORM comp_test.check('A11z6 the home agent''s calculator is not configured (no unauthorized selection left)',
+    r.out_result = '{"status": "not_configured"}'::jsonb);
+  PERFORM comp_test.check('A11z7 the home agent reads nothing of the grid any more',
+    (SELECT out_result FROM comp_test.as_profile(comp_test.p('agent_a'), format('SELECT to_jsonb(count(*)) FROM public.comp_rates WHERE grid_id = %L', c_home))) = '0'::jsonb);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), 'SELECT jsonb_agg(c.id) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('A11z8 gone from the home catalog', r.out_state = '00000' AND NOT r.out_result @> jsonb_build_array(c_home));
+  FOREACH q IN ARRAY ARRAY[
+    format('SELECT public.comp_enable_shared_grid(%L)', c_home),
+    format('SELECT public.comp_get_grid_snapshot(%L)', c_home),
+    format('SELECT public.comp_create_private_grid(%L, %L, %L, %L)', 'full', 'Late copy', '2025-11-20', c_home),
+    format('SELECT public.comp_select_calculator_grid(%L, NULL)', c_home)] LOOP
+    SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), q);
+    PERFORM comp_test.refused('A11z9 after withdrawal the home admin is refused: ' || left(q, 60), r.out_state, r.out_message, 'PT404');
+  END LOOP;
+  PERFORM comp_test.check('A11z10 the private copy is intact and the shared grid untouched',
+    comp_test.content(v_copy) = v_copy_content AND comp_test.content(c_home) = v_home_content);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('admin_a'), format('SELECT public.comp_select_calculator_grid(%L, NULL)', v_copy));
+  PERFORM comp_test.ok('A11z11 the private copy can still be selected', r.out_state, r.out_message);
+  SELECT * INTO r FROM comp_test.as_profile(comp_test.p('agent_a'), 'SELECT public.get_commission_calculator_context()');
+  PERFORM comp_test.check('A11z12 and the home agent reads the copy',
+    r.out_result->>'status' = 'ready' AND r.out_result#>>'{grid,id}' = v_copy::text);
+  PERFORM comp_test.save('A11z13 the private copy stays editable', comp_test.p('admin_a'), v_copy, comp_test.rev(v_copy),
+    jsonb_build_object('rates', jsonb_build_array(jsonb_build_object(
+      'variant_id', comp_test.vid(v_copy, 'Home Plan', ''), 'contract_level', 100, 'rate_percent', '56'))));
+  PERFORM comp_test.check('A11z14 the edit changed the copy only',
+    comp_test.rate(comp_test.vid(v_copy, 'Home Plan', ''), 100) = '56'
+    AND comp_test.rate('54000000-0000-0000-0000-000000000201', 100) = '55.5');
+  PERFORM comp_test.check('A11z15 agency B is unaffected: S1 still enabled and selected',
+    EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = c_org_b AND grid_id = c_s1)
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = c_org_b) = c_s1);
+  v := private.comp_remove_reference_grid_availability('Synthetic Agency A', c_home);
+  PERFORM comp_test.check('A11z16 withdrawing again is a no-op: ' || v::text,
+    v = jsonb_build_object('organization_id', c_org_a, 'grid_id', c_home, 'removed', false, 'disabled', false, 'cleared_selection', false));
+  RAISE NOTICE 'A11 availability (one agency only; withdrawal keeps private copies): ok';
 END $$;
 
 SELECT 'commission_grids_access: ALL PASSED' AS result;

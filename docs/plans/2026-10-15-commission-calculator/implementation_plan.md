@@ -15,8 +15,12 @@ access stays read-only (advisor reads included). **Real-data validation passed l
 supplied the CSV (D4). Validation, the deterministic artifact, import into disposable loopback databases,
 bidirectional reconciliation and source-backed acceptance all passed (§10; value-free results in
 `verification.md` and the manifest). `main` (#448) was merged into the branch to clear a `WORK_LOG.md`
-conflict. **Not yet released:** a durable private location (D1) must be named, and the release needs Chris's
-separate, exact approval of the release package (§12).
+conflict. **Shared-grid availability (D5, 2026-10-15):** a shared grid now reaches only the agencies AgentFlow
+makes it available to; at launch the FFL Compensation Grid is available to *Family First Life - Chris Garness*
+only. The three unapplied migrations were corrected in place and re-verified, the real-data rehearsal was
+re-run, and §12 gained the availability step and the new checksums (§10). **Not yet released:** a durable
+private location (D1) must be named, and the release needs Chris's separate, exact approval of the release
+package (§12).
 
 **Base:** `origin/main` `dacd921903a867de99276f8709f829995602c3bd`. **Branch:** `feature/commission-calculator-agency-grids`
 (one branch, intended for one PR).
@@ -29,8 +33,8 @@ private source, no source notes and no carrier-specific acceptance expectations 
 ## 1. Scope
 
 Agents estimate first-year commission from their agency's selected grid and their own existing contract
-level. Agency Admins enable/disable AgentFlow shared grids for their own agency, choose the agency's
-calculator grid, and create/edit private grids. Estimate tool only: not a ledger, payroll, underwriting or
+level. Agency Admins enable/disable, for their own agency, the AgentFlow shared grids AgentFlow has made
+available to it (D5), choose the agency's calculator grid, and create/edit private grids. Estimate tool only: not a ledger, payroll, underwriting or
 reporting source.
 
 Out of scope and untouched: policies, reporting, leaderboards, contract-level editing (see §11 follow-up),
@@ -50,23 +54,26 @@ platform/Control Center surfaces.
 | C3 | Unsaved-editor data loss closed for settings-section changes, sidebar navigation, browser back/forward and reload/close (§8.3). |
 | C4 | Contract-level self-edit recorded as a separate follow-up only (§11). |
 | C5 | Verification against a fresh base with diagnostic-level comparison (§9.4). PG16 local ≠ PG17.6 CI. |
-| C6 | Initial activation for Family First Life - Chris Garness only, by exact unique name at execution; other Agency Admins may self-enable after release (agency self-service, not a pilot). |
+| C6 | Initial activation for Family First Life - Chris Garness only, by exact unique name at execution; other Agency Admins may self-enable after release (agency self-service, not a pilot). **Amended by D5 (2026-10-15):** the self-service clause is superseded; another agency can enable a shared grid only after AgentFlow makes it available to that agency. |
+| **D5** | **Shared-grid availability (Chris, 2026-10-15).** Being an Agency Admin does not make an AgentFlow shared grid available to an agency. The concepts are separate: (1) the grid exists in AgentFlow; (2) it is AVAILABLE to a specific organization, a database-authoritative row written only by reviewed postgres-only operations; (3) that organization's Admin chooses to ENABLE and select it. Other agencies cannot see an unavailable grid in the catalog, enable it, read its products, variants, rates or references, or copy it, even by id. At launch, the FFL Compensation Grid is available only to *Family First Life - Chris Garness*. No platform-role, Control Center or Super Admin path. Disabling keeps availability; removing availability clears enabled access and the calculator selection without touching private copies. |
 
 ## 3. Shared compensation grid exception (named)
 
 AGENT_RULES §3: every tenant row carries `organization_id`. This feature adds one narrowly scoped
 exception: AgentFlow-maintained **shared** grids store `organization_id = NULL` on the grid and on all of its
 products, variants, rates and references. They are readable only by organizations holding an
-`organization_comp_grids` row, never writable by any client role (`service_role` holds SELECT only), and
-changed only by the reviewed reference-import operation or a reviewed migration. Private grids, access rows and settings are ordinary
-tenant rows. No platform-role requirement, Control Center surface, cross-agency Super Admin bypass or
+`organization_comp_grids` row, which in turn requires an `organization_comp_grid_availability` row that only
+reviewed postgres-only operations write (D5). They are never writable by any client role (`service_role` holds
+SELECT only), and are changed only by the reviewed reference-import operation or a reviewed migration. Private
+grids, availability rows, access rows and settings are ordinary tenant rows. No platform-role requirement, Control Center surface, cross-agency Super Admin bypass or
 Agency Group peer access.
 
 ## 4. Database design (as proven locally)
 
 ### 4.1 Tables (all RLS-enabled)
 `comp_grids`, `comp_products`, `comp_product_variants`, `comp_rates`, `comp_variant_references`
-(protected source/notes), `organization_comp_grids` (agency access to a shared grid),
+(protected source/notes), `organization_comp_grid_availability` (server-only: which agencies AgentFlow has
+made a shared grid available to, D5), `organization_comp_grids` (agency access to an available shared grid),
 `organization_comp_settings` (one row per agency; `calculator_grid_id` NULL = not configured) and
 `comp_reference_imports` (server-only import ledger: checksums, importer version, target grid, counts,
 verification — never values).
@@ -75,7 +82,8 @@ verification — never values).
   `COALESCE(organization_id, nil-UUID)` (not client-writable). The nil UUID is reserved (CHECK on every
   table; the migration refuses an existing nil organization), so `scope_key = nil ⇔ organization_id IS NULL`.
   Composite FKs on `(parent_id, grid_id, scope_key)` force every child to match its parent's grid and
-  scope, NULL case included; access rows FK to `(grid_id, nil)` so they can only reference shared grids.
+  scope, NULL case included; availability and access rows FK to `(grid_id, nil)` so they can only reference
+  shared grids, and an access row also FKs to its availability row (`ON DELETE CASCADE`).
 - **Rates.** `rate_percent numeric` (unconstrained) with `CHECK (0 ≤ x ≤ 300 AND x = round(x, 2))`:
   excess precision is rejected, never rounded (`numeric(6,2)` would round before any check). Absent row =
   unavailable; stored 0 = valid zero.
@@ -91,7 +99,8 @@ verification — never values).
 ### 4.2 Access
 - **Reads (RLS).** Grids: caller's private grids + shared grids the agency enabled; agents active only,
   admins also inactive. Products: active only for agents. Variants/rates: of readable products. References:
-  agency admins only. Access/settings rows: own organization.
+  agency admins only. Access/settings rows: own organization. Availability rows: no client read at all; an
+  agency admin sees what is available to the agency only through the catalog (D5).
 - **Writes.** Clients never write the tables directly: RLS write policies and an operation-context trigger
   (fires first, before any lock) require `agentflow.comp_operation = 'on'`, which only the comp operations
   set through a function-level `SET` clause (restored on return; PostgREST/clients cannot set custom
@@ -101,7 +110,9 @@ verification — never values).
   SECURITY DEFINER trigger ever runs or locks for a client row outside its agency or by a non-admin; and
   every DEFINER lock lookup is filtered to shared grids or the row's own scope. `service_role` (server key,
   BYPASSRLS) holds SELECT only on every comp table, so server code cannot write commission data directly
-  either.
+  either. Availability rows have no client privilege at all and are written only by the postgres-only
+  availability functions (§4.3); the access trigger refuses an enable without availability (PT404), for every
+  writer.
 - **Actor.** `comp_authz.actor_org_id()` / `actor_is_admin()` / `readable_grid_ids()` wrap the canonical
   `private.campaign_actor()` (Active profile, profile org = `get_org_id()`); agency admin = Admin / Super
   Admin role or `is_super_admin`, home organization only. Team Leaders and agents are read-only.
@@ -114,8 +125,9 @@ verification — never values).
 ### 4.3 Operations (`EXECUTE` to `authenticated` only)
 `get_commission_calculator_status`, `get_commission_calculator_context` (one snapshot; rates as exact
 text; caller's own raw level; never notes), `comp_list_shared_grid_catalog` (DEFINER, admin, metadata
-only), `comp_get_admin_overview`, `comp_get_grid_snapshot`, `comp_enable_shared_grid` (retry-safe;
-selects only when nothing is selected), `comp_disable_shared_grid` (clears only its own selection),
+only; only the active shared grids available to the caller's agency), `comp_get_admin_overview`,
+`comp_get_grid_snapshot`, `comp_enable_shared_grid` (retry-safe; an available grid only, else PT404 even by
+id; selects only when nothing is selected), `comp_disable_shared_grid` (clears only its own selection),
 `comp_select_calculator_grid` (compare-and-set), `comp_create_private_grid` (blank / structure: zero rate
 rows / full: levels, structure, every rate, references; enabled source only; destination = caller's org),
 `comp_save_grid_changes` (atomic changeset at an expected revision; stale ⇒ PT409),
@@ -124,17 +136,22 @@ rows / full: levels, structure, every rate, references; enabled source only; des
 
 Privileged, postgres-only (never client-callable): `private.comp_import_reference_grid`,
 `private.comp_grid_content_sha256`, `private.comp_set_reference_grid_active`,
-`private.comp_enable_reference_grid_for_agency`.
+`private.comp_agency_by_exact_name`, `private.comp_make_reference_grid_available` (one agency by exact unique
+name; a verified import required; retry-safe), `private.comp_remove_reference_grid_availability` (removes the
+agency's access and clears its selection of the grid; private copies untouched; a no-op writes nothing) and
+`private.comp_enable_reference_grid_for_agency` (the grid must already be available).
 
 ### 4.4 Lock order and snapshots
 Every agency write operation first creates (if needed) and locks its `organization_comp_settings` row (the
-agency's comp-write mutex), then: grid row(s) → access row → product row → child rows. Every child write
+agency's comp-write mutex), then: grid row(s) → availability row → access row → product row → child rows. Every child write
 locks its grid row first (trigger), and the grid level/revision rules run against the locked row. Shared
 grid rows are locked only by privileged triggers on behalf of an authorized operation (copy source, calculator
 selection, enable). Locking reads re-fetch the newest committed row after a wait; every check that follows
 a lock runs as a later statement, so it reads after the lock. Privileged multi-agency deactivation
 (`comp_set_reference_grid_active`) locks the referencing settings rows (ordered by organization) before the
-grid. Production isolation is READ COMMITTED (read-only check 2026-10-15).
+grid. Withdrawing availability locks that agency's settings row before deleting the availability row, so it
+serializes with the agency's enable, select and copy (concurrency scenario 9). Production isolation is READ
+COMMITTED (read-only check 2026-10-15).
 
 ### 4.5 Local design proof (C1) — PostgreSQL 16, loopback only, synthetic data, real non-bypass roles
 Proven before building on it: an agency admin cannot lock a shared grid row even with the operation flag
@@ -197,6 +214,9 @@ for display only; the 75 % advance and Months 10–12 are illustrative assumptio
    compared with the stored rows in both directions; only counts and PASS/FAIL are printed.
 5. **Verify in production (release step, read-only):** ledger row + recomputed content hash equal the
    private manifest.
+6. **Make available, then activate (release steps 7a and 7b, D5):** the availability script names the one
+   agency by exact unique name; the activation script then enables the grid for it and selects it only if
+   nothing is selected. Activation is refused while the grid is not available.
 The original CSV and the exact artifact must live in a durable private location Chris names before release.
 The committed manifest holds only non-sensitive values (checksums, importer version, target grid id,
 counts, verification status).
@@ -242,7 +262,8 @@ named exception" so that adding the named Shared compensation grid exception kee
 and stops `git diff --check` flagging its CRs. Independent-review correction (§10): the new
 `src/components/settings/commission-grids/LoadErrorNotice.tsx` (23 lines) and
 `src/components/settings/commission-grids/__tests__/draftPreservation.test.tsx`; the existing settings test's
-hook mock gained the access hook that the section now keys on.
+hook mock gained the access hook that the section now keys on. Availability correction (D5, §10): the new
+`supabase/ops/commission_grids_make_available_home_agency.sql`; no other new file and no frontend change.
 
 ### 8.2 Concurrent work
 Open PRs overlapping textually only: #442 (Google Sheets: settings config/renderer/heading test/docs), #445
@@ -311,6 +332,71 @@ plus vitest failures base vs branch, reported separately.
   - *Source-backed acceptance.* 49 of 49 pass: Chris's 8 required cases plus age, term, level and blank-cell
     boundaries. A negative control with 4 wrong expectations fails exactly those 4.
 - **Open before release:** the durable private location for the source and the artifact (D1).
+- **Shared-grid availability correction (D5; requested by Chris 2026-10-15; planned here before any edit).**
+  - *Finding.* Until now any agency admin saw every active shared grid in the catalog and could enable it,
+    then read and copy it (C6 self-service). For the FFL Compensation Grid that would expose its rates to every agency.
+  - *Design.* One server-only table, `public.organization_comp_grid_availability`
+    (`organization_id`, shared `grid_id`, `created_at`, `created_by`; primary key `(organization_id, grid_id)`;
+    nil-scope foreign key so it can only name a shared grid).
+    - RLS is on, with no client policy and no anon or authenticated privilege. `service_role` has SELECT
+      only. Only postgres-only functions write it.
+    - The access rows (`organization_comp_grids`) get a foreign key to it, `ON DELETE CASCADE`.
+    - The access trigger `private.comp_access_rules` also requires an availability row, locked `FOR SHARE`.
+    - The catalog filters on availability.
+    - Snapshot, RLS content reads, calculator selection and copy already require an access row, so they
+      inherit the rule.
+    - Removing availability cascades to the access row, and the existing `comp_access_revoked` trigger
+      clears that agency's selection if it pointed at the grid. Private copies are separate grids.
+  - *Private operations* (postgres-only, SECURITY INVOKER):
+    - `private.comp_make_reference_grid_available(text, uuid)`: exact unique agency name, verified import,
+      retry-safe.
+    - `private.comp_remove_reference_grid_availability(text, uuid)`: locks the agency settings row first
+      (lock order settings → grid → availability → access → product → children), then deletes availability
+      and reports whether access and the selection were cleared.
+  - *Release.* A new ops script, `supabase/ops/commission_grids_make_available_home_agency.sql` (approval
+    setting `agentflow.approve_comp_home_availability=yes`), makes the grid available to the exact unique
+    name only. The existing activation script then needs availability first.
+  - *Migration handling.* Production's migration history and catalog were re-checked read-only: newest
+    `20261010172702`, no commission rows or objects. The only Supabase branches are the PR #294 and #378
+    previews, which predate this feature. The three pending migrations are therefore corrected in place
+    (AGENT_RULES #25), and §12 gets their new checksums. No new migration, no history change.
+  - *Files:*
+    - the three migrations;
+    - the schema and reference-import rollback files;
+    - the new make-available ops script and the activation script's header;
+    - `supabase/tests/commission_grids_harness.sql`, `…_schema.sql`, `…_access.sql` and `…_import.sql`;
+    - `scripts/commission_grids_concurrency.mjs` and `scripts/run_commission_grids_tests.sh`;
+    - records: this plan, the root plan, `AGENT_RULES.md`, `verification.md`, the runbook and
+      `WORK_LOG.md`.
+    - No frontend change is expected: the settings card already describes the catalog as grids
+      "available to this agency".
+  - *Negative tests:*
+    - the home agency's Admin sees and enables the grid once it is available;
+    - another agency's Admin cannot see it, enable it by id, snapshot, read or copy it;
+    - removing availability leaves no unauthorized selection, and private copies stay independent;
+    - Agents and Team Leaders cannot manage availability or enable shared grids;
+    - a peer agency and `service_role` get nothing;
+    - a concurrency scenario proves that removal and an admin's enable or select serialize safely.
+  - **As built and verified locally** (PostgreSQL 16.15 under C and `en_US.UTF-8`; details in `verification.md`):
+    - *Finding, before.* On the published migrations the admins of agency B and of A's peer agency C listed
+      every active shared grid, enabled one by id, read its rates through the snapshot and copied it.
+    - *After.* Their catalog is empty; enabling by id, the snapshot, copying and selecting are refused (PT404).
+    - *As designed, plus one refinement found while writing the tests:* withdrawing availability that does
+      not exist returns `removed: false` and writes nothing (it no longer creates a settings row for that
+      agency).
+    - *Tests.* Access A4 changed and A11 added; import I1 and I6 changed and I8 added; schema S1o–S1s and
+      S6k–S6n; concurrency scenario 9 (18 assertions, both orders of withdrawal against enable, select and
+      copy); ops-script checks; two negative controls (no availability gate → A4m; an unfiltered catalog → A4l).
+      The cases cover another agency's admin, its Super Admin holding `platform_role = 'platform_admin'`, an
+      agency-less platform admin, A's peer agency, agents, team leaders, agency admins and `service_role`.
+    - *Checks.* The full runner passes on both clusters (66 checks each); the CI frontend command, both
+      type-checks (the same 84 app diagnostics), ESLint on the 64 branch code files and the build pass.
+    - *Private re-run with the real artifact* (disposable loopback databases only): same fingerprint,
+      reconciliation PASS, activation refused before availability, then the availability and activation
+      scripts; 4 + 28 + 7 rehearsal checks PASS, and the MCP route passes too; acceptance 49 of 49. No rate
+      changed.
+    - *Checksums* (§12): schema `1f8e14fb…`, operations `4e86caac…`, reference import `3cbe4d69…`, availability
+      ops `c484c040…` (new), activation ops `46c41c89…`.
 - **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
   stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
   with the expected literals (database default collation). The CI image defaults to `en_US.utf8`, so the order
@@ -399,7 +485,7 @@ The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An a
 level their own estimate uses. Needs its own approved change; nothing here alters profiles, onboarding or
 stored levels.
 
-## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation; NOTHING EXECUTED)
+## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation and the availability correction; NOTHING EXECUTED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
 approved together as one release package. Local implementation approval is not release approval.
 Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the two Git-linked Vercel production
@@ -441,10 +527,9 @@ projects, `agentflow` and `agentflow-life-insure`.
 - P4. The Supabase GitHub integration's "Deploy to production" is still OFF (AGENT_RULES #30), confirmed by Chris
   in the dashboard.
 - P5. Baseline of the Supabase security and performance advisors (read-only).
-- P6. Chris confirms that agency self-service (C6) applies to this grid. Once it is imported, the Admins of the
-  3 other organizations can see its name, effective date and levels in their catalog, and can enable it. That
-  gives their agents the full rates. Restricting a shared grid to named agencies would need a separate design
-  change.
+- P6. **Superseded by D5 (2026-10-15).** The grid becomes available only to the home agency (step 7a). The
+  Admins of the 3 other organizations do not see it in their catalog and cannot enable, read or copy it, even
+  by id. Making it available to any other agency is a separate, separately approved operation.
 
 **1–3. Migrations.** Apply each file through Supabase MCP `apply_migration` with the exact file bytes, one at a
 time, reading each back before the next. Do not change the file bytes or migration history to make an
@@ -452,19 +537,22 @@ apply succeed.
 
 | # | `name` | File | SHA-256 |
 |---|---|---|---|
-| 1 | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `84637cf30480ed41d529ab9f0902f4fb44a3fa0141c5c5792594898ce1f64b16` |
-| 2 | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` |
-| 3 | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
+| 1 | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` |
+| 2 | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10` |
+| 3 | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` |
 
 `apply_migration` stamps its own version. Record each one, and confirm the stored statement is byte-identical
-to the file: md5 of `statements[1]` equals md5 of the file bytes. File 2 supersedes `d7c20e17…`, which was
-never applied anywhere hosted. Re-verify all three on the approved head.
+to the file: md5 of `statements[1]` equals md5 of the file bytes. These supersede `84637cf3…`, `7e3caad6…`
+(itself superseding `d7c20e17…`) and `b8b2836b…` (availability correction, D5); none was ever applied anywhere
+hosted. Re-verify all three on the approved head.
 
 **4. Read-only verification.**
 - Objects, RLS, policies, grants and the SECURITY DEFINER inventory match the access suite (A10):
   - `service_role` holds SELECT only on the comp tables;
   - `anon` holds nothing;
-  - the private import functions are postgres-only.
+  - `organization_comp_grid_availability` has RLS on, no policy, no `anon` or `authenticated` privilege, and no
+    row;
+  - the private import and availability functions are postgres-only.
 - Advisors compared with P5. New findings are triaged and reported separately.
 
 **5. Private import.** Use the exact artifact `cf83d992…` from the durable location, re-checking its SHA-256
@@ -499,15 +587,24 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
 - `private.comp_grid_content_sha256('6ad6d4e4-4024-5dae-bef5-de0202ab1b6e')` equals `273d0eb0…`.
 - Counts equal the manifest, and the grid is active.
 
-**7. Activation.** Run `supabase/ops/commission_grids_activate_home_agency.sql`
-(`47f91f707e12e14c480a6f0e05d881139de92c5bb518973a9c258039150aa069`) with
-`agentflow.approve_comp_home_activation = 'yes'`. Either route works: the agent through MCP `execute_sql`
+**7a. Availability (D5).** Run `supabase/ops/commission_grids_make_available_home_agency.sql`
+(`c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6`) with
+`agentflow.approve_comp_home_availability = 'yes'`. Either route works: the agent through MCP `execute_sql`
 (the script carries no private data), or the operator with psql in the same `-c SET` form.
 - The agency is resolved by exact unique name at execution, never by a hardcoded id. Zero or several matches
-  are refused (PT409).
+  are refused (PT409). A grid without a verified import ledger row is refused (PT404).
+- Expected on first run: `available: true`, `newly_available: true`. A re-run reports `newly_available: false`.
+- Availability only: nothing is enabled or selected. Then read-only: exactly one availability row, for the home
+  agency.
+
+**7b. Activation.** Run `supabase/ops/commission_grids_activate_home_agency.sql`
+(`46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c`) with
+`agentflow.approve_comp_home_activation = 'yes'`, by either route, after 7a.
+- The agency is resolved by exact unique name at execution, never by a hardcoded id. Zero or several matches
+  are refused (PT409). Without 7a the enable is refused (PT404) and nothing changes.
 - Expected on first run: `selected: true`, `existing_selection: null`.
 - A different existing selection is kept and reported, never overwritten. Stop and ask Chris.
-- No other agency is activated. Other Agency Admins may later opt in themselves (C6).
+- No other agency has availability, an access row or a selection.
 
 **8. Filename reconciliation, before the merge (practice since 2026-10-10).** On the PR branch:
 - `git mv` the three migrations and their three rollback files to the recorded versions. SQL bytes are
@@ -539,8 +636,11 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
     malformed (counts only).
   - **Real product/rate lookup.** A private spot check of the eight acceptance cases against the stored rows.
     The values stay in the private session.
-  - **Disabled-agency isolation.** A profile of another agency, where one exists, gets `not_configured` and
-    sees 0 comp rows; it sees the catalog as metadata only.
+  - **Other-agency isolation (D5).** An Admin of another agency, where one exists, sees an EMPTY catalog and is
+    refused enabling, copying and selecting the grid by id (PT404) inside the rolled-back simulation; its
+    profiles get `not_configured` and see 0 comp rows.
+  - **Availability.** Exactly one `organization_comp_grid_availability` row: the home agency and grid
+    `6ad6d4e4-…`.
   - **RLS negatives.** `anon` has no EXECUTE on any comp operation and reads 0 comp rows. Direct client writes
     to shared rows change nothing; this is proven by the suites and the local real-data rehearsal, not by
     production writes.
@@ -557,13 +657,17 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
 - (b) Calculator off without code changes: an agency admin chooses "None — calculator off". For every agency,
   call `private.comp_set_reference_grid_active('6ad6d4e4-…', false)`. It clears every selection of that grid
   and keeps all data and access rows. Reverse it with `true`; selections are then not restored automatically.
+- (b2) Withdraw the grid from the home agency (D5):
+  `private.comp_remove_reference_grid_availability('Family First Life - Chris Garness', '6ad6d4e4-…')`. It removes
+  that agency's availability and access and clears its selection of the grid. The grid, its ledger row and any
+  private copies stay. Reverse it with 7a and 7b; rehearsed locally with the real artifact.
 - (c) Database: leave the tables dormant. The rollback files run only in reverse order. The two function
   rollbacks (import, then operations) drop functions only and delete no row. The schema rollback refuses
   while any row exists. Never delete data to make a rollback pass, and never repair migration history.
 
 **Not part of this release:**
 - profile, onboarding or contract-level changes (§11 follow-up);
-- any other agency's activation;
+- any other agency's availability or activation;
 - CI or Vercel configuration changes;
 - migration-history repair;
 - the CSV or any generated data in Git.

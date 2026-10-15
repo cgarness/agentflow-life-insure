@@ -268,6 +268,7 @@ $function$;
 -- People in A: two admins, an agent, a team leader, an INACTIVE admin, a super admin (home org A).
 -- Shared grids: S1 active (a term product with two term variants, a whole-life product with two age bands
 -- and an inactive IUL product; explicit zero rate; protected references), S2 active, S3 INACTIVE.
+-- Availability: S1, S2 and S3 to agency A; S2 to agency B; nothing to C (decision D5).
 -- Every identity, carrier, product, label and value is synthetic.
 CREATE OR REPLACE FUNCTION comp_test.seed_base()
 RETURNS void LANGUAGE plpgsql AS $$
@@ -327,6 +328,15 @@ BEGIN
     ('52000000-0000-0000-0000-000000000201', '52000000-0000-0000-0000-000000000001', '52000000-0000-0000-0000-000000000101', NULL, '');
   INSERT INTO public.comp_rates (grid_id, variant_id, organization_id, contract_level, rate_percent) VALUES
     ('52000000-0000-0000-0000-000000000001', '52000000-0000-0000-0000-000000000201', NULL, 100, 40);
+
+  -- Availability (decision D5): AgentFlow makes a shared grid available to an agency explicitly; an agency
+  -- admin can enable only an available grid. A: S1, S2 and S3 (inactive). B: S2 only. C (A's Agency Group
+  -- peer): nothing.
+  INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES
+    ('aaaaaaaa-0000-0000-0000-00000000000a', '51000000-0000-0000-0000-000000000001'),
+    ('aaaaaaaa-0000-0000-0000-00000000000a', '52000000-0000-0000-0000-000000000001'),
+    ('aaaaaaaa-0000-0000-0000-00000000000a', '53000000-0000-0000-0000-000000000001'),
+    ('bbbbbbbb-0000-0000-0000-00000000000b', '52000000-0000-0000-0000-000000000001');
 END $$;
 
 -- Run p_sql as the given synthetic profile (claims from its own row) and return the outcome.

@@ -5,7 +5,9 @@
 -- silently overwritten. Zero or several name matches: refused. Retry-safe. No other agency is touched.
 -- The agency id is never hardcoded; the grid id is the importer's deterministic id for that grid's name
 -- and effective date (scripts/comp_grids/reference_grid_importer.py), and the grid must already have a
--- verified import ledger row (otherwise refused, PT404).
+-- verified import ledger row (otherwise refused, PT404). The grid must also already be AVAILABLE to that
+-- agency (commission_grids_make_available_home_agency.sql, decision D5); otherwise the enable is refused
+-- (PT404) and nothing changes.
 --
 -- Usage: PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$TARGET_URL" -X \
 --          -f supabase/ops/commission_grids_activate_home_agency.sql

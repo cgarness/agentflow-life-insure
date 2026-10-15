@@ -7,9 +7,10 @@
 -- function-level setting agentflow.comp_operation = 'on' (restored when the function returns), which is
 -- the only way a client write can pass the comp tables' RLS write policies. Each write operation first
 -- locks the caller's organization_comp_settings row (created on first use), so all comp writes of one
--- agency serialize in the order settings -> grid -> access -> product -> children.
+-- agency serialize in the order settings -> grid -> availability -> access -> product -> children.
 -- The one SECURITY DEFINER function here is the metadata-only shared-grid catalog: RLS cannot expose
--- four columns of a shared grid row while hiding its content from an agency that has not enabled it.
+-- four columns of a shared grid row while hiding its content from an agency that has not enabled it. It
+-- lists only grids AgentFlow has made available to the caller's agency (decision D5).
 -- Errors: 42501 not permitted · PT404 not available (HTTP 404) · PT409 stale/conflict (HTTP 409) ·
 --         22023 invalid request · 23xxx validation (constraints and triggers).
 -- Rollback: supabase/migrations/rollback/20261015120100_commission_grids_operations.rollback.sql
@@ -128,8 +129,10 @@ AS $$
   END
 $$;
 
--- Metadata-only catalog of ACTIVE shared grids for an agency admin: id, name, effective date, levels,
--- and whether the caller's agency has enabled it. Never products, variants, rates or references.
+-- Metadata-only catalog for an agency admin: the ACTIVE shared grids AgentFlow has made AVAILABLE to the
+-- caller's agency (decision D5), with id, name, effective date, levels and whether the agency has enabled
+-- it. A grid that is not available to the agency is not listed at all. Never products, variants, rates or
+-- references.
 CREATE FUNCTION public.comp_list_shared_grid_catalog()
 RETURNS TABLE (id uuid, name text, effective_date date, contract_levels integer[], is_enabled boolean)
 LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -146,6 +149,8 @@ BEGIN
                     WHERE a.organization_id = v_org AND a.grid_id = g.id)
       FROM public.comp_grids g
      WHERE g.organization_id IS NULL AND g.is_active
+       AND EXISTS (SELECT 1 FROM public.organization_comp_grid_availability v
+                    WHERE v.organization_id = v_org AND v.grid_id = g.id)
      ORDER BY g.name, g.effective_date DESC, g.id;
 END $$;
 
@@ -226,8 +231,10 @@ BEGIN
 END $$;
 
 -- ── Agency configuration ─────────────────────────────────────────────────────────────────────────────
--- Enable an ACTIVE shared grid for the caller's agency (retry-safe). Selects it for the calculator only
--- when nothing is selected; an existing selection is kept and reported.
+-- Enable an ACTIVE shared grid for the caller's agency (retry-safe). Only a grid AgentFlow has made
+-- available to that agency can be enabled (access trigger, decision D5); anything else, an id supplied
+-- directly included, is PT404. Selects it for the calculator only when nothing is selected; an existing
+-- selection is kept and reported.
 CREATE FUNCTION public.comp_enable_shared_grid(p_grid_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER

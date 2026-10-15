@@ -1,10 +1,10 @@
 {
  "format": "agentflow.comp_reference_grid.manifest.v1",
  "note": "Non-sensitive record of the private FFL reference import. Never add rates, carrier/product names, notes or acceptance expectations here (decision D1).",
- "status": "VALIDATED LOCALLY; production import and activation NOT APPROVED",
+ "status": "VALIDATED LOCALLY; production import, availability and activation NOT APPROVED",
  "blockers": [
   "Durable private location for the original CSV and the exact import artifact not yet named (decision D1).",
-  "Production release (migrations, import, activation, merge, deploy) needs Chris's exact approval of the release package (plan section 12)."
+  "Production release (migrations, import, availability, activation, merge, deploy) needs Chris's exact approval of the release package (plan section 12)."
  ],
  "grid": {
   "id": "6ad6d4e4-4024-5dae-bef5-de0202ab1b6e",
@@ -27,7 +27,9 @@
   "local_import": "PASS (disposable loopback PostgreSQL 16.15, C and en_US.UTF-8; re-import already_imported)",
   "reconciliation": "PASS (0 differences in both directions; 7 negative controls failed as required)",
   "source_acceptance": "PASS (49 of 49, including the 8 required cases)",
+  "availability_rehearsal": "PASS (2026-10-15, decision D5: activation refused before availability; available to the home agency only; another agency sees and gets nothing; withdrawal clears access and the selection; fingerprint unchanged)",
   "production_import": "NOT APPROVED",
+  "production_availability": "NOT APPROVED",
   "production_activation": "NOT APPROVED"
  }
 }

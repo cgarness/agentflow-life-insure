@@ -50,7 +50,42 @@ DO $$ BEGIN
   PERFORM comp_test.owner_refused('S1n private grid may not claim agentflow_reference',
     $q$INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin)
        VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'x', '2025-01-01', ARRAY[100], 'agentflow_reference')$q$, '23514', '%origin_scope%');
+  PERFORM comp_test.owner_refused('S1o availability may not name a private grid',
+    $q$INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id)
+       VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', 'a1000000-0000-0000-0000-000000000001')$q$, '23503');
+  PERFORM comp_test.owner_refused('S1p availability may not name a missing grid',
+    $q$INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id)
+       VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', '5f000000-0000-0000-0000-000000000001')$q$, '23503');
+  PERFORM comp_test.owner_refused('S1q the shared scope of an availability row is not writable',
+    $q$UPDATE public.organization_comp_grid_availability SET shared_scope = 'aaaaaaaa-0000-0000-0000-00000000000a'$q$, '428C9');
+  PERFORM comp_test.owner_refused('S1r an agency can enable only a shared grid available to it (C has none)',
+    $q$INSERT INTO public.organization_comp_grids (organization_id, grid_id)
+       VALUES ('cccccccc-0000-0000-0000-00000000000c', '51000000-0000-0000-0000-000000000001')$q$, 'PT404', 'That AgentFlow grid is not available');
   RAISE NOTICE 'S1 scope integrity: ok';
+END $$;
+
+-- S1 (layer independence). With the access-rules trigger DISABLED inside a probe that is always rolled
+-- back, the availability foreign key alone still refuses enabling a grid that is not available.
+DO $$
+DECLARE v_state text;
+BEGIN
+  BEGIN
+    ALTER TABLE public.organization_comp_grids DISABLE TRIGGER comp_20_access_rules;
+    BEGIN
+      INSERT INTO public.organization_comp_grids (organization_id, grid_id)
+        VALUES ('cccccccc-0000-0000-0000-00000000000c', '51000000-0000-0000-0000-000000000001');
+      v_state := '00000';
+    EXCEPTION WHEN OTHERS THEN
+      v_state := SQLSTATE;
+    END;
+    RAISE EXCEPTION USING ERRCODE = 'P0099', MESSAGE = 'probe rollback';
+  EXCEPTION WHEN SQLSTATE 'P0099' THEN
+    NULL;
+  END;
+  PERFORM comp_test.check('S1s the availability foreign key alone refuses (got ' || coalesce(v_state, 'none') || ')', v_state = '23503');
+  PERFORM comp_test.check('S1s probe rolled back: trigger enabled again',
+    (SELECT t.tgenabled = 'O' FROM pg_trigger t WHERE t.tgname = 'comp_20_access_rules'));
+  RAISE NOTICE 'S1 availability foreign key alone (trigger layer removed in a rolled-back probe): ok';
 END $$;
 
 -- S2. Contract levels.
@@ -226,6 +261,34 @@ DO $$ BEGIN
     (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a') IS NULL);
   PERFORM comp_test.check('S6j the grid''s children were deleted with it',
     NOT EXISTS (SELECT 1 FROM public.comp_products WHERE grid_id = 'a1000000-0000-0000-0000-000000000001'));
+
+  -- Availability (decision D5): withdrawing it removes that agency's access and clears its selection;
+  -- disabling keeps it; deleting a shared grid removes its availability rows.
+  INSERT INTO public.organization_comp_grids (organization_id, grid_id) VALUES ('aaaaaaaa-0000-0000-0000-00000000000a', '51000000-0000-0000-0000-000000000001');
+  UPDATE public.organization_comp_settings SET calculator_grid_id = '51000000-0000-0000-0000-000000000001' WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  INSERT INTO public.organization_comp_settings (organization_id, calculator_grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '52000000-0000-0000-0000-000000000001');
+  DELETE FROM public.organization_comp_grid_availability WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a' AND grid_id = '51000000-0000-0000-0000-000000000001';
+  PERFORM comp_test.check('S6k withdrawing availability removes the access row and clears the selection',
+    NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a' AND grid_id = '51000000-0000-0000-0000-000000000001')
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a') IS NULL);
+  PERFORM comp_test.check('S6l no other agency or grid is touched',
+    (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b') = '52000000-0000-0000-0000-000000000001'
+    AND EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b' AND grid_id = '52000000-0000-0000-0000-000000000001')
+    AND (SELECT count(*) FROM public.organization_comp_grid_availability WHERE organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a') = 2);
+  DELETE FROM public.organization_comp_grids WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b' AND grid_id = '52000000-0000-0000-0000-000000000001';
+  PERFORM comp_test.check('S6m disabling keeps availability (and clears the selection)',
+    EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b' AND grid_id = '52000000-0000-0000-0000-000000000001')
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b') IS NULL);
+  INSERT INTO public.comp_grids (id, organization_id, name, effective_date, contract_levels, origin)
+    VALUES ('59000000-0000-0000-0000-000000000001', NULL, 'Synthetic Shared Doomed', '2025-01-01', ARRAY[100], 'agentflow_reference');
+  INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '59000000-0000-0000-0000-000000000001');
+  INSERT INTO public.organization_comp_grids (organization_id, grid_id) VALUES ('bbbbbbbb-0000-0000-0000-00000000000b', '59000000-0000-0000-0000-000000000001');
+  UPDATE public.organization_comp_settings SET calculator_grid_id = '59000000-0000-0000-0000-000000000001' WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  DELETE FROM public.comp_grids WHERE id = '59000000-0000-0000-0000-000000000001';
+  PERFORM comp_test.check('S6n deleting a shared grid removes its availability, access and selection',
+    NOT EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE grid_id = '59000000-0000-0000-0000-000000000001')
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE grid_id = '59000000-0000-0000-0000-000000000001')
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b') IS NULL);
   RAISE NOTICE 'S6 calculator selection integrity: ok';
 END $$;
 

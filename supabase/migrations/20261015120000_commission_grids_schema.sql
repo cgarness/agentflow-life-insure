@@ -9,6 +9,12 @@
 -- role, and are changed only by the reviewed reference-import operation or a reviewed migration. Private
 -- grids, access rows and settings are ordinary tenant rows (organization_id NOT NULL, own-org RLS).
 --
+-- Availability (decision D5): a shared grid EXISTS for AgentFlow, is AVAILABLE to an organization only
+-- through an organization_comp_grid_availability row (server-only, written by reviewed postgres-only
+-- operations), and is ENABLED by that organization's admin (organization_comp_grids). Being an agency
+-- admin is not availability: an access row requires an availability row (FK, ON DELETE CASCADE, and the
+-- access trigger), and the catalog lists only available grids.
+--
 -- Scope integrity without nullable composite keys: every table carries scope_key, a STORED generated
 -- column = COALESCE(organization_id, nil UUID). The nil UUID is RESERVED here (organization_id may never
 -- be the nil UUID), so scope_key = nil  <=>  organization_id IS NULL. Composite FKs on
@@ -22,8 +28,9 @@
 -- constraints/triggers below apply to every writer, privileged ones included.
 --
 -- Lock order (every writer): organization_comp_settings (org mutex, operations) -> comp_grids ->
--- organization_comp_grids -> comp_products -> child rows. Privileged multi-agency changes lock the
--- referencing settings rows (ordered by organization_id) before the grid.
+-- organization_comp_grid_availability -> organization_comp_grids -> comp_products -> child rows.
+-- Privileged multi-agency changes lock the referencing settings rows (ordered by organization_id) before
+-- the grid.
 -- Rollback: supabase/migrations/rollback/20261015120000_commission_grids_schema.rollback.sql
 -- =====================================================================================================
 SET LOCAL lock_timeout = '5s';
@@ -180,7 +187,25 @@ CREATE TABLE public.comp_variant_references (
     REFERENCES public.comp_product_variants (id, grid_id, scope_key) ON DELETE CASCADE
 );
 
--- An agency's access to a SHARED grid. The FK to (grid_id, nil scope) makes a private grid unreachable.
+-- AgentFlow makes ONE shared grid AVAILABLE to ONE agency (decision D5). Only an available grid appears in
+-- that agency's catalog and can be enabled, read or copied by it. Server-only: written by the reviewed
+-- postgres-only operations, never by a client role. The FK to (grid_id, nil scope) makes a private grid
+-- unreachable.
+CREATE TABLE public.organization_comp_grid_availability (
+  organization_id uuid        NOT NULL REFERENCES public.organizations(id),
+  grid_id         uuid        NOT NULL,
+  shared_scope    uuid        NOT NULL GENERATED ALWAYS AS
+                    ('00000000-0000-0000-0000-000000000000'::uuid) STORED,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      text        NOT NULL DEFAULT current_user,
+  PRIMARY KEY (organization_id, grid_id),
+  CONSTRAINT organization_comp_grid_availability_shared_grid_fk FOREIGN KEY (grid_id, shared_scope)
+    REFERENCES public.comp_grids (id, scope_key) ON DELETE CASCADE
+);
+
+-- An agency's access to a SHARED grid. The FK to (grid_id, nil scope) makes a private grid unreachable;
+-- the FK to availability means access exists only while the grid is available to that agency, and goes
+-- with it (the access-revoked trigger then clears that agency's selection of the grid).
 CREATE TABLE public.organization_comp_grids (
   organization_id uuid        NOT NULL REFERENCES public.organizations(id),
   grid_id         uuid        NOT NULL,
@@ -190,7 +215,9 @@ CREATE TABLE public.organization_comp_grids (
   enabled_by      uuid        REFERENCES public.profiles(id) ON DELETE SET NULL,
   PRIMARY KEY (organization_id, grid_id),
   CONSTRAINT organization_comp_grids_shared_grid_fk FOREIGN KEY (grid_id, shared_scope)
-    REFERENCES public.comp_grids (id, scope_key) ON DELETE CASCADE
+    REFERENCES public.comp_grids (id, scope_key) ON DELETE CASCADE,
+  CONSTRAINT organization_comp_grids_available_fk FOREIGN KEY (organization_id, grid_id)
+    REFERENCES public.organization_comp_grid_availability (organization_id, grid_id) ON DELETE CASCADE
 );
 
 -- One row per agency; calculator_grid_id NULL = calculator not configured.
@@ -237,6 +264,7 @@ CREATE INDEX comp_references_variant_fk_idx    ON public.comp_variant_references
 CREATE INDEX comp_references_grid_idx          ON public.comp_variant_references (grid_id);
 CREATE INDEX comp_references_organization_idx  ON public.comp_variant_references (organization_id);
 CREATE INDEX comp_references_updated_by_idx    ON public.comp_variant_references (updated_by);
+CREATE INDEX organization_comp_grid_availability_grid_idx ON public.organization_comp_grid_availability (grid_id, shared_scope);
 CREATE INDEX organization_comp_grids_grid_idx  ON public.organization_comp_grids (grid_id, shared_scope);
 CREATE INDEX organization_comp_grids_by_idx    ON public.organization_comp_grids (enabled_by);
 CREATE INDEX organization_comp_settings_grid_idx ON public.organization_comp_settings (calculator_grid_id);
@@ -600,8 +628,10 @@ BEGIN
   RETURN NEW;
 END $$;
 
--- 20 (organization_comp_grids): only an ACTIVE shared grid can be enabled (the FK already forces
--- shared). The grid row is locked FOR SHARE so a concurrent deactivation serializes with the enable.
+-- 20 (organization_comp_grids): only an ACTIVE shared grid that AgentFlow has made AVAILABLE to this
+-- agency can be enabled (decision D5; the FKs already force shared and available). The grid row and the
+-- availability row are locked FOR SHARE, so a concurrent deactivation or availability removal serializes
+-- with the enable. A missing grid and an unavailable one give the same answer.
 CREATE FUNCTION private.comp_access_rules()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
@@ -615,6 +645,11 @@ BEGIN
   SELECT g.organization_id, g.is_active, true INTO v_org, v_active, v_found
     FROM public.comp_grids g WHERE g.id = NEW.grid_id AND g.organization_id IS NULL FOR SHARE;
   IF v_found IS NOT TRUE OR v_org IS NOT NULL OR v_active IS NOT TRUE THEN
+    RAISE EXCEPTION 'That AgentFlow grid is not available' USING ERRCODE = 'PT404';
+  END IF;
+  PERFORM 1 FROM public.organization_comp_grid_availability v
+    WHERE v.organization_id = NEW.organization_id AND v.grid_id = NEW.grid_id FOR SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'That AgentFlow grid is not available' USING ERRCODE = 'PT404';
   END IF;
   RETURN NEW;
@@ -737,6 +772,7 @@ ALTER TABLE public.comp_variant_references    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_comp_grids    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_comp_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comp_reference_imports     ENABLE ROW LEVEL SECURITY;  -- no policies: server-only
+ALTER TABLE public.organization_comp_grid_availability ENABLE ROW LEVEL SECURITY;  -- no policies: server-only
 
 -- Reads: readable grids only. Agents see active products only (and therefore only their variants and
 -- rates); agency admins also see inactive content and the protected references.
@@ -842,7 +878,7 @@ CREATE POLICY organization_comp_settings_update ON public.organization_comp_sett
 -- columns are never client-writable (server-generated ids and stamps).
 REVOKE ALL ON TABLE public.comp_grids, public.comp_products, public.comp_product_variants, public.comp_rates,
   public.comp_variant_references, public.organization_comp_grids, public.organization_comp_settings,
-  public.comp_reference_imports
+  public.comp_reference_imports, public.organization_comp_grid_availability
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT SELECT ON TABLE public.comp_grids, public.comp_products, public.comp_product_variants, public.comp_rates,
@@ -887,7 +923,9 @@ GRANT UPDATE (calculator_grid_id) ON public.organization_comp_settings TO authen
 -- so no server key can write commission data directly.
 GRANT SELECT ON TABLE public.comp_grids, public.comp_products, public.comp_product_variants, public.comp_rates,
   public.comp_variant_references, public.organization_comp_grids, public.organization_comp_settings,
-  public.comp_reference_imports
+  public.comp_reference_imports, public.organization_comp_grid_availability
   TO service_role;
 
 -- No peer-agency (Agency Group) read, no platform-role branch, no is_super_admin() cross-tenant branch.
+-- Availability rows have no client privilege at all: an agency learns what is available to it only
+-- through the catalog operation, and only for its own organization.

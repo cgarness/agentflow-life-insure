@@ -87,7 +87,8 @@ function attempt(name, work) {
 // ── Fixtures ──────────────────────────────────────────────────────────────────────────────────────────
 async function agency(label, roles = ['Admin', 'Admin', 'Agent']) {
   const org = randomUUID();
-  await owner`INSERT INTO public.organizations (id, name) VALUES (${org}, ${'Synthetic ' + label + ' ' + org.slice(0, 8)})`;
+  const name = `Synthetic ${label} ${org.slice(0, 8)}`;
+  await owner`INSERT INTO public.organizations (id, name) VALUES (${org}, ${name})`;
   const people = [];
   for (const role of roles) {
     const id = randomUUID();
@@ -95,8 +96,11 @@ async function agency(label, roles = ['Admin', 'Admin', 'Agent']) {
                 VALUES (${id}, ${org}, ${role}, 'Active', '100')`;
     people.push(id);
   }
-  return { org, people };
+  return { org, name, people };
 }
+
+// AgentFlow makes a shared grid available to an agency (decision D5), as the operator does.
+const makeAvailable = (org, grid) => owner`INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES (${org}, ${grid})`;
 
 // A shared grid written as the owner (the way the reviewed import writes it): one product, one variant,
 // rates at 120 and 100 (100 is an explicit zero).
@@ -127,6 +131,7 @@ async function firstUseEnableRace() {
   console.log('\n-- 1. first-time enable/select with no settings row (two admins of one agency)');
   const g = await sharedGrid('S1 G'); const h = await sharedGrid('S1 H');
   const c = await agency('S1');
+  await makeAvailable(c.org, g.grid); await makeAvailable(c.org, h.grid);
   const t1 = hold('cc_s1_t1', async (tx) => { await asUser(tx, c.people[0]); return (await tx`SELECT public.comp_enable_shared_grid(${g.grid}) AS r`)[0].r; });
   await t1.started;
   const t2 = attempt('cc_s1_t2', async (tx) => { await asUser(tx, c.people[1]); return (await tx`SELECT public.comp_enable_shared_grid(${h.grid}) AS r`)[0].r; });
@@ -242,6 +247,7 @@ async function selectionVersusDeactivation() {
   console.log('\n-- 4. selection racing shared-grid deactivation');
   const g1 = await sharedGrid('S4 G1'); const g2 = await sharedGrid('S4 G2');
   const a = await agency('S4');
+  await makeAvailable(a.org, g1.grid); await makeAvailable(a.org, g2.grid);
   await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g1.grid})`);
   await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g2.grid})`);
 
@@ -272,6 +278,7 @@ async function copyVersusDisableAndDelete() {
   console.log('\n-- 5. copy racing disable (same agency) and shared-grid deletion');
   const g = await sharedGrid('S5 G');
   const a = await agency('S5');
+  await makeAvailable(a.org, g.grid);
   await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
 
   const t1 = hold('cc_s5_t1', async (tx) => { await asUser(tx, a.people[0]); return (await tx`SELECT public.comp_create_private_grid('full', 'Copy', '2025-04-01', ${g.grid}) AS r`)[0].r; });
@@ -302,6 +309,7 @@ async function sourceEditVersusCopy() {
   console.log('\n-- 6. source edit racing a copy');
   const g = await sharedGrid('S6 G');
   const a = await agency('S6');
+  await makeAvailable(a.org, g.grid);
   await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
 
   // 6a: edit first (commits 77.25), copy second sees the edit.
@@ -330,8 +338,12 @@ async function multiAgencyDeactivation() {
   console.log('\n-- 7. shared-grid deactivation affecting several agencies, with a racing selection');
   const g = await sharedGrid('S7 G');
   const agencies = [await agency('S7 A'), await agency('S7 B'), await agency('S7 D')];
-  for (const x of agencies) await op(x.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  for (const x of agencies) {
+    await makeAvailable(x.org, g.grid);
+    await op(x.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  }
   const e = await agency('S7 E');
+  await makeAvailable(e.org, g.grid);
   const t1 = hold('cc_s7_t1', async (tx) => { await asUser(tx, e.people[0]); return tx`SELECT public.comp_enable_shared_grid(${g.grid})`; });
   await t1.started;
   const t2 = attempt('cc_s7_t2', async (tx) => (await tx`SELECT private.comp_set_reference_grid_active(${g.grid}, false) AS r`)[0].r);
@@ -360,6 +372,89 @@ async function privateSelectionVersusDelete() {
   expect('agency has no selection', (await settingsOf(a.org)) === null);
 }
 
+async function availabilityWithdrawalRaces() {
+  console.log('\n-- 9. availability withdrawal racing an admin enable, select and copy (decision D5)');
+  const g = await sharedGrid('S9 G');
+  const a = await agency('S9');
+  const withdraw = (tx) => tx`SELECT private.comp_remove_reference_grid_availability(${a.name}, ${g.grid}) AS r`.then((rows) => rows[0].r);
+  await makeAvailable(a.org, g.grid);
+
+  // 9a: first-ever enable (it also creates the agency's settings row) first, withdrawal second.
+  const t1 = hold('cc_s9_t1', async (tx) => { await asUser(tx, a.people[0]); return (await tx`SELECT public.comp_enable_shared_grid(${g.grid}) AS r`)[0].r; });
+  await t1.started;
+  const t2 = attempt('cc_s9_t2', withdraw);
+  expect('withdrawal waits for the in-flight enable (agency mutex)', await waitForLock('cc_s9_t2'));
+  t1.release(); await t1.done;
+  const r2 = await t2;
+  expect('withdrawal then removes the access and the selection it made, and reports both',
+    !r2.error && r2.value.removed === true && r2.value.disabled === true && r2.value.cleared_selection === true,
+    r2.error?.message ?? JSON.stringify(r2.value));
+  expect('no access and no selection left', (await accessOf(a.org)).length === 0 && (await settingsOf(a.org)) === null);
+
+  // 9b: withdrawal first, enable second: the enable sees no availability.
+  await makeAvailable(a.org, g.grid);
+  const t3 = hold('cc_s9_t3', withdraw);
+  await t3.started;
+  const t4 = attempt('cc_s9_t4', async (tx) => { await asUser(tx, a.people[1]); return (await tx`SELECT public.comp_enable_shared_grid(${g.grid}) AS r`)[0].r; });
+  expect('enable waits for the in-flight withdrawal', await waitForLock('cc_s9_t4'));
+  t3.release(); await t3.done;
+  const r4 = await t4;
+  expect('enable refused once availability is withdrawn (PT404)', r4.error?.code === 'PT404', r4.error?.message ?? 'committed');
+  expect('nothing enabled or selected', (await accessOf(a.org)).length === 0 && (await settingsOf(a.org)) === null);
+
+  // 9c: selection first, withdrawal second.
+  await makeAvailable(a.org, g.grid);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_select_calculator_grid(NULL, ${g.grid})`);
+  const t5 = hold('cc_s9_t5', async (tx) => { await asUser(tx, a.people[0]); return tx`SELECT public.comp_select_calculator_grid(${g.grid}, NULL)`; });
+  await t5.started;
+  const t6 = attempt('cc_s9_t6', withdraw);
+  expect('withdrawal waits for the in-flight selection', await waitForLock('cc_s9_t6'));
+  t5.release(); await t5.done;
+  const r6 = await t6;
+  expect('withdrawal then clears the selection it made', !r6.error && r6.value.cleared_selection === true, r6.error?.message ?? JSON.stringify(r6.value));
+  expect('the agency no longer selects the withdrawn grid', (await settingsOf(a.org)) === null && (await accessOf(a.org)).length === 0);
+
+  // 9d: withdrawal first, selection second: refused, nothing selected.
+  await makeAvailable(a.org, g.grid);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_select_calculator_grid(NULL, ${g.grid})`);
+  const t7 = hold('cc_s9_t7', withdraw);
+  await t7.started;
+  const t8 = attempt('cc_s9_t8', async (tx) => { await asUser(tx, a.people[1]); return tx`SELECT public.comp_select_calculator_grid(${g.grid}, NULL)`; });
+  expect('selection waits for the in-flight withdrawal', await waitForLock('cc_s9_t8'));
+  t7.release(); await t7.done;
+  const r8 = await t8;
+  expect('selection of the withdrawn grid refused (PT404)', r8.error?.code === 'PT404', r8.error?.message ?? 'committed');
+  expect('nothing selected', (await settingsOf(a.org)) === null);
+
+  // 9e: copy first, withdrawal second: the copy (made while available) completes and stays the agency's.
+  await makeAvailable(a.org, g.grid);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  const t9 = hold('cc_s9_t9', async (tx) => { await asUser(tx, a.people[0]); return (await tx`SELECT public.comp_create_private_grid('full', 'Copy', '2025-04-01', ${g.grid}) AS r`)[0].r; });
+  const copy = await t9.started;
+  const t10 = attempt('cc_s9_t10', withdraw);
+  expect('withdrawal waits for the in-flight copy', await waitForLock('cc_s9_t10'));
+  t9.release(); await t9.done;
+  const r10 = await t10;
+  expect('withdrawal then completes', !r10.error && r10.value.removed === true, r10.error?.message ?? JSON.stringify(r10.value));
+  const [c] = await owner`SELECT (SELECT count(*)::int FROM public.comp_rates WHERE grid_id = ${copy.grid_id}) AS rates`;
+  expect('the private copy keeps every rate (incl. explicit zero)', c.rates === 2, `rates ${c.rates}`);
+
+  // 9f: withdrawal first, copy second: refused, no copy made.
+  await makeAvailable(a.org, g.grid);
+  await op(a.people[0], (tx) => tx`SELECT public.comp_enable_shared_grid(${g.grid})`);
+  const t11 = hold('cc_s9_t11', withdraw);
+  await t11.started;
+  const t12 = attempt('cc_s9_t12', async (tx) => { await asUser(tx, a.people[1]); return (await tx`SELECT public.comp_create_private_grid('full', 'Late copy', '2025-04-01', ${g.grid}) AS r`)[0].r; });
+  expect('copy waits for the in-flight withdrawal', await waitForLock('cc_s9_t12'));
+  t11.release(); await t11.done;
+  const r12 = await t12;
+  expect('copy of the withdrawn grid refused (PT404)', r12.error?.code === 'PT404', r12.error?.message ?? 'committed');
+  const [n] = await owner`SELECT count(*)::int AS n FROM public.comp_grids WHERE organization_id = ${a.org} AND name = 'Late copy'`;
+  expect('no late copy exists', n.n === 0, `count ${n.n}`);
+}
+
 try {
   await firstUseEnableRace();
   await overlappingVariants();
@@ -369,6 +464,7 @@ try {
   await sourceEditVersusCopy();
   await multiAgencyDeactivation();
   await privateSelectionVersusDelete();
+  await availabilityWithdrawalRaces();
 } catch (e) {
   failures += 1;
   console.log(`   FAIL unexpected error: ${e.message}`);

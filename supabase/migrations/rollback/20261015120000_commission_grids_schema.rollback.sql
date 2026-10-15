@@ -3,9 +3,10 @@
 -- Never applied automatically (lives in migrations/rollback/, outside the CLI glob).
 --
 -- NON-DESTRUCTIVE BY CONSTRUCTION (AGENT_RULES invariant #28): it refuses unless every commission-grid
--- table is EMPTY — no reference import, no agency grid, no access row, no settings row. Once any row
--- exists the supported rollback is: revert the frontend, optionally clear calculator selections with a
--- separately approved write, and leave these tables dormant. Never delete live data to make this pass.
+-- table is EMPTY — no reference import, no agency grid, no availability or access row, no settings row.
+-- Once any row exists the supported rollback is: revert the frontend, optionally clear calculator
+-- selections with a separately approved write, and leave these tables dormant. Never delete live data to
+-- make this pass.
 -- The operations rollback (and the reference-import rollback before it) must be applied first.
 -- =====================================================================================================
 SET LOCAL lock_timeout = '5s';
@@ -23,6 +24,7 @@ BEGIN
        + (SELECT count(*) FROM public.comp_product_variants) + (SELECT count(*) FROM public.comp_rates)
        + (SELECT count(*) FROM public.comp_variant_references) + (SELECT count(*) FROM public.organization_comp_grids)
        + (SELECT count(*) FROM public.organization_comp_settings) + (SELECT count(*) FROM public.comp_reference_imports)
+       + (SELECT count(*) FROM public.organization_comp_grid_availability)
     INTO v_rows;
   IF v_rows > 0 THEN
     RAISE EXCEPTION 'commission grid tables hold % row(s); refusing a destructive rollback (leave them dormant instead)', v_rows;
@@ -32,6 +34,7 @@ END $guard$;
 DROP TABLE public.comp_reference_imports;
 DROP TABLE public.organization_comp_settings;
 DROP TABLE public.organization_comp_grids;
+DROP TABLE public.organization_comp_grid_availability;
 DROP TABLE public.comp_variant_references;
 DROP TABLE public.comp_rates;
 DROP TABLE public.comp_product_variants;

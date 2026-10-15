@@ -59,6 +59,20 @@ new_db() {
     for m in "${MIGRATIONS[@]}"; do sql -1 -f "$ROOT/supabase/migrations/$m.sql" >/dev/null; done
   fi
 }
+# weaken FILE START REGEX: print the function that starts at START in a migration as CREATE OR REPLACE, with
+# the text matching REGEX removed; refuses if REGEX matches nothing (a control must never become a no-op).
+weaken() {
+  python3 - "$@" <<'PY'
+import re, sys
+src = open(sys.argv[1], encoding='utf-8').read()
+i = src.index(sys.argv[2]); j = src.index('END $$;', i) + len('END $$;')
+body = src[i:j]
+out = re.sub(sys.argv[3], '', body, count=1, flags=re.S)
+if out == body:
+    raise SystemExit('weaken: pattern not found')
+print(out.replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION', 1))
+PY
+}
 # expect_failure LABEL PATTERN -- command...: the command must fail and its output must match PATTERN.
 expect_failure() {
   local label=$1 pattern=$2; shift 3
@@ -120,6 +134,15 @@ expect_failure 'ops activation refused without the approval setting' 'approve_co
   sql -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 expect_failure 'ops activation fails closed where the agency does not exist' 'found 0' -- \
   env PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
+expect_failure 'ops availability refused without the approval setting' 'approve_comp_home_availability=yes' -- \
+  sql -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
+expect_failure 'ops availability fails closed where the agency does not exist' 'found 0' -- \
+  env PGOPTIONS='-c agentflow.approve_comp_home_availability=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
+sql -c "INSERT INTO public.organizations (name) VALUES ('Family First Life - Chris Garness')" >/dev/null
+expect_failure 'ops availability fails closed while that grid has no verified import here' 'no verified reference import' -- \
+  env PGOPTIONS='-c agentflow.approve_comp_home_availability=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
+expect_failure 'ops activation fails closed while that grid has no verified import here' 'no verified reference import' -- \
+  env PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 
 echo '== 4. negative controls (each weakening must make a named assertion fail)'
 sed 's/,87\.50,/,87.5,/' "$FIXTURE" > "$TEMP/tampered.csv"
@@ -132,6 +155,17 @@ expect_failure 'access suite detects a no-op operation-context trigger' 'A8a' --
 new_db neg_grant
 sql -c 'GRANT UPDATE (organization_id) ON public.comp_grids TO authenticated' >/dev/null
 expect_failure 'access suite detects a widened column grant' 'A8n' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+new_db neg_availability
+weaken "$ROOT/supabase/migrations/${MIGRATIONS[0]}.sql" 'CREATE FUNCTION private.comp_access_rules()' \
+  '\n  PERFORM 1 FROM public\.organization_comp_grid_availability v\n.*?FOR SHARE;\n  IF NOT FOUND THEN\n.*?\n  END IF;' > "$TEMP/neg_access_rules.sql"
+sql -c 'ALTER TABLE public.organization_comp_grids DROP CONSTRAINT organization_comp_grids_available_fk' >/dev/null
+sql -f "$TEMP/neg_access_rules.sql" >/dev/null
+expect_failure 'access suite detects enabling without availability' 'A4m' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+new_db neg_catalog
+weaken "$ROOT/supabase/migrations/${MIGRATIONS[1]}.sql" 'CREATE FUNCTION public.comp_list_shared_grid_catalog()' \
+  '\n\s+AND EXISTS \(SELECT 1 FROM public\.organization_comp_grid_availability v\n\s+WHERE v\.organization_id = v_org AND v\.grid_id = g\.id\)' > "$TEMP/neg_catalog.sql"
+sql -f "$TEMP/neg_catalog.sql" >/dev/null
+expect_failure 'access suite detects a catalog that ignores availability' 'A4l' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
 new_db neg_variants
 sql -c 'DROP TRIGGER comp_50_variant_rules ON public.comp_product_variants' >/dev/null
 expect_failure 'operations suite detects missing variant rules' 'O4g' -- sql -f "$ROOT/supabase/tests/commission_grids_operations.sql"

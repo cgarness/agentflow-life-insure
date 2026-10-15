@@ -4,8 +4,9 @@
 -- supabase/tests/fixtures/commission_grids/synthetic_reference_grid.csv and passes in as
 -- -v artifact_path=… -v artifact_sha256=…. Proves: postgres-only privileges; checksum and format checks;
 -- all-or-nothing failures; count and fingerprint verification against the importer's independent
--- computation; idempotent re-run; drift refusal; activation by exact unique agency name (existing selection
--- kept); multi-agency deactivation. LOCAL disposable database only (invariant #28). Synthetic data only.
+-- computation; idempotent re-run; drift refusal; availability and activation by exact unique agency name
+-- (existing selection kept); multi-agency deactivation; availability withdrawal (access and selection go,
+-- private copies stay). LOCAL disposable database only (invariant #28). Synthetic data only.
 -- =====================================================================================================
 \set ON_ERROR_STOP 1
 \set artifact `cat :'artifact_path'`
@@ -45,32 +46,39 @@ CREATE FUNCTION comp_test.nothing_of(p_grid uuid, p_doc jsonb) RETURNS boolean L
 $$;
 
 -- I1. Privileged reference operations are postgres-only. anon (with and without forged Agency Admin claims), an
---     agent, an Agency Admin and service_role are refused, also when they supply both operator approval settings
---     (read only by the ops scripts) and a forged operation flag. None of them can change a shared grid through
---     the editor operation or a direct write either: every attempt is refused or changes no row, and the shared
---     grids' fingerprints, the import ledger and the revision are identical afterwards.
+--     agent, an Agency Admin and service_role are refused, also when they supply every operator approval setting
+--     (read only by the ops scripts) and a forged operation flag. None of them can change a shared grid or its
+--     availability through the editor operation or a direct write either: every attempt is refused or changes no
+--     row, and the shared grids' fingerprints, the import ledger, availability and the revision are identical
+--     afterwards.
 DO $$
 DECLARE
   s1 constant uuid := '51000000-0000-0000-0000-000000000001';
   who_role   constant text[] := ARRAY['anon', 'anon', 'authenticated', 'authenticated', 'service_role'];
   who_claims constant text[] := ARRAY['', 'admin_a', 'agent_a', 'admin_a', ''];
-  v_before text[]; v_after text[]; v_ledger bigint; v_rev bigint; v_claims jsonb; v_label text;
+  v_before text[]; v_after text[]; v_ledger bigint; v_rev bigint; v_claims jsonb; v_label text; v_avail text[];
   r record; q text; v_who int; v_flags int;
 BEGIN
   SELECT array_agg(private.comp_grid_content_sha256(g.id) ORDER BY g.id) INTO v_before
     FROM public.comp_grids g WHERE g.organization_id IS NULL;
   SELECT count(*) INTO v_ledger FROM public.comp_reference_imports;
+  SELECT array_agg(v.organization_id || '/' || v.grid_id ORDER BY v.organization_id, v.grid_id) INTO v_avail
+    FROM public.organization_comp_grid_availability v;
   v_rev := comp_test.rev(s1);
   FOR v_who IN 1 .. array_length(who_role, 1) LOOP
     v_claims := CASE WHEN who_claims[v_who] = '' THEN '{}'::jsonb ELSE comp_test.claims_for(comp_test.p(who_claims[v_who])) END;
-    FOR v_flags IN 0 .. 2 LOOP  -- 0: none; 1: both approval settings; 2: approval settings + forged operation flag
+    FOR v_flags IN 0 .. 2 LOOP  -- 0: none; 1: every approval setting; 2: approval settings + forged operation flag
       PERFORM set_config('agentflow.approve_comp_reference_import', CASE WHEN v_flags >= 1 THEN 'yes' ELSE '' END, true);
+      PERFORM set_config('agentflow.approve_comp_home_availability', CASE WHEN v_flags >= 1 THEN 'yes' ELSE '' END, true);
       PERFORM set_config('agentflow.approve_comp_home_activation', CASE WHEN v_flags >= 1 THEN 'yes' ELSE '' END, true);
       PERFORM set_config('agentflow.comp_operation', CASE WHEN v_flags = 2 THEN 'on' ELSE '' END, true);
       v_label := format('I1 %s%s flags=%s: ', who_role[v_who], CASE WHEN who_claims[v_who] = '' THEN '' ELSE '/' || who_claims[v_who] END, v_flags);
       FOREACH q IN ARRAY ARRAY[
         $q$SELECT private.comp_import_reference_grid('{}', repeat('0', 64))$q$,
         format($q$SELECT private.comp_enable_reference_grid_for_agency('Synthetic Agency A', %L)$q$, s1),
+        format($q$SELECT private.comp_make_reference_grid_available('Synthetic Agency C', %L)$q$, s1),
+        format($q$SELECT private.comp_remove_reference_grid_availability('Synthetic Agency A', %L)$q$, s1),
+        $q$SELECT to_jsonb(private.comp_agency_by_exact_name('Synthetic Agency A'))$q$,
         format($q$SELECT private.comp_set_reference_grid_active(%L, false)$q$, s1),
         format($q$SELECT to_jsonb(private.comp_grid_content_sha256(%L))$q$, s1)] LOOP
         SELECT * INTO r FROM comp_test.run_as(who_role[v_who], v_claims, q);
@@ -83,7 +91,9 @@ BEGIN
         format($q$WITH x AS (DELETE FROM public.comp_variant_references WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
         format($q$WITH x AS (UPDATE public.comp_grids SET is_active = false WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
         $q$WITH x AS (INSERT INTO public.comp_reference_imports DEFAULT VALUES RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
-        $q$WITH x AS (DELETE FROM public.comp_reference_imports RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
+        $q$WITH x AS (DELETE FROM public.comp_reference_imports RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+        format($q$WITH x AS (INSERT INTO public.organization_comp_grid_availability (organization_id, grid_id) VALUES ('cccccccc-0000-0000-0000-00000000000c', %L) RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
+        $q$WITH x AS (DELETE FROM public.organization_comp_grid_availability RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
         SELECT * INTO r FROM comp_test.run_as(who_role[v_who], v_claims, q);
         PERFORM comp_test.check(v_label || left(q, 50) || ' (' || r.out_state || ' ' || left(r.out_message, 40) || ')',
           r.out_state <> '00000' OR r.out_result = to_jsonb(0));
@@ -91,12 +101,15 @@ BEGIN
     END LOOP;
   END LOOP;
   PERFORM set_config('agentflow.approve_comp_reference_import', '', true);
+  PERFORM set_config('agentflow.approve_comp_home_availability', '', true);
   PERFORM set_config('agentflow.approve_comp_home_activation', '', true);
   PERFORM set_config('agentflow.comp_operation', '', true);
   SELECT array_agg(private.comp_grid_content_sha256(g.id) ORDER BY g.id) INTO v_after
     FROM public.comp_grids g WHERE g.organization_id IS NULL;
-  PERFORM comp_test.check('I1 shared grids, import ledger and revision unchanged',
-    v_after = v_before AND (SELECT count(*) FROM public.comp_reference_imports) = v_ledger AND comp_test.rev(s1) = v_rev);
+  PERFORM comp_test.check('I1 shared grids, import ledger, availability and revision unchanged',
+    v_after = v_before AND (SELECT count(*) FROM public.comp_reference_imports) = v_ledger AND comp_test.rev(s1) = v_rev
+    AND (SELECT array_agg(v.organization_id || '/' || v.grid_id ORDER BY v.organization_id, v.grid_id)
+           FROM public.organization_comp_grid_availability v) = v_avail);
   RAISE NOTICE 'I1 postgres-only privileges, with approval settings and a forged operation flag: ok';
 END $$;
 
@@ -214,7 +227,8 @@ BEGIN
   RAISE NOTICE 'I5 idempotency and drift: ok';
 END $$;
 
--- I6. Activation for ONE agency by exact unique name; an existing selection is kept and reported.
+-- I6. Availability, then activation, for ONE agency by exact unique name; an existing selection is kept and
+--     reported. Activation is refused while the grid is not available to that agency (decision D5).
 DO $$
 DECLARE r jsonb; v jsonb; a record; v_grid uuid;
   s1 constant uuid := '51000000-0000-0000-0000-000000000001';
@@ -231,6 +245,23 @@ BEGIN
   PERFORM comp_test.owner_refused('I6d the name must match exactly (spaces)', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency B ', v_grid), 'PT409', '%found 0');
   PERFORM comp_test.owner_refused('I6e two agencies with that name', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Twin Agency', v_grid), 'PT409', '%found 2');
   PERFORM comp_test.owner_refused('I6f a grid without a verified import', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency B', s1), 'PT404');
+  PERFORM comp_test.owner_refused('I6f2 an imported grid not yet available to the agency', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency B', v_grid), 'PT404', 'That AgentFlow grid is not available');
+  v := comp_test.op_ok('I6f3 catalog', comp_test.p('admin_b'), 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('I6f3 not in agency B''s catalog before it is available', NOT v @> jsonb_build_array(v_grid));
+  PERFORM comp_test.op_refused('I6f4 agency B''s admin cannot enable it by id', comp_test.p('admin_b'), format('SELECT public.comp_enable_shared_grid(%L)', v_grid), 'PT404');
+
+  r := private.comp_make_reference_grid_available('Synthetic Agency B', v_grid);
+  PERFORM comp_test.check('I6f5 made available to agency B only; nothing enabled or selected',
+    r = jsonb_build_object('organization_id', org_b, 'grid_id', v_grid, 'available', true, 'newly_available', true)
+    AND (SELECT array_agg(organization_id) FROM public.organization_comp_grid_availability WHERE grid_id = v_grid) = ARRAY[org_b]
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE grid_id = v_grid)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE calculator_grid_id = v_grid));
+  r := private.comp_make_reference_grid_available('Synthetic Agency B', v_grid);
+  PERFORM comp_test.check('I6f6 retry-safe', r @> '{"available": true, "newly_available": false}'
+    AND (SELECT count(*) FROM public.organization_comp_grid_availability WHERE grid_id = v_grid) = 1);
+  v := comp_test.op_ok('I6f7 catalog', comp_test.p('admin_b'), 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('I6f7 now in agency B''s catalog', v @> jsonb_build_array(v_grid));
+  PERFORM comp_test.owner_refused('I6f8 still refused for agency A, to which it is not available', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency A', v_grid), 'PT404', 'That AgentFlow grid is not available');
 
   r := private.comp_enable_reference_grid_for_agency('Synthetic Agency B', v_grid);
   PERFORM comp_test.check('I6g agency B: enabled and selected (nothing was selected)',
@@ -240,6 +271,8 @@ BEGIN
   PERFORM comp_test.check('I6h retry-safe',
     r @> '{"selected": false, "existing_selection_kept": false}'
     AND (SELECT count(*) FROM public.organization_comp_grids WHERE organization_id = org_b) = 1);
+  r := private.comp_make_reference_grid_available('Synthetic Agency A', v_grid);
+  PERFORM comp_test.check('I6h2 made available to agency A', r @> '{"newly_available": true}');
   r := private.comp_enable_reference_grid_for_agency('Synthetic Agency A', v_grid);
   PERFORM comp_test.check('I6i agency A: enabled; its existing selection kept and reported',
     r @> jsonb_build_object('selected', false, 'existing_selection_kept', true, 'existing_selection', s1)
@@ -247,7 +280,8 @@ BEGIN
     AND EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = org_a AND grid_id = v_grid));
   PERFORM comp_test.check('I6j no other agency touched',
     NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE organization_id NOT IN (org_a, org_b))
-    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id NOT IN (org_a, org_b)));
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id NOT IN (org_a, org_b))
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE grid_id = v_grid AND organization_id NOT IN (org_a, org_b)));
 
   v := comp_test.op_ok('I6k agent B context', comp_test.p('agent_b'), 'SELECT public.get_commission_calculator_context()');
   PERFORM comp_test.check('I6l agent B estimates from the imported grid; protected notes never included',
@@ -259,7 +293,7 @@ BEGIN
     format('SELECT public.comp_create_private_grid(%L, %L, %L, %L)', 'full', 'B reference copy', '2025-02-01', v_grid));
   PERFORM comp_test.check('I6n the full copy is exact (every value, blank, zero and reference)',
     comp_test.content((v->>'grid_id')::uuid) = comp_test.content(v_grid));
-  RAISE NOTICE 'I6 activation by exact unique name: ok';
+  RAISE NOTICE 'I6 availability, then activation, by exact unique name: ok';
 END $$;
 
 -- I7. Deactivating a shared grid clears every agency's selection of it (and nothing else).
@@ -289,6 +323,77 @@ BEGIN
   PERFORM comp_test.check('I7e the artifact is still recognised as imported',
     (SELECT out_result->>'status' FROM comp_test.try_import(a.doc, a.sha)) = 'already_imported');
   RAISE NOTICE 'I7 multi-agency deactivation: ok';
+END $$;
+
+-- I8. Availability operations by exact unique name; withdrawing availability from ONE agency removes that
+--     agency's enabled access and clears its selection, keeps its private copy, touches no other agency, and
+--     never changes the shared grid or the ledger. Re-granting restores the choice, not the old state.
+DO $$
+DECLARE r jsonb; v jsonb; a record; v_grid uuid; v_before text; v_copy uuid; v_copy_content text[]; v_ledger bigint;
+  s1 constant uuid := '51000000-0000-0000-0000-000000000001';
+  org_a constant uuid := 'aaaaaaaa-0000-0000-0000-00000000000a';
+  org_b constant uuid := 'bbbbbbbb-0000-0000-0000-00000000000b';
+BEGIN
+  SELECT * INTO a FROM comp_test.artifact;
+  v_grid := (a.doc::jsonb#>>'{grid,id}')::uuid;
+  v_before := private.comp_grid_content_sha256(v_grid);
+  SELECT count(*) INTO v_ledger FROM public.comp_reference_imports;
+  v_copy := comp_test.gid('B reference copy');
+  v_copy_content := comp_test.content(v_copy);
+
+  PERFORM comp_test.owner_refused('I8a make available: no agency with that name', format('SELECT private.comp_make_reference_grid_available(%L, %L)', 'No Such Agency', v_grid), 'PT409', '%found 0');
+  PERFORM comp_test.owner_refused('I8b make available: the name must match exactly (case)', format('SELECT private.comp_make_reference_grid_available(%L, %L)', 'synthetic agency c', v_grid), 'PT409', '%found 0');
+  PERFORM comp_test.owner_refused('I8c make available: two agencies with that name', format('SELECT private.comp_make_reference_grid_available(%L, %L)', 'Synthetic Twin Agency', v_grid), 'PT409', '%found 2');
+  PERFORM comp_test.owner_refused('I8d make available: a grid without a verified import', format('SELECT private.comp_make_reference_grid_available(%L, %L)', 'Synthetic Agency C', s1), 'PT404', 'That grid has no verified reference import');
+  PERFORM comp_test.owner_refused('I8e make available: arguments required', format('SELECT private.comp_make_reference_grid_available(NULL, %L)', v_grid), '22023');
+  PERFORM comp_test.owner_refused('I8f withdraw: no agency with that name', format('SELECT private.comp_remove_reference_grid_availability(%L, %L)', 'No Such Agency', v_grid), 'PT409', '%found 0');
+  PERFORM comp_test.owner_refused('I8g withdraw: two agencies with that name', format('SELECT private.comp_remove_reference_grid_availability(%L, %L)', 'Synthetic Twin Agency', v_grid), 'PT409', '%found 2');
+  PERFORM comp_test.owner_refused('I8h withdraw: arguments required', 'SELECT private.comp_remove_reference_grid_availability(''Synthetic Agency B'', NULL)', '22023');
+  PERFORM comp_test.check('I8i the refusals changed nothing',
+    (SELECT array_agg(organization_id ORDER BY organization_id) FROM public.organization_comp_grid_availability WHERE grid_id = v_grid) = ARRAY[org_a, org_b]);
+
+  v := comp_test.op_ok('I8j agency B selects the imported grid again', comp_test.p('admin_b'),
+    format('SELECT public.comp_select_calculator_grid(%L, NULL)', v_grid));
+  r := private.comp_remove_reference_grid_availability('Synthetic Agency B', v_grid);
+  PERFORM comp_test.check('I8k withdrawn from agency B: access removed and its selection cleared, reported',
+    r = jsonb_build_object('organization_id', org_b, 'grid_id', v_grid, 'removed', true, 'disabled', true, 'cleared_selection', true)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE organization_id = org_b AND grid_id = v_grid)
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = org_b AND grid_id = v_grid)
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = org_b) IS NULL);
+  PERFORM comp_test.check('I8l agent B: no calculator and no row of the grid',
+    comp_test.op_ok('I8l status', comp_test.p('agent_b'), 'SELECT public.get_commission_calculator_status()') = '{"status": "not_configured"}'
+    AND comp_test.op_ok('I8l rates', comp_test.p('agent_b'), format('SELECT to_jsonb(count(*)) FROM public.comp_rates WHERE grid_id = %L', v_grid)) = '0'::jsonb);
+  v := comp_test.op_ok('I8m catalog', comp_test.p('admin_b'), 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.comp_list_shared_grid_catalog() c');
+  PERFORM comp_test.check('I8m gone from agency B''s catalog', NOT v @> jsonb_build_array(v_grid));
+  PERFORM comp_test.op_refused('I8n agency B cannot re-enable it', comp_test.p('admin_b'), format('SELECT public.comp_enable_shared_grid(%L)', v_grid), 'PT404');
+  PERFORM comp_test.op_refused('I8o agency B cannot snapshot it', comp_test.p('admin_b'), format('SELECT public.comp_get_grid_snapshot(%L)', v_grid), 'PT404');
+  PERFORM comp_test.op_refused('I8p agency B cannot copy it again', comp_test.p('admin_b'),
+    format('SELECT public.comp_create_private_grid(%L, %L, %L, %L)', 'full', 'B second copy', '2025-02-01', v_grid), 'PT404');
+  PERFORM comp_test.owner_refused('I8q nor can the operator activate it for agency B', format('SELECT private.comp_enable_reference_grid_for_agency(%L, %L)', 'Synthetic Agency B', v_grid), 'PT404', 'That AgentFlow grid is not available');
+  PERFORM comp_test.check('I8r agency B''s private copy is intact', comp_test.content(v_copy) = v_copy_content);
+  v := comp_test.op_ok('I8s agency B selects its private copy', comp_test.p('admin_b'), format('SELECT public.comp_select_calculator_grid(%L, NULL)', v_copy));
+  PERFORM comp_test.check('I8t agent B estimates from the copy',
+    comp_test.op_ok('I8t context', comp_test.p('agent_b'), 'SELECT public.get_commission_calculator_context()')#>>'{grid,id}' = v_copy::text);
+  PERFORM comp_test.check('I8u agency A unaffected; the shared grid and the ledger unchanged',
+    EXISTS (SELECT 1 FROM public.organization_comp_grid_availability WHERE organization_id = org_a AND grid_id = v_grid)
+    AND EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = org_a AND grid_id = v_grid)
+    AND private.comp_grid_content_sha256(v_grid) = v_before
+    AND (SELECT count(*) FROM public.comp_reference_imports) = v_ledger);
+  r := private.comp_remove_reference_grid_availability('Synthetic Agency B', v_grid);
+  PERFORM comp_test.check('I8v withdrawing again is a no-op', r @> '{"removed": false, "disabled": false, "cleared_selection": false}');
+  r := private.comp_remove_reference_grid_availability('Synthetic Agency C', v_grid);
+  PERFORM comp_test.check('I8w withdrawing what was never available is a no-op that writes nothing',
+    r @> '{"removed": false, "disabled": false, "cleared_selection": false}'
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_settings WHERE organization_id = 'cccccccc-0000-0000-0000-00000000000c'));
+
+  r := private.comp_make_reference_grid_available('Synthetic Agency B', v_grid);
+  PERFORM comp_test.check('I8x re-granted: available again, nothing enabled or selected by itself',
+    r @> '{"newly_available": true}'
+    AND NOT EXISTS (SELECT 1 FROM public.organization_comp_grids WHERE organization_id = org_b AND grid_id = v_grid)
+    AND (SELECT calculator_grid_id FROM public.organization_comp_settings WHERE organization_id = org_b) = v_copy);
+  v := comp_test.op_ok('I8y agency B''s admin may enable it again', comp_test.p('admin_b'), format('SELECT public.comp_enable_shared_grid(%L)', v_grid));
+  PERFORM comp_test.check('I8y enabled; its own selection (the copy) kept', v @> '{"enabled": true, "selected": false, "kept_existing_selection": true}');
+  RAISE NOTICE 'I8 availability by exact unique name; withdrawal keeps private copies: ok';
 END $$;
 
 SELECT 'commission_grids_import: ALL PASSED' AS result;
