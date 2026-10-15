@@ -230,6 +230,8 @@ settings entry), `src/config/settingsConfig.ts` (admin-only section list), `src/
 `src/lib/commission/__tests__/changeSetServer.integration.test.ts`, which runs only against the runner's disposable
 database). `AGENT_RULES.md` §3: the Control Center sentence "the one approved exception" now reads "an approved,
 named exception" so that adding the named Shared compensation grid exception keeps it accurate.
+`.gitattributes` (CI correction): one path-scoped rule keeps the synthetic CSV fixture's intentional CRLF bytes
+and stops `git diff --check` flagging its CRs.
 
 ### 8.2 Concurrent work
 Open PRs overlapping textually only: #442 (Google Sheets: settings config/renderer/heading test/docs), #445
@@ -277,12 +279,19 @@ plus vitest failures base vs branch, reported separately.
 ## 10. Status / blockers
 - **BLOCKED:** private FFL import/reconciliation and source-backed acceptance (CSV not supplied; D4); durable
   private location for input/artifact (D1, before release).
-- **Not yet run:** the PostgreSQL 17.6 CI workflow (`.github/workflows/commission-grids.yml`) — it runs only once
-  the branch is published. Local proofs ran on PostgreSQL 16.15.
+- **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
+  stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
+  with the expected literals (database default collation). The CI image defaults to `en_US.utf8`, so the order
+  differed although the grant sets were identical. The same run's `Onboarding emails / verify` job failed
+  `git diff --check` on one trailing space in §11 and on the intentional CRLF endings of the synthetic CSV fixture.
+  Fixed by `COLLATE "C"` on both A10f orderings (still an exact-set comparison), removing the space, and one
+  path-scoped `.gitattributes` rule for that fixture (`-text whitespace=cr-at-eol`; its bytes are unchanged). No
+  grant, RLS, migration, locale or application change. Local proofs: PostgreSQL 16.15 under C and `en_US.UTF-8`;
+  the 17.6 re-run is recorded in the PR.
 - Not release-ready until those are resolved and §12 is approved.
 
 ## 11. Separate follow-up (not in this build)
-`profiles.commission_level` is self-editable through the API: `authenticated` holds column UPDATE, 
+`profiles.commission_level` is self-editable through the API: `authenticated` holds column UPDATE,
 `profile_authz.can_update_profile` returns true for the actor's own row, and
 `enforce_profile_field_authorization` does not cover the column (read-only production checks, 2026-10-15).
 The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An agent can therefore change the

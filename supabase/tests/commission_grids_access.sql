@@ -369,7 +369,7 @@ BEGIN
   -- Column-level write grants for authenticated: exactly the reviewed set (no id/scope/revision/audit
   -- column, no ownership or parent column on UPDATE). comp_grids.id is insertable only so the create
   -- operation can supply a server-generated id (no RETURNING through the not-yet-readable row).
-  SELECT string_agg(x, ', ' ORDER BY x) INTO v_bad
+  SELECT string_agg(x, ', ' ORDER BY x COLLATE "C") INTO v_bad
     FROM (SELECT c.relname || '.' || k.priv || '.' || a.attname AS x
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
@@ -379,7 +379,7 @@ BEGIN
                                'organization_comp_grids','organization_comp_settings','comp_reference_imports')
              AND has_column_privilege('authenticated', c.oid, a.attnum, k.priv)) s;
   PERFORM comp_test.check('A10f authenticated column write grants are exactly the reviewed set: ' || coalesce(v_bad, ''),
-    v_bad = (SELECT string_agg(x, ', ' ORDER BY x) FROM unnest(ARRAY[
+    v_bad = (SELECT string_agg(x, ', ' ORDER BY x COLLATE "C") FROM unnest(ARRAY[
       'comp_grids.INSERT.id', 'comp_grids.INSERT.organization_id', 'comp_grids.INSERT.name',
       'comp_grids.INSERT.effective_date', 'comp_grids.INSERT.is_active', 'comp_grids.INSERT.contract_levels',
       'comp_grids.INSERT.origin', 'comp_grids.INSERT.copied_from_grid_id',
