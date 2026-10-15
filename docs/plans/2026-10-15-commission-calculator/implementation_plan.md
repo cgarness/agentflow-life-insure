@@ -2,7 +2,8 @@
 
 **Status (2026-10-15):** LOCAL IMPLEMENTATION APPROVED by Chris with amendments (D1–D4, corrections 1–6)
 and **implemented locally** on `feature/commission-calculator-agency-grids` (commits `9b615f5` plan,
-`fea545d` database layer, `44d550a` frontend, then the closeout records). Evidence: `verification.md`.
+`fea545d` database layer, `44d550a` frontend, `fb27512` closeout records, `14d9fa4` pre-publication
+`service_role` correction, then its records). Evidence: `verification.md`.
 Nothing is pushed, published, merged, deployed, imported or applied to any hosted database. Production
 access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
 reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
@@ -48,8 +49,8 @@ platform/Control Center surfaces.
 AGENT_RULES §3: every tenant row carries `organization_id`. This feature adds one narrowly scoped
 exception: AgentFlow-maintained **shared** grids store `organization_id = NULL` on the grid and on all of its
 products, variants, rates and references. They are readable only by organizations holding an
-`organization_comp_grids` row, never writable by any client role, and changed only by the reviewed
-reference-import operation or a reviewed migration. Private grids, access rows and settings are ordinary
+`organization_comp_grids` row, never writable by any client role (`service_role` holds SELECT only), and
+changed only by the reviewed reference-import operation or a reviewed migration. Private grids, access rows and settings are ordinary
 tenant rows. No platform-role requirement, Control Center surface, cross-agency Super Admin bypass or
 Agency Group peer access.
 
@@ -90,7 +91,9 @@ verification — never values).
   only (`organization_id = actor org` can never match a shared NULL row). The operation-context trigger
   checks that same predicate itself (an INSERT's RLS check runs only after BEFORE ROW triggers), so no
   SECURITY DEFINER trigger ever runs or locks for a client row outside its agency or by a non-admin; and
-  every DEFINER lock lookup is filtered to shared grids or the row's own scope.
+  every DEFINER lock lookup is filtered to shared grids or the row's own scope. `service_role` (server key,
+  BYPASSRLS) holds SELECT only on every comp table, so server code cannot write commission data directly
+  either.
 - **Actor.** `comp_authz.actor_org_id()` / `actor_is_admin()` / `readable_grid_ids()` wrap the canonical
   `private.campaign_actor()` (Active profile, profile org = `get_org_id()`); agency admin = Admin / Super
   Admin role or `is_super_admin`, home organization only. Team Leaders and agents are read-only.
@@ -144,6 +147,10 @@ Found and fixed while implementing (each now covered by a test or a negative con
   first (else PT409); keys must name new items of the same change set (else 22023).
 - The import's no-op path accepted a modified artifact whose embedded checksums still matched. A no-op now
   requires the byte-identical artifact (ledger `artifact_sha256`) and unchanged stored content.
+- (Pre-publication review.) `service_role` held plain INSERT/UPDATE/DELETE on the seven data tables, so a
+  server key could change a shared grid outside the import, contrary to §3. It now holds SELECT only (A9,
+  A10g). I1 now covers anon, an agent, an Agency Admin and `service_role`, each also with both operator
+  approval settings and a forged operation flag.
 
 ## 5. Calculator logic (`src/lib/commission/`, pure)
 Strict level parse (`^\s*\d+%?\s*$`; missing/fractional/partial ⇒ setup error; never defaulted, nearest-
@@ -309,11 +316,11 @@ Record the version each one is assigned next to its file name; never fabricate o
 
 | # | File | SHA-256 |
 |---|---|---|
-| 1 | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `ff5d2e833f43ea99b7720ce3be4e7b5f821c395703301af4af6061c24654ee23` |
+| 1 | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `84637cf30480ed41d529ab9f0902f4fb44a3fa0141c5c5792594898ce1f64b16` |
 | 2 | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `d7c20e1712c958d8af516884edd730004af72adc2f50f0e323adefd5b96e7bc3` |
 | 3 | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
 
-(Checksums are for the files at local commit `44d550a`. Re-verify them on the approved PR head.)
+(Checksums are for the files at local commit `14d9fa4`. Re-verify them on the approved PR head.)
 
 **4. Read-only verification.**
 - Objects, grants, policies and the SECURITY DEFINER inventory match the access-suite inventories (A10).
@@ -321,7 +328,8 @@ Record the version each one is assigned next to its file name; never fabricate o
 
 **5. Private import.** Run `supabase/ops/commission_grids_import_reference_grid.sql`
 (SHA-256 `d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`):
-- run by psql from the operator's machine or an approved private runner, never through an agent transcript;
+- who runs it, and from where, is decided in the release plan; the artifact's values are never printed into
+  logs, PR text or shared transcripts;
 - use the exact artifact from the private location, with `artifact_sha256` set to the manifest value;
 - set `agentflow.approve_comp_reference_import=yes`.
 

@@ -58,7 +58,7 @@ Current downline profile scoping is **query-enforced, not RLS-enforced**. Becaus
 - **What it is:** AgentFlow-maintained **shared** commission grids store `organization_id = NULL` on `comp_grids` and on every one of their products, variants, rates and references. That is the whole exception: private grids, `organization_comp_grids` access rows and `organization_comp_settings` are ordinary tenant rows.
 - **Integrity:** each comp table has a database-generated `scope_key` (`COALESCE(organization_id, nil UUID)`), and composite foreign keys on `(parent, grid_id, scope_key)` force every child into its parent's grid and scope, NULL included. The nil UUID is reserved (CHECK) and can never be an organization; access rows can only reference shared grids.
 - **Reads:** a shared grid's content is readable only by an organization holding an access row for it. Agency admins additionally see a metadata-only catalog (id, name, effective date, levels).
-- **Writes:** shared rows are **never writable by any client role**. They change only through the reviewed postgres-only reference-import functions or a reviewed migration.
+- **Writes:** shared rows are **never writable by any client role**, and `service_role` holds SELECT only on the comp tables. They change only through the reviewed postgres-only reference-import functions or a reviewed migration.
 - **Not included:** no platform-role requirement, no Control Center surface, no cross-agency Super Admin bypass, no Agency Group peer access. Do not "fix" the NULL organization into a tenant, add client write paths to shared rows, or loosen the comp write policies to make a lock succeed.
 - Details: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md` §3–4 and the Commission grids invariant below.
 
@@ -697,7 +697,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - Client roles write the comp tables **only** through the `comp_*` operations. These are SECURITY INVOKER with a function-level `SET agentflow.comp_operation = 'on'`, which clients cannot set.
 - The `comp_00_operation_context` trigger runs first. It refuses any client write outside an operation, outside the caller's own agency, or by a non-admin, before any SECURITY DEFINER trigger runs or locks anything. RLS repeats the same predicate.
 - SECURITY DEFINER lock lookups are filtered to shared grids or the row's own scope, so a client can never cause a lock on another agency's row.
-- Never grant direct table writes. Never add a shortcut around the operations.
+- Never grant direct table writes, to clients or to `service_role` (it holds SELECT only). Never add a shortcut around the operations.
 - Lock order: agency settings row → grid → access row → product → child rows. Privileged multi-agency deactivation locks the selecting settings rows (ordered) before the grid.
 - Edits are one atomic change set at the loaded `revision`. A stale save is refused (PT409) and never merged or overwritten.
 

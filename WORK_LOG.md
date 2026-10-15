@@ -22,7 +22,9 @@
 | `9b615f5` | Approved plan with amendments (docs) |
 | `fea545d` | Database layer: three migrations and rollbacks, ops scripts, SQL suites and harness, private importer and reconciliation, runner, concurrency driver, CI workflow, runbook, manifest, `.gitignore` |
 | `44d550a` | Frontend: calculator page and nav item, Settings › Commission Grids (overview, viewer, editor), hooks, Supabase types, tests |
-| this commit | Records: this entry, `verification.md`, plan status and release proposal (§12), root plan status, `AGENT_RULES.md` (named exception and invariant) |
+| `fb27512` | Records: this entry, `verification.md`, plan status and release proposal (§12), root plan status, `AGENT_RULES.md` (named exception and invariant) |
+| `14d9fa4` | Pre-publication correction (approved by Chris): `service_role` read-only on the comp tables; tests A9/A10g and I1 |
+| this commit | Records for that correction: plan §3/§4.2/§4.5/§12, `AGENT_RULES.md`, `verification.md`, this entry, root plan |
 
 **What was built.**
 - **Database.**
@@ -54,8 +56,12 @@
    - The two code commits were rebuilt locally (`e9becf2` → `fea545d`, `c19117b` → `44d550a`), so no commit contains them. A final scan of every added line and of the build output is clean.
    - Migrations and ops scripts are unchanged, and so are their checksums.
 2. **Stale type check.** The first app type-check comparison predated the last test edits. One new diagnostic, a literal type in a sidebar test's mock state, was found and fixed. Every check was then re-run on `44d550a`.
+3. **`service_role` could write shared grids** (found in the pre-publication review; Chris approved fixing it before publication).
+   - The schema migration granted `service_role` INSERT/UPDATE/DELETE on the seven data tables, so a server key could change a shared grid outside the import, contrary to plan §3. Browser roles were never able to.
+   - Fixed in `14d9fa4`: `service_role` holds SELECT only. A9/A10g assert it; I1 now covers anon, an agent, an Agency Admin and `service_role`, also with both operator approval settings and a forged operation flag.
+   - Two throwaway negative checks show the new assertions bite. Only the schema migration's checksum changed.
 
-**Verification (synthetic data only, all on `44d550a`; details in `verification.md`).**
+**Verification (synthetic data only, all on `14d9fa4`; details in `verification.md`).**
 - `npx tsc --noEmit` exit 0.
 - `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics, identical to base.
 - ESLint: 0 problems on the 61 changed `src` files.
@@ -74,7 +80,7 @@
   - rollback.
 
 **Migrations and deployments.**
-- Authored: `20261015120000_commission_grids_schema.sql`, `20261015120100_commission_grids_operations.sql` and `20261015120200_commission_grids_reference_import.sql`, plus their rollbacks.
+- Authored: `20261015120000_commission_grids_schema.sql` (changed in `14d9fa4`; SHA-256 `84637cf3…f64b16`), `20261015120100_commission_grids_operations.sql` and `20261015120200_commission_grids_reference_import.sql`, plus their rollbacks.
 - Applied only to disposable local databases. **None is applied to any hosted database**, and there is no migration-history entry.
 - No Edge Function, Vercel or other deployment. No import and no activation.
 
