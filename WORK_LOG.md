@@ -9,13 +9,15 @@
 - Base `main` `dacd921` was re-fetched twice and is unchanged. `AGENT_RULES.md`, `VISION.md` and this log were reread.
 - The implementation commit `c367457` is unchanged. No other branch was merged.
 - Draft PR #429 (START, out of scope) shares `sms-consent.yml`, `AGENT_RULES.md` and this log with this branch; whichever merges second reconciles them.
-- **Before first publication the never-pushed local branch was rebuilt once**, to keep the separate security item's remediation plan private. The original commits remain on a local backup ref; nothing shared was rewritten.
+- **The never-pushed local branch was rebuilt once before first publication.** Nothing shared was rewritten.
 
 **Commits (this stage).**
 - `14fd40f`: corrected fixture, CI coverage, bridge-mount guard test;
 - `ba6d405`: server-timing evidence, test mapping, corrected method;
-- `3582ea1`: user-visible results, screenshots, superseded results;
-- the records commit: regression evidence, plan §14, this entry.
+- `3582ea1`: user-visible results, screenshots, superseded results; plan §13 rewritten; the 2026-10-14 entry corrected in place;
+- `a16be8f`, `3cce8ba`, `530aff1`: SHA-tied regression evidence (both modes, base provenance), plan §14, this entry;
+- the preflight-corrections commit: two test fixes and record corrections (below);
+- later records commits after publication.
 
 **Corrections.**
 1. **Fixture.** Real clicks only, after a Playwright actionability preflight. Nothing uses Enter, a forced click or DOM insertion.
@@ -26,7 +28,11 @@
 2. **Results** (desktop 1440×900, p50 / p95 ms).
    - **1×:** click → outgoing text visible: Conversations 2,479.8 / 2,496.1 → **18.1 / 27.1**; contact record 2,282.7 / 2,290.4 → **24.4 / 35.4**.
    - **4× CPU** (separate): 2,642.9 / 2,738.1 → **85.6 / 143.2**; 2,406.7 / 2,436.9 → **132.8 / 182.1**. The ≤100 ms p95 goal is **not met at 4×**.
-   - **Costs:** base's spinner-only first change is slightly faster (14.0 vs 18.1 ms p50 at 1×), and the click's Event Timing duration rises (p95 32 → 40 ms and 24 → 48 ms).
+   - **Costs:** base's spinner-only first change is faster than the candidate's first change.
+     - p50 at 1×: Conversations 14.0 → 18.1 ms, contact record 15.9 → 24.4 ms.
+     - p50 at 4×: 57.3 → 85.6 ms and 83.4 → 132.8 ms.
+     - The click's Event Timing duration also rises (p95 at 1×: 32 → 40 ms and 24 → 48 ms).
+     - The likely cause, not profiled: the pending item re-renders the unmemoized history list.
 3. **Mobile 390×844: BLOCKED on both builds** by the pre-existing desktop-only layouts.
    - Conversations: the 300 px contact pane covers Send.
    - Contact record: the message column sits off-screen inside overflow-hidden ancestors.
@@ -37,17 +43,30 @@
    - the previously quoted Twilio sub-timings are labelled as inferred from log gaps.
 5. **Regression evidence** (`evidence/regression.md`, `evidence/test-mapping.md`, `evidence/vitest-files-*.json`). The repo's `reports-frontend` verification ran at `dacd921` vs `3582ea1` and exited 0. It is **baseline-equivalent, not a clean pass**:
    - `tsc -p tsconfig.app.json`: 85 → 84 diagnostics, none new.
-   - Vitest: 1 failing test on each side (the same pre-existing `recordingRetentionVoicemail`, a moving `origin/main` comparison); the same 10 files fail to load without Supabase env on each side; 34 skipped on each side with an identical inventory; no new failure and no unhandled errors.
-   - The 12 replaced SMS tests are mapped to their replacements.
+   - Vitest: 1 failing test on each side (the same pre-existing `recordingRetentionVoicemail`, a moving `origin/main` comparison); the same 10 failing files on each side (9 fail to load without Supabase env, plus that test's file); 34 skipped on each side with an identical inventory; no new failure and no unhandled errors.
+   - The 12 changed base test names are mapped to their replacements.
+   - A dummy-env full run at both SHAs: 5,301 → 5,468 tests and 5,266 → 5,433 passed, with the same single failure, 34 skipped on each side and no status changes. The base was re-run in a clean `dacd921` worktree.
    - ESLint: 0 errors and the 1 pre-existing warning. The build passes.
 6. **CI coverage.** `src/App.tsx` was the only changed file missing from the `sms-consent` path filter; it is added. The new `pendingSmsBridgeMount.test.ts` guards the bridge mount, and was mutation-checked by removing the mount. `SMS_EXPECT_BLOCKED` is explicit.
 7. **Record corrections.** The plan claimed `smsConsent.test.tsx` was updated; it is unchanged. The 2026-10-14 entry's timing and server claims are corrected in place.
 
-**Publication preflight.** In progress at this commit; the result is recorded before the push.
+**Publication preflight.** A read-only multi-agent review: 9 lenses, with each finding verified twice adversarially, then a completeness critic. It covered every unpublished commit patch (including removed lines), the uncommitted records, the PR description, the screenshots and local mirrors of the CI artifacts.
+- **Secrets:** none in any unpublished patch, document, screenshot or artifact. The historical exposed value is in no unpublished patch. It remains only at its pre-existing lines, shifted down by the new entries.
+- **Customer data:** none real. All fixture and test data is synthetic. The only real number is the agency's own sender number, already public on `main`.
+- **Triggers:**
+  - Pushing the branch fires no workflow.
+  - The draft PR triggers 5 isolated workflows: no secrets, loopback databases, no deploy.
+  - Both Vercel projects build protected previews; the Supabase preview is skipped (no `supabase/` change).
+  - No trigger is unauthorized.
+- **Fixed before publication:**
+  - Public text gave the separate security item a dated status; it is now neutral.
+  - The contact-view test harness let the contact-switch preservation pin pass by remounting. The bridge now rides in `wrapper`. Mutation-checked: with the contact id dropped from the history key, the old harness passed and the corrected one fails.
+  - An uncertain SMS result arriving after a contact switch was untested. A test was added in `conversationThreadPendingSms`; mutation-checked, it fails when scope events reach every contact.
+  - About 35 record inaccuracies: failing-file and test-file counts, test-mapping details, function-version and retention caveats, the per-call trace behind the inferred gaps, the fixture description, cost figures for both surfaces, and PR wording.
 
 **Publication.** Recorded after the push, with the exact published head and its CI.
 
-**Security item.** The separate workflow-secret exposure (logged 2026-10-10) remains open and urgent. Its remediation plan was delivered to Chris privately on 2026-10-15, as a session attachment that is not in this repository. This task did not rotate, probe, redact, change cron or rewrite history.
+**Separate security item.** Out of scope here and tracked privately with Chris. This task made no security changes.
 
 **Migrations/deploys:** none. **Production writes:** none. **Live SMS:** none. **Merge or production deploy:** not done, not approved.
 
@@ -60,7 +79,7 @@
 ## 2026-10-14 — Instant manual SMS feedback (frontend only; local branch, not published)
 
 **Request and approval.** Chris approved a frontend-only build with binding corrections D1–D9 and design corrections 1–7, plus bounded read-only Gate 0 checks.
-- **Not approved:** backend code, production mutations, Realtime publication changes, merge, deployment, publication (pushing the branch counts), secret rotation and live SMS.
+- **Not approved:** backend code, production mutations, Realtime publication changes, merge, deployment, publication (pushing the branch counts), separate security work and live SMS.
 - **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md`. §13 holds the verification record and §10 the backend recommendation.
 
 **Base and branch.**
@@ -121,12 +140,12 @@
 5. Merge and Vercel deploy.
 6. Read back the served bundle.
 
-B0 and the secret rotation are separate approvals.
+B0 and the separate security work are separate approvals.
 
 **Separate items.**
 - **D5:** sidebar defect reported, not fixed. `ConversationsSidebar.tsx:91,190` shows the skeleton on every reload; `:102` empties the list when a reload fails. Unchanged on this branch.
 - **D8:** B0 (timing instrumentation, `twilio-sms/index.ts` only) is recommended as the next backend step. Not implemented (plan §10).
-- **Security:** the separate security item logged on 2026-10-10 has a remediation plan, delivered to Chris privately and not stored in this public repository. Nothing was rotated, redacted, probed or rewritten.
+- **Security:** a separate security item is tracked privately with Chris and is out of scope here.
 
 **Migrations/deploys:** none. **Publication:** none as of 2026-10-14 (see the 2026-10-15 entry). **Live SMS:** none.
 

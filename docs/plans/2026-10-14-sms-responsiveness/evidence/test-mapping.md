@@ -2,7 +2,7 @@
 
 Base: `main` `dacd921903a867de99276f8709f829995602c3bd`. Candidate: this branch (see `regression.md` for the exact commit and results).
 
-The list comes from a test-name diff of the two full Vitest JSON reports. 12 base test names no longer exist: 10 in `src/pages/__tests__/conversationsSendContract.test.tsx` and 2 in `src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx`. No test was deleted without a replacement. No test was skipped, weakened to a no-op or silenced. No unrelated test changed.
+The list comes from a test-name diff of the two full Vitest JSON reports. 12 base test names no longer exist: 10 in `src/pages/__tests__/conversationsSendContract.test.tsx` and 2 in `src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx`. No test was deleted without a replacement. No test was skipped, weakened to a no-op or silenced. No unrelated test changed. Three existing files changed: these two and `conversationThreadIsolation.test.tsx` (one same-name test, below).
 
 ## Why the replaced tests changed
 
@@ -18,10 +18,10 @@ Three contracts changed by approved design (plan §4, D1–D9; §5.4):
 
 | # | Base test (full name) | Replacement(s) in the candidate | Assertion change |
 |---|---|---|---|
-| 1 | View As is READ-ONLY in Conversations › a direct handleSendMessage call refuses BEFORE touching session, mailbox or Twilio | View As is READ-ONLY in Conversations › direct send handler calls refuse BEFORE touching session, mailbox or Twilio | Renamed for the new SMS entry point (`onSubmitSms`). It now calls both the email and SMS handlers. It still asserts no credential read, no composer clear and the read-only toast, and adds "pending store stays empty". |
+| 1 | View As is READ-ONLY in Conversations › a direct handleSendMessage call refuses BEFORE touching session, mailbox or Twilio | View As is READ-ONLY in Conversations › direct send handler calls refuse BEFORE touching session, mailbox or Twilio | Renamed for the new SMS entry point. The base test called `onSendMessage(…, "sms")`. SMS no longer goes through that handler: after the View As refusal it returns `false` for anything but email. The test now calls `onSendMessage(…, "email")` and `onSubmitSms`. Kept: both report failure, no credential is read, and the read-only toast shows. Added: the SMS composer is not cleared, exactly two read-only toasts, and the pending store stays empty. |
 | 2 | a SUCCESSFUL send clears the composer and refreshes › SMS success clears the draft and reloads the thread | a SUCCESSFUL send clears the composer › SMS: clears at once, shows one saved message, and does not reload the whole thread | Superseded contract: the base asserted exactly one thread reload, the candidate asserts zero. Added: the composer clears before any request, the pending bubble shows "Sending…", exactly one copy of the text, a targeted read of the receipt's row scoped by `organization_id`, and no SMS success toast. |
-| 3 | a SUCCESSFUL send clears the composer and refreshes › email success clears the body and the subject | a SUCCESSFUL send clears the composer › email success clears the body and the subject | Same assertions; only the describe name changed. |
-| 4 | a failed SMS send keeps the draft › a failed send does NOT refresh the thread | a PROVEN failure returns the SMS draft › a proven refusal does NOT refresh the thread · an UNCONFIRMED failure … › refreshes the thread once, quietly, to show whatever was saved | Split by evidence. A proven refusal still makes zero reloads. An uncertain outcome makes exactly one quiet reload (no spinner, rows kept). |
+| 3 | a SUCCESSFUL send clears the composer and refreshes › email success clears the body and the subject | a SUCCESSFUL send clears the composer › email success clears the body and the subject | The describe name changed. One assertion was added: the success toast is exactly "Email sent" (contract 3: email keeps its toast). |
+| 4 | a failed SMS send keeps the draft › a failed send does NOT refresh the thread | a PROVEN failure returns the SMS draft › a proven refusal does NOT refresh the thread · an UNCONFIRMED failure … › refreshes the thread once, quietly, to show whatever was saved | Split by evidence. A proven refusal (409 `PHONE`) still makes zero reloads. An uncertain outcome (503 `SEND_UNCERTAIN`) makes exactly one reload and leaves the pending text visible. "No spinner, rows kept" is asserted in `conversationThreadPendingSms` › an uncertain outcome reloads once without a spinner and without moving a reader in history. The base input (an uncoded `{ success: false, error }` body) has no reload-count assertion here: row 8 covers how it is classified. |
 | 5 | a failed SMS send keeps the draft › a non-Error throw still reports a message | an UNCONFIRMED failure … › a non-Error throw still reports a message | The toast assertions are unchanged. The "composer still holds the draft" assertion is removed: a transport failure after dispatch is uncertain, and its text stays in the pending item instead. |
 | 6 | a failed SMS send keeps the draft › contact has no phone number | a PROVEN failure returns the SMS draft › contact has no phone number | Same assertions. |
 | 7 | a failed SMS send keeps the draft › expired session | a PROVEN failure returns the SMS draft › expired session | Same assertions, plus "no SMS request was made". |
@@ -41,6 +41,12 @@ Same-name tests whose assertions changed (not counted as replaced):
 | manual SMS request contract › rejects a second send while the first request is still in flight | Calls `onSubmitSms` (synchronous `boolean`). Also asserts Send stays disabled for that contact. |
 | ordinary sending is unchanged › renders the composer and sends | `toastState.successes` must now equal `[]` (the base required "Message sent"); contract 3 above. Composer-clear and credential-read assertions unchanged. |
 
+`conversationThreadIsolation.test.tsx` (same-name test changed, not counted as replaced):
+
+| Test | Change |
+|---|---|
+| a stale contact can never START a request for itself › a stale post-send refresh cannot discard the current contact's response either | Now sends an **email**: it adds a click to the email channel and asserts the channel reads "email". A confirmed SMS no longer reloads the thread, so only email still has a post-send refresh to guard. The SMS counterpart, an uncertain SMS result arriving after the agent switched contacts, is pinned by a test added on 2026-10-15: `conversationThreadPendingSms` › an uncertain result for a contact the agent has left never reloads the open thread. It is mutation-checked: when scope events reach every contact, it fails. |
+
 ## `fullScreenContactViewConversation.test.tsx` (2 replaced)
 
 | # | Base test (full name) | Replacement(s) in the candidate | Assertion change |
@@ -58,6 +64,11 @@ New block in this file, "pending manual SMS on the contact record" (6 tests):
 
 The same-name test "continues to refuse sending in View As" adds an assertion that the pending store stays empty.
 
+**Harness change (corrected 2026-10-15).** `renderView` mounts `PendingSmsAuthorityBridge` beside the view.
+- **The defect:** it was first added as a fragment. That made "A. filters use canonical identifiers › clears the previous contact's items when switching contacts (preservation pin)" remount the view on `rerender`, so the pin passed without exercising a contact switch.
+- **The fix:** the bridge now rides in Testing Library's `wrapper`, so `rerender` updates the contact prop in place, as on base.
+- **Mutation check:** with the contact id dropped from `useContactHistory`'s key, the pin passed under the fragment harness and fails under the corrected one.
+
 ## Required coverage → tests
 
 | Behaviour | Tests (file › describe › name) |
@@ -66,10 +77,10 @@ The same-name test "continues to refuse sending in View As" adds an assertion th
 | Immutable request IDs | `pendingSmsStore.test.ts` › begin … › freezes an immutable snapshot with the request ID · request identity (D2) (5) · `conversationsSendContract` › manual SMS request contract (3 request-ID tests) · contact › returns the draft and reuses the request ID … |
 | Dismissal | `pendingSmsStore.test.ts` › dismiss hides; it never forgets (2) · `pendingSmsStatus.test.tsx` › proven not sent: … Dismiss |
 | Capacity | `pendingSmsStore.test.ts` › capacity never discards unresolved text or IDs (2) |
-| Late identity changes | `pendingSmsStore.test.ts` › identity changes (6) and dispatch re-check (3) · `sendManualSms.test.ts` › authority changes before dispatch (5) · `conversationThreadPendingSms` › identity and lifecycle (4) · `pendingSmsBridgeMount.test.ts` (the bridge stays mounted in `App.tsx`) |
+| Late identity changes | `pendingSmsStore.test.ts` › identity changes (6) and dispatch re-check (3) · `sendManualSms.test.ts` › authority changes before dispatch (5) · `conversationThreadPendingSms` › identity and lifecycle (5) · `pendingSmsBridgeMount.test.ts` (the bridge stays mounted in `App.tsx`) |
 | Draft preservation | `pendingSmsStore.test.ts` › draft restore (D3) (6) · `sendManualSms.test.ts` › proven non-sending (4) · `conversationThreadPendingSms` › failures never overwrite a newer draft (2) · `conversationsSendContract` › a PROVEN failure returns the SMS draft (4) |
 | Exact-ID reconciliation | `smsDisplayMerge.test.ts` (13, incl. "never matches by body, phone or time") · `smsSendResult.test.ts` › the saved row is accepted only when it is exactly the receipt's row (7) · `sendManualSms.test.ts` › normal success (4) |
-| Both UI surfaces | Conversations: `conversationsSendContract`, `conversationThreadPendingSms`, `conversationThreadIsolation`, `conversationsViewAs`. Contact record: `fullScreenContactViewConversation` (both blocks). Both together: contact › both SMS composers in one app instance share one in-flight send per contact. |
+| Both UI surfaces | Conversations: `conversationsSendContract`, `conversationThreadPendingSms`, `conversationThreadIsolation`, `conversationsViewAs` (View As read scoping). Contact record: `fullScreenContactViewConversation` (both blocks). Both together: contact › both SMS composers in one app instance share one in-flight send per contact. |
 | Realtime disabled | `conversationThreadPendingSms` registers the page's Realtime handlers but never fires them, as in production. "…renders on the click, keeps typing open, and becomes the saved row without a reload" asserts that handlers were registered, that the saved row arrived anyway (targeted read) and that the thread made zero reloads. `sendManualSms.test.ts` › normal success covers the read on its own. The browser fixture's stub channel also never delivers. Gate 0: `messages` and `contact_emails` are not in the Realtime publication. |
-| View As read-only | `conversationsViewAs.test.tsx` · `conversationsSendContract` › View As is READ-ONLY … · `pendingSmsStore.test.ts` › refuses under View As … · `sendManualSms.test.ts` › View As before the POST … · contact › continues to refuse sending in View As |
+| View As read-only | `conversationsSendContract` › View As is READ-ONLY … · `conversationThreadPendingSms` › View As before the POST: nothing is sent, nothing shows under the viewed agent · a dispatched send is not resent or reported after View As starts · `pendingSmsStore.test.ts` › refuses under View As … · `sendManualSms.test.ts` › View As before the POST … · contact › continues to refuse sending in View As |
 | Duplicate-attempt protection | `conversationsSendContract` › a double click and Enter+click dispatch once · rejects a second send while the first request is still in flight · `pendingSmsStore.test.ts` › allows one in-flight send per contact … (D1) · `sendManualSms.test.ts` › a second submit while in flight is refused silently … · contact › both SMS composers … share one in-flight send |

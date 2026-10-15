@@ -266,6 +266,31 @@ describe("identity and lifecycle", () => {
     await waitFor(() => expect(status()).toMatch(/^Not sent/));
   });
 
+  it("an uncertain result for a contact the agent has left never reloads the open thread", async () => {
+    // The recovery reload is scoped to the sending contact. The open thread (Beta) must not reload,
+    // and Beta's in-progress draft must survive. (Replaces the SMS variant of the isolation test's
+    // stale post-send refresh, which now uses email because a confirmed SMS no longer reloads.)
+    await open("Alpha");
+    send("For Alpha");
+    await settle();
+    fireEvent.click(screen.getByText("Beta"));
+    await waitFor(() => expect(s.threadCalls).toContain(CONTACT_B));
+    fireEvent.change(composer(), { target: { value: "For Beta" } });
+    const loads = s.threadCalls.length;
+    await act(async () => {
+      s.posts[0].answer(503, { success: false, code: "SEND_UNCERTAIN", error: "Delivery could not be confirmed." });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(s.threadCalls.length - loads, "no reload while another contact is open").toBe(0);
+    expect(bubbles(), "Alpha's send never renders under Beta").toHaveLength(0);
+    expect(composer().value).toBe("For Beta");
+    expect(s.errors).toHaveLength(1);
+    expect(s.errors[0]).toMatch(/Alpha/);
+
+    fireEvent.click(screen.getByText("Alpha"));
+    await waitFor(() => expect(status()).toMatch(/^Not confirmed/));
+  });
+
   it("survives closing the page while in flight", async () => {
     const view = await open();
     send("Keep me");

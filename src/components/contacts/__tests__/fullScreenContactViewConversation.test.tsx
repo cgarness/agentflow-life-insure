@@ -249,18 +249,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The bridge rides in `wrapper` so a test's `rerender(<FullScreenContactView …/>)` keeps the same tree
+// and updates the contact prop in place. Wrapping both in a fragment here would make that rerender
+// remount the view, and a contact-switch test would then pass without exercising the switch.
+const WithAuthorityBridge = ({ children }: { children: React.ReactNode }) => (
+  <>
+    <PendingSmsAuthorityBridge />
+    {children}
+  </>
+);
+
 function renderView(contact: Record<string, unknown> = CONTACT) {
   return render(
-    <>
-      <PendingSmsAuthorityBridge />
-      <FullScreenContactView
-        contact={contact}
-        type="lead"
-        onClose={vi.fn()}
-        onUpdate={vi.fn(async () => {})}
-        onDelete={vi.fn(async () => {})}
-      />
-    </>,
+    <FullScreenContactView
+      contact={contact}
+      type="lead"
+      onClose={vi.fn()}
+      onUpdate={vi.fn(async () => {})}
+      onDelete={vi.fn(async () => {})}
+    />,
+    { wrapper: WithAuthorityBridge },
   );
 }
 

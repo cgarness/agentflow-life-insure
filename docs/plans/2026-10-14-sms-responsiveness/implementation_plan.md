@@ -1,6 +1,6 @@
 # Instant, truthful manual SMS feedback
 
-**Status:** approved by Chris on 2026-10-14 for a frontend-only build with binding corrections (D1–D9 and design corrections 1–7 below) and bounded read-only Gate 0 inspections. Not approved: backend code changes, production mutations, Realtime publication changes, merge, deployment, publication, secret rotation or live SMS. **Built and verified locally (§13); not published, merged or deployed.**
+**Status:** approved by Chris on 2026-10-14 for a frontend-only build with binding corrections (D1–D9 and design corrections 1–7 below) and bounded read-only Gate 0 inspections. Not approved: backend code changes, production mutations, Realtime publication changes, merge, deployment, separate security work or live SMS. Publication as a draft PR, isolated CI and the protected preview were approved on 2026-10-15 (§14). **Built and verified (§13, §14); not merged or deployed.**
 
 **Base:** `main` `dacd921903a867de99276f8709f829995602c3bd` (rechecked unchanged before editing). **Branch:** `claude/sms-instant-send-20261014` (local, isolated, not published).
 
@@ -19,10 +19,10 @@ Tools: Supabase MCP `execute_sql` (SELECT only), `list_edge_functions`, `get_edg
 - **G0-1 Realtime:** the `supabase_realtime` publication holds `call_scripts`, `calls`, `campaign_leads`, `campaigns`, `dnc_list`, `notifications`, `phone_numbers`, `phone_settings`, `wins`. `messages` and `contact_emails` are **not** published, matching the independent check and the baseline (`20260806000000_baseline_production_schema.sql:12780-12819`). The thread and sidebar `messages` subscriptions never fire in production; this build is designed and tested with Realtime disabled.
 - **G0-2 live contract:** `twilio-sms` v38, ACTIVE, `verify_jwt=false`, ezbr `1b14b60a…`, deployed 2026-10-08T15:15:56Z. All 13 bundled files are byte-identical (sha256 and git blob) to `dacd921`, and the bundle equals the relative-import closure of `index.ts`. The response contract inspected below is what production runs. (`clearpath-lead-alert` is live v2 from unmerged PR #444; untouched.)
 - **G0-3 server timing (logs).** Full evidence and queries: `evidence/server-latency.md`.
-  - **Source and window:** `function_edge_logs` for `twilio-sms` POSTs, 2026-10-08T15:15Z (the live deployment's `updated_at`) to 2026-10-14T18:51Z, read as 7 queries of 24 h each. Retention reached at least 2026-09-29.
+  - **Source and window:** `function_edge_logs` for `twilio-sms` POSTs, 2026-10-08T15:15Z (the live deployment's `updated_at`) to 2026-10-14T18:51Z, read as 7 consecutive queries of at most 24 h each. Older logs exist (retention reached at least 2026-09-29; the probe is in the evidence file). One of the four successes (4,462 ms) carries log version 37 and the rest log version 38. Whether all four ran the live v38 code was not established.
   - **Sample:** 6 POSTs. Four returned 200, with Edge execution times (`execution_time_ms`) of 4,462, 4,518, 5,143 and 4,622 ms. One returned 503 (2,806 ms) and one 401 (283 ms).
   - **Cold starts:** the three most recent successes each booted a fresh isolate (boot 35–52 ms, CPU 52–64 ms), so almost all of the time was spent waiting on I/O.
-  - **One trace:** the 00:18Z send shows **19 sequential Supabase API calls** totalling 3,542 ms of gateway origin time (82–329 ms each). The Twilio request falls between the start and finish dispatch RPCs, about 0.3 s apart in log time. This is one send, not a breakdown.
+  - **One trace:** the 00:18Z send shows **19 sequential Supabase API calls** totalling 3,542 ms of gateway origin time (82–329 ms each). The per-call timeline and query are in the evidence file. The Twilio send falls between the start and finish dispatch RPCs, about 0.3 s apart in log time. This is one send, not a breakdown.
   - **What the metric is:** Edge execution time only. The production client round trip (network, TLS, the session read) and carrier/handset delivery are **not measured**. With 4 successes, no percentiles are claimed.
 - **G0-4 paths:** exactly one `sms_agency_policies` row (CG Financial: enforced, sending enabled, 5 senders). In the last 30 days every stored SMS belongs to that agency (12 outbound, 20 inbound), so the non-idempotent legacy path had no traffic.
 - **G0-5 outcomes:** `sms_dispatches` holds 8 rows, all `accepted` (5 manual, 3 informational). None prepared, attempting, uncertain or failed.
@@ -30,7 +30,7 @@ Tools: Supabase MCP `execute_sql` (SELECT only), `list_edge_functions`, `get_edg
 ## 3. Confirmed current flow and causes of waiting
 
 1. **Nothing renders until the round trip ends.** `ConversationThread.handleSend` awaits the page (`ConversationThread.tsx:268-271`); the contact record awaits the same request (`FullScreenContactView.tsx:719-795`). Only the Send spinner changes.
-2. **The server takes multiple seconds** (G0-3: Edge execution 4,462–5,143 ms over 4 successful sends). In the one traced send, the dispatcher path made 19 sequential Supabase API calls plus the Twilio request before replying.
+2. **The server takes multiple seconds** (G0-3: Edge execution 4,462–5,143 ms over 4 successful sends). In the one traced send, the function made 19 sequential Supabase API calls (auth and profile reads in the handler, then the dispatcher's reads and RPCs). By reading the code, it also made three Twilio requests (two sender checks and the send) before replying.
 3. **Conversations then reloads the whole thread with a spinner.** `loadThread` sets `loading: true` (`:176`), which replaces every row with a spinner (`:414-417`) while calls, SMS and email are re-read. A failed reload sets the rows to `[]` (`:185`), erasing the conversation, and every rows change smooth-scrolls to the bottom (`:260-266`).
 4. **The contact record refreshes every visible history page** (`:792`) before the SMS appears, and clears the composer on success (`:789`), destroying anything typed after pressing Send.
 5. **"Message sent" toasts** (`Conversations.tsx:256`, `FullScreenContactView.tsx:787`) report provider acceptance as if it were delivery.
@@ -161,7 +161,7 @@ Bodies are parsed with Zod. Only these exact (status, contract) pairs prove that
 | `src/components/contacts/conversation-history/conversationTypes.ts` | Optional pending view on SMS items |
 | Existing suites: `conversationsSendContract`, `fullScreenContactViewConversation`, `conversationThreadIsolation` | Updated only where the SMS contract changed (mapping: `evidence/test-mapping.md`). `smsConsent.test.tsx` is unchanged and still runs in CI. |
 | `.github/workflows/sms-consent.yml` | New paths/tests and the fixture step; on 2026-10-15 also `src/App.tsx` in the path filter, the bridge-mount guard in the test list, and an explicit `SMS_EXPECT_BLOCKED` |
-| This plan, `WORK_LOG.md`, `AGENT_RULES.md` (#31 SMS part) | Records (the separate security item's remediation plan is kept private, outside this public repository) |
+| This plan, `WORK_LOG.md`, `AGENT_RULES.md` (#31 SMS part) | Records (a separate security item is tracked privately) |
 
 **Differences from the first draft:** the hold/hide rule and numeric status ranking are removed (corrections 2, 5); `SmsIntent`'s key keeps the sender preference (D2); `PROVIDER_REJECTED`, `SMS_SUPPRESSED` and all uncoded non-literal responses are uncertain (correction 1); the sidebar change and the `ThreadMessageItem` extraction are dropped (D5, correction 7); `App.tsx` and the bridge are added for authority cleanup (correction 4); Copy is not offered for uncertain items (D3).
 
@@ -195,7 +195,7 @@ Corrected on 2026-10-15 (§14). The rules: only a real click on Send counts; a t
   A hit that falls through a `pointer-events: none` target (a disabled Send button and its spinner) to the target's own ancestor is not counted as covering.
 - **Timestamps:** "Visible"/"rendered" times are the first rAF-plus-posted-task after detection. The click time is the click event's `timeStamp`. The probe re-checks every frame while the text is rendered but not yet visible, because scrolling changes visibility without a DOM mutation.
 - **Conditions** (`scripts/tests/sms-responsiveness/`, synthetic data only):
-  - **Build and browser:** a production Vite build of the fixture, served statically. Only the Supabase client, auth, Twilio context and sidebar list are stubbed; everything else is the real page or contact record. Playwright 1.56.1, headless Chromium.
+  - **Build and browser:** a production Vite build of the fixture, served statically. The Supabase client, auth, Twilio context and `supabase-messages` are stubbed: the sidebar list and the deep-link lookup (`resolveScopedContact`). Everything else is the real page or contact record. The fixture mounts them without the App shell or layout, under `MemoryRouter` and the providers. Reads other than the timed list, history-page and row reads answer instantly. Playwright 1.56.1, headless Chromium.
   - **Viewports and data:** 1440×900 and 390×844. A Conversations thread with 100 SMS, 50 calls and 50 emails; a contact record with 90 history items (three pages loaded).
   - **Fake transport:** a 1,500 ms receipt, an 80 ms targeted row read, 250 ms list and history-page reads.
   - **Runs:** 50 sends per surface per viewport without CPU throttling, and separately 20 sends under 4× CPU throttling. The two are never pooled.
@@ -225,9 +225,9 @@ Corrected on 2026-10-15 (§14). The rules: only a real click on Send counts; a t
 
 **Evidence.**
 - G0-3: four successful sends had Edge execution times of 4,462–5,143 ms. Each of the three joined runs used 52–64 ms of CPU, so about 99% was waiting.
-- The one complete trace shows 19 sequential Supabase calls with 3,542 ms of origin time. Two gaps in that log timeline are **inferred, not measured**: about 365 ms (attributed by reading the code to credentials plus two Twilio checks) and about 234 ms (the Twilio POST). Each gap assumes the logged timestamp is a request's start. B0 exists to replace these inferences with measurements.
+- The one trace shows 19 sequential Supabase calls with 3,542 ms of origin time (per-call timeline: `evidence/server-latency.md`). Two gaps in that log timeline are **inferred, not measured**: about 365 ms (attributed by reading the code to credentials plus two Twilio checks) and about 234 ms (the Twilio POST). Each gap assumes the logged timestamp is a request's start. B0 exists to replace these inferences with measurements.
 - Duplicated reads, by reading the code: policy ×2, `phone_numbers` ×3, `a2p_registrations` ×2, `a2p_numbers` ×2, `profiles` ×2, and leads ×2 (the second is a deliberate final scope check).
-- Speed changes (B1) would edit `_shared/sms/*` and `_shared/a2p/sending.ts`. Those files are also bundled into `workflow-executor`, the consent worker and `clearpath-lead-alert`, so B1 should wait for measured attribution rather than a single trace.
+- Speed changes (B1) would edit `_shared/sms/*` and `_shared/a2p/sending.ts`. Besides `twilio-sms`, functions that import `_shared/sms/*` or `_shared/a2p/sending.ts` directly are `workflow-executor`, `sms-consent-worker`, `sms-consent-events`, `sms-consent-status`, `twilio-sms-webhook` and `clearpath-lead-alert`. B1's redeploy scope depends on which files it touches, so B1 should wait for measured attribution rather than a single trace.
 
 **Exact actions (one backend PR, separate approval).**
 1. In `index.ts`, add a request-scoped timer. Create the three clients (`supabaseAuth`, the service client, the caller client) with `global: { fetch: timed("db") }`, and pass `timed("provider")` as `dispatch`'s existing third argument, `transport` (`_shared/sms/dispatch.ts:31`).
@@ -272,8 +272,8 @@ Base `dacd921` was reproduced first, not assumed.
 |---|---|---|
 | `npx tsc --noEmit` | exit 0. The root config checks no files, so this is vacuous. | exit 0 (same) |
 | `npx tsc -p tsconfig.app.json --noEmit` | 85 diagnostics | **84**, compared as a multiset: none new. The one removed is the replaced contract-test mock (`conversationsSendContract.test.tsx`, TS2339 `bind` on `never`). |
-| Vitest, full suite (`TZ=UTC`, dummy `VITE_SUPABASE_*`) | 5,301 tests: 5,266 passed, 1 failed, 34 skipped. The failure is `recordingRetentionVoicemail`, pre-existing. | 338 files, 5,465 tests: **5,430 passed, 1 failed (the same `recordingRetentionVoicemail` case), 34 skipped**. No new failure. Twelve base SMS cases were rewritten for the new contract and appear under new names. |
-| CI's SMS suite list (no Supabase env) | — | 11 files, 255 tests, all passed |
+| Vitest, full suite (`TZ=UTC`, dummy `VITE_SUPABASE_*`) | 5,301 tests: 5,266 passed, 1 failed, 34 skipped. The failure is `recordingRetentionVoicemail`, pre-existing. | At `c367457` source on 2026-10-14: 338 files, 5,465 tests, **5,430 passed, 1 failed (the same `recordingRetentionVoicemail` case), 34 skipped**. No new failure. At `3582ea1` (2026-10-15): 5,468 / 5,433 / 1 / 34 (§14). Twelve base test names changed: 10 SMS cases rewritten or renamed under the new contract, plus one email case and one View As case renamed with extended assertions (`evidence/test-mapping.md`). |
+| CI's SMS suite list (no Supabase env) | — | 2026-10-14: 11 files, 255 tests, all passed. At `a16be8f` (2026-10-15, with the bridge-mount guard): 12 files, 258 tests, all passed. |
 | ESLint on every changed file (31) | 0 errors, 1 warning (`FullScreenContactView` exhaustive-deps) | 0 errors. The same warning, moved from line 305 to 328, plus an informational "ignored" notice for the `.mts` fixture config. |
 | `npm run build` | passes (22.6 s) | passes (27.0 s, run alongside the test suite) |
 | `git diff --check dacd921` | — | clean |
@@ -310,7 +310,7 @@ Base `dacd921` was reproduced first, not assumed.
 | | click → saved row visible | 2,282.7 / 2,290.4 / 2,300.4 | 1,615.9 / 1,626.4 / 1,634.7 |
 | | Event Timing click duration | 16 / 24 / 32 | 32 / 48 / 56 |
 
-The fake transport's round trip is 1,500.3 ms p50 on every run.
+The fake transport's round trip is 1,500.3 ms p50 on every 1× run (1,500.7–1,501.2 ms at 4×).
 
 **Desktop 1440×900, 4× CPU throttle, 20 real clicks per surface** (separate run, never pooled with the above).
 
@@ -337,20 +337,25 @@ The fake transport's round trip is 1,500.3 ms p50 on every run.
 - **Not assessable on mobile** (blocked).
 
 **Costs, stated plainly:**
-- **First visible change.** Base's spinner-only change is faster than the candidate's first change: 14.0 vs 18.1 ms p50 at 1×, and 57 vs 86 ms at 4×. The candidate's first paint carries the pending item. That item re-renders the unmemoized history list, which the contact record renders inside a 1,461-line component.
-- **Click handling.** The Event Timing click duration rises for the same reason: p95 32 → 40 ms and 24 → 48 ms at 1×.
+- **First visible change.** Base's spinner-only change is faster than the candidate's first change (p50, base → candidate):
+  - Conversations: 14.0 → 18.1 ms at 1×, and 57.3 → 85.6 ms at 4×.
+  - Contact record: 15.9 → 24.4 ms at 1×, and 83.4 → 132.8 ms at 4×.
+  - The candidate's first paint carries the pending item. The likely cause (not profiled) is that the item re-renders the unmemoized history list, which the contact record renders inside a 1,461-line component.
+- **Click handling.** The Event Timing click duration rises, likely for the same reason. p95: 32 → 40 ms (Conversations) and 24 → 48 ms (contact record) at 1×; 96 → 152 ms and 120 → 184 ms at 4×.
 - **Follow-up, not done.** Memoizing history items is possible but was not in scope.
 
-**What changes for the agent:**
-- The outgoing text is visible about 2.3–2.5 s sooner (1×).
-- The saved row appears about 0.7–0.9 s sooner after the receipt, because there is no whole-thread reload.
-- The composer is usable at once.
+**What changes for the agent, in the fixture (1.5 s fake receipt, 250 ms list and 80 ms row reads):**
+- **The outgoing text is visible about 2.3–2.5 s sooner** (1×). In production the wait it replaces is longer: Edge execution alone is 4.5–5.1 s.
+- **The saved row appears about 0.7–0.9 s sooner after the receipt.**
+  - Conversations: there is no whole-thread reload after a confirmed send; the row comes from one targeted read. An uncertain or unsaved outcome still triggers one quiet reload.
+  - Contact record: the row comes from the same targeted read, instead of waiting for every loaded history page to reload. The history refresh still runs after acceptance while Activity is open.
+- **The composer clears and stays usable at once.** This is asserted by `conversationThreadPendingSms` › renders on the click, keeps typing open… and the contact-record send test, and checked on every fixture send ("the composer did not clear" fails the run).
 
 ### 13.3 Browser observations
 
 - **390×844, Conversations: BLOCKED** (both builds; the same layout as `main`).
-  - Playwright's actionability preflight fails: the 300 px contact pane (`div.w-[300px] … overflow-y-auto`) intercepts pointer events at Send.
-  - The thread pane collapses to 48 px at x = −125 (−82 under throttling).
+  - **At rest, before any send:** the thread pane is 48 px wide at x = 217 (base) / 241 (candidate), and Send sits off-screen to the right, at x = 497 / 521 in a 390 px viewport. The 24 px difference is in position, not size; its cause was not investigated, and the end-state screenshots are identical.
+  - **Playwright's actionability preflight fails.** While it tries to scroll Send into view, the 300 px contact pane (`div.w-[300px] … overflow-y-auto`) intercepts pointer events at Send. The −125 (1×) / −82 (4×) positions recorded at the block follow those scroll attempts.
   - Screenshots: `screenshots/{base,candidate}-conversations-390-blocked.png`.
 - **390×844, contact record: BLOCKED** (both builds; the same layout as `main`).
   - The three columns sit inside overflow-hidden containers. The message column is at x = −312 (357 px wide), and Send is at x = −57, so only a 29 px sliver is on screen.
@@ -378,7 +383,7 @@ All are documented in §9. In addition:
 2. CI green on the exact published head, including `sms-consent` (new suites, bridge-mount guard and fixture) and `reports-frontend` (full-suite base comparison).
 3. Preview: build and served-asset check only. The preview is wired to production services, so **any send from it is a live SMS** and needs its own approval. Sends are exercised only in the fake-transport fixture.
 4. Merge and the Vercel production deploy (frontend only), separately approved. Then read back the served bundle.
-5. Backend B0 (§10) and the separate security item (private remediation plan) are separate approvals.
+5. Backend B0 (§10) and the separate security item are separate approvals.
 
 ## 14. Publication stage (2026-10-15)
 
@@ -389,14 +394,14 @@ All are documented in §9. In addition:
   - a push to `main` or a force-push of shared history;
   - a production deploy, production migration or Edge deploy, or a production setting change;
   - live SMS (including from the preview);
-  - secret rotation, credential probing, cron changes, historical redaction or history rewriting.
+  - separate security work, or rewriting history.
 - **Application changes and backend mutation commands** need his separate approval.
 
 **Preserved work.**
-- **Base:** `main` `dacd921903a867de99276f8709f829995602c3bd`. Remote `main` was re-fetched (unchanged) before the corrections and again before publication.
+- **Base:** `main` `dacd921903a867de99276f8709f829995602c3bd`. Remote `main` was re-fetched before the corrections (unchanged); the check immediately before the push is recorded under Publication.
 - **No restart:** the implementation (`c367457`) was not restarted or rewritten, and no other branch was merged.
 - **Concurrent work:** no open PR changed since the build. Draft PR #429 (START, out of scope) shares three files with this branch: `.github/workflows/sms-consent.yml`, `AGENT_RULES.md` and `WORK_LOG.md`. Whichever merges second must reconcile them. #429 was not touched.
-- **One local rebuild before first publication.** The never-published local branch was rebuilt once, so that the separate security item's remediation plan stays private and out of this public repository. The original local commits remain on a local backup ref; nothing shared was rewritten.
+- **One local rebuild before first publication.** The never-published local branch was rebuilt once. Nothing shared was rewritten.
 
 **Corrections (files).**
 
@@ -406,6 +411,8 @@ All are documented in §9. In addition:
 | `scripts/tests/sms-responsiveness/measure.mjs` | Real clicks only, after a trial-click actionability preflight. Each send starts with no toast on screen. BLOCKED / FAILED / MEASURED per surface and viewport, with reasons, geometry and screenshots. `SMS_EXPECT_BLOCKED`, GitHub annotations and a step summary; exit 1 on any unexpected block or failure. |
 | `.github/workflows/sms-consent.yml` | `src/App.tsx` in the path filter; `pendingSmsBridgeMount.test.ts` in the SMS Vitest step; an explicit `SMS_EXPECT_BLOCKED`. |
 | `src/components/messaging/__tests__/pendingSmsBridgeMount.test.ts` | New source audit: the bridge is mounted once, inside `AuthProvider` and outside the router. Mutation-checked: removing the mount fails 2 of its 3 tests. |
+| `src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx` | Preflight fix: `renderView` passes the bridge through Testing Library's `wrapper`. A fragment made the contact-switch preservation pin remount on `rerender` and pass without exercising the switch. Mutation-checked: with the contact id dropped from `useContactHistory`'s key, the old harness passed and the fixed one fails. |
+| `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx` | Preflight addition: an uncertain result for a contact the agent has left never reloads the open thread, and that thread's draft survives. Mutation-checked: it fails when scope events reach every contact. After both fixes: the CI SMS list passes (12 files, 259 tests); `tsc -p tsconfig.app.json` still gives 84 diagnostics with none new; ESLint is clean on both files. |
 | This plan | §1 goal wording; §2 G0-3 and §3 with exact values and metric definitions; §6 file list (the `smsConsent` claim corrected); §8 method; §10 inferred attributions labelled; §13 rewritten; this section |
 | `WORK_LOG.md` | 2026-10-14 entry: claims corrected; new 2026-10-15 entry |
 | `evidence/test-mapping.md`, `evidence/server-latency.md`, `evidence/regression.md`, `evidence/vitest-files-*.json` | New auditable evidence |
@@ -426,14 +433,26 @@ All are documented in §9. In addition:
 - **Vitest without Supabase env (as CI):**
   - base 5,183 passed, candidate 5,350 passed;
   - **1 failing test on each side, the same pre-existing `recordingRetentionVoicemail` case**;
-  - the same 10 files fail to load on each side (`supabaseUrl is required.`);
+  - the same 10 failing files on each side: 9 fail to load without Supabase env (`supabaseUrl is required.`), plus `recordingRetentionVoicemail` (the failing test above);
   - 34 skipped on each side, with an identical inventory;
   - 0 unhandled runtime errors.
 - **ESLint on the changed TypeScript files:** 0 errors; 1 pre-existing warning.
 - **Build and Reports tests:** both pass.
 
-The dummy-env run and its comparison are in `evidence/regression.md`.
+A dummy-env full run at both SHAs (base re-run in a clean `dacd921` worktree) gives 5,301 → 5,468 tests and 5,266 → 5,433 passed, with the same single failure, 34 skipped on each side, exactly the 12 mapped names absent and no status changes (`evidence/regression.md`). The two preflight test fixes above came after this run. They change only tests; CI's `reports-frontend` on the published head compares them against base (Publication).
 
-**Publication preflight.** In progress at this commit; the result is recorded before the push.
+**Publication preflight.** A read-only multi-agent review: 9 lenses, with each finding verified twice adversarially, then a completeness critic. It covered every unpublished commit patch (including removed lines), the uncommitted records, the PR description, the screenshots and local mirrors of the CI artifacts.
+- **Secrets:** none in any unpublished patch, document, screenshot or artifact. The historical exposed value is in no unpublished patch. It remains only at its pre-existing lines, shifted down by the new entries.
+- **Customer data:** none real. All fixture and test data is synthetic. The only real number is the agency's own sender number, already public on `main`.
+- **Triggers:**
+  - Pushing the branch fires no workflow.
+  - The draft PR triggers 5 isolated workflows: no secrets, loopback databases, no deploy.
+  - Both Vercel projects build protected previews; the Supabase preview is skipped (no `supabase/` change).
+  - No trigger is unauthorized.
+- **Fixed before publication:**
+  - Public text gave the separate security item a dated status; it is now neutral.
+  - The contact-view test harness let the contact-switch preservation pin pass by remounting. The bridge now rides in `wrapper`. Mutation-checked: with the contact id dropped from the history key, the old harness passed and the corrected one fails.
+  - An uncertain SMS result arriving after a contact switch was untested. A test was added in `conversationThreadPendingSms`; mutation-checked, it fails when scope events reach every contact.
+  - About 35 record inaccuracies: failing-file and test-file counts, test-mapping details, function-version and retention caveats, the per-call trace behind the inferred gaps, the fixture description, cost figures for both surfaces, and PR wording.
 
 **Publication.** Recorded after the push, with the exact published head and its CI, in the follow-up records commit.
