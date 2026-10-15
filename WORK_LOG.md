@@ -1,3 +1,288 @@
+## 2026-10-15 — Instant manual SMS: a failed refresh over an empty thread shows the error and Retry (draft PR #445; not a release)
+
+**Approval.** Chris's owner-pasted message approved only:
+- the prepared empty-thread refresh-error fix;
+- its regression tests;
+- these records;
+- a normal push to draft PR #445.
+
+Not approved: merge, auto-merge, production deployment, live SMS, backend commands, migrations, Realtime changes. The starting head was `e75d8c8`. `main` is unchanged at `dacd921`. `AGENT_RULES.md`, `VISION.md` and this log show no conflicting newer entries.
+
+**Change** (`3f9bac5`).
+- `src/components/conversations/ConversationThread.tsx`: "No messages yet" now requires no visible rows **and** no load error (one condition).
+- After a successful empty read, a failed refresh shows the existing "Couldn't refresh this conversation. Retry" line; a successful empty Retry restores the empty state.
+- No UI redesign, scroll change or other branch change.
+
+**Files.**
+- `src/components/conversations/ConversationThread.tsx`;
+- `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx` (2 regressions);
+- plan §15.6 (closed) and §15.8;
+- this entry.
+
+**Verification.**
+- **Regressions:** both fail with the `e75d8c8` application code ("No messages yet" shown over a failed refresh) and pass now.
+  - They cover a failed refresh after an empty load, and: empty → uncertain send → failed recovery read → Dismiss.
+  - Retry is a history read only, so the POST count stays at **1**.
+  - The dismissed send keeps its request ID, and the newer draft survives.
+- CI SMS list: 12 files, **280 passed**. Other conversation, scope and View As tests: 72 passed.
+- `tsc --noEmit` exit 0; app `tsc`: 84 diagnostics, identical to `e75d8c8`.
+- ESLint is clean. Build passes. `git diff --check` is clean.
+- Responsiveness fixture (CI mode): exit 0. The deferred case is 3/3 on both surfaces; 390×844 is the expected BLOCKED.
+
+**Blockers and remaining limits.**
+- No blockers.
+- While a Retry or quiet reload is in flight, a thread whose last good read was empty shows "No messages yet" until it settles. This is unchanged.
+- The other §15.6 limits stand: the newest-row jump after a failing first load, the pinned-status announcement, mobile BLOCKED, and the 4× contact p95.
+- No `AGENT_RULES.md` amendment: the existing rule that an error state stays distinct from the empty state covers it.
+
+Migrations, production deployments, Edge deploys, backend commands and live SMS: none.
+
+## 2026-10-15 — Instant manual SMS: two review items before release (draft PR #445; not a release)
+
+**Approval.** Chris's owner-pasted reply approved only:
+- the initial-history-loading visibility correction;
+- reproduction of the contact-switch recovery-event risk, and the smallest correction if reproduced;
+- their focused tests, the existing plan, verification and Work Log records, and a normal push to the draft PR.
+
+Not approved, and not done: merge, auto-merge, production deployment, live SMS, backend work, migrations, Realtime changes, secret rotation, unrelated refactors.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md` §15.
+- **Starting point:** reviewed head `16058e6`, application code and tests as of `6576512`. `main` is unchanged at `dacd921`. `AGENT_RULES.md`, `VISION.md` and this log were reread; the newest entries do not conflict.
+
+**Commits.**
+- `97f6f01` (`97f6f01ac84172ee06324c7a96b00ef71e25f86d`): application, tests and fixture;
+- the records commit: this entry and plan §15.
+
+**Item 1: pending SMS while the first history load is pending (reproduced; fixed).**
+- **Defect.** `ConversationThread` showed only the spinner while `loading && !hasRows`, hiding this tab's pending and reconciled SMS until history settled.
+- **Fix (render only).** The full-area spinner and the tall error panel appear only when there is nothing to show. Otherwise this tab's rows render under one pinned line: "Loading conversation…", or "Couldn't load this conversation · reason · Retry". Send is not gated on history, and unknown history is never shown as empty.
+- **Evidence:**
+  - 14 new component tests on the real page with a held history Promise: 12 fail on `16058e6`, 2 are preservation tests, and all pass after.
+  - The browser fixture's new deferred-history case fails on `16058e6` (Conversations) and passes after.
+  - An ad hoc overflow check: unpinned, the line sat 346 px out of view; pinned, it stays visible.
+  - The contact record never had the defect: its timeline already rendered pending items while loading.
+
+**Item 2: an old scope's event inside the contact-switch commit (reproduced; fixed).**
+- **Reproduction.** `useSmsScopeEvents` re-targeted its handler in the layout phase but dropped the old subscription in passive cleanup. A deterministic same-tree test emits A's recovery event from a later sibling's layout effect in the switching commit, with no settling step.
+- **On `16058e6`:**
+  - A→B: B's handler reloaded B.
+  - A→View As in place: the read-only thread reloaded A.
+- **Fix.** Each subscription now delivers only while the handler is still for its own scope. 4 of 5 new tests fail before (the fifth is a preservation test); all pass after.
+- **Reachability in the app:** click switches flush passive effects in the same task. The gap remains only for a default-lane switch from a contact with no loaded rows. The fix closes it whatever the lane.
+
+**Tests and fixture.**
+- New tests:
+  - `conversationThreadPendingSms.test.tsx`: 14;
+  - `conversationThreadIsolation.test.tsx`: 5 (3 component, 2 hook-level).
+- The deferred-history case in `scripts/tests/sms-responsiveness` checks:
+  - the text is visible before history and before the receipt;
+  - then the saved row, a single copy after history lands, a cleared composer and page errors.
+- `SMS_DEFERRED_HISTORY_MS`: a blank value takes the default; `0` warns; invalid values (and values outside 1,000–600,000 ms) fail.
+- No workflow change: both test files were already in the `sms-consent` list.
+
+**Verification (final working tree).**
+- CI SMS list: 12 files, **278 passed** (259 + 19).
+- Related isolation, contact, deep-link and View As suites: 477 passed, identical to `16058e6`. One file needs Supabase env on both sides.
+- `tsc --noEmit` exit 0; `tsc -p tsconfig.app.json`: 84 diagnostics, identical to `16058e6`, none new against `dacd921`.
+- ESLint on changed files: 0 errors and 0 warnings. Build passes. `git diff --check` is clean.
+- Fixture in CI mode: exit 0. Desktop is measured; 390×844 is the expected BLOCKED on both builds.
+- **Deferred-history timings** (history held 4 s; 10 clicks; p50 / p95 ms):
+
+  | CPU | Surface | Base | Candidate |
+  |---|---|---|---|
+  | 1× | Conversations | 6,261.8 / 6,279.1 | 14.1 / 14.9 |
+  | 1× | Contact record | 3,601.9 / 3,700.8 | 14.8 / 25.8 |
+  | 4× | Conversations | 6,456.6 / 6,541.8 | 47.5 / 71.0 |
+  | 4× | Contact record | 3,751.0 / 3,816.4 | 77.8 / 125.3 |
+
+  - The 4× contact p95 misses the 100 ms goal.
+  - Ordinary sends: an interleaved A/B found no measurable difference.
+- **Review.** A read-only multi-agent review (adversarially verified) plus a second check of the post-review changes. Fixed what they confirmed: the pinned line, the fixture's post-receipt checks and env parsing, and the critic's test gaps.
+
+**Not changed (reported in plan §15.6).**
+- **"No messages yet" over a failed refresh of a known-empty thread hides Retry.** From `c367457`, not on `main`. It is reachable via an uncertain send, a failed recovery reload and Dismiss. A tested one-condition patch is ready and needs Chris's approval.
+- **The newest-row jump stays armed after a first load that keeps failing.** The same on `16058e6`.
+- **The pinned status may not be announced** by some screen readers.
+- **Mobile 390×844 stays BLOCKED.**
+
+Migrations, production deployments, Edge deploys, backend commands and live SMS: none.
+
+## 2026-10-15 — Instant manual SMS feedback: verification corrections and draft PR #445 (not a release)
+
+**Approval.** Chris approved limited verification corrections, a **draft** PR, isolated CI and frontend preview verification.
+- **This is not release approval.** Merge, production deployment, production migration, Edge deployment, production settings and live SMS are not approved.
+- Application changes and backend mutation commands need his separate approval. None were made.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md` §14 (new) and §13 (rewritten).
+
+**Preserved work.**
+- Base `main` `dacd921` was re-fetched twice and is unchanged. `AGENT_RULES.md`, `VISION.md` and this log were reread.
+- The implementation commit `c367457` is unchanged. No other branch was merged.
+- Draft PR #429 (START, out of scope) shares `sms-consent.yml`, `AGENT_RULES.md` and this log with this branch; whichever merges second reconciles them.
+- **The never-pushed local branch was rebuilt once before first publication.** Nothing shared was rewritten.
+
+**Commits (this stage).**
+- `14fd40f`: corrected fixture, CI coverage, bridge-mount guard test;
+- `ba6d405`: server-timing evidence, test mapping, corrected method;
+- `3582ea1`: user-visible results, screenshots, superseded results; plan §13 rewritten; the 2026-10-14 entry corrected in place;
+- `a16be8f`, `3cce8ba`, `530aff1`: SHA-tied regression evidence (both modes, base provenance), plan §14, this entry;
+- `6576512`: preflight corrections, two test fixes and record corrections (below). Published as draft PR #445 at this head;
+- the publication records commit: this entry's Publication section and plan §14.
+
+**Corrections.**
+1. **Fixture.** Real clicks only, after a Playwright actionability preflight. Nothing uses Enter, a forced click or DOM insertion.
+   - "Visible" means non-zero size, CSS-visible, at least half inside the viewport and every clipping ancestor, and not covered.
+   - Rendered (DOM) times are kept only as diagnostics.
+   - Each send starts with no toast on screen: base's success toast covers its own Send spinner.
+   - An unusable layout is BLOCKED, with its geometry and a screenshot. Unexpected blocks or failures fail CI.
+2. **Results** (desktop 1440×900, p50 / p95 ms).
+   - **1×:** click → outgoing text visible: Conversations 2,479.8 / 2,496.1 → **18.1 / 27.1**; contact record 2,282.7 / 2,290.4 → **24.4 / 35.4**.
+   - **4× CPU** (separate): 2,642.9 / 2,738.1 → **85.6 / 143.2**; 2,406.7 / 2,436.9 → **132.8 / 182.1**. The ≤100 ms p95 goal is **not met at 4×**.
+   - **Costs:** base's spinner-only first change is faster than the candidate's first change.
+     - p50 at 1×: Conversations 14.0 → 18.1 ms, contact record 15.9 → 24.4 ms.
+     - p50 at 4×: 57.3 → 85.6 ms and 83.4 → 132.8 ms.
+     - The click's Event Timing duration also rises (p95 at 1×: 32 → 40 ms and 24 → 48 ms).
+     - The likely cause, not profiled: the pending item re-renders the unmemoized history list.
+3. **Mobile 390×844: BLOCKED on both builds** by the pre-existing desktop-only layouts.
+   - Conversations: the 300 px contact pane covers Send.
+   - Contact record: the message column sits off-screen inside overflow-hidden ancestors.
+   - The earlier 390 px figures were rendering-only (they used Enter). They are superseded and kept in `measurements/superseded-2026-10-14/`. No mobile timing is claimed. No mobile redesign, virtualization or broad memoization was done.
+4. **Server time** is now stated exactly (`evidence/server-latency.md`):
+   - Edge `execution_time_ms` 4,462–5,143 ms over the 4 successful `twilio-sms` POSTs in `function_edge_logs` (2026-10-08T15:15Z → 2026-10-14T18:51Z);
+   - the client round trip and carrier delivery are not measured;
+   - the previously quoted Twilio sub-timings are labelled as inferred from log gaps.
+5. **Regression evidence** (`evidence/regression.md`, `evidence/test-mapping.md`, `evidence/vitest-files-*.json`). The repo's `reports-frontend` verification ran at `dacd921` vs `3582ea1` and exited 0. It is **baseline-equivalent, not a clean pass**:
+   - `tsc -p tsconfig.app.json`: 85 → 84 diagnostics, none new.
+   - Vitest: 1 failing test on each side (the same pre-existing `recordingRetentionVoicemail`, a moving `origin/main` comparison); the same 10 failing files on each side (9 fail to load without Supabase env, plus that test's file); 34 skipped on each side with an identical inventory; no new failure and no unhandled errors.
+   - The 12 changed base test names are mapped to their replacements.
+   - A dummy-env full run at both SHAs: 5,301 → 5,468 tests and 5,266 → 5,433 passed, with the same single failure, 34 skipped on each side and no status changes. The base was re-run in a clean `dacd921` worktree.
+   - ESLint: 0 errors and the 1 pre-existing warning. The build passes.
+6. **CI coverage.** `src/App.tsx` was the only changed file missing from the `sms-consent` path filter; it is added. The new `pendingSmsBridgeMount.test.ts` guards the bridge mount, and was mutation-checked by removing the mount. `SMS_EXPECT_BLOCKED` is explicit.
+7. **Record corrections.** The plan claimed `smsConsent.test.tsx` was updated; it is unchanged. The 2026-10-14 entry's timing and server claims are corrected in place.
+
+**Publication preflight.** A read-only multi-agent review: 9 lenses, with each finding verified twice adversarially, then a completeness critic. It covered every unpublished commit patch (including removed lines), the uncommitted records, the PR description, the screenshots and local mirrors of the CI artifacts.
+- **Secrets:** none in any unpublished patch, document, screenshot or artifact. The historical exposed value is in no unpublished patch. It remains only at its pre-existing lines, shifted down by the new entries.
+- **Customer data:** none real. All fixture and test data is synthetic. The only real number is the agency's own sender number, already public on `main`.
+- **Triggers:**
+  - Pushing the branch fires no workflow.
+  - The draft PR triggers 5 isolated workflows: no secrets, loopback databases, no deploy.
+  - Both Vercel projects build protected previews; the Supabase preview is skipped (no `supabase/` change).
+  - No trigger is unauthorized.
+- **Fixed before publication:**
+  - Public text gave the separate security item a dated status; it is now neutral.
+  - The contact-view test harness let the contact-switch preservation pin pass by remounting. The bridge now rides in `wrapper`. Mutation-checked: with the contact id dropped from the history key, the old harness passed and the corrected one fails.
+  - An uncertain SMS result arriving after a contact switch was untested. A test was added in `conversationThreadPendingSms`; mutation-checked, it fails when scope events reach every contact.
+  - About 35 record inaccuracies: failing-file and test-file counts, test-mapping details, function-version and retention caveats, the per-call trace behind the inferred gaps, the fixture description, cost figures for both surfaces, and PR wording.
+
+**Publication.**
+- **Remote `main`:** re-fetched immediately before the push at 2026-10-15T05:54:23Z. Unchanged at `dacd921903a867de99276f8709f829995602c3bd`.
+- **Push:** only `claude/sms-instant-send-20261014`, by explicit refspec. No force-push and nothing pushed to `main`.
+- **Draft PR #445** against `main`, opened 2026-10-15T05:55Z at head `65765128fe9be9430814e6696345f9cbb5e83b4e`. No auto-merge, no merge.
+- **CI on that exact head: all green.**
+  - `sms-consent` (run 38689402597):
+    - the SMS Vitest list: 12 files, 259 tests;
+    - native PostgreSQL and concurrent dispatch; the Dialer DNC suite; the Deno tests (48 passed);
+    - the sms-visual fixture: PASS at 1440 and 390 px.
+    - The responsiveness fixture measured desktop over 5 sends each (recorded, not gated): p95 to visible 20.2 ms (Conversations) and 32.7 ms (contact record). Both 390 px cases appear as expected-block warnings.
+    - Artifact `sms-consent-browser` (ID 11951142239): 10 files, the fixture JSON and screenshots plus the existing sms-visual screenshots.
+  - `reports-frontend` (run 38689402538): exit 0.
+    - Base `dacd921` 5,185 passed; head 5,353 passed.
+    - 1 pre-existing failing test and the same 10 failing files on both sides.
+    - 84 app type diagnostics, none new; 0 unhandled runtime errors.
+    - ESLint and build pass.
+    - CI counts are 2 higher on each side than the shallow local run, because full history lets git-object tests run.
+    - Artifact `reports-frontend-evidence-38689402538` (ID 11951102328): 14 files, 7-day retention.
+  - `dialer-dnc-backend`, `reporting-integrity` and `onboarding-emails` (verify, postgres) pass.
+  - **Supabase Preview: skipped.** No `supabase/` change; no preview branch was created (`list_branches` unchanged).
+- **Vercel previews:** protected, `target: null`, READY in both projects from `6576512`: `agentflow` (`dpl_AWqNaQm9N2H4sCuQEhjhVyNA3tze`) and `agentflow-life-insure` (`dpl_GyZ7CTZFkdKNjm1BnP6QN44JThws`).
+  - **Method:** verified without opening or signing in to a preview, without creating a bypass link, and without any send.
+  - **Modules:** the build log shows 4,769 modules against 4,761 for `main`'s production build, which are the 8 new modules.
+  - **CSS:** a local build of `6576512` reproduces the preview's `index-DCqoQ4C2.css` exactly. A local build of `dacd921` likewise reproduces `main`'s `index-0hcdISoo.css`.
+  - **JS:** hashes differ because each environment inlines its own `VITE_*` values.
+- **CI artifacts:** the downloads were not opened, because their storage host is not allowed by this session's network policy. They are produced by the same scripts as the local mirrors the preflight reviewed, and their file counts match (10 and 14).
+- **This records commit** changes only `WORK_LOG.md` and this plan. It becomes the new head; its CI is reported on the PR.
+
+**Separate security item.** Out of scope here and tracked privately with Chris. This task made no security changes.
+
+**Migrations/deploys:** none. **Production writes:** none. **Live SMS:** none. **Merge or production deploy:** not done, not approved.
+
+**Next release gate.**
+1. Chris reviews the draft PR.
+2. Merge and the production frontend deploy need his separate approval, and only on a green, exact head.
+3. The served bundle is then read back.
+4. No send from the preview: it is wired to production, so any send there is a live SMS.
+
+## 2026-10-14 — Instant manual SMS feedback (frontend only; local branch, not published)
+
+**Request and approval.** Chris approved a frontend-only build with binding corrections D1–D9 and design corrections 1–7, plus bounded read-only Gate 0 checks.
+- **Not approved:** backend code, production mutations, Realtime publication changes, merge, deployment, publication (pushing the branch counts), separate security work and live SMS.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md`. §13 holds the verification record and §10 the backend recommendation.
+
+**Base and branch.**
+- **Base:** `main` `dacd921`, rechecked unchanged before editing.
+- **Branch:** `claude/sms-instant-send-20261014`, local commits only.
+- **Commits:**
+  - `488d4fc`: plan and Gate 0 evidence;
+  - `c367457`: implementation and tests;
+  - the records commit that follows them: browser fixture, CI, `AGENT_RULES` #31, the plan's verification record (§13), measurement summaries and this entry. Rebuilt before first publication; see the 2026-10-15 entry.
+
+**Gate 0** (read-only, plan §2):
+- `messages` and `contact_emails` are not in the Realtime publication;
+- the live `twilio-sms` v38 equals the repository;
+- 4 successful sends had Edge execution times of 4,462–5,143 ms (`execution_time_ms` from `function_edge_logs`). The production client round trip and carrier delivery are not measured; evidence is in `evidence/server-latency.md` (corrected 2026-10-15). One traced send shows 19 sequential Supabase calls with 3,542 ms of origin time;
+- one enforced agency;
+- 8 `sms_dispatches` rows, all accepted.
+
+**What changed.**
+- **Shared send path** (`src/lib/sms-send/`):
+  - an exact response classifier;
+  - a memory-only pending store holding identity scope, an authority generation, `SmsIntent` reuse with conditional completion, single flight per contact, the D2 guard, capacity rules and draft sinks;
+  - a dependency-injected sender: session, then the authority re-check, then exactly one POST with the deadline, classify, settle, then the targeted `.maybeSingle()` row read at +0, +2 and +10 s;
+  - merges by `message_id` only.
+- **Surfaces:**
+  - Conversations: a synchronous `onSubmitSms`, with the View As refusal still first; the page-wide SMS lock is replaced by per-contact flight; email is unchanged.
+  - Thread: pending rows, quiet reloads that keep rows ("Couldn't refresh · Retry"), and a scroll rule (jump on first load and own send; follow only within 120 px).
+  - Contact record: SMS through the shared path, pending items in the timeline, no success toast; history refresh after acceptance only while Activity is open, and a recovery refresh after uncertainty.
+  - `App.tsx` mounts `PendingSmsAuthorityBridge`.
+- **Status line:** Sending… / Still sending… / Not sent (Edit, Dismiss) / Not confirmed (Dismiss) / Accepted · history not saved / Accepted · history pending.
+
+**Verification** (full record: plan §13). Base `dacd921` was reproduced first.
+- **`npx tsc --noEmit`:** exit 0 on both. The root config checks no files.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 85 → **84**, no new diagnostic. The one removed is the replaced contract-test mock.
+- **Vitest** (`TZ=UTC`, dummy `VITE_SUPABASE_*`): base 5,266 passed / 1 failed / 34 skipped; candidate **5,430 passed / 1 failed / 34 skipped**. The failure is the same pre-existing `recordingRetentionVoicemail` case. The CI SMS list passes without env: 11 files, 255 tests.
+- **ESLint** on all 31 changed files: 0 errors. The only warning is the pre-existing `FullScreenContactView` exhaustive-deps one.
+- **`npm run build`:** passes. **`git diff --check dacd921`:** clean.
+- **Browser fixture** (`scripts/tests/sms-responsiveness/`, synthetic data and a fake transport: 1,500 ms receipt, 80 ms row read, 250 ms list reads). Corrected on 2026-10-15: desktop measured with all functional assertions passing; 390×844 BLOCKED on both builds.
+
+**Measurements: superseded on 2026-10-15.** The figures first recorded here were DOM rendering times, not visibility times. The 390×844 rows used Enter on layouts where the sent text never becomes visible. Neither is a user-visible result.
+- The originals are kept in `measurements/superseded-2026-10-14/`.
+- The corrected figures are in the 2026-10-15 entry and plan §13.2: desktop measured, mobile BLOCKED, and 4× throttling reported separately (p95 143–182 ms, above the 100 ms goal).
+
+**Limits.**
+- Exactly-once delivery is not claimed. A lost response stays "Not confirmed".
+- The legacy (non-enforced) path ignores request IDs; it has no current traffic.
+- STOP/DNC (`SMS_STATE`) reads "Not confirmed".
+- Realtime is still unpublished, so inbound replies do not appear live.
+- State is per tab, memory-only, and ends on reload or sign-out.
+- A second text to the same contact waits for the first.
+- Server time is unchanged (Edge execution 4,462–5,143 ms over 4 sends). Only the waiting is hidden.
+- File growth: `ConversationThread.tsx` 474 → 585, `Conversations.tsx` 324 → 338, `FullScreenContactView.tsx` 1,435 → 1,461. New components are under 70 lines.
+
+**Release gates** (none performed):
+1. Chris's review.
+2. Push and PR (publication).
+3. CI.
+4. A preview check: any real send there is a live SMS and needs approval.
+5. Merge and Vercel deploy.
+6. Read back the served bundle.
+
+B0 and the separate security work are separate approvals.
+
+**Separate items.**
+- **D5:** sidebar defect reported, not fixed. `ConversationsSidebar.tsx:91,190` shows the skeleton on every reload; `:102` empties the list when a reload fails. Unchanged on this branch.
+- **D8:** B0 (timing instrumentation, `twilio-sms/index.ts` only) is recommended as the next backend step. Not implemented (plan §10).
+- **Security:** a separate security item is tracked privately with Chris and is out of scope here.
+
+**Migrations/deploys:** none. **Publication:** none as of 2026-10-14 (see the 2026-10-15 entry). **Live SMS:** none.
+
 ## 2026-10-14 — ClearPath saved-lead notification bridge
 
 Chris approved the API integration after Twilio browser handoff failed. Added a separate Ed25519-authenticated endpoint, fixed to Chris's home agency and selected 916 sender/909 recipient. It accepts only a request UUID, send/status operation and lead/test kind. No prospect contact or insurance data crosses this bridge. Public verification key only in source; private signing key stays in Sites runtime secrets.

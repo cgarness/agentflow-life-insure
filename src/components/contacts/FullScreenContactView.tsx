@@ -1,5 +1,9 @@
 import { useScopedDraft } from "@/hooks/useScopedDraft";
-import { SmsIntent } from "@/lib/sms-intent";
+import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
+import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
+import { pendingSmsStore, smsScopeKey, type SmsIdentityScope } from "@/lib/sms-send/pendingSmsStore";
+import { REFUSAL_MESSAGES } from "@/lib/sms-send/sendManualSms";
+import { mergeTimelineItems } from "@/lib/sms-send/smsDisplayMerge";
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { X, Phone, Calendar, Pencil, Trash2, ArrowLeft, Clock, Pin, FileText, ChevronDown, Save, Clipboard, AlertTriangle, Plus } from "lucide-react";
 import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
@@ -39,6 +43,7 @@ import { emailSupabaseApi, type UserEmailConnection } from "@/lib/supabase-email
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
 import { normalizeDispositionValue } from "@/lib/supabase-contacts";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
+import { PendingSmsStatus } from "@/components/messaging/PendingSmsStatus";
 import {
   CONTACT_FIELD_LAYOUT_KEY,
   getDefaultFieldOrder,
@@ -257,14 +262,32 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const [dispositionColors, setDispositionColors] = useState<Record<string, string>>({});
   const [composeTab, setComposeTab] = useState<"SMS" | "Email">("SMS");
   const [composeText, setComposeText] = useScopedDraft(fieldScope);
-  const smsIntent = useRef(new SmsIntent());
 
   const [emailSubject, setEmailSubject] = useScopedDraft(fieldScope);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [emailConnections, setEmailConnections] = useState<UserEmailConnection[]>([]);
   const [selectedEmailConnectionId, setSelectedEmailConnectionId] = useState("");
+  // EMAIL only. A manual SMS is single-flight per contact, in the shared pending-SMS store (D1).
   const [messageSending, setMessageSending] = useState(false);
   const messageSendingRef = useRef(false);
+
+  // Manual SMS: this tab's pending sends for the REAL actor on this contact (none under View As).
+  const smsScope = useMemo<SmsIdentityScope | null>(() => (
+    contact?.id && user?.id && profile?.id === user.id && profile.organization_id && !isImpersonating
+      ? { organizationId: profile.organization_id, actorId: user.id, viewerId: profile.id, contactType: type, contactId: contact.id }
+      : null
+  ), [contact?.id, user?.id, profile?.id, profile?.organization_id, isImpersonating, type]);
+  const smsKey = smsScope ? smsScopeKey(smsScope) : null;
+  const smsRecords = usePendingSmsRecords(smsKey);
+  const smsInFlight = smsRecords.some((r) => r.state === "sending");
+  const smsDraft = useComposerDraftSink(smsKey, composeTab === "SMS" ? "sms" : "email", composeText, setComposeText);
+  const timeline = useMemo(() => mergeTimelineItems(convoItems, smsRecords), [convoItems, smsRecords]);
+  useMarkObserved(timeline.observed);
+  // The saved row already shows in the conversation, so an accepted send refreshes history only
+  // while Activity is open; an uncertain outcome refreshes once to show whatever was saved.
+  useSmsScopeEvents(smsKey, (event) => {
+    if (event === "recovery" || rightTab === "Activity") history.refresh();
+  });
   const latestContactIdRef = useRef<string | null>(null);
   latestContactIdRef.current = contact?.id ?? null;
 
@@ -716,8 +739,37 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     } catch (e: any) { toast.error(e.message); }
   };
 
+  /** Start a manual SMS. Nothing is awaited: the pending item renders from this click. */
+  const submitSms = () => {
+    if (!contact.phone) {
+      toast.error("This contact has no phone number.");
+      return;
+    }
+    if (!smsScope) {
+      toast.error(REFUSAL_MESSAGES.authority);
+      return;
+    }
+    manualSmsSender.submit({
+      ...smsScope,
+      to: toE164Plus(contact.phone),
+      body: composeText.trim(),
+      senderPreference: fromNumber.trim() ? toE164Plus(fromNumber) : null,
+      contactLabel: contactDisplayName(contact) || null,
+      origin: {
+        sinkId: smsDraft.sinkId,
+        clear: () => {
+          const revision = smsDraft.clearForSend();
+          setComposeText("");
+          return revision;
+        },
+      },
+    });
+  };
+
   const handleSendMessage = async () => {
-    if (!composeText.trim() || messageSendingRef.current || isImpersonating) return;
+    if (!composeText.trim() || isImpersonating) return;
+    if (composeTab === "SMS") return submitSms();
+    if (messageSendingRef.current) return;
     messageSendingRef.current = true;
     setMessageSending(true);
     try {
@@ -756,39 +808,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         toast.success("Email queued");
         setComposeText("");
         setEmailSubject("");
-        history.refresh();
-      } else {
-        if (!contact.phone) {
-          toast.error("This contact has no phone number.");
-          setMessageSending(false);
-          return;
-        }
-        const base = import.meta.env.VITE_SUPABASE_URL as string;
-        const smsBody = composeText.trim();
-        const smsFrom = fromNumber.trim() ? toE164Plus(fromNumber) : undefined;
-        const smsTo = toE164Plus(contact.phone);
-        const intentPayload = [session.user.id,organizationId,type,contact.id,smsTo,smsFrom,smsBody];
-        const sendingScope = fieldScope;
-        const res = await fetch(`${base}/functions/v1/twilio-sms`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            request_id: smsIntent.current.id(intentPayload), actor_id:session.user.id, organization_id:organizationId, view_as:isImpersonating,
-            to: smsTo,
-            from: smsFrom,
-            body: smsBody,
-            contact_id: contact.id,
-            contact_type: type,
-            lead_id: contact.id,
-          }),
-        });
-        const result = await res.json();
-        if (!result.success) { toast.error(result.error || "Failed to send message"); setMessageSending(false); return; }
-        toast.success("Message sent");
-        smsIntent.current.accepted(intentPayload);
-        if (fieldScopeRef.current === sendingScope) setComposeText("");
-        // twilio-sms echoes the persisted row id and Twilio's own status — carry the real values,
-        // never an invented delivery state (R2).
         history.refresh();
       }
     } catch (err: any) { toast.error(err.message || "Failed to send message"); } finally { messageSendingRef.current = false; setMessageSending(false); }
@@ -1121,7 +1140,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <ConversationTimeline
               key={contact.id}
-              items={convoItems}
+              items={timeline.items}
               loading={convoLoading}
               loadError={convoLoadError}
               filter={convoFilter}
@@ -1131,6 +1150,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onLoadEarlier={history.loadConversation}
               onRefresh={history.refresh}
               enrichmentUnavailable={history.conversation.enrichmentUnavailable}
+              renderSmsStatus={(item) => item.pending ? (
+                <PendingSmsStatus
+                  view={item.pending}
+                  canEdit={composeTab === "SMS" && !composeText}
+                  onEdit={(localId) => pendingSmsStore.editIntoComposer(localId, smsDraft.sinkId)}
+                  onDismiss={pendingSmsStore.dismiss}
+                />
+              ) : null}
             />
 
             <MessageComposePanel
@@ -1145,11 +1172,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onSendMessage={handleSendMessage}
               sendDisabled={
                 isImpersonating || !composeText.trim() ||
-                messageSending ||
-                (composeTab === "SMS" && !contact.phone) ||
-                (composeTab === "Email" && (!contact.email || !selectedEmailConnectionId))
+                (composeTab === "SMS" && (smsInFlight || !contact.phone)) ||
+                (composeTab === "Email" && (messageSending || !contact.email || !selectedEmailConnectionId))
               }
-              sendLoading={messageSending}
+              sendLoading={composeTab === "SMS" ? smsInFlight : messageSending}
             />
           </div>
         </div>

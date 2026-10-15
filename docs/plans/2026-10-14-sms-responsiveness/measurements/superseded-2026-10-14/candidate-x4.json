@@ -1,0 +1,225 @@
+{
+ "label": "candidate",
+ "build": "c367457 (src identical at HEAD)",
+ "throttle": 4,
+ "conditions": {
+  "build": "vite production build of the fixture",
+  "browser": "Playwright 1.56.1 headless Chromium",
+  "cpuThrottle": 4,
+  "thread": "100 SMS, 50 calls, 50 emails",
+  "contact": "90 history items loaded",
+  "receiptMs": 1500,
+  "rowReadMs": 80,
+  "listReadMs": 250
+ },
+ "runs": [
+  {
+   "surface": "conversations",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 83.9,
+     "p95": 129,
+     "max": 146.8
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 83.9,
+     "p95": 129,
+     "max": 146.9
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 39.3,
+     "p95": 67.7,
+     "max": 68.8
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1500.6,
+     "p95": 1502.9,
+     "max": 1504.2
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 151.5,
+     "p95": 177.8,
+     "max": 181
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1702.2,
+     "p95": 1733.8,
+     "max": 1743.1
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 96,
+     "p95": 144,
+     "max": 152,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "conversations",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 69.3,
+     "p95": 109.7,
+     "max": 111.8
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 69.3,
+     "p95": 109.8,
+     "max": 111.8
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 34.5,
+     "p95": 56.7,
+     "max": 69.8
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1501,
+     "p95": 1503.7,
+     "max": 1505.5
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 154.7,
+     "p95": 177.2,
+     "max": 208.2
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1689.7,
+     "p95": 1719,
+     "max": 1752
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 64,
+     "p95": 104,
+     "max": 112,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 130.8,
+     "p95": 176.3,
+     "max": 180.2
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 130.8,
+     "p95": 176.3,
+     "max": 180.2
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 57.8,
+     "p95": 99.7,
+     "max": 110.5
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1500.7,
+     "p95": 1502.4,
+     "max": 1502.6
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 189,
+     "p95": 232.3,
+     "max": 279.8
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1757.3,
+     "p95": 1813,
+     "max": 1833.6
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 136,
+     "p95": 176,
+     "max": 184,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 113.7,
+     "p95": 142.5,
+     "max": 158.9
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 113.7,
+     "p95": 142.5,
+     "max": 158.9
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 45.2,
+     "p95": 68.2,
+     "max": 73.7
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1501,
+     "p95": 1502.9,
+     "max": 1504.1
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 187.2,
+     "p95": 249.3,
+     "max": 264.1
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1733,
+     "p95": 1803.2,
+     "max": 1838.7
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 112,
+     "p95": 144,
+     "max": 160,
+     "under16ms": 0
+    }
+   }
+  }
+ ]
+}

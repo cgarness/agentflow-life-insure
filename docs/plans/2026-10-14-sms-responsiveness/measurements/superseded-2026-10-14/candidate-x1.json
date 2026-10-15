@@ -1,0 +1,225 @@
+{
+ "label": "candidate",
+ "build": "c367457 (src identical at HEAD)",
+ "throttle": 1,
+ "conditions": {
+  "build": "vite production build of the fixture",
+  "browser": "Playwright 1.56.1 headless Chromium",
+  "cpuThrottle": 1,
+  "thread": "100 SMS, 50 calls, 50 emails",
+  "contact": "90 history items loaded",
+  "receiptMs": 1500,
+  "rowReadMs": 80,
+  "listReadMs": 250
+ },
+ "runs": [
+  {
+   "surface": "conversations",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 18.7,
+     "p95": 27.8,
+     "max": 28.6
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 18.7,
+     "p95": 27.8,
+     "max": 28.7
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 9,
+     "p95": 13.6,
+     "max": 17.7
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.6,
+     "max": 1501.1
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 104.5,
+     "p95": 107.1,
+     "max": 107.7
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1614.7,
+     "p95": 1617.2,
+     "max": 1619.8
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 32,
+     "p95": 40,
+     "max": 48,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "conversations",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 19.7,
+     "p95": 26.9,
+     "max": 35
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 19.7,
+     "p95": 26.9,
+     "max": 35
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 7.7,
+     "p95": 12.7,
+     "max": 22.1
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.2,
+     "p95": 1500.4,
+     "max": 1501.5
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 98.4,
+     "p95": 108.1,
+     "max": 109
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1606.9,
+     "p95": 1620.3,
+     "max": 1624.4
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 16,
+     "p95": 24,
+     "max": 32,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 25.4,
+     "p95": 39,
+     "max": 40.1
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 25.4,
+     "p95": 39,
+     "max": 40.1
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 12,
+     "p95": 17.1,
+     "max": 17.8
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.5,
+     "max": 1500.6
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 104.8,
+     "p95": 110,
+     "max": 115.9
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1617.1,
+     "p95": 1627.4,
+     "max": 1631.5
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 32,
+     "p95": 40,
+     "max": 48,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 26.5,
+     "p95": 36,
+     "max": 37.7
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 26.5,
+     "p95": 36,
+     "max": 37.7
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 8.9,
+     "p95": 13.9,
+     "max": 15.6
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.4,
+     "max": 1501
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 103.4,
+     "p95": 108.8,
+     "max": 113.6
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1613.4,
+     "p95": 1622.1,
+     "max": 1627.6
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 24,
+     "p95": 40,
+     "max": 40,
+     "under16ms": 0
+    }
+   }
+  }
+ ]
+}
