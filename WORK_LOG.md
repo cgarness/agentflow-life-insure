@@ -1,4 +1,4 @@
-## 2026-10-15 — Instant manual SMS feedback: verification corrections and draft-PR publication (not a release)
+## 2026-10-15 — Instant manual SMS feedback: verification corrections and draft PR #445 (not a release)
 
 **Approval.** Chris approved limited verification corrections, a **draft** PR, isolated CI and frontend preview verification.
 - **This is not release approval.** Merge, production deployment, production migration, Edge deployment, production settings and live SMS are not approved.
@@ -16,8 +16,8 @@
 - `ba6d405`: server-timing evidence, test mapping, corrected method;
 - `3582ea1`: user-visible results, screenshots, superseded results; plan §13 rewritten; the 2026-10-14 entry corrected in place;
 - `a16be8f`, `3cce8ba`, `530aff1`: SHA-tied regression evidence (both modes, base provenance), plan §14, this entry;
-- the preflight-corrections commit: two test fixes and record corrections (below);
-- later records commits after publication.
+- `6576512`: preflight corrections, two test fixes and record corrections (below). Published as draft PR #445 at this head;
+- the publication records commit: this entry's Publication section and plan §14.
 
 **Corrections.**
 1. **Fixture.** Real clicks only, after a Playwright actionability preflight. Nothing uses Enter, a forced click or DOM insertion.
@@ -64,7 +64,33 @@
   - An uncertain SMS result arriving after a contact switch was untested. A test was added in `conversationThreadPendingSms`; mutation-checked, it fails when scope events reach every contact.
   - About 35 record inaccuracies: failing-file and test-file counts, test-mapping details, function-version and retention caveats, the per-call trace behind the inferred gaps, the fixture description, cost figures for both surfaces, and PR wording.
 
-**Publication.** Recorded after the push, with the exact published head and its CI.
+**Publication.**
+- **Remote `main`:** re-fetched immediately before the push at 2026-10-15T05:54:23Z. Unchanged at `dacd921903a867de99276f8709f829995602c3bd`.
+- **Push:** only `claude/sms-instant-send-20261014`, by explicit refspec. No force-push and nothing pushed to `main`.
+- **Draft PR #445** against `main`, opened 2026-10-15T05:55Z at head `65765128fe9be9430814e6696345f9cbb5e83b4e`. No auto-merge, no merge.
+- **CI on that exact head: all green.**
+  - `sms-consent` (run 38689402597):
+    - the SMS Vitest list: 12 files, 259 tests;
+    - native PostgreSQL and concurrent dispatch; the Dialer DNC suite; the Deno tests (48 passed);
+    - the sms-visual fixture: PASS at 1440 and 390 px.
+    - The responsiveness fixture measured desktop over 5 sends each (recorded, not gated): p95 to visible 20.2 ms (Conversations) and 32.7 ms (contact record). Both 390 px cases appear as expected-block warnings.
+    - Artifact `sms-consent-browser` (ID 11951142239): 10 files, the fixture JSON and screenshots plus the existing sms-visual screenshots.
+  - `reports-frontend` (run 38689402538): exit 0.
+    - Base `dacd921` 5,185 passed; head 5,353 passed.
+    - 1 pre-existing failing test and the same 10 failing files on both sides.
+    - 84 app type diagnostics, none new; 0 unhandled runtime errors.
+    - ESLint and build pass.
+    - CI counts are 2 higher on each side than the shallow local run, because full history lets git-object tests run.
+    - Artifact `reports-frontend-evidence-38689402538` (ID 11951102328): 14 files, 7-day retention.
+  - `dialer-dnc-backend`, `reporting-integrity` and `onboarding-emails` (verify, postgres) pass.
+  - **Supabase Preview: skipped.** No `supabase/` change; no preview branch was created (`list_branches` unchanged).
+- **Vercel previews:** protected, `target: null`, READY in both projects from `6576512`: `agentflow` (`dpl_AWqNaQm9N2H4sCuQEhjhVyNA3tze`) and `agentflow-life-insure` (`dpl_GyZ7CTZFkdKNjm1BnP6QN44JThws`).
+  - **Method:** verified without opening or signing in to a preview, without creating a bypass link, and without any send.
+  - **Modules:** the build log shows 4,769 modules against 4,761 for `main`'s production build, which are the 8 new modules.
+  - **CSS:** a local build of `6576512` reproduces the preview's `index-DCqoQ4C2.css` exactly. A local build of `dacd921` likewise reproduces `main`'s `index-0hcdISoo.css`.
+  - **JS:** hashes differ because each environment inlines its own `VITE_*` values.
+- **CI artifacts:** the downloads were not opened, because their storage host is not allowed by this session's network policy. They are produced by the same scripts as the local mirrors the preflight reviewed, and their file counts match (10 and 14).
+- **This records commit** changes only `WORK_LOG.md` and this plan. It becomes the new head; its CI is reported on the PR.
 
 **Separate security item.** Out of scope here and tracked privately with Chris. This task made no security changes.
 
