@@ -155,7 +155,7 @@ expect_failure 'ops activation fails closed while that grid has no verified impo
 echo '== 3b. production-style restricted SET probe'
 sql -c "DROP ROLE IF EXISTS comp_restricted_set_probe; CREATE ROLE comp_restricted_set_probe NOLOGIN NOSUPERUSER; GRANT USAGE,CREATE ON SCHEMA public TO comp_restricted_set_probe; GRANT comp_restricted_set_probe TO postgres" >/dev/null
 expect_failure 'non-super function owner cannot use a restricted SET parameter' 'permission denied to set parameter' -- sql -c "SET ROLE comp_restricted_set_probe; CREATE FUNCTION public.comp_restricted_set_probe_fn() RETURNS void LANGUAGE plpgsql SET session_replication_role='replica' AS 'BEGIN NULL; END'"
-sql -c "REVOKE comp_restricted_set_probe FROM postgres; DROP ROLE comp_restricted_set_probe" >/dev/null
+sql -c "REVOKE USAGE,CREATE ON SCHEMA public FROM comp_restricted_set_probe; REVOKE comp_restricted_set_probe FROM postgres; DROP ROLE comp_restricted_set_probe" >/dev/null
 
 echo '== 3c. production-style non-super CREATEROLE ownership transfer'
 sql -c "DROP ROLE IF EXISTS comp_prod_child_probe; DROP ROLE IF EXISTS comp_prod_owner_probe; CREATE ROLE comp_prod_owner_probe NOLOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS; GRANT comp_prod_owner_probe TO postgres; CREATE SCHEMA comp_prod_probe AUTHORIZATION comp_prod_owner_probe" >/dev/null
