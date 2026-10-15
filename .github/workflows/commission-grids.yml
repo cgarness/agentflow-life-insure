@@ -1,0 +1,74 @@
+name: Commission grids verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261015120*_commission_grids_*.sql'
+      - 'supabase/migrations/rollback/20261015120*_commission_grids_*.rollback.sql'
+      - 'supabase/tests/commission_grids_*.sql'
+      - 'supabase/tests/fixtures/commission_grids/**'
+      - 'supabase/ops/commission_grids_*.sql'
+      - 'scripts/comp_grids/**'
+      - 'scripts/tests/comp_grids/**'
+      - 'scripts/commission_grids_concurrency.mjs'
+      - 'scripts/run_commission_grids_tests.sh'
+      - 'src/lib/commission/**'
+      - 'src/hooks/useCommissionCalculator.ts'
+      - 'src/hooks/useCommissionGridsAdmin.ts'
+      - 'src/hooks/useGridEditorDraft.ts'
+      - 'src/hooks/useUnsavedNavigationGuard.ts'
+      - 'src/pages/CommissionCalculatorPage.tsx'
+      - 'src/components/commission/**'
+      - 'src/components/settings/commission-grids/**'
+      - 'src/components/layout/CommissionCalculatorNavItem.tsx'
+      - '.github/workflows/commission-grids.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: commission-grids-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  database:
+    name: PostgreSQL 17.6 suites (synthetic data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55446:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Schema, access, operations, import, reconciliation, negative controls, concurrency, rollback
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55446
+        run: bash scripts/run_commission_grids_tests.sh
+  frontend:
+    name: Calculator and grid editor tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Pure calculator, calculator page, navigation and settings tests (synthetic data)
+        run: >-
+          npx vitest run src/lib/commission src/components/commission src/components/settings/commission-grids
+          src/hooks/__tests__/useUnsavedNavigationGuard.test.tsx
+          src/components/layout/__tests__/viewAsSidebarNav.test.tsx src/pages/__tests__/settingsPageHeading.test.tsx

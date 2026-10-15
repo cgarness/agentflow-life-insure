@@ -38,3 +38,9 @@ supabase/functions/.env
 
 # Local onboarding email previews (scripts/render-onboarding-email-previews.ts)
 tmp/onboarding-email-previews/
+
+# Commission grids: private reference-data inputs and outputs never enter Git (decision D1;
+# docs/plans/2026-10-15-commission-calculator/reference-import-runbook.md)
+/private/commission-grids/
+**/ffl_comp_rates*.csv
+**/*.comp_reference_grid.json

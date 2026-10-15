@@ -1,0 +1,11 @@
+category,carrier,product,variant,min_age,max_age,term_years,145,140,135,130,125,120,115,110,105,100,95,90,85,80,75,70,65,source,notes
+Term,Synthetic Carrier Alpha,Alpha Level Term,10-20 yr,18,65,10|15|20,120,115,110,105,100,95,90,85,80,75,70,65,60,55,50,45,40,"Synthetic schedule A, page 1",
+Term,Synthetic Carrier Alpha,Alpha Level Term,30 yr,18,50,30,110,105,100,95,90,85,80,75,70,65,,,,,,,,,Synthetic: 30-year term issues to age 50 only
+Term,"Synthetic Carrier, Beta & Co.",Beta Term w/ Rider,,,,20,100,97.5,95,92.5,90,87.5,85,82.5,80,77.5,75,72.5,70,67.5,65,62.5,0,,
+Whole Life,Synthetic Carrier Alpha,Alpha Final Expense,0-70,,70,,116,111,106,101,96,91,87.50,86,81,76,71,66,61,56,51,46,41,"Synthetic schedule A, page 2","Synthetic line one
+Synthetic line two — not a real carrier"
+Whole Life,Synthetic Carrier Alpha,Alpha Final Expense,71-85,71,85,,60,57.5,55,52.5,50,47.5,45,42.5,40,37.5,35,32.5,30,27.5,25,0,,,
+Whole Life,Synthetic Carrier Gamma,Gamma Dual Plan,,,,,90,88,86,84,82,80,78,76,74,72,,,,,,,,Synthetic dual listing (whole life),
+Term,Synthetic Carrier Gamma,Gamma Dual Plan,,,,10|20,85,83.25,81.5,79.75,78,76.25,74.5,72.75,71,69.25,67.5,65.75,64,62.25,60.5,58.75,57,Synthetic dual listing (term),
+IUL,Synthetic Carrier Delta,Delta Index Builder,0-17,0,17,,130,125,120,115,110,105,100,95,90,85,80,75,70,65,60,55,50,,Juvenile band — synthetic
+IUL,Synthetic Carrier Delta,Delta Index Builder,18-80,18,80,,140,135,130,125,120,115,110,105,100,95,90,85,80,75,70,65,0.5,,

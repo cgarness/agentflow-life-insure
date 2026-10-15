@@ -1,0 +1,30 @@
+{
+ "format": "agentflow.comp_reference_grid.manifest.v1",
+ "note": "Non-sensitive record of the private FFL reference import. Never add rates, carrier/product names, notes or acceptance expectations here (decision D1).",
+ "status": "BLOCKED",
+ "blockers": [
+  "Source ffl_comp_rates.csv not supplied (decision D4): validation, local import, reconciliation and source-backed acceptance have not run; the 41/57/11 inventory is unverified.",
+  "Durable private location for the original CSV and the exact import artifact not yet named (decision D1)."
+ ],
+ "grid": {
+  "id": "6ad6d4e4-4024-5dae-bef5-de0202ab1b6e",
+  "name": "FFL Compensation Grid",
+  "effective_date": "2025-11-20",
+  "contract_levels": [145, 140, 135, 130, 125, 120, 115, 110, 105, 100, 95, 90, 85, 80, 75, 70, 65]
+ },
+ "importer_version": "1.0.0",
+ "source": {"file_name": "ffl_comp_rates.csv", "sha256": null, "bytes": null, "data_rows": null},
+ "artifact_sha256": null,
+ "content_sha256": null,
+ "inventory_to_verify": {"products": 41, "variants": 57, "carriers": 11},
+ "verified_counts": null,
+ "private_location": null,
+ "verification": {
+  "validate": "BLOCKED",
+  "local_import": "BLOCKED",
+  "reconciliation": "BLOCKED",
+  "source_acceptance": "BLOCKED",
+  "production_import": "NOT APPROVED",
+  "production_activation": "NOT APPROVED"
+ }
+}
