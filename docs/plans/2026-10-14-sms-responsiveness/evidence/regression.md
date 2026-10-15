@@ -66,7 +66,9 @@ With dummy variables (`TZ=UTC`, `VITE_SUPABASE_URL=http://127.0.0.1:54321` and s
 | Skipped | 34 | 34 |
 
 - **Base tests absent on the candidate:** exactly the 12 mapped in `test-mapping.md`.
+- **Tests added on the candidate:** 179 (unique test names).
 - **Status changes:** none. No base failure now passes, and no base pass now fails.
+- **Base run provenance:** the base run was repeated on 2026-10-15 in a clean, detached `dacd921` worktree (`git status` empty). Its per-test results are identical to the first base run.
 
 ### Skipped tests
 
