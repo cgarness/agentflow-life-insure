@@ -174,7 +174,7 @@ sql -c 'GRANT UPDATE (organization_id) ON public.comp_grids TO authenticated' >/
 expect_failure 'access suite detects a widened browser grant' 'A10h' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
 new_db neg_role
 sql -c 'ALTER ROLE agentflow_comp_operator BYPASSRLS' >/dev/null
-expect_failure 'access suite detects a BYPASSRLS operation role' 'A10e' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
+expect_failure 'access suite detects a BYPASSRLS operation role' 'A4j' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
 new_db neg_membership
 sql -c 'GRANT agentflow_comp_operator TO authenticated' >/dev/null
 expect_failure 'access suite detects client membership in operation role' 'A10f' -- sql -f "$ROOT/supabase/tests/commission_grids_access.sql"
