@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   isImpersonating: false,
   permsLoading: false,
   isSuperAdmin: true,
+  sectionAccess: (_slug: string): boolean => true,
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -36,7 +37,7 @@ vi.mock("@/hooks/useOrganization", () => ({
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({
     hasPageAccess: () => true,
-    hasSettingsSectionAccess: () => true,
+    hasSettingsSectionAccess: (slug: string) => state.sectionAccess(slug),
     isLoading: state.permsLoading,
   }),
 }));
@@ -53,6 +54,18 @@ vi.mock("@/hooks/useCustomMenuLinks", () => ({
   },
 }));
 vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
+const calculatorState = vi.hoisted(() => ({
+  ready: true,
+  lastOptions: undefined as undefined | { enabled?: boolean },
+}));
+vi.mock("@/hooks/useCommissionCalculator", () => ({
+  // Records the Sidebar's query-level gate for the calculator status read (as for custom links), and
+  // mirrors the real hook: visible only when enabled AND the agency has a ready grid.
+  useCommissionCalculatorAccess: (options?: { enabled?: boolean }) => {
+    calculatorState.lastOptions = options;
+    return { visible: options?.enabled !== false && calculatorState.ready };
+  },
+}));
 
 import Sidebar from "../Sidebar";
 import { SETTINGS_CONFIG } from "@/config/settingsConfig";
@@ -68,7 +81,7 @@ const SETTINGS_SECTION_LABELS = SETTINGS_CONFIG.flatMap((c) => c.sections.map((s
 const SUPPORTED = ["Contacts", "Conversations"];
 const UNSUPPORTED = [
   "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
-  "AI Agents", "Training", "Resources", "Settings",
+  "AI Agents", "Training", "Resources", "Commission Calculator", "Settings",
 ];
 const SUPER_ADMIN_ONLY = ["AI Testing", "Agencies", "Control Center"];
 
@@ -76,7 +89,10 @@ beforeEach(() => {
   state.isImpersonating = false;
   state.permsLoading = false;
   state.isSuperAdmin = true;
+  state.sectionAccess = () => true;
   customLinksState.lastOptions = undefined;
+  calculatorState.ready = true;
+  calculatorState.lastOptions = undefined;
 });
 afterEach(cleanup);
 
@@ -202,6 +218,7 @@ describe("on a BLOCKED Settings URL while impersonating", () => {
       expect(screen.queryAllByText(label), `Settings section "${label}" rendered under View As`).toEqual([]);
     }
     expect(screen.queryAllByText("Back to App"), "Back to App (→ /dashboard) was offered").toEqual([]);
+    expect(screen.queryAllByText("Commission Grids"), "admin-only Commission Grids rendered under View As").toEqual([]);
     for (const label of [...UNSUPPORTED, ...SUPER_ADMIN_ONLY, "Custom Link"]) {
       expect(screen.queryAllByText(label), `${label} leaked onto /settings`).toEqual([]);
     }
@@ -217,5 +234,51 @@ describe("on a BLOCKED Settings URL while impersonating", () => {
     expect(screen.queryAllByText("Agency & Team").length).toBeGreaterThan(0);
     // Settings mode replaces the main menu for an ordinary session — unchanged behaviour.
     expect(screen.queryAllByText("Contacts")).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("Commission Calculator navigation", () => {
+  it("sits directly below Resources for an ordinary session with a ready grid", () => {
+    renderSidebar();
+    const labels = screen.getAllByRole("link").map((link) => link.textContent?.trim());
+    expect(labels.indexOf("Commission Calculator")).toBe(labels.indexOf("Resources") + 1);
+  });
+
+  it("is hidden when the agency has no ready grid or the role may not view its own commission", () => {
+    calculatorState.ready = false;
+    renderSidebar();
+    expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
+  });
+
+  it("is not even QUERIED under View As (enabled: false), and is queried for an ordinary session", () => {
+    state.isImpersonating = true;
+    renderSidebar();
+    expect(calculatorState.lastOptions).toEqual({ enabled: false });
+    expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
+    cleanup();
+    state.isImpersonating = false;
+    renderSidebar();
+    expect(calculatorState.lastOptions).toEqual({ enabled: true });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("admin-only Commission Grids settings entry", () => {
+  it("is listed under Agency & Team for an agency admin", () => {
+    renderSidebarAt("/settings?section=my-profile");
+    expect(screen.queryAllByText("Commission Grids").length).toBeGreaterThan(0);
+  });
+
+  it("is not listed for roles without access, and never fails open while permissions load", () => {
+    state.sectionAccess = (slug) => slug !== "commission-grids";
+    renderSidebarAt("/settings?section=my-profile");
+    expect(screen.queryAllByText("Commission Grids")).toEqual([]);
+    expect(screen.queryAllByText("User Management").length).toBeGreaterThan(0);
+    cleanup();
+    state.sectionAccess = () => true;
+    state.permsLoading = true;
+    renderSidebarAt("/settings?section=my-profile");
+    expect(screen.queryAllByText("Commission Grids")).toEqual([]);
   });
 });

@@ -30,6 +30,7 @@ import Training from "./pages/Training";
 import Resources from "./pages/Resources";
 import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
+import CommissionCalculatorPage from "./pages/CommissionCalculatorPage";
 import AgentProfile from "./pages/AgentProfile";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -150,6 +151,7 @@ const App = () => (
                           <Route path="/ai-agents/new" element={<PageGuard pageName="AI Agents"><AIAgentCreate /></PageGuard>} />
                           <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />
                           <Route path="/resources" element={<PageGuard pageName="Resources"><Resources /></PageGuard>} />
+                          <Route path="/commission-calculator" element={<CommissionCalculatorPage />} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />

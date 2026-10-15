@@ -2,7 +2,8 @@
 # Commission grids: every database proof on a DISPOSABLE localhost PostgreSQL cluster (AGENT_RULES
 # invariant #28). Synthetic data only. Refuses anything but a loopback cluster without hosted roles.
 #   PGURL=postgres://postgres:<password>@127.0.0.1:<port> bash scripts/run_commission_grids_tests.sh
-# Steps: migration order and replay guards · schema / access / operations suites · importer unit tests,
+# Steps: migration order and replay guards · schema / access / operations suites · the editor's change sets
+# against the real operation (vitest) · importer unit tests,
 # synthetic artifact, import suite, CSV reconciliation and ops scripts · negative controls (the assertions
 # bite) · concurrency proofs · non-destructive rollback.
 set -euo pipefail
@@ -87,6 +88,11 @@ for suite in schema access operations; do
   new_db "$suite"
   run_suite "$suite"
 done
+
+new_db contract
+(cd "$ROOT" && COMP_DB_URL="$DB_URL" npx vitest run src/lib/commission/__tests__/changeSetServer.integration.test.ts) > "$TEMP/contract.out" 2>&1 || { cat "$TEMP/contract.out"; exit 1; }
+grep -q 'Tests  2 passed' "$TEMP/contract.out" || { cat "$TEMP/contract.out"; exit 1; }
+echo '   ok   editor change sets: real comp_save_grid_changes as an agency admin; read-back equals the draft; stale refused'
 
 echo '== 3. importer, synthetic artifact, import suite, reconciliation, ops scripts'
 python3 "$ROOT/scripts/tests/comp_grids/test_reference_grid_importer.py" > "$TEMP/unit.out" 2>&1 || { cat "$TEMP/unit.out"; exit 1; }

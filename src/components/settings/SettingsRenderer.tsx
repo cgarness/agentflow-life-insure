@@ -16,6 +16,7 @@ import CustomMenuLinks from "@/components/settings/CustomMenuLinks";
 import ActivityLog from "@/components/settings/ActivityLog";
 import AgencyGroupSettings from "@/components/settings/AgencyGroupSettings";
 import WorkflowBuilder from "@/components/settings/WorkflowBuilder";
+import CommissionGridsSettings from "@/components/settings/commission-grids/CommissionGridsSettings";
 import { Settings } from "lucide-react";
 import { ALL_SETTINGS_SECTIONS } from "@/config/settingsConfig";
 
@@ -52,6 +53,7 @@ const SettingsRenderer: React.FC<SettingsRendererProps> = ({ activeSlug, isSuper
     case "activity-log": return <ActivityLog />;
     case "agency-group": return <AgencyGroupSettings />;
     case "automation": return <WorkflowBuilder />;
+    case "commission-grids": return <CommissionGridsSettings />;
     default: {
       const section = ALL_SETTINGS_SECTIONS.find(s => s.slug === activeSlug);
       const Icon = section?.icon || Settings;

@@ -5829,6 +5829,43 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_commission_calculator_status: { Args: never; Returns: Json }
+      get_commission_calculator_context: { Args: never; Returns: Json }
+      comp_list_shared_grid_catalog: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+          effective_date: string
+          contract_levels: number[]
+          is_enabled: boolean
+        }[]
+      }
+      comp_get_admin_overview: { Args: never; Returns: Json }
+      comp_get_grid_snapshot: { Args: { p_grid_id: string }; Returns: Json }
+      comp_enable_shared_grid: { Args: { p_grid_id: string }; Returns: Json }
+      comp_disable_shared_grid: { Args: { p_grid_id: string }; Returns: Json }
+      comp_select_calculator_grid: {
+        Args: { p_grid_id: string | null; p_expected_current: string | null }
+        Returns: Json
+      }
+      comp_create_private_grid: {
+        Args: {
+          p_mode: string
+          p_name: string
+          p_effective_date: string
+          p_source_grid_id?: string
+        }
+        Returns: Json
+      }
+      comp_save_grid_changes: {
+        Args: { p_grid_id: string; p_expected_revision: number; p_changes: Json }
+        Returns: Json
+      }
+      comp_delete_private_grid: {
+        Args: { p_grid_id: string; p_expected_revision: number }
+        Returns: Json
+      }
       get_contact_conversation_page: {
         Args: { p_contact_id: string; p_contact_type: string; p_filter?: string; p_cursor?: Json; p_page_size?: number }
         Returns: Json
