@@ -103,6 +103,61 @@
    - merge and deploy of the exact merge commit;
    - post-release checks.
 
+## 2026-10-15 — Instant manual SMS: production release (PR #445 merged; frontend only)
+
+**Approval.** Chris's owner-sent message approved:
+- marking PR #445 ready and merging the exact reviewed candidate;
+- the Git-linked Vercel production frontend deployments;
+- read-only verification and these records.
+
+Not approved, and not done: live SMS or calls, Supabase mutations, migrations, Edge deployments, Realtime, A2P or START changes, secret rotation, environment or domain changes.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md` §16.
+- **Records:** this entry and §16, on a separate documentation branch and PR.
+
+**Preflight.**
+- **Candidate:** head `6a2a3b2` (approved) on base `dacd921` (reviewed), re-confirmed immediately before the merge.
+- **Exact-head CI green:**
+  - `sms-consent`: 280 tests, including both empty-thread regressions; SQL, DNC, Deno, sms-visual and the deferred-history fixture pass.
+  - `reports-frontend` exit 0, **baseline-equivalent**: the same 1 pre-existing failing test and 10 failing files, 84 app `tsc` diagnostics, none new; ESLint and the build pass.
+- **Reviews:** none, and no review threads.
+- **Merge diff:** no `supabase/`, migration, Edge, package or Vercel-config change.
+- **Merge triggers:** no workflow on a push to `main` for these paths, nothing for the Supabase integration, and Vercel Git production builds only.
+- **Rollback targets captured:** `agentflow` `dpl_AqcLLxULHBXWQ4zjP8jPkeXWBGk2`; `agentflow-life-insure` `dpl_3YrHVpetphc587eLFJWWTTkrd8GD`.
+
+**Merge.**
+- PR #445 was merged at 14:21Z as merge commit `26f9bc127fde8a28483211efb7c4cce705b8ceb8` (parents `dacd921` and `6a2a3b2`), using the expected-head guard.
+- The merge tree `7c5d8f2` equals the reviewed head tree.
+- No direct push to `main`, no force-push, no new application commit.
+
+**Production deployments** (Vercel Git integration; no manual promotion):
+- `agentflow` `dpl_4UtN9j5bbNemnXAeoVpFXyknUX3f`:
+  - READY from `26f9bc1`;
+  - aliases `www.fflagent.com`, `fflagent.com` (redirect to www) and `agentflow-eta.vercel.app`;
+  - build: 4,769 modules, `index-Wo1JUlQp.css`, `index-CpHXGOd6.js`, no build errors.
+- `agentflow-life-insure` `dpl_5eM8bA1o7TcBmW2UTmLAJZj6VYna`:
+  - READY from `26f9bc1`;
+  - alias `agentflow-life-insure.vercel.app`;
+  - build: 4,769 modules, `index-Wo1JUlQp.css`, `index-D2FRBwsr.js`, no build errors.
+- The previous deployments hold no aliases. Vercel runtime errors: none for either project (static sites, so this covers little).
+
+**Unverified.**
+- The live production HTML and assets, and a browser smoke check on the domains, are **UNVERIFIED**. This environment's network policy denies the production hosts (proxy 403), and Vercel exposes no deployed output files for these builds.
+- No bypass link, share link or Sandbox was used.
+- **Live SMS delivery was not tested.** No test text, call, test contact or production data change.
+
+**Recovery.**
+- No failure was confirmed, so there was no rollback.
+- Vercel now lists no rollback candidates for either project, so instant rollback to the captured targets is unconfirmed.
+
+**Remaining limitations** (plan §15.6, §15.8):
+- the newest-row jump after a failing first load;
+- the pinned-status announcement;
+- mobile 390×844 BLOCKED;
+- the 4× contact-record p95 above 100 ms;
+- "No messages yet" during an in-flight Retry of an empty thread.
+
+Backend changes, Supabase changes, migrations, Edge deploys and live SMS or calls: none.
+
 ## 2026-10-15 — Instant manual SMS: a failed refresh over an empty thread shows the error and Retry (draft PR #445; not a release)
 
 **Approval.** Chris's owner-pasted message approved only:
