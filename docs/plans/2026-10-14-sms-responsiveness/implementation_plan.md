@@ -260,7 +260,7 @@ Revert the commits (or use Vercel instant rollback after a future approved relea
 - `c367457`: implementation and tests;
 - the records commit: fixture, CI, this section and the measurement summaries.
 
-The publication-stage corrections and their commits follow in §14. Application source is identical from `c367457` to HEAD. The only later `src/` change is one added test file (`pendingSmsBridgeMount.test.ts`, §14).
+The publication-stage corrections and their commits follow in §14. Application source is identical from `c367457` to `16058e6`. The only `src/` change in that range is one added test file (`pendingSmsBridgeMount.test.ts`, §14). The 2026-10-15 review fixes (§15) then change `ConversationThread.tsx` and `usePendingSms.ts`. `evidence/regression.md` and `evidence/vitest-files-*.json` describe `3582ea1`, not the §15 head.
 
 §13.1 is the 2026-10-14 gate record. The SHA-tied comparison at the publication commit is in §14 and `evidence/regression.md`.
 
@@ -482,3 +482,148 @@ A dummy-env full run at both SHAs (base re-run in a clean `dacd921` worktree) gi
   - **JS:** hashes differ because each environment inlines its own `VITE_*` values.
 - **CI artifacts:** the downloads were not opened, because their storage host is not allowed by this session's network policy. They are produced by the same scripts as the local mirrors the preflight reviewed, and their file counts match (10 and 14).
 - **This records commit** changes only `WORK_LOG.md` and this plan. It becomes the new head; its CI is reported on the PR.
+
+## 15. Review items before release (approved 2026-10-15)
+
+**Approval.** Chris's owner-pasted reply on draft PR #445 approves only the two items below, their focused tests, these existing records, and a normal push to the draft PR. Anything else needs his separate approval. Not approved: merge, auto-merge, production deployment, live SMS, backend work, migration, Realtime change, secret rotation, unrelated refactors.
+
+**Starting point.**
+- Reviewed head: `16058e6ea532ca340a2feb022a6fd1e1c65eca27`. Application code and tests are as of `6576512`.
+- `main`: `dacd921`, unchanged.
+- The working tree is clean, and the local and remote branch are both at `16058e6`.
+
+### 15.1 Item 1: pending SMS must show while the first history load is pending
+
+- **Defect.** `ConversationThread` renders only the spinner while `loading && !hasRows`. That hides pending and reconciled SMS rows the store already holds, until the history request settles.
+- **Required:**
+  - The pending text shows on Send, and on reopening a contact with a retained send, without waiting for history.
+  - A receipt plus the targeted saved-row read reconcile the bubble while history is still pending. Once history holds the same `message_id`, exactly one saved row shows.
+  - A history error never removes a pending or reconciled row.
+  - Send is not gated on history, and unknown history is never shown as empty.
+  - Scope isolation, editable drafts and scroll behaviour are preserved.
+- **Change (`ConversationThread.tsx`, render only).**
+  - The full-area spinner and the tall "Couldn't load this conversation" panel are used only when there is nothing to show.
+  - With this tab's own rows to show before the first load has succeeded, the rows render under **one pinned line** (`sticky -top-6`, `role="status"`). It reads "Loading conversation…" or "Couldn't load this conversation · reason · Retry".
+  - Pinning was added after review: unpinned, the line scrolled out of view once retained rows overflowed (§15.4).
+  - Refresh errors after a successful load are unchanged ("Couldn't refresh this conversation. Retry" below the rows).
+  - `sendDisabled` and the scroll effect are unchanged.
+
+### 15.2 Item 2: the contact-switch transition in `useSmsScopeEvents`
+
+- **Risk.** The hook moves `handler.current` to the new scope in a layout effect, but the old scope's subscription is removed only in passive cleanup, and it calls `handler.current` without checking its own scope. An event for the old scope that fires between the two would reach the new scope's handler.
+- **Plan.** Reproduce it deterministically on the real `ConversationThread`, in the same mounted tree. A sibling probe emits A's recovery event from its layout effect: after the thread's layout effects (B's handler installed), before passive cleanup (A's subscription still registered). Cover a switch to another contact and a switch to a null scope (View As).
+- **If reproduced:** bind each subscription's callback to its own scope in `usePendingSms.ts` and show the test fails before and passes after. If the lifecycle prevents the race, record the reproduction evidence and change nothing.
+
+### 15.3 Files
+
+| Kind | File |
+|---|---|
+| Application | `src/components/conversations/ConversationThread.tsx` (item 1); `src/hooks/usePendingSms.ts` (item 2; reproduced, so changed) |
+| Tests | `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx` (item 1: deferred-history regressions on the real page); `src/components/conversations/__tests__/conversationThreadIsolation.test.tsx` (item 2: same-tree transition). Both are already in the `sms-consent` CI list, so the workflow is unchanged. |
+| Fixture | `scripts/tests/sms-responsiveness/{main.tsx,measure.mjs,stubs/supabase.ts}`: the deferred-history case (send while the first history load is still pending; synthetic transport only). It checks visibility before history and before the receipt, then the saved row, the history merge (one copy), a cleared composer and page errors. `?historyMs=` slows only the history list reads. |
+| Records | This plan (§15), `WORK_LOG.md` (new newest-first entry) |
+
+### 15.4 Results (2026-10-15)
+
+**Commits:** `97f6f01` (`97f6f01ac84172ee06324c7a96b00ef71e25f86d`): application, tests and fixture; then the records commit (this section and `WORK_LOG.md`).
+
+**Item 1: reproduced and corrected.**
+- **Unit and component tests** (real `Conversations` page; history is a held Promise, synthetic transport): 14 new tests.
+  - 12 fail on the `16058e6` application code. The first failing assertion is "the pending text is hidden behind the history spinner".
+  - 2 are preservation tests and pass on both: the scroll test, and B's held first load while A has a retained send.
+  - All 14 pass after the change.
+  - Covered:
+    - Send before history or the POST resolves; the receipt reconciling while history is still held; history with the same `message_id` showing one row;
+    - a history rejection before and after reconciliation, then Retry;
+    - a proven refusal returning the draft and the spinner (never "No messages yet");
+    - one send in flight, with no resend on reopen;
+    - reopening with an in-flight, Not confirmed, reconciled or "Accepted · history pending" record;
+    - an uncertain result on the open contact while its first read is held (the superseded read is discarded);
+    - Edit on a Not sent item kept beside a newer draft;
+    - scrolling;
+    - the pinned line.
+- **Browser fixture, deferred-history case** (history held 4,000 ms; Send clicked while it is pending):
+  - The `16058e6` build FAILS Conversations: "the outgoing text was not visible until history loaded".
+  - The contact record passes on `16058e6` too. `ConversationTimeline` already renders pending items while loading, so the contact record never had this defect.
+- **Overflow check** (ad hoc; 14 sends while history is held; desktop):
+  - Unpinned, the "Loading conversation…" line ended 346 px above the visible area.
+  - Pinned, it stays visible at the top of the thread. jsdom cannot lay out, so the component test pins the structure and this browser check covers the layout.
+
+**Item 2: reproduced and corrected.**
+- Deterministic, in one mounted tree. A later sibling's layout effect emits A's recovery event in the same commit as the switch, after `handler.current` points at B or at the null scope and before passive cleanup removes A's subscription. No `waitFor` or settling step runs between the switch and the emit. The test asserts A's subscription was still registered when the event fired.
+- On the `16058e6` hook:
+  - A→B: B's handler ran A's event and requested contact B (`["bbbb…"]`).
+  - A→View As in place: the read-only thread reloaded A (`["aaaa…"]`).
+  - Hook-level probes: `B:recovery` and `none:recovery`.
+- 4 of 5 new tests fail on `16058e6`. The fifth (B's own event reloads B once; A's later events do nothing) is a preservation test.
+- **Change:** each subscription delivers only while the handler is still for its own scope (`usePendingSms.ts`). All pass after it.
+- **Reachability in the app** (verified against react-dom 18.3.1):
+  - A click-driven switch is a sync-lane commit, so passive effects flush in the same task.
+  - On a `ConversationThread` switch away from a contact whose rows had loaded, the layout effect's `setLoaded(null)` schedules a sync re-render that also flushes passive effects first.
+  - A gap across tasks therefore remains only for a default-lane switch, such as an awaited deep-link selection or an asynchronous identity change, from a contact with no loaded rows. The fix closes it whatever the lane.
+
+**Gates (final working tree).**
+
+| Gate | Result |
+|---|---|
+| Focused files (`conversationThreadPendingSms`, `conversationThreadIsolation`) | 56 passed. The same files with the `16058e6` application code: 16 failed, 40 passed (the 16 are the new tests above; the other 3 new tests are the preservation tests). |
+| CI SMS list (12 files) | **278 passed** (259 before plus 19 new), no `act` warnings |
+| Related isolation, contact view, deep-link and View As suites (42 files) | 477 passed, 5 skipped, 0 failed. One file fails to load without Supabase env (`addLeadAssignmentGate`), identically at `16058e6`. No status differences. |
+| `npx tsc --noEmit` | exit 0 |
+| `npx tsc -p tsconfig.app.json --noEmit` | 84 diagnostics, identical multiset to `16058e6`; none new against base `dacd921` (85) |
+| ESLint on the 7 changed code files | 0 errors, 0 warnings |
+| `npm run build` | passes (4,769 modules) |
+| `git diff --check` | clean |
+| Fixture, CI mode (candidate, 5 sends, deferred 3 sends) | exit 0. 1440 measured: Conversations p50/p95 25.9/40.0 ms, contact 33.7/44.9 ms. Deferred: 3/3 visible before history and before the receipt, 3/3 reconciled before history, on both surfaces. 390×844 is the expected BLOCKED on both (unchanged, pre-existing layouts). |
+| Fixture env handling | non-numeric values, delays outside 1,000–600,000 ms and 0 sends are rejected (exit 1); blank takes the default; `0` runs without the case and emits a `::warning` plus a summary row |
+
+**Deferred-history timings** (desktop 1440×900; history held 4,000 ms; 10 real clicks per row; click → outgoing text visible; p50 / p95 ms, where p95 is the maximum of 10).
+
+| CPU | Surface | Base `dacd921` | Candidate | Candidate: visible before history / before receipt / reconciled before history |
+|---|---|---|---|---|
+| 1× | Conversations | 6,261.8 / 6,279.1 | **14.1 / 14.9** | 10 / 10 / 10 |
+| 1× | Contact record | 3,601.9 / 3,700.8 | **14.8 / 25.8** | 10 / 10 / 10 |
+| 4× | Conversations | 6,456.6 / 6,541.8 | **47.5 / 71.0** | 10 / 10 / 10 |
+| 4× | Contact record | 3,751.0 / 3,816.4 | **77.8 / 125.3** | 10 / 10 / 10 |
+
+- Base shows nothing before history (0/10 everywhere). Its text appears only after the post-send reload, which the held history also delays.
+- The 4× contact-record p95 is above the 100 ms goal, consistent with the 4× limitation in §13.4.
+- **Ordinary sends (history already loaded) are not changed by item 1**: the pinned line renders only before the first successful load.
+  - An interleaved A/B on one host (4× CPU) compared `16058e6` with the item-1 build.
+  - Conversations, 120 sends per arm: mean +3.8 ms, permutation p = 0.149, 95% bootstrap CI of the median difference [−4.3, +7.9] ms.
+  - Contact record, 40 per arm: −1.3 ms, p = 0.88.
+  - No measurable difference. This host's 4× figures are slower than §13.2's for both builds, so they are not compared with §13.2.
+
+### 15.5 Review of the fixes
+
+A read-only multi-agent review covered the uncommitted diff: four lenses, each verified adversarially, then a completeness critic. A second adversarial check covered the post-review changes. It confirmed only limitation 1 below, refuted the fixture timing-gate concern (the 4,000 ms default at 1× is unaffected), and suggested an upper bound for `SMS_DEFERRED_HISTORY_MS` (added: 1,000–600,000). Confirmed and fixed:
+- **The first-load line and error scrolled out of view** once retained rows overflowed (low). They are now pinned.
+- **The deferred case left the page at the receipt** (coverage gap). It now also checks reconciliation, the history merge, the composer and page errors.
+- **A blank `SMS_DEFERRED_HISTORY_MS` silently disabled the case** (low). It now takes the default; `0` warns.
+- **Test gaps from the critic:** reopening with a reconciled or an accepted-pending record, an uncertain result while the first read is held, Edit on Not sent while history is pending, B's held load while A has a retained send, a pre-switch delivery check in the hook's A→null test, and the stub's last-call read no longer slowed by `historyMs`.
+
+### 15.6 Remaining limitations (not changed; outside the two approved items)
+
+1. **A failed refresh over a known-empty thread reads "No messages yet" and offers no Retry.** Confirmed by both reviews (low).
+   - Introduced on this branch by `c367457`. On `main` any load error showed the error panel.
+   - **Reachable paths:**
+     - this PR's own path: on a thread loaded as empty, send; the result is uncertain; the recovery reload fails; the agent dismisses the Not confirmed item;
+     - any other reload that fails on a thread already known to be empty.
+   - It is a refresh after a successful load, not the initial load, so it was left out of this push.
+   - **Proposed patch, ready and tested:** the empty-state branch becomes `displayRows.length === 0 && !loadError`, so the existing "Couldn't refresh this conversation. Retry" line shows instead. It comes with one regression test (fails before, passes after; 108 tests across the 5 thread and Conversations files pass with it).
+   - **Needs Chris's approval.**
+2. **After a first load that keeps failing, the newest-row jump stays armed**, so a reader scrolled up among retained rows is moved on the next record change. The same on `16058e6`.
+3. **The pinned line is a `role="status"` region mounted together with its text**, so some screen readers may not announce it. Before the change there was no accessible loading text at all.
+4. **During the switch gap, `isScopeMounted(A)` stays true** until passive cleanup, which only affects whether an off-screen result toast names the contact. On unmount, an event in the same gap reaches the unmounting handler of its own scope, which is a harmless discarded reload.
+5. **View As in Conversations remounts the thread** (keyed by viewer), so the in-place View As test exercises the hook's null-scope transition generically. `FullScreenContactView`'s in-place identity change is covered by the hook-level tests, not a component test.
+6. **Mobile 390×844 remains BLOCKED** on both builds (§13.3). 4× CPU misses the 100 ms goal on some rows.
+
+### 15.7 Release gate
+
+Unchanged from §13.5:
+1. Chris reviews this push on draft PR #445.
+2. CI must be green on the exact new head.
+3. The preview gets a build and asset check only; no send.
+4. Merge and production deploy need separate approval.
+
+No migration, Edge deploy, Realtime change, backend command or live SMS was part of this work.

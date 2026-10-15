@@ -1,3 +1,72 @@
+## 2026-10-15 — Instant manual SMS: two review items before release (draft PR #445; not a release)
+
+**Approval.** Chris's owner-pasted reply approved only:
+- the initial-history-loading visibility correction;
+- reproduction of the contact-switch recovery-event risk, and the smallest correction if reproduced;
+- their focused tests, the existing plan, verification and Work Log records, and a normal push to the draft PR.
+
+Not approved, and not done: merge, auto-merge, production deployment, live SMS, backend work, migrations, Realtime changes, secret rotation, unrelated refactors.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md` §15.
+- **Starting point:** reviewed head `16058e6`, application code and tests as of `6576512`. `main` is unchanged at `dacd921`. `AGENT_RULES.md`, `VISION.md` and this log were reread; the newest entries do not conflict.
+
+**Commits.**
+- `97f6f01` (`97f6f01ac84172ee06324c7a96b00ef71e25f86d`): application, tests and fixture;
+- the records commit: this entry and plan §15.
+
+**Item 1: pending SMS while the first history load is pending (reproduced; fixed).**
+- **Defect.** `ConversationThread` showed only the spinner while `loading && !hasRows`, hiding this tab's pending and reconciled SMS until history settled.
+- **Fix (render only).** The full-area spinner and the tall error panel appear only when there is nothing to show. Otherwise this tab's rows render under one pinned line: "Loading conversation…", or "Couldn't load this conversation · reason · Retry". Send is not gated on history, and unknown history is never shown as empty.
+- **Evidence:**
+  - 14 new component tests on the real page with a held history Promise: 12 fail on `16058e6`, 2 are preservation tests, and all pass after.
+  - The browser fixture's new deferred-history case fails on `16058e6` (Conversations) and passes after.
+  - An ad hoc overflow check: unpinned, the line sat 346 px out of view; pinned, it stays visible.
+  - The contact record never had the defect: its timeline already rendered pending items while loading.
+
+**Item 2: an old scope's event inside the contact-switch commit (reproduced; fixed).**
+- **Reproduction.** `useSmsScopeEvents` re-targeted its handler in the layout phase but dropped the old subscription in passive cleanup. A deterministic same-tree test emits A's recovery event from a later sibling's layout effect in the switching commit, with no settling step.
+- **On `16058e6`:**
+  - A→B: B's handler reloaded B.
+  - A→View As in place: the read-only thread reloaded A.
+- **Fix.** Each subscription now delivers only while the handler is still for its own scope. 4 of 5 new tests fail before (the fifth is a preservation test); all pass after.
+- **Reachability in the app:** click switches flush passive effects in the same task. The gap remains only for a default-lane switch from a contact with no loaded rows. The fix closes it whatever the lane.
+
+**Tests and fixture.**
+- New tests:
+  - `conversationThreadPendingSms.test.tsx`: 14;
+  - `conversationThreadIsolation.test.tsx`: 5 (3 component, 2 hook-level).
+- The deferred-history case in `scripts/tests/sms-responsiveness` checks:
+  - the text is visible before history and before the receipt;
+  - then the saved row, a single copy after history lands, a cleared composer and page errors.
+- `SMS_DEFERRED_HISTORY_MS`: a blank value takes the default; `0` warns; invalid values (and values outside 1,000–600,000 ms) fail.
+- No workflow change: both test files were already in the `sms-consent` list.
+
+**Verification (final working tree).**
+- CI SMS list: 12 files, **278 passed** (259 + 19).
+- Related isolation, contact, deep-link and View As suites: 477 passed, identical to `16058e6`. One file needs Supabase env on both sides.
+- `tsc --noEmit` exit 0; `tsc -p tsconfig.app.json`: 84 diagnostics, identical to `16058e6`, none new against `dacd921`.
+- ESLint on changed files: 0 errors and 0 warnings. Build passes. `git diff --check` is clean.
+- Fixture in CI mode: exit 0. Desktop is measured; 390×844 is the expected BLOCKED on both builds.
+- **Deferred-history timings** (history held 4 s; 10 clicks; p50 / p95 ms):
+
+  | CPU | Surface | Base | Candidate |
+  |---|---|---|---|
+  | 1× | Conversations | 6,261.8 / 6,279.1 | 14.1 / 14.9 |
+  | 1× | Contact record | 3,601.9 / 3,700.8 | 14.8 / 25.8 |
+  | 4× | Conversations | 6,456.6 / 6,541.8 | 47.5 / 71.0 |
+  | 4× | Contact record | 3,751.0 / 3,816.4 | 77.8 / 125.3 |
+
+  - The 4× contact p95 misses the 100 ms goal.
+  - Ordinary sends: an interleaved A/B found no measurable difference.
+- **Review.** A read-only multi-agent review (adversarially verified) plus a second check of the post-review changes. Fixed what they confirmed: the pinned line, the fixture's post-receipt checks and env parsing, and the critic's test gaps.
+
+**Not changed (reported in plan §15.6).**
+- **"No messages yet" over a failed refresh of a known-empty thread hides Retry.** From `c367457`, not on `main`. It is reachable via an uncertain send, a failed recovery reload and Dismiss. A tested one-condition patch is ready and needs Chris's approval.
+- **The newest-row jump stays armed after a first load that keeps failing.** The same on `16058e6`.
+- **The pinned status may not be announced** by some screen readers.
+- **Mobile 390×844 stays BLOCKED.**
+
+Migrations, production deployments, Edge deploys, backend commands and live SMS: none.
+
 ## 2026-10-15 — Instant manual SMS feedback: verification corrections and draft PR #445 (not a release)
 
 **Approval.** Chris approved limited verification corrections, a **draft** PR, isolated CI and frontend preview verification.
