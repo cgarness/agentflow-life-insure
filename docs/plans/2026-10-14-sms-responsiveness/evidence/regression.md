@@ -56,11 +56,17 @@ New failures on the candidate: none.
 
 `reports-frontend` sets no `VITE_SUPABASE_*` variables. Ten test files import the real Supabase client at load time and stop with `supabaseUrl is required.` They fail identically on base and candidate, and the script asserts that.
 
-With dummy variables (`TZ=UTC`, `VITE_SUPABASE_URL=http://127.0.0.1:54321`), all of them load. In that mode the 2026-10-14 runs gave:
-- base `dacd921`: 5,301 tests, 5,266 passed / 1 failed / 34 skipped;
-- candidate source (identical application code; without the later bridge-mount guard): 5,465 tests, 5,430 passed / 1 failed / 34 skipped.
+With dummy variables (`TZ=UTC`, `VITE_SUPABASE_URL=http://127.0.0.1:54321` and synthetic anon/publishable keys), all of them load. A full run in that mode at each SHA gave:
 
-The failing test is the same `recordingRetentionVoicemail` case in both modes.
+| Dummy-env full suite | Base `dacd921903a8` | Candidate `3582ea109caa` |
+|---|---|---|
+| Tests | 5,301 | 5,468 |
+| Passed | 5,266 | 5,433 |
+| Failed | 1 (`recordingRetentionVoicemail`) | 1 (the same test) |
+| Skipped | 34 | 34 |
+
+- **Base tests absent on the candidate:** exactly the 12 mapped in `test-mapping.md`.
+- **Status changes:** none. No base failure now passes, and no base pass now fails.
 
 ### Skipped tests
 
