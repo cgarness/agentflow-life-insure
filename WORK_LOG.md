@@ -1,3 +1,36 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: approved NO_COLOR runner correction on draft PR #447 (not merged, nothing applied, not release-ready)
+
+**Approval.** Chris approved one runner change after the PostgreSQL 17.6 job failed on head `10e1a73`: set `NO_COLOR=1` on the editor save-contract Vitest call, verify it, update these records and push once. Merging, marking ready, production migrations, import, activation and deploys remain unapproved.
+
+**Cause.**
+- On `10e1a73` (test-merge `9eaf79e`) the 17.6 job passed the guards, the schema, access and operations suites, and the contract test (2 of 2).
+- The runner then exited at its plain-text `Tests  2 passed` check. GitHub Actions sets `CI`, and Vitest turns color on whenever `CI` is set, so the summary carried ANSI codes and no longer matched.
+- The importer, import suite, reconciliation, ops-script, negative-control, concurrency and rollback steps never ran on 17.6. Every other job on `10e1a73` passed; Supabase Preview was skipped.
+
+**Correction `8d8cf67`.**
+- The runner sets `NO_COLOR=1` on that one Vitest call, with a one-line comment.
+- The exit-code check and the two-passing-tests check are unchanged.
+- No test, assertion, migration, grant, RLS, fixture, application, dependency or workflow change. Recorded in plan §10.
+
+**Verification (local).**
+- `bash -n` on the runner; staged and CI-style `git diff --check 03ef0cb...HEAD` both exit 0.
+- CI settings reproduced (`CI=true`, `GITHUB_ACTIONS=true`, output redirected as in the runner) on a disposable `en_US.UTF-8` database. The published line fails as CI did: 2 of 2 passed, colored summary, check fails. The corrected line passes with no escape codes, also with `FORCE_COLOR=1` or `FORCE_COLOR=3` added, because `NO_COLOR` wins in both color libraries Vitest uses. The saved grid in the database shows both tests really ran.
+- The complete runner under the same settings on PostgreSQL 16.15 with C and `en_US.UTF-8` collation: PASS, 57 checks, all six steps, identical output.
+- Temporary negative probes on the contract test, each run through the full runner and then restored byte-identical: a failing assertion, all tests skipped, one test skipped, and a file with no tests. All four make the runner exit 1 at the contract step. When tests skip, or the database URL is missing, Vitest itself exits 0, so the `Tests  2 passed` check is what refuses the run.
+- `npx tsc --noEmit` exit 0. `npx tsc -p tsconfig.app.json --noEmit` exit 2, 84 diagnostics, same set as base.
+- The three migrations, both ops scripts and the synthetic fixture are byte-identical to `10e1a73` (schema `84637cf3…f64b16`).
+
+**Migrations and deploys.** None applied to any hosted database. No deploy, import or activation. Only the automatic protected Vercel previews.
+
+**Exact-head CI** is recorded in the PR #447 description, so recording it does not move the head.
+
+**Blockers.**
+1. PostgreSQL 17.6 must complete the full runner on the new head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Independent review, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: published as draft PR #447, then the approved CI correction (not merged, nothing applied, not release-ready)
 
 **Approvals.**
