@@ -882,10 +882,12 @@ GRANT DELETE ON public.organization_comp_grids TO authenticated;
 GRANT INSERT (organization_id, calculator_grid_id) ON public.organization_comp_settings TO authenticated;
 GRANT UPDATE (calculator_grid_id) ON public.organization_comp_settings TO authenticated;
 
--- service_role (server tooling; BYPASSRLS but still subject to every trigger and constraint).
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.comp_grids, public.comp_products,
-  public.comp_product_variants, public.comp_rates, public.comp_variant_references,
-  public.organization_comp_grids, public.organization_comp_settings TO service_role;
-GRANT SELECT ON TABLE public.comp_reference_imports TO service_role;
+-- service_role (server tooling, BYPASSRLS): read-only. Shared grids change only through the postgres-only
+-- reference-import functions or a reviewed migration, and agency data only through the client operations,
+-- so no server key can write commission data directly.
+GRANT SELECT ON TABLE public.comp_grids, public.comp_products, public.comp_product_variants, public.comp_rates,
+  public.comp_variant_references, public.organization_comp_grids, public.organization_comp_settings,
+  public.comp_reference_imports
+  TO service_role;
 
 -- No peer-agency (Agency Group) read, no platform-role branch, no is_super_admin() cross-tenant branch.

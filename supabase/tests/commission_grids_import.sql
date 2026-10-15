@@ -44,21 +44,60 @@ CREATE FUNCTION comp_test.nothing_of(p_grid uuid, p_doc jsonb) RETURNS boolean L
      AND NOT EXISTS (SELECT 1 FROM public.comp_reference_imports WHERE grid_id = p_grid)
 $$;
 
--- I1. Privileged reference operations are postgres-only: no client role and not service_role.
+-- I1. Privileged reference operations are postgres-only. anon (with and without forged Agency Admin claims), an
+--     agent, an Agency Admin and service_role are refused, also when they supply both operator approval settings
+--     (read only by the ops scripts) and a forged operation flag. None of them can change a shared grid through
+--     the editor operation or a direct write either: every attempt is refused or changes no row, and the shared
+--     grids' fingerprints, the import ledger and the revision are identical afterwards.
 DO $$
-DECLARE r record; v_role text; q text;
+DECLARE
+  s1 constant uuid := '51000000-0000-0000-0000-000000000001';
+  who_role   constant text[] := ARRAY['anon', 'anon', 'authenticated', 'authenticated', 'service_role'];
+  who_claims constant text[] := ARRAY['', 'admin_a', 'agent_a', 'admin_a', ''];
+  v_before text[]; v_after text[]; v_ledger bigint; v_rev bigint; v_claims jsonb; v_label text;
+  r record; q text; v_who int; v_flags int;
 BEGIN
-  FOREACH v_role IN ARRAY ARRAY['authenticated', 'anon', 'service_role'] LOOP
-    FOREACH q IN ARRAY ARRAY[
-      $q$SELECT private.comp_import_reference_grid('{}', repeat('0', 64))$q$,
-      $q$SELECT private.comp_enable_reference_grid_for_agency('Synthetic Agency A', '51000000-0000-0000-0000-000000000001')$q$,
-      $q$SELECT private.comp_set_reference_grid_active('51000000-0000-0000-0000-000000000001', false)$q$,
-      $q$SELECT to_jsonb(private.comp_grid_content_sha256('51000000-0000-0000-0000-000000000001'))$q$] LOOP
-      SELECT * INTO r FROM comp_test.run_as(v_role, comp_test.claims_for(comp_test.p('admin_a')), q);
-      PERFORM comp_test.refused('I1 ' || v_role || ': ' || left(q, 50), r.out_state, r.out_message, '42501');
+  SELECT array_agg(private.comp_grid_content_sha256(g.id) ORDER BY g.id) INTO v_before
+    FROM public.comp_grids g WHERE g.organization_id IS NULL;
+  SELECT count(*) INTO v_ledger FROM public.comp_reference_imports;
+  v_rev := comp_test.rev(s1);
+  FOR v_who IN 1 .. array_length(who_role, 1) LOOP
+    v_claims := CASE WHEN who_claims[v_who] = '' THEN '{}'::jsonb ELSE comp_test.claims_for(comp_test.p(who_claims[v_who])) END;
+    FOR v_flags IN 0 .. 2 LOOP  -- 0: none; 1: both approval settings; 2: approval settings + forged operation flag
+      PERFORM set_config('agentflow.approve_comp_reference_import', CASE WHEN v_flags >= 1 THEN 'yes' ELSE '' END, true);
+      PERFORM set_config('agentflow.approve_comp_home_activation', CASE WHEN v_flags >= 1 THEN 'yes' ELSE '' END, true);
+      PERFORM set_config('agentflow.comp_operation', CASE WHEN v_flags = 2 THEN 'on' ELSE '' END, true);
+      v_label := format('I1 %s%s flags=%s: ', who_role[v_who], CASE WHEN who_claims[v_who] = '' THEN '' ELSE '/' || who_claims[v_who] END, v_flags);
+      FOREACH q IN ARRAY ARRAY[
+        $q$SELECT private.comp_import_reference_grid('{}', repeat('0', 64))$q$,
+        format($q$SELECT private.comp_enable_reference_grid_for_agency('Synthetic Agency A', %L)$q$, s1),
+        format($q$SELECT private.comp_set_reference_grid_active(%L, false)$q$, s1),
+        format($q$SELECT to_jsonb(private.comp_grid_content_sha256(%L))$q$, s1)] LOOP
+        SELECT * INTO r FROM comp_test.run_as(who_role[v_who], v_claims, q);
+        PERFORM comp_test.refused(v_label || left(q, 50), r.out_state, r.out_message, '42501');
+      END LOOP;
+      FOREACH q IN ARRAY ARRAY[
+        format($q$SELECT public.comp_save_grid_changes(%L, %s, jsonb_build_object('rates', jsonb_build_array(jsonb_build_object('variant_id', '51000000-0000-0000-0000-000000000201', 'contract_level', 100, 'rate_percent', '1'))))$q$, s1, v_rev),
+        format($q$WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
+        format($q$WITH x AS (INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES (%L, NULL, 'term', 'x', 'y') RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
+        format($q$WITH x AS (DELETE FROM public.comp_variant_references WHERE grid_id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
+        format($q$WITH x AS (UPDATE public.comp_grids SET is_active = false WHERE id = %L RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$, s1),
+        $q$WITH x AS (INSERT INTO public.comp_reference_imports DEFAULT VALUES RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+        $q$WITH x AS (DELETE FROM public.comp_reference_imports RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
+        SELECT * INTO r FROM comp_test.run_as(who_role[v_who], v_claims, q);
+        PERFORM comp_test.check(v_label || left(q, 50) || ' (' || r.out_state || ' ' || left(r.out_message, 40) || ')',
+          r.out_state <> '00000' OR r.out_result = to_jsonb(0));
+      END LOOP;
     END LOOP;
   END LOOP;
-  RAISE NOTICE 'I1 postgres-only privileges: ok';
+  PERFORM set_config('agentflow.approve_comp_reference_import', '', true);
+  PERFORM set_config('agentflow.approve_comp_home_activation', '', true);
+  PERFORM set_config('agentflow.comp_operation', '', true);
+  SELECT array_agg(private.comp_grid_content_sha256(g.id) ORDER BY g.id) INTO v_after
+    FROM public.comp_grids g WHERE g.organization_id IS NULL;
+  PERFORM comp_test.check('I1 shared grids, import ledger and revision unchanged',
+    v_after = v_before AND (SELECT count(*) FROM public.comp_reference_imports) = v_ledger AND comp_test.rev(s1) = v_rev);
+  RAISE NOTICE 'I1 postgres-only privileges, with approval settings and a forged operation flag: ok';
 END $$;
 
 -- I2. Request checks: nothing is imported from a wrong checksum or an unrecognised document.

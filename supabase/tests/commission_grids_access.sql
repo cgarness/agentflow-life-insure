@@ -299,17 +299,28 @@ BEGIN
   RAISE NOTICE 'A8 RLS alone (trigger layer removed in a rolled-back probe): ok';
 END $$;
 
--- A9. service_role: no client operations; it bypasses RLS but not the constraints.
+-- A9. service_role: read-only. No client operations, no import, and no direct write to any comp table, so a
+--     server key cannot change a shared grid outside the postgres-only import or a reviewed migration.
 DO $$
-DECLARE r record;
+DECLARE r record; q text;
 BEGIN
   SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, 'SELECT public.get_commission_calculator_status()');
   PERFORM comp_test.refused('A9a service_role has no operation EXECUTE', r.out_state, r.out_message, '42501', 'permission denied%');
   SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, $q$SELECT private.comp_import_reference_grid('{}', repeat('0', 64))$q$);
   PERFORM comp_test.refused('A9b service_role cannot run the import', r.out_state, r.out_message, '42501', 'permission denied%');
-  SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, $q$WITH x AS (INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES ('00000000-0000-0000-0000-000000000000', 'x', '2025-01-01', ARRAY[100], 'blank') RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$);
-  PERFORM comp_test.refused('A9c constraints bind service_role', r.out_state, r.out_message, '23514');
-  RAISE NOTICE 'A9 service_role: ok';
+  FOREACH q IN ARRAY ARRAY[
+    $q$WITH x AS (INSERT INTO public.comp_grids (organization_id, name, effective_date, contract_levels, origin) VALUES (NULL, 'x', '2025-01-01', ARRAY[100], 'agentflow_reference') RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (INSERT INTO public.comp_products (grid_id, organization_id, category, carrier, product_name) VALUES ('51000000-0000-0000-0000-000000000001', NULL, 'term', 'x', 'y') RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (UPDATE public.comp_rates SET rate_percent = 1 WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (UPDATE public.comp_grids SET is_active = false WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (DELETE FROM public.comp_variant_references WHERE organization_id IS NULL RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$,
+    $q$WITH x AS (DELETE FROM public.organization_comp_settings RETURNING 1) SELECT to_jsonb(count(*)) FROM x$q$] LOOP
+    SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, q);
+    PERFORM comp_test.refused('A9c service_role cannot write: ' || left(q, 60), r.out_state, r.out_message, '42501', 'permission denied%');
+  END LOOP;
+  SELECT * INTO r FROM comp_test.run_as('service_role', '{}'::jsonb, $q$SELECT to_jsonb(count(*)) FROM public.comp_rates$q$);
+  PERFORM comp_test.ok('A9d service_role can read', r.out_state, r.out_message);
+  RAISE NOTICE 'A9 service_role (read-only): ok';
 END $$;
 
 -- A10. Privilege and SECURITY DEFINER inventories.
@@ -394,15 +405,16 @@ BEGIN
       'organization_comp_settings.INSERT.organization_id', 'organization_comp_settings.INSERT.calculator_grid_id',
       'organization_comp_settings.UPDATE.calculator_grid_id']) x));
 
-  -- service_role: plain DML on the seven agency tables, read-only ledger, nothing else.
+  -- service_role: SELECT on all eight comp tables and nothing else (table- or column-level).
   SELECT string_agg(c.relname || ':' || k.priv, ', ') INTO v_bad
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
     CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS k(priv)
    WHERE c.relname IN ('comp_grids','comp_products','comp_product_variants','comp_rates','comp_variant_references',
                        'organization_comp_grids','organization_comp_settings','comp_reference_imports')
-     AND has_table_privilege('service_role', c.oid, k.priv)
-     AND (k.priv IN ('TRUNCATE', 'REFERENCES', 'TRIGGER') OR (c.relname = 'comp_reference_imports' AND k.priv <> 'SELECT'));
+     AND (CASE WHEN k.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+               THEN has_any_column_privilege('service_role', c.oid, k.priv)
+               ELSE has_table_privilege('service_role', c.oid, k.priv) END) <> (k.priv = 'SELECT');
   PERFORM comp_test.check('A10g service_role privileges (' || coalesce(v_bad, '') || ')', v_bad IS NULL);
   RAISE NOTICE 'A10 privilege inventories: ok';
 END $$;
