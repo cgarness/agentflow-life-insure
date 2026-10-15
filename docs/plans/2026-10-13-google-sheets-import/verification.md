@@ -19,6 +19,10 @@
 
 **Reconciliation with current `main` (2026-10-15).** §13 records the merge of `main` `03ef0cb` into the branch (merge commit `94e9bc1`) and the full re-verification of that head against a fresh `03ef0cb` baseline. The merge changed no Sheets code, migration, Edge bundle or test.
 
+**Phase B attempt 1 and the second reconciliation (2026-10-15).**
+- §14: the approved Phase B attempt through the Supabase MCP connector stopped at B2, because the connector could not carry the migration. **Production was unchanged.**
+- §15: Chris then approved merging `main` `b5976e0` (#448) and finishing Phase B through the documented psql / CLI fallback. §15 records that merge (`bf6b644`) and the re-verification of the merged head against a fresh `b5976e0` baseline.
+
 ## 1. Results
 
 | Check | Result |
@@ -430,3 +434,91 @@ PR #442 is mergeable against base `main` `03ef0cb`: GitHub reports `mergeable_st
 - Supabase Preview: **skipped**, as on every earlier head, because the preview-branch limit is reached.
 
 The documentation commit that adds this subsection becomes the new head. Its own CI is reported in the PR description and the handoff.
+
+## 14. Phase B attempt 1 — stopped at B2 (2026-10-15, about 17:30–18:25 UTC; production unchanged)
+
+**Approval.** Chris approved Phase B: B1 (the six Edge secrets he entered), B2 (the foundation migration) and B3 (the four Edge Functions, still disabled). The procedure was release package §10.
+
+**Preflight (before B2).**
+- Every value matched the release package.
+- Both advisor baselines were identical to the §0.A reference after normalization:
+  - security: 224 findings, fingerprint `6dad3ab9…f1ff`;
+  - performance: 410 findings, fingerprint `9a1674ec…b9b7`.
+
+**B2: two identical `apply_migration` calls, about 17:45 and 17:55 UTC.**
+- Each carried the exact file (SHA-256 `fc68da86…6efed`).
+- Each timed out at this environment's 60-second MCP tool limit (`MCP_TOOL_TIMEOUT=60000`).
+- The second call was the one retry, made after confirming that the first had written nothing.
+
+**Neither call reached the database.**
+- The project runs `log_statement = ddl`. A real `apply_migration` logs a `statement: begin; create schema if not exists supabase_migrations…` line, then `statement: begin; -- apply sql from post body…`. The 2026-10-10 17:27:02 UTC apply of `20261010172702` shows both.
+- Neither attempt logged anything: no DDL line, no error, no cancellation and no lock wait (`log_lock_waits` is on).
+- Afterwards there was no running backend and no ungranted lock.
+- Migration history was unchanged: 324 rows, latest `20261010172702`.
+- `to_regclass('public.google_sheets_sources')` was null and the helper MD5 was still `a199d5dd…`.
+
+**What the connector could not carry (read-only probes).**
+- `execute_sql` with the same SQL sent only as a string literal (`SELECT md5(…)`) also stalled, at 86 KB, at about 68 KB (a 66,863-byte prefix) and at about 30 KB (a 30,326-byte prefix).
+- Small queries returned instantly, including ones that contain `DROP` / `DELETE` text and nested dollar quotes.
+- On 2026-09-15 a 76,994-byte migration (`20260915035141`) went through the same tool, so this is new connector behaviour.
+- The Edge deploy requests are about 86 KB (api), 68 KB (sync-worker) and 23 KB each (OAuth start and callback), so B3 would have hit the same limit.
+
+**Deviation recorded.** The single retry departed from the `RELEASE_READINESS.md` P1 precedent written for M4: do not resubmit after a timeout unless the first call is known to have ended without committing.
+- The retry relied on the empty DDL log.
+- It also relied on the migration's own guards. A concurrent second run would fail on the first conflicting catalogue row, and its whole transaction would roll back.
+- No further attempt was made.
+
+**After.**
+- 18:09 UTC: production was unchanged, with zero Sheets objects and no `google-sheets-*` function.
+- 18:23 UTC: advisors were identical to the pre-B2 baseline after normalization.
+
+**`main` moved during the attempt.**
+- `b5976e0` (#448, the Team Leader invitation hotfix) merged at 17:55 UTC.
+- It had already deployed `invite-user` v232 (17:28:56 UTC) and `send-invite-email` v236 (17:30:25 UTC). These were not touched by this task.
+- Production frontend: `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `b5976e0`.
+
+**Outcome.** Chris approved the documented fallback and the reconciliation (§15). Further large requests through the connector are not used for this release.
+
+## 15. Reconciliation with `main` `b5976e0` (2026-10-15; branch only)
+
+**What changed on `main`.** One squash commit, `b5976e0` (#448), with parent `03ef0cb`.
+- **Files:** `supabase/functions/invite-user/index.ts`, `supabase/functions/send-invite-email/index.ts`, `src/components/settings/UserManagement.tsx`, `src/components/settings/user-management/InviteUserModal.tsx`, and two new tests (`InviteUserModal.test.tsx`, `teamLeaderInvitations.test.ts`).
+- **Docs:** its plan, one `AGENT_RULES.md` bullet and a WORK_LOG entry.
+- **Full diff checked.** It touches invitations only:
+  - no migration, `config.toml`, permission default, shared Edge module, `package*.json` or build configuration;
+  - no Sheets file imports anything it changed.
+
+**Merge.** `bf6b644` has parents `fffd67f` (the plan) and `b5976e0`. There was no rebase, amend or force-push.
+
+### 15.1 Conflicts and resolutions
+
+| File | Git | Resolution | Proof |
+|---|---|---|---|
+| `WORK_LOG.md` | conflict (both prepend) | #448's 2026-10-15 entry first (deployed 17:29 UTC, merged 17:55 UTC), then the branch's entries | The merged file equals #448's entry block plus the previous branch file, byte for byte. 147 entries = 146 + 1. No markers remain. |
+| `AGENT_RULES.md` | auto-merged | #448's Team Leader invitation bullet (invariant #20 area) plus the Sheets section | Against the branch: +1 line, 0 removed. Against `main`: +65 lines (the Sheets section), 0 removed. Each appears once. |
+
+`supabase/config.toml` did not change. Every other file is byte-identical to its side.
+
+### 15.2 Release artifacts are unchanged
+- All 11 checksum lines are identical before and after the merge: the migration (SHA-256 `fc68da86…6efed`, MD5 `94c7be79…`), the pending cron migration, the rollback, the four ops files and the four bundle digests.
+- The PR's diff against `main` is still exactly its 88 files.
+
+### 15.3 Verification on the merged head (local; baselines from a fresh `b5976e0` worktree)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` (root) | PASS (exit 0) |
+| App type-check against `b5976e0`, `scripts/verify-a2p-types.mjs` | `base=84, candidate=84, new=0` |
+| Full Vitest against `b5976e0`, `scripts/verify_reports_frontend.py` (the CI method) | **Every assertion passed.** `b5976e0`: 5,455 tests (5,420 passed, 1 failed, 34 skipped) in 341 files. Merged head: 5,478 tests (5,443 passed, 1 failed, 34 skipped) in 343 files. The single failing test (`recordingRetentionVoicemail`, deployed v29, pre-existing) and the 10 failing files are identical on both sides. The only additions are the 23 Sheets tests. App tsc showed no new diagnostic, and both sides had 0 unhandled runtime errors. The Reports tests pass. The run stopped only at the script's final changed-file lint step, because the local run lacked `REPORTS_BASE_SHA`; that lint and the build were run directly (rows below). |
+| Vitest, focused (the Sheets CI list plus #448's two new files) | 7 files, **127 passed**: 79 from the Sheets list, 48 from #448 (35 + 13) |
+| Deno, Sheets (`_shared/googleSheets` and the four functions) | **78 passed, 0 failed**. `deno check` passes on the four entry points. The std asserts module is mapped to a local shim, because deno.land is blocked here. `deno.lock` was restored afterwards. |
+| Deno, every test under `supabase/functions/` (`--no-check`) | Merged head **340 passed**; `b5976e0` **262 passed**. 262 + 78 = 340, with no status change. |
+| `scripts/run_google_sheets_tests.sh` (PostgreSQL 16 locally) | **ALL PASSED**: replay guard; T1 (52 functions) through T18, including the 24-combination duplicate matrix (192 checks); 9 regression cases (8 + 1 control); concurrency with its negative control; SKIP LOCKED claims; 4b and 4c with negative controls; the shutdown gate; rollback and re-apply; **33 PostgREST checks**; **40 end-to-end Review checks** |
+| `scripts/run_google_sheets_cron_check.sh` (`supabase/postgres:17.6.1.063`, `--network none`) | **ALL PASSED**: real pg_cron / pg_net; 0 runs in the 70 s after unscheduling; drain check 0/0 |
+| `scripts/google_sheets_regression_evidence.sh 8b675e5` | **EVIDENCE OK**: every regression fails on `8b675e5` and passes here; every control passes on both |
+| ESLint, all 29 changed `src/` and `scripts/` JS/TS files (`--max-warnings=0`), plus the Sheets CI lint list | PASS, 0 errors and 0 warnings |
+| `npm run build` | PASS (only the existing chunk-size warning) |
+| Browser flow, `scripts/tests/google-sheets-ui/verify.mjs` (Chromium 1194; mocked Supabase host and fake Picker) | **48/48 PASS** at 1440×900 and 390×844 |
+
+### 15.4 Exact-head CI
+Exact-head CI for the pushed head is recorded in the PR description and in the next records commit. A commit cannot record its own CI.

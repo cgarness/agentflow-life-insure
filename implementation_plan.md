@@ -22,6 +22,25 @@ This replaces further large requests through the Supabase MCP connector.
 
 Also not approved: Phase C, D and E, merging PR #442, Vercel or flag changes, cron, the Vault worker token, a Google connection, imports and test leads. Any checksum mismatch, unexpected production state or out-of-scope need is a stop.
 
+**Outcome so far (2026-10-15): reconciliation DONE and verified; Phase B stopped before any production change. This environment cannot reach production, so the production stages go to Chris.**
+- **Merge:** `bf6b644`, with parents `fffd67f` (this plan) and `b5976e0`.
+  - `WORK_LOG.md` resolved byte-exactly: #448's entry plus the previous branch file.
+  - `AGENT_RULES.md` gains #448's bullet (+1 line).
+  - All 11 Sheets checksums are unchanged, and the PR is still 88 files against `main`.
+- **Verification:** every check is green against a fresh `b5976e0` worktree (`verification.md` §15.3):
+  - type checks: root tsc passes; app tsc 84 = 84;
+  - Vitest: full suite with no new failure (5,443 against 5,420 passed, plus 23); focused 127/127;
+  - Deno: Sheets 78/78 plus `deno check`; all 340 = 262 + 78;
+  - SQL/PostgREST suite and real pg_cron check: ALL PASSED;
+  - regression evidence: OK;
+  - ESLint: 29 files clean. Build: passes. Browser flow: 48/48.
+- **Records:**
+  - `verification.md` §14 (attempt 1) and §15;
+  - the release package: status, §0.C, §3/§4 "How", the additional read-backs, the rollback target, §10 APPROVED and the §10.1 staged commands;
+  - `WORK_LOG.md`.
+- **Direct access:** unavailable from Claude's environment, because there is no database credential, the egress policy blocks the Supabase hosts, and the Supabase CLI is not installed. So the production-changing stages (B2 psql, `migration repair`, B3 deploys) are handed to Chris (release package §10.1). Claude runs every read-only verification between them.
+- **Next:** exact-head CI green and the PR mergeable, then a fresh read-only preflight and Claude's GO for stage 1.
+
 **Phase B attempt 1 (2026-10-15, 17:45–18:25 UTC): stopped at B2; production unchanged.**
 - Two identical MCP `apply_migration` calls timed out at the 60 s tool limit.
 - Neither reached Postgres: no `statement:` line under `log_statement = ddl`, no error, no lock wait.

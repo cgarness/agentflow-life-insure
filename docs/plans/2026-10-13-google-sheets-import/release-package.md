@@ -1,21 +1,40 @@
 # Google Sheets V1 — production release package
 
-**Status: PREPARED, NOT EXECUTED.** Every phase below needs Chris's approval of its exact actions.
+**Status: Phase B APPROVED (2026-10-15) and IN PROGRESS through the documented psql / CLI fallback (§10, §10.1). Nothing has been applied or deployed yet.** Every later phase needs Chris's approval of its exact actions.
 
-Nothing in this package has been run:
-- no production migration, Edge deployment or secret change;
-- no Google Cloud change, cron job or Vercel environment change;
-- no live import, privacy publication or merge.
+So far:
+- **No production migration and no Edge deployment.** Phase B attempt 1 through the Supabase MCP connector stopped at B2, with production unchanged (`verification.md` §14).
+- **Secrets:** Chris entered the six B1 Edge secrets himself. Claude has not seen or changed any.
+- **Not done:** no Google Cloud change by Claude, no cron job, no Vercel environment change, no live import, no privacy publication and no merge.
 
 - **Branch:** `claude/keen-brown-e4u3ht`.
 - **Reviewed application head:** `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`.
-- **Reconciled head (2026-10-15):** merge commit `94e9bc18dde7b662939e6807cbb2dddca6537f29`, which is the reviewed Sheets work merged with `main` `03ef0cb`. Later commits change documentation only.
+- **Reconciled head (2026-10-15, second reconciliation):** merge commit `bf6b644`, which is the reviewed Sheets work merged with `main` `b5976e0` (#448). The earlier merge `94e9bc1` brought in `03ef0cb`. Later commits change documentation only.
   - Its diff against `main` is exactly the PR's 88 files.
   - The Sheets code, SQL, tests, scripts and workflow are byte-identical to `b66c44f`.
   - `AGENT_RULES.md`, `WORK_LOG.md` and `supabase/config.toml` carry both sides.
   - Every other file is byte-identical to `main`.
 - **Plan:** `implementation_plan.md` §0 in this folder.
-- **Evidence:** `verification.md`. §12 there holds the read-only preflight; §13 holds the reconciliation with `main`.
+- **Evidence:** `verification.md`:
+  - §12: the read-only preflight;
+  - §13 and §15: the two reconciliations with `main`;
+  - §14: Phase B attempt 1.
+
+**Revision 2026-10-15 b (Phase B fallback; reconciled with `main` `b5976e0`).** Phase B attempt 1 stopped at B2: the Supabase MCP connector could not carry the 86 KB migration, and requests of 30 KB or more stalled before reaching the database (`verification.md` §14). Chris then approved:
+- merging `main` `b5976e0` (#448, the Team Leader invitation hotfix) into the branch, with re-verification (`verification.md` §15);
+- finishing Phase B through the documented recovery path, in place of further large MCP requests:
+  - B2: the exact migration file through `psql --single-transaction`;
+  - read-backs and the advisor delta;
+  - only then, the history row for version `20261013120000` through `supabase migration repair`;
+  - B3: the four functions through the Supabase CLI, one named function at a time.
+
+This revision:
+- rewrites §3 "How" and §4 "How" for that path. The recorded version is the authored `20261013120000`, so there is no restamp;
+- adds the staged command procedure (§10.1);
+- adds the read-only re-check (§0.C);
+- updates the Phase C rollback target to the current production deployment (§5.1, §9).
+
+The migration, the four Edge bundles, the secrets, the origins and every approval boundary are unchanged.
 
 **Revision 2026-10-15 (reconciled with current `main` before Phase B).** `main` moved from `f91e4ba` to `03ef0cb` with #443 (ClearPath alerts), #445 (instant manual SMS, frontend only) and #446 (docs), and it was merged into the branch. This revision:
 - adds the refreshed read-only state (§0.B);
@@ -111,6 +130,18 @@ Where §0.B differs from §0.A, §0.B is current. Phase A is reported complete b
 | **Production frontend** | `agentflow` deployment `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` is READY at `main` `03ef0cb`. The deployments before it are `dpl_4UtN9j5bbNemnXAeoVpFXyknUX3f` (`26f9bc1`), `dpl_AqcLLxULHBXWQ4zjP8jPkeXWBGk2` (`dacd921`) and `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws` (`f91e4ba`). No Sheets UI code is deployed. |
 | **Organizations, users and workflows** | Unchanged: 1 active organization with 8 active users (1 Admin, 1 Team Leader, 6 Agents), 3 suspended organizations, **0 workflows** and 0 Calendar integrations. |
 
+### 0.C Re-check after Phase B attempt 1 and the second reconciliation (2026-10-15; read-only; details in `verification.md` §14–§15)
+
+Where §0.C differs from §0.B, §0.C is current. The fresh preflight taken immediately before B2 is recorded in `verification.md` when B2 runs.
+
+| Check | Result |
+|---|---|
+| **Code** | `main` = `b5976e0` (#448). It was merged into the branch as `bf6b644`, with one conflict (`WORK_LOG.md`), resolved byte-exactly. The migration and the four Edge bundles are byte-identical to `b66c44f`. |
+| **Production database** | Unchanged by attempt 1. 324 history rows, latest `20261010172702`. No Sheets relation, function, cron job, Vault secret or history row. Helper MD5 still `a199d5dd…b8`. Advisors at 18:23 UTC identical to the pre-B2 baseline. |
+| **Production Edge Functions** | No `google-sheets-*` function. #448 deployed `invite-user` v232 and `send-invite-email` v236 at 17:29–17:30 UTC. Phase B never touches them. |
+| **Production frontend** | `agentflow` deployment `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `main` `b5976e0` (17:55 UTC). The deployment before it is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` (`03ef0cb`). No Sheets UI code is deployed. |
+| **Direct access from Claude's environment** | None. No database credential is configured, the egress policy blocks the Supabase hosts (`*.supabase.co`, `api.supabase.com`), and the Supabase CLI is not installed. So the psql and CLI steps run on Chris's Mac (§10.1), and Claude does every read-only verification in between. |
+
 ## 1. Phase A — Google owner checklist (Chris; Claude cannot access Google Cloud)
 
 **Project:** number `87346168200`, ID `project-b7e9b5b4-d066-48c9-b36`.
@@ -178,18 +209,25 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
 
 **Apply** `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`
 - **Checksums:** SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`, MD5 `94c7be79a3a95b4a2b971f4b4513838b`, 86,193 bytes. It was amended in place before any application; it has never been applied anywhere.
-- **How:** one `apply_migration` call with the file's exact bytes, after the §0 checks.
-- **Rename afterwards (invariant #35):** `apply_migration` stamps its own version. Rename the file to the recorded version with identical bytes, and update every reference to it in a follow-up branch commit:
-  - `.github/workflows/google-sheets.yml`;
-  - `scripts/run_google_sheets_tests.sh`;
-  - `scripts/run_google_sheets_cron_check.sh`;
-  - `scripts/google_sheets_regression_evidence.sh`, candidate side only (it also reads the reviewed head's file under the old name);
-  - `supabase/tests/google_sheets_harness.sql`, header comment;
-  - `src/lib/google-sheets/__tests__/googleSheets.test.ts`, the `?raw` import;
-  - the rollback file's header comment (this changes the rollback checksum);
-  - the docs that cite the path.
-
-  This commit must be on the branch, with CI green, **before** the Phase C merge.
+- **How (approved 2026-10-15; replaces the earlier single `apply_migration` call, see `verification.md` §14):**
+  - Chris runs the exact committed file from his Mac (§10.1 stage 1), after the checksum, connection-identity and zero-state checks there:
+    ```bash
+    psql "$SUPABASE_DB_URL" -X --set ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/20261013120000_google_sheets_import_foundation.sql
+    ```
+  - The whole file runs as one transaction.
+  - If psql exits non-zero: STOP. Do not run `migration repair`. Confirm read-only that nothing committed, and report the exact database error.
+  - The SQL is never split, pasted into the Dashboard editor, sent through `execute_sql`, or applied with `supabase db push`.
+- **History, only after every read-back below and the advisor delta pass** (§10.1 stage 3):
+  ```bash
+  supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"
+  supabase migration list --db-url "$SUPABASE_DB_URL"
+  ```
+  - `migration repair` records history only. It never substitutes for running or verifying the SQL.
+  - `--db-url` writes on the same connection that stage 1 verified and applied with, as the M4 precedent `scripts/apply_m4_only.sh` does.
+  - The flags were checked against CLI 2.121.0 (`migration repair [<version...>] --status applied|reverted --db-url …`).
+  - No other version is marked applied or reverted. Migration-history tables are never edited directly.
+- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; 325 rows in total.
+- **No restamp.** The recorded version is the authored `20261013120000`, so the filename and every reference already match. A rename is needed only if `migration repair` records a different version, and that is a stop.
 
 **What it does**
 - **Preflight:** refuses to replay; refuses if the `_contacts_permission_default` MD5 differs from `a199d5dd…`.
@@ -223,6 +261,13 @@ SELECT md5(pg_get_functiondef('public._contacts_permission_default(text,text)'::
 SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';               -- expect 0
 ```
 
+**Additional read-backs (before `migration repair`):**
+- `service_role` can EXECUTE all 21 public wrappers. No private helper is executable by `anon`, `authenticated` or `service_role`.
+- Exactly three policies exist, the own-user SELECT policies on the three public tables. There are none on the private tables.
+- `_contacts_permission_default` returns its previous value for every other key and role, and Team Leader `contacts.leads.import` is still true.
+- There are zero connections, sources, receipts, sync runs, Sheets leads, Sheets cron jobs and `google_sheets%` Vault secrets.
+- No history row exists yet for `20261013120000`, because psql does not write one.
+
 **Advisor comparison.**
 - Run `get_advisors` (security and performance) immediately before B2 and again after it, and compare the two. The §0.A values are the 2026-10-13 reference. `unused_index` and `table_bloat` follow usage statistics and can drift between days without any schema change; a difference between the fresh pre-apply capture and §0.A is reported, not attributed to Sheets.
 - **Expected security delta:** exactly **+3 INFO `rls_enabled_no_policy`**, on `private.google_sheets_oauth_states`, `private.google_sheets_receipts` and `private.google_sheets_source_rows`. These are deliberately policy-less private tables.
@@ -243,6 +288,17 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 - deploy while `GOOGLE_SHEETS_ENABLED` is unset;
 - import `https://esm.sh/@supabase/supabase-js@2`, the same specifier as the existing functions; the repository `deno.lock` pins it to 2.98.0.
 
+**How (approved 2026-10-15; §10.1 stage 5).**
+- Chris runs the Supabase CLI from his Mac, at the exact reviewed head, with one named function per command and in the order below:
+  ```bash
+  supabase functions deploy google-sheets-sync-worker --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api
+  ```
+  He then repeats it for `google-sheets-api`, `google-sheets-oauth-callback` and `google-sheets-oauth-start`.
+- `--use-api` bundles on the server and uploads each function's import graph (the function plus its `_shared` modules) straight from disk. That is the 2026-08-01 house precedent, and it avoids the hand-transcribed MCP payload, which lost characters before (invariant #30's v43 incident).
+- `--no-verify-jwt` matches `config.toml`. The flags were checked against CLI 2.121.0.
+- **Never** run `supabase functions deploy` without names: it deploys every function. Never use `--prune`.
+- No other function is deployed: not `invite-user`, `send-invite-email`, Gmail, Calendar, SMS, ClearPath or anything else.
+
 **Bundle digest:** run `sha256sum <files> | sha256sum` from the repository root, listing the files in C-locale sorted order. Per-file SHA-256 values are in `verification.md` §10. `_shared` means `supabase/functions/_shared/googleSheets/`.
 
 | Order | Function (entry `index.ts`) | Exact files | Bundle digest |
@@ -254,9 +310,12 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 
 **Why this order:** the worker and API go first, both inert while the flag is unset. The callback is deployed before the start function, so no consent screen can be reached before its redirect target exists.
 
-**Read-back after deploy:**
-1. `list_edge_functions` shows the four names `ACTIVE`, with `verify_jwt=false` and the expected entry paths.
-2. Unauthenticated HTTP checks while the flag is unset. None of them needs a credential:
+**Read-back after deploy (Claude, through the Supabase connector; read-only):**
+1. `list_edge_functions` shows the four names `ACTIVE`, with `verify_jwt=false`, a version, the expected entry path and an `ezbr_sha256` digest.
+   - Every other function's version is unchanged from the inventory captured just before B3, including the #448 versions.
+2. `get_edge_function` for each name returns exactly that function's file set from the table below. Each file's SHA-256 equals `verification.md` §10; path prefixes may differ.
+   - A missing, extra or different file, a non-ACTIVE status or `verify_jwt=true` is a stop.
+3. Unauthenticated HTTP checks while the flag is unset. None of them needs a credential. Claude sends them through `pg_net` from the database, because this environment's egress policy blocks the functions host:
 
 | Request | Expected |
 |---|---|
@@ -309,8 +368,8 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
    - Chris's Gmail connection still `connected`, with `last_sync_at` advancing.
 4. **If a regression appears,** the fastest recovery is Vercel's rollback to the production deployment that was current immediately before the merge. It changes no data, and the Phase B backend stays deployed and disabled.
    - Capture that deployment's ID in the Phase C preflight.
-   - On 2026-10-15 it is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `main` `03ef0cb`.
-   - The older `dpl_E7C5…` at `f91e4ba` is no longer the target: rolling back to it would also remove #443 and #445.
+   - On 2026-10-15 (after 17:55 UTC) it is `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `main` `b5976e0` (#448).
+   - The older `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `03ef0cb` and `dpl_E7C5…` at `f91e4ba` are no longer the target: rolling back to either would also remove later `main` work (#448; and #443/#445 for `dpl_E7C5…`).
 
 ### 5.2 Phase D — live test activation (separate approval; cron stays OFF)
 
@@ -555,7 +614,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 ## 9. Rollback
 
-1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-15 that is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `main` `03ef0cb`. It changes no data.
+1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-15 (after 17:55 UTC) that is `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `main` `b5976e0`. It changes no data.
 2. **Backend:**
    - Run the §5.7 **non-destructive shutdown**: unschedule → close admission → drain → verify quiescence.
    - Then unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`.
@@ -564,26 +623,32 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 3. **Optional, with separate approval:** delete the four functions, then run the rollback SQL. This also drops receipts, so re-adding a sheet afterwards could re-import rows.
 4. **Google:** disable or delete the "AgentFlow Sheets" client. That does not affect Gmail/Calendar's client.
 
-## 10. Next approval request — Phase B: backend foundation deployed, Sheets still disabled (not approved yet)
+## 10. Phase B: backend foundation deployed, Sheets still disabled (APPROVED 2026-10-15)
+
+**Status.**
+- **Approved by Chris (2026-10-15)** as written below.
+- **Attempt 1:** through the Supabase MCP connector; stopped at B2 with production unchanged (`verification.md` §14).
+- **Same day:** Chris approved the second reconciliation (`bf6b644`, `main` `b5976e0`) and the documented fallback. B2 runs through `psql --single-transaction` plus `supabase migration repair`, and B3 through four named Supabase CLI deploys (§3, §4, §10.1). That replaces further large MCP requests.
+- **Never used:** MCP `apply_migration` again, the migration split across `execute_sql`, the Dashboard SQL editor, `supabase db push`, an unscoped `supabase functions deploy`, `--prune`, direct migration-history edits and partial bundles.
 
 **Precondition (owner):** Phase A (§1 G0–G7) is done and reported. That includes G2 (no custom domain) and G4 (the AgentFlow Sheets client exists).
 
-**Approve, for production `jncvvsvckxhqgqvkppmj` from the reconciled head (merge commit `94e9bc1`, whose migration and four Edge bundles are byte-identical to reviewed head `b66c44f`), exactly the following:**
+**Approved, for production `jncvvsvckxhqgqvkppmj` from the reconciled head (merge commit `bf6b644` plus documentation-only commits; its migration and four Edge bundles are byte-identical to reviewed head `b66c44f`), exactly the following:**
 1. **Secrets (B1).** Chris enters the six §2 Edge secrets marked "B". Claude never sees a value.
    - The redirect URI is the standard callback.
    - The return origins are `https://www.fflagent.com,https://fflagent.com`.
    - `GOOGLE_SHEETS_ENABLED` stays **unset**.
    - No Vault secret and no Vercel change.
-2. **Migration (B2).** Apply `supabase/migrations/20261013120000_google_sheets_import_foundation.sql` (SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`) with one `apply_migration` call.
-   - **Before:** the §0 checks.
-   - **After:** every §3 read-back value (including helper MD5 `bc6356dde683e628b88b631dd5f6d01e` and 0 cron jobs), plus the advisor comparison. **Any unexpected advisor change stops Phase B.**
-   - **Then:** a follow-up branch commit renaming the file to the recorded version, with identical bytes.
-3. **Edge Functions (B3).** Deploy the four §4 bundles, with `verify_jwt=false`, in order: sync-worker, api, oauth-callback, oauth-start.
+2. **Migration (B2).** Apply `supabase/migrations/20261013120000_google_sheets_import_foundation.sql` (SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`) through `psql --single-transaction` (§3, §10.1 stage 1).
+   - **Before:** the §0 checks and a fresh advisor baseline.
+   - **After:** every §3 read-back value (including helper MD5 `bc6356dde683e628b88b631dd5f6d01e` and 0 cron jobs), plus the advisor comparison. **Any unexpected value or advisor change stops Phase B.** There is no automatic rollback, and the evidence is preserved.
+   - **Then, only after those pass:** `supabase migration repair 20261013120000 --status applied`, and a check that exactly that one history row now exists. No restamp is needed, because the version is the authored one.
+3. **Edge Functions (B3).** After the records commit's exact-head CI is green, deploy the four §4 bundles with the Supabase CLI. Use one named function per command, `verify_jwt=false`, in this order: sync-worker, api, oauth-callback, oauth-start.
    - **After:** the §4 read-backs and unauthenticated disabled-state checks.
 
 **Stays off afterwards:**
 - the backend flag (`GOOGLE_SHEETS_ENABLED`) and the frontend flag (`VITE_GOOGLE_SHEETS_ENABLED`) remain unset;
-- production keeps serving current `main` (`03ef0cb` on 2026-10-15), so the Sheets UI is not deployed;
+- production keeps serving current `main` (`b5976e0` on 2026-10-15), so the Sheets UI is not deployed;
 - the cron job is absent; the pending migration stays in `pending/`;
 - no live import;
 - PR #442 stays draft, and nothing is merged.
@@ -592,3 +657,108 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 - Phase C: merge with the feature still disabled, then the health checks;
 - Phase D: live test activation and §6;
 - Phase E: privacy publication, cron and final verification.
+
+### 10.1 Staged procedure for the approved fallback (Chris runs the production commands; Claude verifies between stages)
+
+Claude's environment has no route to production (§0.C), so Chris runs the three production-changing steps from his Mac. Claude runs every read-only check in between, through the Supabase connector, and says **GO** before the next stage.
+
+**Rules for every stage:**
+- **Never print or share** `SUPABASE_DB_URL`, the database password, an access token or the worker token, in chat, GitHub, logs or documents.
+- **Run each block as written.** Each block is a subshell `( … )` with `set -euo pipefail`, so a failure stops only that block, never the terminal.
+- **Output to send Claude:** everything the blocks print. None of it is secret: the connection identity line carries only host, port, database and user.
+- **Stop on any STOP line or a non-zero exit.** Do not retry, do not switch method and do not roll back. Send Claude the output.
+
+`<HEAD>` below is the exact reviewed commit named in Claude's GO message. Every command runs from the repository root at that commit.
+
+**Stage 0: preparation (once; changes nothing).**
+```bash
+# A clean checkout at the exact commit, either a fresh clone or an existing one.
+git clone https://github.com/cgarness/agentflow-life-insure.git ~/agentflow-phaseb   # skip if you already have a clone
+cd ~/agentflow-phaseb && git fetch origin && git checkout --detach <HEAD> && git status --porcelain   # must print nothing
+psql --version                                   # client 14 or newer
+supabase --version                               # 2.84.5 or newer (Homebrew: brew upgrade supabase)
+supabase migration repair --help | grep -e '--db-url'
+supabase functions deploy --help | grep -E -e '--project-ref|--no-verify-jwt|--use-api'
+supabase login                                   # browser sign-in; needed only for stage 5
+# Database connection: Dashboard → AGENTFLOW CRM → Connect → "Direct connection", or "Session pooler" (port 5432).
+# Never the 6543 transaction pooler. Use the URI with the database password percent-encoded.
+# Paste it at the silent prompt below; it is not echoed and not written to shell history.
+read -rs SUPABASE_DB_URL; export SUPABASE_DB_URL
+```
+
+**Stage 1: B2 apply (production change 1 of 3).** Before running it, tell Claude. Claude takes a fresh advisor baseline and preflight, and answers GO.
+```bash
+( set -euo pipefail; set +x
+  cd ~/agentflow-phaseb
+  F=supabase/migrations/20261013120000_google_sheets_import_foundation.sql
+  [ "$(git rev-parse HEAD)" = "<HEAD>" ] || { echo "STOP: not at the reviewed commit"; exit 1; }
+  [ -z "$(git status --porcelain)" ] || { echo "STOP: checkout is not clean"; exit 1; }
+  [ "$(shasum -a 256 "$F" | awk '{print $1}')" = fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed ] \
+    || { echo "STOP: migration checksum differs"; exit 1; }
+  ID="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c '\echo :HOST :PORT :DBNAME :USER')"
+  echo "connection: $ID"
+  case "$ID" in
+    "db.jncvvsvckxhqgqvkppmj.supabase.co 5432 postgres postgres") ;;
+    *".pooler.supabase.com 5432 postgres postgres.jncvvsvckxhqgqvkppmj") ;;
+    *) echo "STOP: this connection is not production jncvvsvckxhqgqvkppmj"; exit 1 ;;
+  esac
+  PRE="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "select concat_ws('|', current_database(),
+      to_regclass('public.google_sheets_sources') is null,
+      (select count(*) from pg_proc where proname like 'google\_sheets\_%'),
+      (select count(*) from supabase_migrations.schema_migrations where version = '20261013120000' or name like '%google_sheets%'),
+      md5(pg_get_functiondef('public._contacts_permission_default(text,text)'::regprocedure)),
+      (select max(version) from supabase_migrations.schema_migrations))")"
+  echo "preflight: $PRE"
+  [ "$PRE" = "postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261010172702" ] \
+    || { echo "STOP: production preflight differs (send this output to Claude)"; exit 1; }
+  if psql "$SUPABASE_DB_URL" -X --set ON_ERROR_STOP=1 --single-transaction --file "$F" > /tmp/gs_b2_psql.log 2>&1; then
+    echo "B2 psql exit=0"; tail -5 /tmp/gs_b2_psql.log
+  else
+    echo "B2 psql FAILED: STOP. Do not run migration repair."; tail -20 /tmp/gs_b2_psql.log; exit 1
+  fi
+)
+```
+
+**Stage 2: Claude verifies (read-only).** Claude runs every §3 read-back and the additional read-backs, and compares the advisors with the stage 1 baseline.
+- **If anything differs:** STOP, with no repair and no rollback.
+- **Otherwise:** Claude answers GO for stage 3.
+
+**Stage 3: history (production change 2 of 3).** Only after Claude's GO.
+```bash
+( set -euo pipefail; set +x
+  cd ~/agentflow-phaseb
+  supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"
+  supabase migration list --db-url "$SUPABASE_DB_URL" | grep -E '20261013120000|20261010172702'
+)
+```
+
+**Stage 4: Claude verifies and records (read-only plus a branch commit).**
+- Claude confirms exactly one history row, `20261013120000` / `google_sheets_import_foundation` (325 rows in total).
+- Claude commits the records, pushes the branch and waits for green exact-head CI.
+- Claude captures the Edge inventory, then answers GO for stage 5.
+
+**Stage 5: B3 deploy (production change 3 of 3).** Only after Claude's GO.
+```bash
+( set -euo pipefail; set +x
+  cd ~/agentflow-phaseb
+  [ "$(git rev-parse HEAD)" = "<HEAD>" ] || { echo "STOP: not at the reviewed commit"; exit 1; }
+  for f in google-sheets-sync-worker google-sheets-api google-sheets-oauth-callback google-sheets-oauth-start; do
+    echo "== deploying $f"
+    supabase functions deploy "$f" --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api
+  done
+)
+```
+
+**Stage 6: Claude verifies (read-only).**
+- Claude runs the §4 read-backs: ACTIVE, `verify_jwt=false`, version, entry path, digest, per-file SHA-256, and every other function unchanged.
+- Claude runs the disabled-state checks through `pg_net`.
+- Claude confirms zero connections, sources, receipts, sync runs, Sheets leads, cron jobs and worker Vault secret, and scans the Sheets function logs for any secret output.
+
+**Optional (Chris, worker token never shared):**
+```bash
+read -rs GSW; curl -sS -X POST https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/google-sheets-sync-worker \
+  -H "Authorization: Bearer $GSW" -w '\nHTTP %{http_code}\n'; unset GSW
+# expect {"ok":true,"disabled":true,"processed":0} and HTTP 200
+```
+
+**Afterwards:** `unset SUPABASE_DB_URL`, and optionally `supabase logout`.

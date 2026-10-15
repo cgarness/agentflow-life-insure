@@ -1,3 +1,50 @@
+## 2026-10-15 — Google Sheets PR #442: Phase B attempt 1 stopped at B2 (production unchanged); reconciled with `main` `b5976e0`; Phase B fallback prepared (branch only; nothing applied or deployed)
+
+**Approvals.**
+- Chris approved Phase B: the six Edge secrets he entered (B1), the foundation migration (B2) and the four Edge Functions, still disabled (B3).
+- After attempt 1, he approved:
+  - merging `main` `b5976e0` (#448) into the branch, with re-verification;
+  - finishing Phase B through the documented fallback: the exact migration through `psql --single-transaction`, verified read-backs, then `supabase migration repair 20261013120000 --status applied`, and four named Supabase CLI deploys.
+
+**Phase B attempt 1 (about 17:30–18:25 UTC): stopped at B2, production unchanged.**
+- The preflight matched the release package, and both advisor baselines matched the reference.
+- Two identical MCP `apply_migration` calls, each with the exact file (SHA-256 `fc68da86…6efed`), timed out at the 60 s tool limit. The second call was the single retry, made after confirming the first wrote nothing.
+- Neither reached Postgres: no `statement:` line under `log_statement = ddl`, no error, no lock wait; history stayed at 324 rows, latest `20261010172702`.
+- Read-only probes stalled at 86, 68 and 30 KB, while small queries returned instantly. The connector cannot carry the migration or the larger Edge bundles.
+- Advisors at 18:23 UTC were identical to the pre-B2 baseline.
+- The retry departed from the M4 replay precedent (`RELEASE_READINESS.md` P1). It relied on the empty DDL log and on the migration's transactional guards. Recorded in `verification.md` §14.
+
+**Reconciliation.**
+- **Plan:** `fffd67f`. **Merge:** `bf6b644`, with parents `fffd67f` and `b5976e0`; no rebase or force-push.
+- **#448** touches invitations only: `invite-user`, `send-invite-email`, the invite UI, tests and docs. Its full diff was checked, and no Sheets file depends on it.
+- **Conflict:** `WORK_LOG.md` only. The merged file equals #448's entry plus the previous branch file, byte for byte (147 entries).
+- **`AGENT_RULES.md`:** auto-merged. It gains #448's bullet (+1 line) and the Sheets section appears once.
+- **Artifacts:** all 11 Sheets checksums are unchanged, and the PR is still exactly 88 files against `main`.
+
+**Verification on the merged head (local; baselines from a fresh `b5976e0` worktree).**
+- Type checks: root tsc passes; app tsc base=84, candidate=84, new=0.
+- Vitest: focused 127/127 (Sheets 79 plus #448's 48); full Vitest against `b5976e0` in `verification.md` §15.3.
+- Deno: Sheets 78/78 and `deno check` pass; all Deno tests 340 = 262 + 78.
+- SQL/PostgREST suite: ALL PASSED (T1–T18, 9 regression cases, concurrency with controls, shutdown gate, rollback, 33 PostgREST checks, 40 end-to-end checks).
+- Real pg_cron check: ALL PASSED.
+- Regression evidence against `8b675e5`: EVIDENCE OK.
+- ESLint: 29 files, 0 errors and 0 warnings. Build: passes.
+- Browser flow: 48/48.
+
+**Release records.**
+- **Release package:** status, §0.C, §3 and §4 "How" (psql / repair / CLI), the additional read-backs, the Phase C rollback target (`dpl_6LM8RRL2…` at `b5976e0`), §10 (APPROVED) and the §10.1 staged commands.
+- **`verification.md`:** §14 and §15.
+- **Root `implementation_plan.md`:** this release's section.
+
+**Production.** No mutation by this work. The environment has no database credential, and its egress policy blocks the Supabase hosts, so Chris runs the three production-changing stages from his Mac (§10.1). Claude verifies between stages.
+- Current: migration history 324 rows, latest `20261010172702`; zero Sheets objects; no `google-sheets-*` functions.
+- Frontend: `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `b5976e0`.
+- #448's `invite-user` v232 and `send-invite-email` v236 are untouched.
+
+**Noted, out of scope (already known).** Reading the whole log confirmed that the 2026-05-15 workflow entry (around line 13038) still contains a plaintext `WORKFLOW_INTERNAL_SECRET` value.
+- This is the known 2026-10-09 finding (PR #433 entry): the repository is public, and the rotation plan awaits Chris's separate approval.
+- The value is not repeated here, and nothing was rotated or changed.
+
 ## 2026-10-15 — HOTFIX: Team Leaders can invite Agent users
 
 **Approval:** Chris requested an immediate fix and explicitly instructed ChatGPT to implement the proposed scope here: Team Leader Agent invitations into their own agency/direct downline, send/copy/resend, two Edge deployments and corresponding frontend release.
