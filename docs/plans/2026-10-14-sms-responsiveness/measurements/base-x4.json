@@ -1,0 +1,225 @@
+{
+ "label": "base",
+ "build": "dacd921",
+ "throttle": 4,
+ "conditions": {
+  "build": "vite production build of the fixture",
+  "browser": "Playwright 1.56.1 headless Chromium",
+  "cpuThrottle": 4,
+  "thread": "100 SMS, 50 calls, 50 emails",
+  "contact": "90 history items loaded",
+  "receiptMs": 1500,
+  "rowReadMs": 80,
+  "listReadMs": 250
+ },
+ "runs": [
+  {
+   "surface": "conversations",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 67.4,
+     "p95": 117,
+     "max": 133.3
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 1938.9,
+     "p95": 1972.3,
+     "max": 1984
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 42.9,
+     "p95": 67.5,
+     "max": 69
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1501.4,
+     "p95": 1505.6,
+     "max": 1506.4
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 396.3,
+     "p95": 427.3,
+     "max": 445.9
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1938.9,
+     "p95": 1972.4,
+     "max": 1984
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 72,
+     "p95": 120,
+     "max": 128,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "conversations",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 45.2,
+     "p95": 65.2,
+     "max": 75.3
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 1942.3,
+     "p95": 2004,
+     "max": 2049.9
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 27,
+     "p95": 44.3,
+     "max": 45.1
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1501,
+     "p95": 1504.4,
+     "max": 1505.1
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 406.9,
+     "p95": 463.3,
+     "max": 515.7
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 1942.3,
+     "p95": 2004,
+     "max": 2049.9
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 40,
+     "p95": 64,
+     "max": 72,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 88.8,
+     "p95": 121.6,
+     "max": 122.8
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 2409,
+     "p95": 2437.6,
+     "max": 2463.4
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 57.5,
+     "p95": 89.4,
+     "max": 91.2
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1500.9,
+     "p95": 1502.5,
+     "max": 1504.1
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 839.1,
+     "p95": 868.7,
+     "max": 892
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 2409,
+     "p95": 2437.6,
+     "max": 2463.4
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 88,
+     "p95": 120,
+     "max": 120,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 20,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 20,
+     "p50": 64.2,
+     "p95": 108.9,
+     "max": 110
+    },
+    "clickToOutgoingPainted": {
+     "n": 20,
+     "p50": 2397.2,
+     "p95": 2478.1,
+     "max": 2482.5
+    },
+    "clickToRequestStart": {
+     "n": 20,
+     "p50": 42.7,
+     "p95": 79.5,
+     "max": 80.4
+    },
+    "requestRoundTrip": {
+     "n": 20,
+     "p50": 1500.7,
+     "p95": 1503,
+     "max": 1503.7
+    },
+    "receiptToSavedPainted": {
+     "n": 20,
+     "p50": 844.5,
+     "p95": 912.9,
+     "max": 917
+    },
+    "clickToSavedPainted": {
+     "n": 20,
+     "p50": 2397.2,
+     "p95": 2478.1,
+     "max": 2482.5
+    },
+    "eventTimingDuration": {
+     "n": 20,
+     "p50": 64,
+     "p95": 112,
+     "max": 112,
+     "under16ms": 0
+    }
+   }
+  }
+ ]
+}

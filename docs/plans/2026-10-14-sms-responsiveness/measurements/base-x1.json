@@ -1,0 +1,225 @@
+{
+ "label": "base",
+ "build": "dacd921",
+ "throttle": 1,
+ "conditions": {
+  "build": "vite production build of the fixture",
+  "browser": "Playwright 1.56.1 headless Chromium",
+  "cpuThrottle": 1,
+  "thread": "100 SMS, 50 calls, 50 emails",
+  "contact": "90 history items loaded",
+  "receiptMs": 1500,
+  "rowReadMs": 80,
+  "listReadMs": 250
+ },
+ "runs": [
+  {
+   "surface": "conversations",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 14.2,
+     "p95": 22.3,
+     "max": 25.8
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 1791.6,
+     "p95": 1812.8,
+     "max": 1830.3
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 7.9,
+     "p95": 13.8,
+     "max": 15.8
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1501.2,
+     "max": 1501.5
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 282.7,
+     "p95": 302.5,
+     "max": 322.8
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1791.6,
+     "p95": 1812.8,
+     "max": 1830.3
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 32,
+     "p95": 40,
+     "max": 48,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "conversations",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 17.3,
+     "p95": 25.5,
+     "max": 26.6
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 1787.1,
+     "p95": 1805.4,
+     "max": 1816.1
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 5.4,
+     "p95": 9.3,
+     "max": 11.7
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.4,
+     "max": 1501.1
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 281.1,
+     "p95": 297.6,
+     "max": 306.5
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 1787.1,
+     "p95": 1805.5,
+     "max": 1816.2
+    },
+    "eventTimingDuration": {
+     "n": 33,
+     "p50": 16,
+     "p95": 16,
+     "max": 24,
+     "under16ms": 17
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "1440x900",
+   "trigger": "click",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 15.6,
+     "p95": 23.3,
+     "max": 27.4
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 2285.3,
+     "p95": 2293.5,
+     "max": 2324.6
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 11.5,
+     "p95": 16.6,
+     "max": 20
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.8,
+     "max": 1501.1
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 773.6,
+     "p95": 781.5,
+     "max": 811.7
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 2285.3,
+     "p95": 2293.5,
+     "max": 2324.7
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 24,
+     "p95": 32,
+     "max": 32,
+     "under16ms": 0
+    }
+   }
+  },
+  {
+   "surface": "contact",
+   "viewport": "390x844",
+   "trigger": "Enter",
+   "sends": 50,
+   "overflow": false,
+   "metrics": {
+    "clickToFirstChangePainted": {
+     "n": 50,
+     "p50": 19.3,
+     "p95": 30,
+     "max": 35
+    },
+    "clickToOutgoingPainted": {
+     "n": 50,
+     "p50": 2280.3,
+     "p95": 2289,
+     "max": 2294.8
+    },
+    "clickToRequestStart": {
+     "n": 50,
+     "p50": 7.6,
+     "p95": 15.9,
+     "max": 19.1
+    },
+    "requestRoundTrip": {
+     "n": 50,
+     "p50": 1500.3,
+     "p95": 1500.4,
+     "max": 1500.8
+    },
+    "receiptToSavedPainted": {
+     "n": 50,
+     "p50": 771.3,
+     "p95": 778.1,
+     "max": 782.4
+    },
+    "clickToSavedPainted": {
+     "n": 50,
+     "p50": 2280.3,
+     "p95": 2289,
+     "max": 2294.8
+    },
+    "eventTimingDuration": {
+     "n": 50,
+     "p50": 24,
+     "p95": 32,
+     "max": 40,
+     "under16ms": 0
+    }
+   }
+  }
+ ]
+}

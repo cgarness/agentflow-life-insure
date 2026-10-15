@@ -1,3 +1,83 @@
+## 2026-10-14 — Instant manual SMS feedback (frontend only; local branch, not published)
+
+**Request and approval.** Chris approved a frontend-only build with binding corrections D1–D9 and design corrections 1–7, plus bounded read-only Gate 0 checks.
+- **Not approved:** backend code, production mutations, Realtime publication changes, merge, deployment, publication (pushing the branch counts), secret rotation and live SMS.
+- **Plan:** `docs/plans/2026-10-14-sms-responsiveness/implementation_plan.md`. §13 holds the verification record and §10 the backend recommendation.
+
+**Base and branch.**
+- **Base:** `main` `dacd921`, rechecked unchanged before editing.
+- **Branch:** `claude/sms-instant-send-20261014`, local commits only.
+- **Commits:**
+  - `488d4fc`: plan and Gate 0 evidence;
+  - `c367457`: implementation and tests;
+  - the records commit that follows them: browser fixture, CI, `AGENT_RULES` #31, the plan's verification record (§13), measurement summaries and this entry. Rebuilt before first publication; see the 2026-10-15 entry.
+
+**Gate 0** (read-only, plan §2):
+- `messages` and `contact_emails` are not in the Realtime publication;
+- the live `twilio-sms` v38 equals the repository;
+- 4 successful sends took 4.5–5.1 s. The one complete trace shows 19 sequential Supabase calls, about 3.5 s;
+- one enforced agency;
+- 8 `sms_dispatches` rows, all accepted.
+
+**What changed.**
+- **Shared send path** (`src/lib/sms-send/`):
+  - an exact response classifier;
+  - a memory-only pending store holding identity scope, an authority generation, `SmsIntent` reuse with conditional completion, single flight per contact, the D2 guard, capacity rules and draft sinks;
+  - a dependency-injected sender: session, then the authority re-check, then exactly one POST with the deadline, classify, settle, then the targeted `.maybeSingle()` row read at +0, +2 and +10 s;
+  - merges by `message_id` only.
+- **Surfaces:**
+  - Conversations: a synchronous `onSubmitSms`, with the View As refusal still first; the page-wide SMS lock is replaced by per-contact flight; email is unchanged.
+  - Thread: pending rows, quiet reloads that keep rows ("Couldn't refresh · Retry"), and a scroll rule (jump on first load and own send; follow only within 120 px).
+  - Contact record: SMS through the shared path, pending items in the timeline, no success toast; history refresh after acceptance only while Activity is open, and a recovery refresh after uncertainty.
+  - `App.tsx` mounts `PendingSmsAuthorityBridge`.
+- **Status line:** Sending… / Still sending… / Not sent (Edit, Dismiss) / Not confirmed (Dismiss) / Accepted · history not saved / Accepted · history pending.
+
+**Verification** (full record: plan §13). Base `dacd921` was reproduced first.
+- **`npx tsc --noEmit`:** exit 0 on both. The root config checks no files.
+- **`npx tsc -p tsconfig.app.json --noEmit`:** 85 → **84**, no new diagnostic. The one removed is the replaced contract-test mock.
+- **Vitest** (`TZ=UTC`, dummy `VITE_SUPABASE_*`): base 5,266 passed / 1 failed / 34 skipped; candidate **5,430 passed / 1 failed / 34 skipped**. The failure is the same pre-existing `recordingRetentionVoicemail` case. The CI SMS list passes without env: 11 files, 255 tests.
+- **ESLint** on all 31 changed files: 0 errors. The only warning is the pre-existing `FullScreenContactView` exhaustive-deps one.
+- **`npm run build`:** passes. **`git diff --check dacd921`:** clean.
+- **Browser fixture** (`scripts/tests/sms-responsiveness/`, synthetic data and a fake transport: 1,500 ms receipt, 80 ms row read, 250 ms list reads; 50 sends per surface per viewport). All functional assertions pass.
+
+**Measurements** (p50 / p95 ms; fixture only, not server or handset). Base has no pending bubble, so its comparable figure is when the outgoing text first appears (after the round trip and reload).
+
+| Input → outgoing text painted | 1440×900 | 390×844 |
+|---|---|---|
+| Conversations | base 1,791.6 / 1,812.8 → **18.7 / 27.8** | 1,787.1 / 1,805.4 → **19.7 / 26.9** |
+| Contact record | 2,285.3 / 2,293.5 → **25.4 / 39.0** | 2,280.3 / 2,289.0 → **26.5 / 36.0** |
+
+- **Receipt → saved row shown:** 283 / 774 ms → about 104 ms.
+- **The ≤100 ms p95 goal** is met at 1× (highest p95 39.0 ms). It is **not** met under the informational 4× CPU throttle (110–176 ms p95), because the commit re-renders the unmemoized history list. Memoizing history items is a possible follow-up, not done.
+- **390×844:** both existing layouts are desktop-only, the same on base. The Conversations thread pane collapses to zero width, so sends there use Enter and the timings are commit-to-paint, not visibility.
+
+**Limits.**
+- Exactly-once delivery is not claimed. A lost response stays "Not confirmed".
+- The legacy (non-enforced) path ignores request IDs; it has no current traffic.
+- STOP/DNC (`SMS_STATE`) reads "Not confirmed".
+- Realtime is still unpublished, so inbound replies do not appear live.
+- State is per tab, memory-only, and ends on reload or sign-out.
+- A second text to the same contact waits for the first.
+- Server time per send (4.5–5.1 s) is unchanged; only the waiting is hidden.
+- File growth: `ConversationThread.tsx` 474 → 585, `Conversations.tsx` 324 → 338, `FullScreenContactView.tsx` 1,435 → 1,461. New components are under 70 lines.
+
+**Release gates** (none performed):
+1. Chris's review.
+2. Push and PR (publication).
+3. CI.
+4. A preview check: any real send there is a live SMS and needs approval.
+5. Merge and Vercel deploy.
+6. Read back the served bundle.
+
+B0 and the secret rotation are separate approvals.
+
+**Separate items.**
+- **D5:** sidebar defect reported, not fixed. `ConversationsSidebar.tsx:91,190` shows the skeleton on every reload; `:102` empties the list when a reload fails. Unchanged on this branch.
+- **D8:** B0 (timing instrumentation, `twilio-sms/index.ts` only) is recommended as the next backend step. Not implemented (plan §10).
+- **Security:** the separate security item logged on 2026-10-10 has a remediation plan, delivered to Chris privately and not stored in this public repository. Nothing was rotated, redacted, probed or rewritten.
+
+**Migrations/deploys:** none. **Publication:** none; the branch is not pushed. **Live SMS:** none.
+
 ## 2026-10-14 — ClearPath saved-lead notification bridge
 
 Chris approved the API integration after Twilio browser handoff failed. Added a separate Ed25519-authenticated endpoint, fixed to Chris's home agency and selected 916 sender/909 recipient. It accepts only a request UUID, send/status operation and lead/test kind. No prospect contact or insurance data crosses this bridge. Public verification key only in source; private signing key stays in Sites runtime secrets.

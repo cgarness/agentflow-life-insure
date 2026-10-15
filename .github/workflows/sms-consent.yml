@@ -10,9 +10,14 @@ on:
       - 'src/components/settings/**'
       - 'src/hooks/useSmsConsentStatus.ts'
       - 'src/hooks/useScopedDraft.ts'
+      - 'src/hooks/usePendingSms.ts'
       - 'src/lib/sms-*'
+      - 'src/lib/sms-send/**'
+      - 'src/pages/Conversations.tsx'
+      - 'src/pages/__tests__/conversations*'
       - 'scripts/test-sms-consent.mjs'
       - 'scripts/tests/sms-visual/**'
+      - 'scripts/tests/sms-responsiveness/**'
       - '.github/workflows/sms-consent.yml'
   workflow_dispatch:
 permissions:
@@ -52,7 +57,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm install --prefix "$RUNNER_TEMP/sms-tools" --no-package-lock deno@2.5.2 @electric-sql/pglite@0.3.14 playwright@1.56.1
       - name: Manual SMS composer and request contracts
-        run: npx vitest run src/components/messaging/smsConsent.test.tsx src/pages/__tests__/conversationsSendContract.test.tsx src/pages/__tests__/conversationsViewAs.test.tsx src/components/conversations/__tests__/conversationThreadIsolation.test.tsx src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx
+        run: npx vitest run src/components/messaging/smsConsent.test.tsx src/pages/__tests__/conversationsSendContract.test.tsx src/pages/__tests__/conversationsViewAs.test.tsx src/components/conversations/__tests__/conversationThreadIsolation.test.tsx src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx src/lib/sms-send/__tests__ src/components/messaging/__tests__/pendingSmsStatus.test.tsx src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx
       - name: Real native PostgreSQL integration and concurrent dispatch
         env:
           SMS_NATIVE_PG: postgres://postgres:synthetic-test-password@127.0.0.1:55440/postgres
@@ -78,6 +83,19 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           node scripts/tests/sms-visual/verify.mjs
+      - name: SMS responsiveness fixture (functional; timings recorded, not gated)
+        env:
+          SMS_PLAYWRIGHT_MODULE: ${{ runner.temp }}/sms-tools/node_modules/playwright/index.mjs
+          SMS_RESPONSIVENESS_OUT: ${{ runner.temp }}/sms-visual-evidence/responsiveness
+          SMS_BUILD_LABEL: candidate
+          SMS_EXPECT_PENDING: '1'
+          SMS_SENDS: '5'
+        run: |
+          node node_modules/vite/bin/vite.js build --config scripts/tests/sms-responsiveness/vite.config.mts
+          python3 -m http.server 4189 --bind 127.0.0.1 --directory /tmp/cg-sms-responsiveness-dist &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          node scripts/tests/sms-responsiveness/measure.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
