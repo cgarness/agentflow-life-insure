@@ -1,3 +1,59 @@
+## 2026-10-15 — Google Sheets PR #442: reconciled with current `main` `03ef0cb` before Phase B (merge commit; branch only; nothing deployed, applied, merged or enabled)
+
+**Request.** Chris reported the Google Cloud owner setup (Phase A) complete. He approved merging current `main` into `claude/keen-brown-e4u3ht`, keeping both sides' approved work, and re-verifying the exact head before any Phase B deployment. No production mutation was approved.
+
+**Merge.**
+- **What was merged:** `main` `03ef0cb`, 19 commits since `f91e4ba`: #443 ClearPath alerts, #445 instant manual SMS (frontend only), #446 docs.
+- **How:** merge commit `94e9bc1`, with parents `18e5395` (the reconciliation plan) and `03ef0cb`. No rebase, amend or force-push.
+- **`WORK_LOG.md` (conflict).** Both sides prepended entries. They are now ordered newest first: `main`'s 2026-10-15 and 2026-10-14 entries, then the four Sheets entries from 2026-10-13. Every entry is byte-identical to its side.
+- **`supabase/config.toml` (conflict).** Both sides appended. `main`'s `clearpath-lead-alert` block is kept, followed by the four Sheets blocks. `main`'s 65 functions are unchanged.
+- **`AGENT_RULES.md`** auto-merged. `main`'s manual-SMS amendments and the Sheets invariant each appear once.
+- **Everything else** is byte-identical to its side. The merged head differs from `main` in exactly the PR's 88 files. **No application code changed** in the merge.
+- **Semantic review.** No interaction found in Settings, permissions, the Supabase client, auth, Contacts, workflows or the build. `clearpath-lead-alert` runs only on signed external requests and never reads `leads`, so a lead created by Sheets cannot trigger it. `main` added no migration, cron or shared Edge code.
+
+**Unchanged:**
+- the migration: SHA-256 `fc68da86…6efed`, 86,193 bytes;
+- the pending cron, rollback and ops files;
+- the four Edge bundle digests and all 25 per-file checksums.
+
+**Verification** (merged head against a fresh `03ef0cb` worktree; details in `verification.md` §13):
+- Types:
+  - root `tsc` exit 0;
+  - app `tsc` 84 = 84, byte-identical diagnostics (`verify-a2p-types`: `base=84, candidate=84, new=0`).
+- **Full Vitest**, run with CI's `verify_reports_frontend.py` method, exited 0:
+  - `03ef0cb`: 5,372 passed, 1 failed, 34 skipped;
+  - merged head: 5,395 passed, 1 failed, 34 skipped.
+  - The 10 failing files and the 1 failing test are the same pre-existing ones on both sides. No status changes; the additions are the 23 Sheets tests. 0 runtime errors.
+- Focused Vitest: 79 passed (Sheets suites 23).
+- Deno:
+  - Sheets 78/78, and `deno check` passes on the four entry points;
+  - every repository test under `supabase/functions/`: 340 = `main`'s 262 plus 78, with no status change.
+- SQL, PostgREST and end-to-end: ALL PASSED (T1–T18, 9 regression cases, concurrency with negative controls, shutdown, rollback, 33 PostgREST checks, 40 end-to-end checks).
+- Real pg_cron/pg_net check: ALL PASSED.
+- Regression evidence against `8b675e5`: 26 regressions and 5 controls, EVIDENCE OK.
+- ESLint on the 29 changed files: 0 errors, 0 warnings. The build passes.
+- Browser flow: 48/48.
+
+**Production, read-only (about 16:05–16:10 UTC):**
+- **Database.** Latest migration `20261010172702`. No Sheets relation, function, cron job, Vault secret or permission row. Helper MD5 `a199d5dd…b8`. 0 workflows; 8 active users in the one active organization.
+- **Edge.** No `google-sheets-*` function. `main`'s `clearpath-lead-alert` v2 is deployed; that was #443's release, not this task.
+- **Vercel.** Production is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t`, READY at `03ef0cb`.
+
+**Docs.**
+- **Release package:**
+  - names the reconciled head as the Phase B source;
+  - adds §0.B with the refreshed state;
+  - changes the Phase C rollback target to "the deployment current immediately before the merge" (today `dpl_BoRb…`). Rolling back to the old `dpl_E7C5…` would also remove #443 and #445;
+  - adds a read-only Conversations health check;
+  - requires a fresh advisor capture immediately before B2.
+- Also updated: `verification.md` §13, the root plan, a note in the detailed plan, and this entry.
+
+**Not done:**
+- Phase B and everything after it: no secrets, migration, Edge deploy, Vault, Vercel, flags, cron, merge or test leads.
+- CI for the pushed head is recorded in the next documentation commit.
+
+---
+
 ## 2026-10-15 — Instant manual SMS: production release (PR #445 merged; frontend only)
 
 **Approval.** Chris's owner-sent message approved:

@@ -8,9 +8,23 @@ Nothing in this package has been run:
 - no live import, privacy publication or merge.
 
 - **Branch:** `claude/keen-brown-e4u3ht`.
-- **Reviewed application head:** `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`. Later commits change documentation only.
+- **Reviewed application head:** `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`.
+- **Reconciled head (2026-10-15):** merge commit `94e9bc18dde7b662939e6807cbb2dddca6537f29`, which is the reviewed Sheets work merged with `main` `03ef0cb`. Later commits change documentation only.
+  - Its diff against `main` is exactly the PR's 88 files.
+  - The Sheets code, SQL, tests, scripts and workflow are byte-identical to `b66c44f`.
+  - `AGENT_RULES.md`, `WORK_LOG.md` and `supabase/config.toml` carry both sides.
+  - Every other file is byte-identical to `main`.
 - **Plan:** `implementation_plan.md` §0 in this folder.
-- **Evidence:** `verification.md`. §12 there holds the read-only preflight.
+- **Evidence:** `verification.md`. §12 there holds the read-only preflight; §13 holds the reconciliation with `main`.
+
+**Revision 2026-10-15 (reconciled with current `main` before Phase B).** `main` moved from `f91e4ba` to `03ef0cb` with #443 (ClearPath alerts), #445 (instant manual SMS, frontend only) and #446 (docs), and it was merged into the branch. This revision:
+- adds the refreshed read-only state (§0.B);
+- names the reconciled head as the Phase B source (§10). The migration and the four Edge bundles are unchanged;
+- replaces the stale Phase C rollback target (§5.1, §9) with "the production deployment current immediately before the merge", which is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `03ef0cb` on 2026-10-15;
+- adds a read-only Conversations check to the Phase C health checks, because #445 changed that page;
+- compares the Phase B advisors with a fresh capture taken immediately before B2 (§3), because the stats-based lints drift over time.
+
+No phase, approval boundary, secret, origin or application behaviour changed.
 
 **Revision 2026-10-13 (live-production test plan).** Chris approved testing directly in live production at `https://www.fflagent.com`, instead of on the protected Vercel preview. This revision:
 - replaces the pilot plan with the release sequence below (Phases A–E);
@@ -84,6 +98,18 @@ The earlier "independently sufficient kill switches" claim stays withdrawn.
 | **Google connections** | 1 Gmail connection (Chris's, connected); 0 Calendar integrations. |
 | **Callback host** | `get_project_url` = `https://jncvvsvckxhqgqvkppmj.supabase.co`. Supabase logs for 2026-10-06/07 and 2026-10-11 to 2026-10-13 show every API-gateway and Edge Function request on that host and no other. The Custom Domains page and Management API are not reachable from this session, and public DNS lookups are blocked by egress policy. **No evidence of a custom or vanity domain.** |
 | **Google Cloud** | **No authenticated access.** `gcloud` rejects the session token, no Google connector is connected, and no browser tool is available. Nothing in §1 has been performed by Claude. |
+
+### 0.B Re-check after reconciling with `main` (2026-10-15, about 16:10 UTC; read-only; details in `verification.md` §13)
+
+Where §0.B differs from §0.A, §0.B is current. Phase A is reported complete by Chris; Claude did not perform or observe it.
+
+| Check | Result |
+|---|---|
+| **Code** | `main` = `03ef0cb`: #443 `dacd921`, #445 `26f9bc1`, #446 `03ef0cb`. It was merged into the branch as `94e9bc1`. The conflicts were `WORK_LOG.md` and `supabase/config.toml`; both sides were kept. The migration and the four Edge bundles are byte-identical to `b66c44f`. Exact-head CI: `verification.md` §13. |
+| **Production database** | Unchanged. Latest migration `20261010172702`. No Sheets relation, function, cron job or Vault secret, and no `role_permissions` row with the new key. Helper MD5 is still `a199d5dd…b8`. |
+| **Production Edge Functions** | No `google-sheets-*` function. `main`'s `clearpath-lead-alert` v2 is now deployed (`verify_jwt=false`). It is unrelated to Sheets and never reads `leads`. |
+| **Production frontend** | `agentflow` deployment `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` is READY at `main` `03ef0cb`. The deployments before it are `dpl_4UtN9j5bbNemnXAeoVpFXyknUX3f` (`26f9bc1`), `dpl_AqcLLxULHBXWQ4zjP8jPkeXWBGk2` (`dacd921`) and `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws` (`f91e4ba`). No Sheets UI code is deployed. |
+| **Organizations, users and workflows** | Unchanged: 1 active organization with 8 active users (1 Admin, 1 Team Leader, 6 Agents), 3 suspended organizations, **0 workflows** and 0 Calendar integrations. |
 
 ## 1. Phase A — Google owner checklist (Chris; Claude cannot access Google Cloud)
 
@@ -198,7 +224,7 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 ```
 
 **Advisor comparison.**
-- Run `get_advisors` (security and performance) and compare them with the §0.A baselines.
+- Run `get_advisors` (security and performance) immediately before B2 and again after it, and compare the two. The §0.A values are the 2026-10-13 reference. `unused_index` and `table_bloat` follow usage statistics and can drift between days without any schema change; a difference between the fresh pre-apply capture and §0.A is reported, not attributed to Sheets.
 - **Expected security delta:** exactly **+3 INFO `rls_enabled_no_policy`**, on `private.google_sheets_oauth_states`, `private.google_sheets_receipts` and `private.google_sheets_source_rows`. These are deliberately policy-less private tables.
 - **Expected performance delta:** +7 INFO `unindexed_foreign_keys`, +4 INFO `unused_index`, +3 WARN `auth_rls_initplan` (the three select-own policies), all on Sheets objects.
 - Nothing is expected to be removed. **Any other change stops Phase B** before the functions are deployed.
@@ -275,12 +301,16 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
    - Reports load;
    - Settings → Email Setup shows Gmail connected;
    - Settings → Calendar loads;
+   - Conversations opens an existing thread. **Send nothing:** any send there is a live SMS;
    - Settings → Google Sheets shows "not available yet".
 3. Claude, read-only, comparing with the hour before the merge:
    - Edge Function 5xx counts (`function_edge_logs`) and API-gateway 5xx counts (`edge_logs`);
    - Postgres error lines;
    - Chris's Gmail connection still `connected`, with `last_sync_at` advancing.
-4. **If a regression appears,** the fastest recovery is Vercel's rollback to the previous production deployment (`dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`, `main` `f91e4ba`). It changes no data. The Phase B backend stays deployed and disabled.
+4. **If a regression appears,** the fastest recovery is Vercel's rollback to the production deployment that was current immediately before the merge. It changes no data, and the Phase B backend stays deployed and disabled.
+   - Capture that deployment's ID in the Phase C preflight.
+   - On 2026-10-15 it is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `main` `03ef0cb`.
+   - The older `dpl_E7C5…` at `f91e4ba` is no longer the target: rolling back to it would also remove #443 and #445.
 
 ### 5.2 Phase D — live test activation (separate approval; cron stays OFF)
 
@@ -525,7 +555,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 ## 9. Rollback
 
-1. **Phase C (frontend only):** use Vercel's rollback to the previous production deployment (`dpl_E7C5dN2ATUhWbTCfrupJfSamkQws`, `main` `f91e4ba`). It changes no data.
+1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-15 that is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `main` `03ef0cb`. It changes no data.
 2. **Backend:**
    - Run the §5.7 **non-destructive shutdown**: unschedule → close admission → drain → verify quiescence.
    - Then unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`.
@@ -538,7 +568,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 **Precondition (owner):** Phase A (§1 G0–G7) is done and reported. That includes G2 (no custom domain) and G4 (the AgentFlow Sheets client exists).
 
-**Approve, for production `jncvvsvckxhqgqvkppmj` from reviewed head `b66c44f`, exactly the following:**
+**Approve, for production `jncvvsvckxhqgqvkppmj` from the reconciled head (merge commit `94e9bc1`, whose migration and four Edge bundles are byte-identical to reviewed head `b66c44f`), exactly the following:**
 1. **Secrets (B1).** Chris enters the six §2 Edge secrets marked "B". Claude never sees a value.
    - The redirect URI is the standard callback.
    - The return origins are `https://www.fflagent.com,https://fflagent.com`.
@@ -553,7 +583,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 **Stays off afterwards:**
 - the backend flag (`GOOGLE_SHEETS_ENABLED`) and the frontend flag (`VITE_GOOGLE_SHEETS_ENABLED`) remain unset;
-- production keeps serving `main` `f91e4ba`, so the Sheets UI is not deployed;
+- production keeps serving current `main` (`03ef0cb` on 2026-10-15), so the Sheets UI is not deployed;
 - the cron job is absent; the pending migration stays in `pending/`;
 - no live import;
 - PR #442 stays draft, and nothing is merged.

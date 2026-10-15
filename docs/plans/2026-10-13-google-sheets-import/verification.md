@@ -17,6 +17,8 @@
 
 **Setup gate (2026-10-13).** §12 records the read-only release preflight for the Google setup and pilot-preparation gate. That gate changed no application code, migration or test.
 
+**Reconciliation with current `main` (2026-10-15).** §13 records the merge of `main` `03ef0cb` into the branch (merge commit `94e9bc1`) and the full re-verification of that head against a fresh `03ef0cb` baseline. The merge changed no Sheets code, migration, Edge bundle or test.
+
 ## 1. Results
 
 | Check | Result |
@@ -341,3 +343,68 @@ The file lists come from tracing each entry's relative imports:
 | `google-sheets-oauth-start` | 8 | `7105438ef4d2d33f0cc62a45eb208c0338a618758b9aa2212569d67950a91591` |
 
 Per-file checksums are unchanged from §10.
+
+## 13. Reconciliation with current `main` (2026-10-15; branch only; no production mutation)
+
+**What changed.** `main` moved from `f91e4ba` to `03ef0cb` (19 commits):
+- #443 `dacd921`: ClearPath saved-lead alerts;
+- #445 `26f9bc1`: instant manual SMS, frontend only;
+- #446 `03ef0cb`: docs.
+
+It was merged into the branch with a merge commit, `94e9bc18dde7b662939e6807cbb2dddca6537f29`, whose parents are `18e5395` (the reconciliation plan) and `03ef0cb`. There was no rebase, amend or force-push. Plan: the 2026-10-15 entry of the root `implementation_plan.md`.
+
+### 13.1 Conflicts and resolutions
+
+| File | Git | Resolution | Proof |
+|---|---|---|---|
+| `WORK_LOG.md` | conflict (both prepend) | `main`'s 6 new entries (four 2026-10-15, two 2026-10-14), then the 4 Sheets entries (2026-10-13, all committed that day), then the shared history | 145 entries = 141 (`main`) + 139 (branch) − 135 (shared). No duplicate heading. Every entry is byte-identical to its side. Dates are non-increasing through all new entries; the two older out-of-order pairs already exist in the shared history. |
+| `supabase/config.toml` | conflict (both append) | `main`'s file unchanged, then the Sheets comment and four blocks | TOML parse: 69 functions = `main`'s 65, all unchanged, plus 4 Sheets functions (`verify_jwt=false`). Non-function sections equal `main`'s. `clearpath-lead-alert` keeps `verify_jwt=false`. |
+| `AGENT_RULES.md` | auto-merged | `main`'s two manual-SMS amendments plus the Sheets invariant section | merged − `main` = exactly the branch's Sheets section; merged − branch = exactly `main`'s two hunks. Each appears once; nothing moved. |
+
+**Every other file is byte-identical to its side:** `main`'s 66 others to `03ef0cb`, and the branch's 85 others to `18e5395`. The merged tree differs from `main` in exactly the PR's 88 files, and from the pre-merge branch in exactly `main`'s 69 files.
+
+### 13.2 Semantic review (no textual conflict)
+- **Settings and permissions.** `main` changed no Settings, `src/config/`, permission or `role_permissions` code. Two tests on the `main` side read PR files, and both pass on the merged head:
+  - `reportsContracts.test.ts`, which pins `permissionDefaults.ts`. The PR's updated pin applies, because `main` did not change the test.
+  - The onboarding `catalog.test.ts`, which needs its CTA routes in `App.tsx` and its section slugs in `settingsConfig.ts`.
+- **Supabase client and auth.** Both are unchanged. `main`'s `PendingSmsAuthorityBridge` binds only the memory-only SMS store. The Sheets OAuth return is a full page load.
+- **Contacts and lead creation.** `main`'s changes are SMS display only, with no migration, trigger or lead-insert hook. `clearpath-lead-alert` runs only on signed external requests, with a fixed organization, sender and recipient, and never reads `leads`. A lead created by Sheets therefore cannot fire it.
+- **Build and runtime.** `main` changed no `package*.json`, Vite, TypeScript, ESLint or Vitest config, `deno.*`, `index.html`, `vercel.json` or `supabase/functions/_shared/**`. `main` added no migration and no `cron.schedule`.
+
+### 13.3 Release artifacts are unchanged
+- **Migration:** SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`, MD5 `94c7be79a3a95b4a2b971f4b4513838b`, 86,193 bytes, identical before and after the merge.
+- **Pending cron migration, rollback and the four ops files:** identical to §10.
+- **Per-file Edge checksums:** all 25 lines of §10 pass `sha256sum -c`.
+- **Bundle digests:** the four §12.8 digests are recomputed identically.
+
+### 13.4 Verification on the merged head (local; baselines from a fresh `03ef0cb` worktree)
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` (root) | PASS (exit 0) on the merged head and on `03ef0cb` |
+| App type-check, `tsc -p tsconfig.app.json` | **84 on a fresh `03ef0cb` worktree, 84 on the merged head.** The sorted diagnostics are byte-identical, so zero new. `scripts/verify-a2p-types.mjs` with `A2P_BASE_SHA=03ef0cb…` reports `base=84, candidate=84, new=0`. |
+| Full Vitest against `03ef0cb`, using `scripts/verify_reports_frontend.py`, the same script and method as the CI "Reports frontend verification" (no Supabase env; shallow clone) | **Exit 0.** `03ef0cb`: 5,407 tests (5,372 passed, 1 failed, 34 skipped) in 339 files. Merged head: 5,430 tests (5,395 passed, 1 failed, 34 skipped) in 341 files. The 10 failing files and the single failing test (`recordingRetentionVoicemail`, pre-existing) are identical on both. No base test is missing or changed status. The skipped inventory is identical (34). The only additions are the 23 Sheets tests. 0 unhandled runtime errors. The same script's Reports tests, ESLint on changed files and build also pass. |
+| Vitest, focused (the Sheets CI list) | 5 files, **79 passed**; Sheets suites alone: **23 passed** (12 + 11) |
+| Deno, Sheets (`_shared/googleSheets` and the four functions) | **78 passed, 0 failed**; `deno check` on the four entry points passes. deno.land is blocked locally, so the std asserts module is mapped to a local shim; CI uses the real module. |
+| Deno, every test under `supabase/functions/` (`--no-check`) | Merged head **340 passed**: `03ef0cb`'s 262, all still passing, plus the 78 Sheets tests. 0 status changes. The onboarding `catalog.test.ts`, which reads `App.tsx` and `settingsConfig.ts`, passes. |
+| `scripts/run_google_sheets_tests.sh` (PostgreSQL 16 locally) | **ALL PASSED.** T1 (52 functions) through T18; 9 regression cases (8 regressions, 1 control); concurrency (`imported flagged` vs negative control `imported imported`); SKIP LOCKED claims 4 + 4 with overlap 0; 4b `released ok` vs control `completed access_lost`; 4c `released` vs control `completed`; the shutdown gate; rollback and re-apply; 33 PostgREST checks; 40 end-to-end Review checks |
+| `scripts/run_google_sheets_cron_check.sh` (`supabase/postgres:17.6.1.063`, `--network none`) | **ALL PASSED** (real pg_cron 1.6.4, pg_net 0.19.5, supabase_vault 0.3.1; 0 runs in the 70 s after unscheduling; drain check 0/0) |
+| `scripts/google_sheets_regression_evidence.sh 8b675e5` | **EVIDENCE OK**: 26 regressions fail on `8b675e5` and pass on the merged head; 5 controls pass on both |
+| ESLint, all 29 changed `src/` and `scripts/` JS/TS files against `03ef0cb` (`--max-warnings=0`) | PASS: 0 errors, 0 warnings. The Sheets CI lint list is also clean. |
+| `npm run build` | PASS (only the existing chunk-size warning) |
+| Browser flow `scripts/tests/google-sheets-ui/verify.mjs` (Chromium 1194; mocked Supabase host and fake Picker script) | **48/48 PASS** at 1440×900 and 390×844 |
+
+### 13.5 Production, read-only (2026-10-15, about 16:05–16:10 UTC)
+- **Database `jncvvsvckxhqgqvkppmj`:**
+  - latest migration `20261010172702`; `list_migrations` has no Sheets entry;
+  - 0 Sheets relations, functions, cron jobs or Vault secrets;
+  - 0 `role_permissions` rows carrying the new key;
+  - helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8` (the migration precondition still holds);
+  - 0 workflows; 1 active organization with 8 active users (1 Admin, 1 Team Leader, 6 Agents); 3 suspended organizations; 0 Calendar integrations.
+- **Edge Functions:** no `google-sheets-*` function. `main`'s `clearpath-lead-alert` v2 is deployed (`verify_jwt=false`); it was deployed for #443, not by this task.
+- **Vercel `agentflow` production:**
+  - `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t`, READY at `03ef0cb`;
+  - earlier deployments: `dpl_4UtN9j5bbNemnXAeoVpFXyknUX3f` (`26f9bc1`), `dpl_AqcLLxULHBXWQ4zjP8jPkeXWBGk2` (`dacd921`), `dpl_E7C5dN2ATUhWbTCfrupJfSamkQws` (`f91e4ba`);
+  - no Sheets UI code is deployed.
+
+### 13.6 Exact-head CI
+Pushing the records commit that adds this section triggers the repository workflows on PR #442. A commit cannot record its own CI, so the results for that exact head go in the next documentation commit (§13.7) and in the PR description.

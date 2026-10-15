@@ -6,6 +6,8 @@
 
 **Pre-release corrections (2026-10-13):** §0.9 was approved with amendments A–C. It is authoritative for the integrity corrections to PR #442.
 
+**Reconciled with `main` `03ef0cb` (2026-10-15).** The branch was merged with current `main` (merge commit `94e9bc1`) before Phase B. The design, code, migration and Edge bundles are unchanged. Records: the root `implementation_plan.md` (2026-10-15 entry) and `verification.md` §13. Older statements below that `main` "is still `f91e4ba`" are dated history.
+
 **Approved under this revision:**
 - implementation;
 - local verification;
