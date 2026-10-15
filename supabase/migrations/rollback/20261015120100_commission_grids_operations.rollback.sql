@@ -81,7 +81,8 @@ GRANT INSERT(variant_id,grid_id,organization_id,source,notes) ON public.comp_var
 GRANT INSERT(organization_id,grid_id) ON public.organization_comp_grids TO authenticated; GRANT DELETE ON public.organization_comp_grids TO authenticated;
 GRANT INSERT(organization_id,calculator_grid_id) ON public.organization_comp_settings TO authenticated; GRANT UPDATE(calculator_grid_id) ON public.organization_comp_settings TO authenticated;
 REVOKE ALL ON public.comp_grids,public.comp_products,public.comp_product_variants,public.comp_rates,public.comp_variant_references,public.organization_comp_grids,public.organization_comp_settings FROM agentflow_comp_operator;
+REVOKE EXECUTE ON FUNCTION auth.uid() FROM agentflow_comp_operator;
 REVOKE EXECUTE ON FUNCTION comp_authz.actor_org_id(),comp_authz.actor_is_admin(),comp_authz.readable_grid_ids() FROM agentflow_comp_operator;
-REVOKE USAGE ON SCHEMA public,comp_authz FROM agentflow_comp_operator;
+REVOKE USAGE ON SCHEMA public,comp_authz,auth FROM agentflow_comp_operator;
 REVOKE agentflow_comp_operator FROM postgres;
 DROP ROLE agentflow_comp_operator;

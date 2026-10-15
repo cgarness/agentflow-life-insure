@@ -46,7 +46,8 @@ END $role_guard$;
 CREATE ROLE agentflow_comp_operator
   NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 GRANT agentflow_comp_operator TO postgres;
-GRANT USAGE ON SCHEMA public, comp_authz TO agentflow_comp_operator;
+GRANT USAGE ON SCHEMA public, comp_authz, auth TO agentflow_comp_operator;
+GRANT EXECUTE ON FUNCTION auth.uid() TO agentflow_comp_operator;
 -- CREATE on public is temporary and exists only so PostgreSQL permits ALTER FUNCTION ... OWNER below.
 GRANT CREATE ON SCHEMA public TO agentflow_comp_operator;
 GRANT EXECUTE ON FUNCTION comp_authz.actor_org_id(), comp_authz.actor_is_admin(), comp_authz.readable_grid_ids()
