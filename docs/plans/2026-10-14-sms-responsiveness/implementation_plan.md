@@ -685,3 +685,91 @@ Not approved: merge, auto-merge, production deployment, live SMS, backend comman
 No `AGENT_RULES.md` amendment: the existing rule that every fetch-backed surface keeps "an error state distinct from the empty state" (§"A request that can reject needs a `.catch`…") already covers this.
 
 No migration, Edge deploy, Realtime change, backend command or live SMS. The §15.7 release gate is unchanged.
+
+## 16. Production release (2026-10-15)
+
+**Approval.** Chris's owner-sent message approved:
+- marking PR #445 ready;
+- merging the exact reviewed candidate through GitHub;
+- the existing Git-linked Vercel production frontend deployments;
+- read-only release verification and these records.
+
+Not approved, and not done: live SMS or calls, Supabase mutations, migrations, Edge deployments, Realtime, A2P or START changes, secret rotation, environment or domain changes.
+
+### 16.1 Preflight
+
+- **Candidate:** approved head `6a2a3b27b3753f2631229c5cfad60cafaf14232f` on reviewed base `dacd921903a867de99276f8709f829995602c3bd`. Both were re-confirmed on the remote immediately before the merge (14:20Z).
+- **Exact-head CI: all green.**
+  - `sms-consent`:
+    - 12 files, 280 tests, including both empty-thread refresh regressions;
+    - native PostgreSQL (78 assertions), Dialer DNC (8 PASS), Deno 48 passed;
+    - sms-visual PASS at 1440 and 390 px;
+    - responsiveness fixture with the deferred-history case: 3/3 on both surfaces; 390×844 is the expected BLOCKED.
+  - `reports-frontend` (exit 0), which is **baseline-equivalent, not a clean pass**:
+    - base 5,185 vs branch 5,374 passed;
+    - the same 1 pre-existing failing test and the same 10 failing files (9 need Supabase env);
+    - app `tsc` 84 diagnostics, none new; root `tsc` exit 0;
+    - ESLint and the build exit 0.
+  - Postgres, native and verify jobs: success.
+- **Reviews:** no reviews or review threads, only bot comments.
+- **Merge diff** (`dacd921..6a2a3b2`, 64 files): no `supabase/`, migration, Edge function, package or Vercel-config change. The only workflow change is `sms-consent.yml` (paths and the fixture step).
+- **Merge triggers:**
+  - No GitHub workflow runs on a push to `main` for these paths. `s1-plan-verify` runs only for `supabase/rollback/**` and its verifier script.
+  - Supabase's GitHub integration had nothing to act on (no `supabase/` change).
+  - Vercel's Git integration builds the two established production projects.
+- **Vercel mapping** (team `team_iPboOWpwdIQRwdxmA5GJp5Rq`):
+  - `agentflow` (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`): `www.fflagent.com`, `fflagent.com` (redirect to www) and `agentflow-eta.vercel.app`.
+  - `agentflow-life-insure` (`prj_PctERc2MEVcpKkYtBtQYc1ruunKb`): `agentflow-life-insure.vercel.app`.
+- **Rollback targets** (the production deployments at `dacd921`): `agentflow` `dpl_AqcLLxULHBXWQ4zjP8jPkeXWBGk2` and `agentflow-life-insure` `dpl_3YrHVpetphc587eLFJWWTTkrd8GD`.
+
+### 16.2 Merge and deployments
+
+- **Merge.** PR #445 was marked ready and merged at 14:21Z through GitHub with the expected-head guard. It is a merge commit, matching the release convention of #435–#440; it keeps the SHA-tied evidence commits reachable from `main`.
+  - Merge commit `26f9bc127fde8a28483211efb7c4cce705b8ceb8`, parents `dacd921` and `6a2a3b2`.
+  - The merge tree `7c5d8f2a099f05cb7679a914302c8abb74d31ae4` equals the reviewed head's tree.
+  - No direct push to `main`, no force-push, no new application commit.
+- **Production deployments** (Vercel Git integration; no manual promotion, no duplicate deployment):
+
+| Project | Deployment | Commit | State | Build | Assets (build log) |
+|---|---|---|---|---|---|
+| `agentflow` | `dpl_4UtN9j5bbNemnXAeoVpFXyknUX3f` | `26f9bc1` | READY, `target=production`, `aliasError=null` | 4,769 modules, no build errors | `index-Wo1JUlQp.css` 239.32 kB; `index-CpHXGOd6.js` 4,378.52 kB |
+| `agentflow-life-insure` | `dpl_5eM8bA1o7TcBmW2UTmLAJZj6VYna` | `26f9bc1` | READY, `target=production`, `aliasError=null` | 4,769 modules, no build errors | `index-Wo1JUlQp.css` 239.32 kB; `index-D2FRBwsr.js` 4,375.54 kB |
+
+- **Domains.** The aliases now point at the new deployments:
+  - `agentflow`: `www.fflagent.com`, `fflagent.com` (redirect to www), `agentflow-eta.vercel.app`, plus the team and `git-main` aliases;
+  - `agentflow-life-insure`: `agentflow-life-insure.vercel.app`, plus the team and `git-main` aliases.
+  - The previous production deployments hold no aliases.
+  - The CSS asset matches the exact-head preview builds; the JS hashes differ per project, as for every earlier head.
+
+### 16.3 Production verification and what remains unverified
+
+- **Verified (Vercel API, read-only):**
+  - both deployments are READY from the merge commit, with the domains assigned and no alias error;
+  - the build logs show the asset files above and no build errors;
+  - Vercel runtime-error clusters show no errors for either project in the hour after the release. These are static sites without functions, so this check covers little.
+- **Not verified (blocked):**
+  - This environment's network policy denies the production hosts. `curl` got a 403 from the proxy for `www.fflagent.com`, `fflagent.com`, `agentflow-eta.vercel.app` and `agentflow-life-insure.vercel.app`, and the web-fetch tool could not resolve them.
+  - Vercel does not expose the deployed output files of these Git builds (file tree: not found), and runtime logs hold no static-asset requests.
+  - Therefore the **live HTML, its referenced JS/CSS returning HTTP 200, and a browser smoke check on the production domains are UNVERIFIED.**
+  - No bypass link, share link or Sandbox was used to work around this.
+- **Not done, by rule:** no test text, no call, no test contact, no production data change, and no forced reload of active agents.
+- **Live SMS delivery was not tested.**
+
+### 16.4 Recovery boundary
+
+- No new frontend failure was confirmed, so no rollback was performed.
+- Vercel's deployment listing now reports **no rollback candidates** for either project (`isRollbackCandidate` became false on the captured targets after the release). The availability of an instant rollback to `dpl_AqcLL…` / `dpl_3YrH…` is therefore **not confirmed**; it was not exercised.
+- Production auto-assignment is unchanged: the Git integration assigned the domains.
+
+### 16.5 Backend and remaining limitations
+
+- **Backend changes: none.**
+  - No Supabase mutation, migration, Edge deployment, Realtime, A2P or START change, secret or environment change.
+  - The production Edge time per send (about 4.5–5.1 s) is unchanged; this release only stops the composer waiting on it.
+- **Remaining limitations:** §15.6 items 2–6 and the §15.8 note.
+  - The newest-row jump stays armed after a failing first load.
+  - The pinned status may not be announced.
+  - Mobile 390×844 stays BLOCKED.
+  - The 4× contact-record p95 misses 100 ms.
+  - "No messages yet" can show while a Retry or quiet reload of a previously empty thread is in flight.
+- **Separate items, not part of this release:** backend timing (B0, §10) and the security item.
