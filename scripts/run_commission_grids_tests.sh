@@ -157,6 +157,13 @@ sql -c "DROP ROLE IF EXISTS comp_restricted_set_probe; CREATE ROLE comp_restrict
 expect_failure 'non-super function owner cannot use a restricted SET parameter' 'permission denied to set parameter' -- sql -c "SET ROLE comp_restricted_set_probe; CREATE FUNCTION public.comp_restricted_set_probe_fn() RETURNS void LANGUAGE plpgsql SET session_replication_role='replica' AS \\$\\$ BEGIN NULL; END \\$\\$"
 sql -c "REVOKE comp_restricted_set_probe FROM postgres; DROP ROLE comp_restricted_set_probe" >/dev/null
 
+echo '== 3c. production-style non-super CREATEROLE ownership transfer'
+sql -c "DROP ROLE IF EXISTS comp_prod_child_probe; DROP ROLE IF EXISTS comp_prod_owner_probe; CREATE ROLE comp_prod_owner_probe NOLOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS; GRANT comp_prod_owner_probe TO postgres; CREATE SCHEMA comp_prod_probe AUTHORIZATION comp_prod_owner_probe" >/dev/null
+sql -c "SET ROLE comp_prod_owner_probe; CREATE FUNCTION comp_prod_probe.before_transfer() RETURNS integer LANGUAGE sql AS 'SELECT 1'; CREATE ROLE comp_prod_child_probe NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS; GRANT comp_prod_child_probe TO comp_prod_owner_probe; GRANT USAGE,CREATE ON SCHEMA comp_prod_probe TO comp_prod_child_probe; ALTER FUNCTION comp_prod_probe.before_transfer() OWNER TO comp_prod_child_probe; REVOKE CREATE ON SCHEMA comp_prod_probe FROM comp_prod_child_probe; RESET ROLE" >/dev/null
+[ "$(sql -tA -c "SELECT (NOT r.rolsuper AND NOT r.rolcanlogin AND NOT r.rolbypassrls AND NOT has_schema_privilege('comp_prod_child_probe','comp_prod_probe','CREATE') AND pg_has_role('comp_prod_owner_probe','comp_prod_child_probe','MEMBER')) FROM pg_roles r WHERE r.rolname='comp_prod_child_probe'")" = t ] || { echo 'FAIL: non-super CREATEROLE ownership-transfer proof'; exit 1; }
+sql -c "DROP SCHEMA comp_prod_probe CASCADE; REVOKE comp_prod_child_probe FROM comp_prod_owner_probe; REVOKE comp_prod_owner_probe FROM postgres; DROP ROLE comp_prod_child_probe; DROP ROLE comp_prod_owner_probe" >/dev/null
+echo '   ok   non-super CREATEROLE can create/narrow/self-grant child and transfer ownership'
+
 echo '== 4. negative controls (each weakening must make a named assertion fail)'
 sed 's/,87\.50,/,87.5,/' "$FIXTURE" > "$TEMP/tampered.csv"
 cmp -s "$FIXTURE" "$TEMP/tampered.csv" && { echo 'FAIL: tampering did not change the CSV'; exit 1; }
