@@ -98,6 +98,8 @@ They are therefore corrected in place (rule #25), and their new checksums replac
   - New: the availability ops script `c484c040…`.
   - Unchanged: the import ops script `d2825d41…` and the fixture `9bad2737…`.
 
+**Release-package Vercel correction (Chris, 2026-10-15; records only).** Chris accepted the availability implementation and CI on head `885004e` for the final release preflight. Plan §12 now treats `agentflow` (`www.fflagent.com`, `fflagent.com`) as the canonical production project, with rollback candidate `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`. `agentflow-life-insure` (Vercel-hosted domains only) is recorded for completeness and never gates release success. No Vercel setting changes. Still open before the final read-only preflight: P1 (durable private storage of the exact CSV and artifact) and P4 (Supabase "Deploy to production" confirmed off).
+
 **Decisions:**
 - **D1:** the real FFL source stays private (never in Git, public CI, PR text, screenshots or public docs, including the carrier-specific acceptance expectations). Reference data loads through a documented private-import workflow; all DDL stays in committed migrations.
 - **D2:** `#APPROVE_RLS_CHANGE` for authoring and local testing of the new compensation tables' policies only, documented as the **Shared compensation grid exception**.

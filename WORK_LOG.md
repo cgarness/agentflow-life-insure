@@ -1,3 +1,23 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: release-package Vercel correction (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris accepted the availability implementation and CI on head `885004e` for the final release preflight and asked for a records-only correction of the release package's Vercel section. No feature change.
+
+**Vercel facts (read-only, re-checked).**
+- **Canonical `agentflow`:** production deployment `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `main` `b5976e0`. It holds `www.fflagent.com`, `fflagent.com` (redirects to www) and `agentflow-eta.vercel.app`, and Vercel reports `isRollbackCandidate: true`.
+- **Secondary `agentflow-life-insure`:** production deployment `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`, READY at `b5976e0`; its only domain is `agentflow-life-insure.vercel.app`.
+
+**Changes (plan §12, §10; root plan; this entry).**
+- §12 now judges production verification and release success against `agentflow` / `www.fflagent.com` only. The secondary project's deployment is recorded for completeness.
+- Rollback (a) is a Vercel rollback of `agentflow` to `dpl_6LM8…`, or a reviewed revert of the merge commit. It replaces the earlier note that the deployment was not a rollback candidate.
+- Neither project's Vercel settings change.
+- The private psql/operator import stays the preferred step 5 route, and the real artifact never enters migration history, Git, PR text, CI or public logs.
+- P1 notes that the artifact can be rebuilt byte-identically from the CSV with the committed importer; re-checked (`cf83d992…`).
+- P4 names the dashboard setting, which the agent cannot read.
+
+**Still open.** P1 (durable private storage of the exact CSV `998307b4…` and artifact `cf83d992…`) and P4 (Supabase "Deploy to production" confirmed off). The final read-only production preflight runs immediately before release, once both hold.
+
+**Migrations and deploys.** None applied to any hosted database. No import, availability, activation, merge, deploy or Vercel change. Only the automatic protected Vercel previews.
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: shared-grid availability correction (draft PR #447; not merged, nothing applied)
 
 **Request.** Chris required that being an Agency Admin no longer make every AgentFlow shared grid available to an agency. At launch the FFL Compensation Grid may reach *Family First Life - Chris Garness* only. Other agencies must not see it in the catalog, enable it, read its products, variants, rates or references, or copy it. No platform role or Control Center path. Not authorized: merge, production migrations, import, availability, activation or deploy.

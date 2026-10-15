@@ -331,7 +331,16 @@ plus vitest failures base vs branch, reported separately.
     management denial, another agency isolated, and direct writes changing nothing.
   - *Source-backed acceptance.* 49 of 49 pass: Chris's 8 required cases plus age, term, level and blank-cell
     boundaries. A negative control with 4 wrong expectations fails exactly those 4.
-- **Open before release:** the durable private location for the source and the artifact (D1).
+- **Open before release:** the durable private location for the source and the artifact (D1, P1), and Chris's
+  confirmation that the Supabase GitHub integration's "Deploy to production" is off (P4).
+- **Release-package Vercel correction (Chris, 2026-10-15; records only, no feature change).** Chris accepted the
+  availability implementation and CI on head `885004e` for the final release preflight. §12 now names `agentflow`
+  (`www.fflagent.com`, `fflagent.com`) as the canonical production project and `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`
+  as its production rollback candidate (Vercel reports `isRollbackCandidate: true`, re-checked read-only).
+  `agentflow-life-insure` is a secondary linked project with Vercel-hosted domains only; its deployment is
+  recorded for completeness and never gates release success. Neither project's Vercel settings change. The
+  private psql/operator import stays the preferred step 5 route. The final read-only production preflight runs
+  immediately before release, once P1 and P4 hold.
 - **Shared-grid availability correction (D5; requested by Chris 2026-10-15; planned here before any edit).**
   - *Finding.* Until now any agency admin saw every active shared grid in the catalog and could enable it,
     then read and copy it (C6 self-service). For the FFL Compensation Grid that would expose its rates to every agency.
@@ -485,11 +494,15 @@ The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An a
 level their own estimate uses. Needs its own approved change; nothing here alters profiles, onboarding or
 stored levels.
 
-## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation and the availability correction; NOTHING EXECUTED)
+## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation, the availability correction and the Vercel correction; NOTHING EXECUTED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
 approved together as one release package. Local implementation approval is not release approval.
-Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the two Git-linked Vercel production
-projects, `agentflow` and `agentflow-life-insure`.
+Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the **canonical** Vercel production project
+`agentflow` (production domains `www.fflagent.com` and `fflagent.com`). Production verification and release
+success are judged against `agentflow` / `www.fflagent.com` only. The secondary project `agentflow-life-insure` is
+linked to the same repository and may deploy from `main` automatically; it has only Vercel-hosted domains, is not
+the AgentFlow production surface, and is recorded for completeness only. Neither project's Vercel settings change
+as part of this release.
 
 **State when this package was prepared (read-only, 2026-10-15).**
 - Production database:
@@ -499,9 +512,14 @@ projects, `agentflow` and `agentflow-life-insure`.
   - 4 organizations in total; 3 other organizations have an active Admin (see P6);
   - `private.campaign_actor()` and `public.get_org_id()` match the bodies used in testing;
   - PostgreSQL 17.6, `en_US.UTF-8`.
-- Vercel: both production projects serve `b5976e0` (`agentflow` `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`,
-  `agentflow-life-insure` `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`). Every push to `main` builds a production
-  deployment in both projects automatically.
+- Vercel (read-only, re-checked 2026-10-15 for the Vercel correction):
+  - **Canonical `agentflow`** (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`). Production deployment
+    `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `main` `b5976e0`, holds `www.fflagent.com`, `fflagent.com`
+    (redirects to www) and `agentflow-eta.vercel.app`. Vercel reports it as an instant-rollback candidate
+    (`isRollbackCandidate: true`). It is the **production rollback candidate** for this release.
+  - **Secondary `agentflow-life-insure`** (`prj_PctERc2MEVcpKkYtBtQYc1ruunKb`). Its only production domain is
+    `agentflow-life-insure.vercel.app`. Production deployment `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`, READY at
+    `b5976e0`. Not the AgentFlow production surface; recorded for completeness.
 - Merge candidate: the PR #447 head recorded in the PR description. Recording it there does not move the head.
 
 **0. Publication:** done (draft PR #447).
@@ -515,7 +533,10 @@ projects, `agentflow` and `agentflow-life-insure`.
     - content fingerprint `273d0eb0fc144b21b812a5c6fa74daf44d18579fb3e0aa4a315439cc7ba3ffed`;
     - counts 41/57/11, 963 rate cells, 57 references;
     - reconciliation PASS; acceptance 49 of 49.
-  - *Open:* Chris names the durable private location and confirms both SHA-256 values there.
+  - *Open:* Chris names the durable private location and confirms both SHA-256 values there:
+    `ffl_comp_rates.csv` `998307b4…5ed631d08` and `ffl.comp_reference_grid.json` `cf83d992…53b78157`. The
+    artifact can be rebuilt byte-identically from the CSV with the committed importer (runbook §2); re-checked
+    on 2026-10-15 at head `885004e` (importer unchanged since `fea545d`).
 - P2. PR #447 reviewed and approved; CI green on the exact head, including PostgreSQL 17.6; no conflict with `main`.
 - P3. Read-only production prechecks, immediately before step 1:
   - migration history (none newer than expected);
@@ -525,7 +546,8 @@ projects, `agentflow` and `agentflow-life-insure`.
   - exactly one organization has the home agency's exact name;
   - which roles hold "View Own Commission Percentage" (it gates the calculator, D3).
 - P4. The Supabase GitHub integration's "Deploy to production" is still OFF (AGENT_RULES #30), confirmed by Chris
-  in the dashboard.
+  in the dashboard (Project Settings › Integrations, `https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/settings/integrations`).
+  The agent cannot read this setting.
 - P5. Baseline of the Supabase security and performance advisors (read-only).
 - P6. **Superseded by D5 (2026-10-15).** The grid becomes available only to the home agency (step 7a). The
   Admins of the 3 other organizations do not see it in their catalog and cannot enable, read or copy it, even
@@ -573,13 +595,15 @@ the rates in the migration history.
   The `-c SET` form was tested locally; it works where `PGOPTIONS` startup options are not passed through.
   The output is status, ids, counts and the fingerprint only. The artifact never passes through the agent
   session, an MCP request, Git or CI.
-- (b) **Alternative.** The agent sends the same transaction through Supabase MCP `execute_sql`. It contains
+- (b) **Not preferred; only if Chris explicitly chooses it when approving step 5.** The agent sends the same
+  transaction through Supabase MCP `execute_sql`. It contains
   `SET LOCAL agentflow.approve_comp_reference_import = 'yes'` and the artifact as one dollar-quoted literal (the
   artifact contains no `$`). The full artifact then passes through the agent session and the MCP request,
   though never Git, PR text or CI. The function's checksum refuses any altered text, and nothing is imported.
 
 Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, counts 41/57/11/963/57,
-`content_sha256 = 273d0eb0…`. A re-run returns `already_imported`.
+`content_sha256 = 273d0eb0…`. A re-run returns `already_imported`. On either route the real artifact never goes
+into migration history (`apply_migration`), Git, PR text, CI or any public log.
 
 **6. Read-only verification.**
 - Exactly one ledger row (`public.comp_reference_imports`): importer 1.0.0, source `998307b4…`, artifact
@@ -617,14 +641,20 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
   - the records.
 - One normal push. Exact-head CI, including 17.6, must be green before the merge.
 
-**9. Merge and frontend.**
+**9. Merge; canonical production deployment.**
 - Chris marks PR #447 ready and merges the reviewed head with a merge commit.
-- Both Vercel projects build production from it automatically. Record both deployment ids, READY and
-  `aliasError = null`.
+- The canonical project `agentflow` builds production from the merge commit automatically (no manual deploy, no
+  promotion, no settings change). Record its deployment id, READY at the merge commit, `aliasError = null`, and
+  `www.fflagent.com` / `fflagent.com` assigned to it.
+- The secondary project `agentflow-life-insure` may also build production from `main`. Record its deployment id
+  and state for completeness; it does not gate release success.
 - Confirm the migration list is unchanged after the merge: nothing replayed.
 
 **10. Post-release verification.**
-- *Vercel.* Both production deployments are READY at the merge commit, with no runtime errors.
+- *Vercel (canonical).* `agentflow`'s production deployment is READY at the merge commit and holds
+  `www.fflagent.com` (and the `fflagent.com` redirect). `https://www.fflagent.com/` serves the new build, and
+  there are no new runtime errors. Release success is judged here only.
+- *Vercel (secondary, recorded only).* The `agentflow-life-insure` deployment id and state, if it built.
 - *Database, read-only.* Run role simulations inside `begin read only … rollback` with production JWT claims:
   - **Agency Admin management access.** Chris's Admin profile sees the FFL Compensation Grid enabled and selected
     (`comp_get_admin_overview`), and as enabled in the catalog.
@@ -651,9 +681,15 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
   - A role without "View Own Commission Percentage" sees neither.
 
 **Non-destructive rollback (each step separately approved).**
-- (a) Frontend: revert the merge commit on `main`; both projects redeploy. Alternatively, redeploy the
-  previous production deployments named above. Vercel reports `isRollbackCandidate: false` for them, so an
-  instant rollback is not confirmed.
+- (a) Frontend, canonical `agentflow`: Vercel rollback to `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, the pre-release
+  production deployment at `b5976e0` (Vercel reports `isRollbackCandidate: true`). It points `www.fflagent.com`
+  back without a Git change. If the Vercel account is on the Hobby plan (not visible to the agent), a rollback is
+  allowed only to the immediately previous production deployment, so `dpl_6LM8…` stays the candidate only while
+  no other production deployment lands after the merge. After a rollback, confirm in the Vercel dashboard which
+  deployment holds `www.fflagent.com` before the next merge to `main`. The durable alternative is a reviewed revert of the merge commit on `main`, which builds a
+  new production deployment. The secondary project needs no rollback for release purposes; its pre-release
+  production deployment is `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`. A frontend rollback does not touch the database
+  (use (b), (b2) or (c)).
 - (b) Calculator off without code changes: an agency admin chooses "None — calculator off". For every agency,
   call `private.comp_set_reference_grid_active('6ad6d4e4-…', false)`. It clears every selection of that grid
   and keeps all data and access rows. Reverse it with `true`; selections are then not restored automatically.
@@ -668,6 +704,7 @@ Expected: `status = imported`, grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`, coun
 **Not part of this release:**
 - profile, onboarding or contract-level changes (§11 follow-up);
 - any other agency's availability or activation;
-- CI or Vercel configuration changes;
+- CI changes, or any change to either Vercel project's settings (domains, Git integration, production branch,
+  environment variables);
 - migration-history repair;
 - the CSV or any generated data in Git.
