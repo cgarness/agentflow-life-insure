@@ -50,8 +50,17 @@ Current downline profile scoping is **query-enforced, not RLS-enforced**. Becaus
 - `platform_role` is **independent** of the agency role string (`Agent` / `Admin` / `Team Leader` / `Super Admin`) **and** of `is_super_admin`. `is_super_admin` = AgentFlow staff with cross-org tenant power; `platform_role` = AgentFlow staff with internal-ops (Control Center) visibility. **Do not auto-promote one to the other.**
 - Control Center RLS uses **`public.is_platform_admin()`** which reads `profiles` directly — **not the JWT**. The role takes effect on the next request without a token refresh / `custom_access_token_hook` change.
 - Control Center records live under the `control_center_*` namespace (`control_center_features`, `control_center_issues`, `control_center_health_checks`, `control_center_health_check_runs`, and the `control_center_tracker_*` Tracker tables — `systems`, `items`, `issues`, `marketing_claims`, `references`). `organization_id` is nullable on these tables; v1 records are platform-global (org-null).
-- **Known exception (intentional, do not "fix"):** Control Center tables are **platform-global** and RLS-gated on `public.is_platform_admin()` — NOT scoped by `organization_id` / `public.get_org_id()`. This is the one approved exception to the "every table scoped by `organization_id`" rule. The `control_center_tracker_*` tables (added 2026-06-05) keep `organization_id` nullable for forward-compat but are org-null in v1; their derived `completion_percent` is intentionally NOT stored (computed in the UI from item statuses). Do not rewrite these policies to org-scoping or add org-NOT-NULL constraints without Chris's approval.
+- **Known exception (intentional, do not "fix"):** Control Center tables are **platform-global** and RLS-gated on `public.is_platform_admin()` — NOT scoped by `organization_id` / `public.get_org_id()`. This is an approved, named exception to the "every table scoped by `organization_id`" rule (others are named where they are defined, e.g. the Shared compensation grid exception below). The `control_center_tracker_*` tables (added 2026-06-05) keep `organization_id` nullable for forward-compat but are org-null in v1; their derived `completion_percent` is intentionally NOT stored (computed in the UI from item statuses). Do not rewrite these policies to org-scoping or add org-NOT-NULL constraints without Chris's approval.
 - Control Center routes (`/control-center/*`) are mounted **outside** the CRM `<AppLayout />` shell. Do **not** add Control Center links to the CRM sidebar.
+
+### Shared compensation grid exception (Commission Calculator; approved 2026-10-15, `#APPROVE_RLS_CHANGE`)
+
+- **What it is:** AgentFlow-maintained **shared** commission grids store `organization_id = NULL` on `comp_grids` and on every one of their products, variants, rates and references. That is the whole exception: private grids, `organization_comp_grids` access rows and `organization_comp_settings` are ordinary tenant rows.
+- **Integrity:** each comp table has a database-generated `scope_key` (`COALESCE(organization_id, nil UUID)`), and composite foreign keys on `(parent, grid_id, scope_key)` force every child into its parent's grid and scope, NULL included. The nil UUID is reserved (CHECK) and can never be an organization; access rows can only reference shared grids.
+- **Reads:** a shared grid's content is readable only by an organization holding an access row for it. Agency admins additionally see a metadata-only catalog (id, name, effective date, levels).
+- **Writes:** shared rows are **never writable by any client role**. They change only through the reviewed postgres-only reference-import functions or a reviewed migration.
+- **Not included:** no platform-role requirement, no Control Center surface, no cross-agency Super Admin bypass, no Agency Group peer access. Do not "fix" the NULL organization into a tenant, add client write paths to shared rows, or loosen the comp write policies to make a lock succeed.
+- Details: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md` §3–4 and the Commission grids invariant below.
 
 ---
 
@@ -679,3 +688,39 @@ PR #433 (merge `d88982d`, released to production 2026-10-09) replaced the Campai
 **Scope.** Read campaigns by `organization_id` under RLS, then apply `filterCampaignsForManagement` at render; never cache a filtered set. `campaignsTable` query keys carry org and user, placeholder data is same-owner only, and a missing org never sends an unscoped read. The management table has no dial action. New Campaign keeps `PermissionGate "Create Campaigns"`; Duplicate keeps the old payload and the admin / team-leader owner-or-assignee rule; both are blocked when the agency is suspended or archived.
 
 **Column preferences.** Store them only in `user_preferences.settings.campaigns_table = {v:1, orgs:{[orgId]:{order,hidden}}}` for the real signed-in user; a write changes only the current org's entry and preserves every other settings key. Opening the page only reads. Save/Reset update with compare-and-set on the exact `updated_at`, retry once and then report a conflict; a missing row is inserted, and a 23505 race re-reads and compare-and-sets. A stored `campaigns_table` object whose `v` is present and not 1 renders the default columns and refuses Save/Reset; never overwrite it. Editing is disabled during View As. Campaign and Actions are locked; unknown ids are dropped and new columns join at their default position.
+
+## Commission grids invariant — October 15, 2026 (branch only: nothing pushed, applied, imported or deployed)
+
+An **estimate tool only**. Agents estimate first-year commission from their agency's selected grid and their own `profiles.commission_level`. Estimates never become payroll, booked commission, earned-commission records or reporting truth. Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.
+
+**Writes and locking.**
+- Client roles write the comp tables **only** through the `comp_*` operations. These are SECURITY INVOKER with a function-level `SET agentflow.comp_operation = 'on'`, which clients cannot set.
+- The `comp_00_operation_context` trigger runs first. It refuses any client write outside an operation, outside the caller's own agency, or by a non-admin, before any SECURITY DEFINER trigger runs or locks anything. RLS repeats the same predicate.
+- SECURITY DEFINER lock lookups are filtered to shared grids or the row's own scope, so a client can never cause a lock on another agency's row.
+- Never grant direct table writes. Never add a shortcut around the operations.
+- Lock order: agency settings row → grid → access row → product → child rows. Privileged multi-agency deactivation locks the selecting settings rows (ordered) before the grid.
+- Edits are one atomic change set at the loaded `revision`. A stale save is refused (PT409) and never merged or overwritten.
+
+**Exact values.**
+- `rate_percent` is unconstrained `numeric` with `CHECK (0 ≤ x ≤ 300 AND x = round(x, 2))`. Never use `numeric(6,2)`: it rounds before the check.
+- Nothing rounds into validity: not SQL, not the importer, not the UI.
+- A blank cell means no rate row (unavailable). A stored 0 is a real zero rate.
+- Money uses exact BigInt rationals. Rounding to cents happens only for display.
+
+**Reference data stays private (decision D1).**
+- The FFL CSV, import artifacts, generated data and carrier-specific acceptance expectations never enter Git, public CI, PR text, screenshots or public docs. `.gitignore` covers the private paths, and the importer refuses non-ignored repository paths.
+- Public synthetic fixtures, tests, code comments and screenshots must not reproduce a private example either. That covers its rates, level-and-rate pairs, scenario inputs, amounts and product naming, even under synthetic names. Before committing, compare the added lines with the private expectations without copying them into the repository. (The closeout scan on 2026-10-15 caught such mirrors and they were removed before publication.)
+- Data loads only through `scripts/comp_grids/reference_grid_importer.py` (exact validator, deterministic artifact) and `private.comp_import_reference_grid` (checksum, counts, value-free content fingerprint, constraints; one transaction). Follow the runbook: `docs/plans/2026-10-15-commission-calculator/reference-import-runbook.md`.
+- The ledger `comp_reference_imports` is the record. There is no migration-history entry for data.
+- Re-running the byte-identical artifact is a no-op. Any drift is refused.
+- A durable private location for the source and artifact must be named before release.
+
+**Calculator and settings surfaces.**
+- The calculator nav item and route respect the existing "View Own Commission Percentage" permission (D3). This is screen-level, not a database secrecy claim.
+- Neither surface is a View As surface: no query is issued under View As.
+- Contract levels are parsed strictly and never defaulted, nearest-matched or written back.
+- Settings › Commission Grids is admin-only through `ADMIN_ONLY_SETTINGS_SECTIONS`. Never add it to `SETTINGS_CONFIG`: every section there inherits Agent / Team Leader access by default.
+
+**Verification.**
+- Run `scripts/run_commission_grids_tests.sh` on a disposable loopback cluster only (invariant #28).
+- Do not call PostgreSQL 17.6 CI verified until `.github/workflows/commission-grids.yml` has actually run.

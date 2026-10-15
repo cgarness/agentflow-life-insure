@@ -1,9 +1,13 @@
 # Commission Calculator + agency commission grids — implementation plan
 
-**Status (2026-10-15):** LOCAL IMPLEMENTATION APPROVED by Chris with amendments (D1–D4, corrections 1–6).
+**Status (2026-10-15):** LOCAL IMPLEMENTATION APPROVED by Chris with amendments (D1–D4, corrections 1–6)
+and **implemented locally** on `feature/commission-calculator-agency-grids` (commits `9b615f5` plan,
+`fea545d` database layer, `44d550a` frontend, then the closeout records). Evidence: `verification.md`.
 Nothing is pushed, published, merged, deployed, imported or applied to any hosted database. Production
-access stays read-only (advisor reads included). Release needs a separate, exact approval of the
-consolidated release proposal (§12).
+access stays read-only (advisor reads included). **Not release-ready:** the private FFL import,
+reconciliation and source-backed acceptance are BLOCKED on the CSV (D4) and on a named durable private
+location (D1), and the PostgreSQL 17.6 CI workflow has not run yet. Release needs a separate, exact approval
+of the consolidated release proposal (§12).
 
 **Base:** `origin/main` `dacd921903a867de99276f8709f829995602c3bd`. **Branch:** `feature/commission-calculator-agency-grids`
 (one branch, intended for one PR).
@@ -83,7 +87,10 @@ verification — never values).
   (fires first, before any lock) require `agentflow.comp_operation = 'on'`, which only the comp operations
   set through a function-level `SET` clause (restored on return; PostgREST/clients cannot set custom
   settings). Inside an operation the same RLS still applies: agency admin, own organization, private rows
-  only (`organization_id = actor org` can never match a shared NULL row).
+  only (`organization_id = actor org` can never match a shared NULL row). The operation-context trigger
+  checks that same predicate itself (an INSERT's RLS check runs only after BEFORE ROW triggers), so no
+  SECURITY DEFINER trigger ever runs or locks for a client row outside its agency or by a non-admin; and
+  every DEFINER lock lookup is filtered to shared grids or the row's own scope.
 - **Actor.** `comp_authz.actor_org_id()` / `actor_is_admin()` / `readable_grid_ids()` wrap the canonical
   `private.campaign_actor()` (Active profile, profile org = `get_org_id()`); agency admin = Admin / Super
   Admin role or `is_super_admin`, home organization only. Team Leaders and agents are read-only.
@@ -127,6 +134,16 @@ level removal with rates, and overlapping variants. Found and fixed during the p
 of a new grid fails the grid SELECT policy (its readable list is computed before the insert), so operations
 generate the id themselves; copies run as separate statements after the source lock instead of one
 `RETURNING` chain.
+
+Found and fixed while implementing (each now covered by a test or a negative control):
+- With the operation flag forged in a test session (a stand-in for a buggy operation), a DEFINER trigger
+  could briefly lock a row the client may not write (an INSERT's RLS check runs after BEFORE triggers).
+  Fixed by the operation-context trigger's own agency/admin check and scope-filtered DEFINER lookups.
+- `comp_save_grid_changes`: a rate cell naming another grid's variant reached `ON CONFLICT DO UPDATE`,
+  which locks the conflicting (shared) row before RLS refuses it. Every cell must now belong to the grid
+  first (else PT409); keys must name new items of the same change set (else 22023).
+- The import's no-op path accepted a modified artifact whose embedded checksums still matched. A no-op now
+  requires the byte-identical artifact (ledger `artifact_sha256`) and unchanged stored content.
 
 ## 5. Calculator logic (`src/lib/commission/`, pure)
 Strict level parse (`^\s*\d+%?\s*$`; missing/fractional/partial ⇒ setup error; never defaulted, nearest-
@@ -199,6 +216,14 @@ settings entry), `src/config/settingsConfig.ts` (admin-only section list), `src/
 **Not touched:** `permissionDefaults.ts` and `usePermissions.ts` (hash-pinned), `viewAsSurfaces.ts`,
 `UnsavedChangesContext.tsx`, telephony, auth, reporting, profile authorization, existing migrations.
 
+**As built (differences from the list above):** added `supabase/ops/commission_grids_import_reference_grid.sql`
+(the reviewed operator script for step 7.3, approval-setting guarded) and `scripts/comp_grids/reconcile_reference_grid.sql`
+(step 7.4), plus test files under the listed test paths (`src/hooks/__tests__/useUnsavedNavigationGuard.test.tsx`,
+`src/pages/__tests__/commissionCalculatorPage.test.tsx`, and the change-set contract test
+`src/lib/commission/__tests__/changeSetServer.integration.test.ts`, which runs only against the runner's disposable
+database). `AGENT_RULES.md` §3: the Control Center sentence "the one approved exception" now reads "an approved,
+named exception" so that adding the named Shared compensation grid exception keeps it accurate.
+
 ### 8.2 Concurrent work
 Open PRs overlapping textually only: #442 (Google Sheets: settings config/renderer/heading test/docs), #445
 (SMS: `src/App.tsx` +2 lines, docs), #398 (standalone underwriting app; not reused).
@@ -245,7 +270,9 @@ plus vitest failures base vs branch, reported separately.
 ## 10. Status / blockers
 - **BLOCKED:** private FFL import/reconciliation and source-backed acceptance (CSV not supplied; D4); durable
   private location for input/artifact (D1, before release).
-- Not release-ready until both are resolved and §12 is approved.
+- **Not yet run:** the PostgreSQL 17.6 CI workflow (`.github/workflows/commission-grids.yml`) — it runs only once
+  the branch is published. Local proofs ran on PostgreSQL 16.15.
+- Not release-ready until those are resolved and §12 is approved.
 
 ## 11. Separate follow-up (not in this build)
 `profiles.commission_level` is self-editable through the API: `authenticated` holds column UPDATE, 
@@ -255,7 +282,87 @@ The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An a
 level their own estimate uses. Needs its own approved change; nothing here alters profiles, onboarding or
 stored levels.
 
-## 12. Release proposal (to be completed at closeout; nothing executed)
-Exact reviewed migrations → private import (artifact checksum) → agency activation (exact name) →
-frontend commit → read-only verification and advisors → non-destructive rollback. Requires Chris's explicit
-approval of those exact actions.
+## 12. Consolidated release proposal (prepared 2026-10-15; NOTHING EXECUTED)
+Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
+approved together as one release package. Local implementation approval is not release approval.
+Target: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the production Vercel project.
+
+**0. Publication (separate approval, before anything below).** Push `feature/commission-calculator-agency-grids`
+and open ONE pull request. This triggers automated previews and CI, including the PostgreSQL 17.6 workflow.
+No production effect.
+
+**Prerequisites. Every one must hold before step 1:**
+- P1. The CSV has been supplied and preserved byte-for-byte in the durable private location Chris names.
+  Locally on a disposable database: validated with zero anomalies; the inventory confirmed (41/57/11, or any
+  difference explicitly accepted by Chris, never edited away); the artifact built and verified; imported;
+  reconciliation PASS; private acceptance PASS. The manifest is updated with the non-sensitive values.
+- P2. PR reviewed and approved; CI green on the exact head, including PostgreSQL 17.6.
+- P3. Read-only production prechecks, immediately before step 1:
+  - migration history (none newer than the comp files);
+  - no `comp_*` / `comp_authz` objects exist;
+  - no organization uses the nil UUID;
+  - `private.campaign_actor()` and `public.get_org_id()` match the bodies used in testing;
+  - exactly one organization is named *Family First Life - Chris Garness*.
+
+**1–3. Migrations.** Apply these exact files, in this order, through the repository's migration workflow.
+Record the version each one is assigned next to its file name; never fabricate or repair history.
+
+| # | File | SHA-256 |
+|---|---|---|
+| 1 | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `ff5d2e833f43ea99b7720ce3be4e7b5f821c395703301af4af6061c24654ee23` |
+| 2 | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `d7c20e1712c958d8af516884edd730004af72adc2f50f0e323adefd5b96e7bc3` |
+| 3 | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `b8b2836be6c6dc37d0ccdf82f541e62b93bb507577d3d2394078cf7aa4c55ae9` |
+
+(Checksums are for the files at local commit `44d550a`. Re-verify them on the approved PR head.)
+
+**4. Read-only verification.**
+- Objects, grants, policies and the SECURITY DEFINER inventory match the access-suite inventories (A10).
+- Run the Supabase security and performance advisors. New findings are triaged and reported separately.
+
+**5. Private import.** Run `supabase/ops/commission_grids_import_reference_grid.sql`
+(SHA-256 `d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`):
+- run by psql from the operator's machine or an approved private runner, never through an agent transcript;
+- use the exact artifact from the private location, with `artifact_sha256` set to the manifest value;
+- set `agentflow.approve_comp_reference_import=yes`.
+
+Expected: `status = imported` for grid `6ad6d4e4-4024-5dae-bef5-de0202ab1b6e`. A re-run returns `already_imported`.
+
+**6. Read-only verification.**
+- One ledger row.
+- `private.comp_grid_content_sha256('6ad6d4e4-4024-5dae-bef5-de0202ab1b6e')` equals the manifest `content_sha256`.
+- Counts equal the manifest.
+
+**7. Activation.** Run `supabase/ops/commission_grids_activate_home_agency.sql`
+(SHA-256 `47f91f707e12e14c480a6f0e05d881139de92c5bb518973a9c258039150aa069`) with
+`agentflow.approve_comp_home_activation=yes`.
+- The agency is resolved by exact unique name at execution.
+- It selects the grid only if the agency has no selection. An existing selection is reported, never overwritten.
+- No other agency is activated. Other Agency Admins may later opt in themselves (C6).
+
+**8. Frontend.** Merge the approved PR, then deploy that exact merge commit to production. Record the commit
+and the deployment id.
+
+**9. Post-release verification.**
+- The served entry asset.
+- Signed-in checks:
+  - a home-agency agent sees "Commission Calculator" directly below Resources and gets an estimate;
+  - an agency admin sees Settings › Commission Grids;
+  - an agent whose role lacks "View Own Commission Percentage" sees neither;
+  - another agency sees nothing until its own admin enables a grid.
+- Advisors again.
+
+**Non-destructive rollback (each step separately approved).**
+- (a) Frontend: redeploy or promote the previous production deployment, or revert the merge commit. The
+  calculator and settings UI disappear and data stays.
+- (b) Calculator off without code changes: an agency admin chooses "None — calculator off". For every agency:
+  `private.comp_set_reference_grid_active('6ad6d4e4-…', false)`. This clears every selection of that grid and
+  keeps all data and access rows. Reverse it with `true`; selections are then not restored automatically.
+- (c) Database: leave the tables dormant. The rollback files in `supabase/migrations/rollback/` run only in
+  reverse order. The two function rollbacks (120200, then 120100) drop functions only and delete no row. The
+  schema rollback refuses while any row exists. Never delete data to make it pass.
+
+**Not part of this release:**
+- profile, onboarding or contract-level changes (§11 follow-up);
+- any other agency's activation;
+- CI or Vercel configuration changes;
+- the CSV or any generated data in Git.

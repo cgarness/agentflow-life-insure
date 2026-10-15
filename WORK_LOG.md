@@ -1,3 +1,102 @@
+## 2026-10-15 — Commission Calculator + agency commission grids: IMPLEMENTED LOCALLY on `feature/commission-calculator-agency-grids` (not pushed, nothing applied, not release-ready)
+
+**Status.**
+- The complete calculator and agency grid editor are built on one local branch, intended for one PR.
+- Base: `origin/main` `dacd921`. The branch has no upstream, and nothing is pushed or published.
+- Not release-ready: the private FFL import and acceptance are BLOCKED (below), and the PostgreSQL 17.6 CI workflow has not run.
+
+**Request and approval.**
+- Chris specified the feature, then approved local implementation with amendments (2026-10-15):
+  - D1: a private FFL source and a private import workflow.
+  - D2: `#APPROVE_RLS_CHANGE` for the new comp tables only, documented as the **Shared compensation grid exception**.
+  - D3: respect "View Own Commission Percentage"; neither surface is part of View As.
+  - D4: the CSV is still required.
+  - Corrections C1–C6.
+- Not authorized: push, PR, merge, deploy, Supabase migration, import, activation or any hosted-database write. Production stayed read-only.
+- Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`. Evidence: `verification.md` in the same folder.
+
+**Commits** (local only; the two code commits were rebuilt during closeout, see below):
+
+| Commit | Content |
+|---|---|
+| `9b615f5` | Approved plan with amendments (docs) |
+| `fea545d` | Database layer: three migrations and rollbacks, ops scripts, SQL suites and harness, private importer and reconciliation, runner, concurrency driver, CI workflow, runbook, manifest, `.gitignore` |
+| `44d550a` | Frontend: calculator page and nav item, Settings › Commission Grids (overview, viewer, editor), hooks, Supabase types, tests |
+| this commit | Records: this entry, `verification.md`, plan status and release proposal (§12), root plan status, `AGENT_RULES.md` (named exception and invariant) |
+
+**What was built.**
+- **Database.**
+  - Eight RLS-enabled tables: grids, products, variants, rates, variant references, agency access, agency settings and the import ledger. Shared grids have `organization_id` NULL. Composite foreign keys on `scope_key` keep every child row in its parent's grid and scope.
+  - Client writes go only through SECURITY INVOKER `comp_*` operations, which set the operation flag at function level. The first trigger refuses any write outside an operation, outside the caller's own agency, or by a non-admin, before any SECURITY DEFINER trigger runs. RLS repeats the same predicate.
+  - Exact `numeric` rates with a CHECK constraint; nothing is rounded.
+  - Edits are atomic change sets with a revision check (a stale save is refused with PT409).
+  - Postgres-only private import with a ledger, checksums and a value-free content fingerprint.
+  - Activation of the home agency only, by exact unique name, through a guarded ops script.
+- **Frontend.**
+  - "Commission Calculator" sits directly below Resources, gated by the permission and by agency readiness. The page uses exact BigInt arithmetic, strict contract-level parsing and the specified messages and disclaimer.
+  - Settings › Commission Grids is for agency admins only, through `ADMIN_ONLY_SETTINGS_SECTIONS`:
+    - enable or disable shared grids;
+    - compare-and-set calculator selection;
+    - blank, structure-copy and full-copy grids;
+    - an editor for details, levels, carriers, products, variants and the rate matrix;
+    - a conflict banner and unsaved-changes protection (in-app navigation, back/forward, reload).
+- **Files:** 86 changed against `dacd921` before this commit (76 added, 10 modified). The modified files are `.gitignore`, `implementation_plan.md`, `src/App.tsx` (+1 route), `Sidebar.tsx`, `SettingsRenderer.tsx` (+1 case), `settingsConfig.ts`, `SettingsPage.tsx`, `src/integrations/supabase/types.ts` and two existing test files. The full list is in plan §8.1 ("As built").
+
+**Found and fixed while implementing** (each covered by a test; plan §4.5):
+1. With a forged operation flag, SECURITY DEFINER triggers could have locked or read another agency's rows. The first trigger now checks own agency and admin, and DEFINER lookups are filtered by scope.
+2. The rate upsert's `ON CONFLICT DO UPDATE` could have locked another grid's rate row. Every cell must now belong to the grid (PT409), and new-row keys must exist in the change set (22023).
+3. An import re-run with a modified artifact whose embedded checksums still matched would have been treated as a no-op. A no-op now requires the same artifact checksum and unchanged stored content.
+
+**Found and fixed during closeout** (before anything was published):
+1. **Synthetic data mirrored private examples (D1).**
+   - Some synthetic fixture and test values reproduced private acceptance examples from the original request under synthetic names: level-and-rate pairs, scenario inputs, the off-grid example level, a product-name suffix, and an example amount in a code comment.
+   - All were changed; the tests prove the same behavior.
+   - The two code commits were rebuilt locally (`e9becf2` → `fea545d`, `c19117b` → `44d550a`), so no commit contains them. A final scan of every added line and of the build output is clean.
+   - Migrations and ops scripts are unchanged, and so are their checksums.
+2. **Stale type check.** The first app type-check comparison predated the last test edits. One new diagnostic, a literal type in a sidebar test's mock state, was found and fixed. Every check was then re-run on `44d550a`.
+
+**Verification (synthetic data only, all on `44d550a`; details in `verification.md`).**
+- `npx tsc --noEmit` exit 0.
+- `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics, identical to base.
+- ESLint: 0 problems on the 61 changed `src` files.
+- Full vitest: the same 10 pre-existing environment failures as base (9 × `supabaseUrl is required`, 1 deployed-v29 byte comparison). Branch totals: 5311 passed, 1 failed, 36 skipped.
+- Feature tests (CI command): 158 passed, 2 skipped by design.
+- Build OK; the bundle scan is clean.
+- Synthetic renders at 390 and 1440 px.
+- `scripts/run_commission_grids_tests.sh` PASS on disposable loopback PostgreSQL 16.15:
+  - schema, access, operations and import suites;
+  - the editor change-set contract test against the real operation;
+  - 22 importer tests;
+  - reconciliation;
+  - ops-script guards;
+  - 5 negative controls;
+  - 41 concurrency assertions;
+  - rollback.
+
+**Migrations and deployments.**
+- Authored: `20261015120000_commission_grids_schema.sql`, `20261015120100_commission_grids_operations.sql` and `20261015120200_commission_grids_reference_import.sql`, plus their rollbacks.
+- Applied only to disposable local databases. **None is applied to any hosted database**, and there is no migration-history entry.
+- No Edge Function, Vercel or other deployment. No import and no activation.
+
+**Blockers.**
+1. The FFL CSV has not been supplied (D4). The private import, the 41/57/11 inventory check, reconciliation and source-backed acceptance are BLOCKED and unverified.
+2. A durable private location for the source and the artifact must be named before release (D1).
+3. The PostgreSQL 17.6 CI workflow runs only once the branch is published.
+4. PR review.
+
+**Follow-up (separate approval):** `profiles.commission_level` is self-editable through the API, so an agent can change the level their own estimate uses (plan §11). Nothing in this build changes profiles, onboarding or stored levels.
+
+**Next steps.**
+1. Chris approves publication: push this branch and open ONE PR, which triggers previews and CI including PostgreSQL 17.6.
+2. Chris supplies the CSV and names the durable private location. Then, locally only: validate, build, import, reconcile and run private acceptance; update the manifest with non-sensitive values.
+3. Chris approves the consolidated release package (plan §12) action by action:
+   - migrations 1–3, with checksums;
+   - read-only verification and advisors;
+   - private import by the operator's psql;
+   - verification and home-agency activation;
+   - merge and deploy of the exact merge commit;
+   - post-release checks.
+
 ## 2026-10-14 — ClearPath saved-lead notification bridge
 
 Chris approved the API integration after Twilio browser handoff failed. Added a separate Ed25519-authenticated endpoint, fixed to Chris's home agency and selected 916 sender/909 recipient. It accepts only a request UUID, send/status operation and lead/test kind. No prospect contact or insurance data crosses this bridge. Public verification key only in source; private signing key stays in Sites runtime secrets.
