@@ -47,6 +47,8 @@ CREATE ROLE agentflow_comp_operator
   NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 GRANT agentflow_comp_operator TO postgres;
 GRANT USAGE ON SCHEMA public, comp_authz TO agentflow_comp_operator;
+-- CREATE on public is temporary and exists only so PostgreSQL permits ALTER FUNCTION ... OWNER below.
+GRANT CREATE ON SCHEMA public TO agentflow_comp_operator;
 GRANT EXECUTE ON FUNCTION comp_authz.actor_org_id(), comp_authz.actor_is_admin(), comp_authz.readable_grid_ids()
   TO agentflow_comp_operator;
 
@@ -835,3 +837,4 @@ ALTER FUNCTION public.comp_select_calculator_grid(uuid,uuid) OWNER TO agentflow_
 ALTER FUNCTION public.comp_create_private_grid(text,text,date,uuid) OWNER TO agentflow_comp_operator;
 ALTER FUNCTION public.comp_save_grid_changes(uuid,bigint,jsonb) OWNER TO agentflow_comp_operator;
 ALTER FUNCTION public.comp_delete_private_grid(uuid,bigint) OWNER TO agentflow_comp_operator;
+REVOKE CREATE ON SCHEMA public FROM agentflow_comp_operator;
