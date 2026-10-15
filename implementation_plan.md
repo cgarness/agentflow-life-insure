@@ -1,3 +1,19 @@
+## 2026-10-15 — Commission production authority correction after migration-2 SET failure
+
+**Status:** Production release paused safely after schema migration **20261015211858** applied byte-identically. The
+next operations migration failed atomically with `42501 permission denied to set parameter "agentflow.comp_operation"`.
+No operations functions, reference import, FFL data, availability, activation, merge or deploy followed the failure.
+
+**Correction on draft PR #447:** the still-unapplied operations migration now forward-corrects the applied schema to
+a dedicated `agentflow_comp_operator` role: NOLOGIN, NOSUPERUSER, NOBYPASSRLS, no client/server-key membership.
+Only trusted `postgres` is a member so migration/rollback can administer the six owned write RPCs. Authenticated
+loses all commission base-table write grants. Those six public write RPCs are SECURITY DEFINER owned by the narrow
+role; the role remains subject to RLS, and both policies and the first trigger re-resolve the real JWT/profile actor
+through the canonical helpers. The legacy custom-GUC authority is not used by migration 2.
+
+**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. The revised
+migration 2 and every later release step require a fresh exact production approval after CI/review.
+
 ## 2026-10-15 — Commission Calculator + agency commission grids: DRAFT PR #447 (not merged, nothing applied; real-data validation passed locally; release awaits approval)
 
 **Status:** Chris approved local implementation of the complete calculator and agency grid editor on one branch (`feature/commission-calculator-agency-grids`, base `origin/main` `dacd921`), intended for one PR, with decisions D1–D4 and corrections 1–6. **Implemented locally** in commits `9b615f5` (plan), `fea545d` (database layer), `44d550a` (frontend), closeout records `fb27512`, and the pre-publication `service_role` correction `14d9fa4` (read-only on the comp tables) with its records; verified on synthetic data only (`docs/plans/2026-10-15-commission-calculator/verification.md`). **Published 2026-10-15 as draft PR #447** (Chris approved draft publication only): first head `3971fd0` (after merging `main` twice, #445 and #446, to resolve `WORK_LOG.md` conflicts), then the approved CI correction `2db6de2` (A10f collation-independent ordering, one path-scoped `.gitattributes` rule for the CRLF synthetic fixture, one plan whitespace fix) and its status records, then the approved runner correction setting `NO_COLOR=1` on the editor save-contract Vitest call (on `10e1a73` the 17.6 job passed that test 2 of 2, but the runner's plain-text summary check missed Vitest's colored CI output) with its records. No merge, deploy, Supabase migration, import, activation or hosted-database mutation is authorized or was done; Supabase Preview did not run (concurrent preview-branch limit); production stays read-only (advisor reads included). **Real-data validation passed locally (2026-10-15):** Chris supplied the CSV, and the private import, reconciliation and source-backed acceptance passed on disposable local databases (value-free results in `verification.md`). **Shared-grid availability (D5, 2026-10-15):** a shared grid now reaches only the agencies AgentFlow makes it available to; at launch the FFL Compensation Grid is available to *Family First Life - Chris Garness* only (below). **Not yet released:** a durable private location must be named (D1), and the release needs Chris's separate, exact approval of the release package (plan §12). **Full plan:** `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`.

@@ -55,6 +55,7 @@ platform/Control Center surfaces.
 | C4 | Contract-level self-edit recorded as a separate follow-up only (§11). |
 | C5 | Verification against a fresh base with diagnostic-level comparison (§9.4). PG16 local ≠ PG17.6 CI. |
 | C6 | Initial activation for Family First Life - Chris Garness only, by exact unique name at execution; other Agency Admins may self-enable after release (agency self-service, not a pilot). **Amended by D5 (2026-10-15):** the self-service clause is superseded; another agency can enable a shared grid only after AgentFlow makes it available to that agency. |
+| **D6** | **Production operation authority (2026-10-15).** Managed production rejected the original function-level custom-GUC SET with 42501 even for non-superuser postgres. Migration 1 is production history as 20261015211858 and stays byte-identical. The still-unapplied operations migration forward-corrects the schema to a NOLOGIN/NOBYPASSRLS `agentflow_comp_operator` role. Only postgres is a member; anon/authenticated/service_role are not. Authenticated has no comp-table writes; six SECURITY DEFINER write RPCs owned by the role remain RLS/actor scoped. No call-stack/query-text/GUC authorization. |
 | **D5** | **Shared-grid availability (Chris, 2026-10-15).** Being an Agency Admin does not make an AgentFlow shared grid available to an agency. The concepts are separate: (1) the grid exists in AgentFlow; (2) it is AVAILABLE to a specific organization, a database-authoritative row written only by reviewed postgres-only operations; (3) that organization's Admin chooses to ENABLE and select it. Other agencies cannot see an unavailable grid in the catalog, enable it, read its products, variants, rates or references, or copy it, even by id. At launch, the FFL Compensation Grid is available only to *Family First Life - Chris Garness*. No platform-role, Control Center or Super Admin path. Disabling keeps availability; removing availability clears enabled access and the calculator selection without touching private copies. |
 
 ## 3. Shared compensation grid exception (named)
@@ -493,6 +494,14 @@ plus vitest failures base vs branch, reported separately.
 The onboarding wizard writes it intentionally (`useOnboardingPageFlow.ts`). An agent can therefore change the
 level their own estimate uses. Needs its own approved change; nothing here alters profiles, onboarding or
 stored levels.
+
+## 11A. Production release interruption — operation authority correction
+
+On 2026-10-15 the approved release stopped after production migration `20261015211858 commission_grids_schema`.
+The next migration failed atomically with `42501 permission denied to set parameter "agentflow.comp_operation"`.
+No later step ran. Production migration 1 remains the exact reviewed bytes. D6 replaces the unpublished GUC design
+inside the still-unapplied operations migration; the reference-import migration is unchanged. A fresh exact approval
+is required before resuming production.
 
 ## 12. Consolidated release package (refreshed 2026-10-15 after the real-data validation, the availability correction and the Vercel correction; NOTHING EXECUTED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
