@@ -1,3 +1,26 @@
+## 2026-10-16 — Google Sheets PR #442: cloud-only Phase B plan through a GitHub Actions runner (awaiting approval; production unchanged)
+
+**Request.** Chris has no access to his Mac and asked to finish Google Sheets V1 from GitHub-hosted infrastructure only, with credentials entered in GitHub and approval gates between stages. First: the plan, security controls, phone setup steps and the approval request, with no production mutation.
+
+**Checks (read-only, 17:05–17:20 UTC).**
+- **Code:** `main` `9a90552` (unchanged); PR #442 draft at `02b6440`, mergeable; every check passed. `384f3cc..02b6440` is documentation only.
+- **Production (17:13 UTC):** the stage 1 preflight still matches; 327 history rows; zero Sheets objects; no long transactions; region `us-east-1`.
+- **Repository:** public, so environment protection rules are available but logs are world-readable. No existing workflow uses secrets. Any commit to `main` redeploys both Vercel projects.
+
+**Local probes (disposable containers).**
+- psql 16 (Ubuntu 24.04's client) against PostgreSQL 17.6 prints a clean single identity line.
+- `--single-transaction -c "SET LOCAL lock_timeout = '…'" --file …` rolls everything back on a lock wait (exit 3) and commits normally without one.
+- The four §4 bundle digests recompute exactly.
+
+**Records.** Root `implementation_plan.md` has the design:
+- one dispatch-only workflow on `main` through a separate PR;
+- the protected `google-sheets-production` environment, with Chris as required reviewer and `main` only;
+- the pinned SHA, checksum and digests;
+- the per-stage state gates, with `check` read-only;
+- the files, the approvals A1–A5 and the prepared Phases C/D/E.
+
+No production or settings change.
+
 ## 2026-10-16 — Google Sheets PR #442: finish request received; this cloud session has no production connectivity, so Phase B moves to a local Claude Code session on Chris's Mac (production unchanged)
 
 **Request.** Chris asked for ownership of finishing Google Sheets V1 from `384f3cc`: Phase B through the release package §10.1 psql / CLI fallback with his GO before each production step, then the Phase C/D/E approval requests. If the session cannot reach production, stop and guide him to run Claude Code locally.

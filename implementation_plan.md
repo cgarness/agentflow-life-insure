@@ -1,3 +1,176 @@
+## 2026-10-16 — CLOUD-ONLY PHASE B THROUGH A GITHUB ACTIONS RUNNER (plan; awaiting Chris's approval; production unchanged): PR #442
+
+**Request (Chris, 2026-10-16, about 17:05 UTC).** Chris has no access to his Mac. He asked to finish Google Sheets V1 with no local computer, terminal, psql or Supabase CLI. The method is a temporary, manually triggered GitHub Actions workflow on GitHub-hosted runners:
+- a protected production environment;
+- credentials only in encrypted environment secrets, which Chris enters in GitHub, never in chat;
+- explicit approval gates between production stages;
+- the reviewed commit and migration checksum pinned;
+- no automatic deploys, and no unrelated functions or migrations.
+
+He asked for the plan, security controls, phone setup steps and the exact approval request first, with no production mutation yet. This section supersedes the local-session route below while the Mac is unavailable; release package §10.2 stays as an alternative.
+
+**Checks (read-only, 17:05–17:20 UTC).**
+- **Code:**
+  - `main` = `9a90552`, unchanged;
+  - the branch head is `02b6440`, and every check on it passed (16 of 16, plus the usual Supabase Preview skip);
+  - PR #442 is a draft, mergeable and clean;
+  - `384f3cc..02b6440` changes only `WORK_LOG.md`, `implementation_plan.md` and `release-package.md`, so the migration, functions, `config.toml`, tests and packages are byte-identical.
+- **Production (17:13 UTC):**
+  - the stage 1 preflight still returns `postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261016035626`;
+  - 327 history rows;
+  - zero Sheets relations, functions, cron jobs, Vault secrets and new-key `role_permissions` rows;
+  - no idle-in-transaction session and no client transaction older than 30 s;
+  - project `AGENTFLOW CRM`, region `us-east-1`, ACTIVE_HEALTHY, Postgres 17.6.1.063.
+- **Repository:**
+  - public, so environment protection rules are available, and workflow logs are readable by anyone;
+  - no existing workflow uses secrets or environments;
+  - `actions/checkout` is pinned to `11bd71901bbe5b1630ceea73d27597364c9af683` everywhere;
+  - `contact-history-backend.yml` installs psql with `apt-get install postgresql-client`;
+  - `vercel.json` has no ignored-build step, so any commit to `main` redeploys both Vercel projects to production.
+- **Local probes (disposable containers):**
+  - Ubuntu 24.04's psql 16 against a PostgreSQL 17.6 server prints exactly one identity line, with no version warning;
+  - `--single-transaction -c "SET LOCAL lock_timeout = '…'" --file …` rolls the whole transaction back on a lock wait (exit 3, nothing committed, session default unchanged) and commits normally without one;
+  - the four bundle digests recompute exactly with the §4 method.
+
+**Design.**
+- **One new file on `main`:** `.github/workflows/google-sheets-phase-b.yml`.
+  - `workflow_dispatch` must be on the default branch, so the file reaches `main` through a small separate PR from a new branch. Nothing else is in that PR.
+  - The workflow runs only from `main`. It checks out the pinned Sheets commit `02b644007138cb9e6e3a9519608ffed3d66d03ed` by SHA for the migration, the functions and `config.toml`.
+- **Triggers and permissions:**
+  - **Trigger:** `workflow_dispatch` only, with two inputs. `stage` is one of `check`, `apply-migration`, `record-history` or `deploy-functions`; `confirm` must repeat the stage name.
+  - **Permissions:** `contents: read`. The checkout uses `persist-credentials: false`.
+  - **Concurrency:** one run at a time (group `google-sheets-production`, never cancel-in-progress).
+  - **Guard:** `if: github.ref == 'refs/heads/main'`.
+- **Environment `google-sheets-production`:**
+  - required reviewer Chris, so every run waits for his approval before it starts or sees a secret;
+  - deployment branches limited to `main`;
+  - admin bypass off.
+- **Secrets (environment secrets only):**
+  - `SUPABASE_DB_PASSWORD`: the raw password. The workflow encodes it, so nothing is percent-encoded by hand on a phone.
+  - `SUPABASE_POOLER_HOST`: the session-pooler host. It is stored as a secret so it is masked in the public logs.
+  - `SUPABASE_ACCESS_TOKEN`: a token Chris creates for this release, scoped to this project if his account offers scoped tokens.
+  - User `postgres.jncvvsvckxhqgqvkppmj`, port 5432 and database `postgres` are fixed in the workflow. GitHub runners have no IPv6, so the session pooler is the route.
+- **Pinned values in the workflow:**
+  - project ref `jncvvsvckxhqgqvkppmj`;
+  - the Sheets SHA;
+  - migration SHA-256 `fc68da86…6efed`;
+  - the four §4 bundle digests;
+  - the expected state strings and read-back values;
+  - Supabase CLI `2.121.0`, the version used in the dry run, through `supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf`, the pin Supabase's own documentation uses.
+- **Every stage runs these gates first** and stops at the first failure:
+  1. checkout HEAD equals the pinned SHA;
+  2. migration checksum and bundle digests;
+  3. connection identity: host must be `aws-<n>-us-east-1.pooler.supabase.com`, port 5432, database `postgres`, user `postgres.jncvvsvckxhqgqvkppmj`. Only `identity: OK` is printed.
+  4. TLS is required.
+  5. The exact state string for that stage.
+- **Expected state strings:**
+
+  | Stage | Required state |
+  |---|---|
+  | `check` | read-only; reports which of the three states holds |
+  | `apply-migration` | `postgres\|t\|0\|0\|a199d5dd…\|20261016035626` and 327 rows |
+  | `record-history` | `postgres\|f\|52\|0\|bc6356dd…\|20261016035626` |
+  | `deploy-functions` | `postgres\|f\|52\|1\|bc6356dd…\|20261016035626`, 328 rows, the four functions absent and `GOOGLE_SHEETS_ENABLED` absent |
+
+  A stage run out of order fails closed.
+- **`check` (read-only):**
+  - tool versions and the identity check;
+  - which state holds;
+  - through the Management API, names only: the four functions are absent, the six B1 secret names are present and `GOOGLE_SHEETS_ENABLED` is absent.
+  - This proves the secrets and the approval flow before any change.
+- **`apply-migration` (production change 1 of 3):**
+  - the §10.1 stage 1 apply of the exact file: `psql -X --set ON_ERROR_STOP=1 --single-transaction -c "SET LOCAL lock_timeout = '5s'" --file <migration>`, with `application_name=agentflow-sheets-phase-b`;
+  - psql runs in the background with a 120 s watchdog that sends SIGINT to psql's own PID. SIGINT to psql was tested today to cancel and roll back; the watchdog itself is tested in the dry run.
+  - the runner's cancellation signals are trapped and forwarded to psql as SIGINT;
+  - then the in-job §3 read-backs, the additional read-backs and the table-privilege query, each printed as PASS or FAIL.
+- **`record-history` (production change 2 of 3):**
+  - `supabase migration repair 20261013120000 --status applied --db-url <URL built in-job and masked>`;
+  - then an SQL read-back: exactly one row `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows.
+- **`deploy-functions` (production change 3 of 3):**
+  - an inventory through the Management API: the four absent, plus a hash of every other function's `slug@version`;
+  - then four named deploys in §4 order: `supabase functions deploy <name> --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api`;
+  - then the inventory again: four ACTIVE with `verify_jwt=false`, and the other functions' hash unchanged;
+  - then the §4 disabled-state checks with `curl` from the runner. These need no credential and write nothing.
+- **Claude's independent read-only checks between stages** use the Supabase connector, as in §10.1:
+  - the full §3 read-backs;
+  - the advisor delta against a baseline taken just before the apply, kept out of the public logs;
+  - the Edge inventory and per-file read-backs;
+  - zero operational rows, and the function logs.
+  - Claude also reads the run logs through GitHub and answers GO or STOP in chat.
+- **Chris's role:**
+  - he dispatches each stage himself, after Claude's GO in chat, and then approves the environment deployment;
+  - between `record-history` and `deploy-functions`, Claude pushes the records commit to `claude/keen-brown-e4u3ht` and waits for green exact-head CI.
+- **Public-log hygiene:**
+  - no `set -x`;
+  - secrets only in step-level `env`;
+  - the in-job URL and encoded password masked with `::add-mask::`;
+  - output limited to PASS/FAIL, counts and Sheets object names;
+  - no advisor output, no other function names and no secret values or digests.
+- **STOP rules (unchanged from §10.1):**
+  - any gate or read-back failure stops that stage;
+  - there is no retry, no method switch and no automatic rollback;
+  - psql failing means no repair, and a failed repair means the apply is never re-run;
+  - a partial deploy stops for Chris's decision.
+- **After Phase B:**
+  - Chris disables the workflow in the Actions tab;
+  - he deletes the three environment secrets and revokes the Supabase token;
+  - the workflow file is removed from `main` in a later PR, or extended for Phase E under its own approval.
+
+**Effects to accept:**
+- **Merging the workflow PR adds a commit to `main`.** Vercel then redeploys both projects to production from that commit. The application code is unchanged, so the redeploy is functionally a no-op. The Phase C rollback target becomes that new deployment.
+- **Precondition for that merge:** the Supabase GitHub integration's "Deploy to production" must be OFF (invariant #30). Chris confirms it in the dashboard first.
+- **Lock window:** the apply's lock window on `profiles` and `organizations` is still about 81 round trips. It is now bounded by the 5 s lock timeout. Run it at a quiet moment.
+
+**Files.**
+- **Now, planning records only:** `implementation_plan.md` (this section) and `WORK_LOG.md` (a short entry), on `claude/keen-brown-e4u3ht`.
+- **After approval A1:**
+  - `.github/workflows/google-sheets-phase-b.yml` (new) on a new branch `claude/google-sheets-phase-b-runner` from `main`, in a draft PR to `main`;
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md`: a new §10.3 for the cloud runner, and the status lines;
+  - `WORK_LOG.md` and `implementation_plan.md`.
+- **During Phase B (records):**
+  - `verification.md`: the Phase B execution evidence;
+  - `AGENT_RULES.md`: only the Sheets heading (line 752) and its Status line (line 814);
+  - `WORK_LOG.md`, `implementation_plan.md` and the PR body.
+- **Not touched:** application code, migrations, tests, `supabase/config.toml`, package files and the existing workflows. Supabase, GitHub and Vercel settings are changed by Chris in their own UIs.
+- **Validation before the workflow PR is opened:**
+  - a YAML parse;
+  - each stage's script extracted and dry-run against a disposable PostgreSQL 17.6 with only the production constants swapped (as in `verification.md` §16), including a refusal on re-run and a lock-timeout rollback;
+  - `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json --noEmit` and `git diff --check`.
+
+**Approvals.**
+- **A1 (now):**
+  - the cloud design above, including the added controls: `SET LOCAL lock_timeout = '5s'`, the SIGINT watchdog, required TLS, `application_name` and separate password and host secrets;
+  - creating `claude/google-sheets-phase-b-runner` and its draft PR to `main` containing only the workflow;
+  - the records updates.
+- **A2:** merging the workflow PR. Preconditions:
+  - its CI is green;
+  - "Deploy to production" is confirmed OFF;
+  - the environment and secrets are set up;
+  - the Vercel redeploy is accepted.
+- **A3, A4, A5 (one GO each, given in chat after Claude's checks):** `apply-migration`, then `record-history`, then `deploy-functions`. Chris dispatches each stage and approves its environment deployment himself.
+- **`check`** is read-only and runs under A2.
+
+**Phases C, D and E (prepared; each needs its own approval; none starts automatically):**
+- **C (production UI release, flag off):**
+  - **Preconditions:**
+    - "Deploy to production" is OFF;
+    - `VITE_GOOGLE_SHEETS_ENABLED` is absent in Vercel Production (Chris checks in the Vercel dashboard);
+    - `main` is merged into the branch, and the branch has green exact-head CI and is mergeable.
+  - **Action:** mark PR #442 ready and merge it from the GitHub app.
+  - **Checks:** the §5.1 health checks. Some, such as the dialer, may need a desktop browser.
+  - **Rollback:** Vercel promotes the deployment that was current just before the merge.
+- **D (live test, cron OFF):**
+  - optionally, the import permission is first set OFF for Agent and Team Leader;
+  - the Edge secret `GOOGLE_SHEETS_ENABLED=true` (Supabase dashboard);
+  - in Vercel Production, `VITE_GOOGLE_PICKER_API_KEY`, `VITE_GOOGLE_CLOUD_PROJECT_NUMBER=87346168200` and `VITE_GOOGLE_SHEETS_ENABLED=true`, then a redeploy;
+  - the §6 test with synthetic rows and Sync now. The Google Picker is a desktop-oriented component, so plan §6 on any desktop browser.
+- **E (privacy and automatic sync):**
+  - the §7 privacy text in a small PR;
+  - restore role access if it was limited;
+  - the Vault secret `google_sheets_worker_token`, equal to the B1 worker token;
+  - the cron migration through the same runner, as a new pinned stage in a separate PR. The pending file moves into `supabase/migrations/` with the same name and bytes, so `migration repair` can record its name and statements.
+  - Read back exactly one `google-sheets-sync-every-minute` job, then the §8 verification, then remove the workflow and its secrets.
+
 ## 2026-10-16 — FINISH GOOGLE SHEETS V1: PHASE B MOVES TO A LOCAL CLAUDE CODE SESSION ON CHRIS'S MAC (this cloud session has no production connectivity): PR #442
 
 **Request (Chris, 2026-10-16, about 15:45 UTC).** Take ownership of finishing Google Sheets V1 from the last verified checkpoint, `384f3cc`.
