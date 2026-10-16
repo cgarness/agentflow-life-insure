@@ -46,12 +46,74 @@ END $role_guard$;
 CREATE ROLE agentflow_comp_operator
   NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 GRANT agentflow_comp_operator TO postgres;
-GRANT USAGE ON SCHEMA public, comp_authz, auth TO agentflow_comp_operator;
-GRANT EXECUTE ON FUNCTION auth.uid() TO agentflow_comp_operator;
+GRANT USAGE ON SCHEMA public, comp_authz TO agentflow_comp_operator;
+
+-- Audit stamps need the real request user, but production postgres cannot grant USAGE on the Supabase-owned
+-- auth schema. Resolve the uid through the same canonical actor function as organization/admin checks.
+CREATE FUNCTION comp_authz.actor_uid()
+RETURNS uuid
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $
+DECLARE v_uid uuid;
+BEGIN
+  SELECT a.uid INTO v_uid FROM private.campaign_actor() a;
+  RETURN v_uid;
+EXCEPTION WHEN insufficient_privilege THEN
+  RETURN NULL;
+END $;
+REVOKE ALL ON FUNCTION comp_authz.actor_uid() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION comp_authz.actor_uid() TO agentflow_comp_operator;
 -- CREATE on public is temporary and exists only so PostgreSQL permits ALTER FUNCTION ... OWNER below.
 GRANT CREATE ON SCHEMA public TO agentflow_comp_operator;
 GRANT EXECUTE ON FUNCTION comp_authz.actor_org_id(), comp_authz.actor_is_admin(), comp_authz.readable_grid_ids()
   TO agentflow_comp_operator;
+
+CREATE OR REPLACE FUNCTION private.comp_stamp_and_freeze()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $
+DECLARE
+  v_new jsonb;
+  v_old jsonb;
+  v_col text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSE
+    v_new := to_jsonb(NEW);
+    v_old := to_jsonb(OLD);
+    FOREACH v_col IN ARRAY TG_ARGV LOOP
+      IF (v_new -> v_col) IS DISTINCT FROM (v_old -> v_col) THEN
+        RAISE EXCEPTION '% is fixed once created', v_col USING ERRCODE = '42501';
+      END IF;
+    END LOOP;
+    IF (v_new ? 'copied_from_grid_id')
+       AND (v_new -> 'copied_from_grid_id') IS DISTINCT FROM (v_old -> 'copied_from_grid_id')
+       AND (v_new -> 'copied_from_grid_id') <> 'null'::jsonb THEN
+      RAISE EXCEPTION 'copied_from_grid_id is fixed once created' USING ERRCODE = '42501';
+    END IF;
+    NEW.created_at := OLD.created_at;
+  END IF;
+  NEW.updated_at := now();
+  NEW.updated_by := comp_authz.actor_uid();
+  RETURN NEW;
+END $;
+
+CREATE OR REPLACE FUNCTION private.comp_stamp_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'agency grid access rows are not updatable' USING ERRCODE = '42501';
+  END IF;
+  NEW.enabled_at := now();
+  NEW.enabled_by := comp_authz.actor_uid();
+  RETURN NEW;
+END $;
 
 CREATE OR REPLACE FUNCTION private.comp_require_operation_context()
 RETURNS trigger

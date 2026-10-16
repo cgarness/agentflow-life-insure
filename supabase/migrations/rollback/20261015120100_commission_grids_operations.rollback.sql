@@ -28,6 +28,55 @@ DROP FUNCTION public.comp_list_shared_grid_catalog();
 DROP FUNCTION public.get_commission_calculator_context();
 DROP FUNCTION public.get_commission_calculator_status();
 DROP FUNCTION comp_authz.begin_admin_operation();
+
+-- Restore migration 1's audit triggers before removing the D6 uid wrapper.
+CREATE OR REPLACE FUNCTION private.comp_stamp_and_freeze()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $
+DECLARE
+  v_new jsonb;
+  v_old jsonb;
+  v_col text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSE
+    v_new := to_jsonb(NEW);
+    v_old := to_jsonb(OLD);
+    FOREACH v_col IN ARRAY TG_ARGV LOOP
+      IF (v_new -> v_col) IS DISTINCT FROM (v_old -> v_col) THEN
+        RAISE EXCEPTION '% is fixed once created', v_col USING ERRCODE = '42501';
+      END IF;
+    END LOOP;
+    IF (v_new ? 'copied_from_grid_id')
+       AND (v_new -> 'copied_from_grid_id') IS DISTINCT FROM (v_old -> 'copied_from_grid_id')
+       AND (v_new -> 'copied_from_grid_id') <> 'null'::jsonb THEN
+      RAISE EXCEPTION 'copied_from_grid_id is fixed once created' USING ERRCODE = '42501';
+    END IF;
+    NEW.created_at := OLD.created_at;
+  END IF;
+  NEW.updated_at := now();
+  NEW.updated_by := auth.uid();
+  RETURN NEW;
+END $;
+
+CREATE OR REPLACE FUNCTION private.comp_stamp_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'agency grid access rows are not updatable' USING ERRCODE = '42501';
+  END IF;
+  NEW.enabled_at := now();
+  NEW.enabled_by := auth.uid();
+  RETURN NEW;
+END $;
+
+DROP FUNCTION comp_authz.actor_uid();
 ALTER POLICY comp_grids_select ON public.comp_grids TO authenticated;
 ALTER POLICY comp_products_select ON public.comp_products TO authenticated;
 ALTER POLICY comp_product_variants_select ON public.comp_product_variants TO authenticated;
@@ -81,8 +130,7 @@ GRANT INSERT(variant_id,grid_id,organization_id,source,notes) ON public.comp_var
 GRANT INSERT(organization_id,grid_id) ON public.organization_comp_grids TO authenticated; GRANT DELETE ON public.organization_comp_grids TO authenticated;
 GRANT INSERT(organization_id,calculator_grid_id) ON public.organization_comp_settings TO authenticated; GRANT UPDATE(calculator_grid_id) ON public.organization_comp_settings TO authenticated;
 REVOKE ALL ON public.comp_grids,public.comp_products,public.comp_product_variants,public.comp_rates,public.comp_variant_references,public.organization_comp_grids,public.organization_comp_settings FROM agentflow_comp_operator;
-REVOKE EXECUTE ON FUNCTION auth.uid() FROM agentflow_comp_operator;
 REVOKE EXECUTE ON FUNCTION comp_authz.actor_org_id(),comp_authz.actor_is_admin(),comp_authz.readable_grid_ids() FROM agentflow_comp_operator;
-REVOKE USAGE ON SCHEMA public,comp_authz,auth FROM agentflow_comp_operator;
+REVOKE USAGE ON SCHEMA public,comp_authz FROM agentflow_comp_operator;
 REVOKE agentflow_comp_operator FROM postgres;
 DROP ROLE agentflow_comp_operator;
