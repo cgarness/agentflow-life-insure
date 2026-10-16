@@ -10,6 +10,14 @@
 
 **Records.** Root `implementation_plan.md`: the local-session procedure (stages 0–6 with a GO before each production step), the files it will touch (records only), and draft Phase C/D/E approval requests. This session changed nothing in production.
 
+**Follow-up (rules and work-log review).** `AGENT_RULES.md` read in full, and the work log reviewed. No conflict was found. Folded into the plan:
+- the local session updates the `AGENT_RULES.md` Sheets heading and Status line in its records commits (§9);
+- it runs `npx tsc -p tsconfig.app.json --noEmit` as well as the plain `npx tsc --noEmit`, which checks no files here;
+- it confirms none of the four function names exists before deploying (invariant #4);
+- it sends the disabled-state checks with `curl`, which writes nothing to the database (#28);
+- it reads the history row back with SQL, because the CLI prints JSON inside Claude Code;
+- release package §3 gains a table-privilege read-back. Production's default privileges hand new tables to `anon` and `authenticated`, and the read-backs checked only functions. The expected 18 lines were reproduced locally.
+
 ## 2026-10-16 — Google Sheets PR #442: reconciled with `main` `9a90552` (#447 commission release, #449 UI refresh) with Chris's OK; Phase B still waiting on Chris's stage 1 (production unchanged for Sheets)
 
 **Request.** Overnight check-ins found the commission release in production and in `main`, and PR #442 conflicting with `main`. Chris replied "OK to reconcile".

@@ -24,30 +24,58 @@
   - `GOOGLE_SHEETS_ENABLED` is an Edge secret, and its presence cannot be read from here. The local session checks names only, with `supabase secrets list --project-ref jncvvsvckxhqgqvkppmj`.
   - The Vercel connector was refused (403) when listing environment variables, so `VITE_GOOGLE_SHEETS_ENABLED` being absent in Production stays Chris's owner check before Phase C.
 
+**Rules review (`AGENT_RULES.md` read in full, 814 lines; `VISION.md`).** No rule conflicts with the procedure below. Six points are folded into it:
+- **§9 (doc updates in the same commit):** once production changes, two lines in the Sheets section become false: its heading (line 752, "NOT deployed") and its Status line (line 814). The local session updates both in each Phase B records commit.
+- **§8 type check:** `npx tsc --noEmit` checks nothing here, because the root `tsconfig.json` lists no files (§4 note). The local session runs it as asked, and also `npx tsc -p tsconfig.app.json --noEmit`, which reports 84 diagnostics on both `main` `9a90552` and this branch.
+- **Invariant #4 (read the live function before deploying):** the four functions are new. The check is that none of the four names exists in production before stage 5.
+- **Invariant #28 (production is read-only by default; no production write to complete verification):** the disabled-state checks are plain `curl` requests from the Mac and write nothing. The release package sends them through `pg_net` only because this cloud environment cannot reach the functions host.
+- **Invariant #30 ("the deliberate MCP path, never a git merge"):** Chris approved the psql / CLI route on 2026-10-15 instead of further large MCP requests. It is still deliberate and still not a git merge. The recorded version is the authored `20261013120000`, so no restamp or rename is needed.
+- **The Sheets rule "verify access through PostgREST":** CI proves this at exact head (33 PostgREST checks). In production the native privilege read-backs are the check, so no API key is handled.
+
+**Work log review (the 2026-10-15 and 2026-10-16 entries read in full; older history by keyword scans and targeted reads).**
+- **No pending production change from other work conflicts.** The commission release is complete. The inactive onboarding migration in `pending/` would trip the stage 1 preflight gate if it were applied first.
+- **Production traps from earlier releases, checked against the Sheets migration:**
+  - it sets no custom parameter (the cause of the commission release's `42501`);
+  - it revokes the hosted default privileges explicitly, and the harness mirrors those defaults;
+  - every `RETURNS TABLE` function declares `#variable_conflict use_column`.
+- **Table privileges were missing from the production read-backs, so release package §3 gains one read-only query.** Its expected 18 lines were reproduced locally.
+
 **Local session procedure.** Each production step runs only after Chris's GO in that session.
 1. **Read-only checks.**
    - The branch head equals origin, `main` is unchanged, the PR is mergeable, and exact-head CI is green.
-   - The §10.1 stage 1 preflight query returns the value above. A newer non-Sheets migration means: report it, then use the new latest version.
+   - The §10.1 stage 1 preflight query returns the value above. If a newer non-Sheets migration has landed: STOP, report it with an interaction check against the Sheets migration, and use the new preflight value only after Chris's GO.
    - `supabase secrets list` shows the six B1 names and no `GOOGLE_SHEETS_ENABLED`.
-   - The Edge inventory has no `google-sheets-*`.
+   - None of the four `google-sheets-*` names exists in the Edge inventory (invariant #4).
    - A fresh advisor capture is taken.
-2. **Stage 1 (B2):** §10.1 stage 1 exactly, with `<HEAD>` = the verified head.
-3. **Stage 2:** every §3 read-back and the additional read-backs, via read-only psql, plus the advisor delta. Any difference: STOP, with no repair and no rollback.
-4. **Stage 3:** after GO, `supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"` and `migration list`. Expect 328 rows and the one new row.
-5. **Stage 4:** the records commit, `npx tsc --noEmit` and the Sheets checks, a push to `claude/keen-brown-e4u3ht` only, and green exact-head CI. The PR stays draft.
+2. **Stage 1 (B2):** §10.1 stage 1 exactly, with `<HEAD>` = the verified head, at a quiet moment (no agents dialing).
+3. **Stage 2:** every §3 read-back and the additional read-backs (now including the table-privilege query), via read-only psql, plus the advisor delta. Any difference: STOP, with no repair and no rollback.
+4. **Stage 3:** after GO, `supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"` and `migration list`.
+   - Then an SQL read-back: exactly one row, `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows in total.
+   - Inside Claude Code the CLI prints JSON instead of a table, because `CLAUDECODE` is set (`verification.md` §16). So the SQL read-back is the check.
+   - If the repair fails: STOP. Stage 1 is never re-run, and its preflight gate would refuse anyway.
+5. **Stage 4:**
+   - The records commit, including the two `AGENT_RULES.md` status lines.
+   - `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit` (84), plus the Sheets checks.
+   - A push to `claude/keen-brown-e4u3ht` only, and green exact-head CI. The PR stays draft.
 6. **Stage 5 (B3):** after GO, four named deploys, one at a time: `supabase functions deploy <name> --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api` for `google-sheets-sync-worker`, `google-sheets-api`, `google-sheets-oauth-callback` and `google-sheets-oauth-start`. Never unnamed, never `--prune`.
-7. **Stage 6:** the §4 read-backs, the disabled-state checks, zero operational rows, and a log scan for secret output.
-8. **Final records, the PR body, then the exact Phase C/D/E approval requests** (drafts below). C, D and E are not started.
+7. **Stage 6:** the §4 read-backs, the disabled-state checks (`curl` from the Mac), zero operational rows, and a log scan for secret output.
+8. **Final records (the `AGENT_RULES.md` status lines included), the PR body, then the exact Phase C/D/E approval requests** (drafts below). C, D and E are not started.
 
 `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED` stay unset throughout, with no cron, Vault worker token, import or OAuth connection.
 
 **Files.**
-- **This cloud session:** `implementation_plan.md` (this section) and `WORK_LOG.md` (a short entry). No application, migration, test or config change.
+- **This cloud session:**
+  - `implementation_plan.md` (this section);
+  - `WORK_LOG.md` (a short entry);
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md` (the §3 table-privilege read-back).
+
+  No application, migration, test or config change.
 - **The local session (records only, unless a check fails):**
   - `docs/plans/2026-10-13-google-sheets-import/verification.md`: a new section with the Phase B execution evidence;
   - `docs/plans/2026-10-13-google-sheets-import/release-package.md`: Phase B status and the Phase C request;
   - `WORK_LOG.md`: the newest-first entry;
-  - `implementation_plan.md`: the outcome.
+  - `implementation_plan.md`: the outcome;
+  - `AGENT_RULES.md`: only the Sheets section heading (line 752) and its Status line (line 814).
 
   No application code, migration, test, `supabase/config.toml` or package file.
 

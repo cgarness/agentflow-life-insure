@@ -285,6 +285,21 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 
 **Additional read-backs (before `migration repair`):**
 - `service_role` can EXECUTE all 21 public wrappers. No private helper is executable by `anon`, `authenticated` or `service_role`.
+- **Table privileges** (added 2026-10-16, because production's default privileges give every new `public` table to `anon` and `authenticated` until the migration revokes them). The query below returns 18 lines:
+  - each of the three public tables gives `anon` nothing (`-`), `authenticated` only `SELECT`, and `service_role` `DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE`;
+  - each of the three private tables gives all three roles nothing (`-`).
+  This was reproduced locally with the harness that mirrors those default privileges (MD5 of the newline-terminated `psql -X -At` output: `cc3c7ea29bdaa0bc447ebf5f8c209b1b`).
+  ```sql
+  select concat_ws('|', n.nspname || '.' || c.relname, r.rolname,
+         coalesce(string_agg(p.priv, ',' order by p.priv) filter (where has_table_privilege(r.rolname, c.oid, p.priv)), '-'))
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+   cross join (values ('anon'), ('authenticated'), ('service_role')) r(rolname)
+   cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) p(priv)
+   where c.relkind = 'r' and c.relname like 'google\_sheets\_%' and n.nspname in ('public', 'private')
+   group by n.nspname, c.relname, r.rolname
+   order by 1;
+  ```
 - Exactly three policies exist, the own-user SELECT policies on the three public tables. There are none on the private tables.
 - `_contacts_permission_default` returns its previous value for every other key and role, and Team Leader `contacts.leads.import` is still true.
 - There are zero connections, sources, receipts, sync runs, Sheets leads, Sheets cron jobs and `google_sheets%` Vault secrets.
