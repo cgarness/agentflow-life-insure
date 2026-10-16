@@ -24,12 +24,10 @@
   SELECT :'approve_comp_reference_import' = 'yes' AS _agentflow_approved \gset
   \if :_agentflow_approved
   \else
-    \echo 'ERROR: Set psql variable approve_comp_reference_import=yes only after exact release approval'
-    \quit 3
+    DO $ BEGIN RAISE EXCEPTION 'Set psql variable approve_comp_reference_import=yes only after exact release approval'; END $;
   \endif
 \else
-  \echo 'ERROR: Set psql variable approve_comp_reference_import=yes only after exact release approval'
-  \quit 3
+  DO $ BEGIN RAISE EXCEPTION 'Set psql variable approve_comp_reference_import=yes only after exact release approval'; END $;
 \endif
 
 BEGIN;
