@@ -1,3 +1,24 @@
+## 2026-10-15 — Commission backend release complete; frontend PR #447 pending merge
+
+**Production:** Three byte-verified migrations are installed in AGENTFLOW CRM (`20261015211858` schema,
+`20261016035150` operations and `20261016035626` reference-import infrastructure). The exact approved
+private FFL artifact was imported through Supabase MCP outside migration history. Ledger, source/artifact hashes,
+stored-row fingerprint and counts (41 products, 57 variants, 11 carriers, 963 rate cells, 57 references) match
+the source-backed verification, and the original CSV was not modified. Availability, enablement and calculator
+selection each have **one** row, all for **Family First Life - Chris Garness**; all other agencies have zero
+availability/access and no selection. No frontend merge or production deployment has occurred yet.
+
+**Security:** The six agency-write RPCs are SECURITY DEFINER owned by NOLOGIN/NOBYPASSRLS
+`agentflow_comp_operator`. Direct authenticated and service-role writes to commission tables are denied;
+all nine commission tables have RLS. Supabase's managed CREATEROLE flow produced two
+`pg_auth_members` grants to the **same sole member** `postgres` (one grantor `supabase_admin`, one
+`postgres`), not two distinct member roles. The A10f test now verifies distinct grantees and rejects any
+non-`postgres` membership. The database role/grant state is otherwise as reviewed.
+
+**Remaining:** The six migration/rollback filenames have been reconciled to actual production versions without
+altering SQL bytes. Final exact-head CI, PR #447 merge and canonical Vercel `agentflow` / `www.fflagent.com`
+deployment verification remain. No further migration or import is authorized by this record.
+
 ## 2026-10-15 — Commission release compatibility closeout (PR #447, pending production authorization)
 
 **Status:** Draft PR #447 head `bf6d76384184c310aada39227a19b49919f66ac7` passed all seven GitHub workflows, including the complete PostgreSQL 17.6 commission runner (restricted-SET and non-super-role probes, permission/availability negative controls, 59 concurrency assertions, rollback/reapply). No frontend changes in this closeout. Production has only schema migration `20261015211858`; migration 2 failed on the original custom-GUC approach and remains unapplied. No rates, availability, activation, merge or deployment has occurred.
@@ -187,11 +208,13 @@ The full Vitest suite was not re-run: no `src/` file changed in this correction.
 
 ## Migration files vs applied versions
 
+This older table records the **pre-release** state only. The newest section above verifies the actual production application and filenames.
+
 | File | Applied anywhere hosted? |
 |---|---|
-| `20261015120000_commission_grids_schema.sql` | **No.** Applied only to disposable local databases |
-| `20261015120100_commission_grids_operations.sql` | **No** (as above) |
-| `20261015120200_commission_grids_reference_import.sql` | **No** (as above) |
+| `20261015211858_commission_grids_schema.sql` | **No.** Applied only to disposable local databases |
+| `20261016035150_commission_grids_operations.sql` | **No** (as above) |
+| `20261016035626_commission_grids_reference_import.sql` | **No** (as above) |
 
 Re-checked read-only on 2026-10-15, before the review correction edited the operations migration in place:
 - production's migration history has no `20261015…` row and its catalog has no comp objects;

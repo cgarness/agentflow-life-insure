@@ -1,3 +1,24 @@
+## 2026-10-15 — Commission backend release complete; frontend PR #447 pending merge
+
+**Production:** Three byte-verified migrations are installed in AGENTFLOW CRM (`20261015211858` schema,
+`20261016035150` operations and `20261016035626` reference-import infrastructure). The exact approved
+private FFL artifact was imported through Supabase MCP outside migration history. Ledger, source/artifact hashes,
+stored-row fingerprint and counts (41 products, 57 variants, 11 carriers, 963 rate cells, 57 references) match
+the source-backed verification, and the original CSV was not modified. Availability, enablement and calculator
+selection each have **one** row, all for **Family First Life - Chris Garness**; all other agencies have zero
+availability/access and no selection. No frontend merge or production deployment has occurred yet.
+
+**Security:** The six agency-write RPCs are SECURITY DEFINER owned by NOLOGIN/NOBYPASSRLS
+`agentflow_comp_operator`. Direct authenticated and service-role writes to commission tables are denied;
+all nine commission tables have RLS. Supabase's managed CREATEROLE flow produced two
+`pg_auth_members` grants to the **same sole member** `postgres` (one grantor `supabase_admin`, one
+`postgres`), not two distinct member roles. The A10f test now verifies distinct grantees and rejects any
+non-`postgres` membership. The database role/grant state is otherwise as reviewed.
+
+**Remaining:** The six migration/rollback filenames have been reconciled to actual production versions without
+altering SQL bytes. Final exact-head CI, PR #447 merge and canonical Vercel `agentflow` / `www.fflagent.com`
+deployment verification remain. No further migration or import is authorized by this record.
+
 ## 2026-10-15 — Commission release compatibility closeout (PR #447, pending production authorization)
 
 **Status:** Draft PR #447 head `bf6d76384184c310aada39227a19b49919f66ac7` passed all seven GitHub workflows, including the complete PostgreSQL 17.6 commission runner (restricted-SET and non-super-role probes, permission/availability negative controls, 59 concurrency assertions, rollback/reapply). No frontend changes in this closeout. Production has only schema migration `20261015211858`; migration 2 failed on the original custom-GUC approach and remains unapplied. No rates, availability, activation, merge or deployment has occurred.
@@ -34,7 +55,7 @@ through the canonical helpers. The legacy custom-GUC authority is not used by mi
 2. **A NULL revision bypassed delete conflict protection.** `comp_delete_private_grid` will refuse a missing grid id or a missing, zero or negative revision (22023) before the admin operation starts. The locked revision comparison stays as it is.
 
 The operations migration is unapplied on every hosted database: production's migration history and catalog were checked read-only, and no preview branch has it. It is therefore corrected in place (rule #25), and its checksum is updated in the release records. **Intended files:**
-- `supabase/migrations/20261015120100_commission_grids_operations.sql`
+- `supabase/migrations/20261016035150_commission_grids_operations.sql`
 - `supabase/tests/commission_grids_operations.sql`
 - `src/components/settings/commission-grids/CommissionGridsSettings.tsx` and `GridEditor.tsx`
 - `src/hooks/useGridEditorDraft.ts`
@@ -92,9 +113,9 @@ They are therefore corrected in place (rule #25), and their new checksums replac
 
 *Files to touch:*
 - **Migrations:**
-  - `supabase/migrations/20261015120000_commission_grids_schema.sql`: the table, the access foreign key, the trigger check, RLS and grants;
-  - `supabase/migrations/20261015120100_commission_grids_operations.sql`: the catalog filter;
-  - `supabase/migrations/20261015120200_commission_grids_reference_import.sql`: the two functions;
+  - `supabase/migrations/20261015211858_commission_grids_schema.sql`: the table, the access foreign key, the trigger check, RLS and grants;
+  - `supabase/migrations/20261016035150_commission_grids_operations.sql`: the catalog filter;
+  - `supabase/migrations/20261016035626_commission_grids_reference_import.sql`: the two functions;
   - the schema and reference-import rollback files.
 - **Ops scripts:** the new `supabase/ops/commission_grids_make_available_home_agency.sql`; and `supabase/ops/commission_grids_activate_home_agency.sql`, whose header changes only.
 - **Tests and runner:**
