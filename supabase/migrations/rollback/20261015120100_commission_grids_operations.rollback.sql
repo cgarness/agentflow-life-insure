@@ -34,7 +34,7 @@ CREATE OR REPLACE FUNCTION private.comp_stamp_and_freeze()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
-AS $
+AS $comp_stamp$
 DECLARE
   v_new jsonb;
   v_old jsonb;
@@ -60,13 +60,13 @@ BEGIN
   NEW.updated_at := now();
   NEW.updated_by := auth.uid();
   RETURN NEW;
-END $;
+END $comp_stamp$;
 
 CREATE OR REPLACE FUNCTION private.comp_stamp_access()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
-AS $
+AS $comp_access$
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     RAISE EXCEPTION 'agency grid access rows are not updatable' USING ERRCODE = '42501';
@@ -74,7 +74,7 @@ BEGIN
   NEW.enabled_at := now();
   NEW.enabled_by := auth.uid();
   RETURN NEW;
-END $;
+END $comp_access$;
 
 DROP FUNCTION comp_authz.actor_uid();
 ALTER POLICY comp_grids_select ON public.comp_grids TO authenticated;
