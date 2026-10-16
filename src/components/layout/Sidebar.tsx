@@ -14,8 +14,10 @@ import {
   SETTINGS_CONFIG,
   isPhoneSystemSettingsSection,
   resolveSettingsPermissionSlug,
+  withAdminOnlySections,
 } from "@/config/settingsConfig";
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
+import CommissionCalculatorNavItem from "./CommissionCalculatorNavItem";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
 import { useAuth } from "@/contexts/AuthContext";
@@ -71,12 +73,14 @@ const Sidebar: React.FC = () => {
 
   const visibleSettingsCategories = useMemo(() => {
     if (permsLoading) return SETTINGS_CONFIG;
-    return SETTINGS_CONFIG.map((cat) => ({
+    const permitted = SETTINGS_CONFIG.map((cat) => ({
       ...cat,
       sections: cat.sections.filter((s) =>
         hasSettingsSectionAccess(resolveSettingsPermissionSlug(s.slug))
       ),
     })).filter((cat) => cat.sections.length > 0);
+    // Admin-only sections never fail open: they are added only once permissions have loaded.
+    return withAdminOnlySections(permitted, hasSettingsSectionAccess);
   }, [permsLoading, hasSettingsSectionAccess]);
 
   const sidebarContent = (
@@ -132,6 +136,8 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
+        {/* Directly below Resources. Not a "View As" surface: under View As it is neither shown nor queried. */}
+        <CommissionCalculatorNavItem collapsed={collapsed} enabled={!isImpersonating} onClick={() => setMobileOpen(false)} />
         {/* Custom links target `/app-link/:linkId`, which the route guard blocks. */}
         {(isImpersonating ? [] : customMenuLinks).map((link) => (
           <CustomMenuSidebarItem

@@ -1,3 +1,6 @@
 # Generated verbatim production dump: function bodies retain production's own trailing
 # whitespace; stripping would change body bytes and break fingerprint equivalence.
 /supabase/migrations/20260806000000_baseline_production_schema.sql whitespace=-trailing-space,-blank-at-eol,-blank-at-eof
+# Commission-grid synthetic fixture: its CRLF line endings are intentional (CRLF input must import byte-for-byte),
+# so keep the committed bytes and do not report each CR as trailing whitespace. Other whitespace checks still apply.
+/supabase/tests/fixtures/commission_grids/synthetic_reference_grid.csv -text whitespace=cr-at-eol

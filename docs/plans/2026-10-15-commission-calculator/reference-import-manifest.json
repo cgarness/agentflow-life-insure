@@ -1,0 +1,36 @@
+{
+ "format": "agentflow.comp_reference_grid.manifest.v1",
+ "note": "Non-sensitive record of the private FFL reference import. Never add rates, carrier/product names, notes or acceptance expectations here (decision D1).",
+ "status": "BACKEND RELEASE VERIFIED; frontend PR merge/deployment pending",
+ "blockers": [
+  "Source and artifact privately stored and checksums confirmed by Chris; their location is deliberately not published here.",
+  "Backend approved and completed; canonical frontend PR merge, live deployment and signed-in verification remain."
+ ],
+ "grid": {
+  "id": "6ad6d4e4-4024-5dae-bef5-de0202ab1b6e",
+  "name": "FFL Compensation Grid",
+  "effective_date": "2025-11-20",
+  "contract_levels": [145, 140, 135, 130, 125, 120, 115, 110, 105, 100, 95, 90, 85, 80, 75, 70, 65]
+ },
+ "importer_version": "1.0.0",
+ "source": {"file_name": "ffl_comp_rates.csv", "sha256": "998307b4ebab7f3ed0e6dfdf30457d4bd2b5f967c80f0068e04aa4f5ed631d08", "bytes": 8402, "data_rows": 57},
+ "artifact_sha256": "cf83d9923a261c531c709acaa24656cddca9d77ca850d332417262c953b78157",
+ "content_sha256": "273d0eb0fc144b21b812a5c6fa74daf44d18579fb3e0aa4a315439cc7ba3ffed",
+ "inventory_to_verify": {"products": 41, "variants": 57, "carriers": 11},
+ "verified_counts": {"products": 41, "variants": 57, "carriers": 11, "rate_cells": 963, "blank_rate_cells": 6, "explicit_zero_rate_cells": 0, "references": 57},
+ "verified_on": "2026-10-15",
+ "production_versions": {"schema":"20261015211858","operations":"20261016035150","reference_import":"20261016035626"},
+ "owner_decisions": "One source cell confirmed by Chris as authoritative (2026-10-15); recorded privately with the evidence, never here.",
+ "private_location": "confirmed privately by owner; intentionally not published",
+ "verification": {
+  "validate": "PASS (importer: 0 anomalies; independent check: 49 PASS, 0 FAIL)",
+  "artifact": "PASS (three byte-identical builds; verify ok; artifact equals the CSV in both directions)",
+  "local_import": "PASS (disposable loopback PostgreSQL 16.15, C and en_US.UTF-8; re-import already_imported)",
+  "reconciliation": "PASS (0 differences in both directions; 7 negative controls failed as required)",
+  "source_acceptance": "PASS (49 of 49, including the 8 required cases)",
+  "availability_rehearsal": "PASS (2026-10-15, decision D5: activation refused before availability; available to the home agency only; another agency sees and gets nothing; withdrawal clears access and the selection; fingerprint unchanged)",
+  "production_import": "IMPORTED and SHA-256/ledger/fingerprint/counts verified",
+  "production_availability": "ONE verified row, home agency only",
+  "production_activation": "ENABLED and SELECTED, home agency only"
+ }
+}
