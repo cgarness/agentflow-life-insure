@@ -1,3 +1,13 @@
+## 2026-10-15 — Commission release compatibility closeout (PR #447, pending production authorization)
+
+**Status:** Draft PR #447 head `bf6d76384184c310aada39227a19b49919f66ac7` passed all seven GitHub workflows, including the complete PostgreSQL 17.6 commission runner (restricted-SET and non-super-role probes, permission/availability negative controls, 59 concurrency assertions, rollback/reapply). No frontend changes in this closeout. Production has only schema migration `20261015211858`; migration 2 failed on the original custom-GUC approach and remains unapplied. No rates, availability, activation, merge or deployment has occurred.
+
+**Changes:** The still-unapplied operations migration now uses a NOLOGIN/NOBYPASSRLS `agentflow_comp_operator` role and an audit-only actor-UID helper rather than a custom GUC. All three private postgres-only ops scripts use psql client approval variables rather than unsupported managed-Postgres SET parameters, with refusal checked by CI. Public synthetic tests and branch docs were updated; private source and import artifact remain byte-identical to their reviewed SHA-256 values and have not entered Git.
+
+**Exact current hashes:** operations migration `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9`; operations rollback `4498a5dd41d0284e99905754c30393977c5829d65fd977704fc64203879b469a`; import ops `5015c3077abd5957a12a5950294f830d8fcf3a98f74aec5e88bbc363991f7e1f`; availability ops `a6cf926fdcf9dc58d740d19fa9178071b4fca6dcd14f395f3e4ba9fbe4d5baa3`; activation ops `bec9167c7d0247af1c0d9e0c8df50f89bdec2d47f5beb6485dd83abc44512d7d`. Schema migration `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` is already applied; reference infrastructure migration `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` is pending. Source/artifact SHA-256 and content fingerprint match the private verified manifest.
+
+**Release boundary:** No additional production mutation is authorized by this documentation update. Recheck the exact branch head and production migration state, obtain Chris's explicit approval of the revised production operation and import/availability/activation route, apply each step with read-back verification, then reconcile migration filenames, rerun CI, merge and verify canonical `agentflow` production. Separate follow-up: the existing `profiles.commission_level` self-edit permission issue.
+
 # Commission Calculator + agency commission grids — implementation plan
 
 **Status (2026-10-15):** LOCAL IMPLEMENTATION APPROVED by Chris with amendments (D1–D4, corrections 1–6)
@@ -364,7 +374,7 @@ plus vitest failures base vs branch, reported separately.
       (lock order settings → grid → availability → access → product → children), then deletes availability
       and reports whether access and the selection were cleared.
   - *Release.* A new ops script, `supabase/ops/commission_grids_make_available_home_agency.sql` (approval
-    setting `agentflow.approve_comp_home_availability=yes`), makes the grid available to the exact unique
+    setting `-v approve_comp_home_availability=yes`), makes the grid available to the exact unique
     name only. The existing activation script then needs availability first.
   - *Migration handling.* Production's migration history and catalog were re-checked read-only: newest
     `20261010172702`, no commission rows or objects. The only Supabase branches are the PR #294 and #378
@@ -405,8 +415,8 @@ plus vitest failures base vs branch, reported separately.
       reconciliation PASS, activation refused before availability, then the availability and activation
       scripts; 4 + 28 + 7 rehearsal checks PASS, and the MCP route passes too; acceptance 49 of 49. No rate
       changed.
-    - *Checksums* (§12): schema `1f8e14fb…`, operations `dc0c524b…`, reference import `3cbe4d69…`, availability
-      ops `c484c040…` (new), activation ops `46c41c89…`.
+    - *Checksums* (§12): schema `1f8e14fb…`, operations `0883a442…`, reference import `3cbe4d69…`, availability
+      ops `c484c040…` (new), activation ops `bec9167…`.
 - **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
   stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
   with the expected literals (database default collation). The CI image defaults to `en_US.utf8`, so the order
@@ -505,7 +515,7 @@ No later step ran. Production migration 1 remains the exact reviewed bytes. D6 r
 inside the still-unapplied operations migration; the reference-import migration is unchanged. A fresh exact approval
 is required before resuming production.
 
-## 12. Consolidated release continuation package (refreshed 2026-10-15 after production migration-2 failure and D6 correction; SCHEMA ONLY APPLIED)
+## 12. Consolidated release continuation package (refreshed 2026-10-15 after managed-Postgres authority and ops-script corrections; SCHEMA ONLY APPLIED)
 Each numbered action needs Chris's explicit approval of that exact action, target and checksum. They may be
 approved together as one release package. Local implementation approval is not release approval.
 Targets: production Supabase `jncvvsvckxhqgqvkppmj` (AGENTFLOW CRM) and the **canonical** Vercel production project
@@ -567,10 +577,10 @@ as part of this release.
 | # | Status | `name` | File | SHA-256 |
 |---|---|---|---|---|
 | 1 | **DONE** as production version `20261015211858` | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` |
-| 2 | **NEXT — fresh approval required** | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25` |
+| 2 | **NEXT — fresh approval required** | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9` |
 | 3 | pending after step 2 verification | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` |
 
-Operations rollback SHA-256 is `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+Operations rollback SHA-256 is `4498a5dd41d0284e99905754c30393977c5829d65fd977704fc64203879b469a`.
 For steps 2 and 3, use Supabase MCP `apply_migration` with the exact reviewed bytes, one at a time; record the
 assigned version and verify the stored statement's SHA-256 matches before continuing. The corrected step 2
 removes browser table writes and replaces the production-incompatible custom-GUC authority with D6's
@@ -589,7 +599,7 @@ removes browser table writes and replaces the production-incompatible custom-GUC
 first. The route is Chris's choice (recommendation first). Never use `apply_migration` for data: it would store
 the rates in the migration history.
 - (a) **Recommended.** Chris, or an operator he names, runs the reviewed ops script
-  (`d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`) with psql, from the machine holding the
+  (`5015c3077abd5957a12a5950294f830d8fcf3a98f74aec5e88bbc363991f7e1f`) with psql, from the machine holding the
   private files, as `postgres` through the session pooler or a direct connection:
 
   ```bash
@@ -973,7 +983,7 @@ plus vitest failures base vs branch, reported separately.
       (lock order settings → grid → availability → access → product → children), then deletes availability
       and reports whether access and the selection were cleared.
   - *Release.* A new ops script, `supabase/ops/commission_grids_make_available_home_agency.sql` (approval
-    setting `agentflow.approve_comp_home_availability=yes`), makes the grid available to the exact unique
+    setting `-v approve_comp_home_availability=yes`), makes the grid available to the exact unique
     name only. The existing activation script then needs availability first.
   - *Migration handling.* Production's migration history and catalog were re-checked read-only: newest
     `20261010172702`, no commission rows or objects. The only Supabase branches are the PR #294 and #378
@@ -1014,8 +1024,8 @@ plus vitest failures base vs branch, reported separately.
       reconciliation PASS, activation refused before availability, then the availability and activation
       scripts; 4 + 28 + 7 rehearsal checks PASS, and the MCP route passes too; acceptance 49 of 49. No rate
       changed.
-    - *Checksums* (§12): schema `1f8e14fb…`, operations `dc0c524b…`, reference import `3cbe4d69…`, availability
-      ops `c484c040…` (new), activation ops `46c41c89…`.
+    - *Checksums* (§12): schema `1f8e14fb…`, operations `0883a442…`, reference import `3cbe4d69…`, availability
+      ops `c484c040…` (new), activation ops `bec9167…`.
 - **PostgreSQL 17.6 CI correction (approved by Chris, 2026-10-15).** The first run on draft PR #447 (head `3971fd0`)
   stopped at access test A10f. It compared the actual grant list, built from catalog `name` columns (C collation),
   with the expected literals (database default collation). The CI image defaults to `en_US.utf8`, so the order
@@ -1174,10 +1184,10 @@ as part of this release.
 | # | Status | `name` | File | SHA-256 |
 |---|---|---|---|---|
 | 1 | **DONE** as production version `20261015211858` | `commission_grids_schema` | `supabase/migrations/20261015120000_commission_grids_schema.sql` | `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` |
-| 2 | **NEXT — fresh approval required** | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25` |
+| 2 | **NEXT — fresh approval required** | `commission_grids_operations` | `supabase/migrations/20261015120100_commission_grids_operations.sql` | `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9` |
 | 3 | pending after step 2 verification | `commission_grids_reference_import` | `supabase/migrations/20261015120200_commission_grids_reference_import.sql` | `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` |
 
-Operations rollback SHA-256 is `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+Operations rollback SHA-256 is `4498a5dd41d0284e99905754c30393977c5829d65fd977704fc64203879b469a`.
 For steps 2 and 3, use Supabase MCP `apply_migration` with the exact reviewed bytes, one at a time; record the
 assigned version and verify the stored statement's SHA-256 matches before continuing. The corrected step 2
 removes browser table writes and replaces the production-incompatible custom-GUC authority with D6's
@@ -1196,7 +1206,7 @@ removes browser table writes and replaces the production-incompatible custom-GUC
 first. The route is Chris's choice (recommendation first). Never use `apply_migration` for data: it would store
 the rates in the migration history.
 - (a) **Recommended.** Chris, or an operator he names, runs the reviewed ops script
-  (`d2825d4112b9da15f0556ac6c2e84b3158c1984d28d9cde33e3783e98812e1aa`) with psql, from the machine holding the
+  (`5015c3077abd5957a12a5950294f830d8fcf3a98f74aec5e88bbc363991f7e1f`) with psql, from the machine holding the
   private files, as `postgres` through the session pooler or a direct connection:
 
   ```bash
@@ -1226,7 +1236,7 @@ into migration history (`apply_migration`), Git, PR text, CI or any public log.
 - Counts equal the manifest, and the grid is active.
 
 **7a. Availability (D5).** Run `supabase/ops/commission_grids_make_available_home_agency.sql`
-(`c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6`) with
+(`a6cf926fdcf9dc58d740d19fa9178071b4fca6dcd14f395f3e4ba9fbe4d5baa3`) with
 psql variable `-v approve_comp_home_availability=yes`. Either route works: after Chris's exact approval the
 agent can call the postgres-only private function through MCP, or an operator can run the psql script.
 - The agency is resolved by exact unique name at execution, never by a hardcoded id. Zero or several matches
@@ -1236,7 +1246,7 @@ agent can call the postgres-only private function through MCP, or an operator ca
   agency.
 
 **7b. Activation.** Run `supabase/ops/commission_grids_activate_home_agency.sql`
-(`46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c`) with
+(`bec9167c7d0247af1c0d9e0c8df50f89bdec2d47f5beb6485dd83abc44512d7d`) with
 psql variable `-v approve_comp_home_activation=yes`, by either route, after 7a.
 - The agency is resolved by exact unique name at execution, never by a hardcoded id. Zero or several matches
   are refused (PT409). Without 7a the enable is refused (PT404) and nothing changes.

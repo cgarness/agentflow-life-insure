@@ -1,6 +1,6 @@
 # Commission grids — private reference-import runbook
 
-**Status (2026-10-15): VALIDATED LOCALLY; production NOT APPROVED.** Chris supplied the source
+**Status (2026-10-15): SOURCE VALIDATED; SCHEMA MIGRATION APPLIED ONLY; REMAINING PRODUCTION ACTIONS PAUSED.** Chris supplied the source
 `ffl_comp_rates.csv` (D4). Steps 1–3 ran on 2026-10-15 against disposable loopback databases only, and every
 check passed; the manifest records the hashes, counts and PASS/FAIL results. Step 4 has not run: it needs
 Chris's exact approval of the release package (plan §12). Still open: the durable private location for the
@@ -93,14 +93,14 @@ COMMISSION_PRIVATE_DIR="$PRIVATE_DIR" npx vitest run src/lib/commission/__tests_
 The test prints PASS/FAIL per case name only. Keep these real-data results separate from the synthetic CI
 results (C5).
 
-## 4. Production (release step — only with Chris's exact approval of the consolidated release proposal)
+## 4. Production (release step — only with Chris's exact approval of the revised continuation package)
 
 Managed production `postgres` has `SET=false` for the old `agentflow.approve_comp_*` custom parameters. The psql operator scripts therefore use client-side `-v approve_*=yes` variables for their approval guard. After Chris's exact chat approval, MCP execution calls the postgres-only private functions directly and does not depend on a database approval GUC.
 
 The exact order, the route by which the artifact reaches production, and the filename reconciliation after
 `apply_migration` are fixed in plan §12. This section summarizes the data steps.
 
-1. Apply the three reviewed migrations, in order.
+1. Confirm schema migration `20261015211858` is already installed byte-identically; after fresh exact approval, apply only the corrected operations migration (SHA-256 `0883a442…`) followed by the reference-import infrastructure migration. Never replay the schema.
 2. Import: run the same `supabase/ops/commission_grids_import_reference_grid.sql` against the approved target,
    with the exact artifact and its manifest `artifact_sha256`. The transaction verifies the checksum, counts,
    constraints and content fingerprint, and records the ledger row (`public.comp_reference_imports`). A re-run
