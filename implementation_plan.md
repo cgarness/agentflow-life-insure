@@ -1,3 +1,20 @@
+## 2026-10-16 — IMPLEMENTED: Commission UI pre-PR corrections (approved by Chris; branch `refactor/commission-ui-polish`, draft PR)
+
+**Findings (measured on the synthetic harness, with a production-sized synthetic grid of 44 products and 59 variants):**
+1. **Save-bar clearance.** At page end the last matrix row sits above the bar at every size checked (390×844, 375×667, 1366×640, 1280×600). Tabbing into a row behind the stuck bar scrolls it into view in Chromium. **Failure:** on a 375×667 phone with a validation message showing, the matrix's own scroll box (`min(32rem,70vh)`) is taller than the space above the bar. Scrolling inside the matrix can then leave its last rows behind the bar until the page scrolls (container bottom 547px vs bar top 538px).
+2. **Collapsed-group validation.** Product and variant messages are shown only inside their carrier group; the save bar lists only grid-wide and rate messages. A collapsed group therefore signalled problems with a color-only dot while Save was disabled. Collapsing also unmounted the group's fields, which dropped per-variant UI state such as an open notes panel. No draft data was affected.
+
+**Corrections:**
+- `RateMatrix.tsx`: optional `scrollClassName` for the matrix scroll box. `GridEditor.tsx` passes `max-h-[max(16rem,min(32rem,calc(100dvh-15rem)))]`, so the whole matrix box fits above the tallest save bar. The viewer keeps its default.
+- `ProductsSection.tsx`:
+  - A collapsed group keeps its fields mounted with `hidden`, and the toggle gets `aria-controls` pointing at them.
+  - The color-only dot becomes a visible text label: "1 problem" / "N problems", counting that group's product and variant messages.
+- New test file `src/components/settings/commission-grids/__tests__/carrierGroups.test.tsx` covers collapse/expand, keyboard semantics (a focusable native button with `aria-expanded` and `aria-controls`), unsaved draft preservation across collapse and expand (including the save payload), and validation feedback while collapsed. Real Enter/Space activation is checked in the browser harness, because `@testing-library/user-event` is not installed and no dependency is added.
+- No change to hooks, `src/lib/commission/**`, calculations, permissions or save behaviour.
+- During implementation the problem pill became a solid `destructive` pill, because the tinted version was hard to read in dark mode. Results are in WORK_LOG.
+
+**Files:** `RateMatrix.tsx`, `GridEditor.tsx`, `ProductsSection.tsx` (all previously approved), the new test file (requested), `implementation_plan.md`, `WORK_LOG.md`.
+
 ## 2026-10-16 — IMPLEMENTED on `refactor/commission-ui-polish` (approved; awaiting visual review, not merged, not deployed): Commission Calculator + Commission Grids visual refresh (UI only)
 
 **Implementation status (2026-10-16):** Chris approved the plan with extra direction: premium SaaS/fintech look, the estimate as the centerpiece, compact with no added explanatory text or duplicated legends, the editor as a workspace, 390px plus light and dark validation, and synthetic data only. Implemented as planned, with these deviations, all UI-only:

@@ -1,3 +1,26 @@
+## 2026-10-16 — Commission UI pre-PR corrections: save-bar clearance and collapsible carrier groups (branch `refactor/commission-ui-polish`; draft PR, not merged, not deployed)
+
+**Request:** Chris accepted the visual direction and asked, before the PR, for (1) sticky save-bar clearance at 390px and on short laptops, and (2) focused tests for collapsible carrier groups. No business logic, permission, hook, calculation or save-behaviour change. Plan: root `implementation_plan.md`, "pre-PR corrections" entry.
+
+**Measured (synthetic browser harness, production-sized synthetic grid of 44 products and 59 variants, tallest save bar with a validation message):**
+- **Before:** at page end the last row was clear at 390×844, 375×667, 1366×640 and 1280×600, and Tab into a row behind the stuck bar scrolled it into view (Chromium). **Failure:** at 375×667 the matrix scroll box was taller than the space above the bar (box bottom 547px, bar top 538px). Scrolling inside the matrix could leave the last rows behind the bar.
+- **After:** all 16 checks pass (4 viewports × last-cell focus, page and matrix end, box-above-bar, Tab behind the bar). At 375×667 the box bottom is 507px and the bar top 528px. In Chromium, Enter collapses a group and Space expands it, focus stays on the toggle, the edit is kept, and "Unsaved changes" remains.
+
+**Changes:**
+- `RateMatrix.tsx`: optional `scrollClassName`.
+- `GridEditor.tsx`: the matrix box is capped at `max(16rem, min(32rem, 100dvh − 15rem))`, so it fits above the tallest save bar. The viewer is unchanged.
+- `ProductsSection.tsx`: a collapsed group keeps its fields mounted with `hidden`, so local UI state such as open notes survives; before, collapsing unmounted them. The toggle has `aria-controls`.
+- `ProductsSection.tsx`: the color-only dot became a visible "N problem(s)" pill, a solid `destructive` pill that stays readable in dark mode. Product and variant messages appear only inside a group, so without this pill a collapsed group left Save disabled with no visible reason.
+- New `src/components/settings/commission-grids/__tests__/carrierGroups.test.tsx` (4 tests) covers collapse/expand, the native-button keyboard contract (focusable, named, `aria-expanded`, `aria-controls`), the unsaved draft surviving collapse and expand (save payload and loaded revision checked), and the problem count while collapsed with Save disabled. Against the previous `ProductsSection.tsx`, 3 of the 4 fail. The draft test passes on both versions because the draft always lived in the hook. It stays as a regression guard.
+
+**Verification:**
+- `npx tsc --noEmit`: exit 0. The strict app config has 84 errors, the same as before this branch, none in commission files.
+- Commission, calculator-page and Settings-heading suites: 151 passed, 2 skipped (the DB-integration and private-acceptance suites skip by design).
+- `eslint` on all 23 touched source files: clean. `npm run build`: passes (existing chunk-size warning only).
+- Synthetic fixtures only.
+
+**Migrations/deploys:** none. **Next:** draft PR against `main`. No merge or deploy.
+
 ## 2026-10-16 — Commission Calculator + Commission Grids visual refresh (UI only; branch `refactor/commission-ui-polish`, not merged, not deployed)
 
 **Status:** Chris approved the plan (root `implementation_plan.md`, 2026-10-16 entry). Implemented and pushed on `refactor/commission-ui-polish`, pending Chris's visual review. No PR, merge or deploy. No migration, RPC, RLS, hook, query, route, permission or `src/lib/commission/**` change. Every user-facing string, aria-label and role is preserved, and every commission test passes unmodified.

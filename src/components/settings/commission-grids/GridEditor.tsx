@@ -149,7 +149,8 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
         as="h3"
         bodyClassName="p-0 sm:p-0"
       >
-        <RateMatrix levels={draft.levels} rows={rows} value={(ref, level) => draft.rates[ref]?.[level] ?? ""} onChange={actions.setRate} invalidCells={invalidCells} readOnly={busy} framed={false} />
+        <RateMatrix levels={draft.levels} rows={rows} value={(ref, level) => draft.rates[ref]?.[level] ?? ""} onChange={actions.setRate} invalidCells={invalidCells} readOnly={busy} framed={false}
+          scrollClassName="max-h-[max(16rem,min(32rem,calc(100dvh-15rem)))]" />
       </SurfaceSection>
       <EditorSaveBar
         dirty={editor.dirty}

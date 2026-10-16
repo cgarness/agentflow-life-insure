@@ -63,12 +63,17 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ draft, disabled, acti
       {groups.map(([carrier, products]) => {
         const key = products[0].ref;
         const open = !collapsed.has(key);
-        const hasIssues = products.some((p) => messagesFor(p.ref).length > 0 || variantsOf(p).some((v) => messagesFor(v.ref).length > 0));
+        const regionId = `carrier-group-${key}`;
+        // Product and variant messages show only inside the group, so a collapsed group states its count.
+        const problems = products.reduce(
+          (sum, p) => sum + messagesFor(p.ref).length + variantsOf(p).reduce((n, v) => n + messagesFor(v.ref).length, 0),
+          0,
+        );
         return (
           <div key={key} className="overflow-hidden rounded-lg border border-border/60">
             <div className="flex flex-wrap items-center gap-2 bg-muted/40 px-2 py-2 sm:px-3">
               <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-expanded={open}
-                aria-label={`${open ? "Collapse" : "Expand"} ${carrier || "carrier"}`} onClick={() => toggle(key)}>
+                aria-controls={regionId} aria-label={`${open ? "Collapse" : "Expand"} ${carrier || "carrier"}`} onClick={() => toggle(key)}>
                 <ChevronDown className={cn("h-4 w-4 transition-transform", !open && "-rotate-90")} aria-hidden />
               </Button>
               <Input aria-label="Carrier name" className="h-8 min-w-0 flex-1 bg-background font-medium sm:max-w-xs" value={carrier} maxLength={120} disabled={disabled}
@@ -76,7 +81,12 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ draft, disabled, acti
               <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
                 {products.length} product{products.length === 1 ? "" : "s"}
               </span>
-              {hasIssues && !open && <span role="img" className="h-2 w-2 rounded-full bg-destructive" title="Has problems to fix" aria-label="Has problems to fix" />}
+              {problems > 0 && !open && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive px-2 py-0.5 text-[11px] font-medium text-destructive-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full bg-destructive-foreground/80" aria-hidden />
+                  {problems} problem{problems === 1 ? "" : "s"}
+                </span>
+              )}
               <div className="ml-auto flex items-center gap-1">
                 <Button type="button" variant="ghost" size="sm" className="h-8" disabled={disabled}
                   onClick={() => products.forEach((p) => actions.updateProduct(p.ref, { isActive: !products.every((x) => x.isActive) }))}>
@@ -88,14 +98,13 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ draft, disabled, acti
                 </Button>
               </div>
             </div>
-            {open && (
-              <div className="divide-y divide-border/50">
-                {products.map((product) => (
-                  <ProductCard key={product.ref} product={product} variants={variantsOf(product)} messagesFor={messagesFor}
-                    disabled={disabled} actions={actions} askDelete={askDelete} />
-                ))}
-              </div>
-            )}
+            {/* Collapsed groups stay mounted (hidden), so their fields keep any local UI state. */}
+            <div id={regionId} hidden={!open} className="divide-y divide-border/50">
+              {products.map((product) => (
+                <ProductCard key={product.ref} product={product} variants={variantsOf(product)} messagesFor={messagesFor}
+                  disabled={disabled} actions={actions} askDelete={askDelete} />
+              ))}
+            </div>
           </div>
         );
       })}

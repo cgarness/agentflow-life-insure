@@ -19,6 +19,8 @@ interface RateMatrixProps {
   invalidCells?: Set<string>;
   /** Draw the matrix's own rounded border (off when a surrounding section already frames it). */
   framed?: boolean;
+  /** Overrides the scroll box's height limit (the editor keeps the whole box above its sticky save bar). */
+  scrollClassName?: string;
 }
 
 const cellKey = (ref: string, level: number) => `${ref}:${level}`;
@@ -77,10 +79,10 @@ const MatrixRowView = memo(function MatrixRowView({
  * Variants as rows, contract levels (highest first) as columns. A blank cell means no rate (unavailable);
  * "0" is a real zero rate. Values are shown and edited as exact text; nothing is rounded.
  */
-const RateMatrix: React.FC<RateMatrixProps> = ({ levels, rows, value, readOnly, onChange, invalidCells, framed = true }) => {
+const RateMatrix: React.FC<RateMatrixProps> = ({ levels, rows, value, readOnly, onChange, invalidCells, framed = true, scrollClassName }) => {
   if (rows.length === 0) return <p className="px-4 py-6 text-center text-sm text-muted-foreground">No products yet.</p>;
   return (
-    <div className={cn("max-h-[min(32rem,70vh)] overflow-auto", framed && "rounded-lg border border-border/60")}>
+    <div className={cn("max-h-[min(32rem,70vh)] overflow-auto", framed && "rounded-lg border border-border/60", scrollClassName)}>
       <table className="w-max min-w-full border-collapse text-sm">
         <thead className="sticky top-0 z-20 bg-muted shadow-[inset_0_-1px_0_hsl(var(--border))]">
           <tr>
