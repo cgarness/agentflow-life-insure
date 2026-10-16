@@ -9,16 +9,26 @@ So far:
 
 - **Branch:** `claude/keen-brown-e4u3ht`.
 - **Reviewed application head:** `b66c44f4b336b3ee5cb385f54ee7920d41f9d7a6`.
-- **Reconciled head (2026-10-15, second reconciliation):** merge commit `bf6b644`, which is the reviewed Sheets work merged with `main` `b5976e0` (#448). The earlier merge `94e9bc1` brought in `03ef0cb`. Later commits change documentation only.
+- **Reconciled head (2026-10-16, third reconciliation):** merge commit `2f8b543`, which is the reviewed Sheets work merged with `main` `9a90552` (#447, the Commission Calculator release, and #449, its UI refresh). The earlier merges `bf6b644` and `94e9bc1` brought in `b5976e0` and `03ef0cb`. Later commits change documentation only.
   - Its diff against `main` is exactly the PR's 88 files.
   - The Sheets code, SQL, tests, scripts and workflow are byte-identical to `b66c44f`.
-  - `AGENT_RULES.md`, `WORK_LOG.md` and `supabase/config.toml` carry both sides.
+  - `AGENT_RULES.md`, `WORK_LOG.md`, `implementation_plan.md`, `supabase/config.toml`, `src/config/settingsConfig.ts` and `src/components/settings/SettingsRenderer.tsx` carry both sides.
   - Every other file is byte-identical to `main`.
 - **Plan:** `implementation_plan.md` §0 in this folder.
 - **Evidence:** `verification.md`:
   - §12: the read-only preflight;
-  - §13 and §15: the two reconciliations with `main`;
-  - §14: Phase B attempt 1.
+  - §13, §15 and §18: the three reconciliations with `main`;
+  - §14: Phase B attempt 1;
+  - §16: the fallback preflight and the local dry run of the §10.1 commands;
+  - §17: production changes from the commission release (not Sheets).
+
+**Revision 2026-10-16 (third reconciliation; production moved, but not for Sheets).** Overnight, the Commission Calculator release (#447) and its UI refresh (#449) reached `main` (`9a90552`) and production. Its three migrations (`20261015211858`, `20261016035150`, `20261016035626`) were applied under Chris's account, so production now has 327 history rows. Chris approved reconciling the branch with that `main` (merge `2f8b543`; `verification.md` §17–§18). This revision:
+- updates the stage 1 preflight value to the new latest version, `…|20261016035626`, and the history count after stage 3 to 328 rows (§3, §10.1);
+- updates the Phase C rollback target to `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` at `9a90552` (§5.1, §9);
+- removes the obsolete "rename commit" precondition from Phase C (§5.1). The history row keeps the authored version;
+- adds the re-check (§0.D) and the lessons from the local dry run of the §10.1 commands: run them in `bash`, the stage 1 lock window and the Ctrl-C rule.
+
+The migration, the four Edge bundles, the secrets, the origins and every approval boundary are unchanged. The commission objects do not interact with the Sheets migration (`verification.md` §17).
 
 **Revision 2026-10-15 b (Phase B fallback; reconciled with `main` `b5976e0`).** Phase B attempt 1 stopped at B2: the Supabase MCP connector could not carry the 86 KB migration, and requests of 30 KB or more stalled before reaching the database (`verification.md` §14). Chris then approved:
 - merging `main` `b5976e0` (#448, the Team Leader invitation hotfix) into the branch, with re-verification (`verification.md` §15);
@@ -142,6 +152,18 @@ Where §0.C differs from §0.B, §0.C is current. The fresh preflight taken imme
 | **Production frontend** | `agentflow` deployment `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `main` `b5976e0` (17:55 UTC). The deployment before it is `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` (`03ef0cb`). No Sheets UI code is deployed. |
 | **Direct access from Claude's environment** | None. No database credential is configured, the egress policy blocks the Supabase hosts (`*.supabase.co`, `api.supabase.com`), and the Supabase CLI is not installed. So the psql and CLI steps run on Chris's Mac (§10.1), and Claude does every read-only verification in between. |
 
+### 0.D Re-check after the commission release and the third reconciliation (2026-10-16, about 09:10 UTC; read-only; details in `verification.md` §16–§18)
+
+Where §0.D differs from §0.C, §0.D is current.
+
+| Check | Result |
+|---|---|
+| **Code** | `main` = `9a90552`: #447 (Commission Calculator, merged as `1ad0226`) and #449 (its UI refresh). Merged into the branch as `2f8b543`, with five conflicts, all additive. The migration and the four Edge bundles are byte-identical to `b66c44f`. |
+| **Production database** | 327 history rows, latest `20261016035626`. The three new rows are the commission migrations (`20261015211858` commission_grids_schema, `20261016035150` commission_grids_operations, `20261016035626` commission_grids_reference_import), applied under Chris's account. They create only their own objects (nine `comp_*` and `organization_comp_*` tables, the `comp_authz` schema, functions in `comp_authz`, `private` and `public`) and reference nothing the Sheets migration uses. Still no Sheets relation, function, cron job, Vault secret or history row. Helper MD5 still `a199d5dd…b8`. |
+| **Production Edge Functions** | 76, no `google-sheets-*`. Nothing changed after #448's two deploys on 2026-10-15 (17:29–17:30 UTC). |
+| **Production frontend** | `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`, READY at `main` `9a90552` (#449). Before it: `dpl_8p1nHPt2s5gcE9CSTnYcYs7d7dES` (`1ad0226`, #447) and `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` (`b5976e0`). No Sheets UI code is deployed. |
+| **Direct access from Claude's environment** | Still none. Chris runs the §10.1 production commands. |
+
 ## 1. Phase A — Google owner checklist (Chris; Claude cannot access Google Cloud)
 
 **Project:** number `87346168200`, ID `project-b7e9b5b4-d066-48c9-b36`.
@@ -226,7 +248,7 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
   - `--db-url` writes on the same connection that stage 1 verified and applied with, as the M4 precedent `scripts/apply_m4_only.sh` does.
   - The flags were checked against CLI 2.121.0 (`migration repair [<version...>] --status applied|reverted --db-url …`).
   - No other version is marked applied or reverted. Migration-history tables are never edited directly.
-- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; 325 rows in total.
+- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; one more row than before stage 3 (328 in total on 2026-10-16).
 - **No restamp.** The recorded version is the authored `20261013120000`, so the filename and every reference already match. A rename is needed only if `migration repair` records a different version, and that is a stop.
 
 **What it does**
@@ -332,7 +354,7 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 
 **Preconditions:**
 - Phase B is complete, with every read-back matching.
-- The rename commit is on the branch.
+- The history row is `20261013120000`, matching the file name (no rename; §3).
 - Sheets CI and the repository workflows are green on the exact head.
 - `main` is merged into the branch if it has moved.
 - GitHub → Supabase "Deploy to production" is **OFF** (owner check).
@@ -368,8 +390,8 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
    - Chris's Gmail connection still `connected`, with `last_sync_at` advancing.
 4. **If a regression appears,** the fastest recovery is Vercel's rollback to the production deployment that was current immediately before the merge. It changes no data, and the Phase B backend stays deployed and disabled.
    - Capture that deployment's ID in the Phase C preflight.
-   - On 2026-10-15 (after 17:55 UTC) it is `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `main` `b5976e0` (#448).
-   - The older `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `03ef0cb` and `dpl_E7C5…` at `f91e4ba` are no longer the target: rolling back to either would also remove later `main` work (#448; and #443/#445 for `dpl_E7C5…`).
+   - On 2026-10-16 (after about 09:00 UTC) it is `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` at `main` `9a90552` (#449).
+   - Older production deployments (`dpl_8p1nHPt2s5gcE9CSTnYcYs7d7dES` at `1ad0226`, `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `b5976e0`, `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `03ef0cb`) are no longer the target: rolling back to any of them would also remove later `main` work (#449, #447, #448).
 
 ### 5.2 Phase D — live test activation (separate approval; cron stays OFF)
 
@@ -614,7 +636,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 ## 9. Rollback
 
-1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-15 (after 17:55 UTC) that is `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `main` `b5976e0`. It changes no data.
+1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-16 (after about 09:00 UTC) that is `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` at `main` `9a90552`. It changes no data.
 2. **Backend:**
    - Run the §5.7 **non-destructive shutdown**: unschedule → close admission → drain → verify quiescence.
    - Then unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`.
@@ -629,11 +651,12 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 - **Approved by Chris (2026-10-15)** as written below.
 - **Attempt 1:** through the Supabase MCP connector; stopped at B2 with production unchanged (`verification.md` §14).
 - **Same day:** Chris approved the second reconciliation (`bf6b644`, `main` `b5976e0`) and the documented fallback. B2 runs through `psql --single-transaction` plus `supabase migration repair`, and B3 through four named Supabase CLI deploys (§3, §4, §10.1). That replaces further large MCP requests.
+- **2026-10-16:** `main` moved to `9a90552` (#447, #449) and the commission migrations reached production. With Chris's OK the branch was reconciled again (`2f8b543`). The stage 1 preflight value and the history count changed accordingly (§10.1).
 - **Never used:** MCP `apply_migration` again, the migration split across `execute_sql`, the Dashboard SQL editor, `supabase db push`, an unscoped `supabase functions deploy`, `--prune`, direct migration-history edits and partial bundles.
 
 **Precondition (owner):** Phase A (§1 G0–G7) is done and reported. That includes G2 (no custom domain) and G4 (the AgentFlow Sheets client exists).
 
-**Approved, for production `jncvvsvckxhqgqvkppmj` from the reconciled head (merge commit `bf6b644` plus documentation-only commits; its migration and four Edge bundles are byte-identical to reviewed head `b66c44f`), exactly the following:**
+**Approved, for production `jncvvsvckxhqgqvkppmj` from the reconciled head (merge commit `bf6b644`, reconciled again with Chris's OK on 2026-10-16 as `2f8b543`, plus documentation-only commits; its migration and four Edge bundles are byte-identical to reviewed head `b66c44f`), exactly the following:**
 1. **Secrets (B1).** Chris enters the six §2 Edge secrets marked "B". Claude never sees a value.
    - The redirect URI is the standard callback.
    - The return origins are `https://www.fflagent.com,https://fflagent.com`.
@@ -648,7 +671,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 **Stays off afterwards:**
 - the backend flag (`GOOGLE_SHEETS_ENABLED`) and the frontend flag (`VITE_GOOGLE_SHEETS_ENABLED`) remain unset;
-- production keeps serving current `main` (`b5976e0` on 2026-10-15), so the Sheets UI is not deployed;
+- production keeps serving current `main` (`9a90552` on 2026-10-16), so the Sheets UI is not deployed;
 - the cron job is absent; the pending migration stays in `pending/`;
 - no live import;
 - PR #442 stays draft, and nothing is merged.
@@ -667,6 +690,9 @@ Claude's environment has no route to production (§0.C), so Chris runs the three
 - **Run each block as written.** Each block is a subshell `( … )` with `set -euo pipefail`, so a failure stops only that block, never the terminal.
 - **Output to send Claude:** everything the blocks print. None of it is secret: the connection identity line carries only host, port, database and user.
 - **Stop on any STOP line or a non-zero exit.** Do not retry, do not switch method and do not roll back. Send Claude the output.
+- **Shell:** type `bash` first and keep that window open for every stage. macOS's interactive zsh doesn't treat `#` as a comment, so pasted comments can break.
+- **Connection:** the Session pooler (port 5432) works on networks without IPv6; the Direct connection needs IPv6.
+- **Stage 1 lock window:** while the migration's transaction is open (a few seconds, because psql sends its 81 statements one at a time), writes to `public.profiles` and `public.organizations` wait; reads are unaffected. Run it at a quiet moment and never alongside another migration. If nothing prints for 60 seconds after the `preflight:` line, press Ctrl-C once: the single transaction rolls back and nothing is applied.
 
 `<HEAD>` below is the exact reviewed commit named in Claude's GO message. Every command runs from the repository root at that commit.
 
@@ -709,7 +735,7 @@ read -rs SUPABASE_DB_URL; export SUPABASE_DB_URL
       md5(pg_get_functiondef('public._contacts_permission_default(text,text)'::regprocedure)),
       (select max(version) from supabase_migrations.schema_migrations))")"
   echo "preflight: $PRE"
-  [ "$PRE" = "postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261010172702" ] \
+  [ "$PRE" = "postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261016035626" ] \
     || { echo "STOP: production preflight differs (send this output to Claude)"; exit 1; }
   if psql "$SUPABASE_DB_URL" -X --set ON_ERROR_STOP=1 --single-transaction --file "$F" > /tmp/gs_b2_psql.log 2>&1; then
     echo "B2 psql exit=0"; tail -5 /tmp/gs_b2_psql.log
@@ -728,12 +754,12 @@ read -rs SUPABASE_DB_URL; export SUPABASE_DB_URL
 ( set -euo pipefail; set +x
   cd ~/agentflow-phaseb
   supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"
-  supabase migration list --db-url "$SUPABASE_DB_URL" | grep -E '20261013120000|20261010172702'
+  supabase migration list --db-url "$SUPABASE_DB_URL" | grep -E '20261013120000|20261016035626'
 )
 ```
 
 **Stage 4: Claude verifies and records (read-only plus a branch commit).**
-- Claude confirms exactly one history row, `20261013120000` / `google_sheets_import_foundation` (325 rows in total).
+- Claude confirms exactly one history row, `20261013120000` / `google_sheets_import_foundation` (328 rows in total on 2026-10-16).
 - Claude commits the records, pushes the branch and waits for green exact-head CI.
 - Claude captures the Edge inventory, then answers GO for stage 5.
 

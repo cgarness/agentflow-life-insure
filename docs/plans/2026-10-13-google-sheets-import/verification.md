@@ -23,6 +23,12 @@
 - §14: the approved Phase B attempt through the Supabase MCP connector stopped at B2, because the connector could not carry the migration. **Production was unchanged.**
 - §15: Chris then approved merging `main` `b5976e0` (#448) and finishing Phase B through the documented psql / CLI fallback. §15 records that merge (`bf6b644`) and the re-verification of the merged head against a fresh `b5976e0` baseline.
 
+**Phase B fallback preparation, production changes and the third reconciliation (2026-10-15 to 2026-10-16).**
+- §15.4: exact-head CI for `adf6be7`.
+- §16: the fresh Phase B preflight and a local dry run of the release package §10.1 commands. Claude's environment has no route to production, so Chris runs those commands.
+- §17: the commission release changed production overnight (three migrations, a new frontend). No Sheets object appeared, and nothing interacts with the Sheets migration.
+- §18: with Chris's OK, `main` `9a90552` (#447, #449) was merged into the branch (`2f8b543`), and the merged head was re-verified against a fresh `9a90552` baseline.
+
 ## 1. Results
 
 | Check | Result |
@@ -521,4 +527,122 @@ The documentation commit that adds this subsection becomes the new head. Its own
 | Browser flow, `scripts/tests/google-sheets-ui/verify.mjs` (Chromium 1194; mocked Supabase host and fake Picker) | **48/48 PASS** at 1440×900 and 390×844 |
 
 ### 15.4 Exact-head CI
+**`adf6be7` (the records commit on top of `bf6b644`): every check passed** (2026-10-15, 19:17–19:30 UTC).
+- Google Sheets [38792676928](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676928): all five jobs (sql, cron, edge, frontend, ui).
+- Reports frontend verification [38792676835](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676835), against base `b5976e0`: 5,422 passed on the base and 5,445 on the head, with the same pre-existing 1 failing test and 10 failing files; 84 = 84 app diagnostics; 0 runtime errors; ESLint and build pass.
+- Also passed: SMS consent integration [38792676980](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676980), Onboarding emails [38792676829](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676829), A2P registration [38792676863](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676863), Twilio account balance [38792676856](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676856), Dialer DNC integrity [38792676838](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676838) and Reporting integrity [38792676860](https://github.com/cgarness/agentflow-life-insure/actions/runs/38792676860).
+- Both Vercel previews were READY. Supabase Preview was skipped (preview-branch limit).
+- GitHub reported `mergeable_state: clean` on base `b5976e0` at 19:34 UTC.
+
+## 16. Phase B fallback: fresh preflight and a local dry run of the §10.1 commands (2026-10-15, 19:17–19:38 UTC; read-only and local only)
+
+**Direct access.** None from Claude's environment: there is no database credential, and the egress policy blocks the Supabase hosts. As Chris instructed, Claude stopped before any production change and handed Chris the release package §10.1 stage 0 and stage 1 commands, pinned then to `adf6be7`.
+
+**Production, read-only (19:17–19:29 UTC).**
+- 324 history rows, latest `20261010172702`. No Sheets relation, function, history row, cron job or Vault secret. Helper MD5 `a199d5dd…`.
+- Advisors identical to the pre-B2 baseline after normalization (security 224 findings, performance 410).
+- The exact stage 1 preflight query returned the expected `postgres|t|0|0|a199d5dd…|20261010172702` (19:23:37 UTC).
+- Edge Functions: 76, none `google-sheets-*` (`invite-user` v232, `send-invite-email` v236).
+- Frontend: `dpl_6LM8RRL2…` at `b5976e0`.
+- Locking: `lock_timeout = 0` and `idle_in_transaction_session_timeout = 0`. No idle-in-transaction session, no client transaction older than 30 s, and no write lock on `profiles` or `organizations`.
+
+**The migration file, lexed.**
+- 81 top-level statements: 52 `CREATE FUNCTION`, 6 `CREATE TABLE`, 6 `ALTER TABLE … ENABLE ROW LEVEL SECURITY`, 4 `CREATE INDEX`, 3 `DO`, 3 `REVOKE`, 3 `CREATE POLICY`, `CREATE SCHEMA IF NOT EXISTS private`, the helper's `CREATE OR REPLACE` and 2 `GRANT`.
+- Quoting is balanced. There is no top-level transaction control or non-transactional statement, and no psql `:variable` reference outside quotes or comments.
+- Every privilege statement is scoped by name to Sheets objects or the helper.
+- The CI harness already applies this file with `psql -1 -v ON_ERROR_STOP=1 -f`.
+
+**Lock window.**
+- The only existing tables locked in a write-blocking mode are `public.profiles` and `public.organizations`: `SHARE ROW EXCLUSIVE`, from the nine foreign keys, held until `COMMIT`.
+- Locally the whole transaction takes about 0.1 s. From a remote client, psql sends the 81 statements one at a time, so the window is roughly 81 round trips, a few seconds.
+- Reads are unaffected. Hence the §10.1 Ctrl-C rule.
+
+**Dry run on local throwaway databases only** (PostgreSQL 16.15, Supabase CLI 2.121.0, a clean worktree at `adf6be7`).
+
+| Probe | Result |
+|---|---|
+| The stage 1 block, extracted verbatim from §10.1 (`bash -n` OK), on a local database | The HEAD, clean-checkout and checksum gates pass. It prints `connection: 127.0.0.1 54329 repair_probe postgres`, then STOPs at the identity gate with exit 1. |
+| The same block with only the two production constants swapped, on a harness database whose preflight equals production's apart from the database name | `B2 psql exit=0`. The log tail is four `CREATE FUNCTION` lines and `DO`; 82 log lines, 0 errors. Helper MD5 afterwards: `bc6356dd…`. |
+| The same block again | Preflight `…\|f\|52\|0\|bc6356dd…\|…`, so it STOPs at the preflight gate: no double apply. |
+| `supabase migration repair 20261013120000 --status applied --db-url …`, on a copy of production's history table (`version` primary key, `statements`, `name`, `created_by`, `idempotency_key` unique, `rollback`) | Exit 0. The SQL it sent: connection checks; a "provisioned" check (`count(*) = 3` over `version`, `name`, `statements`), true, so no DDL; then `BEGIN; INSERT … (version, name, statements) … ON CONFLICT (version) DO UPDATE …; COMMIT`. Row written: `20261013120000`, `google_sheets_import_foundation`, 81 statements; `created_by`, `idempotency_key` and `rollback` stay NULL. |
+| `supabase migration list --db-url …` piped to the stage 3 `grep` | In a plain terminal, the two table rows. With `AI_AGENT` or `CLAUDECODE` set, one JSON line instead. |
+| Local side effects | Only `supabase/.temp/cli-latest`, which is gitignored; `git status --porcelain` stays empty. |
+| TLS | The CLI requires TLS by default. The local probe needed `sslmode=disable`; production supports TLS. |
+
+## 17. Production changes during the wait: the commission release (2026-10-15 21:19 UTC to 2026-10-16 08:55 UTC; not Sheets; read-only)
+
+The safety-net check-ins found these changes. Every Sheets read-back stayed at zero throughout: no Sheets relation, function, history row, cron job or Vault secret. The helper MD5 stayed `a199d5dd…`, and the Edge Functions did not change (76; none updated after #448's deploys at 17:29–17:30 UTC on 2026-10-15).
+
+| When (UTC) | Change | Source |
+|---|---|---|
+| 2026-10-15 21:18:58 | History row `20261015211858` `commission_grids_schema` (55,888 bytes) | PR #447's `20261015120000_commission_grids_schema.sql`, restamped on apply; under Chris's account |
+| 2026-10-16 03:51:50 | `20261016035150` `commission_grids_operations` (54,543 bytes) | PR #447, under Chris's account |
+| 2026-10-16 03:56:26 | `20261016035626` `commission_grids_reference_import` (19,528 bytes) | PR #447, under Chris's account |
+| 2026-10-16 04:26:09 | `main` `1ad0226` (#447 merged); production frontend `dpl_8p1nHPt2s5gcE9CSTnYcYs7d7dES` | Vercel |
+| 2026-10-16 08:54:55 | `main` `9a90552` (#449, the UI refresh); production frontend `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` | Vercel |
+
+**Interaction check** (server-side summaries of the stored statements):
+- `commission_grids_schema` creates:
+  - nine tables: `public.comp_grids`, `comp_product_variants`, `comp_products`, `comp_rates`, `comp_reference_imports`, `comp_variant_references`, `organization_comp_grid_availability`, `organization_comp_grids` and `organization_comp_settings`;
+  - the `comp_authz` schema and 14 functions (`comp_authz.*`, `private.comp_*`);
+  - triggers and policies on its own tables only.
+
+  It drops nothing.
+- `commission_grids_operations`: 16 functions in `comp_authz`, `private` and `public`. No tables, triggers or drops.
+- `commission_grids_reference_import`: 7 functions in `private`. No tables, triggers or drops.
+- None of the three references `public.leads`, `role_permissions`, the permission-default helper, Google Sheets, cron or Vault. None grants or revokes on the whole `private` schema. The first references `public.profiles` (9 times) and `public.organizations` (11 times).
+- The Sheets migration's privilege statements and per-function loops are scoped by name to `google_sheets_*` objects and the helper, so they cannot touch `private.comp_*` or `comp_authz` objects. No object names overlap.
+
+**Effect on Phase B.**
+- The stage 1 preflight value becomes `…|20261016035626`, and the history count after stage 3 becomes 328 (release package §10.1).
+- The 19:17 UTC advisor baseline predates the commission tables, so a fresh baseline is taken before stage 1.
+- The Phase C rollback target becomes `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`.
+
+## 18. Reconciliation with `main` `9a90552` (2026-10-16; branch only; approved by Chris: "OK to reconcile")
+
+**What changed on `main` since `b5976e0`.**
+- #447, the Commission Calculator and agency compensation grids, merged as `1ad0226`.
+- #449, its UI refresh, at `9a90552`.
+- Together these add commission UI and settings components, the three migrations already applied in production (§17) with their rollbacks, tests, scripts and docs.
+- No package file, `deno.lock`, `supabase/config.toml`, Sheets path or Edge Function changed.
+
+**Merge.** `2f8b543` has parents `adf6be7` and `9a90552`; there was no rebase, amend or force-push. An earlier local merge with `1ad0226` (`f015e7d`) passed the same verification at about 05:30 UTC. It was replaced, unpushed, when #449 landed.
+
+### 18.1 Conflicts and resolutions
+
+| File | Conflict | Resolution |
+|---|---|---|
+| `WORK_LOG.md` | Both sides inserted entries at the top and below #448's entry. | `main`'s blocks first, then the branch's. Neither side edited or removed an entry. |
+| `AGENT_RULES.md` | Both appended a section at the same place. | `main`'s commission section, then the Sheets section. `main`'s one-line edit elsewhere is kept. |
+| `implementation_plan.md` | Both prepended a section. | `main`'s sections first, then the branch's. |
+| `src/config/settingsConfig.ts` | Both extended the same icon import line. | `…, Network, Percent, Sheet,`. The `google-sheets` entry (Automation & API) and the `commission-grids` entry (Agency & Team) both remain, with no duplicate slug. |
+| `src/components/settings/SettingsRenderer.tsx` | Both added an import at the same place. | Both imports kept; both `case`s remain. |
+
+**Proof.**
+- For each file, dropping the branch's insertions and edits from the merged text gives `main`'s file byte for byte, and dropping `main`'s gives the branch's file byte for byte.
+- No conflict marker remains.
+- `src/pages/__tests__/settingsPageHeading.test.tsx` merged automatically; it adds only the Sheets mock line.
+
+### 18.2 Release artifacts are unchanged
+- `git diff adf6be7 2f8b543` is empty over the migration, the pending cron migration, the rollback, the four ops files, `_shared/googleSheets` and the four functions.
+- The PR's diff against `main` is exactly its 88 files.
+
+### 18.3 Verification on the merged head (local; baselines from a fresh `9a90552` worktree)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` (root) | PASS (exit 0) |
+| App type-check against `9a90552`, `scripts/verify-a2p-types.mjs` | `base=84, candidate=84, new=0` |
+| Full Vitest against `9a90552`, `scripts/verify_reports_frontend.py` (the CI method, with `REPORTS_BASE_SHA` set) | **Every assertion passed.** 5,564 passed on `9a90552` and 5,587 on the merged head: the +23 are the Sheets tests. The same pre-existing 1 failing test and 10 failing files on both sides. App tsc 84 = 84, 0 unhandled runtime errors, and the Reports tests, ESLint and build pass. |
+| Vitest, focused (the Sheets CI list) | **80 passed** |
+| ESLint, the 29 changed `src/` and `scripts/` JS/TS files (`--max-warnings=0`) | PASS: 0 errors, 0 warnings |
+| `npm run build` | PASS |
+| Deno, Sheets (`_shared/googleSheets` and the four functions) | **78 passed, 0 failed**. `deno check` passes on the four entry points. |
+| Deno, every test under `supabase/functions/` (`-A --no-check`, both sides) | Merged head **340 passed**; `9a90552` **262 passed**. 262 + 78 = 340, with no status change. |
+| `scripts/run_google_sheets_tests.sh` (PostgreSQL 16 locally) | **ALL PASSED**, including 33 PostgREST checks and 40 end-to-end Review checks |
+| `scripts/run_google_sheets_cron_check.sh` (`supabase/postgres:17.6.1.063`, `--network none`) | **ALL PASSED** |
+| `scripts/google_sheets_regression_evidence.sh 8b675e5` | **EVIDENCE OK**: every regression fails on `8b675e5` and passes here; every control passes on both |
+| Browser flow, `scripts/tests/google-sheets-ui/verify.mjs` (Chromium; mocked Supabase host and fake Picker) | **48/48 PASS** at 1440×900 and 390×844 |
+
+### 18.4 Exact-head CI
 Exact-head CI for the pushed head is recorded in the PR description and in the next records commit. A commit cannot record its own CI.

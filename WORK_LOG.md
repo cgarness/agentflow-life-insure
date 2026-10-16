@@ -1,3 +1,28 @@
+## 2026-10-16 — Google Sheets PR #442: reconciled with `main` `9a90552` (#447 commission release, #449 UI refresh) with Chris's OK; Phase B still waiting on Chris's stage 1 (production unchanged for Sheets)
+
+**Request.** Overnight check-ins found the commission release in production and in `main`, and PR #442 conflicting with `main`. Chris replied "OK to reconcile".
+
+**Production during the wait (read-only; not Sheets).**
+- Three commission migrations, applied under Chris's account: `20261015211858` commission_grids_schema, `20261016035150` commission_grids_operations and `20261016035626` commission_grids_reference_import. History: 327 rows.
+- They create only commission objects: nine tables, the `comp_authz` schema, and functions in `comp_authz`, `private` and `public`. They reference nothing the Sheets migration uses, and every Sheets privilege statement is scoped by name.
+- Frontend: `dpl_8p1nHPt2…` (`1ad0226`, 04:26 UTC), then `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` (`9a90552`, 08:55 UTC).
+- Sheets: still nothing (no relation, function, history row, cron job, Vault secret or Edge Function). The helper is unchanged.
+
+**Reconciliation.** Merge `2f8b543`, with parents `adf6be7` and `9a90552`. Five conflicts, all additive:
+- `WORK_LOG.md`, `AGENT_RULES.md` and `implementation_plan.md`: `main`'s blocks first, then the branch's. Each side is recoverable byte for byte.
+- `src/config/settingsConfig.ts`: the icon import keeps both `Percent` and `Sheet`.
+- `src/components/settings/SettingsRenderer.tsx`: both imports are kept.
+
+The release artifacts are byte-identical to `adf6be7`, and the PR is still exactly 88 files.
+
+**Verification (local, against a fresh `9a90552` worktree).** Every check passed: root tsc; app tsc 84 = 84 (`new=0`); full Vitest through the CI script, 5,564 → 5,587 passed with the same pre-existing 1 failing test and 10 failing files and 0 runtime errors; focused Vitest 80/80; ESLint (29 files) and build; Deno Sheets 78/78 plus `deno check`, and all Deno tests 340 = 262 + 78; the SQL/PostgREST suite and real pg_cron / pg_net ALL PASSED; regression evidence OK; browser flow 48/48.
+
+**Release records.**
+- `verification.md`: §15.4 (CI on `adf6be7`), §16 (the fallback preflight and the local dry run of the §10.1 commands), §17 (the commission production changes and the interaction check) and §18 (this reconciliation).
+- Release package: §0.D; the stage 1 preflight value `…|20261016035626`; 328 history rows after stage 3; the Phase C rollback target `dpl_7C68…`; the obsolete rename precondition removed; the bash, lock-window and Ctrl-C notes.
+
+**Next.** Push, then exact-head CI and a mergeable PR. Then a fresh preflight and advisor baseline, and GO for Chris's §10.1 stage 1. This work changed nothing in production.
+
 ## 2026-10-16 — Commission UI pre-PR corrections: save-bar clearance and collapsible carrier groups (branch `refactor/commission-ui-polish`; draft PR, not merged, not deployed)
 
 **Request:** Chris accepted the visual direction and asked, before the PR, for (1) sticky save-bar clearance at 390px and on short laptops, and (2) focused tests for collapsible carrier groups. No business logic, permission, hook, calculation or save-behaviour change. Plan: root `implementation_plan.md`, "pre-PR corrections" entry.

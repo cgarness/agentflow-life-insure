@@ -1,3 +1,16 @@
+## 2026-10-16 — RECONCILE WITH MAIN `9a90552` (#447, #449), THEN CONTINUE PHASE B (approved fallback): Google Sheets PR #442
+
+**Request (Chris, 2026-10-16): "OK to reconcile".** `main` moved to `9a90552`, which carries the Commission Calculator release (#447) and its UI refresh (#449), and PR #442 conflicted. Chris's rule requires a mergeable PR with green exact-head CI before any Phase B production step, so the branch is reconciled first. Phase B itself stays as approved on 2026-10-15 (release package §10, §10.1).
+
+**Steps.**
+1. Merge `main` `9a90552` into the branch with a merge commit. Resolve the five conflicts additively and prove each side recoverable byte for byte. Done locally: `2f8b543`.
+2. Re-run the verification list against a fresh `9a90552` worktree. Done: every check passed. Full Vitest went 5,564 → 5,587 with the same pre-existing failures; the SQL, cron, Deno and browser checks all pass (`verification.md` §18.3).
+3. Records commit: this section, WORK_LOG, `verification.md` §15.4 and §16–§18, and release package §0.D, §3, §5.1, §9, §10 and §10.1.
+4. Push. Require exact-head CI green and `mergeable_state: clean`. The PR stays draft.
+5. A fresh read-only preflight and advisor baseline, then GO for Chris's §10.1 stage 0/1, with the new pinned commit and the preflight value `…|20261016035626`.
+
+**Unchanged.** The migration and the four Edge bundles, and every Phase B stop condition. Claude makes no production change. No Phase C, D or E.
+
 ## 2026-10-16 — IMPLEMENTED: Commission UI pre-PR corrections (approved by Chris; branch `refactor/commission-ui-polish`, draft PR)
 
 **Findings (measured on the synthetic harness, with a production-sized synthetic grid of 44 products and 59 variants):**
