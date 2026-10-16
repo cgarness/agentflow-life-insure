@@ -1,3 +1,22 @@
+## 2026-10-15 — Commission Calculator / FFL grid production backend installed, frontend release pending
+
+**Status:** Backend released and read-back verified under Chris's exact approval; draft PR #447 frontend merge/deploy remains gated by exact-head CI. Production project: AGENTFLOW CRM `jncvvsvckxhqgqvkppmj`. No changes to telephony, reporting, A2P, existing profile commission levels, or other agencies.
+
+**Production changes:** Applied and read back the three migration statements byte-for-byte:
+- `20261015211858 commission_grids_schema` — SHA-256 `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70`;
+- `20261016035150 commission_grids_operations` — SHA-256 `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9`;
+- `20261016035626 commission_grids_reference_import` — SHA-256 `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0`.
+
+Imported the approved **private** FFL artifact through Supabase MCP outside migration history. Original source SHA-256 `998307b4…`, artifact `cf83d992…`, database fingerprint `273d0eb0…`; ledger and stored-row counts verify 41 products, 57 variants, 11 carriers, 963 populated rate cells, 57 references. The original CSV and JSON artifact are private and were never added to Git, PR text, CI artifacts or migration history. Granted availability and activated/selected the imported grid **only** for the exact unique agency `Family First Life - Chris Garness`. Other agencies have zero availability, enablement and selection.
+
+**Security:** All nine commission tables have RLS; authenticated and `service_role` lack direct table writes. Six SECURITY DEFINER agency-write RPCs are owned by NOLOGIN/NOBYPASSRLS `agentflow_comp_operator`. Production has two `pg_auth_members` **grant rows for the same `postgres` member**, from `supabase_admin` and `postgres`. The A10f test now checks distinct member roles and denies any member except `postgres`. No production role grants were changed outside the reviewed migration. Advisors show the expected additional authenticated SECURITY DEFINER and multiple-policy notifications; no new RLS-disabled table was introduced.
+
+**Repo changes:** Renamed three forward migrations and their three rollback files to their actual production-assigned version prefixes (SQL bytes untouched); updated `scripts/run_commission_grids_tests.sh`, `.github/workflows/commission-grids.yml`, `supabase/tests/commission_grids_access.sql` (managed-role membership invariant), `AGENT_RULES.md`, `implementation_plan.md`, the private-import runbook, value-free manifest, detailed plan and verification document. Repaired a duplicated plan section and preserved existing Work Log history.
+
+**Verification:** Before repo reconciliation, all seven GitHub workflows passed at `9daf2c2`, including PostgreSQL 17.6 migration/role/RLS/availability/import/negative/concurrency/rollback suites, calculator/editor tests (168 passed), and Reports frontend's no-new-errors comparison. After SQL-file renames, the commission PostgreSQL runner passed on `4d11b7e`; final exact-head CI is required before merging.
+
+**Pending:** CI green on the final documentation head; merge PR #447 with merge commit after confirmation; verify canonical `agentflow` Vercel production deployment for `www.fflagent.com`, backend RLS/advisor delta, and signed-in Agent/Admin UX. No production frontend deployment occurred in this Work Log entry.
+
 ## 2026-10-15 — Commission release compatibility closeout (PR #447, pending production authorization)
 
 **Status:** Draft PR #447 head `bf6d76384184c310aada39227a19b49919f66ac7` passed all seven GitHub workflows, including the complete PostgreSQL 17.6 commission runner (restricted-SET and non-super-role probes, permission/availability negative controls, 59 concurrency assertions, rollback/reapply). No frontend changes in this closeout. Production has only schema migration `20261015211858`; migration 2 failed on the original custom-GUC approach and remains unapplied. No rates, availability, activation, merge or deployment has occurred.
