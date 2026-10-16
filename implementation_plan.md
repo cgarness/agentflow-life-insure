@@ -40,7 +40,10 @@
   - every `RETURNS TABLE` function declares `#variable_conflict use_column`.
 - **Table privileges were missing from the production read-backs, so release package §3 gains one read-only query.** Its expected 18 lines were reproduced locally.
 
-**Local session procedure.** Each production step runs only after Chris's GO in that session.
+**Local session procedure.** Each production step runs only after Chris's GO in that session. Release package §10.2 holds the Mac setup and the session rules:
+- stage 1 runs in the background and is stopped only with SIGINT, which is tested to roll back;
+- a SIGTERM or a tool timeout leaves the server waiting on its locks;
+- no process listing that would show the URL.
 1. **Read-only checks.**
    - The branch head equals origin, `main` is unchanged, the PR is mergeable, and exact-head CI is green.
    - The §10.1 stage 1 preflight query returns the value above. If a newer non-Sheets migration has landed: STOP, report it with an interaction check against the Sheets migration, and use the new preflight value only after Chris's GO.
@@ -67,7 +70,7 @@
 - **This cloud session:**
   - `implementation_plan.md` (this section);
   - `WORK_LOG.md` (a short entry);
-  - `docs/plans/2026-10-13-google-sheets-import/release-package.md` (the §3 table-privilege read-back).
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md` (the §3 table-privilege read-back, and §10.2: Mac setup and session rules for running §10.1 from local Claude Code).
 
   No application, migration, test or config change.
 - **The local session (records only, unless a check fails):**

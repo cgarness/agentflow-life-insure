@@ -28,6 +28,10 @@ So far:
 - removes the obsolete "rename commit" precondition from Phase C (§5.1). The history row keeps the authored version;
 - adds the re-check (§0.D) and the lessons from the local dry run of the §10.1 commands: run them in `bash`, the stage 1 lock window and the Ctrl-C rule.
 
+**Revision 2026-10-16, later (no production change).** Two additions:
+- §3 gains a table-privilege read-back. Production's default privileges give new `public` tables to `anon` and `authenticated` until the migration revokes them, and the read-backs covered functions only.
+- §10.2 runs §10.1 from a local Claude Code session on Chris's Mac, because the cloud session has no route to production. The commands are unchanged.
+
 The migration, the four Edge bundles, the secrets, the origins and every approval boundary are unchanged. The commission objects do not interact with the Sheets migration (`verification.md` §17).
 
 **Revision 2026-10-15 b (Phase B fallback; reconciled with `main` `b5976e0`).** Phase B attempt 1 stopped at B2: the Supabase MCP connector could not carry the 86 KB migration, and requests of 30 KB or more stalled before reaching the database (`verification.md` §14). Chris then approved:
@@ -803,3 +807,58 @@ read -rs GSW; curl -sS -X POST https://jncvvsvckxhqgqvkppmj.supabase.co/function
 ```
 
 **Afterwards:** `unset SUPABASE_DB_URL`, and optionally `supabase logout`.
+
+### 10.2 Running §10.1 from a local Claude Code session on Chris's Mac (2026-10-16)
+
+On 2026-10-16 Chris asked that Phase B run from Claude Code on his Mac, because the cloud session has no route to production. Everything in §10 and §10.1 still applies unchanged: the scope, commands, order, read-backs and STOP rules. The only change is who types the commands: the local session runs each production-changing stage after Chris types **GO** for it.
+
+**Setup (Chris, once).**
+1. **Claude Code:** install it with `curl -fsSL https://claude.ai/install.sh | bash` (or `brew install --cask claude-code`). Open a new terminal and check `claude --version`.
+2. **Tools:**
+   - psql 14 or newer;
+   - Supabase CLI 2.84.5 or newer (`brew upgrade supabase`);
+   - Node 22 (CI uses 22.16.0), for `npm ci` and the type check;
+   - Git push access to the repository; `gh auth login` also lets the session read CI.
+3. **Checkout:** on the branch, not detached, because the session commits records.
+   ```bash
+   git clone https://github.com/cgarness/agentflow-life-insure.git ~/agentflow-phaseb   # skip if it exists
+   cd ~/agentflow-phaseb && git fetch origin && git checkout claude/keen-brown-e4u3ht && git pull --ff-only
+   npm ci && git status --porcelain                                                     # must print nothing
+   ```
+4. **`supabase login`.**
+5. **Optional guard,** kept outside the repository so the checkout stays clean. Put this in `~/.claude/settings.json`:
+   ```json
+   { "permissions": { "deny": ["Bash(env *)", "Bash(printenv *)", "Bash(set)", "Bash(export -p)"] } }
+   ```
+   - Claude Code's documentation says such rules match command text only and are not a security boundary.
+   - The real protection is the session rules below and Chris reading each command before approving it.
+   - Keep the default permission mode, which asks before running commands outside a read-only set. That set includes `echo` and `cat`, so those run without asking.
+6. **Database URL and launch.** In one terminal window, run `bash`, then `read -rs SUPABASE_DB_URL; export SUPABASE_DB_URL` and paste the URI at the silent prompt, as in §10.1 stage 0. Then run `cd ~/agentflow-phaseb && claude`.
+   - Claude Code's commands inherit the exported variable.
+   - Never put it in `~/.zshrc` or any file.
+   - To resume later in a new terminal: export it again first, then run `claude --continue`.
+7. **Supabase connector:**
+   - In Claude Code, `/mcp` should list the Supabase connector. claude.ai connectors load automatically with a claude.ai login, but not while `ANTHROPIC_API_KEY` is set (check `/status`).
+   - If it is missing, add the hosted server in read-only mode, then authenticate in `/mcp`:
+     ```bash
+     claude mcp add --transport http supabase-ro "https://mcp.supabase.com/mcp?project_ref=jncvvsvckxhqgqvkppmj&read_only=true"
+     ```
+   - The connector is used only for the advisors and the Edge read-backs.
+
+**Session rules (in addition to §10.1's).**
+- **GO gates:**
+  - Before stages 1, 3 and 5, write the block, with `<HEAD>` substituted, to a file outside the repository (for example `~/agentflow-phaseb-evidence/`).
+  - Show the file and the read-only evidence, and wait for Chris to type GO. Each GO covers one stage.
+  - Run each block with `bash <file>`.
+- **Stage 1 runs in the background with its output watched.**
+  - If 60 seconds pass after the `preflight:` line without a `B2 psql` line, send SIGINT: `pkill -INT -f 'single-transaction --file [s]upabase/migrations/20261013120000'`. That is §10.1's Ctrl-C: psql sends a cancel request and the single transaction rolls back.
+  - Keep the `[s]`. Without it the pattern also matches the shell that runs `pkill`, because that shell's own command line contains the text (checked locally). With it, only psql matches.
+  - Tested locally on 2026-10-16 with a lock-waiting apply: exit 3, `canceling statement due to user request`, nothing committed, and no backend left waiting.
+  - **Never** stop it with SIGTERM or SIGKILL, Esc, or a tool timeout. psql dies, but the server keeps waiting for its locks; the same test left one backend waiting after SIGTERM. Writes to `profiles` and `organizations` then queue behind it until the blocking transaction ends. Nothing commits.
+- **Never list processes with their full command lines** (`ps aux`, `pgrep -fl`, `pgrep -a`): psql's arguments contain the URL and its password. `pkill` prints nothing.
+- **Never print** the URL or any token, and never run `env`, `printenv`, `set`, `export -p` or `set -x`. To show the variable is present, print only its length: `printf '%s\n' "${#SUPABASE_DB_URL}"`.
+- **Read-only checks:** psql (`-X -At`, read-only statements) or the connector's read tools, never its `apply_migration`, `deploy_edge_function` or a writing `execute_sql`. Check any CLI command or flag that §10.1 does not already use with `--help` first.
+- **Disabled-state checks** (§4 table): use `curl` from the Mac, not `pg_net`, so nothing is written to the database.
+- **History read-back:** inside Claude Code the CLI prints JSON instead of a table, so stage 3 is confirmed with SQL: one row `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows in total.
+- **Evidence files stay outside the repository.** The stage gates need a clean checkout.
+- **If a secret is ever printed:** stop and tell Chris. The transcript keeps it under `~/.claude/projects/`, so the database password should be reset after Phase B.

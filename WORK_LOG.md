@@ -18,6 +18,12 @@
 - it reads the history row back with SQL, because the CLI prints JSON inside Claude Code;
 - release package §3 gains a table-privilege read-back. Production's default privileges hand new tables to `anon` and `authenticated`, and the read-backs checked only functions. The expected 18 lines were reproduced locally.
 
+**Release package §10.2 (local Claude Code session).** Mac setup and session rules, from Claude Code's documentation and two local probes on disposable databases:
+- **SIGINT** to a lock-waiting `psql --single-transaction` sends a cancel request: exit 3, nothing committed, no backend left waiting.
+- **SIGTERM** kills psql, but its backend keeps waiting for the lock until the blocker ends; nothing commits. So stage 1 runs in the background and is stopped only with SIGINT.
+- **`pkill -f` with a plain pattern also matches the shell that runs it,** so the pattern uses `[s]`.
+- **No process listings,** because psql's arguments carry the URL.
+
 ## 2026-10-16 — Google Sheets PR #442: reconciled with `main` `9a90552` (#447 commission release, #449 UI refresh) with Chris's OK; Phase B still waiting on Chris's stage 1 (production unchanged for Sheets)
 
 **Request.** Overnight check-ins found the commission release in production and in `main`, and PR #442 conflicting with `main`. Chris replied "OK to reconcile".
