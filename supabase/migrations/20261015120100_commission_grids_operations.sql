@@ -54,14 +54,13 @@ CREATE FUNCTION comp_authz.actor_uid()
 RETURNS uuid
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS $
-DECLARE v_uid uuid;
+AS 'DECLARE v_uid uuid;
 BEGIN
   SELECT a.uid INTO v_uid FROM private.campaign_actor() a;
   RETURN v_uid;
 EXCEPTION WHEN insufficient_privilege THEN
   RETURN NULL;
-END $;
+END';
 REVOKE ALL ON FUNCTION comp_authz.actor_uid() FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION comp_authz.actor_uid() TO agentflow_comp_operator;
 -- CREATE on public is temporary and exists only so PostgreSQL permits ALTER FUNCTION ... OWNER below.
