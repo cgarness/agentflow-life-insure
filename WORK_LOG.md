@@ -1,3 +1,42 @@
+## 2026-10-16 — Commission Calculator + Commission Grids visual refresh (UI only; branch `refactor/commission-ui-polish`, not merged, not deployed)
+
+**Status:** Chris approved the plan (root `implementation_plan.md`, 2026-10-16 entry). Implemented and pushed on `refactor/commission-ui-polish`, pending Chris's visual review. No PR, merge or deploy. No migration, RPC, RLS, hook, query, route, permission or `src/lib/commission/**` change. Every user-facing string, aria-label and role is preserved, and every commission test passes unmodified.
+
+**What changed (markup and Tailwind classes only):**
+- **Calculator:** two-column workspace on desktop, with inputs grouped as 1 Product and 2 Client and a contract-level header. The results card stays in view on desktop: rate chip, then the first-year total as the hero figure on a tinted panel, then a 2×2 breakdown (Advance, months 10–12). It keeps the `dl aria-label="Estimate"` and its `dd` order. The empty, unavailable and level-problem states are framed panels. Loading is a workspace skeleton (screen-reader text kept). Notices use a shared state panel, and the disclaimer is a footnote with an icon.
+- **Settings › Commission Grids:**
+  - The calculator-grid card is featured: primary tint and a Live/Off pill when a grid is in use.
+  - The AgentFlow and agency grid lists are soft sections with icon tiles and counts. Rows hover, use status-dot pills and align their actions.
+  - Empty, no-access and loading states use the shared panels. Refresh errors are softer but keep `role="alert"` and Retry.
+  - The create dialog's option cards highlight the chosen option.
+- **Editor:** a workspace header (title, Calculator/Inactive pills, last edited). Details and contract levels sit side by side on wide screens. Carrier groups have a header bar and can be collapsed (open by default; a red dot marks a collapsed group with problems), and product and variant cards are one border level flatter. The conflict banner uses the `warning` token. The sticky save bar has a status dot, a validation list, and full-width buttons on mobile. The new `EditorHeader` and `EditorSaveBar` keep `GridEditor` under 200 lines.
+- **Rate matrix** (behaviour and memo comparator unchanged):
+  - Header: solid sticky row with tabular level numbers.
+  - First column: frozen, with an edge divider; narrower at 390px.
+  - Product rows: a primary accent bar.
+  - Rows: tinted on hover and while a cell in the row has focus.
+  - Editable cells: quiet fill that gains a border on hover and a focus ring.
+  - Blank vs zero: `—` marks a blank (unavailable) cell, and a stored `0` still shows as `0`.
+  - Invalid cells: keep `border-destructive` and gain a tinted fill.
+  - Read-only blanks: dimmed.
+- **Viewer:** the same workspace header, an AgentFlow-managed strip, the matrix in a section, and source notes as a definition list. A load error is a state panel with `role="alert"` (no new refetch behaviour).
+
+**Files:**
+- New: `src/components/commission/ui/CommissionSurface.tsx`, `src/components/settings/commission-grids/EditorHeader.tsx`, `src/components/settings/commission-grids/EditorSaveBar.tsx`.
+- Modified: `src/pages/CommissionCalculatorPage.tsx`; `src/components/commission/calculator/{CalculatorWorkspace,CalculatorInputs,CalculatorResults,CalculatorNotice}.tsx`; `src/components/settings/commission-grids/{CommissionGridsSettings,CalculatorGridCard,SharedGridsCard,PrivateGridsCard,LoadErrorNotice,GridViewer,GridEditor,GridDetailsSection,ContractLevelsSection,ProductsSection,ProductCard,VariantFields,RateMatrix,CreateGridDialog}.tsx`; `implementation_plan.md`; this log.
+
+**Verification:**
+- `npx tsc --noEmit`: exit 0. `tsconfig.app.json` (strict) shows 84 errors before and 84 after, all pre-existing and none in the touched files.
+- Commission suites: 120 passed, 2 skipped (the DB-integration and private-acceptance suites skip by design).
+- `commissionCalculatorPage`, `settingsPageHeading` and layout/View-As suites: 152 passed.
+- `eslint` on the 22 touched files: clean.
+- `npm run build`: passes (existing chunk-size warning only).
+- Visual check: before/after screenshots in light and dark, at 1440px and 390px, of the calculator (empty, filled, unavailable, not configured, loading), settings (populated, empty, no access), the viewer, and the editor (dirty and invalid, and conflict). They came from a throwaway local harness with **synthetic fixtures only** and were not committed. No FFL or production data was used.
+
+**Decisions:** no extra copy, legends or duplicated grid naming. Theme tokens only. A collapse that only hides a carrier group cannot lose a draft, because the draft lives in `useGridEditorDraft`. Draft preservation is unchanged: `CommissionGridsSettings` branch positions were untouched, and the `draftPreservation` suite passes.
+
+**Migrations/deploys:** none. **Blockers:** Chris's visual review. **Next:** on approval, open a PR (only when asked) and run CI. Future-pass recommendations are in the hand-off message: dark-mode `--destructive` text contrast is low app-wide, and a save-bar-aware matrix height could follow.
+
 ## 2026-10-15 — Commission Calculator / FFL grid production backend installed, frontend release pending
 
 **Status:** Backend released and read-back verified under Chris's exact approval; draft PR #447 frontend merge/deploy remains gated by exact-head CI. Production project: AGENTFLOW CRM `jncvvsvckxhqgqvkppmj`. No changes to telephony, reporting, A2P, existing profile commission levels, or other agencies.

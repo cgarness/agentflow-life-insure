@@ -1,6 +1,16 @@
-## 2026-10-16 — PLANNED (awaiting Chris's approval): Commission Calculator + Commission Grids visual refresh (UI only)
+## 2026-10-16 — IMPLEMENTED on `refactor/commission-ui-polish` (approved; awaiting visual review, not merged, not deployed): Commission Calculator + Commission Grids visual refresh (UI only)
 
-**Status:** Discovery done, nothing edited except this plan. Base `main` `1ad0226` (PR #447 merged). No conflicting work in the newest WORK_LOG entries: all are the commission backend/release records, and none touch these components. UI only. No change to commission math, RLS, RPCs, hooks, `src/lib/commission/**`, query keys, routes, permissions, release flow or schema. No migrations and no deploys.
+**Implementation status (2026-10-16):** Chris approved the plan with extra direction: premium SaaS/fintech look, the estimate as the centerpiece, compact with no added explanatory text or duplicated legends, the editor as a workspace, 390px plus light and dark validation, and synthetic data only. Implemented as planned, with these deviations, all UI-only:
+- There is no grid-name chip in the calculator header, because the disclaimer already names the grid and its date.
+- There is no separate matrix legend, because the existing helper sentence already is one and the `—` placeholder marks blank cells.
+- Carrier groups in the editor can be collapsed (open by default, view state only; a red dot marks a collapsed group with problems).
+- The status pills are "Live"/"Off" on the calculator card and "Calculator"/"Enabled"/"Inactive" on rows.
+- `EditorHeader` is shared by the editor and the viewer, and `RateMatrix` gained an optional `framed` prop.
+- The list-row class lives in `CommissionSurface.tsx`, so `gridFormat.ts` stays untouched.
+
+Verification and evidence are in the WORK_LOG entry of the same date.
+
+**Original planning status:** Discovery done, nothing edited except this plan. Base `main` `1ad0226` (PR #447 merged). No conflicting work in the newest WORK_LOG entries: all are the commission backend/release records, and none touch these components. UI only. No change to commission math, RLS, RPCs, hooks, `src/lib/commission/**`, query keys, routes, permissions, release flow or schema. No migrations and no deploys.
 
 ### 1. Visual diagnosis (current `main`)
 - **Calculator page:** one plain bordered box in `max-w-3xl`. The contract level is a single muted sentence, and the inputs are an undifferentiated 2-column grid with no grouping (product vs client). The result is a bordered `dl` list in which the headline number (first-year total) is only slightly larger than the other rows. The disclaimer is loose 12px text. Desktop leaves wide empty gutters, and the result sits below the fold under the inputs. Loading is a lone spinner.
