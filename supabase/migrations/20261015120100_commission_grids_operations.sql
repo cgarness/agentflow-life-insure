@@ -48,19 +48,14 @@ CREATE ROLE agentflow_comp_operator
 GRANT agentflow_comp_operator TO postgres;
 GRANT USAGE ON SCHEMA public, comp_authz TO agentflow_comp_operator;
 
--- Audit stamps need the real request user, but production postgres cannot grant USAGE on the Supabase-owned
--- auth schema. Resolve the uid through the same canonical actor function as organization/admin checks.
+-- Audit stamps need the request user, but production postgres cannot grant USAGE on the Supabase-owned
+-- auth schema to the operation role. This wrapper is audit-only (never authorization): its postgres owner
+-- can call auth.uid(), while RLS/admin authorization continues to use the canonical campaign_actor() chain.
 CREATE FUNCTION comp_authz.actor_uid()
 RETURNS uuid
-LANGUAGE plpgsql STABLE SECURITY DEFINER
+LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS 'DECLARE v_uid uuid;
-BEGIN
-  SELECT a.uid INTO v_uid FROM private.campaign_actor() a;
-  RETURN v_uid;
-EXCEPTION WHEN insufficient_privilege THEN
-  RETURN NULL;
-END';
+AS 'SELECT auth.uid()';
 REVOKE ALL ON FUNCTION comp_authz.actor_uid() FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION comp_authz.actor_uid() TO agentflow_comp_operator;
 -- CREATE on public is temporary and exists only so PostgreSQL permits ALTER FUNCTION ... OWNER below.
