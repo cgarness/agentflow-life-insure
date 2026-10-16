@@ -15,10 +15,10 @@
   SELECT :'approve_comp_home_availability' = 'yes' AS _agentflow_approved \gset
   \if :_agentflow_approved
   \else
-    DO $ BEGIN RAISE EXCEPTION 'Set psql variable approve_comp_home_availability=yes only after exact release approval'; END $;
+    DO 'BEGIN RAISE EXCEPTION ''Set psql variable approve_comp_home_availability=yes only after exact release approval''; END';
   \endif
 \else
-  DO $ BEGIN RAISE EXCEPTION 'Set psql variable approve_comp_home_availability=yes only after exact release approval'; END $;
+  DO 'BEGIN RAISE EXCEPTION ''Set psql variable approve_comp_home_availability=yes only after exact release approval''; END';
 \endif
 BEGIN;
 SET LOCAL lock_timeout = '5s';
