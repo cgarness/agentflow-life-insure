@@ -2,8 +2,8 @@ name: Commission grids verification
 on:
   pull_request:
     paths:
-      - 'supabase/migrations/20261015120*_commission_grids_*.sql'
-      - 'supabase/migrations/rollback/20261015120*_commission_grids_*.rollback.sql'
+      - 'supabase/migrations/*_commission_grids_*.sql'
+      - 'supabase/migrations/rollback/*_commission_grids_*.rollback.sql'
       - 'supabase/tests/commission_grids_*.sql'
       - 'supabase/tests/fixtures/commission_grids/**'
       - 'supabase/ops/commission_grids_*.sql'

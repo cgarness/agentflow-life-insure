@@ -34,7 +34,7 @@ if [ "$(psql "$ADMIN_URL" -tAX -c "SELECT count(*) FROM pg_roles WHERE rolname I
 fi
 echo "PostgreSQL: $(psql "$ADMIN_URL" -tAX -c 'SHOW server_version')"
 
-MIGRATIONS=(20261015120000_commission_grids_schema 20261015120100_commission_grids_operations 20261015120200_commission_grids_reference_import)
+MIGRATIONS=(20261015211858_commission_grids_schema 20261016035150_commission_grids_operations 20261016035626_commission_grids_reference_import)
 FIXTURE="$ROOT/supabase/tests/fixtures/commission_grids/synthetic_reference_grid.csv"
 
 # The canonical actor resolver, extracted verbatim from the migration that defines it.
