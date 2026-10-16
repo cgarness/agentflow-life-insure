@@ -1,3 +1,17 @@
+## 2026-10-16 — Client multi-policy display (approved implementation; not merged or deployed)
+
+**Problem:** Clients and contact details rendered only primary-policy fields, although additional policy objects were retained in the client JSONB. Chris approved the display-only fix at 16:09 PDT. Base: `9a905523`.
+
+**Changes:** `ClientPolicyCount` shows a compact total for multi-policy clients beside their name. `ClientPolicies` adds independent, keyboard-accessible disclosure rows in the existing contact details column, showing each policy's carrier/type, monthly premium, number, coverage and dates. Additional-only clients are supported; single-primary contacts keep their current layout. Malformed data gets a concise review notice. A pure adapter calls the existing book-of-business normalizer, preserving legacy additional `issueDate` fallback and currency parsing. The saved contact is read directly; no new network request, editor or persistence path is introduced.
+
+**Files:** `src/lib/client-policy-display.ts`; `src/components/contacts/ClientPolicies.tsx`; `src/pages/Contacts.tsx`; `src/components/contacts/FullScreenContactView.tsx`; new `clientPolicies.test.tsx` and the existing `fullScreenContactViewAdditionalPolicies.test.tsx` in `src/components/contacts/__tests__/`; `implementation_plan.md`; `AGENT_RULES.md` (candidate closure of the existing panel follow-up); this log.
+
+**Verification:** 97 focused tests pass across seven suites: display/count/expansion, normalization, reserved-field write guards, full contact-view policy display, unchanged-array preservation, field visibility, failed saves and status saves. `npx tsc --noEmit` exits 0. Strict app typecheck has the exact same 84 diagnostics as base, byte-identical output. ESLint: new source/test files clean; the two existing screen files have 0 errors and 8 existing warnings. Production build passes with the existing chunk-size warning. `git diff --check` passes. Synthetic fixtures only; no client identifying data included.
+
+**Browser verification:** isolated synthetic component preview passed at 1440px and 390px in Chromium: policy count, independent expansion, Enter/Space keyboard operation, fully visible expanded values and no horizontal overflow. No browser errors or external network requests. Screenshots inspected after accordion animations settled. The environment could not download Playwright browser archives; a temporary npm-packaged Chromium binary supplied the browser without any repository dependency change. This verifies the new components, not an authenticated production walkthrough.
+
+**Migrations/deploys:** none. Policy data, sales, reports, RLS, Edge Functions and dialer behavior are unchanged. **Next:** PR/CI, then separately approved production merge/release; authenticated production walkthrough not yet performed.
+
 ## 2026-10-16 — Commission UI pre-PR corrections: save-bar clearance and collapsible carrier groups (branch `refactor/commission-ui-polish`; draft PR, not merged, not deployed)
 
 **Request:** Chris accepted the visual direction and asked, before the PR, for (1) sticky save-bar clearance at 390px and on short laptops, and (2) focused tests for collapsible carrier groups. No business logic, permission, hook, calculation or save-behaviour change. Plan: root `implementation_plan.md`, "pre-PR corrections" entry.
