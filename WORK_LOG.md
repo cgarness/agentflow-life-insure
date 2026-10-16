@@ -1,3 +1,15 @@
+## 2026-10-16 — Google Sheets PR #442: finish request received; this cloud session has no production connectivity, so Phase B moves to a local Claude Code session on Chris's Mac (production unchanged)
+
+**Request.** Chris asked for ownership of finishing Google Sheets V1 from `384f3cc`: Phase B through the release package §10.1 psql / CLI fallback with his GO before each production step, then the Phase C/D/E approval requests. If the session cannot reach production, stop and guide him to run Claude Code locally.
+
+**Checks (read-only, about 15:45–16:00 UTC).**
+- **No production connectivity here:** no database credential; HTTPS to `jncvvsvckxhqgqvkppmj.supabase.co` and `api.supabase.com` fails; the database host does not resolve. Stopped before any production step.
+- **Code:** `main` `9a90552` (unchanged); PR #442 draft at `384f3cc`; merge clean; all checks green.
+- **Production:** 327 history rows, latest `20261016035626`; the stage 1 preflight still matches; zero Sheets objects, rows, cron jobs, Vault secrets, Sheets leads and new-key `role_permissions` entries; 76 Edge Functions, none `google-sheets-*`; frontend `dpl_7C68…` at `9a90552`.
+- **Flags:** `GOOGLE_SHEETS_ENABLED` can't be read from here (the local session checks names with `supabase secrets list`). The Vercel connector was refused (403) when listing environment variables, so `VITE_GOOGLE_SHEETS_ENABLED` stays Chris's owner check before Phase C.
+
+**Records.** Root `implementation_plan.md`: the local-session procedure (stages 0–6 with a GO before each production step), the files it will touch (records only), and draft Phase C/D/E approval requests. This session changed nothing in production.
+
 ## 2026-10-16 — Google Sheets PR #442: reconciled with `main` `9a90552` (#447 commission release, #449 UI refresh) with Chris's OK; Phase B still waiting on Chris's stage 1 (production unchanged for Sheets)
 
 **Request.** Overnight check-ins found the commission release in production and in `main`, and PR #442 conflicting with `main`. Chris replied "OK to reconcile".
