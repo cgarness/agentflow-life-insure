@@ -1,3 +1,13 @@
+## 2026-10-16 — Google Sheets Phase B cloud runner prepared (draft; no production change)
+
+Chris asked to finish PR #442 from the cloud with separate production approvals. Current source is `eaf988b`, cleanly mergeable into `main` `9a90552`; all 16 checks pass and Supabase Preview is skipped. Read-only production inspection: 327 migrations, latest `20261016035626`; helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`; zero Sheets relations/functions; 76 Edge functions, none Sheets. `www.fflagent.com` still points to `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`.
+
+**Changed:** a dispatch-only protected Phase B workflow, plus a no-secret PostgreSQL 17.6 PR verification workflow and its synthetic test driver. Root plan records the file list, validation and unchanged approval gates. Only the pinned migration and four named functions can be deployed; no `db push`, unscoped deploy, flag activation, cron or unrelated function changes exist in the workflow. Failed commands never echo raw output to public logs.
+
+**Local checks:** YAML and Python parse; reviewed source and migration/four bundle digest checks; 12 safety-path checks (ordering, replay refusal, read-only checks, flag/host guards, error redaction, partial-deploy stop and SIGINT behavior). `npx tsc --noEmit` passes; strict app check reports the existing 84 errors. The required real PostgreSQL dry run is moved to dedicated PR CI because this runtime cannot start a local server. No claim of real Google-account testing.
+
+**Access / next:** direct production credentials absent, Supabase hosts unreachable from the shell, GitHub cloud browser signed out. Prepare secure GitHub authentication, protected environment and user-entered credentials. Merge and each production stage remain explicitly approval-gated. PR #442 remains draft; Phases B/C/D/E have not been executed by this session.
+
 ## 2026-10-16 — Commission UI pre-PR corrections: save-bar clearance and collapsible carrier groups (branch `refactor/commission-ui-polish`; draft PR, not merged, not deployed)
 
 **Request:** Chris accepted the visual direction and asked, before the PR, for (1) sticky save-bar clearance at 390px and on short laptops, and (2) focused tests for collapsible carrier groups. No business logic, permission, hook, calculation or save-behaviour change. Plan: root `implementation_plan.md`, "pre-PR corrections" entry.
