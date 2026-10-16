@@ -1,3 +1,214 @@
+## 2026-10-16 — Commission UI pre-PR corrections: save-bar clearance and collapsible carrier groups (branch `refactor/commission-ui-polish`; draft PR, not merged, not deployed)
+
+**Request:** Chris accepted the visual direction and asked, before the PR, for (1) sticky save-bar clearance at 390px and on short laptops, and (2) focused tests for collapsible carrier groups. No business logic, permission, hook, calculation or save-behaviour change. Plan: root `implementation_plan.md`, "pre-PR corrections" entry.
+
+**Measured (synthetic browser harness, production-sized synthetic grid of 44 products and 59 variants, tallest save bar with a validation message):**
+- **Before:** at page end the last row was clear at 390×844, 375×667, 1366×640 and 1280×600, and Tab into a row behind the stuck bar scrolled it into view (Chromium). **Failure:** at 375×667 the matrix scroll box was taller than the space above the bar (box bottom 547px, bar top 538px). Scrolling inside the matrix could leave the last rows behind the bar.
+- **After:** all 16 checks pass (4 viewports × last-cell focus, page and matrix end, box-above-bar, Tab behind the bar). At 375×667 the box bottom is 507px and the bar top 528px. In Chromium, Enter collapses a group and Space expands it, focus stays on the toggle, the edit is kept, and "Unsaved changes" remains.
+
+**Changes:**
+- `RateMatrix.tsx`: optional `scrollClassName`.
+- `GridEditor.tsx`: the matrix box is capped at `max(16rem, min(32rem, 100dvh − 15rem))`, so it fits above the tallest save bar. The viewer is unchanged.
+- `ProductsSection.tsx`: a collapsed group keeps its fields mounted with `hidden`, so local UI state such as open notes survives; before, collapsing unmounted them. The toggle has `aria-controls`.
+- `ProductsSection.tsx`: the color-only dot became a visible "N problem(s)" pill, a solid `destructive` pill that stays readable in dark mode. Product and variant messages appear only inside a group, so without this pill a collapsed group left Save disabled with no visible reason.
+- New `src/components/settings/commission-grids/__tests__/carrierGroups.test.tsx` (4 tests) covers collapse/expand, the native-button keyboard contract (focusable, named, `aria-expanded`, `aria-controls`), the unsaved draft surviving collapse and expand (save payload and loaded revision checked), and the problem count while collapsed with Save disabled. Against the previous `ProductsSection.tsx`, 3 of the 4 fail. The draft test passes on both versions because the draft always lived in the hook. It stays as a regression guard.
+
+**Verification:**
+- `npx tsc --noEmit`: exit 0. The strict app config has 84 errors, the same as before this branch, none in commission files.
+- Commission, calculator-page and Settings-heading suites: 151 passed, 2 skipped (the DB-integration and private-acceptance suites skip by design).
+- `eslint` on all 23 touched source files: clean. `npm run build`: passes (existing chunk-size warning only).
+- Synthetic fixtures only.
+
+**Migrations/deploys:** none. **Next:** draft PR against `main`. No merge or deploy.
+
+## 2026-10-16 — Commission Calculator + Commission Grids visual refresh (UI only; branch `refactor/commission-ui-polish`, not merged, not deployed)
+
+**Status:** Chris approved the plan (root `implementation_plan.md`, 2026-10-16 entry). Implemented and pushed on `refactor/commission-ui-polish`, pending Chris's visual review. No PR, merge or deploy. No migration, RPC, RLS, hook, query, route, permission or `src/lib/commission/**` change. Every user-facing string, aria-label and role is preserved, and every commission test passes unmodified.
+
+**What changed (markup and Tailwind classes only):**
+- **Calculator:** two-column workspace on desktop, with inputs grouped as 1 Product and 2 Client and a contract-level header. The results card stays in view on desktop: rate chip, then the first-year total as the hero figure on a tinted panel, then a 2×2 breakdown (Advance, months 10–12). It keeps the `dl aria-label="Estimate"` and its `dd` order. The empty, unavailable and level-problem states are framed panels. Loading is a workspace skeleton (screen-reader text kept). Notices use a shared state panel, and the disclaimer is a footnote with an icon.
+- **Settings › Commission Grids:**
+  - The calculator-grid card is featured: primary tint and a Live/Off pill when a grid is in use.
+  - The AgentFlow and agency grid lists are soft sections with icon tiles and counts. Rows hover, use status-dot pills and align their actions.
+  - Empty, no-access and loading states use the shared panels. Refresh errors are softer but keep `role="alert"` and Retry.
+  - The create dialog's option cards highlight the chosen option.
+- **Editor:** a workspace header (title, Calculator/Inactive pills, last edited). Details and contract levels sit side by side on wide screens. Carrier groups have a header bar and can be collapsed (open by default; a red dot marks a collapsed group with problems), and product and variant cards are one border level flatter. The conflict banner uses the `warning` token. The sticky save bar has a status dot, a validation list, and full-width buttons on mobile. The new `EditorHeader` and `EditorSaveBar` keep `GridEditor` under 200 lines.
+- **Rate matrix** (behaviour and memo comparator unchanged):
+  - Header: solid sticky row with tabular level numbers.
+  - First column: frozen, with an edge divider; narrower at 390px.
+  - Product rows: a primary accent bar.
+  - Rows: tinted on hover and while a cell in the row has focus.
+  - Editable cells: quiet fill that gains a border on hover and a focus ring.
+  - Blank vs zero: `—` marks a blank (unavailable) cell, and a stored `0` still shows as `0`.
+  - Invalid cells: keep `border-destructive` and gain a tinted fill.
+  - Read-only blanks: dimmed.
+- **Viewer:** the same workspace header, an AgentFlow-managed strip, the matrix in a section, and source notes as a definition list. A load error is a state panel with `role="alert"` (no new refetch behaviour).
+
+**Files:**
+- New: `src/components/commission/ui/CommissionSurface.tsx`, `src/components/settings/commission-grids/EditorHeader.tsx`, `src/components/settings/commission-grids/EditorSaveBar.tsx`.
+- Modified: `src/pages/CommissionCalculatorPage.tsx`; `src/components/commission/calculator/{CalculatorWorkspace,CalculatorInputs,CalculatorResults,CalculatorNotice}.tsx`; `src/components/settings/commission-grids/{CommissionGridsSettings,CalculatorGridCard,SharedGridsCard,PrivateGridsCard,LoadErrorNotice,GridViewer,GridEditor,GridDetailsSection,ContractLevelsSection,ProductsSection,ProductCard,VariantFields,RateMatrix,CreateGridDialog}.tsx`; `implementation_plan.md`; this log.
+
+**Verification:**
+- `npx tsc --noEmit`: exit 0. `tsconfig.app.json` (strict) shows 84 errors before and 84 after, all pre-existing and none in the touched files.
+- Commission suites: 120 passed, 2 skipped (the DB-integration and private-acceptance suites skip by design).
+- `commissionCalculatorPage`, `settingsPageHeading` and layout/View-As suites: 152 passed.
+- `eslint` on the 22 touched files: clean.
+- `npm run build`: passes (existing chunk-size warning only).
+- Visual check: before/after screenshots in light and dark, at 1440px and 390px, of the calculator (empty, filled, unavailable, not configured, loading), settings (populated, empty, no access), the viewer, and the editor (dirty and invalid, and conflict). They came from a throwaway local harness with **synthetic fixtures only** and were not committed. No FFL or production data was used.
+
+**Decisions:** no extra copy, legends or duplicated grid naming. Theme tokens only. A collapse that only hides a carrier group cannot lose a draft, because the draft lives in `useGridEditorDraft`. Draft preservation is unchanged: `CommissionGridsSettings` branch positions were untouched, and the `draftPreservation` suite passes.
+
+**Migrations/deploys:** none. **Blockers:** Chris's visual review. **Next:** on approval, open a PR (only when asked) and run CI. Future-pass recommendations are in the hand-off message: dark-mode `--destructive` text contrast is low app-wide, and a save-bar-aware matrix height could follow.
+
+## 2026-10-15 — Commission Calculator / FFL grid production backend installed, frontend release pending
+
+**Status:** Backend released and read-back verified under Chris's exact approval; draft PR #447 frontend merge/deploy remains gated by exact-head CI. Production project: AGENTFLOW CRM `jncvvsvckxhqgqvkppmj`. No changes to telephony, reporting, A2P, existing profile commission levels, or other agencies.
+
+**Production changes:** Applied and read back the three migration statements byte-for-byte:
+- `20261015211858 commission_grids_schema` — SHA-256 `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70`;
+- `20261016035150 commission_grids_operations` — SHA-256 `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9`;
+- `20261016035626 commission_grids_reference_import` — SHA-256 `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0`.
+
+Imported the approved **private** FFL artifact through Supabase MCP outside migration history. Original source SHA-256 `998307b4…`, artifact `cf83d992…`, database fingerprint `273d0eb0…`; ledger and stored-row counts verify 41 products, 57 variants, 11 carriers, 963 populated rate cells, 57 references. The original CSV and JSON artifact are private and were never added to Git, PR text, CI artifacts or migration history. Granted availability and activated/selected the imported grid **only** for the exact unique agency `Family First Life - Chris Garness`. Other agencies have zero availability, enablement and selection.
+
+**Security:** All nine commission tables have RLS; authenticated and `service_role` lack direct table writes. Six SECURITY DEFINER agency-write RPCs are owned by NOLOGIN/NOBYPASSRLS `agentflow_comp_operator`. Production has two `pg_auth_members` **grant rows for the same `postgres` member**, from `supabase_admin` and `postgres`. The A10f test now checks distinct member roles and denies any member except `postgres`. No production role grants were changed outside the reviewed migration. Advisors show the expected additional authenticated SECURITY DEFINER and multiple-policy notifications; no new RLS-disabled table was introduced.
+
+**Repo changes:** Renamed three forward migrations and their three rollback files to their actual production-assigned version prefixes (SQL bytes untouched); updated `scripts/run_commission_grids_tests.sh`, `.github/workflows/commission-grids.yml`, `supabase/tests/commission_grids_access.sql` (managed-role membership invariant), `AGENT_RULES.md`, `implementation_plan.md`, the private-import runbook, value-free manifest, detailed plan and verification document. Repaired a duplicated plan section and preserved existing Work Log history.
+
+**Verification:** Before repo reconciliation, all seven GitHub workflows passed at `9daf2c2`, including PostgreSQL 17.6 migration/role/RLS/availability/import/negative/concurrency/rollback suites, calculator/editor tests (168 passed), and Reports frontend's no-new-errors comparison. After SQL-file renames, the commission PostgreSQL runner passed on `4d11b7e`; final exact-head CI is required before merging.
+
+**Pending:** CI green on the final documentation head; merge PR #447 with merge commit after confirmation; verify canonical `agentflow` Vercel production deployment for `www.fflagent.com`, backend RLS/advisor delta, and signed-in Agent/Admin UX. No production frontend deployment occurred in this Work Log entry.
+
+## 2026-10-15 — Commission release compatibility closeout (PR #447, pending production authorization)
+
+**Status:** Draft PR #447 head `bf6d76384184c310aada39227a19b49919f66ac7` passed all seven GitHub workflows, including the complete PostgreSQL 17.6 commission runner (restricted-SET and non-super-role probes, permission/availability negative controls, 59 concurrency assertions, rollback/reapply). No frontend changes in this closeout. Production has only schema migration `20261015211858`; migration 2 failed on the original custom-GUC approach and remains unapplied. No rates, availability, activation, merge or deployment has occurred.
+
+**Changes:** The still-unapplied operations migration now uses a NOLOGIN/NOBYPASSRLS `agentflow_comp_operator` role and an audit-only actor-UID helper rather than a custom GUC. All three private postgres-only ops scripts use psql client approval variables rather than unsupported managed-Postgres SET parameters, with refusal checked by CI. Public synthetic tests and branch docs were updated; private source and import artifact remain byte-identical to their reviewed SHA-256 values and have not entered Git.
+
+**Exact current hashes:** operations migration `0883a44277edb21d294f30a4f51a164ca12a1f445c331cb16b805965e06f3dd9`; operations rollback `4498a5dd41d0284e99905754c30393977c5829d65fd977704fc64203879b469a`; import ops `5015c3077abd5957a12a5950294f830d8fcf3a98f74aec5e88bbc363991f7e1f`; availability ops `a6cf926fdcf9dc58d740d19fa9178071b4fca6dcd14f395f3e4ba9fbe4d5baa3`; activation ops `bec9167c7d0247af1c0d9e0c8df50f89bdec2d47f5beb6485dd83abc44512d7d`. Schema migration `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70` is already applied; reference infrastructure migration `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0` is pending. Source/artifact SHA-256 and content fingerprint match the private verified manifest.
+
+**Release boundary:** No additional production mutation is authorized by this documentation update. Recheck the exact branch head and production migration state, obtain Chris's explicit approval of the revised production operation and import/availability/activation route, apply each step with read-back verification, then reconcile migration filenames, rerun CI, merge and verify canonical `agentflow` production. Separate follow-up: the existing `profiles.commission_level` self-edit permission issue.
+
+## 2026-10-15 — Commission production authority correction after migration-2 SET failure
+
+**Status:** Production release paused safely after schema migration **20261015211858** applied byte-identically. The
+next operations migration failed atomically with `42501 permission denied to set parameter "agentflow.comp_operation"`.
+No operations functions, reference import, FFL data, availability, activation, merge or deploy followed the failure.
+
+**Correction on draft PR #447:** the still-unapplied operations migration now forward-corrects the applied schema to
+a dedicated `agentflow_comp_operator` role: NOLOGIN, NOSUPERUSER, NOBYPASSRLS, no client/server-key membership.
+Only trusted `postgres` is a member so migration/rollback can administer the six owned write RPCs. Authenticated
+loses all commission base-table write grants. Those six public write RPCs are SECURITY DEFINER owned by the narrow
+role; the role remains subject to RLS, and both policies and the first trigger re-resolve the real JWT/profile actor
+through the canonical helpers. The legacy custom-GUC authority is not used by migration 2.
+
+**Verification:** corrected code head `215ab05c673b171b36b107d68c5f3fb7f9cedc35` is green on all workflows. PostgreSQL 17.6 passed the full commission runner, including the production-shaped restricted-SET and non-super CREATEROLE probes, privilege/role negatives, 59 concurrency assertions, rollback and reapply. Corrected operations SHA-256 is `dc0c524b36abc4b97db83dfdd10ed9f62ab14fc4c9f8957ed0a56273a60c1c25`; rollback SHA-256 is `593abb853cbe30fe423924b9d0e2dcbf874c92dc66ffb3860f6b86a1f299cc01`.
+
+**Production boundary:** migration 1 remains production history exactly as version `20261015211858`. Current production has zero comp grid/import/availability/access/settings rows, no operation role and no write RPCs. Fresh exact approval is required before migration 2.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: release-package Vercel correction (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris accepted the availability implementation and CI on head `885004e` for the final release preflight and asked for a records-only correction of the release package's Vercel section. No feature change.
+
+**Vercel facts (read-only, re-checked).**
+- **Canonical `agentflow`:** production deployment `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B`, READY at `main` `b5976e0`. It holds `www.fflagent.com`, `fflagent.com` (redirects to www) and `agentflow-eta.vercel.app`, and Vercel reports `isRollbackCandidate: true`.
+- **Secondary `agentflow-life-insure`:** production deployment `dpl_8papEb7YgEx215BhyZtm2E9DMPdJ`, READY at `b5976e0`; its only domain is `agentflow-life-insure.vercel.app`.
+
+**Changes (plan §12, §10; root plan; this entry).**
+- §12 now judges production verification and release success against `agentflow` / `www.fflagent.com` only. The secondary project's deployment is recorded for completeness.
+- Rollback (a) is a Vercel rollback of `agentflow` to `dpl_6LM8…`, or a reviewed revert of the merge commit. It replaces the earlier note that the deployment was not a rollback candidate.
+- Neither project's Vercel settings change.
+- The private psql/operator import stays the preferred step 5 route, and the real artifact never enters migration history, Git, PR text, CI or public logs.
+- P1 notes that the artifact can be rebuilt byte-identically from the CSV with the committed importer; re-checked (`cf83d992…`).
+- P4 names the dashboard setting, which the agent cannot read.
+
+**Still open.** P1 (durable private storage of the exact CSV `998307b4…` and artifact `cf83d992…`) and P4 (Supabase "Deploy to production" confirmed off). The final read-only production preflight runs immediately before release, once both hold.
+
+**Migrations and deploys.** None applied to any hosted database. No import, availability, activation, merge, deploy or Vercel change. Only the automatic protected Vercel previews.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: shared-grid availability correction (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris required that being an Agency Admin no longer make every AgentFlow shared grid available to an agency. At launch the FFL Compensation Grid may reach *Family First Life - Chris Garness* only. Other agencies must not see it in the catalog, enable it, read its products, variants, rates or references, or copy it. No platform role or Control Center path. Not authorized: merge, production migrations, import, availability, activation or deploy.
+
+**Finding (before).** On the published migrations, as real `authenticated` roles, another agency's Admin and A's Agency Group peer saw every active shared grid in the catalog. They could enable it by id, read its rates through the snapshot and copy it.
+
+**Design (decision D5; plan §2 and §10, planned before any edit).**
+- New server-only table `public.organization_comp_grid_availability` (`organization_id` NOT NULL, a shared `grid_id`). RLS is on with no policy and no `anon` or `authenticated` privilege; `service_role` holds SELECT only.
+- Access rows need availability: a foreign key (`ON DELETE CASCADE`) and the access trigger (PT404, for every writer). The catalog lists only available grids. Enable, snapshot, selection and copy refuse an unavailable grid even by id.
+- Postgres-only `private.comp_make_reference_grid_available` and `private.comp_remove_reference_grid_availability` work by exact unique agency name. Withdrawal locks the agency's settings row first, then removes access and clears that agency's selection of the grid. Private copies stay. Disabling keeps availability.
+- New ops script `supabase/ops/commission_grids_make_available_home_agency.sql`. The activation script now runs after it.
+- The three migrations are unapplied everywhere (production re-checked read-only; the only branches are the PR #294 and #378 previews), so they were corrected in place (rule #25). No new migration; no history change; no frontend change.
+
+**Tests.**
+- Access A4 changed and A11 added. The refused callers include another agency's Admin, its Super Admin with the `platform_admin` platform role, an agency-less platform admin, the peer agency, Agents, Team Leaders and `service_role`.
+- Import I1 and I6 changed and I8 added. Schema S1o–S1s and S6k–S6n.
+- Concurrency scenario 9: withdrawal against enable, select and copy, in both orders.
+- Ops-script fail-closed checks. Two negative controls: no availability gate fails A4m; an unfiltered catalog fails A4l.
+
+**Verification (local).**
+- Runner PASS on C and `en_US.UTF-8` under CI settings: 66 checks each, 59 concurrency assertions in 9 scenarios.
+- CI frontend command: 12 files passed, 2 skipped; 168 tests passed, 2 skipped.
+- Root `tsc` exit 0. The app type-check has the same 84 diagnostics as `main` (one moved 4 lines, as before). ESLint is clean on 64 files. The build passes.
+
+**Private re-run** (real artifact; disposable loopback databases only; value-free in `verification.md`):
+- Same fingerprint `273d0eb0…`; reconciliation PASS.
+- Activation is refused before availability. Then the availability and activation scripts pass.
+- 4 + 28 + 7 rehearsal checks PASS. The other agency's Admin sees an empty catalog and is refused by id; withdrawal clears access and the selection with the fingerprint and ledger unchanged.
+- The MCP route passes. Acceptance 49 of 49. No rate or private file changed.
+
+**Checksums.**
+- Schema `1f8e14fb2119eec01da44d3aff6ba34417c300451495f2028de501e7eb66da70`.
+- Operations `4e86caac6b548a1b238dd0bade3e5898a3fd236c0b639b20c8788600c8032d10`.
+- Reference import `3cbe4d6947f725d5e4d9e52087ace0fba33a55827d92b7cec9d01d900e55bff0`.
+- Availability ops `c484c040de8609c50938e2f0c5650c305b746ad9111764b55e0f1d57592051f6` (new). Activation ops `46c41c897f3dee875f3bc45d52269b9d08f41e66ce84aad65a50230f4455a08c`.
+- The import ops script and the fixture are unchanged.
+
+**Records.** The root plan, the detailed plan (D5, §1, §3, §4, §7, §8.1, §10 and §12: P6 superseded, step 7 split into 7a availability and 7b activation, and a withdrawal rollback step), `verification.md`, the runbook, the manifest, and `AGENT_RULES.md` (the named exception and the commission invariant).
+
+**Migrations and deploys.** None applied to any hosted database. No import, availability, activation, merge or deploy. Only the automatic protected Vercel previews.
+
+**Next steps.** CI on the new head (see the PR), then Chris reviews the updated release package (plan §12).
+
+## 2026-10-15 — Commission Calculator + agency commission grids: private FFL validation passed; release package prepared (draft PR #447; not merged, nothing applied)
+
+**Request.** Chris asked for the final private FFL data validation and release preparation on draft PR #447 (reviewed head `2447c1b`). The phase ends with a release package for his approval. Not authorized: production migrations, the production import or activation, merge, deploy, RLS or migration-history changes, and any hosted-database mutation.
+
+**Source decision.** Chris confirmed one source cell, which a source note questions, as authoritative. The CSV is kept byte-for-byte. The decision and its evidence are recorded privately, not here.
+
+**Private validation** (outside Git; disposable loopback databases only; details in `verification.md`):
+- The source SHA-256 `998307b4…1d08` equals Chris's expected value.
+- Importer 1.0.0 validation: 0 anomalies; 41 products, 57 variants, 11 carriers, 963 rate cells. An independent check that does not use the importer: 49 PASS, 0 FAIL.
+- Artifact `cf83d992…8157`, content fingerprint `273d0eb0…ffed`, grid `6ad6d4e4-…`. Three builds are byte-identical, and the artifact equals the CSV in both directions.
+- PostgreSQL 16.15 (C and `en_US.UTF-8`): `imported`, then `already_imported`. Reconciliation PASS with 0 differences in both directions; 7 negative controls fail as required.
+- Activation rehearsal with synthetic people: 21 PASS. Source-backed acceptance: 49 of 49, including the 8 required cases; a 4-case negative control fails exactly those 4.
+
+**Public changes (value-free).**
+- Merge `9cfaf16`: `main` (#448) into the branch. `WORK_LOG.md` resolved additively, newest first; no line removed on either side.
+- `AGENT_RULES.md`: the commission-invariant heading now says draft PR #447, not merged, and nothing applied, imported, activated or deployed. The invariant itself is unchanged.
+- The manifest (hashes, counts, PASS), the runbook status, and the detailed plan: status, D4 note, §10, and the §12 release package.
+- `verification.md` (a separate real-data section), the root plan, and this entry.
+- No code, test, migration, ops-script, fixture or workflow change.
+
+**Verification of the new head (local).**
+- Runner PASS, 57 checks, on C and `en_US.UTF-8` under CI settings; identical output.
+- CI frontend command: 12 files passed, 2 skipped by design; 168 tests passed, 2 skipped. The merged #448 tests pass (48).
+- The full Vitest suite fails only in the same 10 files as on `main`.
+- ESLint is clean on all 64 branch source files.
+- `tsc`: root exit 0. The app type-check has 84 diagnostics, the same set as `main`; one moved 4 lines because of the branch's Sidebar lines.
+- The production build passes.
+- Safety scan: none of the source text, names, amounts or rate sequences appear in this phase's changes, the merge resolution, the staged diff or the build output. The only build-output hits are pre-existing placeholders and time constants. One older public item was reported to Chris privately for a decision.
+
+**Production (read-only only).** Newest migration `20261010172702`; no `20261015…` row; no comp objects; exactly one organization with the home agency's name; resolver bodies match the tested copies. Of 4 organizations, 3 others have an active Admin, who could self-enable the shared grid after release (C6); Chris is asked to confirm that (plan §12 P6). Vercel production (both projects) serves `b5976e0`, and every push to `main` deploys both.
+
+**Migrations and deploys.** None applied to any hosted database. No import, activation, merge or deploy. Only the automatic protected Vercel previews.
+
+**Blockers.**
+1. A durable private location for the CSV and the artifact (D1).
+2. CI on the new head (see the PR) and PR review.
+3. Chris's exact approval of the release package (plan §12).
+
+**Next steps.** Chris reviews the release package. Nothing reaches production without that approval.
+
 ## 2026-10-15 — Google Sheets PR #442: Phase B attempt 1 stopped at B2 (production unchanged); reconciled with `main` `b5976e0`; Phase B fallback prepared (branch only; nothing applied or deployed)
 
 **Approvals.**
@@ -60,6 +271,246 @@
 **Migrations/data:** none. No RLS/schema/config/secret changes; no production test invitations or accounts. `create-user` and its live self-service restriction were not changed or deployed. Existing broad invitation SELECT/revoke/delete policies are not altered by this targeted hotfix.
 
 **Release/limits:** frontend release requires the scoped PR merge and Ready Vercel verification; see PR release comment for final deployment evidence. Live recipient delivery and real-account acceptance are not tested. A temporary branch-only publishing helper may apply this exact checked patch and must remove itself before merge; it cannot write to main or access production secrets.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: independent-review correction on draft PR #447 (not merged, nothing applied, not release-ready)
+
+**Approval.** Chris approved a scoped local correction of two independent-review findings on head `c354895`, with testing and one normal push to draft PR #447. Not approved: production changes, hosted migrations or migration-history repair, import, activation, deployment, merge, or leaving draft.
+
+**Findings and fixes (`882a445`).**
+1. **A failed background read destroyed an unsaved draft.**
+   - Settings › Commission Grids and the grid editor replaced their view on any query error. React Query keeps the last good data on a failed background refetch, so an open editor unmounted with its draft.
+   - The editor's own snapshot error hid its controls and its Stay/Leave dialog while the navigation guard stayed active.
+   - Now only a failed initial load replaces a view, with Retry. A failed refresh keeps the editor, its draft, its dirty registration and its dialogs, and shows a compact error with Retry.
+   - A save followed by a failed refresh reads as saved, with Retry. A failed Reload keeps the draft.
+   - Logout, permission loss and a user or agency change still remove access and reset the editor. Drafts stay in memory only.
+2. **A NULL revision bypassed delete conflict protection.** `comp_delete_private_grid` now refuses a NULL grid, or a NULL, zero or negative revision (22023), before the admin operation starts. The locked comparison, grants, RLS and shared-grid access are unchanged.
+
+**Migration handling.**
+- Read-only checks: production's history has no `20261015…` row and no comp objects. The preview branches for #294 and #378 predate the feature, and #447 has none.
+- The pending operations migration was therefore corrected in place (rule #25).
+- Its new SHA-256 is `7e3caad6aea556106aba764b3f3b5ddcd93830f4f795bc59acda7fbcb01b6998` (was `d7c20e17…`), recorded in plan §12.
+
+**Before and after** (local, synthetic data, disposable databases):
+- **Delete probe, as the authenticated agency Admin.** Before: a NULL revision deleted the grid. After: NULL, 0 and −1 revisions and a NULL grid return 22023 and change nothing; a stale revision is PT409; shared and foreign grids are PT404; the current revision deletes.
+- **Operations suite.** Before: it stops at O7f (`got 00000 "ok"`). After: ALL PASSED.
+- **`draftPreservation.test.tsx`** (QueryClient-backed). Before: 9 of 10 fail; permission loss already passed. After: 10 of 10 pass.
+
+**Full verification.**
+- Runner PASS (57 checks) under CI settings, on both C and `en_US.UTF-8`.
+- CI frontend command: 168 tests passed, 2 skipped. The full Vitest suite fails only in the same 10 pre-existing files.
+- ESLint is clean on 62 files.
+- `tsc`: exit 0. The app type-check has the same 84 diagnostics as at `c354895`, positions included.
+- Build, secret-marker check and bundle scan are clean.
+- Unchanged: the schema and import migrations, the rollbacks, the ops scripts, the fixture, the access suite (`COLLATE "C"`), the runner (`NO_COLOR`, exit-code and two-tests checks), `.gitattributes` and the workflows.
+- `verification.md` now separates the historical `c354895` CI pass from this revision.
+
+**Migrations and deploys.** None applied to any hosted database. No deploy, import or activation; only the automatic protected Vercel previews.
+
+**Exact-head CI** is recorded in the PR #447 description.
+
+**Blockers.**
+1. PostgreSQL 17.6 and frontend CI on the new head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Review of this correction, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: approved NO_COLOR runner correction on draft PR #447 (not merged, nothing applied, not release-ready)
+
+**Approval.** Chris approved one runner change after the PostgreSQL 17.6 job failed on head `10e1a73`: set `NO_COLOR=1` on the editor save-contract Vitest call, verify it, update these records and push once. Merging, marking ready, production migrations, import, activation and deploys remain unapproved.
+
+**Cause.**
+- On `10e1a73` (test-merge `9eaf79e`) the 17.6 job passed the guards, the schema, access and operations suites, and the contract test (2 of 2).
+- The runner then exited at its plain-text `Tests  2 passed` check. GitHub Actions sets `CI`, and Vitest turns color on whenever `CI` is set, so the summary carried ANSI codes and no longer matched.
+- The importer, import suite, reconciliation, ops-script, negative-control, concurrency and rollback steps never ran on 17.6. Every other job on `10e1a73` passed; Supabase Preview was skipped.
+
+**Correction `8d8cf67`.**
+- The runner sets `NO_COLOR=1` on that one Vitest call, with a one-line comment.
+- The exit-code check and the two-passing-tests check are unchanged.
+- No test, assertion, migration, grant, RLS, fixture, application, dependency or workflow change. Recorded in plan §10.
+
+**Verification (local).**
+- `bash -n` on the runner; staged and CI-style `git diff --check 03ef0cb...HEAD` both exit 0.
+- CI settings reproduced (`CI=true`, `GITHUB_ACTIONS=true`, output redirected as in the runner) on a disposable `en_US.UTF-8` database. The published line fails as CI did: 2 of 2 passed, colored summary, check fails. The corrected line passes with no escape codes, also with `FORCE_COLOR=1` or `FORCE_COLOR=3` added, because `NO_COLOR` wins in both color libraries Vitest uses. The saved grid in the database shows both tests really ran.
+- The complete runner under the same settings on PostgreSQL 16.15 with C and `en_US.UTF-8` collation: PASS, 57 checks, all six steps, identical output.
+- Temporary negative probes on the contract test, each run through the full runner and then restored byte-identical: a failing assertion, all tests skipped, one test skipped, and a file with no tests. All four make the runner exit 1 at the contract step. When tests skip, or the database URL is missing, Vitest itself exits 0, so the `Tests  2 passed` check is what refuses the run.
+- `npx tsc --noEmit` exit 0. `npx tsc -p tsconfig.app.json --noEmit` exit 2, 84 diagnostics, same set as base.
+- The three migrations, both ops scripts and the synthetic fixture are byte-identical to `10e1a73` (schema `84637cf3…f64b16`).
+
+**Migrations and deploys.** None applied to any hosted database. No deploy, import or activation. Only the automatic protected Vercel previews.
+
+**Exact-head CI** is recorded in the PR #447 description, so recording it does not move the head.
+
+**Blockers.**
+1. PostgreSQL 17.6 must complete the full runner on the new head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Independent review, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: published as draft PR #447, then the approved CI correction (not merged, nothing applied, not release-ready)
+
+**Approvals.**
+- Chris approved draft publication only (Step 0): push the branch and open ONE draft PR. Not approved: merging, marking ready, production migrations, real-data import, activation, deploys or permission changes.
+- Before publication he approved the Supabase preview branch, and fixing `service_role` write access first (`14d9fa4`, records `9ecbc9a`).
+- After the first CI run he approved the scoped CI correction below and these publication-status records.
+
+**Pre-publication checks.**
+- Commits verified, and every published commit scanned for private data.
+- The workflows this PR triggers use disposable containers and no secrets.
+- The import migration holds no data; its four `private.*` functions are postgres-only.
+- Test I1 now covers anon, an agent, an Agency Admin and `service_role`, also with both operator approval settings and a forged operation flag.
+
+**Publication.**
+- `main` moved twice after verification. The branch merged it at `b44c824` (#445) and `3971fd0` (#446, docs only); both merges kept every line of both sides of `WORK_LOG.md`.
+- Re-verified at `b44c824` against base `26f9bc1`: identical vitest failure set; `tsc -p tsconfig.app.json` 84 diagnostics, identical set; root `tsc` exit 0; runner PASS.
+- Draft PR #447 opened at head `3971fd04bdeff037dd6391ba5fdd68a17323781f`, base `03ef0cb`.
+- Supabase Preview did not run: the integration ignored the PR at the project's concurrent preview-branch limit. No hosted Supabase environment exists for it, and no integration setting was changed.
+- Vercel built its automatic protected previews only.
+
+**First CI run** (head `3971fd0`; merge-ref jobs ran on test-merge `209a8e7`, whose tree is identical to the head):
+
+| Job | Result |
+|---|---|
+| Commission grids / Calculator and grid editor tests | pass |
+| Commission grids / PostgreSQL 17.6 suites | fail at A10f |
+| Onboarding emails / verify | fail on `git diff --check` |
+| Onboarding emails / postgres, A2P, Reporting integrity, Dialer DNC, SMS consent, Reports frontend | pass |
+
+**Causes.**
+- **A10f** compared ordered strings: catalog `name` values (C collation) against literals in the database default collation. The 17.6 image defaults to `en_US.utf8`, so the order differed although the 51-grant sets matched. The run stopped there.
+- **`git diff --check`** flagged one trailing space in the plan, and the intentional CRLF endings of the synthetic CSV fixture.
+
+**CI correction `2db6de2`** (approved):
+- A10f orders both lists with `COLLATE "C"`. It is still an exact-set comparison with the same 51 expected grants.
+- One path-scoped `.gitattributes` rule: `/supabase/tests/fixtures/commission_grids/synthetic_reference_grid.csv -text whitespace=cr-at-eol`.
+- The plan's trailing space removed, and the correction recorded in plan §10.
+- No grant, RLS, migration, locale or application change.
+
+**Verification of the correction (local).**
+- Fixture SHA-256 `9bad2737…c89a3` before and after.
+- `git diff --cached --check` and the CI-style `git diff --check 03ef0cb...HEAD` both exit 0.
+- A throwaway probe shows the rule accepts the intentional CRLF but still flags a real trailing space, in that fixture and elsewhere.
+- The full runner on disposable loopback PostgreSQL 16.15 clusters: before, `3971fd0` failed A10f under `en_US.UTF-8`; after, `2db6de2` passes everything (57 checks) under both C and `en_US.UTF-8`.
+- A10f still rejects wrong sets (A10 run alone under `en_US.UTF-8`): one extra column grant reports 52 and fails, one missing grant reports 50 and fails, and the unchanged database passes.
+- `npx tsc --noEmit` exit 0; `npx tsc -p tsconfig.app.json --noEmit` exit 2, 84 diagnostics, identical set to base.
+- All three migrations, both ops scripts and the fixture are unchanged from `3971fd0` (schema `84637cf3…f64b16`).
+
+**Migrations and deploys.** None applied to any hosted database. No deploys and no import. Only the automatic protected Vercel previews were built.
+
+**Exact-head CI** for the corrected head is recorded in the PR #447 description. Recording it here would move the head.
+
+**Blockers.**
+1. PostgreSQL 17.6 must complete the full runner on the corrected head (see the PR).
+2. The real FFL CSV (D4) and a durable private storage location (D1) are still missing; real FFL values are not verified.
+3. Independent review, then a separate exact release approval (plan §12).
+
+**Next steps.** Chris reviews draft PR #447. Nothing merges or reaches production without a separate approval.
+
+## 2026-10-15 — Commission Calculator + agency commission grids: IMPLEMENTED LOCALLY on `feature/commission-calculator-agency-grids` (not pushed, nothing applied, not release-ready)
+
+**Status.**
+- The complete calculator and agency grid editor are built on one local branch, intended for one PR.
+- Base: `origin/main` `dacd921`. The branch has no upstream, and nothing is pushed or published.
+- Not release-ready: the private FFL import and acceptance are BLOCKED (below), and the PostgreSQL 17.6 CI workflow has not run.
+
+**Request and approval.**
+- Chris specified the feature, then approved local implementation with amendments (2026-10-15):
+  - D1: a private FFL source and a private import workflow.
+  - D2: `#APPROVE_RLS_CHANGE` for the new comp tables only, documented as the **Shared compensation grid exception**.
+  - D3: respect "View Own Commission Percentage"; neither surface is part of View As.
+  - D4: the CSV is still required.
+  - Corrections C1–C6.
+- Not authorized: push, PR, merge, deploy, Supabase migration, import, activation or any hosted-database write. Production stayed read-only.
+- Plan: `docs/plans/2026-10-15-commission-calculator/implementation_plan.md`. Evidence: `verification.md` in the same folder.
+
+**Commits** (local only; the two code commits were rebuilt during closeout, see below):
+
+| Commit | Content |
+|---|---|
+| `9b615f5` | Approved plan with amendments (docs) |
+| `fea545d` | Database layer: three migrations and rollbacks, ops scripts, SQL suites and harness, private importer and reconciliation, runner, concurrency driver, CI workflow, runbook, manifest, `.gitignore` |
+| `44d550a` | Frontend: calculator page and nav item, Settings › Commission Grids (overview, viewer, editor), hooks, Supabase types, tests |
+| `fb27512` | Records: this entry, `verification.md`, plan status and release proposal (§12), root plan status, `AGENT_RULES.md` (named exception and invariant) |
+| `14d9fa4` | Pre-publication correction (approved by Chris): `service_role` read-only on the comp tables; tests A9/A10g and I1 |
+| this commit | Records for that correction: plan §3/§4.2/§4.5/§12, `AGENT_RULES.md`, `verification.md`, this entry, root plan |
+
+**What was built.**
+- **Database.**
+  - Eight RLS-enabled tables: grids, products, variants, rates, variant references, agency access, agency settings and the import ledger. Shared grids have `organization_id` NULL. Composite foreign keys on `scope_key` keep every child row in its parent's grid and scope.
+  - Client writes go only through SECURITY INVOKER `comp_*` operations, which set the operation flag at function level. The first trigger refuses any write outside an operation, outside the caller's own agency, or by a non-admin, before any SECURITY DEFINER trigger runs. RLS repeats the same predicate.
+  - Exact `numeric` rates with a CHECK constraint; nothing is rounded.
+  - Edits are atomic change sets with a revision check (a stale save is refused with PT409).
+  - Postgres-only private import with a ledger, checksums and a value-free content fingerprint.
+  - Activation of the home agency only, by exact unique name, through a guarded ops script.
+- **Frontend.**
+  - "Commission Calculator" sits directly below Resources, gated by the permission and by agency readiness. The page uses exact BigInt arithmetic, strict contract-level parsing and the specified messages and disclaimer.
+  - Settings › Commission Grids is for agency admins only, through `ADMIN_ONLY_SETTINGS_SECTIONS`:
+    - enable or disable shared grids;
+    - compare-and-set calculator selection;
+    - blank, structure-copy and full-copy grids;
+    - an editor for details, levels, carriers, products, variants and the rate matrix;
+    - a conflict banner and unsaved-changes protection (in-app navigation, back/forward, reload).
+- **Files:** 86 changed against `dacd921` before this commit (76 added, 10 modified). The modified files are `.gitignore`, `implementation_plan.md`, `src/App.tsx` (+1 route), `Sidebar.tsx`, `SettingsRenderer.tsx` (+1 case), `settingsConfig.ts`, `SettingsPage.tsx`, `src/integrations/supabase/types.ts` and two existing test files. The full list is in plan §8.1 ("As built").
+
+**Found and fixed while implementing** (each covered by a test; plan §4.5):
+1. With a forged operation flag, SECURITY DEFINER triggers could have locked or read another agency's rows. The first trigger now checks own agency and admin, and DEFINER lookups are filtered by scope.
+2. The rate upsert's `ON CONFLICT DO UPDATE` could have locked another grid's rate row. Every cell must now belong to the grid (PT409), and new-row keys must exist in the change set (22023).
+3. An import re-run with a modified artifact whose embedded checksums still matched would have been treated as a no-op. A no-op now requires the same artifact checksum and unchanged stored content.
+
+**Found and fixed during closeout** (before anything was published):
+1. **Synthetic data mirrored private examples (D1).**
+   - Some synthetic fixture and test values reproduced private acceptance examples from the original request under synthetic names: level-and-rate pairs, scenario inputs, the off-grid example level, a product-name suffix, and an example amount in a code comment.
+   - All were changed; the tests prove the same behavior.
+   - The two code commits were rebuilt locally (`e9becf2` → `fea545d`, `c19117b` → `44d550a`), so no commit contains them. A final scan of every added line and of the build output is clean.
+   - Migrations and ops scripts are unchanged, and so are their checksums.
+2. **Stale type check.** The first app type-check comparison predated the last test edits. One new diagnostic, a literal type in a sidebar test's mock state, was found and fixed. Every check was then re-run on `44d550a`.
+3. **`service_role` could write shared grids** (found in the pre-publication review; Chris approved fixing it before publication).
+   - The schema migration granted `service_role` INSERT/UPDATE/DELETE on the seven data tables, so a server key could change a shared grid outside the import, contrary to plan §3. Browser roles were never able to.
+   - Fixed in `14d9fa4`: `service_role` holds SELECT only. A9/A10g assert it; I1 now covers anon, an agent, an Agency Admin and `service_role`, also with both operator approval settings and a forged operation flag.
+   - Two throwaway negative checks show the new assertions bite. Only the schema migration's checksum changed.
+
+**Verification (synthetic data only, all on `14d9fa4`; details in `verification.md`).**
+- `npx tsc --noEmit` exit 0.
+- `npx tsc -p tsconfig.app.json --noEmit`: 85 diagnostics, identical to base.
+- ESLint: 0 problems on the 61 changed `src` files.
+- Full vitest: the same 10 pre-existing environment failures as base (9 × `supabaseUrl is required`, 1 deployed-v29 byte comparison). Branch totals: 5311 passed, 1 failed, 36 skipped.
+- Feature tests (CI command): 158 passed, 2 skipped by design.
+- Build OK; the bundle scan is clean.
+- Synthetic renders at 390 and 1440 px.
+- `scripts/run_commission_grids_tests.sh` PASS on disposable loopback PostgreSQL 16.15:
+  - schema, access, operations and import suites;
+  - the editor change-set contract test against the real operation;
+  - 22 importer tests;
+  - reconciliation;
+  - ops-script guards;
+  - 5 negative controls;
+  - 41 concurrency assertions;
+  - rollback.
+
+**Migrations and deployments.**
+- Authored: `20261015120000_commission_grids_schema.sql` (changed in `14d9fa4`; SHA-256 `84637cf3…f64b16`), `20261015120100_commission_grids_operations.sql` and `20261015120200_commission_grids_reference_import.sql`, plus their rollbacks.
+- Applied only to disposable local databases. **None is applied to any hosted database**, and there is no migration-history entry.
+- No Edge Function, Vercel or other deployment. No import and no activation.
+
+**Blockers.**
+1. The FFL CSV has not been supplied (D4). The private import, the 41/57/11 inventory check, reconciliation and source-backed acceptance are BLOCKED and unverified.
+2. A durable private location for the source and the artifact must be named before release (D1).
+3. The PostgreSQL 17.6 CI workflow runs only once the branch is published.
+4. PR review.
+
+**Follow-up (separate approval):** `profiles.commission_level` is self-editable through the API, so an agent can change the level their own estimate uses (plan §11). Nothing in this build changes profiles, onboarding or stored levels.
+
+**Next steps.**
+1. Chris approves publication: push this branch and open ONE PR, which triggers previews and CI including PostgreSQL 17.6.
+2. Chris supplies the CSV and names the durable private location. Then, locally only: validate, build, import, reconcile and run private acceptance; update the manifest with non-sensitive values.
+3. Chris approves the consolidated release package (plan §12) action by action:
+   - migrations 1–3, with checksums;
+   - read-only verification and advisors;
+   - private import by the operator's psql;
+   - verification and home-agency activation;
+   - merge and deploy of the exact merge commit;
+   - post-release checks.
 
 ## 2026-10-15 — Google Sheets PR #442: reconciled with current `main` `03ef0cb` before Phase B (merge commit; branch only; nothing deployed, applied, merged or enabled)
 

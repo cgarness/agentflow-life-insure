@@ -48,6 +48,7 @@ vi.mock("@/components/settings/CustomMenuLinks", () => ({ default: () => <div da
 vi.mock("@/components/settings/ActivityLog", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/AgencyGroupSettings", () => ({ default: () => <div data-testid="section-body" /> }));
 vi.mock("@/components/settings/WorkflowBuilder", () => ({ default: () => <div data-testid="section-body" /> }));
+vi.mock("@/components/settings/commission-grids/CommissionGridsSettings", () => ({ default: () => <div data-testid="section-body" /> }));
 
 // Phone System tab bodies and controller (PhoneSystem itself is real).
 vi.mock("@/components/settings/phone/usePhoneSettingsController", () => ({
@@ -81,7 +82,7 @@ vi.mock("@/components/settings/CallMonitoring", () => ({ default: () => <div dat
 import SettingsPage from "@/pages/SettingsPage";
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
 import PhoneSystem from "@/components/settings/PhoneSystem";
-import { ALL_SETTINGS_SECTIONS, PHONE_SYSTEM_LEGACY_SECTION_SLUGS } from "@/config/settingsConfig";
+import { ADMIN_ONLY_SETTINGS_SECTIONS, ALL_SETTINGS_SECTIONS, PHONE_SYSTEM_LEGACY_SECTION_SLUGS } from "@/config/settingsConfig";
 
 const COMING_SOON = "Coming soon — this section is not active yet.";
 
@@ -121,6 +122,15 @@ describe("Settings page heading is the sidebar label (B6-01)", () => {
     await settle(slug);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(h1Text()).toBe(label);
+  });
+
+  it("admin-only sections (kept out of the role-permission list) still get their authored heading and body", () => {
+    expect(ADMIN_ONLY_SETTINGS_SECTIONS.map((s) => s.slug)).toEqual(["commission-grids"]);
+    expect(ALL_SETTINGS_SECTIONS.map((s) => s.slug)).not.toContain("commission-grids");
+    renderAt("commission-grids");
+    expect(h1Text()).toBe("Commission Grids");
+    expect(screen.getByTestId("section-body")).toBeInTheDocument();
+    expect(screen.queryByText(COMING_SOON)).toBeNull();
   });
 
   it("an unknown slug falls back to \"Settings\" and the default renderer", () => {

@@ -9,7 +9,7 @@ import {
 import SettingsRenderer from "@/components/settings/SettingsRenderer";
 import SettingsSectionGate from "@/components/SettingsSectionGate";
 import {
-  ALL_SETTINGS_SECTIONS,
+  findSettingsSectionLabel,
   isPhoneSystemSettingsSection,
   resolveSettingsPermissionSlug,
 } from "@/config/settingsConfig";
@@ -87,7 +87,7 @@ const SettingsInner: React.FC = () => {
     <div className={`space-y-6 ${activeSlug === "automation" ? "w-full" : "max-w-6xl mx-auto"}`}>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">
-          {ALL_SETTINGS_SECTIONS.find((s) => s.slug === resolveSettingsPermissionSlug(activeSlug))?.label ?? "Settings"}
+          {findSettingsSectionLabel(resolveSettingsPermissionSlug(activeSlug)) ?? "Settings"}
         </h1>
       </div>
 
