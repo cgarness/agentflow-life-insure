@@ -7,17 +7,24 @@
 -- and effective date (scripts/comp_grids/reference_grid_importer.py), and the grid must already have a
 -- verified import ledger row (otherwise refused, PT404).
 --
--- Usage: PGOPTIONS='-c agentflow.approve_comp_home_availability=yes' psql "$TARGET_URL" -X \
+-- Usage: psql "$TARGET_URL" -X -v approve_comp_home_availability=yes \
 --          -f supabase/ops/commission_grids_make_available_home_agency.sql
+-- Approval is a psql client variable, not a database GUC.
 \set ON_ERROR_STOP 1
+\if :{?approve_comp_home_availability}
+  SELECT :'approve_comp_home_availability' = 'yes' AS _agentflow_approved \gset
+  \if :_agentflow_approved
+  \else
+    \echo 'ERROR: Set psql variable approve_comp_home_availability=yes only after exact release approval'
+    \quit 3
+  \endif
+\else
+  \echo 'ERROR: Set psql variable approve_comp_home_availability=yes only after exact release approval'
+  \quit 3
+\endif
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
-DO $$ BEGIN
-  IF current_setting('agentflow.approve_comp_home_availability', true) IS DISTINCT FROM 'yes' THEN
-    RAISE EXCEPTION 'Set agentflow.approve_comp_home_availability=yes only after exact release approval';
-  END IF;
-END $$;
 -- Reports organization_id, grid_id, available and newly_available.
 SELECT private.comp_make_reference_grid_available(
          'Family First Life - Chris Garness',

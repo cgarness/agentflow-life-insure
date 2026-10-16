@@ -134,23 +134,23 @@ grep -q 'reconciliation PASS' "$TEMP/recon.out" || { cat "$TEMP/recon.out"; exit
 sed -n 's/^.*NOTICE:  /   ok   /p' "$TEMP/recon.out"
 expect_failure 'ops import refused without the approval setting' 'approve_comp_reference_import=yes' -- \
   sql -v artifact_path="$ARTIFACT" -v artifact_sha256="$ARTIFACT_SHA" -f "$ROOT/supabase/ops/commission_grids_import_reference_grid.sql"
-PGOPTIONS='-c agentflow.approve_comp_reference_import=yes' sql -tA -v artifact_path="$ARTIFACT" -v artifact_sha256="$ARTIFACT_SHA" \
+sql -tA -v approve_comp_reference_import=yes -v artifact_path="$ARTIFACT" -v artifact_sha256="$ARTIFACT_SHA" \
   -f "$ROOT/supabase/ops/commission_grids_import_reference_grid.sql" > "$TEMP/ops.out" 2>&1 || { cat "$TEMP/ops.out"; exit 1; }
 grep -q '"already_imported"' "$TEMP/ops.out" || { cat "$TEMP/ops.out"; exit 1; }
 echo '   ok   ops import with approval is idempotent (already_imported)'
 expect_failure 'ops activation refused without the approval setting' 'approve_comp_home_activation=yes' -- \
   sql -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 expect_failure 'ops activation fails closed where the agency does not exist' 'found 0' -- \
-  env PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
+  psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v approve_comp_home_activation=yes -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 expect_failure 'ops availability refused without the approval setting' 'approve_comp_home_availability=yes' -- \
   sql -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
 expect_failure 'ops availability fails closed where the agency does not exist' 'found 0' -- \
-  env PGOPTIONS='-c agentflow.approve_comp_home_availability=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
+  psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v approve_comp_home_availability=yes -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
 sql -c "INSERT INTO public.organizations (name) VALUES ('Family First Life - Chris Garness')" >/dev/null
 expect_failure 'ops availability fails closed while that grid has no verified import here' 'no verified reference import' -- \
-  env PGOPTIONS='-c agentflow.approve_comp_home_availability=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
+  psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v approve_comp_home_availability=yes -f "$ROOT/supabase/ops/commission_grids_make_available_home_agency.sql"
 expect_failure 'ops activation fails closed while that grid has no verified import here' 'no verified reference import' -- \
-  env PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
+  psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v approve_comp_home_activation=yes -f "$ROOT/supabase/ops/commission_grids_activate_home_agency.sql"
 
 echo '== 3b. production-style restricted SET probe'
 sql -c "DROP ROLE IF EXISTS comp_restricted_set_probe; CREATE ROLE comp_restricted_set_probe NOLOGIN NOSUPERUSER; GRANT USAGE,CREATE ON SCHEMA public TO comp_restricted_set_probe; GRANT comp_restricted_set_probe TO postgres" >/dev/null

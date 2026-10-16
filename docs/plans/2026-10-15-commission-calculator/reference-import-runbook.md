@@ -70,7 +70,7 @@ Use a clearly identified disposable loopback database, never a hosted one. Build
 migrations.
 
 ```bash
-PGOPTIONS='-c agentflow.approve_comp_reference_import=yes' psql "$LOCAL_DB_URL" -X \
+psql "$LOCAL_DB_URL" -X -v approve_comp_reference_import=yes \
   -v artifact_path="$PRIVATE_DIR/ffl.comp_reference_grid.json" -v artifact_sha256="$ARTIFACT_SHA256" \
   -f supabase/ops/commission_grids_import_reference_grid.sql
 psql "$LOCAL_DB_URL" -X -v grid_id=6ad6d4e4-4024-5dae-bef5-de0202ab1b6e \
@@ -95,6 +95,8 @@ results (C5).
 
 ## 4. Production (release step — only with Chris's exact approval of the consolidated release proposal)
 
+Managed production `postgres` has `SET=false` for the old `agentflow.approve_comp_*` custom parameters. The psql operator scripts therefore use client-side `-v approve_*=yes` variables for their approval guard. After Chris's exact chat approval, MCP execution calls the postgres-only private functions directly and does not depend on a database approval GUC.
+
 The exact order, the route by which the artifact reaches production, and the filename reconciliation after
 `apply_migration` are fixed in plan §12. This section summarizes the data steps.
 
@@ -106,11 +108,11 @@ The exact order, the route by which the artifact reaches production, and the fil
    overwritten.
 3. Verify read-only: the ledger row and `private.comp_grid_content_sha256('6ad6d4e4-…')` equal the manifest.
 4. Make available (decision D5): `supabase/ops/commission_grids_make_available_home_agency.sql`
-   (`agentflow.approve_comp_home_availability=yes`). It resolves *Family First Life - Chris Garness* by exact
+   (`-v approve_comp_home_availability=yes`). It resolves *Family First Life - Chris Garness* by exact
    unique name at execution, refuses zero or several matches and a grid without a verified import, and makes
    the grid available to that agency only. Nothing is enabled or selected by it.
 5. Activate: `supabase/ops/commission_grids_activate_home_agency.sql`
-   (`agentflow.approve_comp_home_activation=yes`). It resolves the same agency the same way and refuses zero
+   (`-v approve_comp_home_activation=yes`). It resolves the same agency the same way and refuses zero
    or several matches. It enables the grid and selects it only if the agency has no selection. An existing
    selection is kept and reported. Without step 4 it is refused (PT404) and nothing changes.
 

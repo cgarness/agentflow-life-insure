@@ -9,17 +9,24 @@
 -- agency (commission_grids_make_available_home_agency.sql, decision D5); otherwise the enable is refused
 -- (PT404) and nothing changes.
 --
--- Usage: PGOPTIONS='-c agentflow.approve_comp_home_activation=yes' psql "$TARGET_URL" -X \
+-- Usage: psql "$TARGET_URL" -X -v approve_comp_home_activation=yes \
 --          -f supabase/ops/commission_grids_activate_home_agency.sql
+-- Approval is a psql client variable, not a database GUC.
 \set ON_ERROR_STOP 1
+\if :{?approve_comp_home_activation}
+  SELECT :'approve_comp_home_activation' = 'yes' AS _agentflow_approved \gset
+  \if :_agentflow_approved
+  \else
+    \echo 'ERROR: Set psql variable approve_comp_home_activation=yes only after exact release approval'
+    \quit 3
+  \endif
+\else
+  \echo 'ERROR: Set psql variable approve_comp_home_activation=yes only after exact release approval'
+  \quit 3
+\endif
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
-DO $$ BEGIN
-  IF current_setting('agentflow.approve_comp_home_activation', true) IS DISTINCT FROM 'yes' THEN
-    RAISE EXCEPTION 'Set agentflow.approve_comp_home_activation=yes only after exact release approval';
-  END IF;
-END $$;
 -- Reports organization_id, selected, existing_selection and existing_selection_kept.
 SELECT private.comp_enable_reference_grid_for_agency(
          'Family First Life - Chris Garness',
