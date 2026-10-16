@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Loader2, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
+import { LoadingBlock, StatePanel } from "@/components/commission/ui/CommissionSurface";
 import { useCommissionGridsAdminAccess, useCommissionGridsData } from "@/hooks/useCommissionGridsAdmin";
 import CalculatorGridCard from "./CalculatorGridCard";
 import CreateGridDialog from "./CreateGridDialog";
@@ -30,19 +31,10 @@ const CommissionGridsSection: React.FC = () => {
   const [creating, setCreating] = useState<{ sourceId: string | null } | null>(null);
 
   if (access.loading) {
-    return (
-      <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
-      </div>
-    );
+    return <LoadingBlock label="Loading…" rows={3} className="max-w-3xl" />;
   }
   if (!access.enabled) {
-    return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-center">
-        <Lock className="h-9 w-9 text-muted-foreground" aria-hidden />
-        <p className="max-w-sm text-sm text-muted-foreground">Only agency admins can manage commission grids.</p>
-      </div>
-    );
+    return <StatePanel icon={Lock} body="Only agency admins can manage commission grids." />;
   }
   const retry = () => {
     if (overview.isError) void overview.refetch();
@@ -53,11 +45,7 @@ const CommissionGridsSection: React.FC = () => {
     // Only a failed INITIAL load (nothing to show yet) replaces the page.
     const initialError = (!overview.data && overview.isError ? overview.error : null) ?? (!catalog.data && catalog.isError ? catalog.error : null);
     if (initialError) return <LoadErrorNotice message={errorMessage(initialError)} onRetry={retry} retrying={retrying} />;
-    return (
-      <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading commission grids…
-      </div>
-    );
+    return <LoadingBlock label="Loading commission grids…" rows={4} />;
   }
   // A failed BACKGROUND refresh keeps the last good data and any open editor (always the same element
   // position, so React keeps its unsaved draft), with a compact error and Retry.
@@ -94,9 +82,9 @@ const CommissionGridsSection: React.FC = () => {
     );
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {refreshNotice}
-      <p className="text-sm text-muted-foreground">
+      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
         Choose the grid your agents&apos; Commission Calculator uses, enable AgentFlow grids, and keep your agency&apos;s own grids.
         Estimates only: these grids never change payroll, booked commission or reports.
       </p>

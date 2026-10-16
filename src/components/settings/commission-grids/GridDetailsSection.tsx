@@ -12,8 +12,8 @@ interface GridDetailsSectionProps {
 
 /** Name, effective date and active status. Values are kept exactly as typed; validation reports problems. */
 const GridDetailsSection: React.FC<GridDetailsSectionProps> = ({ draft, disabled, onChange }) => (
-  <section className="grid gap-4 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
-    <div className="space-y-1.5">
+  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:items-end">
+    <div className="space-y-1.5 sm:col-span-2">
       <Label htmlFor="grid-name">Grid name</Label>
       <Input id="grid-name" value={draft.name} maxLength={120} disabled={disabled} onChange={(e) => onChange({ name: e.target.value })} />
     </div>
@@ -27,11 +27,11 @@ const GridDetailsSection: React.FC<GridDetailsSectionProps> = ({ draft, disabled
         onChange={(e) => onChange({ effectiveDate: e.target.value })}
       />
     </div>
-    <div className="flex items-center gap-2 pb-2">
+    <div className="flex h-10 items-center gap-2.5 rounded-md bg-muted/40 px-3 ring-1 ring-inset ring-border/50">
       <Switch id="grid-active" checked={draft.isActive} disabled={disabled} onCheckedChange={(isActive) => onChange({ isActive })} />
       <Label htmlFor="grid-active">Active</Label>
     </div>
-  </section>
+  </div>
 );
 
 export default GridDetailsSection;

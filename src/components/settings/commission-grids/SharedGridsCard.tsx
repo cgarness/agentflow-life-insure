@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Copy, Eye, Library } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { GRID_ROW, StatePanel, StatusPill, SurfaceSection } from "@/components/commission/ui/CommissionSurface";
 import { useCommissionGridMutations } from "@/hooks/useCommissionGridsAdmin";
 import type { SharedGridCatalogEntry } from "@/lib/commission/adminTypes";
 import ConfirmActionDialog, { type PendingConfirmation } from "./ConfirmActionDialog";
@@ -62,42 +62,41 @@ const SharedGridsCard: React.FC<SharedGridsCardProps> = ({ catalog, calculatorGr
     });
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center gap-2">
-        <Library className="h-4 w-4 text-muted-foreground" aria-hidden />
-        <h2 className="text-sm font-semibold text-foreground">AgentFlow grids</h2>
-      </div>
+    <SurfaceSection icon={Library} title="AgentFlow grids" count={catalog.length} bodyClassName="py-1.5">
       {catalog.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No AgentFlow grids are available yet.</p>
+        <StatePanel icon={Library} compact body="No AgentFlow grids are available yet." />
       ) : (
-        <ul className="divide-y">
+        <ul className="-mx-2 divide-y divide-border/40">
           {catalog.map((entry) => (
-            <li key={entry.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <li key={entry.id} className={GRID_ROW}>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
                   {entry.name}
-                  {entry.isEnabled && <Badge variant="secondary">Enabled</Badge>}
-                  {entry.id === calculatorGridId && <Badge>Calculator</Badge>}
+                  {entry.id === calculatorGridId ? (
+                    <StatusPill tone="primary">Calculator</StatusPill>
+                  ) : (
+                    entry.isEnabled && <StatusPill tone="success">Enabled</StatusPill>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {effective(entry.effectiveDate)} · {levelRange(entry.contractLevels)}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className={entry.isEnabled ? "-ml-2.5 flex items-center gap-1 sm:ml-0" : "flex items-center"}>
                 {entry.isEnabled ? (
                   <>
-                    <Button size="sm" variant="ghost" onClick={() => onView(entry.id)}>
-                      <Eye className="mr-1 h-4 w-4" aria-hidden /> View
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => onView(entry.id)}>
+                      <Eye className="mr-1.5 h-3.5 w-3.5" aria-hidden /> View
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => onDuplicate(entry.id)}>
-                      <Copy className="mr-1 h-4 w-4" aria-hidden /> Duplicate
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => onDuplicate(entry.id)}>
+                      <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Duplicate
                     </Button>
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => askDisable(entry)}>
+                    <Button size="sm" variant="outline" className="ml-1 h-8" disabled={busy} onClick={() => askDisable(entry)}>
                       Disable
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" disabled={busy} onClick={() => runEnable(entry)}>
+                  <Button size="sm" className="h-8" disabled={busy} onClick={() => runEnable(entry)}>
                     Enable
                   </Button>
                 )}
@@ -107,7 +106,7 @@ const SharedGridsCard: React.FC<SharedGridsCardProps> = ({ catalog, calculatorGr
         </ul>
       )}
       <ConfirmActionDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
-    </section>
+    </SurfaceSection>
   );
 };
 

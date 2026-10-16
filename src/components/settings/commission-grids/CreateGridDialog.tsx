@@ -81,7 +81,7 @@ const CreateGridDialog: React.FC<CreateGridDialogProps> = ({ open, onOpenChange,
                 <FormControl>
                   <RadioGroup value={field.value} onValueChange={field.onChange} className="space-y-2">
                     {MODES.map((option) => (
-                      <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                      <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/70 p-3 transition-colors hover:bg-muted/40 has-[[data-state=checked]]:border-primary/50 has-[[data-state=checked]]:bg-primary/[0.05] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60">
                         <RadioGroupItem value={option.value} disabled={option.value !== "blank" && sources.length === 0} className="mt-0.5" />
                         <span>
                           <span className="block text-sm font-medium text-foreground">{option.label}</span>
@@ -110,7 +110,7 @@ const CreateGridDialog: React.FC<CreateGridDialogProps> = ({ open, onOpenChange,
               )} />
             )}
             {mode === "full" && (
-              <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">This copy will not update when the shared grid changes.</p>
+              <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground ring-1 ring-inset ring-border/50">This copy will not update when the shared grid changes.</p>
             )}
             <FormField control={form.control} name="name" render={({ field }) => (
               <FormItem>

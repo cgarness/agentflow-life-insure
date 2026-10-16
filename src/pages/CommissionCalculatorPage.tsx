@@ -1,8 +1,10 @@
 import React from "react";
+import { Calculator } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCommissionCalculatorAccess, useCommissionCalculatorContext } from "@/hooks/useCommissionCalculator";
 import CalculatorNotice, { type CalculatorNoticeKind } from "@/components/commission/calculator/CalculatorNotice";
 import CalculatorWorkspace from "@/components/commission/calculator/CalculatorWorkspace";
+import { IconTile } from "@/components/commission/ui/CommissionSurface";
 
 /**
  * /commission-calculator. Guards direct entry itself (the navigation item is only a convenience): the
@@ -25,18 +27,19 @@ const CommissionCalculatorPage: React.FC = () => {
   else if (context.data.status !== "ready") notice = context.data.status;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Commission Calculator</h1>
-      <div className="rounded-xl border bg-card p-6">
-        {notice || context.data?.status !== "ready" ? (
-          <CalculatorNotice kind={notice ?? "loading"} onRetry={() => void context.refetch()} />
-        ) : (
-          <CalculatorWorkspace
-            key={`${user?.id}:${profile?.organization_id}:${context.data.grid.id}`}
-            context={context.data}
-          />
-        )}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-center gap-3">
+        <IconTile icon={Calculator} className="h-9 w-9 rounded-xl" />
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Commission Calculator</h1>
       </div>
+      {notice || context.data?.status !== "ready" ? (
+        <CalculatorNotice kind={notice ?? "loading"} onRetry={() => void context.refetch()} />
+      ) : (
+        <CalculatorWorkspace
+          key={`${user?.id}:${profile?.organization_id}:${context.data.grid.id}`}
+          context={context.data}
+        />
+      )}
     </div>
   );
 };

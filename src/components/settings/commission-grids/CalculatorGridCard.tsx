@@ -3,6 +3,8 @@ import { Calculator } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
+import { IconTile, StatusPill } from "@/components/commission/ui/CommissionSurface";
+import { cn } from "@/lib/utils";
 import { useCommissionGridMutations } from "@/hooks/useCommissionGridsAdmin";
 import type { AdminOverview } from "@/lib/commission/adminTypes";
 import ConfirmActionDialog, { type PendingConfirmation } from "./ConfirmActionDialog";
@@ -48,32 +50,44 @@ const CalculatorGridCard: React.FC<CalculatorGridCardProps> = ({ overview }) => 
   };
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center gap-2">
-        <Calculator className="h-4 w-4 text-muted-foreground" aria-hidden />
-        <h2 className="text-sm font-semibold text-foreground">Calculator grid</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {current
-          ? "Agents estimate first-year commission from this grid and their own contract level."
-          : "No grid is selected, so agents don't see the Commission Calculator."}
-      </p>
-      <div className="max-w-sm space-y-1.5">
-        <Label htmlFor="calculator-grid">Grid used by the calculator</Label>
-        <Select value={overview.calculatorGridId ?? NONE} onValueChange={choose} disabled={select.isPending}>
-          <SelectTrigger id="calculator-grid" aria-label="Grid used by the calculator">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>None — calculator off</SelectItem>
-            {eligible.map((grid) => (
-              <SelectItem key={grid.id} value={grid.id}>
-                {grid.name}
-                {grid.shared ? " (AgentFlow)" : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <section
+      className={cn(
+        "rounded-xl border p-4 shadow-sm transition-colors sm:p-5",
+        current ? "border-primary/25 bg-primary/[0.03]" : "border-border/60 bg-card",
+      )}
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <IconTile icon={Calculator} tone={current ? "primary" : "muted"} />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">Calculator grid</h2>
+              {current ? <StatusPill tone="success">Live</StatusPill> : <StatusPill tone="muted">Off</StatusPill>}
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {current
+                ? "Agents estimate first-year commission from this grid and their own contract level."
+                : "No grid is selected, so agents don't see the Commission Calculator."}
+            </p>
+          </div>
+        </div>
+        <div className="w-full space-y-1.5 md:w-80 md:shrink-0">
+          <Label htmlFor="calculator-grid" className="text-xs text-muted-foreground">Grid used by the calculator</Label>
+          <Select value={overview.calculatorGridId ?? NONE} onValueChange={choose} disabled={select.isPending}>
+            <SelectTrigger id="calculator-grid" aria-label="Grid used by the calculator" className="bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>None — calculator off</SelectItem>
+              {eligible.map((grid) => (
+                <SelectItem key={grid.id} value={grid.id}>
+                  {grid.name}
+                  {grid.shared ? " (AgentFlow)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <ConfirmActionDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
     </section>

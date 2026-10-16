@@ -44,18 +44,17 @@ const ContractLevelsSection: React.FC<ContractLevelsSectionProps> = ({ draft, di
   };
 
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-semibold text-foreground">Contract levels</h3>
+    <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
         {draft.levels.map((level) => (
-          <span key={level} className="inline-flex items-center gap-1 rounded-full border bg-muted/40 py-0.5 pl-2.5 pr-1 text-xs tabular-nums">
+          <span key={level} className="inline-flex items-center gap-0.5 rounded-md bg-muted/60 py-0.5 pl-2 pr-0.5 text-xs font-medium tabular-nums text-foreground ring-1 ring-inset ring-border/50">
             {level}
             <button
               type="button"
               aria-label={`Remove level ${level}`}
               disabled={disabled}
               onClick={() => remove(level)}
-              className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               <X className="h-3 w-3" aria-hidden />
             </button>
@@ -72,14 +71,15 @@ const ContractLevelsSection: React.FC<ContractLevelsSectionProps> = ({ draft, di
             disabled={disabled}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+            className="h-9 tabular-nums"
           />
           {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
         </div>
-        <Button type="button" variant="outline" size="sm" className="h-10" disabled={disabled || text === ""} onClick={add}>
+        <Button type="button" variant="outline" size="sm" className="h-9" disabled={disabled || text === ""} onClick={add}>
           <Plus className="mr-1 h-4 w-4" aria-hidden /> Add
         </Button>
       </div>
-    </section>
+    </div>
   );
 };
 

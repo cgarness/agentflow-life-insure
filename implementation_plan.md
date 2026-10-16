@@ -1,3 +1,97 @@
+## 2026-10-16 — IMPLEMENTED: Commission UI pre-PR corrections (approved by Chris; branch `refactor/commission-ui-polish`, draft PR)
+
+**Findings (measured on the synthetic harness, with a production-sized synthetic grid of 44 products and 59 variants):**
+1. **Save-bar clearance.** At page end the last matrix row sits above the bar at every size checked (390×844, 375×667, 1366×640, 1280×600). Tabbing into a row behind the stuck bar scrolls it into view in Chromium. **Failure:** on a 375×667 phone with a validation message showing, the matrix's own scroll box (`min(32rem,70vh)`) is taller than the space above the bar. Scrolling inside the matrix can then leave its last rows behind the bar until the page scrolls (container bottom 547px vs bar top 538px).
+2. **Collapsed-group validation.** Product and variant messages are shown only inside their carrier group; the save bar lists only grid-wide and rate messages. A collapsed group therefore signalled problems with a color-only dot while Save was disabled. Collapsing also unmounted the group's fields, which dropped per-variant UI state such as an open notes panel. No draft data was affected.
+
+**Corrections:**
+- `RateMatrix.tsx`: optional `scrollClassName` for the matrix scroll box. `GridEditor.tsx` passes `max-h-[max(16rem,min(32rem,calc(100dvh-15rem)))]`, so the whole matrix box fits above the tallest save bar. The viewer keeps its default.
+- `ProductsSection.tsx`:
+  - A collapsed group keeps its fields mounted with `hidden`, and the toggle gets `aria-controls` pointing at them.
+  - The color-only dot becomes a visible text label: "1 problem" / "N problems", counting that group's product and variant messages.
+- New test file `src/components/settings/commission-grids/__tests__/carrierGroups.test.tsx` covers collapse/expand, keyboard semantics (a focusable native button with `aria-expanded` and `aria-controls`), unsaved draft preservation across collapse and expand (including the save payload), and validation feedback while collapsed. Real Enter/Space activation is checked in the browser harness, because `@testing-library/user-event` is not installed and no dependency is added.
+- No change to hooks, `src/lib/commission/**`, calculations, permissions or save behaviour.
+- During implementation the problem pill became a solid `destructive` pill, because the tinted version was hard to read in dark mode. Results are in WORK_LOG.
+
+**Files:** `RateMatrix.tsx`, `GridEditor.tsx`, `ProductsSection.tsx` (all previously approved), the new test file (requested), `implementation_plan.md`, `WORK_LOG.md`.
+
+## 2026-10-16 — IMPLEMENTED on `refactor/commission-ui-polish` (approved; awaiting visual review, not merged, not deployed): Commission Calculator + Commission Grids visual refresh (UI only)
+
+**Implementation status (2026-10-16):** Chris approved the plan with extra direction: premium SaaS/fintech look, the estimate as the centerpiece, compact with no added explanatory text or duplicated legends, the editor as a workspace, 390px plus light and dark validation, and synthetic data only. Implemented as planned, with these deviations, all UI-only:
+- There is no grid-name chip in the calculator header, because the disclaimer already names the grid and its date.
+- There is no separate matrix legend, because the existing helper sentence already is one and the `—` placeholder marks blank cells.
+- Carrier groups in the editor can be collapsed (open by default, view state only; a red dot marks a collapsed group with problems).
+- The status pills are "Live"/"Off" on the calculator card and "Calculator"/"Enabled"/"Inactive" on rows.
+- `EditorHeader` is shared by the editor and the viewer, and `RateMatrix` gained an optional `framed` prop.
+- The list-row class lives in `CommissionSurface.tsx`, so `gridFormat.ts` stays untouched.
+
+Verification and evidence are in the WORK_LOG entry of the same date.
+
+**Original planning status:** Discovery done, nothing edited except this plan. Base `main` `1ad0226` (PR #447 merged). No conflicting work in the newest WORK_LOG entries: all are the commission backend/release records, and none touch these components. UI only. No change to commission math, RLS, RPCs, hooks, `src/lib/commission/**`, query keys, routes, permissions, release flow or schema. No migrations and no deploys.
+
+### 1. Visual diagnosis (current `main`)
+- **Calculator page:** one plain bordered box in `max-w-3xl`. The contract level is a single muted sentence, and the inputs are an undifferentiated 2-column grid with no grouping (product vs client). The result is a bordered `dl` list in which the headline number (first-year total) is only slightly larger than the other rows. The disclaimer is loose 12px text. Desktop leaves wide empty gutters, and the result sits below the fold under the inputs. Loading is a lone spinner.
+- **Settings › Commission Grids:** three identical `rounded-lg border p-4` boxes nested inside the Settings page's own bordered card, giving border-on-border. Headers are 14px with a grey icon. There is no visual difference between the calculator selection (the most consequential control) and the lists. Rows have no hover and wrap awkwardly, and badges are default shadcn. Empty states are a single sentence.
+- **Editor:** reads as a long form, not a workspace. There is no title or status at the top (only a ghost back button and "last edited"). Sections are bare `h3`s, carrier groups are boxed inside more boxes (three border levels), and the save bar is a flat strip. The conflict banner uses raw `amber-*` instead of the theme `warning` token.
+- **Rate matrix:** every editable cell is a full bordered input, so the grid becomes a wall of boxes. Blank (unavailable) cells look like empty inputs, and in read-only mode a blank "—" has the same weight as a real rate. Product heading rows are faint, there is no row hover/focus cue for scanning, and the sticky row header has no edge, so scrolled content runs under it.
+- **States:** loading is spinner + text everywhere (no skeletons), error banners are visually loud red boxes, and the viewer's load error is plain red text.
+
+### 2. Design direction: "modern tech CRM"
+- **Theme tokens only** (`card`, `muted`, `border/60`, `primary`, `success`, `warning`, `destructive`), so light and dark both work. No raw hex, no new library, no gradients, no glass, no new animation beyond existing `transition-colors`.
+- **Fewer, softer borders:** sections use `border-border/60` with a header row (icon tile `h-8 w-8 rounded-lg bg-primary/10 text-primary`, `text-sm font-semibold tracking-tight` title, one-line muted description, right-aligned actions). The same pattern as `ProfileSection` (agent profile) and `ProfileSettingsSection` (settings dividers).
+- **Typography hierarchy:** page `h1` `text-2xl font-semibold tracking-tight` (as on AI Agents and AI Testing). Small uppercase `tracking-wider` eyebrow labels for groups, and `tabular-nums` everywhere numbers live.
+- **Restrained accent:** primary is used only for the calculator selection, the headline estimate and focus. Status pills use a dot plus text (success = in use/saved, warning = unsaved/conflict, muted = inactive).
+- **States:** compact skeletons for loading (keeping the existing `role="status"` text for screen readers). Empty/no-access/error use a shared `StatePanel` (tinted icon tile, title, body, optional action). Error banners are softer (`destructive/5`) and keep `role="alert"`.
+- **No copy changes:** every existing user-facing string, aria-label and role stays exactly as is, because the tests and the save/permission flows depend on them. New text is limited to labels drawn from existing data (grid name, effective date, counts) and short structural headings ("Product", "Client", "Details", "Rates").
+
+### 3. Exact files
+**New (presentational only):**
+- `src/components/commission/ui/CommissionSurface.tsx`: `SurfaceSection` (section shell + header), `StatePanel` (empty/no-access/error), `StatusPill`, `SkeletonLines`. Shared by calculator and settings.
+- `src/components/settings/commission-grids/EditorHeader.tsx`: workspace header (back, grid title, status pills, last edited). Extracted from `GridEditor` to keep it under 200 lines.
+- `src/components/settings/commission-grids/EditorSaveBar.tsx`: sticky save bar. Extracted from `GridEditor`, with identical props/logic passed in.
+
+**Modified (markup/classes only; logic lines untouched):**
+- Calculator: `src/pages/CommissionCalculatorPage.tsx`, `src/components/commission/calculator/{CalculatorWorkspace,CalculatorInputs,CalculatorResults,CalculatorNotice}.tsx`
+- Settings: `src/components/settings/commission-grids/{CommissionGridsSettings,CalculatorGridCard,SharedGridsCard,PrivateGridsCard,LoadErrorNotice,GridViewer,GridEditor,GridDetailsSection,ContractLevelsSection,ProductsSection,ProductCard,VariantFields,RateMatrix,CreateGridDialog}.tsx`
+- Docs: `WORK_LOG.md` (newest-first entry), this plan (status update).
+
+**Not touched:** `useCalculatorInputs.ts`, `src/hooks/**`, `src/lib/commission/**`, `matrixRows.ts`, `gridFormat.ts`, `editorTypes.ts`, `ConfirmActionDialog.tsx`, `UnsavedChangesDialog.tsx` (wording deliberately matches Settings), Settings page/renderer/nav, all tests (they must pass unmodified), migrations and SQL.
+
+### 4. Planned changes by surface
+- **Calculator page:** widen to `max-w-5xl`. Header: title, plus a grid chip showing the selected grid's name and effective date (existing data). A contract-level tile keeps the exact `Your contract level: <value>` node. On `lg` it becomes a two-column workspace: inputs on the left in two labelled groups, Product (policy type → carrier → product) and Client (age, premium, term), and on the right a results card that is `lg:sticky`. The results card shows "Rate used" as a chip row, then the first-year total as the hero figure (`text-3xl`, primary accent), then Advance and Months 10–12 as a 2×2 breakdown. The same `dl aria-label="Estimate"` has its `dd` order unchanged. The empty result becomes a dashed panel with the calculator icon; the unavailable/config message keeps its single `role="status"`. The disclaimer becomes a muted footnote panel with an Info icon. Notices use `StatePanel`, and loading becomes a skeleton of the workspace.
+- **Settings overview:** a one-line intro with an "Estimates only" muted pill (existing sentence kept). **Calculator grid** becomes a featured panel: primary-tinted border when on, a `StatusPill` ("In use" / "Off", built from existing data), the selector right-aligned on desktop and full-width on mobile. **AgentFlow grids** and **Your agency's grids** use `SurfaceSection` with count badges. Rows get hover backgrounds, name + pills on line 1, dot-separated meta on line 2, and actions grouped right; Delete is ghost with destructive hover. Empty states use `StatePanel` with the existing sentences.
+- **Grid viewer:** the same header pattern as the editor (title, meta, Duplicate), a "Managed by AgentFlow" info strip, the matrix in a framed panel, and source notes as a tidy definition list. Its plain red load-error text becomes a `StatePanel` with the same message and `role="alert"`. No Retry is added, so its fetch behaviour stays as it is.
+- **Grid editor:** `EditorHeader` (title = draft name, Calculator/Active/Inactive pills, last edited). Sections Details / Contract levels / Carriers and products / Rates as `SurfaceSection`s. Carrier groups get a cleaner header bar with a product count, and product/variant cards drop one border level (`bg-muted/30` inset rather than border-in-border). Level chips get clearer remove affordance and focus rings. The conflict banner moves to `warning` tokens (same text, same `role="alert"`).
+- **Save bar:** sticky, `bg-card/95` with `backdrop-blur-sm` and a top border + soft upward shadow. A status dot (warning when "Unsaved changes", success when "All changes saved"; text unchanged), a validation summary as a compact list with an issue count, and Discard/Save right-aligned and full-width on mobile. Same buttons, same disabled rules.
+- **Rate matrix (behaviour identical, memo comparator unchanged):**
+  - Header: sticky, solid `bg-muted`, a "Level" eyebrow, `tabular-nums` level numbers.
+  - Sticky first column: `bg-card` with a right-edge divider so scrolled cells never bleed under it.
+  - Product heading rows: a `primary` left accent bar with semibold text, sticky-left so they stay readable when scrolled sideways.
+  - Rows: hover tint plus `focus-within` tint, so the row being edited is obvious.
+  - Editable cells: borderless `bg-muted/40` fields that gain a border on hover and a ring on focus, plus a `—` placeholder that visibly marks blank = unavailable.
+  - Invalid cells: keep `border-destructive` and gain `bg-destructive/10 text-destructive`.
+  - Read-only: blank `—` drawn at `text-muted-foreground/50` so real rates (including `0`) stand out.
+  - A small legend (blank / 0 / invalid) built from the existing helper sentence.
+  - Mobile: `max-h` uses `min(32rem,70vh)`.
+
+### 5. Risks and mitigations
+- **Test selectors:** the tests depend on exact strings, roles and counts (`Your contract level:` own text node, a single `role="status"` in results, `dl[aria-label=Estimate]` `dd` order, a single `role="alert"` during conflict, a cell `className` containing `border-destructive`, button names such as `Delete`, `Disable`, `Remove level`, `Save changes`). Mitigation: no copy or role changes, no added `role="status"`/`role="alert"`, and all tests run unmodified.
+- **Draft preservation invariant:** the editor must stay at the same element position in `CommissionGridsSettings` across background errors. Mitigation: that file's branch structure is left unchanged (wrapper classes only).
+- **Sticky stacking:** the save bar is `z-30` and the matrix header `z-20/30` inside its own scroll container. The save bar's `-mx-6` relies on the Settings card's `p-6`, which is unchanged.
+- **The 200-line rule:** `GridEditor` is at 161 lines, so the header and save bar are extracted.
+- **Private data (D1):** before/after screenshots may use **synthetic test fixtures only**, never the FFL grid or production data.
+- **Matrix performance:** class changes only. No extra per-cell state, effects or context.
+
+### 6. Stages
+1. Branch `refactor/commission-ui-polish` from `main`; `npm ci`.
+2. Shared primitives (`CommissionSurface.tsx`).
+3. Calculator page + components.
+4. Settings overview (calculator card, shared/private lists, intro, error notice, create dialog option cards).
+5. Editor shell (header, sections, carriers/products/variants, conflict banner, save bar) + viewer.
+6. Rate matrix.
+7. Verify: `npx tsc --noEmit`, `npx vitest run src/components/commission src/components/settings/commission-grids src/lib/commission`, `npx eslint` on touched files, `npm run build`. Optional synthetic-fixture screenshots (light + dark, desktop + mobile) via a throwaway harness in the scratchpad (not committed).
+8. `WORK_LOG.md` entry + plan status, then commit and push the branch. **No PR unless Chris asks.**
+
 ## 2026-10-15 — Commission backend release complete; frontend PR #447 pending merge
 
 **Production:** Three byte-verified migrations are installed in AGENTFLOW CRM (`20261015211858` schema,

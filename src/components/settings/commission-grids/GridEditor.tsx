@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import { AlertTriangle, Grid3x3, Layers, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUnsavedChanges } from "@/contexts/UnsavedChangesContext";
 import { toast } from "@/hooks/use-toast";
@@ -7,8 +7,11 @@ import { useCommissionGridMutations, useGridSnapshot } from "@/hooks/useCommissi
 import { useGridEditorDraft } from "@/hooks/useGridEditorDraft";
 import { useUnsavedNavigationGuard } from "@/hooks/useUnsavedNavigationGuard";
 import { CommissionApiError } from "@/lib/commission/errors";
+import { LoadingBlock, SurfaceSection } from "@/components/commission/ui/CommissionSurface";
 import ConfirmActionDialog, { type PendingConfirmation } from "./ConfirmActionDialog";
 import ContractLevelsSection from "./ContractLevelsSection";
+import EditorHeader from "./EditorHeader";
+import EditorSaveBar from "./EditorSaveBar";
 import GridDetailsSection from "./GridDetailsSection";
 import LoadErrorNotice from "./LoadErrorNotice";
 import { errorMessage, lastEdited } from "./gridFormat";
@@ -62,11 +65,7 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
     return <LoadErrorNotice message={errorMessage(snapshot.error)} onRetry={retryRefresh} retrying={snapshot.isFetching} />;
   }
   if (!draft || !base) {
-    return (
-      <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading grid…
-      </div>
-    );
+    return <LoadingBlock label="Loading grid…" rows={4} />;
   }
 
   const busy = save.isPending || editor.awaitingSaved;
@@ -112,46 +111,55 @@ const GridEditor: React.FC<GridEditorProps> = ({ gridId, calculatorGridId, onClo
       : onClose();
 
   return (
-    <div className="space-y-6 pb-20">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" onClick={leaveEditor}>
-          <ArrowLeft className="mr-1 h-4 w-4" aria-hidden /> Commission grids
-        </Button>
-        <p className="text-xs text-muted-foreground">{lastEdited(base.grid.updatedAt, base.grid.updatedByName)}</p>
-      </div>
+    <div className="space-y-5">
+      <EditorHeader
+        title={draft.name.trim() || "Untitled grid"}
+        meta={lastEdited(base.grid.updatedAt, base.grid.updatedByName)}
+        backLabel="Commission grids"
+        onBack={leaveEditor}
+        calculator={gridId === calculatorGridId}
+        active={draft.isActive}
+      />
       {snapshot.isError && <LoadErrorNotice message={refreshMessage} onRetry={retryRefresh} retrying={snapshot.isFetching} />}
       {(conflict || editor.newerRevision) && (
-        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm">
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-foreground">
           <span className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden />
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden />
             This grid was changed by someone else. Reload to see the latest version.
           </span>
-          <Button size="sm" variant="outline"
+          <Button size="sm" variant="outline" className="h-8 bg-background"
             onClick={() => (editor.dirty ? ask({ title: "Reload and discard your changes?", description: "Your unsaved changes will be lost.", confirmLabel: "Reload", destructive: true, onConfirm: () => void reload() }) : void reload())}>
             Reload
           </Button>
         </div>
       )}
-      <GridDetailsSection draft={draft} disabled={busy} onChange={actions.setDetails} />
-      <ContractLevelsSection draft={draft} disabled={busy} onAdd={actions.addLevel} onRemove={actions.removeLevel} confirm={ask} />
-      <ProductsSection draft={draft} disabled={busy} actions={actions} messagesFor={messagesFor} confirm={ask} />
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold text-foreground">Rates (% of annual premium)</h3>
-        <p className="text-xs text-muted-foreground">Leave a cell blank when the product isn&apos;t available at that level. Enter 0 for a real zero rate.</p>
-        <RateMatrix levels={draft.levels} rows={rows} value={(ref, level) => draft.rates[ref]?.[level] ?? ""} onChange={actions.setRate} invalidCells={invalidCells} readOnly={busy} />
-      </section>
-      <div className="sticky bottom-0 z-30 -mx-6 flex flex-wrap items-center justify-between gap-3 border-t bg-card px-6 py-3">
-        <div className="space-y-0.5 text-xs">
-          {editor.dirty ? <p className="font-medium text-foreground">Unsaved changes</p> : <p className="text-muted-foreground">All changes saved</p>}
-          {summary.map((message) => <p key={message} className="text-destructive">{message}</p>)}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={!editor.dirty || busy} onClick={editor.discard}>Discard</Button>
-          <Button disabled={!editor.dirty || busy || issues.length > 0} onClick={requestSave}>
-            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />} Save changes
-          </Button>
-        </div>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <SurfaceSection icon={Settings2} title="Details" as="h3">
+          <GridDetailsSection draft={draft} disabled={busy} onChange={actions.setDetails} />
+        </SurfaceSection>
+        <SurfaceSection icon={Layers} title="Contract levels" count={draft.levels.length} as="h3">
+          <ContractLevelsSection draft={draft} disabled={busy} onAdd={actions.addLevel} onRemove={actions.removeLevel} confirm={ask} />
+        </SurfaceSection>
       </div>
+      <ProductsSection draft={draft} disabled={busy} actions={actions} messagesFor={messagesFor} confirm={ask} />
+      <SurfaceSection
+        icon={Grid3x3}
+        title="Rates (% of annual premium)"
+        description="Leave a cell blank when the product isn't available at that level. Enter 0 for a real zero rate."
+        as="h3"
+        bodyClassName="p-0 sm:p-0"
+      >
+        <RateMatrix levels={draft.levels} rows={rows} value={(ref, level) => draft.rates[ref]?.[level] ?? ""} onChange={actions.setRate} invalidCells={invalidCells} readOnly={busy} framed={false}
+          scrollClassName="max-h-[max(16rem,min(32rem,calc(100dvh-15rem)))]" />
+      </SurfaceSection>
+      <EditorSaveBar
+        dirty={editor.dirty}
+        busy={busy}
+        summary={summary}
+        canSave={editor.dirty && !busy && issues.length === 0}
+        onDiscard={editor.discard}
+        onSave={requestSave}
+      />
       <ConfirmActionDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
       <UnsavedChangesDialog open={guard.blocked} onStay={guard.cancel} onLeave={guard.confirm} />
     </div>

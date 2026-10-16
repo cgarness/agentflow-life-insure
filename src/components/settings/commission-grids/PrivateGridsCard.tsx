@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { FolderLock, Pencil, Plus, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { GRID_ROW, StatePanel, StatusPill, SurfaceSection } from "@/components/commission/ui/CommissionSurface";
 import { useCommissionGridMutations } from "@/hooks/useCommissionGridsAdmin";
 import type { AdminGridSummary } from "@/lib/commission/adminTypes";
 import ConfirmActionDialog, { type PendingConfirmation } from "./ConfirmActionDialog";
@@ -46,42 +46,51 @@ const PrivateGridsCard: React.FC<PrivateGridsCardProps> = ({ grids, calculatorGr
     });
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <FolderLock className="h-4 w-4 text-muted-foreground" aria-hidden />
-          <h2 className="text-sm font-semibold text-foreground">Your agency&apos;s grids</h2>
-        </div>
-        <Button size="sm" onClick={onCreate}>
+    <SurfaceSection
+      icon={FolderLock}
+      title="Your agency's grids"
+      count={grids.length}
+      action={
+        <Button size="sm" className="h-8" onClick={onCreate}>
           <Plus className="mr-1 h-4 w-4" aria-hidden /> New grid
         </Button>
-      </div>
+      }
+      bodyClassName="py-1.5"
+    >
       {grids.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No private grids yet. Start blank, copy an AgentFlow grid&apos;s carrier list, or duplicate one with its rates.
-        </p>
+        <StatePanel
+          icon={FolderLock}
+          compact
+          body="No private grids yet. Start blank, copy an AgentFlow grid's carrier list, or duplicate one with its rates."
+        />
       ) : (
-        <ul className="divide-y">
+        <ul className="-mx-2 divide-y divide-border/40">
           {grids.map((grid) => (
-            <li key={grid.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <li key={grid.id} className={GRID_ROW}>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
                   {grid.name}
-                  {!grid.isActive && <Badge variant="outline">Inactive</Badge>}
-                  {grid.id === calculatorGridId && <Badge>Calculator</Badge>}
+                  {grid.id === calculatorGridId && <StatusPill tone="primary">Calculator</StatusPill>}
+                  {!grid.isActive && <StatusPill tone="muted">Inactive</StatusPill>}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {effective(grid.effectiveDate)} · {grid.productCount} product{grid.productCount === 1 ? "" : "s"} ·{" "}
                   {ORIGIN_LABEL[grid.origin] ?? grid.origin}
                 </p>
-                <p className="text-xs text-muted-foreground">{lastEdited(grid.updatedAt, grid.updatedByName)}</p>
+                <p className="text-xs text-muted-foreground/80">{lastEdited(grid.updatedAt, grid.updatedByName)}</p>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => onEdit(grid.id)}>
-                  <Pencil className="mr-1 h-4 w-4" aria-hidden /> Edit
+              <div className="-ml-2.5 flex items-center gap-1 sm:ml-0">
+                <Button size="sm" variant="ghost" className="h-8" onClick={() => onEdit(grid.id)}>
+                  <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Edit
                 </Button>
-                <Button size="sm" variant="ghost" className="text-destructive" disabled={remove.isPending} onClick={() => askDelete(grid)}>
-                  <Trash2 className="mr-1 h-4 w-4" aria-hidden /> Delete
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  disabled={remove.isPending}
+                  onClick={() => askDelete(grid)}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Delete
                 </Button>
               </div>
             </li>
@@ -89,7 +98,7 @@ const PrivateGridsCard: React.FC<PrivateGridsCardProps> = ({ grids, calculatorGr
         </ul>
       )}
       <ConfirmActionDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />
-    </section>
+    </SurfaceSection>
   );
 };
 
