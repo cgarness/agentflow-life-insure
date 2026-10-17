@@ -1,3 +1,388 @@
+## 2026-10-17 — P0 SECURITY BUGFIX, PLAN AWAITING CHRIS'S APPROVAL: profile hierarchy integrity and Team Leader authorization
+
+**Status:** Plan only. This entry is the only file changed. No migration is authored, nothing is applied or deployed, and production was accessed read-only (catalog/count SELECTs, the security advisor, 24 h of API logs). Base: `main` at `95009d1`. Proposed branch: `claude/hierarchy-integrity-p0`. Read in full before planning: `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md` (the Work Log in four parallel passes). The plan went through an adversarial review (trigger/MVCC behaviour prototyped on a throwaway local PostgreSQL 16 cluster, authorization completeness, migration safety, requirements traceability, breakage hunt); its corrections are folded in.
+
+**Plain summary.** Every user record names that person's manager, and those names are right. The database also keeps a shortcut copy of each person's whole chain of managers, and every Team Leader permission reads that copy. The copy is wrong for 9 of 16 users because of three bugs. So today Desiree cannot see her own agents Teo, Will and Erik, but she *can* see one agent who reports to Chris.
+
+The fix makes the database rebuild the shortcut automatically whenever someone is added or moved, including everyone under a moved manager. It refuses impossible set-ups: being your own manager, loops, a missing manager, a manager in another agency, or a chain deeper than 32 levels. A separately approved one-time repair then corrects the 9 records.
+
+What people will notice:
+- Desiree will be able to see, edit and delete her three agents' leads, clients and calls (about 4,000 call records, 410 with recordings) and edit their profile details, including commission level and licensed states. She loses the agent who isn't hers.
+- Nobody else's permissions change. Chris's Contacts "Team" list shows three more names.
+- A deactivated or deleted Team Leader no longer counts as anyone's manager.
+- A new invite that names an invalid manager will fail at signup. None is pending today.
+- Unchanged: permission rules, roles, agencies, the dialer, commissions and the website.
+
+Nothing touches production until each step is approved separately.
+
+> **Found during this review, outside the hierarchy scope, and urgent (D0):** `public.list_unrestricted_users()` lets anyone holding the public app key download every profile in every agency (42 columns, including email, phone and NPN). It has no callers. The last 24 hours of API logs (36,113 requests) show no call to it, but older logs are not available. The plan below recommends sealing it today as its own tiny, separately approved change.
+
+### 1. Evidence (read-only, production `jncvvsvckxhqgqvkppmj`, PostgreSQL 17.6, 2026-10-17)
+
+**Hierarchy state.**
+- 16 profiles in 4 agencies; 11 have an `upline_id`.
+- 0 self-links, 0 loops, 0 cross-agency links, 0 missing parents, 0 NULL-agency profiles. Maximum depth 2. Statuses present: Active and Deleted (the code also uses Inactive).
+- 9 stored paths differ from the `upline_id` chain: 6 Active (Alexa, the "chris" Agent account, Keenyun, Teo, Will, Erik) and 3 Deleted (Nick, Test, Nicholas).
+- `is_ancestor_of` today: **3 of 11** direct links pass, **5 of 15** ancestor pairs pass, and there is **1 false positive**. Desiree (Team Leader) counts as manager of the "chris" Agent, whose `upline_id` is Admin Chris; that is a live over-grant. Desiree's real reports Teo, Will and Erik all fail.
+- 1 Pending invitation (its upline is valid).
+
+**Root cause (all three visible in the stored data).**
+1. **Insert.** `trg_update_hierarchy_path` (BEFORE INSERT OR UPDATE OF `upline_id`) calls `compute_hierarchy_path(NEW.id)`, which re-reads the row from the table. On INSERT the row is not visible yet, so every profile created with an upline (every invite signup, through `handle_new_user`) gets a self-only path. Erik shows this.
+2. **Reassignment.** On UPDATE the same call reads the committed row, so the path comes from the **old** upline. Teo and Will (moved from Chris to Desiree) still carry Chris's path. The "chris" Agent (moved from Desiree to Chris) still carries Desiree's, which is the false positive.
+3. **Cascade.** `trg_cascade_hierarchy_update` updates only direct children, and its UPDATE sets only `hierarchy_path`, so grandchildren are never recomputed.
+
+Also: `compute_hierarchy_path` stops silently at depth 20 and treats a self-link as a root, and nothing rejects loops or cross-agency uplines.
+
+**Live definitions (md5 of `pg_get_functiondef`, captured under the MCP default `search_path`; re-captured at Gate 4 under the migration's pinned `search_path`):**
+
+| Object | md5 | Owner / mode / `search_path` | EXECUTE today |
+|---|---|---|---|
+| `public.compute_hierarchy_path(uuid)` | `b9aaa16d5b974676ce18d55c5dce9e18` | postgres / DEFINER / `public` | PUBLIC, anon, authenticated, service_role |
+| `public.update_hierarchy_path()` (trigger) | `d9ff2d22fcc0bd5e55ea288850ad1cfe` | same | same |
+| `public.cascade_hierarchy_update()` (trigger) | `8392e93e9b09f726dcb097cb54dae522` | same | same |
+| `public.is_ancestor_of(uuid,uuid)` (sql STABLE) | `7c5213032696734f2e0c5ffe5a71a07a` | same | same |
+| `public.enforce_profile_field_authorization()` (kept byte-identical) | `b9b4c345b470c94923cddace49cd1d5b` | postgres / DEFINER / `public, pg_temp` | postgres, service_role |
+| `public.on_profile_update()` (kept) | `b44d4c7ddc97d62d2cc9a3b22a8fc057` | postgres / DEFINER / none | PUBLIC, anon, authenticated, service_role |
+| `public.handle_new_user()` (kept) | `83e132e4d1c945c14eba0337727505d5` | postgres / DEFINER / `public` | PUBLIC, anon, authenticated, service_role |
+| `public.list_unrestricted_users()` (D0) | `41b9e7d550c0d013c9306db9dd2b7b27` | postgres (BYPASSRLS) / DEFINER / none | PUBLIC, anon, authenticated, service_role |
+
+**Other facts the design relies on:**
+- **`profiles` triggers** (definition md5):
+  - `trg_update_hierarchy_path` `800fa050…`
+  - `trg_cascade_hierarchy_update` `869f33cd…`
+  - `trg_00_enforce_profile_field_authorization` `fc02958e…`
+  - `on_profile_update_trigger` `3a263cfd…`
+  - `profiles_updated_at` `8dc89bf1…`
+  - `trg_zz_platform_admin_notify_user_registered` `b0225cf3…`
+  - All six are enabled.
+- **Table and extension:** `profiles` is owned by postgres (not a superuser, BYPASSRLS), with RLS on and FORCE off. ltree 1.3 lives in schema `public`. `plpgsql.variable_conflict = error`.
+- **Isolation:** the default is read committed, and no role or function overrides it.
+- **Timeouts:** `authenticator`/`authenticated` have 8 s lock and statement timeouts. `supabase_auth_admin` has none.
+- **Constraints:** `profiles_upline_id_fkey` is NO ACTION. There are no deferrable foreign keys on `profiles`.
+- **Security advisor:** it flags all four hierarchy functions, plus `list_unrestricted_users`, as SECURITY DEFINER functions callable by `anon` and `authenticated` over `/rest/v1/rpc/*`.
+
+**Every hierarchy consumer.** All of them pass the actor (`auth.uid()`, directly or via `private.campaign_actor()`) as the ancestor. No RLS policy is changed by this plan.
+- **RLS policies** (`TO authenticated`, JWT role 'Team Leader'; 'Team Lead' also accepted on calls and contact_emails):
+  - `calls` Select/Insert/Update/Delete (`agent_id`)
+  - `clients` ALL (`assigned_agent_id`)
+  - `leads` ALL (`user_id`)
+  - `recruits` ALL (`assigned_agent_id`)
+  - `contact_emails_select` (`owner_user_id`)
+  - `profiles_select_hierarchical` (`id`)
+  - `tasks_select_team_leader` (`TO public`) compares paths directly.
+- **Functions:**
+  - `private.assert_may_assign_to`, `private.can_administer_campaign`, `private.can_authorize_campaign_lead` (campaigns)
+  - `private.performance_scope` (Dashboard team performance)
+  - `profile_authz.can_update_profile` (who may update a profile row)
+  - `public._contacts_filtered_leads` and `public.get_contact_scope_agents` (Contacts Team scope)
+  - `public._import_undo_context`
+  - `public.convert_lead_to_client_atomic`, `public.convert_lead_to_client_with_sales`, `public.create_client_with_sale`, `public.record_client_policy`, `public.update_client_with_policy_sale` (sales and win attribution)
+  - `public.delete_contact`
+  - `public.notify_win`
+- **Separate `upline_id` walkers, unaffected:** `private.resolve_downline_ids` (the Reports page via `report_access_v2`, and profile book stats) and the frontend `getAgentScopeIds`.
+- **Reflexive pair:** only `update_client_with_policy_sale` relies on it (`is_ancestor_of(x, x)` = true).
+- **Direct RPC calls:** no frontend or Edge code calls `is_ancestor_of` or `compute_hierarchy_path` as an RPC.
+
+**Authorization delta of the repair (simulated read-only; counts only):**
+
+| Person | Gains | Loses |
+|---|---|---|
+| **Desiree** (Team Leader, Active) | Teo, Will, Erik as downline: leads +116 (read, write, delete through the ALL policy); clients +7; calls +3,997 (read, update of unguarded columns such as status and recording URL, delete; inserts for others stay blocked), 410 with recordings; profile edits on the three (email, phone, names, `commission_level` used by the Commission Calculator, NPN, `licensed_states` used by the dialer's licensed-state gate, carriers, goals, dialer preferences); +278 campaign-lead pairs she may attach to her Team campaigns; Dashboard team performance becomes {self, Teo, Will, Erik} (8 wins); Contacts Team scope and the Add Lead/import assignee pickers list the three; may record sales attributed to them and announce their wins; can undo their imports within 24 h (0 today); Realtime `calls` events and the sticky outbound caller-ID now include their calls | the "chris" Agent: 106 leads, 1 call, profile edits; links to those leads stop resolving for her |
+| **Nick** (Team Leader, Deleted, banned) | Test (Deleted) in the stored path only; under D12 `is_ancestor_of` stays false for him | — |
+| **Chris** (Admin) | no authorization change (Admin branches are agency-wide); Contacts "Team" list +Alexa, Keenyun, Erik; Team grid +425 leads | — |
+| **Everyone else** | no change; recruits, contact_emails and tasks (1 task, 0 affected) unchanged | — |
+
+**Unchanged:** the Contacts Agents tab, the Reports page, and the Agent Profile Team tab. All three already walk `upline_id`.
+
+**Concurrent work.**
+- **Draft PR #455** (opened today) adds a "Team Leader hierarchy predicate is unreliable" note to `AGENT_RULES.md` and the root plan, plus a new `get_contact_scope_agents` caller. Its doc edits conflict textually with this work's.
+- **Other PRs:** #451, #442, #441, #425, #378 and #294 touch the root plan and/or `WORK_LOG.md`. No open PR touches `profiles`, the hierarchy, invite/create-user code or user management.
+- **Commission:** PR #447 is merged and is not touched.
+- **Production:** migrations were applied today (`20261017043142`, `20261017043757`), so the Gate 4 preflight re-checks for in-flight work.
+
+**Process gates in the record.**
+- **S1 deferral.** The 2026-08-26 Work Log entry deferred this repair until the S1 migration-history consolidation is done. S1 never ran, and 57 post-baseline migrations have been applied since, so its stated reason no longer holds (D1).
+- **Deploy to production:** must be OFF at merge (#21, #30). Only Chris can confirm.
+- **Version reconciliation:** `apply_migration` stamps its own version, and the file is renamed afterwards with identical bytes (#25, #35).
+- **Immutability:** applied files are never edited.
+- **Supabase Preview check:** expected to skip or fail. It is not evidence, and no preview branch is used.
+
+### 2. Contract after the fix
+
+| Area | Rule |
+|---|---|
+| Source of truth | `profiles.upline_id`. `hierarchy_path` is a database-derived cache. Any written value, including one from `service_role`, is replaced by the derived value (D2). |
+| Derivation | The path lists the `upline_id` chain root first, ending in the row itself. Each label is the UUID with `-` changed to `_` (today's format, so the GiST index and stored values stay valid). One private function derives it for the triggers, the rebuild and `compute_hierarchy_path`. |
+| Inserts | A profile inserted with an upline gets the parent's chain plus itself. A profile with no upline gets its own label (this includes `handle_new_user`'s no-metadata branch). |
+| Reassignment | The moved profile's path comes from its **new** upline. Every descendant at any depth is recomputed in one set-based statement once the moving statement finishes. The moved row is re-derived from the final state. |
+| Refused (nothing is written) | SQLSTATE 23514 (23503 for a missing upline), with a stable `HINT` `profile_hierarchy:<reason>` and a readable message that never contains "does not exist" (`supabase-users.ts:446` retries on that phrase). Refused cases: self-link (`self`); loop (`loop`); missing upline (`missing_upline`); upline in another agency (`cross_agency`); upline on a profile with no agency (`no_agency`); an agency change that would separate a profile from its upline or reports (`cross_agency`); a chain deeper than 32 levels (`too_deep`). The agency check proves consistency only. `handle_new_user` metadata can be trusted only because public GoTrue signup is disabled (precondition P1). |
+| No silent truncation | Maximum depth 32 levels (production maximum is 2). Deeper is refused, never cut. It is checked in the derivation and on the largest recomputed subtree before any write. The limit exists because the production GiST index fails with internal errors at roughly 51–68 UUID levels, and it stays below `resolve_downline_ids`' limit of 100 (D14). |
+| Deleted, Inactive and removed managers | The walk passes through any status, so a Deleted or Inactive intermediate manager never cuts off the agents beneath them. "Remove from team" (`upline_id` → NULL) detaches the whole subtree, which follows its member. |
+| Concurrency | Every statement that inserts profiles or names `upline_id`, `organization_id` or `hierarchy_path` takes one transaction-scoped advisory lock (`hashtextextended('agentflow:profile_hierarchy:v1', 0)`) in a statement-level BEFORE trigger. That happens before any row lock that statement takes. Derivation and validation then read the state after the lock. The statement's own WHERE clause still uses its earlier snapshot. A transaction that already holds `profiles` or `auth.users` row locks from an earlier statement can deadlock with a hierarchy writer; PostgreSQL then aborts one side (40P01) and nothing invalid is committed. Real hierarchy changes are refused (0A000) under REPEATABLE READ or SERIALIZABLE (D5). |
+| Multi-row statements | Validated row by row against the state at that row, then re-validated as a whole when the statement finishes. A change that is valid only as a set may be refused, depending on row order. Issue such changes as ordered single-row statements; data-only restores load parents first. |
+| Unchanged rows | An UPDATE whose `upline_id`, `organization_id` and `hierarchy_path` are all unchanged does no validation and no recompute (User Management sends `upline_id` on every save). INSERT always derives. |
+| `is_ancestor_of` | Same name, arguments and return type; `LANGUAGE sql STABLE SECURITY DEFINER`, owner postgres, `search_path = public, pg_temp`. One `SELECT EXISTS (…)` that returns only TRUE or FALSE and never raises. TRUE iff both rows exist and either they are the same profile, or all of: the ancestor is Active (D12); both share the same non-NULL agency (D3); the ancestor's path is non-NULL and contains the descendant's; and, when a JWT is present, the ancestor is `auth.uid()` (D4-b). FALSE for NULL arguments, missing rows, NULL paths and NULL agencies. |
+| Grants (D4) | `is_ancestor_of`: postgres, authenticated, service_role (RLS needs authenticated). `compute_hierarchy_path`, `update_hierarchy_path`, `cascade_hierarchy_update`: postgres and service_role only. New private functions: postgres only. No recovery script ever re-grants PUBLIC or anon. |
+| Unchanged | Every RLS policy, table and column grant, role and permission. `enforce_profile_field_authorization` stays byte-identical: it still compares any changed path with `public.compute_hierarchy_path(NEW.id)`, which now returns the derived value, so an Admin's subtree recompute passes and a forged path still fails. Also unchanged: `on_profile_update`, `handle_new_user`, `set_claim`, `custom_access_token_hook`, `private.resolve_downline_ids`, all 15 consumer functions, Edge Functions and `types.ts`. |
+| Claims | The one-time repair writes no `auth.users` claims (D6). A runtime subtree move still calls `set_claim` twice per moved or recomputed row, including Deleted rows whose claims were cleared (D6, F3). |
+
+### 3. Exact database objects
+
+**M-A, code migration** `supabase/migrations/<authored-ts>_profile_hierarchy_integrity.sql`. Replayable, contains no production data values, one transaction:
+1. `SET LOCAL lock_timeout = '1s'; SET LOCAL statement_timeout = '15s'; SET LOCAL search_path = "$user", public, extensions; LOCK TABLE public.profiles IN SHARE ROW EXCLUSIVE MODE;`. This is the house convention; readers are never blocked.
+2. **Preimage guard (DO).** Refuse unless all of the following hold:
+   - **Function preimages:** the md5s (under the pinned `search_path`), owners, `proconfig` (as `text[]`) and ACLs (as `aclitem[]`, element order included) in §1 match for the four hierarchy functions, the guard, `on_profile_update` and `handle_new_user`.
+   - **Triggers:** exactly six non-internal `profiles` triggers with the §1 md5s, all `tgenabled = 'O'`.
+   - **Extension:** ltree is in schema `public`.
+   - **Replay refusal:** no `private.profile_hierarchy_*` object exists yet.
+   - **Structural validity:** 0 self-links, loops, missing parents, cross-agency links, uplines on NULL-agency profiles, and chains deeper than 32. Stale paths are allowed.
+3. **New `private.profile_hierarchy_derive(p_self uuid, p_upline uuid, p_org uuid) → ltree`.** VOLATILE, SECURITY DEFINER, `search_path = public, pg_temp`. It walks up from `p_upline` with a visited array, applies every refusal in §2, and checks isolation when it is asked to derive a path that has an upline.
+4. **New `private.profile_hierarchy_serialize()`.** A statement-level trigger function that only takes the advisory lock.
+5. **New `private.profile_hierarchy_rebuild(p_expected_count integer, p_expected_fingerprint text) → integer`.** Postgres-only:
+   - computes the stale set: rows whose path differs from the derived value;
+   - refuses (P0001) unless its count, and the md5 of `string_agg(id || ':' || coalesce(old_path, '') || '>' || new_path, ',' ORDER BY id)`, equal the arguments;
+   - disables `on_profile_update_trigger`, updates exactly those rows, re-enables the trigger, and returns the count.
+6. `CREATE OR REPLACE` `public.compute_hierarchy_path(uuid)`: reads the row's upline and agency and calls derive. A missing row still returns its single label, as today.
+7. `CREATE OR REPLACE` `public.update_hierarchy_path()`:
+   - UPDATE with all three columns unchanged → no-op;
+   - otherwise `NEW.hierarchy_path := derive(NEW.id, NEW.upline_id, NEW.organization_id)`.
+8. `CREATE OR REPLACE` `public.cascade_hierarchy_update()`:
+   - check that the moved row's children share its agency;
+   - re-derive the moved row from the table;
+   - recompute the whole subtree in one recursive CTE, refusing `too_deep` before any write;
+   - update only rows whose path differs.
+
+   A loop below the moved row cannot be reached, because derive refuses it first. The depth bound covers it anyway.
+9. `CREATE OR REPLACE` `public.is_ancestor_of(uuid, uuid)` per §2.
+10. `CREATE OR REPLACE TRIGGER trg_update_hierarchy_path BEFORE INSERT OR UPDATE OF upline_id, organization_id, hierarchy_path … FOR EACH ROW`. The name is kept, so it still fires after `trg_00_*`.
+11. `CREATE OR REPLACE TRIGGER trg_cascade_hierarchy_update AFTER UPDATE OF upline_id, organization_id … FOR EACH ROW WHEN (OLD.upline_id IS DISTINCT FROM NEW.upline_id OR OLD.organization_id IS DISTINCT FROM NEW.organization_id)`.
+12. `CREATE TRIGGER trg_profiles_hierarchy_serialize BEFORE INSERT OR UPDATE OF upline_id, organization_id, hierarchy_path … FOR EACH STATEMENT`.
+13. REVOKE and GRANT per §2. `REVOKE ALL` on the three private functions from PUBLIC, anon, authenticated and service_role.
+14. **Postconditions:**
+    - the md5 of every `(id, hierarchy_path, updated_at)` is unchanged (M-A changes no data);
+    - exact postimage md5s, ACLs and trigger set;
+    - all triggers enabled;
+    - the guard, `on_profile_update` and `handle_new_user` are unchanged.
+15. `NOTIFY pgrst, 'reload schema'`.
+
+**M-B, bounded one-time repair** `supabase/ops/hierarchy-integrity/<authored-ts>_profile_hierarchy_rebuild.sql`:
+- **How it is applied:** separately approved, through `apply_migration`. It is kept outside the CLI migration glob, following the 2026-10-05 reviewed-repair precedent in `supabase/ops/reporting-accuracy/pending/`.
+- **Contents:**
+  - the same header;
+  - a pre-capture into a temp table (`ON COMMIT DROP`) of the md5 of all `auth.users.raw_app_meta_data`;
+  - `SELECT private.profile_hierarchy_rebuild(9, '<fingerprint approved at Gate 4>')`.
+  - It holds a hash, never a production identifier.
+- **Postconditions:**
+  - 0 paths differ from the derivation;
+  - `is_ancestor_of` with no JWT equals the oracle closure: reflexive, Active ancestor, same agency, built from `upline_id`;
+  - `on_profile_update_trigger` is enabled;
+  - the `raw_app_meta_data` md5 is unchanged.
+- **Data written:** only `hierarchy_path` and `updated_at` (bumped by `profiles_updated_at`) on the 9 rows.
+
+**Recovery files (prepared, not applied).** Each would be its own NEW migration, applied only with separate approval:
+- **Containment** `supabase/ops/hierarchy-integrity/containment_fail_closed.sql`: makes `is_ancestor_of` reflexive-only, which denies every Team Leader downline branch without touching data.
+  - **ACLs:** unchanged.
+  - **Guard:** the forward postimage.
+  - **Preflight:** stop if any task is visible to a non-self Team Leader through `tasks_select_team_leader`, which reads paths directly (1 task today, 0 affected).
+  - **Disclosed effects:** Admin Chris's Contacts Team tab empties, and `resolve_downline_ids` consumers (Reports, profile stats) are not contained.
+- **Code rollback** `supabase/migrations/rollback/<authored-ts>_profile_hierarchy_integrity.rollback.sql`: refuses unless containment is active.
+  - **Restores:** the preimage bodies of `compute_hierarchy_path`, `update_hierarchy_path` and `cascade_hierarchy_update`, and both original trigger definitions via `CREATE OR REPLACE TRIGGER`.
+  - **Drops:** the serialize trigger and the private functions.
+  - **Keeps:** the contained `is_ancestor_of`, every hardened ACL, and the corrected paths. Restoring the stale paths would bring back the Desiree→"chris" over-grant.
+  - **Re-release:** a re-release afterwards is a new forward migration.
+  - **Not prepared:** an exact restore that re-grants anon.
+
+**D0, separate emergency seal (recommended today, independent of everything else)** `supabase/migrations/<ts>_seal_list_unrestricted_users.sql`:
+- **Header:** the same.
+- **Guard:** md5 `41b9e7d550c0d013c9306db9dd2b7b27` and the exact preimage ACL.
+- **Change:** `REVOKE EXECUTE ON FUNCTION public.list_unrestricted_users() FROM PUBLIC, anon, authenticated;`
+- **Postcondition:** ACL `{postgres=X/postgres,service_role=X/postgres}`.
+- **Recovery:** no inverse ever re-grants it (the #38 precedent).
+
+**Not changed:** everything in §2's "Unchanged" row.
+
+### 4. Intended repository files (final list before any code edit)
+
+**Database and ops**
+- `supabase/migrations/<authored-ts>_profile_hierarchy_integrity.sql` (new): M-A.
+- `supabase/migrations/rollback/<authored-ts>_profile_hierarchy_integrity.rollback.sql` (new): code rollback, as above.
+- `supabase/ops/hierarchy-integrity/<authored-ts>_profile_hierarchy_rebuild.sql` (new): M-B.
+- `supabase/ops/hierarchy-integrity/containment_fail_closed.sql` (new, prepared): containment.
+- `supabase/ops/hierarchy-integrity/audit.sql` (new, read-only). Reports: stale count; direct and transitive pass counts; false positives; structural violations; Pending invitations whose upline is missing, in another agency, or on a NULL-agency invitation. Used before and after the release, and on day 1 and day 7.
+- `supabase/migrations/<ts>_seal_list_unrestricted_users.sql` (new, D0, a separate PR and approval).
+
+**Tests and harness**
+- `supabase/tests/hierarchy_integrity_harness.sql` (new). Contents:
+  - an auth stub with production's `auth.uid()`, and an `auth.users` stub carrying `raw_app_meta_data`;
+  - roles with production-shaped table, column and function grants (PostgreSQL 16 lacks `MAINTAIN`);
+  - ltree in `public`, and `plpgsql.variable_conflict = error`;
+  - the production GiST index;
+  - verbatim live bodies of every object touched, with Stage-0 md5 equality to production;
+  - `hier_test.run_as` (claims plus `SET LOCAL ROLE`);
+  - the oracle (`canonical_path`, `closure()`);
+  - a fingerprint of everything that must not change. `updated_at` is excluded for rebuilt rows.
+- `supabase/tests/hierarchy_integrity_reproduction.sql` (new). Must pass on the OLD code, reproducing every defect in §1.
+- `supabase/tests/hierarchy_integrity.sql` (new). The H suite, plus ports of P0 T5, T5c, T11, T13 and T19, which hit these triggers.
+- `supabase/tests/hierarchy_integrity_rls.sql` (new). The R suite.
+- `supabase/tests/hierarchy_integrity_consumers.sql` (new). The C suite.
+- `scripts/run_hierarchy_integrity_tests.sh` (new). Stages:
+  - commission-grids-style locality proof plus a host print;
+  - Stage-0 preimage;
+  - reproduction;
+  - post suite failing before the migration and passing after;
+  - negative controls;
+  - drift and replay refusal;
+  - atomicity;
+  - lock timeout;
+  - concurrency;
+  - rebuild;
+  - recovery ladder;
+  - re-apply.
+
+  It resolves migration files by glob and asserts exactly one match, so the post-apply rename cannot silently break it.
+- `scripts/hierarchy_integrity_concurrency.mjs` (new). Two real sessions; waits proved through `pg_stat_activity`/`pg_locks`, never `pg_sleep`.
+- `scripts/hierarchy_integrity_e2e.mjs` (new). An end-to-end check on a Supabase CLI stack in CI (see §5).
+- `.github/workflows/hierarchy-integrity.yml` (new). PostgreSQL 17.6 service on port 55447, pinned actions, an evidence artifact, path filters, and a second job for the CLI end-to-end run.
+- `supabase/tests/p0_profile_authorization.sql` (modified, only if D2 is approved). Static change only: T11 now expects a `service_role` path write to be replaced by the derived value, and T13's informational staleness note becomes an assertion. It needs a full Supabase stack and is not run in CI; the ported cases carry the proof.
+
+**Docs**
+- `implementation_plan.md`: this entry, then an as-built section.
+- `WORK_LOG.md`: a newest-first entry with the context snapshot.
+- `AGENT_RULES.md`: the §8 invariant, plus amendments to #20, #26 and §3. Committed on the branch before the merge, so there is one merge only.
+
+**Frontend:** none under D7-A. The D7-B files are listed in D7. Any file outside this list will be added here, with its reason, before it is edited.
+
+### 5. Verification
+
+**Where it runs:** a disposable loopback PostgreSQL 16 cluster in the scratchpad, with synthetic data only. Locality is proved before any statement: the exact host, `inet_server_addr()`, and the absence of hosted roles. CI on PostgreSQL 17.6 is authoritative. No production write is used to complete any gate.
+
+**Gate 3 rule:** each area the brief names (leads, clients, calls, tasks, recruits, reports, campaigns, contact scope, win authorization) needs at least one passing authenticated allow test and one deny test against the NEW `is_ancestor_of`. Otherwise Gate 3 is BLOCKED, unless Chris waives that area in writing. A consumer that cannot be faithfully harnessed is reported as a limitation, never as a pass.
+
+| Suite | What it proves |
+|---|---|
+| **Reproduction** (old code) | Each defect in §1 reproduces: insert self-label; a path one move stale; a grandchild never cascaded; a Desiree-shaped false positive while the real reports fail; depth-20 truncation; self-link and loop accepted. |
+| **Integrity H1–H11** | **H1:** every path equals the oracle; `is_ancestor_of` equals the closure for every pair, including the `IS FALSE` cases (NULL arguments, missing ids, NULL paths and agencies, an inactive ancestor, cross-agency, and a subject other than `auth.uid()` under a JWT); parity: `resolve_downline_ids(v)` equals the `is_ancestor_of` closure minus Deleted rows. **H2:** a new user under an Admin and a new agent under a Team Leader through `auth.users` → `handle_new_user` (invite-shaped metadata); the null-metadata insert; the `provision_organization` founder; a cross-agency invite rolls back atomically (0 `auth.users` rows, 0 `profiles` rows). **H3:** two- and multi-level downlines; depth 32 accepted on a 500-siblings-per-level fixture with the GiST index; 33 refused; a subtree move that would push a descendant past 32 refused. **H4:** reassignment to another manager. **H5:** an authenticated Admin moves a manager with an existing subtree; the whole subtree is rewritten, the P0 guard passes, and nothing outside the subtree changes. **H6:** Deleted and Inactive intermediate managers are traversed (RLS, contact scope, reports); removal from team detaches the whole subtree in all three; hard-deleting a manager with reports is refused with 23503, as today. **H7:** every refusal with its exact SQLSTATE and hint, and no message matches `/does not exist/i`; a non-Admin `upline_id` change still fails 42501 at the guard. **H8:** multi-row statements, order-pinned (a subtree moved in one UPDATE; a set-only-valid swap refused or valid, never a loop). **H9:** isolation: hierarchy changes refused under REPEATABLE READ and SERIALIZABLE; no-op saves and READ UNCOMMITTED accepted. **H10:** metadata: signatures, owners, modes, `proconfig`, exact ACL strings; anon and authenticated EXECUTE on the hardened functions fails 42501; triggers fire without EXECUTE; `set_claim` is called 0 times by the rebuild and twice per row on a three-level runtime move. **H11:** the rebuild function refuses a wrong count or fingerprint, updates exactly the stale set, and a second run finds 0. |
+| **RLS R1–R4** (real `authenticated` role, production-shaped JWT claims) | **Viewers:** Admin; a Team Leader with three reports; one of her agents; an unrelated Team Leader in the same agency; an unrelated Agent; another agency's Team Leader and Admin; a home-org Super Admin; an Inactive and a Deleted Team Leader whose role claims are still present (denied); `anon`. **Tables:** `leads` (S/I/U/D), `clients`, `recruits`, `calls` (S/I/U/D, with the two live `calls` guard triggers), `contact_emails`, `tasks`, and `profiles` (S, plus U through `can_update_profile` with a column matrix: a Team Leader on a downline versus a non-downline, and an Agent). Visible and writable id sets must equal the oracle exactly. **anon:** `leads`, `clients`, `recruits`, `calls` and `contact_emails` return 0 rows with no error; `tasks` and `profiles` return 42501, which must stay that way and is never "fixed" by granting anon. |
+| **Consumers C1–C11**, through the entry points the app calls, as authenticated: allow for a downline agent, deny for a non-downline agent and another agency | **Contact scope:** `get_contact_scope_agents`, `search_contacts_leads`, `get_contacts_lead_kanban`, `contacts_lead_ids_matching`. **Dashboard team:** `get_performance_summary` and `get_performance_details` (`performance_scope`). **Reports page:** `report_access_v2`, unchanged. **Campaigns:** `validate_team_queue_association`, `create_import_campaign`, `can_administer_campaign`. **Win authorization:** `create_client_with_sale`, `convert_lead_to_client_with_sales`, `record_client_policy`, `update_client_with_policy_sale` (including the reflexive self-reassignment), `convert_lead_to_client_atomic`, `notify_win`. **Also:** `delete_contact` and the import undo/preview/retry functions. A static check, from a `pg_proc` scan of callers, confirms every consumer still passes the actor as ancestor. Today's NULL-owner behaviour is recorded (F8), not claimed as proven. |
+| **Concurrency X1–X7** (two real sessions) | **X1:** opposing moves; the second waits on the lock, then is refused with `loop`. **X2:** an insert under N while N's ancestor moves. **X3:** a subtree move against a concurrent move inside it. **X4:** a Team Leader reading during an uncommitted move sees the old state, then the new one. **X5:** two Admins edit the same row. **X6:** cross-statement (DL1) and sign-in (DL2) interleavings end in a clean 40P01 with 0 stale paths and 0 loops. **X7:** a different agency's write waits only for the lock and never deadlocks. |
+| **Migration M1–M10** | **M1:** atomic apply. **M2:** the post suite fails before and passes after. **M3:** drift refusal (one body, one ACL, one trigger, one disabled trigger). **M4:** replay refusal. **M5:** atomicity under an injected failure (fingerprint unchanged). **M6:** M-A changes no data. **M7:** M-B with the wrong fingerprint is refused. **M8:** with a reader holding AccessShare, apply fails with 55P03 within 1 s, and a concurrent RLS read is never blocked. **M9:** recovery ladder: containment denies every Team Leader branch; the code rollback is refused without containment and succeeds with it; ACLs stay hardened; paths stay correct. **M10:** re-apply from each recovery state. |
+| **Negative controls N1–N8** | Each must make a named test fail: removing the loop check; limiting the cascade to children; dropping the agency predicate; dropping the Active-ancestor predicate; leaving anon EXECUTE; removing the lock (X1 must then commit a loop); removing the isolation check (X1 under REPEATABLE READ commits a loop); not re-deriving in the cascade (the authenticated multi-row H8 fails 42501). |
+| **End-to-end (CI, Supabase CLI stack)** | **Signup:** an invite-shaped `auth.admin.createUser` succeeds, and a cross-agency one is refused with nothing left behind. **Reads:** Desiree-shaped PostgREST reads equal the oracle. **RPC exposure:** anon calls to `/rpc/is_ancestor_of` and `/rpc/compute_hierarchy_path` are denied. **Realtime:** a `calls` subscriber sees only the right inserts. **If the stack cannot run:** reported as NOT EXECUTED, and Chris must waive it in writing. |
+| **Existing suites** | `run_profile_rpc_tests.sh`, `run_policy_sale_recording_tests.sh` and `run_reports_rpc_tests.sh` are re-run and reported as "unaffected; they copy baseline bodies and do not exercise the new code". The policy-sale runner is also attempted with M-A applied over its fixture; if the fixture cannot host M-A, its Team Leader cases live in C-suite. `import_campaign_attachment.sql` and `p0_profile_authorization.sql` need a full stack and are NOT EXECUTED. Invariant #37's `pg_depend` sweep runs before and after the migration. |
+| **Frontend gates** | `npx tsc --noEmit`, reported as vacuous. `npx tsc -p tsconfig.app.json --noEmit`, compared line by line with a fresh baseline on `95009d1` (the last recorded count is 84 diagnostics). Full Vitest with CI's inert env (last: 5,744 tests; 5,707 passed; 36 skipped; one known git-history failure). ESLint on any touched file. `npm run build`. `git diff --check`. |
+
+### 6. Release (gates follow the brief; each production step is approved separately)
+
+1. **Gate 1:** Chris approves this plan and decisions D1–D15, and answers P1.
+2. **Gate 2:** build on the branch; local PostgreSQL 16 smoke test; green CI on 17.6 at the exact head.
+3. **Gate 3:** Chris reviews the migration, the repair, the recovery ladder, the impact and the authorization evidence.
+4. **Gate 4 (separate explicit approval): read-only preflight immediately before applying.**
+   - **Re-captured state:**
+     - preimage md5s (under the pinned `search_path`), ACLs and triggers;
+     - the 15 consumer bodies and 9 policies re-hashed against this analysis;
+     - structural validity;
+     - the Pending-invitation audit;
+     - the stale set's count and fingerprint, which become M-B's arguments.
+   - **Activity checks:**
+     - Chris's fresh no-active-dialing check;
+     - no transaction older than 30 s, 0 prepared transactions, migration history head unchanged.
+   - **Baselines:**
+     - security and performance advisor counts;
+     - the md5 of all `pg_policies` and the `profiles` column ACLs;
+     - the `raw_app_meta_data` md5;
+     - per-viewer visible counts for an Admin, an Agent and another agency's Admin, which must stay identical.
+   - **Chris confirms:**
+     - Deploy to production is OFF;
+     - Teo, Will and Erik report to Desiree, and the "chris" Agent reports to Chris;
+     - he accepts every Desiree gain in §1.
+   - **On 55P03:** stop and re-run the preflight before any retry.
+5. **Gate 5a:**
+   - apply M-A with `apply_migration` using the exact file bytes;
+   - read back the recorded statement md5, bodies, ACLs, triggers and enabled states.
+6. **Gate 5b (separate approval):**
+   - apply M-B with the Gate 4 values;
+   - read back.
+7. **Production acceptance (read-only):**
+   - **Paths:** 0 stale; 11/11 direct and 15/15 transitive pairs.
+   - **`is_ancestor_of`:** true for all 14 pairs whose ancestor is Active, and false for Nick→Test by design (D12); 0 unrelated or cross-agency pairs; Desiree recognizes Teo, Will and Erik and not the "chris" Agent.
+   - **Unchanged:** policy and column-ACL md5s, `raw_app_meta_data` md5, and the Admin, Agent and other-agency visible counts. Only Desiree's counts move, by exactly the §1 delta.
+   - **[DB-sim] readbacks:** run inside `BEGIN READ ONLY … ROLLBACK`, with `SET LOCAL ROLE authenticated` plus claims, SELECT counts and booleans only, for the identities approved at Gate 4. Labelled as database simulation, not browser or API authentication.
+   - **Advisors:** expected security result 234 → 227 (anon 58 → 54, authenticated 121 → 118; `is_ancestor_of` stays authenticated-executable by design); D0 has its own delta.
+8. **Merge (Gate 5b-merge, separate approval):**
+   - rename M-A and M-B to their recorded versions with identical bytes, and update the runner, workflow filters and suite headers;
+   - commit the as-built section, the Work Log entry and the invariant;
+   - run CI on the exact head;
+   - re-confirm Deploy to production is OFF;
+   - merge with a merge commit and an expected-head guard, putting the CI SHA in the PR;
+   - verify both Vercel production builds are READY at the merge SHA (the frontend bytes are unchanged under D7-A).
+9. **Monitoring:**
+   - run the audit on day 1 and day 7;
+   - check logs for 48 h for `profile_hierarchy:` hints, 40P01 and 55P03 on `profiles`;
+   - get Chris's or Desiree's in-app confirmation of the Contacts Team list.
+10. **Gate 6, final report:** evidence plus the context snapshot (changes, decisions, files, migrations, deploys, blockers, next steps).
+
+**Recovery:** containment first; code rollback only while containment is active (§3). Neither re-grants anon or restores stale paths.
+
+### 7. Decisions for Chris (recommendation first; one plain line each, details above)
+
+- **P1 — precondition (answer needed):** confirm Supabase → Authentication → "Allow new users to sign up" is **OFF**. `handle_new_user` takes agency, role and manager from signup metadata. If public signup is on, anyone with the public key could create an Admin in any agency, and that is a separate P0 to handle first.
+- **D0 — seal the anonymous profile dump today:** a separate tiny migration and PR that removes public access to `list_unrestricted_users()`. *(Recommended: approve now, independently.)*
+- **D1 — skip the old "clean up migration history first" rule for this fix only;** its reason no longer applies, and S1 stays its own project.
+- **D2 — the database always recalculates the shortcut;** not even server code can hand-set it. The P0 test T11 expectation is updated.
+- **D3 — a manager in one agency never counts as the boss of someone in another.**
+- **D4 — close the hole that lets anyone on the internet look up manager chains;** **D4-b:** a signed-in user can only ask about *their own* reports.
+- **D5 — process one manager change at a time** (one global lock) so two simultaneous edits can't create a loop. Hierarchy changes are refused under unusual transaction modes nobody uses today. *Alternative:* a per-agency lock, which allows parallel edits across agencies but can deadlock.
+- **D6 — the one-time repair won't touch login records.** Accept that a later manager move still re-syncs login claims for everyone under the moved manager, Deleted users included (F3 fixes this separately), or pull F3 into this work.
+- **D7 — frontend.** **A (recommended for this P0): backend only.** Known screen consequences: My Team add/remove shows a generic failure; the Profile modal can save name, role and status and then fail on the manager; a manager write that changes nothing can still say "success"; a rejected invite shows a generic signup error. **B:** also fix User Management in this PR: hide the target's own reports from the manager picker (`uplineChainReachesId`); write the manager first; `assignUpline` uses `.select('id').maybeSingle()` and treats null as failure; a hint-based error mapper; Zod for the manager field; refresh stale comments. Files for B: `src/components/settings/user-management/UserProfileModal.tsx`, `UserProfileTab.tsx`, `UserTeamTab.tsx`, `src/lib/supabase-users.ts`, new `src/lib/hierarchy-errors.ts` and tests, and comment updates in `src/components/settings/UserManagement.tsx`, `src/lib/profile/profile-queries.ts` and `src/hooks/useContactScope.ts`.
+- **D8 — fix the CSV-import "any agent in the agency" gap separately.** This repair doesn't touch it, and bundling it needs an Edge deploy.
+- **D9 — Team Leaders can edit and delete their agents' records.** This is how the existing rules were written; they had no effect until now. Accept this, or ask for a separate change to make Team Leaders read-only on agents' records, which needs `#APPROVE_RLS_CHANGE`.
+- **D10 — invitations and signup follow-ups:** validate the manager when an Admin creates an invitation, and give `create-user` a clear, logged outcome for a refused manager. Never redeploy `create-user` until it is reconciled with live v56.
+- **D11 — PR #455:** whichever PR merges second reconciles `AGENT_RULES.md` and the root plan, and adds #455's new caller to the tests.
+- **D12 — a deactivated or deleted Team Leader no longer counts as anyone's manager.** This changes the acceptance from "15/15" to "15/15 in the stored chain; 14/14 live, Nick→Test false by design".
+- **D13 — grant `#APPROVE_RLS_CHANGE` for this effective widening of Team Leader access,** or rule in writing that it is not required, since no policy text changes.
+- **D14 — cap reporting chains at 32 levels;** deeper is refused, never cut (production maximum is 2).
+- **D15 — two steps:** first the code (changes no data), then the one-time repair of exactly the 9 records approved at Gate 4.
+
+**Follow-ups (not started):**
+- **F1:** the D7-B items, if not taken.
+- **F2:** refresh the stale copies of `is_ancestor_of` in other test harnesses.
+- **F3:** `on_profile_update` re-adds claims to Deleted rows on any update.
+- **F4:** two Deleted Agents (New, Nicholas) are not banned; deactivate/delete should ban and revoke sessions.
+- **F5:** `convert_lead_to_client_atomic` can be called without an Active check.
+- **F6:** the Contacts team branch has no role gate.
+- **F7:** stale comments in `notify_win` and `can_administer_campaign`.
+- **F8:** `delete_contact` and `convert_lead_to_client_atomic` treat a NULL owner as "allowed". Fix separately with `COALESCE(…, false)`.
+- **F9:** `tasks_select_team_leader` has no status check (needs `#APPROVE_RLS_CHANGE`).
+- **F10:** the JWT role claim lags role changes by up to 1 hour.
+
+### 8. Proposed AGENT_RULES.md invariant (applied with the release; text assumes D2, D4-b and D12; number = next free at merge, today #43)
+
+> **43. Profile hierarchy integrity.**
+> - **Source of truth.** `profiles.upline_id` is the only source of truth for the reporting line.
+> - **Derived cache.** `profiles.hierarchy_path` is a database-derived cache. Triggers derive it on every insert and every `upline_id` or `organization_id` change, recompute the whole moved subtree, and replace any other written value. No client, Edge Function or `service_role` write sets it.
+> - **Refused structures.** The database refuses self-links, loops, missing uplines, cross-agency uplines, an upline on a profile without an agency, and chains deeper than 32 levels. It refuses; it never truncates. Keep the cap below `resolve_downline_ids`' 100.
+> - **Write rules.**
+>   - Hierarchy writes take the `agentflow:profile_hierarchy:v1` advisory lock.
+>   - Real hierarchy changes are refused under REPEATABLE READ and SERIALIZABLE.
+>   - Multi-statement database functions take that lock before touching any `profiles` row.
+>   - Order-dependent multi-row changes are issued as ordered single-row statements.
+>   - Never leave a session idle in a transaction after a hierarchy write: signups wait on that lock without a timeout.
+> - **`is_ancestor_of` contract.** `public.is_ancestor_of(ancestor, descendant)` returns only TRUE or FALSE and never raises. It is reflexive for an existing profile. Otherwise it requires an Active ancestor in the same non-NULL agency and, under a JWT, ancestor = `auth.uid()`.
+> - **Approved predicates.** It, `private.resolve_downline_ids`, `tasks_select_team_leader` and `getAgentScopeIds` are the approved hierarchy predicates, and each must equal the `upline_id` closure. Never add a fallback that grants access when one returns false.
+> - **Execute grants.** `compute_hierarchy_path`, the hierarchy trigger functions and `private.profile_hierarchy_*` are not client-executable. No rollback, containment or recovery script may re-grant EXECUTE to PUBLIC or anon.
+> - **ltree.** ltree stays in `public`. Moving it means re-creating the hierarchy functions.
+> - **Claims.** A repair or rebuild must not write `auth.users` claims.
+> - **Audit.** `supabase/ops/hierarchy-integrity/audit.sql` must show 0 stale paths and 0 invalid Pending-invitation uplines.
+
+Also amend:
+- #26's "Known fail-closed behaviour" bullet;
+- #20's `hierarchy_path` bullet;
+- §3's Team Leader line.
+
+Each points to #43 and records the release.
+
+---
+
 ## 2026-10-17 — Sold Date production release COMPLETE (PR #453)
 
 **Owner approval and release:** Chris approved both backend migrations and the separately controlled frontend production merge/deployment. Reviewed feature head `4bde52a727ca47cc5c772e986a03f72e777fc050` passed all six CI workflows. PR #453 merged to `main` as `12901e5c18922239022afc1c9436df8b2df20c15`. The applied SQL bytes are unchanged by the migration filename reconciliation.
