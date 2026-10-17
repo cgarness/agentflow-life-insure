@@ -1,0 +1,44 @@
+name: UV profile sync verification
+on:
+  push:
+    branches: ['codex/uv-profile-sync-20261017']
+    paths: ['.github/workflows/uv-profile-sync.yml', 'src/**', 'supabase/**', 'scripts/tests/uv-profile/**']
+permissions:
+  contents: read
+concurrency:
+  group: uv-profile-sync-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - run: npm ci
+      - name: Source and dependency workspace for authenticated build session
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, tarfile
+          from pathlib import Path
+          destination = Path(os.environ['RUNNER_TEMP']) / 'uv-build-workspace'
+          destination.mkdir()
+          with tarfile.open(destination / 'source.tar.gz', 'w:gz') as archive:
+              for item in subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0'):
+                  if not item or any(part.startswith('.env') or part == '.git' for part in Path(item).parts):
+                      continue
+                  if Path(item).is_file():
+                      archive.add(item, arcname=item, recursive=False)
+          with tarfile.open(destination / 'dependencies.tar.gz', 'w:gz') as archive:
+              archive.add('node_modules')
+          (destination / 'head.txt').write_text(subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode())
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: uv-build-workspace-${{ github.run_id }}
+          path: ${{ runner.temp }}/uv-build-workspace
+          retention-days: 1
