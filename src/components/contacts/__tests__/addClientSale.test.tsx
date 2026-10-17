@@ -5,6 +5,8 @@ vi.mock("sonner",()=>({toast:{error:vi.fn()}}));
 vi.mock("@/components/shared/PhoneInput",()=>({PhoneInput:({value,onChange}: {value:string;onChange:(v:string)=>void})=><input aria-label="Phone" value={value} onChange={e=>onChange(e.target.value)}/>}));
 vi.mock("@/components/shared/DateInput",()=>({DateInput:({value,onChange}: {value:string;onChange:(v:string)=>void})=><input data-testid="date" value={value} onChange={e=>onChange(e.target.value)}/>}));
 vi.mock("@/components/shared/StateSelector",()=>({StateSelector:()=>null}));
+// The commission preview needs a QueryClient this harness does not mount; policyCommissionPreviewModals covers it.
+vi.mock("@/components/commission/preview/PolicyCommissionEstimate",()=>({PolicyCommissionEstimate:()=>null}));
 import AddClientModal from "../AddClientModal";
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 function setup(save:ReturnType<typeof vi.fn>){

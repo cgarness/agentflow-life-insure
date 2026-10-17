@@ -9,6 +9,7 @@ import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { StateSelector } from "@/components/shared/StateSelector";
+import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -170,6 +171,10 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
               </select>
             </div>
           </div>
+          {hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial)) && (
+            <PolicyCommissionEstimate owner={!initial ? { kind: "self" } : initial.id ? { kind: "client", id: initial.id } : null}
+              policyType={form.policyType || "Term"} carrier={form.carrier || ""} monthlyPremium={form.premiumAmount || ""} />
+          )}
 
           {!initial && (
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
