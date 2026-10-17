@@ -1,6 +1,6 @@
 ## 2026-10-17 — IMPLEMENTED (amended scope approved by Chris at `cc8a2b4`; draft PR, not merged or deployed): Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
 
-**Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as a draft PR; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
+**Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as draft PR #455; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
 
 **Decisions (Chris, 2026-10-17)**
 
@@ -23,7 +23,7 @@
 6. For another agent, the engine's "Not available at your contract level." reads "Not available at this agent's contract level."
 7. D1: names in the new tests do not appear in the private grid, and the new tests' expected amounts use only synthetic fixture values that do not appear in it (read-only, value-free check). No production values were copied.
 
-**Verification:** see the newest `WORK_LOG.md` entry and the draft PR.
+**Verification:** see the newest `WORK_LOG.md` entry and draft PR #455.
 
 **High-priority follow-up (separate task, not part of this feature):** the Team Leader hierarchy predicate (`is_ancestor_of` / `hierarchy_path`) is unreliable in production. It is recorded in `AGENT_RULES.md` › Known Tech Debt. No hierarchy data or permission was changed here.
 

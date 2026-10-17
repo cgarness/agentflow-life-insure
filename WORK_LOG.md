@@ -1,4 +1,4 @@
-## 2026-10-17 — Policy commission preview, Phase 1 (approved; draft PR; not merged, not deployed)
+## 2026-10-17 — Policy commission preview, Phase 1 (approved; draft PR #455; not merged, not deployed)
 
 **Authorization and scope:** Chris approved the amended plan at `cc8a2b4` (decisions P1–P4). It is frontend-only and preview-only: no migrations, backend changes, production writes or deployment. Base `main` `95009d1`. Plan and as-built notes: root `implementation_plan.md`, top entry.
 
