@@ -1,5 +1,7 @@
 # Google Sheets V1 — production release package
 
+**Current execution route (2026-10-17): cloud GitHub Actions, §10.3.** The Mac procedures below are historical alternatives. Runner PR #451 is prepared and its real PostgreSQL verification passed. Production remains unchanged for Sheets. PR #442 now reconciles main `91eabff` (#450); release artifacts remain pinned to and byte-identical with `eaf988b`. The current observed frontend is `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ`; capture the rollback target again before each approved merge.
+
 **Status: Phase B APPROVED (2026-10-15) and IN PROGRESS through the documented psql / CLI fallback (§10, §10.1). Nothing has been applied or deployed yet.** Every later phase needs Chris's approval of its exact actions.
 
 So far:
@@ -862,3 +864,22 @@ On 2026-10-16 Chris asked that Phase B run from Claude Code on his Mac, because 
 - **History read-back:** inside Claude Code the CLI prints JSON instead of a table, so stage 3 is confirmed with SQL: one row `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows in total.
 - **Evidence files stay outside the repository.** The stage gates need a clean checkout.
 - **If a secret is ever printed:** stop and tell Chris. The transcript keeps it under `~/.claude/projects/`, so the database password should be reset after Phase B.
+
+### 10.3 Cloud-only execution through protected GitHub Actions (2026-10-17)
+
+This is the current route while Chris has no Mac. It implements the root plan's 2026-10-16 cloud runner proposal. PR [#451](https://github.com/cgarness/agentflow-life-insure/pull/451), head `c7e1c56e94ae8cbde7cc42567c4e642ceb2b38de`, contains `.github/workflows/google-sheets-phase-b.yml`. A separate no-secret CI workflow and synthetic test driver validate its actual embedded program against disposable PostgreSQL 17.6. These two verification files are a refinement of the original single-workflow proposal; they grant no production access. Root plan and work log are the other two changed files. No application, migration or function code changes.
+
+**Verified:** [run 38993502917](https://github.com/cgarness/agentflow-life-insure/actions/runs/38993502917), job `117280799328`, passes on that exact head. Real SQL apply and all SQL read-backs, real CLI history repair, replay/out-of-order refusal, lock-timeout rollback, watchdog SIGINT rollback and command-error redaction passed. The migration and four bundle hashes match §3–§4. This is a synthetic backend test, not Phase D's real Google-account test.
+
+**Before merge:** verify Supabase GitHub “Deploy to production” is OFF. Create protected environment `google-sheets-production` with Chris (`cgarness`) as required reviewer, custom deployment branch limited to `main`, and admin bypass OFF. Chris securely enters only the three environment secrets: `SUPABASE_DB_PASSWORD`, `SUPABASE_POOLER_HOST` (session port 5432), `SUPABASE_ACCESS_TOKEN`. Never share values in chat or public logs. The connected GitHub tool cannot manage these settings; secure browser authentication is required. The agent handles browser navigation and coordination; Chris only authenticates/enters credentials and grants approvals. Do not approve an environment deployment on Chris's behalf.
+
+**Separate consequential approval:** merge #451 only with explicit approval after these controls and CI are verified. A main commit rebuilds Vercel production even though application files are unchanged. Capture the resulting deployment as the subsequent rollback baseline. Do not merge #442 at this stage.
+
+**Dispatch-only stages:** `check`, `apply-migration`, `record-history`, `deploy-functions`; `confirm` must repeat the stage. Main-only, `contents: read`, pinned checkout/actions/CLI, one run at a time, no cancel-in-progress. Source artifacts are pinned to `eaf988bc276a3922ee0ec6c3c6038665be9f1678`; do not substitute a moving branch. The agent may dispatch after Chris's stage-specific approval; Chris remains the protected-environment reviewer.
+
+1. `check`: forced read-only connection, exact identity/state/count/helper checks, six B1 secret names present, enable flag and four functions absent. No values printed.
+2. `apply-migration`: fresh independent advisor baseline and preflight first; explicit approval covers only the exact §3 file. One psql transaction, lock timeout 5 seconds, statement timeout 30 seconds, watchdog SIGINT at 120 seconds. Run every SQL read-back and independent advisor comparison before the next approval.
+3. `record-history`: separate approval; exact version `20261013120000`, expected 81 statements and 328 history rows. Never rerun apply after a history error. Update records and require green exact-head #442 CI before deployment.
+4. `deploy-functions`: separate approval; exactly the four §4 names in order, `verify_jwt=false`, no unrelated function deployment. Check function digest/content, unchanged unrelated inventory, disabled HTTP outcomes, logs and zero operational rows. `GOOGLE_SHEETS_ENABLED` stays absent; no cron/Vault worker token.
+
+Any failure stops. No automatic retry, method switch, rollback or partial-deploy continuation. Production read-backs and advisor output stay out of public logs. Phase C, Phase D, privacy publication and Phase E scheduling retain their existing separate approvals. After Phase B, disable the runner and remove the temporary environment secrets/revoke the release token under the existing cleanup gate.

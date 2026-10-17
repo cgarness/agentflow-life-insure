@@ -1,3 +1,31 @@
+## 2026-10-17 — Cloud Phase B runner verified; fourth main reconciliation (no production change)
+
+Chris authorized ownership of PR #442 from the cloud, branch updates and testing, retaining explicit approval before each production phase or consequential action. Reviewed AGENT_RULES.md, VISION.md, the recent work log and Sheets release package. Direct production credentials are unavailable in this runtime; use the planned GitHub Actions route, not another large MCP apply.
+
+- Runner draft PR #451: `codex/google-sheets-phase-b-runner`, exact head `c7e1c56e94ae8cbde7cc42567c4e642ceb2b38de`, reconciled with main `91eabff1896e9410a53a40afea6144336902b86d` (#450 client policy display). Its no-secret PostgreSQL 17.6 verification passed: run `38993502917`, job `117280799328`. Real apply/read-backs/history repair, replay refusal, lock-timeout rollback, watchdog SIGINT rollback, six out-of-order/replay refusals and error redaction all pass. No production connection was made by the test.
+- PR #442 reconciles the same main by merge, preserving both documentation histories. Only WORK_LOG.md and root implementation_plan.md conflicted; the main-only prefix was prepended to the entire prior branch file. No release artifact changes. The runner remains pinned to `eaf988bc276a3922ee0ec6c3c6038665be9f1678`, whose migration/four function bundles are byte-identical here. New-head CI must pass before release.
+- Read-only production check at about 02:03 UTC: 327 history rows, latest `20261016035626`, helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`, zero Sheets relations/functions; 76 Edge Functions, none Sheets. Current frontend is `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ` at main `91eabff`; capture again immediately before any merge.
+- Access gate: GitHub connector can edit branches/PRs but cannot configure protected environments or enter secrets. Cloud browser is signed out. Secure browser authentication and owner-entered environment secrets are required; never enter them in chat. No Mac or local commands are required.
+- Next: verify Supabase GitHub Deploy to production is OFF; prepare protected `google-sheets-production` environment and secure secret entry; request approval to merge #451 (it rebuilds Vercel production). Then read-only `check`, followed by separate approved migration, history and four-function stages. No merge, migration, deployment, activation, cron, privacy publication or dialer modification has occurred in this work.
+
+## 2026-10-16 — Approved client multi-policy display fix
+
+Chris approved the display-only fix on October 16 at 16:09 PDT: policy count in Clients and expandable details for each policy. Base: `9a905523`. Reviewed AGENT_RULES.md, VISION.md and newest WORK_LOG entries; no AGENTS.md exists. Concurrent Sheets and commission work stays outside this change.
+
+1. Reuse `normalizeClientPolicies` through a pure Client-to-row adapter. Preserve canonical policy counting, legacy additional issueDate fallback, raw currency parsing and malformed-data signals. Do not change reporting normalization or stored data.
+2. Add a compact count next to the client name for multiple policies, and a review indicator for malformed policy data. Keep existing columns/sorting/pagination.
+3. Add a read-only, independently expandable Policies section in the existing contact details column when additional policies exist (including additional-only clients) or data is malformed. Each policy shows carrier/type, monthly premium, number, coverage and dates. Single-primary contacts retain the existing layout. Keep generic reserved-field exclusion and all editing/save paths unchanged.
+4. Verify with synthetic component tests, the existing custom-field preservation suite, TypeScript, lint, production build and desktop/narrow browser checks where available. No real client data enters tests or repository.
+5. Update WORK_LOG and open a PR. Production merge/release remains separately gated.
+
+Files intended: `src/lib/client-policy-display.ts`, `src/components/contacts/ClientPolicies.tsx`, `src/pages/Contacts.tsx`, `src/components/contacts/FullScreenContactView.tsx`, focused tests in `src/components/contacts/__tests__/clientPolicies.test.tsx` and the existing `fullScreenContactViewAdditionalPolicies.test.tsx`, `implementation_plan.md`, `WORK_LOG.md`. A short AGENT_RULES amendment will close the already-tracked read-only panel follow-up.
+
+No migration, backend command, RLS, Edge Function, dialer, policy writer, sales event, reporting calculation or production data change.
+
+**Implementation verification:** 97 focused tests pass; root TypeScript passes; strict-app diagnostics are unchanged (84); lint has no errors; production build passes. Synthetic Chromium checks passed at 1440px and 390px, including keyboard expansion and unclipped detail values. GitHub PR/CI and separately approved production release are next.
+
+---
+
 ## 2026-10-16 — CLOUD-ONLY PHASE B THROUGH A GITHUB ACTIONS RUNNER (plan; awaiting Chris's approval; production unchanged): PR #442
 
 **Request (Chris, 2026-10-16, about 17:05 UTC).** Chris has no access to his Mac. He asked to finish Google Sheets V1 with no local computer, terminal, psql or Supabase CLI. The method is a temporary, manually triggered GitHub Actions workflow on GitHub-hosted runners:

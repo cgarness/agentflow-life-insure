@@ -253,6 +253,19 @@ beforeEach(() => {
 // T-1 / T-2 — the reserved key is never rendered, in either mode
 // ---------------------------------------------------------------------------------------------
 describe("FullScreenContactView — additional_policies is never rendered generically", () => {
+  it("shows every saved policy in a dedicated read-only section, outside the generic editor", async () => {
+    await renderAndSettle();
+    expect(screen.getByRole("region", { name: "Policies" })).toBeInTheDocument();
+    expect(screen.getByText("Policies (3)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Mutual of Omaha/ }));
+    expect(screen.getByText("WL-4471")).toBeInTheDocument();
+    expect(screen.getByText("$150.00")).toBeInTheDocument();
+    expect(onUpdate).not.toHaveBeenCalled();
+    enterEditMode();
+    expect(screen.queryByRole("region", { name: "Policies" })).not.toBeInTheDocument();
+    expect(allInputs().some(input => input.value.includes("WL-4471"))).toBe(false);
+  });
+
   it("shows no additional_policies field in READ mode", async () => {
     await renderAndSettle();
     expect(screen.queryByText(ADDITIONAL_POLICIES_KEY)).toBeNull();
