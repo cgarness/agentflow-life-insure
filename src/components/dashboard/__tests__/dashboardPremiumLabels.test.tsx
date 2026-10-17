@@ -80,6 +80,22 @@ describe("Dashboard drill-down wording", () => {
     expect(screen.queryByText(/UTC|As of/)).toBeNull();
   });
 
+  it("shows each sale's Sold Date as a calendar date, and none for a sale without one", async () => {
+    io.rows = [
+      { id: "00000000-0000-4000-8000-0000000000a3", contact_name: "Dated Win", policy_type: "Term", annual_premium: 499.68, sold_date: "2026-10-15", entered_at: "2026-10-16T19:51:00+00:00" },
+      { id: "00000000-0000-4000-8000-0000000000a4", contact_name: "Undated Win", policy_type: "Whole Life", annual_premium: 360, sold_date: null, entered_at: "2026-10-16T19:53:00+00:00" },
+    ];
+    render(<DashboardDetailModal isOpen onClose={() => {}} type="premium_sold" userId="u1" role="Admin" adminToggle="team" timeRange="month" />);
+    await waitFor(() => expect(screen.getByText("Closed: Term • $499.68 annual premium • Sold 10/15/2026")).toBeInTheDocument());
+    expect(screen.getByText("Closed: Whole Life • $360.00 annual premium")).toBeInTheDocument();
+  });
+
+  it("lists policies sold with their Sold Date", async () => {
+    io.rows = [{ id: "00000000-0000-4000-8000-0000000000a5", contact_name: "Dated Win", policy_type: "Final Expense", premium_amount: 58.45, sold_date: "2026-10-15" }];
+    render(<DashboardDetailModal isOpen onClose={() => {}} type="policies_sold" userId="u1" role="Admin" adminToggle="team" timeRange="month" />);
+    await waitFor(() => expect(screen.getByText("Final Expense • $58.45 monthly • Sold 10/15/2026")).toBeInTheDocument());
+  });
+
   it("titles the workload drill-down 'Scheduled Appointments'", () => {
     io.rows = [];
     render(<DashboardDetailModal isOpen onClose={() => {}} type="appointments" userId="u1" role="Admin" adminToggle="team" timeRange="week" />);

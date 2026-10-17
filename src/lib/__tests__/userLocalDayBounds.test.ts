@@ -42,4 +42,18 @@ describe("userLocalDayBounds", () => {
     expect(startIso).toBe("2026-03-08T05:00:00.000Z"); // EST midnight
     expect(endIso).toBe("2026-03-09T04:00:00.000Z"); // EDT midnight (23h later)
   });
+
+  // `localDate` is the Dialer's Sold Date: the agent's own calendar date, never the UTC date.
+  it.each([
+    ["America/Los_Angeles", "2026-10-17T02:00:00.000Z", "2026-10-16", "2026-10-16T07:00:00.000Z"], // 7 PM PDT, UTC already the 17th
+    ["America/New_York", "2026-03-10T02:00:00.000Z", "2026-03-09", "2026-03-09T04:00:00.000Z"],
+    ["America/Los_Angeles", "2026-11-01T20:00:00.000Z", "2026-11-01", "2026-11-01T07:00:00.000Z"], // 25h fall-back day
+    ["UTC", "2026-05-29T13:30:00.000Z", "2026-05-29", "2026-05-29T00:00:00.000Z"],
+    ["Pacific/Kiritimati", "2026-10-16T12:00:00.000Z", "2026-10-17", "2026-10-16T10:00:00.000Z"], // UTC+14
+    ["Pacific/Pago_Pago", "2026-10-16T05:00:00.000Z", "2026-10-15", "2026-10-15T11:00:00.000Z"], // UTC-11
+  ])("%s at %s is local date %s", (zone, at, localDate, startIso) => {
+    const bounds = userLocalDayBounds(zone, new Date(at));
+    expect(bounds.localDate).toBe(localDate);
+    expect(bounds.startIso).toBe(startIso);
+  });
 });
