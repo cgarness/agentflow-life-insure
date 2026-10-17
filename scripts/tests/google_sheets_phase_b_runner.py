@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as folder:
     local = {k:v for k,v in os.environ.items() if not k.startswith(('PG','SUPABASE_'))} | {
         'PGHOST':'127.0.0.1','PGPORT':'55435','PGUSER':'postgres','PGDATABASE':'postgres',
         'PGPASSWORD':'synthetic-runner-only','PGSSLMODE':'disable', 'PGCONNECT_TIMEOUT':'5',
-        'PGAPPNAME':'sheets-runner-synthetic-test','PGOPTIONS':'-c statement_timeout=30000'}
+        'PGAPPNAME':'sheets-runner-synthetic-test'}
     assert local['PGHOST']=='127.0.0.1' and m.REF not in json.dumps(local)
     def run(query, env=local):
         return m.command(['psql','-X','-qAt','-v','ON_ERROR_STOP=1','-c',query],env)
@@ -119,6 +119,25 @@ with tempfile.TemporaryDirectory() as folder:
             except m.Stop as error:assert 'SECRET' not in str(error)
             else:raise AssertionError('command failure not propagated')
         print('PASS: command error redaction')
+        # identity(): TLS is asserted on the runner's own connection (\conninfo), never via pg_stat_ssl,
+        # which would describe the session pooler's upstream hop.
+        pooler = {'PGHOST':'aws-0-us-east-1.pooler.supabase.com'}
+        echo = f"{pooler['PGHOST']} 5432 postgres postgres.{m.REF}"
+        connected = 'You are connected to database "postgres" as user "postgres" on host "h" at port "5432".'
+        tls = connected + '\nSSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)'
+        with patch.object(m,'command',side_effect=[echo,tls]),patch.object(m,'sql',return_value='postgres|postgres'):
+            m.identity(pooler)
+        with patch.object(m,'command',side_effect=[echo,connected]),patch.object(m,'sql',return_value='postgres|postgres'):
+            try:m.identity(pooler)
+            except m.Stop:pass
+            else:raise AssertionError('plaintext connection accepted')
+        print('PASS: identity requires TLS on the runner connection')
+        # Check sessions are read-only through in-session SET, independent of pooler startup options.
+        try:m.sql('CREATE TABLE public.gs_runner_write_probe(i int)',good)
+        except m.Stop:pass
+        else:raise AssertionError('read-only check session accepted a write')
+        assert m.sql("select current_setting('default_transaction_read_only') || '|' || current_setting('statement_timeout')",good)=='on|30s'
+        print('PASS: read-only check sessions with a 30 s statement timeout')
     finally:
         for db in dbs:run(f'DROP DATABASE IF EXISTS {db} WITH (FORCE)')
 print('ALL RUNNER CHECKS PASSED; no production access or deployment')

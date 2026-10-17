@@ -1,3 +1,18 @@
+## 2026-10-17 — Sheets Phase B runner (PR #451): pooler-safe session settings and TLS check (no production change)
+
+Chris asked Claude to finish the Google Sheets release, so Claude resumes driving PR #451 and PR #442. Production was re-checked read-only at 02:40 UTC: unchanged (327 history rows, latest `20261016035626`, no Sheets objects).
+
+**Changed (two production-only paths the synthetic CI could not exercise):**
+- **Session settings:** check sessions now set `default_transaction_read_only` and `statement_timeout` with in-session `SET` instead of libpq startup options (`PGOPTIONS`). Whether the session pooler forwards startup options is unverified, and `SET` works either way. The migration transaction adds `SET LOCAL statement_timeout = '30s'` next to the 5 s lock timeout.
+- **TLS check:** it reads psql's `\conninfo` for the runner's own connection instead of `pg_stat_ssl`, which describes the pooler's upstream hop. `PGSSLMODE=require` still refuses plaintext.
+
+**Verified locally** against disposable PostgreSQL 17.6 with the full synthetic driver and CLI 2.121.0:
+- real apply and read-backs, real history repair and replay refusal;
+- lock-timeout and watchdog rollbacks, six out-of-order refusals and log redaction;
+- new: TLS required on the runner connection; read-only check sessions with a 30 s timeout.
+
+psql 16's `\conninfo` output was confirmed against a TLS-enabled PostgreSQL 17.6.
+
 ## 2026-10-16 — Google Sheets Phase B cloud runner prepared (draft; no production change)
 
 Chris asked to finish PR #442 from the cloud with separate production approvals. Current source is `eaf988b`, cleanly mergeable into `main` `9a90552`; all 16 checks pass and Supabase Preview is skipped. Read-only production inspection: 327 migrations, latest `20261016035626`; helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`; zero Sheets relations/functions; 76 Edge functions, none Sheets. `www.fflagent.com` still points to `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`.

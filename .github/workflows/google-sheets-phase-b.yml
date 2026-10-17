@@ -116,20 +116,27 @@ jobs:
                   'PGHOST': host, 'PGPORT': '5432', 'PGDATABASE': 'postgres',
                   'PGUSER': f'postgres.{REF}', 'PGPASSWORD': password, 'PGSSLMODE': 'require',
                   'PGCONNECT_TIMEOUT': '10', 'PGAPPNAME': 'agentflow-sheets-phase-b',
-                  'PGOPTIONS': '-c statement_timeout=30000',
               }
-          
+
+          # Session settings are SET inside each session, not sent as libpq startup options (PGOPTIONS):
+          # whether the session pooler forwards startup options is unverified, and SET works either way.
           def sql(query, env):
               # Every check is forced read-only in a separate session.
-              return command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', query],
-                             env | {'PGOPTIONS': '-c default_transaction_read_only=on -c statement_timeout=30000'})
-          
+              return command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1',
+                              '-c', 'SET default_transaction_read_only = on',
+                              '-c', 'SET statement_timeout = 30000',
+                              '-c', query], env)
+
           def identity(env):
               require(command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c',
                                r'\echo :HOST :PORT :DBNAME :USER'], env) ==
                       f"{env['PGHOST']} 5432 postgres postgres.{REF}", 'connection identity')
-              require(sql("select current_user || '|' || current_database() || '|' || ssl::text from pg_stat_ssl where pid=pg_backend_pid()", env) ==
-                      'postgres|postgres|true', 'postgres database over TLS')
+              # TLS is checked on the runner's own connection. pg_stat_ssl would describe the pooler's
+              # upstream hop instead; PGSSLMODE=require already refuses a plaintext connection.
+              require('SSL connection (protocol:' in command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c',
+                                                             r'\conninfo'], env), 'runner connection uses TLS')
+              require(sql("select current_user || '|' || current_database()", env) ==
+                      'postgres|postgres', 'postgres role and database')
           
           def state(env):
               return sql(r"""select concat_ws('|', current_database(),
@@ -222,7 +229,8 @@ jobs:
               signal.signal(signal.SIGTERM, cancel)
               signal.signal(signal.SIGINT, cancel)
               CHILD = subprocess.Popen(['psql','-X','--set','ON_ERROR_STOP=1','--single-transaction',
-                                        '-c', "SET LOCAL lock_timeout = '5s'", '--file',str(MIGRATION)],
+                                        '-c', "SET LOCAL lock_timeout = '5s'",
+                                        '-c', "SET LOCAL statement_timeout = '30s'", '--file',str(MIGRATION)],
                                        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               try:
                   CHILD.wait(timeout=120)
