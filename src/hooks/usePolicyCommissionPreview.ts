@@ -33,6 +33,13 @@ export type PolicyCommissionPreview =
   | { status: "ready"; identity: string; context: ReadyCalculatorContext; level: CreditedLevel; agentName: string | null };
 
 const STALE_MS = 60_000;
+/**
+ * The credited owner can be reassigned at any time, so it is never served from cache: it is re-read on
+ * every mount (an owner cached by an earlier open is ignored until the fresh read returns), re-checked
+ * while the panel stays open, on window focus, and every OWNER_RECHECK_MS. A failed re-check hides the
+ * figures. The grid, Team scope and profile reads keep their shared cache (keyed per agent).
+ */
+export const OWNER_RECHECK_MS = 15_000;
 
 export const policyCommissionPreviewKeys = {
   owner: (userId: string | null, orgId: string | null, kind: string | null, id: string | null, hint: string | null) =>
@@ -62,16 +69,21 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
 
   const context = useCommissionCalculatorContext(anyPermission);
 
+  const [mountedAt] = useState(() => Date.now());
   const source = owner && owner.kind !== "self" ? owner : null;
   const hint = source?.kind === "lead" ? source.hint ?? null : null;
   const ownerQuery = useQuery({
     queryKey: policyCommissionPreviewKeys.owner(userId, orgId, source?.kind ?? null, source?.id ?? null, hint),
     queryFn: () => fetchCreditedOwner({ kind: source!.kind, id: source!.id }, orgId!),
     enabled: anyPermission && !!source && !!orgId,
-    staleTime: STALE_MS,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchInterval: OWNER_RECHECK_MS,
     retry: false,
   });
-  const creditedAgentId = owner?.kind === "self" ? userId : ownerQuery.isSuccess ? ownerQuery.data : null;
+  const ownerVerified = ownerQuery.isSuccess && ownerQuery.dataUpdatedAt >= mountedAt;
+  const creditedAgentId = owner?.kind === "self" ? userId : ownerVerified ? ownerQuery.data : null;
 
   const access: PreviewAccess =
     anyPermission && userId && creditedAgentId
@@ -110,7 +122,7 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
   const grid = context.data;
   if (source) {
     if (ownerQuery.isError) return unavailable();
-    if (!ownerQuery.isSuccess) return hidden;
+    if (!ownerVerified) return hidden;
     if (ownerQuery.data === null) return unavailable(NO_ASSIGNED_AGENT_MESSAGE);
   }
   if (access.kind === "denied" || !creditedAgentId) return hidden;

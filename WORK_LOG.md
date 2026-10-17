@@ -1,3 +1,31 @@
+## 2026-10-17 — PR #455 correction: the credited owner is re-verified, never served from cache (draft; not merged, not deployed)
+
+**Why:** Chris asked to verify the owner-cache edge case before merge approval. It was a real defect. The owner read used a 60-second shared cache with no re-check, so after a lead or client was reassigned:
+- a modal reopened within that minute showed the previous owner's estimate at once (or the operator's own, after the record moved away from them);
+- a modal left open kept showing it until the next stale-and-focus refetch.
+
+The sale was never affected, because the server credits the stored owner at save time. But the preview could display the wrong agent's commission.
+
+**Fix (approved preview files only):** in `usePolicyCommissionPreview.ts`, the owner query now:
+- refetches on every mount and ignores any owner cached before this panel mounted (hidden until the fresh read returns);
+- re-checks on window focus and every 15 seconds while the panel is mounted (`OWNER_RECHECK_MS`);
+- hides the figures if a re-check fails.
+
+A changed owner switches the panel without ever pairing the old owner's figures with the new state: profile reads are keyed per agent and identity-checked. The grid, Team-scope and profile reads keep their shared cache.
+
+**Bound:** while a modal stays open, a reassignment made elsewhere is reflected within about 15 seconds plus one round trip (sooner on window focus). Removing that window entirely would need a server push (Realtime), which is outside this approved frontend scope.
+
+**Tests:**
+- Hook: 5 new tests — quick reopen (to another agent, and away from the operator), the re-check while open, the re-check on focus, and fail-closed on a failed re-check.
+- Real modal: 1 new test (RecordPolicyModal reopened on a shared cache after reassignment).
+- All 6 failed on the previous code and pass now.
+- Negative controls: trusting a pre-mount cached owner, dropping the interval re-check, and restoring the 60-second cache each fail (3, 2 and 8 tests).
+- No other file changed: no dialer, backend or Supabase change.
+
+**Next:** re-run the CI-equivalent comparison, then confirm the PR #455 checks on the new head before asking for approval. No merge or deploy.
+
+---
+
 ## 2026-10-17 — Policy commission preview, Phase 1 (approved; draft PR #455; not merged, not deployed)
 
 **Authorization and scope:** Chris approved the amended plan at `cc8a2b4` (decisions P1–P4). It is frontend-only and preview-only: no migrations, backend changes, production writes or deployment. Base `main` `95009d1`. Plan and as-built notes: root `implementation_plan.md`, top entry.

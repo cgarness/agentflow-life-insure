@@ -22,6 +22,7 @@
 5. The panel stays hidden until a carrier is entered, so "No matching product" never appears before there is a carrier to match.
 6. For another agent, the engine's "Not available at your contract level." reads "Not available at this agent's contract level."
 7. D1: names in the new tests do not appear in the private grid, and the new tests' expected amounts use only synthetic fixture values that do not appear in it (read-only, value-free check). No production values were copied.
+8. Post-PR correction (Chris's owner-cache check): the credited owner is never served from cache. It is re-read on every mount, with an owner cached by an earlier open ignored. It is re-checked on window focus and every 15 seconds while open, and a failed re-check hides the figures. While a modal stays open, a reassignment made elsewhere shows within about 15 seconds; a server push would be needed to remove that window entirely.
 
 **Verification:** see the newest `WORK_LOG.md` entry and draft PR #455.
 

@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   ids: {
     a: "00000000-0000-4000-8000-0000000000a1",
     b: "00000000-0000-4000-8000-0000000000b2",
+    c: "00000000-0000-4000-8000-0000000000c5",
     viewed: "00000000-0000-4000-8000-0000000000c3",
     org: "00000000-0000-4000-8000-0000000000d4",
     lead: "00000000-0000-4000-8000-0000000000e5",
@@ -26,6 +27,7 @@ const h = vi.hoisted(() => ({
   leadOwner: null as string | null,
   clientOwner: null as string | null,
   profileRow: null as unknown,
+  profilesById: null as Record<string, unknown> | null,
   team: [] as string[],
   context: null as unknown,
   rpcCalls: [] as Array<[string, unknown]>,
@@ -36,15 +38,17 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   const SALES = new Set(["convert_lead_to_client_with_sales", "create_client_with_sale", "record_client_policy", "update_client_with_policy_sale"]);
-  const rows: Record<string, () => unknown> = {
+  const rows: Record<string, (filters: Record<string, unknown>) => unknown> = {
     leads: () => ({ assigned_agent_id: h.leadOwner }),
     clients: () => ({ assigned_agent_id: h.clientOwner }),
-    profiles: () => h.profileRow,
+    profiles: (filters) => (h.profilesById ? h.profilesById[String(filters.id)] ?? null : h.profileRow),
   };
   const from = (table: string) => {
+    const filters: Record<string, unknown> = {};
     const builder: Record<string, unknown> = {};
-    for (const method of ["select", "eq", "order", "in", "limit"]) builder[method] = () => builder;
-    builder.maybeSingle = async () => (h.readCalls.push(table), { data: rows[table]?.() ?? null, error: null });
+    for (const method of ["select", "order", "in", "limit"]) builder[method] = () => builder;
+    builder.eq = (column: string, value: unknown) => ((filters[column] = value), builder);
+    builder.maybeSingle = async () => (h.readCalls.push(table), { data: rows[table]?.(filters) ?? null, error: null });
     builder.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
       h.readCalls.push(table);
       const data = table === "carriers" ? [{ name: "Synthetic Carrier North" }, { name: "Synthetic Carrier South" }] : [];
@@ -120,10 +124,9 @@ function rawContext(level: string | null) {
 }
 
 let uuid = 0;
-function mount(ui: React.ReactElement) {
+function mount(ui: React.ReactElement, client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   uuid = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `00000000-0000-4000-9000-${String(++uuid).padStart(12, "0")}` });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 const regions = () => screen.queryAllByRole("region", { name: "Commission estimate" });
@@ -134,7 +137,7 @@ const salesTo = (name: string) => h.rpcCalls.filter(([n]) => n === name).map(([,
 const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
 beforeEach(() => {
-  Object.assign(h, { role: "Agent", impersonating: false, leadOwner: A, clientOwner: A, team: [], saleFailures: 0, saleGate: null });
+  Object.assign(h, { role: "Agent", impersonating: false, leadOwner: A, clientOwner: A, team: [], saleFailures: 0, saleGate: null, profilesById: null });
   h.perms = new Set([OWN]);
   h.profileRow = { id: B, first_name: "Synthetic", last_name: "B", email: "b@example.test", commission_level: "120" };
   h.context = rawContext("100");
@@ -405,10 +408,10 @@ describe("AddClientModal", () => {
 });
 
 // ── RecordPolicyModal ────────────────────────────────────────────────────────────────────────────────
-function openRecord() {
+function openRecord(client?: QueryClient) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
-  mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={onClose} onSaved={onSaved} />);
+  mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={onClose} onSaved={onSaved} />, client);
   fireEvent.change(screen.getByLabelText("Policy type"), { target: { value: "Final Expense" } });
   fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: NORTH } });
   fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
@@ -440,6 +443,24 @@ describe("RecordPolicyModal", () => {
     const [failed, retried] = salesTo("record_client_policy");
     expect(failed).toEqual(baseline);
     expect(retried).toEqual(baseline);
+  });
+
+  it("a quick reopen after the client is reassigned never shows the previous owner's estimate", async () => {
+    Object.assign(h, { role: "Admin", clientOwner: B });
+    h.perms = new Set([OWN, OTHERS]);
+    h.profilesById = {
+      [B]: { id: B, first_name: "Synthetic", last_name: "B", email: "b@example.test", commission_level: "120" },
+      [h.ids.c]: { id: h.ids.c, first_name: "Synthetic", last_name: "C", email: "c@example.test", commission_level: "130" },
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    openRecord(client);
+    await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic B")).toBeTruthy());
+    cleanup();
+    h.clientOwner = h.ids.c;
+    openRecord(client);
+    expect(screen.queryByText("For Synthetic B")).toBeNull();
+    await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic C")).toBeTruthy());
+    expect(screen.queryByText("For Synthetic B")).toBeNull();
   });
 
   it("shows nothing for a Team Leader outside the credited agent's scope", async () => {

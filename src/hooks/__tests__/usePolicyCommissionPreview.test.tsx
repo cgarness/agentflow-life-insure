@@ -1,7 +1,7 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const h = vi.hoisted(() => ({
   ids: {
@@ -270,6 +270,104 @@ describe("fails closed on owner, profile and grid data", () => {
     h.fetchContext.mockRejectedValue(new Error("grid failed"));
     const failed = setup({ kind: "self" });
     await waitFor(() => expect(failed.result.current).toMatchObject({ status: "unavailable" }));
+  });
+});
+
+describe("reassignment: the credited owner is re-verified, never served from an earlier open", () => {
+  const RECHECK_MS = 15_000;
+  const label = (state: ReturnType<typeof usePolicyCommissionPreview>) =>
+    state.status === "ready" ? `ready:${state.agentName ?? "own"}` : state.status;
+  function track(owner: PreviewOwner, client: QueryClient) {
+    const seen: string[] = [];
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    const hook = renderHook(() => {
+      const state = usePolicyCommissionPreview(owner);
+      seen.push(label(state));
+      return state;
+    }, { wrapper });
+    return { ...hook, seen };
+  }
+  const freshClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const profiles = (id: string) => (id === B ? profileOf(B, "B", "120") : id === C ? profileOf(C, "C", "130") : null);
+
+  beforeEach(() => {
+    Object.assign(h, { role: "Admin" });
+    h.perms = new Set([OWN, OTHERS]);
+    h.fetchProfile.mockImplementation(async (id: string) => profiles(id));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    focusManager.setFocused(undefined);
+  });
+
+  it("a quick reopen after a reassignment never shows the previous owner's estimate", async () => {
+    const client = freshClient();
+    h.fetchOwner.mockResolvedValue(B);
+    const first = track({ kind: "client", id: CLIENT }, client);
+    await waitFor(() => expect(first.result.current).toMatchObject({ status: "ready", agentName: "Synthetic B" }));
+    first.unmount();
+    let release: (owner: string) => void = () => {};
+    h.fetchOwner.mockImplementation(() => new Promise<string>((resolve) => { release = resolve; }));
+    const reopened = track({ kind: "client", id: CLIENT }, client);
+    expect(reopened.seen).not.toContain("ready:Synthetic B");
+    expect(reopened.result.current.status).toBe("hidden");
+    await waitFor(() => expect(h.fetchOwner).toHaveBeenCalledTimes(2));
+    await act(async () => release(C));
+    await waitFor(() => expect(reopened.result.current).toMatchObject({ status: "ready", agentName: "Synthetic C", level: { level: 130 } }));
+    expect(reopened.seen).not.toContain("ready:Synthetic B");
+  });
+
+  it("a quick reopen after the operator's record moves to another agent never keeps the operator's own estimate", async () => {
+    Object.assign(h, { role: "Agent" });
+    h.perms = new Set([OWN]);
+    const client = freshClient();
+    h.fetchOwner.mockResolvedValue(A);
+    const first = track({ kind: "lead", id: LEAD, hint: A }, client);
+    await waitFor(() => expect(first.result.current).toMatchObject({ status: "ready", agentName: null }));
+    first.unmount();
+    h.fetchOwner.mockResolvedValue(B);
+    const reopened = track({ kind: "lead", id: LEAD, hint: A }, client);
+    await waitFor(() => expect(h.fetchOwner).toHaveBeenCalledTimes(2));
+    await flush();
+    expect(reopened.seen).not.toContain("ready:own");
+    expect(reopened.result.current.status).toBe("hidden");
+  });
+
+  it("re-checks the owner while the modal stays open and switches without mixing in the previous owner", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    h.fetchOwner.mockResolvedValue(B);
+    const view = track({ kind: "client", id: CLIENT }, freshClient());
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "ready", agentName: "Synthetic B" }));
+    h.fetchOwner.mockResolvedValue(C);
+    const mark = view.seen.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(RECHECK_MS); });
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "ready", agentName: "Synthetic C" }));
+    const after = view.seen.slice(mark);
+    const switched = after.findIndex((state) => state !== "ready:Synthetic B");
+    expect(switched).toBeGreaterThanOrEqual(0);
+    expect(after.slice(switched)).not.toContain("ready:Synthetic B");
+  });
+
+  it("re-checks the owner when the window regains focus", async () => {
+    h.fetchOwner.mockResolvedValue(B);
+    const view = track({ kind: "client", id: CLIENT }, freshClient());
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "ready", agentName: "Synthetic B" }));
+    h.fetchOwner.mockResolvedValue(C);
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "ready", agentName: "Synthetic C" }));
+  });
+
+  it("hides the figures when an owner re-check fails (fail closed)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    h.fetchOwner.mockResolvedValue(B);
+    const view = track({ kind: "client", id: CLIENT }, freshClient());
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "ready", agentName: "Synthetic B" }));
+    h.fetchOwner.mockRejectedValue(new Error("owner re-check failed"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(RECHECK_MS); });
+    await waitFor(() => expect(view.result.current).toMatchObject({ status: "unavailable" }));
   });
 });
 
