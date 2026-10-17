@@ -1,6 +1,6 @@
-## 2026-10-17 — PLAN AMENDED (P1–P4 decided by Chris), AWAITING APPROVAL OF THE AMENDED SCOPE: Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
+## 2026-10-17 — IMPLEMENTED (amended scope approved by Chris at `cc8a2b4`; draft PR, not merged or deployed): Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
 
-**Status:** plan only. Chris decided P1–P4 on 2026-10-17 (below). No application file, migration, RPC, RLS, Edge Function or production data has been changed. Production access was read-only catalog and count inspection. Branch `claude/commission-policy-preview` from `main` `95009d1`, which has not moved since. Implementation starts only after Chris explicitly approves this amended scope, and anything outside §6 returns for approval first. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
+**Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as a draft PR; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
 
 **Decisions (Chris, 2026-10-17)**
 
@@ -10,6 +10,22 @@
 | **P2** | **Final Expense.** Candidates are only the matched carrier's whole-life products, and the agent must select the exact actual product. Never auto-select, substitute, fuzzy-match another carrier, or assume all whole-life products are Final Expense. If there is no exact supported product, show a compact unavailable state; the ordinary save still works. |
 | **P3** | **Preview only.** §8 is **DEFERRED and NOT approved**: no snapshot table, RPC, migration, sale-payload change or post-save write. Previews are never presented as saved, earned, booked or paid commission. |
 | **P4** | **Where it shows.** Creating a client, converting a lead, recording a policy, and the existing first-policy-entry path of client edit. Not ordinary edits of an existing policy. The preview never creates a sale event. |
+
+### As built (2026-10-17)
+**Files:** exactly §6 — 5 new application files, 4 new test files, 3 modals (+16 lines in total), the harness-only mock in the 3 existing modal tests, and the 3 docs. No migration, RPC, RLS, Edge Function, dialer file, sale module or calculator-engine change.
+
+**Refinements within the approved scope (for review):**
+1. Validation reuses the calculator's Zod `validateCalculatorForm` (age, premium, term membership) instead of a second, separately named schema; product membership is structural, since only grid candidates can be selected.
+2. `usePreviewSelection` / `PreviewSelection` live in `usePolicyCommissionPreview.ts` rather than `PolicyCommissionInputs.tsx`, so the component file exports only a component (ESLint `react-refresh/only-export-components`).
+3. Preview controls use explicit `htmlFor`/`id` labels. The real-browser check found that wrapping labels gave each select an accessible name containing its option text.
+4. Age prefill is stricter than §5's wording: a real date of birth that cannot give a valid age on the Sold Date (later than the Sold Date, over 100, or no valid Sold Date) leaves the age blank instead of falling back to a stored age.
+5. The panel stays hidden until a carrier is entered, so "No matching product" never appears before there is a carrier to match.
+6. For another agent, the engine's "Not available at your contract level." reads "Not available at this agent's contract level."
+7. D1: names in the new tests do not appear in the private grid, and the new tests' expected amounts use only synthetic fixture values that do not appear in it (read-only, value-free check). No production values were copied.
+
+**Verification:** see the newest `WORK_LOG.md` entry and the draft PR.
+
+**High-priority follow-up (separate task, not part of this feature):** the Team Leader hierarchy predicate (`is_ancestor_of` / `hierarchy_path`) is unreliable in production. It is recorded in `AGENT_RULES.md` › Known Tech Debt. No hierarchy data or permission was changed here.
 
 ### 1. Goal
 Show a compact emerald estimate directly below each policy's details while the agent enters it:
