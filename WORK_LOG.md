@@ -1,3 +1,19 @@
+## 2026-10-17 — RELEASED: Sold Date reporting accuracy (PR #453; production frontend and backend verified)
+
+**Status/date:** Owner-approved separately gated production release completed October 16, 2026 PDT / October 17 UTC. PR #453 merged to `main` at `12901e5c18922239022afc1c9436df8b2df20c15`; exact reconciled head `4bde52a` passed all six GitHub workflows. Migration filenames match production history, with unchanged SQL bytes.
+
+**Change and files:** The reviewed frontend policy Sold Date readers, Leaderboard/TV/Dashboard/Goals/performance details, Recent Wins Sold versus Entered labels, Dialer v2 stats/cache and tests were merged as PR #453; see its 36-file diff and the implementation plan. This closeout touches documentation only (`WORK_LOG.md`, `AGENT_RULES.md`, `implementation_plan.md`), adding no application behavior.
+
+**Production migrations:** `20261017043142_performance_sold_date_basis` and `20261017043757_performance_wins_sold_date_index` applied/readback-verified on `jncvvsvckxhqgqvkppmj`. New index valid and ready. Legacy Dialer function unchanged, with v2 separately installed. No changes to customer sales, policy identities, calls, Twilio, RLS or unrelated Edge functions. No rollback applied.
+
+**Deployments:** `agentflow` `dpl_5vRNhKc3p72a8HCwevHDASq3gVwD` (www.fflagent.com) and `agentflow-life-insure` `dpl_4x7FnJkBmBZ93mbUSmHDk84RcdvL` both READY on merge `12901e5c`. Both production HTML endpoints return HTTP 200 with new hashed bundles. Deployment-scoped error/fatal runtime-log queries returned no records.
+
+**Verification:** 16 live wins, 16 unique policy IDs, 0 missing Sold Dates; Teo's six October 16 entries have stored Sold Dates October 15 ×3, October 14 ×2 and October 8 ×1. Auth-context readbacks yield Teo Oct 16 0, Oct 15 3, current week 5 and October 6, with correct policy details and Recent Wins fields. Dialer v2 retains call/contacted/talk/session figures in the tested readback. Advisors checked; no newly authorized security changes. No authenticated browser journey or live-agent confirmation is claimed. Agents need to refresh their tab after finishing a call.
+
+**Blockers / next:** Release is live; no known deployment blocker. Real user browser acceptance remains unverified; investigate only if agents report a discrepancy. Recovery sequence is frontend rollback first, then separately authorized guarded backend rollback if needed. Keep old Dialer RPC until separate compatibility retirement approval.
+
+---
+
 ## 2026-10-17 — PR #453 Sold Date release: backend live, frontend merge/deploy approved (release preparation; final UI verification pending)
 
 **Status and authorization:** Chris approved the backend release, then the separate index release, then the PR #453 frontend release contingent on clean exact-head checks. The Supabase production migrations are already recorded as `20261017043142_performance_sold_date_basis` and `20261017043757_performance_wins_sold_date_index`. Backend calls, sales, security grants, RLS and dialer legacy RPC are preserved. Production frontends remain at `main` until the reviewed PR is merged and Vercel builds READY.
