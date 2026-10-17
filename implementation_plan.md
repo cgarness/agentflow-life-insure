@@ -1,6 +1,6 @@
-## 2026-10-17 — BUGFIX PLAN, AWAITING CHRIS'S APPROVAL: sales count on the actual Sold Date
+## 2026-10-17 — BUGFIX, APPROVED FOR DEVELOPMENT AND TESTING ONLY: sales count on the actual Sold Date
 
-**Status:** read-only preparation is complete. Nothing else has changed: no application code, schema, migration, Edge function, Vercel setting or production data. Branch `claude/agentflow-sold-date-reporting-2g35mk` sits at main `91eabff` (PR #450, the multi-policy client display, is merged). This plan section is the only edit. Implementation waits for Chris's explicit approval. Production migration and deployment each need a separate approval after that.
+**Status:** Chris approved implementation on October 17, 2026 for development and testing on branch `claude/agentflow-sold-date-reporting-2g35mk` (base main `91eabff`), followed by a draft PR. His decisions are recorded in §7. D2 changed from the original proposal: a versioned Dialer RPC sits alongside the unchanged legacy one. **Not approved:** applying production migrations, deploying, or merging into main. Each needs his separate explicit approval. Production sales, including Teo's rows, are never modified. The production Dialer and Twilio call path stay untouched.
 
 **Plain summary:** the Leaderboard, TV, Dashboard, Goals, user performance and the Dialer currently count a sale on the day it was *typed in*. They should count it on its **Sold Date**. The fix moves every sales-period calculation to `wins.sold_date`. It keeps who gets credit, the one-policy-one-sale rules, entry timestamps and all permissions. Calls, talk time and appointments are unchanged. Reports already uses Sold Dates and stays untouched. No sale rows are edited.
 
@@ -40,8 +40,9 @@
 | Current periods | Sold Date from period start through agency **today**. Future-dated sales never count early. Previous-period comparisons use the full previous period. `recent_wins_7d` covers sales dated in the last 7 agency days, today included. |
 | Unknown Sold Date | Never counted in any period and never inferred from `created_at`/`recorded_at`. Readers return a scope-wide, all-time `undated_policies` count. The UI shows a short note only when it is above zero (zero in production). |
 | Calls / talk time / appointments | Unchanged (`calls.created_at` outbound, setter `COALESCE(created_by,user_id)` on `appointments.created_at`). |
-| Dialer header | Calls, talk time and sessions keep the agent-local-day, selected-campaign window. Policies Sold = own campaign wins with `sold_date` = the agent-local date. The browser sends that date explicitly from the same Intl computation as the window, and the server validates it against the window (no UTC inference). |
-| Recent Wins | Same latest-20 ordering (`created_at DESC, id`). Each item adds `sold_date` and `entered_at = coalesce(recorded_at, created_at)` (the true entry time, including historical/repair rows). The row shows the Sold Date and the entry time distinctly (D4). |
+| Dialer header | Calls, talk time and sessions keep the agent-local-day, selected-campaign window. Policies Sold = own campaign wins with `sold_date` = the agent-local date, read only from the new versioned `get_trusted_today_dialer_stats_v2`. The browser sends that date from the same Intl computation as the window. The server validates it against the window (no UTC inference) and echoes `policy_date_basis = 'sold_date'` and `policy_sale_date`. The browser refuses any response without that exact basis and date, so a legacy entry-date total can never appear as a Sold Date total. |
+| Legacy Dialer RPC | `get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz)` stays byte-identical, with the same ACL and entry-date semantics. It serves only browser tabs opened before the release, so active dialing and those headers keep working until agents refresh, which the coordinated release requires. A COMMENT marks it as legacy compatibility. New code never calls it and never shares its cache. Dropping it is a separately approved follow-up once logs show no callers. |
+| Recent Wins | Same latest-20 ordering (`created_at DESC, id`). Each item adds `sold_date` and `entered_at = coalesce(recorded_at, created_at)`, the true entry time, including historical/repair rows. Minimal row copy: "Sold 10/15/2026 · Entered 10/16/2026" when the dates differ, and "Sold 10/16/2026 · Entered 12:48 PM" on the same day. The time is always labelled "Entered" and never sits beside the Sold Date as if it were the time of sale. A row without a Sold Date says "Sold date unknown". |
 | Reports | No source, attribution or security change. Regression tests prove it already counts by Sold Date and by current assignment. |
 | Security | No RLS or table-policy change. Every public function keeps owner `postgres`, SECURITY DEFINER/STABLE, `search_path`, `statement_timeout` and exactly `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. New private helpers are `{postgres=X/postgres}` only. Actor and organization stay database-derived, with no caller-supplied organization or zone. There is no raw peer fan-out. |
 
@@ -58,7 +59,8 @@ Authored with the CLI timestamp and applied through MCP `apply_migration`. The r
 | `public.get_performance_summary(text,text,uuid)` | Body only: current and previous sale windows, the basis/date fields and a scoped `undated_policies`. | `72ad61ca0fb903cc59667e70cd336f30` |
 | `public.get_performance_details(text,text,text,uuid,timestamptz,integer)` | Body only: policy rows filtered by Sold Date in the frozen window. They return `sold_date` and `entered_at`, ordered `sold_date DESC, created_at DESC, id DESC`. Call and workload branches are unchanged. | `f33f867a40b1241f4191bbfb6a73577c` |
 | `public.get_org_leaderboard_stats(timestamptz,timestamptz)` (legacy; no current caller) | Body only: delegate with agency-zone dates from its instant window, clamped to today. Signature, ACL, guard and the 35-day limit stay. | `c71440b40abbac0b5953aaaaa786f508` |
-| `public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz)` | DROP and CREATE as `(…, p_sale_date date)` with an identical result shape (D2). The validated date must lie within the window's possible local dates (UTC−12 to +14), the window must be 22 to 26 h long, and the date must not be later than the latest possible local date now. | `c6cddd40cb7e85a1fab4ac565a3c7949` |
+| `public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz)` (legacy) | **Unchanged body and ACL** (preimage asserted before and after). Only a `COMMENT ON FUNCTION` marking it as legacy entry-date compatibility for pre-release tabs. | `c6cddd40cb7e85a1fab4ac565a3c7949` |
+| `public.get_trusted_today_dialer_stats_v2(uuid,timestamptz,timestamptz,date)` | NEW, distinct name (no default-argument overload). Same calls/contacted/talk/session logic as legacy. Policies use `sold_date = p_sale_date`. It returns the legacy columns plus `policy_date_basis` and `policy_sale_date`. The validated date must lie within the window's possible local dates (UTC−12 to +14), the window must be 22 to 26 h long, and the date must not be later than the latest possible local date now. ACL is exactly owner/authenticated/service_role. | — |
 | `private.performance_sale_window(text,text,timestamptz)` | NEW: `(sold_from, sold_until, previous_sold_from, previous_sold_until)` from zone, period (`today`/`day`/`week`/`month`/`year`) and as-of. | — |
 | `private.performance_require_sale_window(date,date)`, `private.dialer_sale_day_check(timestamptz,timestamptz,date)` | NEW validators (22023). | — |
 | `performance_wins_org_sold_date ON public.wins(organization_id, sold_date)` | NEW, in a **separate** migration, only if the native volume proof (§5) shows the planner uses it. Existing `created_at` indexes stay (the feed needs them). | — |
@@ -72,43 +74,60 @@ Unchanged dependencies are asserted by MD5 as well:
 - `report_agency_time_zone` `4e94e389294d20c4f342948ca149d58c`.
 - `insert_policy_sale` `3f600b757802c0fa8cc1e17fa5c25575` (the writer is not modified).
 
-### 4. Intended repository files
+### 4. Intended repository files (final list, recorded before any code edit)
 
-**Database and ops:**
+**Database and ops (new unless marked):**
 
-- New forward migration `supabase/migrations/<cli-timestamp>_performance_sold_date_basis.sql`.
-- Conditional `…_performance_wins_sold_date_index.sql`.
-- Guarded `supabase/migrations/rollback/<version>_performance_sold_date_basis.rollback.sql`. It restores exact preimages, the 3-argument Dialer reader and its ACL, and drops the new objects and the index. It refuses unless the live postimage matches.
-- `supabase/ops/reporting-accuracy/reconcile.sql` gets the new `performance_rows` call and a `sold_date_basis` section.
-- New standalone read-only `supabase/ops/reporting-accuracy/reconcile_sold_date.sql`. It uses only objects that already exist, so it runs before and after release.
+- `supabase/migrations/<cli-timestamp>_performance_sold_date_basis.sql`: the forward migration (§3).
+- `supabase/migrations/<cli-timestamp>_performance_wins_sold_date_index.sql`: kept only if the native plan proof uses it (D6).
+- `supabase/migrations/rollback/<version>_performance_sold_date_basis.rollback.sql`: guarded. It restores the exact preimages, drops the v2 Dialer RPC, helpers and index, and removes the legacy COMMENT. It refuses unless the live postimage matches.
+- `supabase/ops/reporting-accuracy/reconcile.sql` (modified): the new `performance_rows` call plus a `sold_date_basis` section.
+- `supabase/ops/reporting-accuracy/reconcile_sold_date.sql`: standalone and read-only. It uses only objects that already exist, so it runs before and after release.
 
-**Frontend (surgical):**
+**Frontend (modified, surgical):**
 
-- `src/lib/performanceQueries.ts`: snapshot and feed schemas require the Sold Date basis. They cross-check `sold_date_through`/`sold_date_from` against the agency-local dates of `end_at`/`start_at`. An old or mismatched payload fails closed, never shows numbers.
+- `src/lib/performanceQueries.ts`: snapshot and feed schemas require the Sold Date basis. They cross-check `sold_date_from`/`sold_date_through` against the agency-local dates of `start_at`/`end_at`. An old or mismatched payload fails closed.
 - `src/components/leaderboard/leaderboardTypes.ts`: `Win.sold_date`, `Win.entered_at`.
-- `src/components/leaderboard/RecentWinsPanel.tsx`: date line (D4). Dates use the existing `formatDate` (date-fns `parseISO` reads `YYYY-MM-DD` as a local calendar date, with no UTC shift).
-- `src/lib/leaderboardExport.ts`: CSV columns appended at the end ("Sold Date From", "Sold Date Through", "Policies Without Sold Date (All Time)"), plus one material caption note only when undated > 0.
-- `src/lib/performanceSummary.ts`: summary and details schemas require the basis and dates, cross-checked the same way.
-- `src/components/dashboard/DashboardDetailModal.tsx`: policy rows add "Sold MM/DD/YYYY".
-- `src/lib/supabase-dialer-stats.ts`: `userLocalDayBounds` also returns `localDate`, and the RPC sends `p_sale_date`.
-- `src/pages/DialerPage.tsx`, three small edits: the header cache prefix goes `v1` → `v2`, so event-time totals cached before the release are never painted. The optimistic trusted "Policies Sold +1" after a converting save is removed and replaced by an immediate server reconcile, since the server knows the Sold Date. The existing 3-second reconcile stays. Legacy `dialer_daily_stats` (display-only, not rendered) is untouched.
-- `src/integrations/supabase/types.ts`: surgical update to the Dialer RPC arguments.
-- `src/lib/win-trigger.ts`: correct its stale comment only.
+- `src/components/leaderboard/RecentWinsPanel.tsx`: the D4 date line, plus the full entry timestamp in the title and accessible label.
+- `src/lib/leaderboardExport.ts`: CSV columns appended at the end ("Sold Date From", "Sold Date Through", "Policies Without Sold Date (All Time)") and one caption note only when undated > 0.
+- `src/lib/performanceSummary.ts`: summary and details schemas require the basis and dates, cross-checked against the agency zone.
+- `src/components/dashboard/DashboardDetailModal.tsx`: policy and premium drill-down rows add "Sold MM/DD/YYYY".
+- `src/lib/supabase-dialer-stats.ts`: `userLocalDayBounds` also returns `localDate`. The trusted helper calls only `get_trusted_today_dialer_stats_v2` with `p_sale_date` and requires the echoed basis and date.
+- `src/pages/DialerPage.tsx`, three small edits:
+  - The header cache prefix goes `v1` → `v2`.
+  - The optimistic trusted "Policies Sold +1" after a converting save is removed.
+  - An immediate server reconcile is added; the existing 3-second reconcile stays.
+  - No call, queue, disposition or Twilio code changes.
+- `src/lib/win-trigger.ts`: the stale comment on `soldDate` only (dead path).
 
 **Tests and harness:**
 
-- New `supabase/tests/performance_sold_date_baseline.sql`. It runs before the migration and reproduces the bug: on the old body, Teo's six count on Oct 16.
-- New `supabase/tests/performance_sold_date.sql`.
-- New `supabase/tests/reports_sold_date_regression.sql`.
-- `scripts/reporting_fixture.py` order: existing chain → baseline reproduction → migration → new suite → rollback/re-apply proof → existing repair and reconciliation steps.
-- `scripts/reports_integrity_fixture.py` appends the Reports regression.
-- `scripts/tests/reporting-concurrency.mjs` adds 50,000 synthetic wins. Triggers are bypassed only in the disposable database. It records the plan with and without the index and checks snapshot/summary timing.
-- `src/test/fixtures/performance.ts` gets the new fields.
-- Focused frontend tests (§5).
-- `scripts/tests/leaderboard-visual/entry.tsx` adds snapshot fields and sample wins, including a late entry, so the Recent Wins rows are geometry-checked.
-- `.github/workflows/reporting-integrity.yml` runs the new date tests in its LA/NY/UTC browser-time-zone loop.
+- New `supabase/tests/performance_sold_date_baseline.sql`: reproduces the bug on the old body.
+- New `supabase/tests/performance_sold_date.sql`: the post-migration suite.
+- New `supabase/tests/reports_sold_date_regression.sql`: Reports Sold Date and current-assignment regression.
+- `scripts/reporting_fixture.py` (modified): the new steps, in order.
+- `scripts/reports_integrity_fixture.py` (modified): appends the Reports regression.
+- `scripts/tests/reporting-concurrency.mjs` (modified): the 50,000-win plan proof with and without the index, timings, and a v2 Dialer smoke test.
+- `src/test/fixtures/performance.ts` (modified): basis fields.
+- Extended frontend suites:
+  - `src/lib/__tests__/performanceContract.test.ts`
+  - `src/lib/__tests__/userLocalDayBounds.test.ts`
+  - `src/hooks/__tests__/useLeaderboardData.test.tsx`
+  - `src/components/dashboard/__tests__/dashboardPremiumLabels.test.tsx`
+  - `src/pages/__tests__/dialerAppointmentSave.test.tsx`: v2 mock, no optimistic +1, `p_sale_date`.
+- New frontend suites:
+  - `src/components/leaderboard/__tests__/recentWinsSoldDate.test.tsx`
+  - `src/lib/__tests__/trustedDialerStatsV2.test.ts`
+- `scripts/tests/leaderboard-visual/entry.tsx` (modified): snapshot fields and sample wins, including a late entry, so TV Recent Wins rows are geometry-checked.
+- `.github/workflows/reporting-integrity.yml` (modified): the new date tests in the LA/NY/UTC loop, with the inert Supabase env the Dialer helper needs.
 
-**Docs:** `implementation_plan.md`, `WORK_LOG.md`, `AGENT_RULES.md`. The amendments touch #14, #23, #38 (the Dialer/Leaderboard note), #40 and the Oct 3 "`wins.created_at` reporting semantics remain unchanged" line. A new invariant is proposed after shipping.
+**Docs:**
+
+- `implementation_plan.md`.
+- `WORK_LOG.md`, newest-first.
+- `AGENT_RULES.md`: a proposed invariant marked branch-only and not applied, with pointer notes on #14, #23, #38, #40 and the Oct 3 sale-recording line. It becomes active only with the approved release.
+
+Any file outside this list gets added here, with its reason, before it is edited.
 
 ### 5. Verification (synthetic data only; native PostgreSQL 17.6 in CI is authoritative; local PostgreSQL here is 16, a smoke check only)
 
@@ -117,10 +136,10 @@ Unchanged dependencies are asserted by MD5 as well:
 | 1. Teo fixture | Exact instants: six policies entered Oct 16 PDT with Sold Dates Oct 15 ×3, Oct 14 ×2 and Oct 8 ×1. They are inserted as postgres with real policy identities, plus a writer-path copy with Sold Dates relative to today. Expected: Oct 16 day 0. Oct 15/14/8 days 3/2/1. Week Oct 12–16 is 5, previous week +1. October 6. The pre-migration step proves the old result of 6 on Oct 16. |
 | 2. One policy = one sale | A multi-policy client (primary plus additional), same-request retry, additional-array reorder and reassignment all through the real writers. Counts stay +0 except new policies. Seller credit stays with the original seller after reassignment. |
 | 3. Periods, DST, zones, future | `performance_sale_window` with fixed as-ofs covers LA fall-back (Nov 1, a 25 h day) and spring-forward (Mar 8), Kiritimati +14, Pago Pago −11, Havana, New York, Monday weeks, month and year rollover, and previous periods. A future-dated sale is excluded until its date. |
-| 4. Readers and display | Snapshot, Group (viewer zone), legacy endpoint, summary current/previous, details filter/order, Recent Wins order plus `sold_date`/`entered_at`, Dialer (agent-local date, validation 22023, old signature absent). Frontend: schema fail-closed, LA/NY/UTC date cross-checks, Recent Wins "Sold" rendering with no UTC shift, drill-down Sold date, CSV columns/note, widget/TV/goals/user-performance suites with updated fixtures. |
+| 4. Readers and display | Snapshot, Group (viewer zone), legacy endpoint, summary current/previous, details filter/order, Recent Wins order plus `sold_date`/`entered_at`. Dialer v2: agent-local date, validation 22023, echoed basis and date, and legacy RPC byte-identical with entry-date semantics. Frontend: schema fail-closed, LA/NY/UTC date cross-checks, Recent Wins "Sold" rendering with no UTC shift, drill-down Sold date, CSV columns/note, widget/TV/goals/user-performance suites with updated fixtures. |
 | 5. Seller vs current owner | The performance suite keeps seller credit after reassignment. The Reports regression shows the same scenario moving to the current assignee by Sold Date. |
 | 6. Access | Agent own; Team Leader self plus downline; Admin agency; Super Admin home organization only; Group member allowed, removed member 42501; forged JWT organization ignored; cross-tenant rows never appear; anon denied on every changed function; exact ACL arrays; no RLS change. |
-| 7. Late entry refresh | SQL: a late sale changes only its Sold Date's periods, and repeated reads are stable. Frontend: a wins INSERT triggers one gated feed read and a standings refresh with server totals (no optimistic change). The Dialer shows no +1 after a converting save, reconciles from the server, and ignores v1 cache entries. |
+| 7. Late entry refresh | SQL: a late sale changes only its Sold Date's periods, and repeated reads are stable. Frontend: a wins INSERT triggers one gated feed read and a standings refresh with server totals (no optimistic change). The Dialer shows no +1 after a converting save, reconciles from v2, ignores v1 cache entries, and never accepts a legacy-shaped response. |
 | 8. Suites and baseline | Existing reporting/Reports/policy/DNC/Group SQL suites and the native contention script; the new suites; `npm run build`; `npx tsc --noEmit`; `npx tsc -p tsconfig.app.json --noEmit`; lint on touched files; the exact-head frontend comparison workflow. |
 
 **Baseline recorded at `91eabff` (this session):**
@@ -139,17 +158,17 @@ Browser: the leaderboard visual gate at 390/1440/TV widths includes the new Rece
    - Preimage MD5s, owners and ACLs unchanged.
    - Latest migrations listed.
    - Supabase Git auto-deploy still disabled.
-   - No active dialing (the Dialer RPC signature changes).
+   - Active-dialing check. The legacy Dialer RPC stays, so dialing need not stop. The window still avoids peak dialing, because agents must refresh.
    - Frozen as-of run of `reconcile_sold_date.sql`.
 3. **Backend:** apply the forward migration, then read back postimage MD5s, ACLs and configs. Then run read-only authenticated database-role reads for Admin/Agent/Team Leader and compare them to the reconciliation. Apply the index migration only if it was justified.
-4. **Frontend:** rename the migration file to the recorded version, merge, and verify both Vercel production targets and their served assets. Agents refresh after calls finish. Until then, an old tab keeps working except its Dialer header, which shows "Stale/Stats unavailable · Retry stats" (dialing is unaffected).
+4. **Frontend:** rename the migration file to the recorded version, merge, and verify both Vercel production targets and their served assets. **Agents must refresh** after their current call; this is part of the coordinated release. Until a tab refreshes, it keeps its old behavior, including entry-day Dialer policy counts from the unchanged legacy RPC. New code never reads, caches or labels those legacy totals. A separately approved follow-up drops the legacy RPC once read-only API logs show no callers.
 5. **Observe:** run the established ten-minute leaderboard observation (latency, PT429/5xx; stop on two standings responses over 2 s). Then the post-release reconciliation, WORK_LOG, and AGENT_RULES.
 
 **Rollback:**
 
 - Frontend first: Vercel previous deployment or a revert.
 - Then the guarded rollback migration, which restores the exact preimages above.
-- A new frontend on an old backend fails closed, showing error states rather than wrong numbers. The order is therefore backend before frontend on the way in, and frontend before backend on the way out.
+- A new frontend on an old backend fails closed, showing error states rather than wrong numbers; v2 is missing there, so the Dialer header reads "Stats unavailable". The order is therefore backend before frontend on the way in, and frontend before backend on the way out. The old frontend works on the new backend, because the legacy RPC and the payload keys it reads are unchanged.
 - No data rollback is needed.
 
 **Read-only production reconciliation** (`reconcile_sold_date.sql`, `$1` org, `$2` frozen as-of, run in a read-only transaction):
@@ -159,14 +178,14 @@ Browser: the leaderboard visual gate at 390/1440/TV widths includes the new Rece
 - `policy_id`/receipt integrity.
 - Expected Teo values.
 
-### 7. Decisions for Chris (recommendation first)
+### 7. Decisions (approved by Chris on October 17, 2026)
 
-- **D1 — Historical-entry backdating.** Recommend leaving the approved historical writer unchanged in this bugfix. No such rows exist. Readers stop depending on `created_at`, and the feed shows the true entry time from `recorded_at`. If "never backdate" must also apply to future historical entries, do it as a separately approved writer follow-up: stop setting `created_at` and keep the provenance flag.
-- **D2 — Dialer RPC transition.** Recommend replacing it in place (one canonical definition), in a no-dialing window. Alternative: keep the 3-argument version temporarily, with old tabs still showing entry-day counts, and drop it in a follow-up.
-- **D3 — Future Sold Dates at entry.** Recommend no writer change here, because readers already exclude future dates from current periods. Because sales are immutable, a zone-free guard (Sold Date no later than UTC today + 1, plus a form check) is worth a separate approval.
-- **D4 — Recent Wins copy.** Recommend "Sold 10/15/2026 · Entered 10/16/2026" for late entries and "Sold 10/16/2026 · 12:48 PM" for same-day entries. The full entry timestamp goes in the tooltip/accessible label. No new explanatory text.
-- **D5 — Undated sales.** Recommend excluding them everywhere and disclosing them only when the count is above zero (note plus CSV column).
-- **D6 — Index.** Recommend adding it only if the native 50,000-row plan uses it. Report the result either way.
+- **D1 — Historical-entry backdating:** approved as proposed. The writer is unchanged in this bugfix. Readers stop depending on `created_at`. The feed shows the true entry time (`recorded_at`). Stopping backdating for future historical entries would be a separate follow-up.
+- **D2 — Dialer transition:** modified. A versioned, backward-compatible `get_trusted_today_dialer_stats_v2` sits alongside the unchanged legacy RPC. Active dialing and pre-release tabs keep working. Agents must refresh as part of the coordinated release. New code never presents legacy entry-date totals as Sold Date totals: it requires the echoed basis and date, and the legacy cache is never read.
+- **D3 — Future Sold Dates at entry:** approved. No writer change here; future-date entry validation is a separate follow-up.
+- **D4 — Recent Wins copy:** approved, with minimal wording. The Sold Date is shown distinctly from the entry timestamp, and the time is always labelled "Entered", so it never reads as the time of sale.
+- **D5 — Undated sales:** approved. They are excluded everywhere and disclosed only when the count is above zero.
+- **D6 — Index:** approved. It is added only if the native 50,000-row plan uses it, and the result is reported either way.
 
 ---
 
