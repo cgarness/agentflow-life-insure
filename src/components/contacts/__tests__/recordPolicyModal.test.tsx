@@ -5,6 +5,8 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: vi.fn() } })
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: h.user } }) }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: h.org }) }));
 vi.mock("@/lib/policySaleRecording", async importOriginal => ({ ...(await importOriginal<object>()), recordClientPolicy: h.save }));
+// The commission preview needs a QueryClient this harness does not mount; policyCommissionPreviewModals covers it.
+vi.mock("@/components/commission/preview/PolicyCommissionEstimate", () => ({ PolicyCommissionEstimate: () => null }));
 import RecordPolicyModal from "../RecordPolicyModal";
 afterEach(cleanup);
 beforeEach(() => { h.save.mockReset(); h.user="agent"; h.org="org"; });

@@ -18,6 +18,7 @@ import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { logActivity } from "@/lib/activityLogger";
+import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -370,6 +371,13 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
                   </div>
                 </div>
               </div>
+              <PolicyCommissionEstimate
+                owner={{ kind: "lead", id: lead.id, hint: lead.assignedAgentId || null }}
+                policyType={row.policyType}
+                carrier={row.carrier}
+                monthlyPremium={row.premiumAmount}
+                agePrefill={{ dateOfBirth: lead.dateOfBirth, age: lead.age, onDate: row.soldDate }}
+              />
               {index < policies.length - 1 && <div className="h-px bg-border/50" />}
             </div>
           ))}

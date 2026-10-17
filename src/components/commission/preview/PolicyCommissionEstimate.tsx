@@ -1,0 +1,118 @@
+import { Component, type ReactNode } from "react";
+import { usePolicyCommissionPreview, usePreviewSelection, type PreviewOwner } from "@/hooks/usePolicyCommissionPreview";
+import { ADVANCE_PERCENT } from "@/lib/commission/estimate";
+import { formatUsd } from "@/lib/commission/money";
+import {
+  candidateProducts,
+  NO_MATCHING_PRODUCT_MESSAGE,
+  prefillAge,
+  previewOutcome,
+  productTermLengths,
+} from "@/lib/commission/policyPreview";
+import { PolicyCommissionInputs } from "./PolicyCommissionInputs";
+
+export interface PolicyCommissionEstimateProps {
+  /** Who the sale would credit; null = unresolved (nothing is shown or requested). */
+  owner: PreviewOwner | null;
+  policyType: string;
+  carrier: string;
+  /** The policy's existing Monthly Premium field, unchanged. */
+  monthlyPremium: string;
+  /** Valid-only insured-age prefill (ConvertLeadModal): DOB on the Sold Date, else a stored age. */
+  agePrefill?: { dateOfBirth?: string | null; age?: number | null; onDate?: string | null };
+}
+
+/** A preview failure must never unmount the policy form or block its save, so it renders nothing. */
+class PreviewBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.warn("[commission preview] hidden after an error", error);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/**
+ * Compact estimate below a policy's details: an estimate only, never saved, earned, booked or paid
+ * commission. Reuses the Commission Calculator's grid, matching and exact arithmetic unchanged.
+ */
+export function PolicyCommissionEstimate(props: PolicyCommissionEstimateProps) {
+  return (
+    <PreviewBoundary>
+      <PreviewPanel {...props} />
+    </PreviewBoundary>
+  );
+}
+
+const Muted = ({ children }: { children: ReactNode }) => <p className="text-[11px] text-muted-foreground">{children}</p>;
+
+function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill }: PolicyCommissionEstimateProps) {
+  const preview = usePolicyCommissionPreview(owner);
+  const ready = preview.status === "ready" ? preview : null;
+  const products = ready ? candidateProducts(ready.context, policyType, carrier) : null;
+  const [selection, update] = usePreviewSelection(
+    preview.identity,
+    ready?.context.grid.id ?? null,
+    products?.map((product) => product.id) ?? null,
+    (productId) => (ready ? productTermLengths(ready.context, productId) : []),
+  );
+
+  if (preview.status === "hidden" || !carrier.trim()) return null;
+
+  let body: ReactNode;
+  if (preview.status === "unavailable") {
+    body = <Muted>{preview.message}</Muted>;
+  } else if (preview.level.kind === "problem") {
+    body = <Muted>{preview.level.message}</Muted>;
+  } else if (!products?.length) {
+    body = <Muted>{NO_MATCHING_PRODUCT_MESSAGE}</Muted>;
+  } else {
+    const product = products.find((candidate) => candidate.id === selection.productId) ?? null;
+    const age = selection.age ?? prefillAge(agePrefill);
+    const outcome = previewOutcome(
+      preview.context,
+      preview.level.level,
+      product,
+      { term: selection.term, age, monthlyPremium },
+      preview.agentName === null,
+    );
+    body = (
+      <>
+        <PolicyCommissionInputs
+          products={products}
+          terms={product ? productTermLengths(preview.context, product.id) : []}
+          selection={{ productId: selection.productId, term: selection.term, age }}
+          onChange={update}
+        />
+        {outcome.kind === "estimate" ? (
+          <div className="space-y-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+            <p>
+              Estimated first-year commission:{" "}
+              <span className="font-semibold tabular-nums">{formatUsd(outcome.firstYearCommission)}</span>
+            </p>
+            <p>
+              Estimated advance ({ADVANCE_PERCENT}%):{" "}
+              <span className="font-semibold tabular-nums">{formatUsd(outcome.advance)}</span>
+            </p>
+          </div>
+        ) : (
+          <Muted>{outcome.message}</Muted>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <section aria-label="Commission estimate" className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2.5">
+      {ready?.agentName && <p className="truncate text-[11px] font-medium text-foreground">For {ready.agentName}</p>}
+      {body}
+    </section>
+  );
+}
