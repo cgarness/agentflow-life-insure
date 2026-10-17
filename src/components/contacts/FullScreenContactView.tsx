@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
+import { ClientPolicies } from "@/components/contacts/ClientPolicies";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -1125,6 +1126,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               </div>
               )}
               
+              {!coreLoading && !editMode && type === "client" && (
+                <ClientPolicies key={`${organizationId}|${contact.id}`} client={contact} formatDate={formatDate} />
+              )}
+
               {canDeleteContact && (
                 <div className="mt-auto pt-3 border-t border-border">
                   <button onClick={() => setConfirmDelete(true)} className="flex items-center gap-1.5 text-xs text-destructive hover:underline">
