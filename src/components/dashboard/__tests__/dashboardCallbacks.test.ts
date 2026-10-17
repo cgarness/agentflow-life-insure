@@ -997,7 +997,7 @@ describe("Correction 2b — pagination is serialized by a ref lock", () => {
     const { screen, waitFor, cleanup, container } = await renderDetailModal();
     await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
 
-    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    const scroller = document.body.querySelector(".overflow-y-auto") as HTMLElement;
     expect(scroller).toBeTruthy();
     Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
     Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
@@ -1047,7 +1047,7 @@ describe("requirement 26 — a real pagination failure keeps loaded rows and say
     };
 
     // 4. Explicit geometry, then fire the shipped scroll handler.
-    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    const scroller = document.body.querySelector(".overflow-y-auto") as HTMLElement;
     Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
     Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
     Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
@@ -1091,9 +1091,9 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     view.rerender(React.createElement(Modal, { ...props, type: "callbacks" as const }));
     await waitFor(() => expect(screen.getByText("Agent0 Row")).toBeTruthy());
 
-    // 4. `hasMore === true` is observable as "SCROLL FOR MORE" (mixed text node, so read
+    // 4. `hasMore === true` is observable as the new "Load more" control (read
     //    the container's textContent rather than matching a single node).
-    expect(container.textContent).toContain("SCROLL FOR MORE");
+    expect(document.body.textContent).toContain("Load more");
 
     // 5. NOW let the stale `calls` request resolve SUCCESSFULLY with an empty result.
     settleStale({ data: [], error: null });
@@ -1102,10 +1102,10 @@ describe("§15 — a stale success cannot disable pagination for the current vie
     // 6. The current rows and `hasMore` must survive. This is the assertion that fails
     //    before the fix: the stale success reaches `setHasMore(false)` unguarded.
     expect(screen.getAllByText(/Agent\d+ Row/)).toHaveLength(first.length);
-    expect(container.textContent).toContain("SCROLL FOR MORE");
+    expect(document.body.textContent).toContain("Load more");
 
     // 7. Pagination is still alive for the CURRENT generation: exactly one new query.
-    const scroller = container.querySelector(".overflow-y-auto") as HTMLElement;
+    const scroller = document.body.querySelector(".overflow-y-auto") as HTMLElement;
     Object.defineProperty(scroller, "scrollTop", { value: 1000, configurable: true });
     Object.defineProperty(scroller, "scrollHeight", { value: 1000, configurable: true });
     Object.defineProperty(scroller, "clientHeight", { value: 500, configurable: true });
