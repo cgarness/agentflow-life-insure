@@ -64,7 +64,7 @@ jobs:
           REF = 'jncvvsvckxhqgqvkppmj'
           SOURCE = 'eaf988bc276a3922ee0ec6c3c6038665be9f1678'
           VERSION = '20261013120000'
-          LATEST = '20261016035626'
+          LATEST = '20261017043757'
           MIGRATION = Path('supabase/migrations/20261013120000_google_sheets_import_foundation.sql')
           MIGRATION_SHA = 'fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed'
           PREIMAGE = 'a199d5ddfb9a56070aeb7706d3e9a4b8'
@@ -149,9 +149,9 @@ jobs:
           
           def expected(stage):
               return {
-                  'before': f'postgres|t|0|0|{PREIMAGE}|{LATEST}|327',
-                  'applied': f'postgres|f|52|0|{POSTIMAGE}|{LATEST}|327',
-                  'recorded': f'postgres|f|52|1|{POSTIMAGE}|{LATEST}|328',
+                  'before': f'postgres|t|0|0|{PREIMAGE}|{LATEST}|329',
+                  'applied': f'postgres|f|52|0|{POSTIMAGE}|{LATEST}|329',
+                  'recorded': f'postgres|f|52|1|{POSTIMAGE}|{LATEST}|330',
               }[stage]
           
           def empty_operations(env, installed):

@@ -1,3 +1,27 @@
+## 2026-10-17 — Sheets Phase B runner (PR #451): re-pinned to production's new migration history (no production change)
+
+Main moved to `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). The Sold Date release added two production migrations: `20261017043142` performance_sold_date_basis and `20261017043757` performance_wins_sold_date_index. Production was re-checked read-only at 07:49 UTC: 329 history rows, latest `20261017043757`, no Sheets objects, and the permission helper is still the reviewed preimage.
+
+**Interaction check:** the two migrations replace reporting functions and add one index on wins. They do not touch `profiles`, `organizations`, `role_permissions`, `_contacts_permission_default` or default privileges. The Sheets migration and its read-backs are unaffected.
+
+**Changed:**
+- Merged main. Only WORK_LOG.md and implementation_plan.md conflicted; both were resolved additively, with main's blocks first, then this branch's.
+- The runner's expected history counts move from 327/327/328 to 329/329/330, and the pinned latest version becomes `20261017043757`. Without this re-pin, every stage would stop at the state check: safe, but it would block the release.
+- The synthetic driver now seeds 328 rows plus that latest version.
+
+**Verified locally:** the full synthetic driver passed against disposable PostgreSQL 17.6 with CLI 2.121.0. It covered:
+- real apply and read-backs;
+- history repair and replay refusal;
+- lock-timeout and watchdog rollbacks;
+- six out-of-order refusals and log redaction;
+- the TLS and read-only session checks.
+
+Exact-head CI is still required before merge.
+
+**Still gated:** Chris's GitHub setup (environment, three secrets, Supabase auto-deploy OFF, Vercel flag absent) and his explicit GO. There is no merge to main, no dispatch and no production change.
+
+---
+
 ## 2026-10-17 — RELEASED: Sold Date reporting accuracy (PR #453; production frontend and backend verified)
 
 **Status/date:** Owner-approved separately gated production release completed October 16, 2026 PDT / October 17 UTC. PR #453 merged to `main` at `12901e5c18922239022afc1c9436df8b2df20c15`; exact reconciled head `4bde52a` passed all six GitHub workflows. Migration filenames match production history, with unchanged SQL bytes.

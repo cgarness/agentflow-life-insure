@@ -54,8 +54,8 @@ with tempfile.TemporaryDirectory() as folder:
             run("""CREATE SCHEMA supabase_migrations;
               CREATE TABLE supabase_migrations.schema_migrations(version text primary key, statements text[], name text);
               INSERT INTO supabase_migrations.schema_migrations(version,name)
-                SELECT (20000101000000 + n)::text,'synthetic' FROM generate_series(1,326) n;
-              INSERT INTO supabase_migrations.schema_migrations VALUES ('20261016035626','{}','synthetic_latest');
+                SELECT (20000101000000 + n)::text,'synthetic' FROM generate_series(1,328) n;
+              INSERT INTO supabase_migrations.schema_migrations VALUES ('20261017043757','{}','synthetic_latest');
               CREATE SCHEMA cron; CREATE TABLE cron.job(jobname text);""",env)
             # Harness is synthetic and includes pre-existing leads. The feature ledger starts empty.
             return env
