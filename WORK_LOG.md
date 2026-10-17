@@ -1,3 +1,15 @@
+## 2026-10-17 — Google Sheets PR #442: fifth main reconciliation and runner re-pin after the Sold Date release (no production change)
+
+The 07:43 UTC check-in found main at `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). #453 added two production migrations, so production now has 329 history rows, latest `20261017043757`. A read-only check at 07:49–07:57 UTC found production still unchanged for Sheets: no Sheets relations, functions, cron jobs, Vault secrets or history rows; the helper preimage unchanged; 76 Edge Functions, none Sheets.
+
+- **Interaction:** #453's migrations replace reporting functions and add one wins index. They touch nothing the Sheets migration uses or checks; only the history counts change.
+- **Runner #451:** merged main (`264cb682`), then re-pinned to 329/329/330 rows and latest `20261017043757` (`5aab5e06`). The full synthetic driver passed locally, and `verify-runner` passed on that head (run `39015204526`).
+- **PR #442:** merged main (`3342db63`). Only WORK_LOG.md and implementation_plan.md conflicted, resolved additively. The migration and the four bundles still match their pinned digests. Root tsc exits 0, strict app output is byte-identical to main (230 lines, 84 errors), and the Sheets Vitest suites pass (23/23).
+- **Records:** verification.md §20. The release package gets a new status line, a revision note, §0.E, the 329/330 history counts and Phase C rollback target `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `95009d15`, to re-capture after #451 merges.
+- **Still gated:** Chris's GitHub setup (Supabase GitHub auto-deploy OFF, Vercel `VITE_GOOGLE_SHEETS_ENABLED` absent, the protected environment and three secrets) and his explicit GO. No merge, dispatch or production change has happened.
+
+---
+
 ## 2026-10-17 — RELEASED: Sold Date reporting accuracy (PR #453; production frontend and backend verified)
 
 **Status/date:** Owner-approved separately gated production release completed October 16, 2026 PDT / October 17 UTC. PR #453 merged to `main` at `12901e5c18922239022afc1c9436df8b2df20c15`; exact reconciled head `4bde52a` passed all six GitHub workflows. Migration filenames match production history, with unchanged SQL bytes.

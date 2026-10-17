@@ -1,3 +1,14 @@
+## 2026-10-17 — Google Sheets: fifth main reconciliation and runner re-pin (no production change)
+
+Main moved to `95009d15` (#452, #453, #454). #453 added two production migrations, so production has 329 history rows (latest `20261017043757`). Nothing the Sheets migration uses changed (`docs/plans/2026-10-13-google-sheets-import/verification.md` §20).
+
+- **Runner PR #451** is re-pinned to the new history: 329 rows before `record-history` and 330 after (`5aab5e06`, `verify-runner` green).
+- **PR #442** merges the same main. Release artifacts remain byte-identical to `eaf988b`.
+- **Phase C rollback target:** re-captured as `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB`. Capture it again after #451 merges.
+- **Otherwise unchanged:** Chris's GitHub setup and GO come first. Then merge #451 and run `check`, `apply-migration`, `record-history` and `deploy-functions` as separately approved stages (release package §10.3).
+
+---
+
 ## 2026-10-17 — Sold Date production release COMPLETE (PR #453)
 
 **Owner approval and release:** Chris approved both backend migrations and the separately controlled frontend production merge/deployment. Reviewed feature head `4bde52a727ca47cc5c772e986a03f72e777fc050` passed all six CI workflows. PR #453 merged to `main` as `12901e5c18922239022afc1c9436df8b2df20c15`. The applied SQL bytes are unchanged by the migration filename reconciliation.

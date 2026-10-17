@@ -659,3 +659,35 @@ Chris authorized ownership of PR #442 from the cloud, branch updates and testing
 
 
 Exact-head #442 CI is recorded in the PR body after this commit is pushed. No real Google-account test has been performed.
+
+## 20. Fifth main reconciliation and runner re-pin (2026-10-17, about 07:45–08:00 UTC; branch only; no production change)
+
+The 07:43 UTC check-in found `main` at `95009d15cf1ca342845032007091a157c7049ebf` instead of `91eabff`. Three merges had landed: #452 (callbacks dashboard modal), #453 (Sold Date reporting, with two production migrations) and #454 (docs). Under the PR rules, both branches were reconciled by merge, with no rebase or force-push.
+
+### 20.1 Production (read-only, Supabase connector, 07:49–07:57 UTC)
+- State line: `postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261017043757|329`. That means no Sheets relation, zero `google_sheets_*` functions, zero Sheets history rows, the helper preimage unchanged, and 329 history rows with latest `20261017043757`.
+- The two new rows are `20261017043142` performance_sold_date_basis and `20261017043757` performance_wins_sold_date_index, applied under Chris's account for #453.
+- In every schema there are zero `google_sheets_*` relations, Sheets cron jobs and Sheets Vault secrets.
+- 76 Edge Functions, none `google-sheets-*`.
+- Frontend: `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB`, READY at `95009d15`. Before it: `dpl_5vRNhKc3p72a8HCwevHDASq3gVwD` (`12901e5`, #453), `dpl_DaCf85efcFDr1ua5EzceACoNsexh` (`f20b30b`, #452) and `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ` (`91eabff`, #450).
+
+### 20.2 Interaction check
+#453's two migrations replace reporting functions and add one index on wins. They make no DDL change to `profiles` or `organizations`, no change to `role_permissions` or `_contacts_permission_default`, and no default-privilege change. The Sheets migration's preconditions and read-backs (helper preimage `a199d5dd…b8`, function and table ACLs, and the §3 table-privilege read-back) are unaffected. The only effect on Phase B is the history count: 329 rows before stage 3 and 330 after.
+
+### 20.3 Runner PR #451
+- **Merge `264cb682`** (main `95009d15` into `394de1a4`): only `WORK_LOG.md` and `implementation_plan.md` conflicted. Each resolves to main's insertion, then the branch's, then the shared base, byte for byte.
+- **Re-pin `5aab5e06`:** the expected states move to 329, 329 and 330 rows with latest `20261017043757`, and the synthetic driver now seeds 328 rows plus that latest version. No other runner logic changed. Without the re-pin, every stage would stop at the state check.
+- **Local:** the full synthetic driver passed against disposable PostgreSQL 17.6 with CLI 2.121.0.
+- **CI:** `verify-runner` passed on `5aab5e06` (run `39015204526`, job `117345788689`). The earlier hardening head `394de1a4` passed in run `38996292162`. That head moved the read-only settings into in-session `SET` and switched to the client-side `\conninfo` TLS check.
+
+### 20.4 PR #442
+- **Merge `3342db63`** (main `95009d15` into `fa819eee`): only `WORK_LOG.md` and the root `implementation_plan.md` conflicted. Every line of both sides is kept in order, with main's new blocks first.
+- **Release artifacts:** on the merged head, the recomputed migration SHA-256 and four bundle digests match the pinned values (§3–§4 of the release package). The merge commit differs from `eaf988b` in 48 files: 46 from main and the two Sheets records (this file and the release package). No main-changed path is Sheets-related.
+- **Local checks on the merged head:**
+  - root `npx tsc --noEmit` exits 0;
+  - strict `npx tsc -p tsconfig.app.json --noEmit` emits 230 lines (84 errors), byte-identical to a `95009d15` worktree;
+  - the Sheets Vitest suites pass (2 files, 23 tests).
+  The Deno and SQL suites run in exact-head CI.
+- **Records:** the release package gains a revision note, §0.E, the 329/330 history counts and the Phase C rollback target `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB`. Capture that target again after #451 merges, because the merge redeploys production.
+
+No merge to main, migration, deployment, activation, cron, privacy publication or dialer change has occurred. Phase B still needs Chris's GitHub setup and his explicit GO. Exact-head CI for this head is recorded in the PR body.

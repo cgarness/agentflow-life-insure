@@ -1,6 +1,6 @@
 # Google Sheets V1 — production release package
 
-**Current execution route (2026-10-17): cloud GitHub Actions, §10.3.** The Mac procedures below are historical alternatives. Runner PR #451 is prepared and its real PostgreSQL verification passed. Production remains unchanged for Sheets. PR #442 now reconciles main `91eabff` (#450); release artifacts remain pinned to and byte-identical with `eaf988b`. The current observed frontend is `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ`; capture the rollback target again before each approved merge.
+**Current execution route (2026-10-17): cloud GitHub Actions, §10.3.** The Mac procedures below are historical alternatives. Runner PR #451 (head `5aab5e06`) is prepared and its real PostgreSQL verification passed. Production remains unchanged for Sheets. PR #442 now reconciles main `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs); release artifacts remain pinned to and byte-identical with `eaf988b`. Production now has 329 history rows (latest `20261017043757`), so `record-history` takes it to 330. The current observed frontend is `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `95009d15`; capture the rollback target again before each approved merge.
 
 **Status: Phase B APPROVED (2026-10-15) and IN PROGRESS through the documented psql / CLI fallback (§10, §10.1). Nothing has been applied or deployed yet.** Every later phase needs Chris's approval of its exact actions.
 
@@ -23,6 +23,13 @@ So far:
   - §14: Phase B attempt 1;
   - §16: the fallback preflight and the local dry run of the §10.1 commands;
   - §17: production changes from the commission release (not Sheets).
+
+**Revision 2026-10-17 (fifth reconciliation; production moved, but not for Sheets).** The callbacks dashboard modal (#452) and the Sold Date reporting release (#453) reached `main` (`95009d15`, with #454's docs) and production. #453's two migrations (`20261017043142` performance_sold_date_basis, `20261017043757` performance_wins_sold_date_index) were applied under Chris's account, so production now has 329 history rows. Both PRs were reconciled with that `main` by merge (`verification.md` §20). This revision:
+- updates the history counts to 329 rows before `record-history` and 330 after (§3, §10.3). Runner #451 (head `5aab5e06`) pins these counts and the new latest version;
+- updates the Phase C rollback target to `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `95009d15` (§5.1, §9). Merging #451 creates a newer production deployment, which then becomes the target; the Phase C preflight captures it;
+- adds the re-check (§0.E).
+
+The Mac route (§10.1, §10.2) keeps its 2026-10-16 values. If it is ever revived, its stage 1 preflight value and row counts must first change to `…|20261017043757`, 329 and 330. The migration, the four Edge bundles, the secrets, the origins and every approval boundary are unchanged. The Sold Date objects do not interact with the Sheets migration (`verification.md` §20).
 
 **Revision 2026-10-16 (third reconciliation; production moved, but not for Sheets).** Overnight, the Commission Calculator release (#447) and its UI refresh (#449) reached `main` (`9a90552`) and production. Its three migrations (`20261015211858`, `20261016035150`, `20261016035626`) were applied under Chris's account, so production now has 327 history rows. Chris approved reconciling the branch with that `main` (merge `2f8b543`; `verification.md` §17–§18). This revision:
 - updates the stage 1 preflight value to the new latest version, `…|20261016035626`, and the history count after stage 3 to 328 rows (§3, §10.1);
@@ -170,6 +177,18 @@ Where §0.D differs from §0.C, §0.D is current.
 | **Production frontend** | `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`, READY at `main` `9a90552` (#449). Before it: `dpl_8p1nHPt2s5gcE9CSTnYcYs7d7dES` (`1ad0226`, #447) and `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` (`b5976e0`). No Sheets UI code is deployed. |
 | **Direct access from Claude's environment** | Still none. Chris runs the §10.1 production commands. |
 
+### 0.E Re-check after the Sold Date release and the fifth reconciliation (2026-10-17, about 07:50 UTC; read-only; details in `verification.md` §20)
+
+Where §0.E differs from §0.D, §0.E is current.
+
+| Check | Result |
+|---|---|
+| **Code** | `main` = `95009d15`: #452 (callbacks dashboard modal), #453 (Sold Date reporting) and #454 (docs), after #450 (client policy display, `91eabff`). Merged into the branch as `3342db63`. Only `WORK_LOG.md` and the root `implementation_plan.md` conflicted, both additively. The migration and the four Edge bundles are byte-identical to `eaf988b`. |
+| **Production database** | 329 history rows, latest `20261017043757`. The two new rows are #453's migrations (`20261017043142` performance_sold_date_basis, `20261017043757` performance_wins_sold_date_index), applied under Chris's account. They replace reporting functions and add one index on wins. They do not touch `profiles`, `organizations`, `role_permissions`, `_contacts_permission_default` or default privileges. Still no Sheets relation, function, cron job, Vault secret or history row. Helper MD5 still `a199d5dd…b8`. |
+| **Production Edge Functions** | 76, no `google-sheets-*`. |
+| **Production frontend** | `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB`, READY at `main` `95009d15` (#454). Before it: `dpl_5vRNhKc3p72a8HCwevHDASq3gVwD` (`12901e5`, #453), `dpl_DaCf85efcFDr1ua5EzceACoNsexh` (`f20b30b`, #452) and `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ` (`91eabff`, #450). No Sheets UI code is deployed. |
+| **Route** | The cloud runner (§10.3). PR #451 head `5aab5e06` is re-pinned to 329 and 330 rows; its synthetic PostgreSQL 17.6 verification passed (run `39015204526`). |
+
 ## 1. Phase A — Google owner checklist (Chris; Claude cannot access Google Cloud)
 
 **Project:** number `87346168200`, ID `project-b7e9b5b4-d066-48c9-b36`.
@@ -254,7 +273,7 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
   - `--db-url` writes on the same connection that stage 1 verified and applied with, as the M4 precedent `scripts/apply_m4_only.sh` does.
   - The flags were checked against CLI 2.121.0 (`migration repair [<version...>] --status applied|reverted --db-url …`).
   - No other version is marked applied or reverted. Migration-history tables are never edited directly.
-- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; one more row than before stage 3 (328 in total on 2026-10-16).
+- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; one more row than before stage 3 (328 in total on 2026-10-16; 330 since the 2026-10-17 Sold Date release added two rows).
 - **No restamp.** The recorded version is the authored `20261013120000`, so the filename and every reference already match. A rename is needed only if `migration repair` records a different version, and that is a stop.
 
 **What it does**
@@ -411,8 +430,8 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
    - Chris's Gmail connection still `connected`, with `last_sync_at` advancing.
 4. **If a regression appears,** the fastest recovery is Vercel's rollback to the production deployment that was current immediately before the merge. It changes no data, and the Phase B backend stays deployed and disabled.
    - Capture that deployment's ID in the Phase C preflight.
-   - On 2026-10-16 (after about 09:00 UTC) it is `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` at `main` `9a90552` (#449).
-   - Older production deployments (`dpl_8p1nHPt2s5gcE9CSTnYcYs7d7dES` at `1ad0226`, `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `b5976e0`, `dpl_BoRbMNiVBBw3NCjLbcN7c8JQdQ3t` at `03ef0cb`) are no longer the target: rolling back to any of them would also remove later `main` work (#449, #447, #448).
+   - On 2026-10-17 (about 07:50 UTC) it is `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `main` `95009d15` (#454). Merging #451 creates a newer production deployment with unchanged application code, and that one becomes the target.
+   - Older production deployments are not the target. Rolling back to `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ` (`91eabff`), `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` (`9a90552`) or anything earlier would also remove the callbacks modal (#452) and the Sold Date frontend (#453), which matches production's new reporting functions.
 
 ### 5.2 Phase D — live test activation (separate approval; cron stays OFF)
 
@@ -657,7 +676,7 @@ Leases interrupted by the gate expire within 3 minutes, after which those source
 
 ## 9. Rollback
 
-1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-16 (after about 09:00 UTC) that is `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` at `main` `9a90552`. It changes no data.
+1. **Phase C (frontend only):** use Vercel's rollback to the production deployment that was current immediately before the merge, as captured in the Phase C preflight. On 2026-10-17 (about 07:50 UTC) that is `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `main` `95009d15`; once #451 merges, it is the deployment that merge creates. It changes no data.
 2. **Backend:**
    - Run the §5.7 **non-destructive shutdown**: unschedule → close admission → drain → verify quiescence.
    - Then unset `GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED`.
@@ -867,9 +886,14 @@ On 2026-10-16 Chris asked that Phase B run from Claude Code on his Mac, because 
 
 ### 10.3 Cloud-only execution through protected GitHub Actions (2026-10-17)
 
-This is the current route while Chris has no Mac. It implements the root plan's 2026-10-16 cloud runner proposal. PR [#451](https://github.com/cgarness/agentflow-life-insure/pull/451), head `c7e1c56e94ae8cbde7cc42567c4e642ceb2b38de`, contains `.github/workflows/google-sheets-phase-b.yml`. A separate no-secret CI workflow and synthetic test driver validate its actual embedded program against disposable PostgreSQL 17.6. These two verification files are a refinement of the original single-workflow proposal; they grant no production access. Root plan and work log are the other two changed files. No application, migration or function code changes.
+This is the current route while Chris has no Mac. It implements the root plan's 2026-10-16 cloud runner proposal. PR [#451](https://github.com/cgarness/agentflow-life-insure/pull/451), head `5aab5e06a25a9a25b03a0b6b00f7c5467a26ef18`, contains `.github/workflows/google-sheets-phase-b.yml`. A separate no-secret CI workflow and synthetic test driver validate its actual embedded program against disposable PostgreSQL 17.6. These two verification files are a refinement of the original single-workflow proposal; they grant no production access. Root plan and work log are the other two changed files. No application, migration or function code changes.
 
-**Verified:** [run 38993502917](https://github.com/cgarness/agentflow-life-insure/actions/runs/38993502917), job `117280799328`, passes on that exact head. Real SQL apply and all SQL read-backs, real CLI history repair, replay/out-of-order refusal, lock-timeout rollback, watchdog SIGINT rollback and command-error redaction passed. The migration and four bundle hashes match §3–§4. This is a synthetic backend test, not Phase D's real Google-account test.
+**Verified:** [run 39015204526](https://github.com/cgarness/agentflow-life-insure/actions/runs/39015204526), job `117345788689`, passes on that exact head (earlier heads: run `38993502917` on `c7e1c56e`, run `38996292162` on `394de1a4`). Real SQL apply and all SQL read-backs, real CLI history repair, replay/out-of-order refusal, lock-timeout rollback, watchdog SIGINT rollback and command-error redaction passed. Since `c7e1c56e`, three things changed:
+- check sessions set `default_transaction_read_only` and `statement_timeout` with in-session `SET`, not libpq startup options, which the session pooler may not forward;
+- the TLS check reads psql's `\conninfo` for the runner's own connection, not `pg_stat_ssl`, which describes the pooler's upstream hop;
+- the expected history is re-pinned to 329 rows before `record-history` and 330 after, latest `20261017043757`.
+
+Tests for TLS on the runner connection and for read-only check sessions also pass. The migration and four bundle hashes match §3–§4. This is a synthetic backend test, not Phase D's real Google-account test.
 
 **Before merge:** verify Supabase GitHub “Deploy to production” is OFF. Create protected environment `google-sheets-production` with Chris (`cgarness`) as required reviewer, custom deployment branch limited to `main`, and admin bypass OFF. Chris securely enters only the three environment secrets: `SUPABASE_DB_PASSWORD`, `SUPABASE_POOLER_HOST` (session port 5432), `SUPABASE_ACCESS_TOKEN`. Never share values in chat or public logs. The connected GitHub tool cannot manage these settings; secure browser authentication is required. The agent handles browser navigation and coordination; Chris only authenticates/enters credentials and grants approvals. Do not approve an environment deployment on Chris's behalf.
 
@@ -879,7 +903,7 @@ This is the current route while Chris has no Mac. It implements the root plan's 
 
 1. `check`: forced read-only connection, exact identity/state/count/helper checks, six B1 secret names present, enable flag and four functions absent. No values printed.
 2. `apply-migration`: fresh independent advisor baseline and preflight first; explicit approval covers only the exact §3 file. One psql transaction, lock timeout 5 seconds, statement timeout 30 seconds, watchdog SIGINT at 120 seconds. Run every SQL read-back and independent advisor comparison before the next approval.
-3. `record-history`: separate approval; exact version `20261013120000`, expected 81 statements and 328 history rows. Never rerun apply after a history error. Update records and require green exact-head #442 CI before deployment.
+3. `record-history`: separate approval; exact version `20261013120000`, expected 81 statements and 330 history rows (329 before). Never rerun apply after a history error. Update records and require green exact-head #442 CI before deployment.
 4. `deploy-functions`: separate approval; exactly the four §4 names in order, `verify_jwt=false`, no unrelated function deployment. Check function digest/content, unchanged unrelated inventory, disabled HTTP outcomes, logs and zero operational rows. `GOOGLE_SHEETS_ENABLED` stays absent; no cron/Vault worker token.
 
 Any failure stops. No automatic retry, method switch, rollback or partial-deploy continuation. Production read-backs and advisor output stay out of public logs. Phase C, Phase D, privacy publication and Phase E scheduling retain their existing separate approvals. After Phase B, disable the runner and remove the temporary environment secrets/revoke the release token under the existing cleanup gate.
