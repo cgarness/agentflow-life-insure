@@ -1,3 +1,17 @@
+## 2026-10-17 — Sold Date production release COMPLETE (PR #453)
+
+**Owner approval and release:** Chris approved both backend migrations and the separately controlled frontend production merge/deployment. Reviewed feature head `4bde52a727ca47cc5c772e986a03f72e777fc050` passed all six CI workflows. PR #453 merged to `main` as `12901e5c18922239022afc1c9436df8b2df20c15`. The applied SQL bytes are unchanged by the migration filename reconciliation.
+
+**Production:** Supabase AGENTFLOW CRM recorded `20261017043142_performance_sold_date_basis` and `20261017043757_performance_wins_sold_date_index`. The new index is valid/ready. Existing three-argument Dialer RPC hash `c6cddd40cb7e85a1fab4ac565f9ab59f` remains intact; new v2 hash `8d15902bc5577dbb7c3c1e91296e5740` is installed, with authenticated EXECUTE and no anonymous EXECUTE. No sale, RLS, Twilio, or queue mutation was made.
+
+**Vercel:** Both Git-connected projects `agentflow` (deployment `dpl_5vRNhKc3p72a8HCwevHDASq3gVwD`, canonical `www.fflagent.com`) and `agentflow-life-insure` (deployment `dpl_4x7FnJkBmBZ93mbUSmHDk84RcdvL`) reached READY on exact merge `12901e5c`. Both production URLs served HTTP 200 with new hashed Vite assets. No error/fatal runtime logs appeared in the 30-minute deployment-scoped scans; as a client-side SPA, this is not equivalent to authenticated browser verification.
+
+**Live readback:** Exactly 16 production wins / 16 distinct policy identities; no undated wins or changes to Teo's records. Scoped production RPC simulation confirms Teo Oct 16: 0, Oct 15: 3, current week: 5, and October total: 6 (Sold Date basis). Details and Recent Wins return the basis and separate Sold/Entered fields. Call/contacted/talk/session totals match between legacy and v2 Dialer reader for the tested campaign and day. Supabase advisors reviewed; known pre-existing security items remain separate. No authenticated browser walkthrough or real-agent UX/session refresh was performed; agents should refresh when their current call ends.
+
+**Recovery:** Previous Vercel deployment first, then separately approved guarded database rollback if required. The historical writer, current-owner Reports basis, and production dialer calling path remain unchanged. No follow-up migration or another deploy is authorized by this closeout.
+
+---
+
 ## 2026-10-17 — Sold Date production release reconciliation (PR #453; frontend approved, awaiting exact-head gate)
 
 **Authority:** Chris separately approved the core backend migration, the performance index, and then the frontend production merge/deployment, conditioned on reconciliation and green CI. PR #453 base `f20b30b3`; reviewed implementation head `4bd60f3` before this documentation/filename-only reconciliation. No unrelated changes authorized.
