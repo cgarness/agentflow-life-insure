@@ -765,3 +765,68 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 **Verification.**
 - Run `scripts/run_commission_grids_tests.sh` on a disposable loopback cluster only (invariant #28).
 - Do not call PostgreSQL 17.6 CI verified until `.github/workflows/commission-grids.yml` has actually run.
+
+
+## Google Sheets lead import invariant — October 13, 2026 (implemented on a draft PR, integrity corrections included; NOT deployed)
+
+Settings → Google Sheets uses a **dedicated** Google OAuth client and its own tables, Vault secrets and Edge functions. Never reuse the Gmail/Calendar client, `_shared/google-token.ts` Base64 storage, `user_email_connections` or `calendar_integrations` for it.
+
+**OAuth and credentials**
+- Scopes are exactly `openid email drive.file` with `include_granted_scopes=false` and PKCE S256.
+- OAuth state is SHA-256-hashed, single-use, consumed atomically, expires in 10 minutes and is bound to `auth_generation`.
+- Return origins come from a fixed allowlist.
+- The refresh token lives only in Vault. It is never overwritten by an absent token, and is retained only for the same Google `sub`.
+- The Picker token's ACTUAL scopes are inspected and the token is never persisted.
+- Immediately before returning a Picker token, `google_sheets_connection_current` must still say `current`: same connection id, `auth_generation`, owner, `connected` status and eligibility.
+  - On any other answer, return no token and never call `mark_reconnect`, so a newer connection is not disabled.
+  - Never claim this revokes a token Google already minted.
+- **Sheets disconnect never calls Google revoke**, because revocation can span the whole project and break Gmail/Calendar.
+
+**Identity and receipts**
+- A Source Lead ID (case-sensitive) or row position with **full-prefix** fingerprint validation from one consistent read. A 25-row window is not acceptable.
+- Ambiguity → Needs review, with nothing imported.
+- Appended rows are never classified by content.
+- Baseline records (intentionally excluded) are distinct from permanent receipts.
+- Receipts are written in the same subtransaction as the lead and are never deleted by the feature.
+- **Excluded blank-ID rows** (`blank:<n>` baselines) are accounted on every sync by `accountBlankBaselines` (`identity.ts`).
+  - If any excluded baseline cannot be safely accounted (still anchored at its position with the same core content, with no look-alike carrying an unseen ID) **and** any row has an unseen Lead ID, the whole sheet goes to Needs review (`identity_ambiguous`), and nothing imports or is written.
+  - Content and position are hints only. Never require them to trigger the pause.
+  - Never re-label an edited, moved or newly-ID'd excluded row as new.
+- Blank-ID rows never import. Their pending key is `noid:<n>`, never `blank:`.
+- An `approved:<id>` record exists only through an explicit Review choice and is consumed with its receipt.
+- **Duplicate Lead IDs conflict when ANY mapped value differs** (`rowSignature`: standard + custom + ID), not only the core fingerprint.
+  - The planner and the preview share `classifySourceIdRows`. Never fork that logic.
+
+**Writes and authorization**
+- Every write re-checks, inside the transaction: owner eligibility (`private.google_sheets_owner_eligible`, which mirrors `has_contacts_permission` for an explicit user and adds an Active profile and a non-suspended org), state/health, `config_version`, connection `auth_generation`, and lease.
+- Finalization never overwrites a newer version.
+- `google_sheets_finish` returns `completed | released | not_owner | not_found`.
+  - Lock order: source `FOR UPDATE`, then connection `FOR SHARE`. Connection operations lock only the connection.
+  - Lease expiry is evaluated on `clock_timestamp()` **after** lock waits, never on transaction-start `now()`.
+  - Anything other than `completed` writes no history, health, review, success time or schedule, and releases only its own lease. Committed leads and receipts stay.
+  - The engine reports a non-completed finish as `stale`, with truthful committed counts. Never manufacture a success.
+- **Review applies** (structural and identity) carry the generation used for the Google read and a snapshot digest computed in SQL. They are validated under the source + connection locks.
+  - A change of rows, mapping, version, generation or ledger → `review_changed` / `connection_changed` / `not_connected`, and nothing is written.
+  - Rows that match only by content are ambiguous. Never label them "already handled", never preselect a choice, and require an explicit import-or-skip decision.
+- Edge code reaches PostgreSQL only through `public.google_sheets_*` SECURITY DEFINER wrappers that only `service_role` may EXECUTE. Private helpers are not HTTP-exposed. Verify access through PostgREST, not only native SQL.
+
+**Duplicates and side effects**
+- Duplicate rule, scope and action are read on the server (`contact_management_settings`), with exact `import-contacts` semantics.
+- A Sheets-only advisory lock serializes duplicate evaluation and insertion. It does not fix CSV races.
+- New leads: `assigned_agent_id = user_id = imported_by_user_id` = the connection owner.
+- The existing `trg_workflow_lead_created` is the only workflow dispatch.
+- Never read or write DNC, STOP, suppression or consent records from this feature.
+
+**Shutdown.** The UI flag, the backend flag (read once per worker invocation, before the claim loop) and `cron.unschedule` do not stop work already running or requests already queued in pg_net. The 45 s worker budget is cooperative and proves nothing.
+- The tested control is the admission gate, `supabase/ops/google_sheets_admission_close.sql`. It revokes `service_role` EXECUTE on every Sheets wrapper except `disconnect`; `admission_open.sql` restores the exact grants.
+- Then poll `google_sheets_drain_check.sql`: 0 active backends, 0 queued worker requests, and markers identical 2 minutes apart.
+- Leases are never proof of termination. A failed drain is reported as **BLOCKED**.
+- Shutdown never deletes leads, receipts, baselines or source intent.
+
+**Function inventory:** 31 private helpers + 21 public wrappers = 52. T1 in `supabase/tests/google_sheets_import.sql` pins the count and the ACL; update both together.
+
+**Verification:** `.github/workflows/google-sheets.yml` (SQL/PostgREST/regressions/concurrency/shutdown/end-to-end Review, real pg_cron in `supabase/postgres` with `--network none`, Deno, frontend, browser). The regression evidence is `scripts/google_sheets_regression_evidence.sh <reviewed-sha>`. A mocked Picker test is never the real Google-account test.
+
+**Permissions:** `contacts.leads.import_google_sheets` defaults ON for Agent and Team Leader. SQL and app defaults are pinned equal by `src/lib/google-sheets/__tests__/googleSheets.test.ts`. Settings visibility (`role_permissions.s`) and import permission are separate controls.
+
+**Status.** Draft PR only: the migration is not applied, the functions are not deployed, cron is pending, and the shutdown ops files are NOT RUN. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.

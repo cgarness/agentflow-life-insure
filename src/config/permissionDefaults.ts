@@ -282,6 +282,7 @@ export const CONTACTS_PERMISSIONS: ContactsPermissionDef[] = [
   { key: "contacts.leads.edit", label: "Edit leads", help: "Update lead details they can access.", group: "Leads", agent: true, teamLeader: true },
   { key: "contacts.leads.delete", label: "Delete leads", help: "Permanently delete lead records.", group: "Leads", danger: true, agent: false, teamLeader: false },
   { key: "contacts.leads.import", label: "Import leads", help: "Upload CSV files to add leads in bulk.", group: "Leads", danger: true, agent: false, teamLeader: true },
+  { key: "contacts.leads.import_google_sheets", label: "Import from own Google Sheets", help: "Connect their own Google Sheets so new rows become their leads.", group: "Leads", agent: true, teamLeader: true },
   { key: "contacts.leads.undo_own_import", label: "Undo own import", help: "Roll back an import they performed (within the allowed window).", group: "Leads", danger: true, agent: false, teamLeader: true },
   { key: "contacts.leads.undo_team_import", label: "Undo downline import", help: "Roll back an import performed by someone in their downline.", group: "Leads", danger: true, agent: false, teamLeader: true },
   { key: "contacts.leads.assign", label: "Assign / reassign leads", help: "Change which agent owns a lead.", group: "Leads", agent: false, teamLeader: true },

@@ -2,7 +2,7 @@ import {
   Building2, Users, Phone, FileText, List, Zap, Mail, Shield,
   Ban,
   Webhook, Link, Clock, Lock,
-  CalendarDays, UserCircle, SlidersHorizontal, Network, Percent,
+  CalendarDays, UserCircle, SlidersHorizontal, Network, Percent, Sheet,
 } from "lucide-react";
 
 /** `?section=` values that render the Phone System tabbed UI (legacy bookmarks + sidebar highlight). */
@@ -74,6 +74,7 @@ export const SETTINGS_CONFIG: SettingsCategory[] = [
     sections: [
       { slug: "automation", icon: Zap, label: "Workflow Builder" },
       { slug: "email-settings", icon: Mail, label: "Email Setup" },
+      { slug: "google-sheets", icon: Sheet, label: "Google Sheets" },
       { slug: "templates", icon: Mail, label: "Email & SMS Templates" },
       { slug: "webhooks", icon: Webhook, label: "Zapier & Webhooks" },
     ],

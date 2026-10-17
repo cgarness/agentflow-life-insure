@@ -204,6 +204,7 @@ describe("Dialer / Leaderboard boundary", () => {
     expect(gitBlobSha(read("src/lib/report-utils.ts"))).toBe("9fa35b22a24648e5901a985d59f853288c049c57");
     // Approved reporting work changes Dialer failure handling; Reports contracts above remain enforced.
     expect(gitBlobSha(read("src/hooks/usePermissions.ts"))).toBe("6789cc0e0208ffe1569c820c83b038b3b78e1ea5");
-    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("9d61aa0d758c70dd9c031bd9e3e34d00dfda9050");
+    // 2026-10-13: approved Google Sheets V1 adds contacts.leads.import_google_sheets (no existing default changed).
+    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("b55fb46453371ab3d5aca5e97cf3d5bb881e1fed");
   });
 });
