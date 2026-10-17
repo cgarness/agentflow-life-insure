@@ -241,8 +241,10 @@ SELECT test_sold_policy(test_id(32501),test_id(32),(SELECT d FROM test_dialer_da
 SELECT test_sold_policy(test_id(32502),test_id(32),(SELECT d-1 FROM test_dialer_day),(SELECT s+(now()-s)/2 FROM test_dialer_day),12,test_id(32401));
 SELECT test_sold_policy(test_id(32503),test_id(32),(SELECT d FROM test_dialer_day),now()-interval '26 hours',13,test_id(32401));
 SELECT test_sold_policy(test_id(32504),test_id(32),(SELECT d-3 FROM test_dialer_day),(SELECT s+(now()-s)/2 FROM test_dialer_day),14,test_id(32401));
+-- The call too sits strictly inside the agent-local day: a fixed offset like "now() - 1 minute" falls on the previous
+-- day when the suite runs in the first minute after New York midnight.
 INSERT INTO public.calls(id,organization_id,agent_id,campaign_id,direction,duration,created_at)
- VALUES(test_id(32601),test_id(1),test_id(32),test_id(32401),'outbound',60,now()-interval '1 minute');
+ VALUES(test_id(32601),test_id(1),test_id(32),test_id(32401),'outbound',60,(SELECT s+(now()-s)/2 FROM test_dialer_day));
 SELECT test_actor(32);
 SET ROLE authenticated;
 INSERT INTO test_results VALUES('dialer-v2',(SELECT to_jsonb(t) FROM test_dialer_day x,get_trusted_today_dialer_stats_v2(test_id(32401),x.s,x.e,x.d) t));
