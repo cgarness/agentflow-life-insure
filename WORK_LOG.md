@@ -1,3 +1,15 @@
+## 2026-10-16 — Callbacks dashboard modal pilot (owner-approved frontend release preparation)
+
+**Scope / authorization:** Chris explicitly requested that only the Dashboard Callbacks detail modal be redesigned for an initial live-production comparison. The other six dashboard detail modals remain in their original rendering path. No Supabase migrations, RLS, Edge Function, Twilio logic, customer-data writes, or secrets were changed.
+
+**Implementation:** Add a dedicated compact Radix callbacks modal with status tabs (Overdue / Today / Upcoming), loaded-record search and counts that state their limited scope, direct View and Call actions, clear disabled states, responsive sizing, accessible controls, inline errors, retry, and Load more. Continue using the canonical dual-source callback contract, per-source ownership, stable pagination, existing request generation/locks, and the existing Voice.js quick-call entrypoint.
+
+**Files:** src/components/dashboard/DashboardDetailModal.tsx; new src/components/dashboard/DashboardCallbacksModal.tsx; new src/components/dashboard/__tests__/dashboardCallbacksModal.test.tsx; updated src/components/dashboard/__tests__/dashboardCallbacks.test.ts; docs/plans/2026-10-16-dashboard-callback-modal/implementation_plan.md; this log.
+
+**Verification (isolated checkout based on production 91eabff):** Dashboard-focused 14 suites passed (305 tests passed, 12 skipped); npm run build passed with the existing chunk-size warning; ESLint on touched source/tests was clean; npx tsc --noEmit exited 0 (root config checks no application files); strict npx tsc -p tsconfig.app.json --noEmit emitted the exact same 230 diagnostic lines as the unchanged base (byte-identical); git diff --check passed. Exact-head PR CI and production deploy verification are tracked separately; no production change is claimed in this entry.
+
+---
+
 ## 2026-10-16 — Client multi-policy display (approved implementation; not merged or deployed)
 
 **Problem:** Clients and contact details rendered only primary-policy fields, although additional policy objects were retained in the client JSONB. Chris approved the display-only fix at 16:09 PDT. Base: `9a905523`.
