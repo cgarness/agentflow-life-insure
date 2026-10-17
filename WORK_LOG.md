@@ -1,3 +1,15 @@
+## 2026-10-17 — PR #453 Sold Date release: backend live, frontend merge/deploy approved (release preparation; final UI verification pending)
+
+**Status and authorization:** Chris approved the backend release, then the separate index release, then the PR #453 frontend release contingent on clean exact-head checks. The Supabase production migrations are already recorded as `20261017043142_performance_sold_date_basis` and `20261017043757_performance_wins_sold_date_index`. Backend calls, sales, security grants, RLS and dialer legacy RPC are preserved. Production frontends remain at `main` until the reviewed PR is merged and Vercel builds READY.
+
+**Files in this checkpoint:** Rename the two forward migration files and the matching rollback file to the recorded production versions (forward SQL byte-identical; rollback body likewise unchanged), amend `AGENT_RULES.md` #14/#42 with the verified backend and pending frontend transition, and add a release gate to `implementation_plan.md`. This log entry is newest-first. No application code, Edge Function or production data is changed by this preparation commit. The release CI must pass on its new head before merge.
+
+**Verification (before merge):** PR #453 implementation at `4bd60f3` passed six workflows and both preview deployments; base `main` was `f20b30b`. Production holds 16 wins and 16 policy identities, zero undated rows; Teo's six Oct 16 entries are credited to their actual Oct 15/14/8 Sold Dates, with today 0, yesterday 3, this week 5 and October 6. The new index is valid/ready; legacy Dialer RPC byte hash unchanged; Dialer v2 access authenticated-only. The prior agent session and recent-call checks showed no active dialing. Supabase Preview CI skip due to concurrent-branch limit does not substitute for native PostgreSQL CI.
+
+**Deploys:** Backend SQL applied already; no additional backend changes in this commit. Frontend merge, two Vercel production READY confirmations, agent refresh and production observation are release gates still to complete. If a gate fails, stop without claiming frontend success. **Next:** release only after exact-head CI; record production deployment SHA and any remaining authenticated-browser limitation.
+
+---
+
 ## 2026-10-17 — BUGFIX: sales count on the actual Sold Date (approved for development and testing only; draft PR; not merged, no production migration, no deploy)
 
 **Problem:** Leaderboard, TV, the Dashboard, Goals, selected-user performance, performance drill-downs and Dialer Policies Sold placed each sale in the period of `wins.created_at`, the entry/conversion time, instead of its business-effective `wins.sold_date`. Read-only production evidence (plan §1): Teo's six policies entered Oct 16 PDT with Sold Dates Oct 15 ×3, Oct 14 ×2 and Oct 8 ×1 counted as six sales on Oct 16 and none on their own dates. Chris approved the fix for development and testing only (D1, D3–D6 as proposed; D2 changed to a versioned Dialer RPC; D4 with minimal wording). Plan: root `implementation_plan.md`, 2026-10-17 entry.

@@ -1,3 +1,17 @@
+## 2026-10-17 — Sold Date production release reconciliation (PR #453; frontend approved, awaiting exact-head gate)
+
+**Authority:** Chris separately approved the core backend migration, the performance index, and then the frontend production merge/deployment, conditioned on reconciliation and green CI. PR #453 base `f20b30b3`; reviewed implementation head `4bd60f3` before this documentation/filename-only reconciliation. No unrelated changes authorized.
+
+**Backend already applied and read back in Supabase AGENTFLOW CRM (`jncvvsvckxhqgqvkppmj`):** `20261017043142_performance_sold_date_basis` and `20261017043757_performance_wins_sold_date_index`. The source SQL bytes are EXACTLY the reviewed authored files `20261017024606_…` and `20261017024610_…`; this commit renames the repository migration filenames to the recorded production versions without changing their blob SHA/content. The matching guarded rollback is renamed, not executed. Live function hashes and privileges were verified; the legacy Dialer function hash stayed `c6cddd40cb7e85a1fab4ac565a3c7949`. The new index is valid and ready.
+
+**Production reconciliation before frontend merge:** 16 wins / 16 distinct policy identities; no undated wins. Teo's six late-entered Oct 16 sales belong to Sold Dates Oct 15 ×3, Oct 14 ×2, Oct 8 ×1. Date-based reporting verified Teo today 0, yesterday 3, week 5 and October 6; no live sale data was edited. No recent unended calls or live Dialer session heartbeats were observed during the approved backend release.
+
+**Release gates:** (1) Re-run CI on the exact reconciled PR head; verify the merged `main` base and every enabled check (Supabase Preview may be skipped due to branch limits; native PostgreSQL CI must PASS). (2) Merge PR #453 to `main` only with clean status and exact-head guard. (3) Verify both Git-linked Vercel production targets (`agentflow`, `agentflow-life-insure`) are READY at the *merged commit SHA*, on their production URLs. (4) Perform post-deploy database/telemetry readback, Teo Sold Date reconciliation and request agents refresh after current calls. No unrelated migration, dialer, secrets, RLS or data mutation. (5) Record any unverified authenticated walkthrough as a limitation, not a PASS.
+
+**Recovery:** prior frontend deployment first, then separately authorized guarded SQL rollback only if needed. Do not run the rollback automatically and do not remove v2 without a release decision. `WORK_LOG.md` contains the release-preparation checkpoint; backend SQL is already live even if UI deployment cannot complete.
+
+---
+
 ## 2026-10-17 — BUGFIX, APPROVED FOR DEVELOPMENT AND TESTING ONLY: sales count on the actual Sold Date
 
 **Status:** Chris approved implementation on October 17, 2026 for development and testing on branch `claude/agentflow-sold-date-reporting-2g35mk` (base main `91eabff`), followed by a draft PR. His decisions are recorded in §7. D2 changed from the original proposal: a versioned Dialer RPC sits alongside the unchanged legacy one. **Not approved:** applying production migrations, deploying, or merging into main. Each needs his separate explicit approval. Production sales, including Teo's rows, are never modified. The production Dialer and Twilio call path stay untouched.

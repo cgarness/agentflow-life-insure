@@ -1,4 +1,4 @@
--- Guarded rollback for 20261017024606_performance_sold_date_basis and the optional 20261017024610 index.
+-- Guarded rollback for 20261017043142_performance_sold_date_basis and the optional 20261017043757 index.
 -- Apply only with Chris's separate approval, as a NEW migration (frontend rolled back first). It restores the
 -- exact preimages recorded on 2026-10-17 and removes the Sold Date objects. No data is read or written.
 SET LOCAL lock_timeout='1s';
