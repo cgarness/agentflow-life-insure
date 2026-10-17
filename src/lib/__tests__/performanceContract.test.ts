@@ -7,7 +7,8 @@ import {leaderboardCsv,csvCell,performanceCaption,outsideRosterNote} from '../le
 import {formatTalkTime,formatPremiumSold,rankAgents} from '@/components/leaderboard/leaderboardTypes';
 const org='11111111-1111-4111-8111-111111111111',agent='22222222-2222-4222-8222-222222222222';
 const row={agent_id:agent,first_name:'Avery',last_name:'Test',organization_id:org,organization_name:'Agency',agent_status:'Active',calls_made:0,appointments_set:2,policies_sold:8,annualized_premium:9373.92,unknown_premiums:0,talk_time_seconds:81,recent_wins_7d:2,estimated_duration_calls:0,unknown_duration_calls:0,conflicting_duration_calls:0};
-const envelope=()=>({period:'month',time_zone:'America/Los_Angeles',start_at:'2026-10-01T07:00:00Z',end_at:'2026-10-04T04:56:52.764Z',organization_id:org,group_id:null,roster:'active',rows:[{...row}],excluded:{calls_made:1,appointments_set:0,policies_sold:0}});
+const envelope=()=>({period:'month',time_zone:'America/Los_Angeles',start_at:'2026-10-01T07:00:00Z',end_at:'2026-10-04T04:56:52.764Z',organization_id:org,group_id:null,roster:'active',
+ policy_date_basis:'sold_date',sold_date_from:'2026-10-01',sold_date_through:'2026-10-03',undated_policies:0,rows:[{...row}],excluded:{calls_made:1,appointments_set:0,policies_sold:0}});
 const load=()=>loadPerformanceSnapshot('This Month',null,org,new AbortController().signal);
 beforeEach(()=>{io.data=envelope();io.error=null;io.rpc.mockReset().mockImplementation(()=>({abortSignal:async()=>({data:io.data,error:io.error})}));});
 // Routine methodology and legacy_unknown provenance never appear in the on-screen notes (Part B, PB-9 to PB-11).
@@ -30,6 +31,25 @@ describe('performance contract',()=>{
   const csv=leaderboardCsv(data!.rows,data!);
   expect(csv).toContain('"Policies Sold","Annualized Premium USD","Unknown Premium Policies","Appointments Set"');
  });
+ it('exports the agency Sold Date window and the undated count with every row',async()=>{
+  io.data.undated_policies=2;
+  const {data}=await load();const [headers,first]=leaderboardCsv(data!.rows,data!).split('\r\n');
+  expect(headers.endsWith('"Snapshot Status","Sold Date From","Sold Date Through","Policies Without Sold Date (All Time)"')).toBe(true);
+  expect(first.endsWith('"current","2026-10-01","2026-10-03","2"')).toBe(true);
+ });
+ it.each(['missing-basis','entry-basis','utc-through','utc-from','undated-negative'])('rejects a %s Sold Date payload without showing sales',async(kind)=>{
+  // An older backend (entry-time counts) or a window not on the agency calendar is never shown as Sold Date sales.
+  if(kind==='missing-basis')delete io.data.policy_date_basis;
+  if(kind==='entry-basis')io.data.policy_date_basis='created_at';
+  if(kind==='utc-through')io.data.sold_date_through='2026-10-04';
+  if(kind==='utc-from')io.data.sold_date_from='2026-09-30';
+  if(kind==='undated-negative')io.data.undated_policies=-1;
+  const r=await load();expect(r.data).toBeNull();expect(r.error).toBeTruthy();
+ });
+ it('names the Sold Date window error for a non-agency calendar window',async()=>{
+  io.data.sold_date_through='2026-10-04';
+  expect((await load()).error?.message).toBe('Standings returned an invalid Sold Date window. Retry.');
+ });
  it.each(['foreign-row','wrong-org','wrong-period','wrong-group','negative','bad-zone','bad-window','duplicates','impossible-coverage'])('rejects %s without showing zero',async(kind)=>{
   if(kind==='foreign-row')io.data.rows[0].organization_id=agent;
   if(kind==='wrong-org')io.data.organization_id=agent;
@@ -44,8 +64,18 @@ describe('performance contract',()=>{
  });
  it('preserves server denial/throttle errors',async()=>{io.error={code:'PT429',message:'busy'};expect((await load()).error).toEqual(io.error);});
  it('uses server feed premium without any client record lookup',async()=>{
-  io.data=[{id:agent,agent_id:agent,agent_name:'Seller',contact_id:org,contact_name:'Client',campaign_name:null,policy_type:'Term',premium_amount:0,premium_snapshot:false,created_at:'2026-09-28T12:00:00Z',celebrated:true,premiumSold:900,premium_known:true}];
+  io.data=[{id:agent,agent_id:agent,agent_name:'Seller',contact_id:org,contact_name:'Client',campaign_name:null,policy_type:'Term',premium_amount:0,premium_snapshot:false,created_at:'2026-09-28T12:00:00Z',celebrated:true,premiumSold:900,premium_known:true,
+   sold_date:'2026-09-25',entered_at:'2026-09-28T12:00:00Z'}];
   const {data,error}=await loadPerformanceWins(null,new AbortController().signal);expect(error).toBeNull();expect(data![0]).toMatchObject({premiumSold:900,celebrated:true});expect(io.rpc).toHaveBeenCalledTimes(1);
+  expect(data![0]).toMatchObject({sold_date:'2026-09-25',entered_at:'2026-09-28T12:00:00Z',created_at:'2026-09-28T12:00:00Z'});
+ });
+ it('keeps an unknown Sold Date as null and rejects a feed without the Sold Date fields',async()=>{
+  const win={id:agent,agent_id:agent,agent_name:'Seller',contact_id:null,contact_name:'Client',campaign_name:null,policy_type:'Term',premium_amount:75,premium_snapshot:true,created_at:'2026-10-16T19:48:00+00:00',celebrated:false,premiumSold:900,premium_known:true};
+  io.data=[{...win,sold_date:null,entered_at:'2026-10-16T19:48:00+00:00'}];
+  expect((await loadPerformanceWins(null,new AbortController().signal)).data![0].sold_date).toBeNull();
+  for(const bad of [{...win},{...win,sold_date:'10/15/2026',entered_at:'2026-10-16T19:48:00+00:00'},{...win,sold_date:'2026-10-15'}]){
+   io.data=[bad];const r=await loadPerformanceWins(null,new AbortController().signal);expect(r.data).toBeNull();expect(r.error).toBeTruthy();
+  }
  });
  it('sorts undefined ratios last while retaining meaningful >100 ratios',async()=>{
   const {data}=await load(),a=data!.rows[0];const ranked=rankAgents([a,{...a,id:org,callsMade:2,conversionRate:400}],'Policies per 100 Calls');expect(ranked.map(a=>a.conversionRate)).toEqual([400,null]);
@@ -94,6 +124,16 @@ describe('on-screen performance notes (material only)',()=>{
   const {data}=await load();
   expect(outsideRosterNote(data!)).toBe('');
   expect(performanceCaption(data!)).toBe('Annual premium (3 policies with unknown premium) · Talk time includes 1 estimated and 1 conflicting call durations');
+ });
+});
+describe('undated Sold Date disclosure',()=>{
+ it.each([[0,''],[1,'1 policy without a Sold Date not counted'],[3,'3 policies without a Sold Date not counted']] as const)('undated_policies=%s',async(n,want)=>{
+  expect(await captionOf(d=>{noExcluded(d);d.undated_policies=n;})).toBe(want);
+ });
+ it('appends the undated note after every other material note',async()=>{
+  const caption=await captionOf(d=>{d.undated_policies=2;d.rows[0].unknown_premiums=3;});
+  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 appointments, 0 policies · 2 policies without a Sold Date not counted');
+  expect(caption).not.toMatch(ROUTINE_COPY);
  });
 });
 describe('agency periods',()=>{

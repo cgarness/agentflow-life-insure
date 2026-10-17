@@ -23,6 +23,7 @@ import React from "react";
 import { act, render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { formatInTimeZone } from "date-fns-tz";
 
 const { ORG, USER, CAMP, CL, LEAD, CLIENT, STAGE } = vi.hoisted(() => ({
   ORG: "aaaaaaaa-0000-4000-8000-00000000000a",
@@ -49,6 +50,8 @@ const h = vi.hoisted(() => ({
   /** How the Calendar refresh behaves: resolves, rejects, throws synchronously, or is missing entirely. */
   refreshMode: "resolve" as "resolve" | "reject" | "throw" | "missing",
   tableData: {} as Record<string, unknown[]>,
+  /** Server Policies Sold for the agent-local Sold Date (get_trusted_today_dialer_stats_v2). */
+  trustedPolicies: 0,
   campaignType: "Personal",
   fetchAppointments: vi.fn(async (_opts?: { silent?: boolean }) => {}),
   toast: Object.assign(vi.fn(), {
@@ -101,7 +104,8 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (name: string, args: Record<string, unknown>) => {
       h.rpc.push({ name, args });
       h.events.push(`rpc:${name}`);
-      if (name === "get_trusted_today_dialer_stats") return Promise.resolve({data:[{calls_made:0,contacted_calls:0,total_talk_seconds:0,policies_sold:0,session_duration_seconds:0,closed_session_duration_seconds:0,active_session_id:null,active_session_started_at:null}],error:null});
+      if (name === "get_trusted_today_dialer_stats_v2") return Promise.resolve({data:[{calls_made:0,contacted_calls:0,total_talk_seconds:0,policies_sold:h.trustedPolicies,session_duration_seconds:0,closed_session_duration_seconds:0,active_session_id:null,active_session_started_at:null,
+        policy_date_basis:"sold_date",policy_sale_date:args.p_sale_date}],error:null});
       if (name === "save_disposition_with_booking") {
         const booking = args.p_appointment as Record<string,unknown>|null;
         args=args.p_input as Record<string,unknown>;
@@ -256,7 +260,7 @@ beforeEach(() => {
   h.failAdvance = false; h.failRelease = false;
   h.failAppointmentWhen = null; h.refreshMode = "resolve"; calendar.v = null;
   h.failCallWrite = false; h.emptyQueue = false; h.renewal = "owned";
-  h.tableData = {};
+  h.tableData = {}; h.trustedPolicies = 0;
   stable.twilio.makeCall.mockClear();
   calendar.addAppointment.mockClear(); h.fetchAppointments.mockClear(); api.saveAppointmentSpy.mockClear();
   for (const k of ["error", "success", "loading", "dismiss", "info"] as const) h.toast[k].mockClear();
@@ -463,6 +467,36 @@ describe("Personal campaign — other cases", () => {
     expect(inserts[0].created_by).toBe(USER);
     expect(calendar.addAppointment).not.toHaveBeenCalled();
     expectSilentRefreshAfterInserts(1);
+  }, 30000);
+});
+
+describe("Dialer Policies Sold by agent-local Sold Date", () => {
+  const policiesSold = () => screen.getByText("Policies Sold").nextElementSibling?.textContent;
+  const statsCalls = () => h.rpc.filter((r) => r.name === "get_trusted_today_dialer_stats_v2");
+  it.each([
+    [0, "a sale entered today but sold on an earlier date"],
+    [1, "a sale whose Sold Date is today"],
+  ] as const)("conversion shows the server total %i (%s), never a local +1", async (serverTotal, _case) => {
+    await mountOnLead("Personal");
+    await waitFor(() => expect(policiesSold()).toBe("0"));
+    pickDisposition(/^sold later$/i);
+    fillCallback("2026-10-15", "2:30 PM");
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    const convert = await screen.findByRole("button", { name: /complete conversion \(test\)/i });
+    h.trustedPolicies = serverTotal;
+    const before = statsCalls().length;
+    fireEvent.click(convert);
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith("Call saved successfully", expect.anything()), { timeout: 8000 });
+    // The save re-reads the server total at once; no local increment is added on top of it.
+    await waitFor(() => expect(statsCalls().length).toBeGreaterThan(before));
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(policiesSold()).toBe(String(serverTotal));
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    for (const { args } of statsCalls()) {
+      expect(args.p_sale_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(args.p_sale_date).toBe(formatInTimeZone(new Date(String(args.p_start)), zone, "yyyy-MM-dd"));
+    }
+    expect(h.rpc.some((r) => r.name === "get_trusted_today_dialer_stats")).toBe(false);
   }, 30000);
 });
 

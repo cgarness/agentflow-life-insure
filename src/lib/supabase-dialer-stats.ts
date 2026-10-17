@@ -111,11 +111,14 @@ export async function deleteTodayStats(agentId: string): Promise<void> {
 export class TrustedStatsUnavailable extends Error {
   constructor(message = "Dialer stats are unavailable. Retry.") { super(message); this.name = "TrustedStatsUnavailable"; }
 }
+// v2 only: Policies Sold counts the agent-local Sold Date and the server echoes that basis and date. The legacy
+// RPC (entry-time policy counts) is never called here, so its totals can never be shown as Sold Date totals.
 const trustedStatsSchema = z.object({
   calls_made: z.number().int().nonnegative(), contacted_calls: z.number().int().nonnegative(),
   total_talk_seconds: z.number().int().nonnegative(), policies_sold: z.number().int().nonnegative(),
   session_duration_seconds: z.number().nonnegative().finite(), closed_session_duration_seconds: z.number().nonnegative().finite(),
   active_session_id: z.string().nullable(), active_session_started_at: z.string().nullable(),
+  policy_date_basis: z.literal("sold_date"), policy_sale_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
 export interface TrustedDialerStats {
@@ -201,11 +204,12 @@ function zonedMidnightToUtcMs(
  * User-local calendar-day `[start, end)` bounds as UTC ISO strings, for the
  * agent's IANA `timeZone` (P1 Build 3B). Daily Dialer stats reset at the user's
  * local midnight, so Supabase `gte`/`lt` filters use these bounds — not UTC.
+ * `localDate` is that same local calendar date (YYYY-MM-DD), the Dialer's Sold Date.
  */
 export function userLocalDayBounds(
   timeZone: string,
   date: Date = new Date(),
-): { startIso: string; endIso: string } {
+): { startIso: string; endIso: string; localDate: string } {
   // Local calendar Y-M-D the agent currently sees.
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -230,6 +234,7 @@ export function userLocalDayBounds(
   return {
     startIso: new Date(startMs).toISOString(),
     endIso: new Date(endMs).toISOString(),
+    localDate: `${pmap.year}-${String(pmap.month).padStart(2, "0")}-${String(pmap.day).padStart(2, "0")}`,
   };
 }
 
@@ -240,7 +245,7 @@ export function userLocalDayBounds(
  * - `calls_made`        — count of outbound `calls` rows
  * - `total_talk_seconds`— SUM(calls.duration) (Twilio-backed only)
  * - `contacted_calls`   — duration > 45 OR disposition.counts_as_contacted
- * - `policies_sold`     — count of `wins` rows (campaign-linked)
+ * - `policies_sold`     — campaign `wins` sold on the agent-local date (Sold Date)
  * - `session_duration_seconds` — from `dialer_sessions`
  *
  * `campaignId` is REQUIRED — all four sources filter `.eq("campaign_id", …)`;
@@ -264,7 +269,7 @@ export async function getTrustedTodayDialerStats(args: {
   dncDispositionNames?: Set<string>;
 }): Promise<TrustedDialerStats> {
   const { agentId, organizationId, campaignId, timeZone } = args;
-  const { startIso, endIso } = userLocalDayBounds(timeZone, args.date ?? new Date());
+  const { startIso, endIso, localDate } = userLocalDayBounds(timeZone, args.date ?? new Date());
 
   const empty: TrustedDialerStats = {
     calls_made: 0,
@@ -290,13 +295,17 @@ export async function getTrustedTodayDialerStats(args: {
   // The local-day window is computed client-side (browser IANA tz) and passed
   // as the UTC [start, end) bounds. `contactedDispositions` / `dncDispositionNames`
   // are accepted for API compatibility but are no longer needed (server-computed).
-  const { data, error } = await (supabase as any).rpc("get_trusted_today_dialer_stats", { // eslint-disable-line @typescript-eslint/no-explicit-any
+  // The same local calendar date is sent as the Sold Date; the server validates it against the window.
+  const { data, error } = await (supabase as any).rpc("get_trusted_today_dialer_stats_v2", { // eslint-disable-line @typescript-eslint/no-explicit-any
     p_campaign_id: campaignId,
     p_start: startIso,
     p_end: endIso,
+    p_sale_date: localDate,
   });
   if (error) throw new TrustedStatsUnavailable(error.message);
   const parsed = trustedStatsSchema.safeParse(Array.isArray(data) && data.length === 1 ? data[0] : data);
   if (!parsed.success) throw new TrustedStatsUnavailable("Dialer stats response was incomplete. Retry.");
-  return parsed.data as TrustedDialerStats;
+  if (parsed.data.policy_sale_date !== localDate) throw new TrustedStatsUnavailable("Dialer stats returned a different day. Retry.");
+  const { policy_date_basis: _basis, policy_sale_date: _saleDate, ...stats } = parsed.data;
+  return stats as TrustedDialerStats;
 }

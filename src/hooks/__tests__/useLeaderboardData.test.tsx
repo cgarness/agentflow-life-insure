@@ -1047,6 +1047,31 @@ describe("review follow-ups", () => {
   });
 });
 
+describe("late-entered sales (Sold Date)", () => {
+  it("a realtime sale sold on an earlier date shows the server's totals: no local increment, no duplicate row", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+    h.autoResult = rpcOk([rpcRow({ policies_sold: 0, annualized_premium: 0, recent_wins_7d: 0 })]);
+    render(<Probe />);
+    await advance(10);
+    expect(hookResult.agents[0]).toMatchObject({ policiesSold: 0, recentWins7d: 0 });
+    const standingsBefore = h.rpcCalls.length;
+    // Entered now with yesterday's Sold Date: Today stays 0 on the server; the 7-day count includes it.
+    const now = new Date(), yesterday = new Date(now.getTime() - 86_400_000);
+    const soldDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+    const LATE = { id: "dddd0000-0000-0000-0000-000000000029", agent_id: AGENT_A, agent_name: "Avery A.", contact_name: "Late", campaign_name: "", policy_type: "Term",
+      created_at: now.toISOString(), entered_at: now.toISOString(), sold_date: soldDate };
+    h.fromResult = (t) => (t === "wins" ? { data: [LATE], error: null } : { data: [], error: null });
+    h.autoResult = rpcOk([rpcRow({ policies_sold: 0, annualized_premium: 0, recent_wins_7d: 1 })]);
+    act(() => h.winInsert?.({ new: { id: LATE.id, agent_id: AGENT_A } }));
+    act(() => h.winInsert?.({ new: { id: LATE.id, agent_id: AGENT_A } })); // a redelivered event
+    await advance(30_000);
+    expect(hookResult.wins).toHaveLength(1);
+    expect(hookResult.wins[0]).toMatchObject({ id: LATE.id, sold_date: soldDate, entered_at: LATE.entered_at });
+    expect(h.rpcCalls.length).toBeGreaterThan(standingsBefore);
+    expect(hookResult.agents[0]).toMatchObject({ policiesSold: 0, recentWins7d: 1 });
+  });
+});
+
 describe("review follow-ups (2)", () => {
   it("the promised next check is when the next request is really sent, even after a timed-out request", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });

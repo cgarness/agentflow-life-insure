@@ -369,7 +369,8 @@ function writeCampaignStatsCache(
 // Lets the header paint last-known TRUSTED totals instantly on return to a
 // campaign, then revalidate in the background — no blank skeleton wait. The
 // local-day component invalidates yesterday's cache automatically (daily reset).
-const HEADER_STATS_CACHE_PREFIX = "af:dialer:headerStats:v1:";
+// v2: Policies Sold by agent-local Sold Date. v1 entries held entry-day totals and are never read.
+const HEADER_STATS_CACHE_PREFIX = "af:dialer:headerStats:v2:";
 
 interface CachedHeaderStats {
   updatedAt?: number;
@@ -3605,7 +3606,8 @@ export default function DialerPage() {
         settled = true;
         if (!lastAdvancedLeadRef.current?.replayed && selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
-          setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
+          // Trusted Policies Sold comes from the server, which counts each policy on its Sold Date.
+          void reconcileTrustedStats();
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
         // Reconcile trusted totals from `calls`/`wins` once the Twilio status
@@ -3646,7 +3648,8 @@ export default function DialerPage() {
         settled = true;
         if (!lastAdvancedLeadRef.current?.replayed && selectedDisp && isConvertedDisposition({ pipeline_stage_id: selectedDisp.pipeline_stage_id }, pipelineStagesForConversion)) {
           setDialerStats(prev => prev ? { ...prev, policies_sold: prev.policies_sold + 1, last_updated_at: new Date().toISOString() } : prev);
-          setSessionStats(prev => ({ ...prev, policies_sold: prev.policies_sold + 1 }));
+          // Trusted Policies Sold comes from the server, which counts each policy on its Sold Date.
+          void reconcileTrustedStats();
           if (user?.id) upsertDialerStats(user.id, { policies_sold: 1 }).catch(() => {});
         }
         // Reconcile trusted totals from `calls`/`wins` once the Twilio status
