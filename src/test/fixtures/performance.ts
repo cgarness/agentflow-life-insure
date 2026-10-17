@@ -1,3 +1,8 @@
+import { formatInTimeZone } from "date-fns-tz";
+
+/** Agency calendar date (YYYY-MM-DD) of an instant, as the Sold Date readers report it. */
+const localDay = (at: Date | number | string, zone: string) => formatInTimeZone(at, zone, "yyyy-MM-dd");
+
 /** Protocol fixtures for request-scheduling tests. Numeric/security parsing is tested separately. */
 export function performanceEnvelope(rows: any[], args: Record<string, unknown>, org: string, at: Date,
   excluded = {calls_made:0,appointments_set:0,policies_sold:0}) {
@@ -6,13 +11,16 @@ export function performanceEnvelope(rows: any[], args: Record<string, unknown>, 
   start.setHours(0,0,0,0);
   if(period === 'month') start.setDate(1);
   if(period === 'week') start.setDate(start.getDate()-(start.getDay()+6)%7);
-  return { period, time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone, start_at:start.toISOString(), end_at:at.toISOString(), organization_id:org,
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return { period, time_zone:zone, start_at:start.toISOString(), end_at:at.toISOString(), organization_id:org,
     group_id:args.p_group_id ?? null, roster:'active', excluded,
+    policy_date_basis:'sold_date', sold_date_from:localDay(start,zone), sold_date_through:localDay(at,zone), undated_policies:0,
     rows:rows.map(r=>({organization_id:org,organization_name:'Test Agency',agent_status:'Active',unknown_premiums:0,
       annualized_premium:0,recent_wins_7d:0,estimated_duration_calls:0,unknown_duration_calls:0,conflicting_duration_calls:0, ...r, first_name:r.first_name ?? r.agent_first_name ?? '', last_name:r.last_name ?? r.agent_last_name ?? ''})) };
 }
 export function performanceFeed(rows: any[]) {
- return rows.map(r=>({ contact_id:null,contact_name:"",campaign_name:"",policy_type:"",premium_amount:null,premium_snapshot:false,celebrated:false,premiumSold:null,premium_known:false,...r }));
+ return rows.map(r=>({ contact_id:null,contact_name:"",campaign_name:"",policy_type:"",premium_amount:null,premium_snapshot:false,celebrated:false,premiumSold:null,premium_known:false,
+  sold_date:null,entered_at:r.created_at,...r }));
 }
 
 export function summaryFixture(args: any, current: Record<string,number> = {}, previous: Record<string,number> = {}) {
@@ -24,5 +32,7 @@ export function summaryFixture(args: any, current: Record<string,number> = {}, p
  const defaults={calls:0,policies:0,bookings:0,annual_premium:0,monthly_premium:0,unknown_premiums:0,talk_seconds:0,workload:0,leads:0,estimated_duration_calls:0,unknown_duration_calls:0,conflicting_duration_calls:0};
  return { organization_id:'11111111-1111-4111-8111-111111111111',agent_ids:args.p_agent_id?[args.p_agent_id]:null,scope:'personal',period:args.p_period,
   time_zone:zone,start_at:start.toISOString(),end_at:now.toISOString(),previous_start:new Date(start.getTime()-86400000).toISOString(),previous_end:start.toISOString(),workload_end:new Date(now.getTime()+86400000).toISOString(),
+  policy_date_basis:'sold_date',sold_date_from:localDay(start,zone),sold_date_through:localDay(now,zone),
+  previous_sold_date_from:localDay(start.getTime()-86400000,zone),previous_sold_date_through:localDay(start.getTime()-1,zone),undated_policies:0,
   current:{...defaults,...current},previous:{...defaults,...previous} };
 }

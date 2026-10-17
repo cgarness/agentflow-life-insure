@@ -12,8 +12,8 @@ interface WinTriggerParams {
   premiumAmount?: number;
   organizationId?: string | null;
   /**
-   * Business-effective sale date (YYYY-MM-DD) entered by the agent. Stored on `wins.sold_date`;
-   * `wins.created_at` stays the system-event timestamp and remains the reporting bucket everywhere.
+   * Business-effective sale date (YYYY-MM-DD) entered by the agent. Stored on `wins.sold_date`, the sales
+   * production date for every period report; `wins.created_at` stays the entry (audit) timestamp.
    */
   soldDate?: string;
   /**

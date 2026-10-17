@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatInTimeZone } from "date-fns-tz";
 import { supabase } from "@/integrations/supabase/client";
 import type { AgentStats, Period, Win } from "@/components/leaderboard/leaderboardTypes";
 import { mapPeriodToRpcParam } from "@/components/leaderboard/leaderboardTypes";
@@ -6,6 +7,7 @@ import type { LeaderboardLoadResult } from "@/lib/leaderboardRequestGate";
 
 const count = z.number().int().nonnegative().safe();
 const amount = z.number().finite().nonnegative();
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const rowSchema = z.object({
   agent_id: z.string().uuid(), first_name: z.string().nullable(), last_name: z.string().nullable(),
   organization_id: z.string().uuid(), organization_name: z.string(), agent_status: z.literal("Active"),
@@ -17,6 +19,8 @@ const snapshotSchema = z.object({
   period: z.enum(["today", "week", "month"]), time_zone: z.string().min(1),
   start_at: z.string().datetime({ offset: true }), end_at: z.string().datetime({ offset: true }),
   organization_id: z.string().uuid(), group_id: z.string().uuid().nullable(), roster: z.literal("active"),
+  // Sales count by agency Sold Date. A payload without this basis (an older backend) is never shown as sales.
+  policy_date_basis: z.literal("sold_date"), sold_date_from: isoDate, sold_date_through: isoDate, undated_policies: count,
   rows: z.array(rowSchema), excluded: z.object({ calls_made: count, appointments_set: count, policies_sold: count }),
 });
 export type PerformanceSnapshot = Omit<z.infer<typeof snapshotSchema>, "rows"> & { rows: AgentStats[] };
@@ -38,6 +42,10 @@ export async function loadPerformanceSnapshot(period: Period, groupId: string | 
   }
   try { new Intl.DateTimeFormat("en", { timeZone: snapshot.time_zone }).format(); }
   catch { return { data: null, error: new Error("Agency timezone is invalid.") }; }
+  if (snapshot.sold_date_from !== formatInTimeZone(snapshot.start_at, snapshot.time_zone, "yyyy-MM-dd")
+    || snapshot.sold_date_through !== formatInTimeZone(snapshot.end_at, snapshot.time_zone, "yyyy-MM-dd")) {
+    return { data: null, error: new Error("Standings returned an invalid Sold Date window. Retry.") };
+  }
   if (Date.parse(snapshot.end_at) < Date.parse(snapshot.start_at) || Date.parse(snapshot.end_at) - Date.parse(snapshot.start_at) > 35 * 86400000) {
     return { data: null, error: new Error("Standings returned invalid date bounds.") };
   }
@@ -57,6 +65,7 @@ const winSchema = z.object({
   policy_type: z.string().nullable(), premium_amount: z.number().nullable(), premium_snapshot: z.boolean(),
   created_at: z.string().datetime({ offset: true }), celebrated: z.boolean().nullable(),
   premiumSold: amount.nullable(), premium_known: z.boolean(),
+  sold_date: isoDate.nullable(), entered_at: z.string().datetime({ offset: true }),
 });
 export async function loadPerformanceWins(groupId: string | null, signal: AbortSignal): Promise<LeaderboardLoadResult<Win[]>> {
   const { data, error } = await (supabase as any).rpc("get_leaderboard_recent_wins", { p_group_id: groupId }).abortSignal(signal);

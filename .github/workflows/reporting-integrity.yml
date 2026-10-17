@@ -43,7 +43,13 @@ jobs:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55443
         run: bash scripts/run_reporting_integrity_tests.sh
       - name: Cross-browser-timezone calendar contracts
+        # The Dialer day-bounds helper imports the Supabase client; these inert values never reach a network.
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:9
+          VITE_SUPABASE_ANON_KEY: synthetic_test_only
         run: |
           for zone in America/Los_Angeles America/New_York UTC; do
-            TZ="$zone" npx vitest run src/lib/__tests__/performanceContract.test.ts
+            TZ="$zone" npx vitest run src/lib/__tests__/performanceContract.test.ts src/lib/__tests__/performanceSummarySoldDate.test.ts \
+              src/components/leaderboard/__tests__/recentWinsSoldDate.test.tsx src/components/dashboard/__tests__/dashboardPremiumLabels.test.tsx \
+              src/lib/__tests__/userLocalDayBounds.test.ts src/lib/__tests__/trustedDialerStatsV2.test.ts
           done
