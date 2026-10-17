@@ -36,6 +36,7 @@ import { periodBoundsIso } from "@/lib/dashboard-period-bounds";
 import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { formatBirthdayShort } from "@/utils/dobUtils";
+import DashboardCallbacksModal, { type DashboardCallbackRow } from "@/components/dashboard/DashboardCallbacksModal";
 
 export type ModalType =
   | "callbacks"
@@ -58,6 +59,7 @@ interface DashboardDetailModalProps {
 }
 
 const BATCH_SIZE = 20;
+const COMPACT_DETAIL_TYPES = new Set<ModalType>(["callbacks"]);
 
 /**
  * Row -> contact identity, delegating to the shared exported helpers in
@@ -298,6 +300,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           __idIsContact: row.contactId !== null,
           __contactType: row.contactType,
           __canAct: row.canAct,
+          __canOpen: Boolean(row.contactId && row.contactType),
           __blockedReason: row.blockedReason,
           id: row.contactId ?? row.key,   // never the source row id as a contact identity
           contact_id: row.contactId,
@@ -646,6 +649,39 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         );
     }
   };
+
+
+  // One-modality production experiment: callback detail uses a compact, accessible
+  // presentation. All six other modal types retain their existing rendering.
+  if (type && COMPACT_DETAIL_TYPES.has(type)) {
+    return (
+      <DashboardCallbacksModal
+        open={isOpen}
+        onClose={onClose}
+        rows={data as DashboardCallbackRow[]}
+        loading={loading && page === 0}
+        loadError={loadError}
+        pageError={pageError}
+        loadingMore={isFetchingNextPage}
+        hasMore={hasMore}
+        onScroll={handleScroll}
+        onCall={(event, row) => handleStartCall(event, row)}
+        onView={handleRowClick}
+        onRetry={() => {
+          setPage(0);
+          setHasMore(true);
+          void fetchData(0, true);
+        }}
+        onLoadMore={() => {
+          if (loading || isFetchingNextPage || paginationLockRef.current !== null) return;
+          if (!pageError && !hasMore) return;
+          const nextPage = pageError ? page : page + 1;
+          if (!pageError) setPage(nextPage);
+          void fetchData(nextPage);
+        }}
+      />
+    );
+  }
 
   return (
     <AnimatePresence>
