@@ -119,6 +119,10 @@ Unchanged dependencies are asserted by MD5 as well:
   - `src/components/leaderboard/__tests__/recentWinsSoldDate.test.tsx`
   - `src/lib/__tests__/trustedDialerStatsV2.test.ts`
 - `scripts/tests/leaderboard-visual/entry.tsx` (modified): snapshot fields and sample wins, including a late entry, so TV Recent Wins rows are geometry-checked.
+- Added during implementation, before editing:
+  - `scripts/tests/leaderboard-visual/stubs.ts` (modified): the branding stub formats dates like `BrandingContext` (`MM/dd/yyyy`, `h:mm a`) instead of `String`, so the sample rows render as they do in the app.
+  - `scripts/tests/leaderboard-visual/verify.mjs` (modified): asserts the Sold Date wording of the sample rows on TV and in the normal view at 390 and 1440 px.
+  - `src/lib/__tests__/performanceSummarySoldDate.test.ts` (new): the summary and details readers fail closed on a missing basis or a non-agency window.
 - `.github/workflows/reporting-integrity.yml` (modified): the new date tests in the LA/NY/UTC loop, with the inert Supabase env the Dialer helper needs.
 
 **Docs:**
@@ -186,6 +190,15 @@ Browser: the leaderboard visual gate at 390/1440/TV widths includes the new Rece
 - **D4 — Recent Wins copy:** approved, with minimal wording. The Sold Date is shown distinctly from the entry timestamp, and the time is always labelled "Entered", so it never reads as the time of sale.
 - **D5 — Undated sales:** approved. They are excluded everywhere and disclosed only when the count is above zero.
 - **D6 — Index:** approved. It is added only if the native 50,000-row plan uses it, and the result is reported either way.
+
+### 8. As built (branch `claude/agentflow-sold-date-reporting-2g35mk`; development and testing only)
+
+- Implemented as specified in §2–§4. Files added during implementation are listed in §4, recorded before they were edited.
+- **D6:** the index is kept. In the native 50,000-win proof the planner uses it for a month window, reading far fewer buffers than without it (evidence in WORK_LOG).
+- **D4 layout:** the Sold Date part never truncates. On narrow panels (TV at 1366–1920 px, phones at 390 px) the secondary "Entered …" part truncates, and the row's title holds the full entry date and time. Checked in Chromium screenshots.
+- **Verification:** all green on synthetic data; details in WORK_LOG (2026-10-17). PGlite (PG 17): reporting 38/38, booking 8/8 and Reports 46/46 steps, including replay refusal, exact-preimage rollback, re-apply and the frozen Teo reconciliation. Native PostgreSQL 16.15: reporting, Reports, Dialer/DNC and policy-sale suites pass; index proof 123 vs 1,740 buffers. Full Vitest: 5,739 tests with no new failures against base (one shared existing failure). LA/NY/UTC date suites pass. Root `tsc` exits 0, strict app 84 = base, lint has no errors, the build passes, and the Chromium TV/normal visual gate passes. Exact-head CI on PostgreSQL 17.6 is still required.
+- **Change made during verification:** the summary reader now checks the previous Sold Date window by pure date arithmetic (the day before `sold_date_from`), not one millisecond before `previous_end`. In zones whose local midnight occurs twice (America/Havana, Atlantic/Azores on their fall-back day), the old check would have failed closed all day. A Havana test covers it.
+- **Still separately gated:** the production migration, deploy and production reconciliation run; the authenticated production walkthrough; dropping the legacy Dialer RPC; the D1 and D3 follow-ups.
 
 ---
 
