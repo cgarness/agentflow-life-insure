@@ -88,6 +88,8 @@ def steps():
  yield 'overlap rollback refuses reader drift',refused('ALTER FUNCTION private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[]) SECURITY DEFINER;'+release_disable+correction_rollback,'Reports overlap rollback: preimage or authorization drift')+"SELECT rt.assert_sealed(true);"
  yield 'overlap rollback restores the exact preimage only while disabled',refused(release_disable+correction_rollback+"SELECT rt.eq('restored preimage',"+quality+",'d330c5bea75fb160a0f55e72ed2fe191');SELECT rt.expect_sql_failure($inner$"+correction_rollback+"$inner$,'Reports overlap rollback: refusing replay');SELECT rt.expect_sql_failure($inner$"+corrected_enable+"$inner$,'Reports integrity enable: unverified body');SELECT rt.assert_sealed(false);"+enable+"SELECT rt.assert_sealed(true);SELECT rt.overlap_compare(true);DO $proof$ BEGIN RAISE EXCEPTION 'overlap rollback proof rollback'; END $proof$;",'overlap rollback proof rollback')
  yield 'corrected reader retained after the rollback proof',"SELECT rt.eq('corrected reader retained',"+quality+",'c1355d551fba0cc2217150f5531d1b31');SELECT rt.assert_sealed(true);SELECT rt.eq('final source unchanged',rt.source_fingerprint(),(SELECT fingerprint FROM rt.integrity_preimage));"
+ # Separate synthetic agency: Reports keeps stored-policy Sold Dates and current-assignment credit.
+ yield 'Sold Date regression (stored policies, current assignment)',read('supabase/tests/reports_sold_date_regression.sql')
 if __name__=='__main__':
  data=list(steps())
  if '--payload-sql' in sys.argv:print(payload_sql())

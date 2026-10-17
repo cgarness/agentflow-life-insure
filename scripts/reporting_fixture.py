@@ -7,8 +7,8 @@ base=read('supabase/migrations/20260806000000_baseline_production_schema.sql')
 def block(source,header,end='\n$$;'):
  a=source.index(header);return source[a:source.index(end,a)+len(end)]
 def table(n): return block(base,f'CREATE TABLE IF NOT EXISTS "public"."{n}" (','\n);')
-def migration(suffix):
- paths=list((ROOT/'supabase/migrations').glob('*_'+suffix+'.sql'))
+def migration(suffix,folder='supabase/migrations'):
+ paths=list((ROOT/folder).glob('*_'+suffix+'.sql'))
  assert len(paths)==1,suffix
  return paths[0].read_text()
 def historical_fixtures():
@@ -40,8 +40,25 @@ def reconciliation_steps():
  # Reuse the actual receipt schema; this policy fixture has no booking writer.
  receipt=block(migration('booking_disposition_receipts'),'CREATE TABLE private.booking_receipts(','\n);')
  query=read('supabase/ops/reporting-accuracy/reconcile.sql').rstrip().removesuffix(';').replace('$1',"test_id(1)").replace('$2','now()')
- check="SET TRANSACTION READ ONLY; DO $check$ DECLARE result jsonb; BEGIN SELECT reconciliation INTO result FROM ("+query+"\n) q; IF result->'bounds'->>'org' <> test_id(1)::text OR jsonb_array_length(result->'raw_period_totals')<>3 OR result->'applied_duplicate_mappings'<>'[]'::jsonb OR result->'booking_receipts_missing_rows'<>'[]'::jsonb THEN RAISE EXCEPTION 'Read-only reconciliation contract failed'; END IF; END $check$;"
- return [('reconciliation receipt schema',receipt),('read-only reconciliation query',check)]
+ check="SET TRANSACTION READ ONLY; DO $check$ DECLARE result jsonb; BEGIN SELECT reconciliation INTO result FROM ("+query+"\n) q; IF result->'bounds'->>'org' <> test_id(1)::text OR jsonb_array_length(result->'raw_period_totals')<>3 OR result->'applied_duplicate_mappings'<>'[]'::jsonb OR result->'booking_receipts_missing_rows'<>'[]'::jsonb OR result->>'policy_date_basis'<>'sold_date' THEN RAISE EXCEPTION 'Read-only reconciliation contract failed'; END IF; END $check$;"
+ # Frozen at the production evidence instant: Teo's six entries must split by Sold Date, never by entry day.
+ sold=read('supabase/ops/reporting-accuracy/reconcile_sold_date.sql').rstrip().removesuffix(';').replace('$1',"test_id(1)").replace('$2',"'2026-10-16T20:30:00Z'::timestamptz")
+ teo="(SELECT (e->>'entry_time_policies')||'/'||(e->>'sold_date_policies') FROM jsonb_array_elements(result->'per_window_agent') e WHERE e->>'period'=%s AND (e->>'agent_id')::uuid=test_id(31))"
+ sold_check="SET TRANSACTION READ ONLY; DO $check$ DECLARE result jsonb; BEGIN SELECT reconciliation INTO result FROM ("+sold+"\n) q; IF result->'bounds'->>'agency_today'<>'2026-10-16' OR "+(teo%"'day'")+"<>'6/0' OR "+(teo%"'previous_day'")+"<>'0/3' OR "+(teo%"'week'")+"<>'6/5' OR "+(teo%"'previous_week'")+"<>'0/1' OR "+(teo%"'month'")+"<>'6/6' OR (result->>'duplicate_policy_events')::int<>0 THEN RAISE EXCEPTION 'Sold Date reconciliation contract failed: %',result; END IF; END $check$;"
+ return [('reconciliation receipt schema',receipt),('read-only reconciliation query',check),('read-only Sold Date reconciliation',sold_check)]
+
+def sold_date_steps():
+ forward=migration('performance_sold_date_basis')
+ index=migration('performance_wins_sold_date_index')
+ rollback=migration('performance_sold_date_basis.rollback','supabase/migrations/rollback')
+ reread="SELECT test_actor(13); SET ROLE authenticated; SELECT test_assert(get_leaderboard_snapshot('month')->>'policy_date_basis'='sold_date','Sold Date readers re-applied'); RESET ROLE;"
+ return [('sold-date baseline reproduction',read('supabase/tests/performance_sold_date_baseline.sql')),
+  ('sold-date reporting migration',forward),('sold-date wins index',index),
+  ('sold-date regressions',read('supabase/tests/performance_sold_date.sql')),
+  ('sold-date replay refuses',"SELECT test_reject($forward$"+forward+"$forward$,'P0001');"),
+  ('sold-date guarded rollback restores exact preimages',rollback),
+  ('sold-date rollback replay refuses',"SELECT test_reject($rollback$"+rollback+"$rollback$,'P0001');"),
+  ('sold-date forward after rollback',forward+index+reread)]
 
 def steps(mode):
  if mode=='booking':
@@ -58,7 +75,7 @@ def steps(mode):
   ('previous group repair',migration('group_leaderboard_repair_membership_setter_credit')),('performance contract',migration('performance_reporting_contract')),('scoped summaries',migration('performance_scoped_summaries')),
   ('duration provenance',migration('call_attempt_duration_provenance')),('reader indexes',migration('performance_reader_indexes')),
   ('original dialer reader',table('dispositions')+table('dialer_sessions')+block(base,'CREATE OR REPLACE FUNCTION "public"."get_trusted_today_dialer_stats"(')+"\nREVOKE ALL ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) TO anon,authenticated,service_role;"),
-  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+repair_steps()+reconciliation_steps()
+  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+sold_date_steps()+repair_steps()+reconciliation_steps()
 if __name__=='__main__':
  mode=sys.argv[1]
  if '--json' in sys.argv:print(json.dumps(steps(mode)))

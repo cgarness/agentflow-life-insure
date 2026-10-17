@@ -38,6 +38,36 @@ try{
   const elapsed=Date.now()-started;
   assert.ok(elapsed<2000,`year summary exceeded 2 seconds: ${elapsed}ms`);
   console.log('PASS 50,000-row indexed fixture; year summary ms',elapsed);
+  // Sold Date windows (D6): 50,000 synthetic wins over three years in two agencies. Guards are bypassed only for
+  // this bulk load in the disposable database; the index stays only if the planner uses it and reads less.
+  await db.begin(async sql=>{
+   await sql.unsafe('SET LOCAL session_replication_role=replica');
+   await sql`insert into wins(organization_id,agent_id,premium_amount,premium_snapshot,sold_date,created_at)
+    select case when i%2=0 then ${id(1)}::uuid else ${id(2)}::uuid end,case when i%2=0 then ${id(11)}::uuid else ${id(21)}::uuid end,
+     10+i%90,true,current_date-(i%1095),now()-make_interval(days=>(i%1095)) from generate_series(1,50000) i`;
+  });
+  await db.unsafe('ANALYZE wins');
+  const window=`SELECT count(*) FROM wins WHERE organization_id=ANY(ARRAY['${id(1)}'::uuid]) AND sold_date>=date_trunc('month',current_date)::date AND sold_date<current_date+1`;
+  const plan=async()=>JSON.parse(JSON.stringify((await db.unsafe(`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) ${window}`))[0]['QUERY PLAN']))[0];
+  const buffers=p=>{let n=0;const walk=x=>{n+=(x['Shared Hit Blocks']??0)+(x['Shared Read Blocks']??0);(x.Plans??[]).forEach(walk);};walk(p.Plan);return n;};
+  const withIndex=await plan();
+  assert.match(JSON.stringify(withIndex),/performance_wins_org_sold_date/,'Sold Date window uses the organization/Sold Date index');
+  let withoutIndex;
+  await assert.rejects(db.begin(async sql=>{
+   await sql.unsafe('DROP INDEX performance_wins_org_sold_date');
+   withoutIndex=JSON.parse(JSON.stringify((await sql.unsafe(`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) ${window}`))[0]['QUERY PLAN']))[0];
+   throw new Error('rollback-index-proof');
+  }),/rollback-index-proof/);
+  console.log('Sold Date window buffers with/without index',buffers(withIndex),buffers(withoutIndex),'ms',withIndex['Execution Time'],withoutIndex['Execution Time']);
+  assert.ok(buffers(withIndex)*4<=buffers(withoutIndex),'the index reads materially less than the existing indexes');
+  const soldStarted=Date.now();
+  await db.begin(async sql=>{await actor(sql);await sql.unsafe("SET LOCAL statement_timeout='2000ms'");
+   await sql`select get_leaderboard_snapshot('month')`;await sql`select get_performance_summary('year','own')`;
+   const [v2]=await sql`select * from get_trusted_today_dialer_stats_v2(${id(301)},date_trunc('day',now()),date_trunc('day',now())+interval '1 day',(now() at time zone 'UTC')::date)`;
+   assert.equal(v2.policy_date_basis,'sold_date');});
+  const soldElapsed=Date.now()-soldStarted;
+  assert.ok(soldElapsed<2000,`Sold Date snapshot + year summary exceeded 2 seconds: ${soldElapsed}ms`);
+  console.log('PASS 50,000-win Sold Date fixture; snapshot + year summary + v2 Dialer ms',soldElapsed);
  }else{
   const payload={title:'Concurrent booking',start_time:'2026-12-01T12:00:00Z',user_id:id(11),contact_id:id(201)};
   const op=async sql=>{await actor(sql);const [r]=await sql`select create_appointment_once(${id(90200)},${sql.json(payload)}) result`;return r.result;};

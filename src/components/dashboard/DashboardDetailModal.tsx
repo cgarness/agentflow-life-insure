@@ -37,6 +37,10 @@ import { toast } from "sonner";
 import { OUTBOUND_CALL_DIRECTIONS } from "@/lib/webrtcInboundCaller";
 import { formatBirthdayShort } from "@/utils/dobUtils";
 import DashboardCallbacksModal, { type DashboardCallbackRow } from "@/components/dashboard/DashboardCallbacksModal";
+import { format, parseISO } from "date-fns";
+
+/** A sale's agency Sold Date (YYYY-MM-DD) as a calendar date; never shifted through UTC. */
+const soldDateLabel = (soldDate?: string | null) => soldDate ? ` • Sold ${format(parseISO(soldDate), "MM/dd/yyyy")}` : "";
 
 export type ModalType =
   | "callbacks"
@@ -611,6 +615,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               <ShieldCheck className="w-3 h-3" />
               {item.policy_type || "Life Insurance"}
               {item.premium_amount != null ? ` • ${formatPremiumSold(item.premium_amount)} monthly` : " • Premium unknown"}
+              {soldDateLabel(item.sold_date)}
             </span>
           </div>
         );
@@ -635,7 +640,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <span className="text-sm font-bold text-foreground">{item.contact_name || "Activity"}</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               {isWin ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <Phone className="w-3 h-3" />}
-              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : `${formatPremiumSold(item.annual_premium)} annual premium`}` : `Call: ${item.disposition_name || 'Completed'}`}
+              {isWin ? `Closed: ${item.policy_type} • ${item.annual_premium == null ? "Premium unknown" : `${formatPremiumSold(item.annual_premium)} annual premium`}${soldDateLabel(item.sold_date)}` : `Call: ${item.disposition_name || 'Completed'}`}
             </span>
           </div>
         );

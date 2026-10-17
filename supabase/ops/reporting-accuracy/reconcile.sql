@@ -14,7 +14,9 @@ WITH bounds AS (
  FROM public.clients c,bounds b CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(c.custom_fields->'additional_policies')='array' THEN c.custom_fields->'additional_policies' ELSE '[]'::jsonb END)x
  WHERE c.organization_id=b.org AND jsonb_typeof(x)='object'
 ), rows AS (
- SELECT p.period,p.start_at,p.asof,r.* FROM periods p CROSS JOIN LATERAL private.performance_rows(ARRAY[p.org],p.start_at,p.asof) r
+ SELECT p.period,p.start_at,p.asof,s.sold_from,s.sold_until,r.* FROM periods p
+ CROSS JOIN LATERAL private.performance_sale_window(p.time_zone,p.period,p.asof) s
+ CROSS JOIN LATERAL private.performance_rows(ARRAY[p.org],p.start_at,p.asof,s.sold_from,s.sold_until) r
 ), suspect_calls AS (
  SELECT c.id,c.agent_id,c.created_at,c.twilio_call_sid,c.duration,c.status,md5(to_jsonb(c)::text) row_hash,
  array_remove(ARRAY[
@@ -32,6 +34,8 @@ WITH bounds AS (
 SELECT jsonb_build_object(
  'bounds',(SELECT to_jsonb(b) FROM bounds b),
  'canonical_per_agent',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY period,agent_id) FROM rows r),'[]'),
+ 'policy_date_basis','sold_date',
+ 'undated_policies',(SELECT count(*) FROM public.wins w,bounds b WHERE w.organization_id=b.org AND w.created_at<b.asof AND w.sold_date IS NULL),
  'raw_period_totals',(SELECT jsonb_agg(jsonb_build_object('period',p.period,'calls',(SELECT count(*) FROM public.calls c WHERE c.organization_id=p.org AND lower(c.direction) IN('outbound','outgoing') AND c.created_at>=p.start_at AND c.created_at<p.asof),'bookings',(SELECT count(*) FROM public.appointments a WHERE a.organization_id=p.org AND a.created_at>=p.start_at AND a.created_at<p.asof))) FROM periods p),
  'policy_identity_gaps',coalesce((SELECT jsonb_agg(to_jsonb(p)||jsonb_build_object('matching_events',(SELECT count(*) FROM public.wins w WHERE w.organization_id=p.org AND w.policy_id=p.policy_id))) FROM policies p WHERE p.policy_id IS NULL OR (SELECT count(*) FROM public.wins w WHERE w.organization_id=p.org AND w.policy_id=p.policy_id)<>1),'[]'),
  'unlinked_legacy_events',coalesce((SELECT jsonb_agg(w.id) FROM public.wins w,bounds b WHERE w.organization_id=b.org AND w.policy_id IS NULL),'[]'),

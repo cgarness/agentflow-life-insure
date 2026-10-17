@@ -162,7 +162,10 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
             const isFlashing =
               !w.celebrated && index === 0 &&
               (flashingWinId === w.id || localFlashWinId === w.id);
-            const when = new Date(w.created_at);
+            // The Sold Date is a calendar date; the entry time is labelled separately and never shown as the sale time.
+            const entered = new Date(w.entered_at ?? w.created_at);
+            const enteredDate = formatDate(entered);
+            const soldDate = w.sold_date ? formatDate(w.sold_date) : null;
             const premiumSold = w.premiumSold;
             const showPremiumBadge = premiumSold != null;
 
@@ -217,10 +220,10 @@ const RecentWinsPanel: React.FC<RecentWinsPanelProps> = ({
                       isTv ? "text-slate-400" : "text-muted-foreground",
                     )}
                   >
-                    <div className="flex items-baseline gap-1.5 min-w-0">
-                      <span>{formatDate(when)}</span>
+                    <div className="flex items-baseline gap-1.5 min-w-0" title={`Entered ${enteredDate} ${formatTime(entered)}`}>
+                      <span className="shrink-0">{soldDate ? `Sold ${soldDate}` : "Sold date unknown"}</span>
                       <span className={isTv ? "text-slate-500" : "text-muted-foreground/40"}>·</span>
-                      <span>{formatTime(when)}</span>
+                      <span className="truncate">Entered {soldDate === enteredDate ? formatTime(entered) : enteredDate}</span>
                     </div>
                     {!showPremiumBadge && <span className="text-xs text-muted-foreground">Premium unknown</span>}
                     {showPremiumBadge ? (

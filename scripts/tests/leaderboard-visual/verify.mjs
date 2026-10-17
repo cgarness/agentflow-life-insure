@@ -19,6 +19,15 @@ try {
  // Material-only notes (Part B): the fixture has 1 unknown premium and activity outside the roster, and no routine prefix.
  assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').textContent(),'Annual premium (1 policies with unknown premium) · Outside active roster: 2 calls, 1 appointments, 0 policies');
  assert.doesNotMatch(await page.locator('body').innerText(),/Active agents · |As of |Stored call duration|unknown provenance/);
+ // Recent Wins show the Sold Date distinctly from the entry; a clock time is only ever labelled as the entry.
+ async function assertSoldDateRows(where) {
+  const text=await page.locator('body').innerText();
+  assert.match(text,/Sold 10\/15\/2026\s*·\s*Entered 10\/16\/2026/,`${where}: late entry keeps its Sold Date`);
+  assert.match(text,/Sold 10\/16\/2026\s*·\s*Entered \d{1,2}:\d{2} [AP]M/,`${where}: same-day entry shows its entry time`);
+  assert.match(text,/Sold date unknown\s*·\s*Entered 10\/16\/2026/,`${where}: unknown Sold Date is said, never inferred`);
+  assert.doesNotMatch(text,/Sold [^·\n]*\d{1,2}:\d{2}/,`${where}: no time of sale`);
+ }
+ await assertSoldDateRows('TV');
  async function settleLayout() {
   await page.evaluate(async()=>{
    let previous='',stableSince=performance.now();const deadline=performance.now()+6000;
@@ -131,6 +140,7 @@ try {
  for(const [width,height] of [[1440,1000],[390,844]]){
   await page.setViewportSize({width,height});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
+  await assertSoldDateRows(`normal-${width}`);
   await page.screenshot({path:`${output}/normal-${width}.png`});
  }
  // Routine snapshot (?routine=1): no caption line in the totals wrapper; the same geometry checks hold. Rotation off for a stable metric.

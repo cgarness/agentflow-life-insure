@@ -12,11 +12,13 @@ export function leaderboardCsv(agents: AgentStats[], snapshot: PerformanceSnapsh
   const headers = ["Rank", "Agent", "Agent ID", "Organization", "Organization ID", "Calls Made",
     "Policies Sold", "Annualized Premium USD", "Unknown Premium Policies", "Appointments Set",
     "Talk Time Seconds", "Policies per 100 Calls", "Ratio Denominator Calls", "Period", "Agency Timezone",
-    "Start Inclusive", "As Of Exclusive", "Roster", "Group ID", "Snapshot Status"];
+    "Start Inclusive", "As Of Exclusive", "Roster", "Group ID", "Snapshot Status",
+    "Sold Date From", "Sold Date Through", "Policies Without Sold Date (All Time)"];
   const rows = agents.map(a => [a.rank, `${a.first_name} ${a.last_name}`, a.id, a.organizationName ?? "",
     a.organizationId ?? snapshot.organization_id, a.callsMade, a.policiesSold, a.premiumSold.toFixed(2),
     a.unknownPremiums ?? 0, a.appointmentsSet, a.talkTime, a.conversionRate, a.callsMade,
-    snapshot.period, snapshot.time_zone, snapshot.start_at, snapshot.end_at, snapshot.roster, snapshot.group_id, stale ? "stale" : "current"]);
+    snapshot.period, snapshot.time_zone, snapshot.start_at, snapshot.end_at, snapshot.roster, snapshot.group_id, stale ? "stale" : "current",
+    snapshot.sold_date_from, snapshot.sold_date_through, snapshot.undated_policies]);
   return [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
 }
 
@@ -36,9 +38,15 @@ function talkTimeNote(snapshot: PerformanceSnapshot): string {
     + " call duration" + (estimated + conflicts === 1 ? "" : "s");
 }
 
+/** Sales without a Sold Date are never placed in a period; disclosed only when there are any. */
+function undatedNote(snapshot: PerformanceSnapshot): string {
+  const n = snapshot.undated_policies;
+  return n > 0 ? `${n} ${n === 1 ? "policy" : "policies"} without a Sold Date not counted` : "";
+}
+
 /** On-screen notes, only when material, joined by " · "; "" when none applies. */
 export function performanceCaption(snapshot: PerformanceSnapshot): string {
   const unknown = snapshot.rows.reduce((n,a) => n + (a.unknownPremiums ?? 0), 0);
-  return [unknown > 0 ? `Annual premium (${unknown} policies with unknown premium)` : "", talkTimeNote(snapshot), outsideRosterNote(snapshot)]
+  return [unknown > 0 ? `Annual premium (${unknown} policies with unknown premium)` : "", talkTimeNote(snapshot), outsideRosterNote(snapshot), undatedNote(snapshot)]
     .filter(Boolean).join(" · ");
 }

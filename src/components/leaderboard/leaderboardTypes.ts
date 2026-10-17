@@ -77,6 +77,10 @@ export interface Win {
   premium_known?: boolean;
   celebrated?: boolean | null;
   created_at: string;
+  /** Agency Sold Date (YYYY-MM-DD), the sale's production date; null when the sale has none. */
+  sold_date?: string | null;
+  /** When the sale was entered (recorded_at, else created_at). Never the time of sale. */
+  entered_at?: string;
 }
 
 export const metricKey = (m: Metric): keyof AgentStats => {
