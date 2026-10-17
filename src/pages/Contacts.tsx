@@ -1,4 +1,5 @@
 import type { ClientSaleOptions } from "@/lib/policySaleRecording";
+import { ClientPolicyCount } from "@/components/contacts/ClientPolicies";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -2209,7 +2210,7 @@ const Contacts: React.FC = () => {
 
   const renderClientCell = (c: Client, key: ClientColumnKey) => {
     switch (key) {
-      case "name": return <span className="font-medium text-foreground truncate block">{c.firstName} {c.lastName}</span>;
+      case "name": return <span className="flex min-w-0 items-center gap-2"><span className="font-medium text-foreground truncate">{c.firstName} {c.lastName}</span><ClientPolicyCount client={c} /></span>;
       case "phone": return <span className="text-foreground font-mono text-sm truncate block">{formatPhoneNumber(c.phone)}</span>;
       case "email": return <span className="text-muted-foreground truncate block">{c.email}</span>;
       case "state": return <span className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full font-semibold border border-blue-500/20 uppercase tracking-tighter shrink-0">{formatStateToAbbreviation(c.state)}</span>;

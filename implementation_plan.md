@@ -1,3 +1,21 @@
+## 2026-10-16 — Approved client multi-policy display fix
+
+Chris approved the display-only fix on October 16 at 16:09 PDT: policy count in Clients and expandable details for each policy. Base: `9a905523`. Reviewed AGENT_RULES.md, VISION.md and newest WORK_LOG entries; no AGENTS.md exists. Concurrent Sheets and commission work stays outside this change.
+
+1. Reuse `normalizeClientPolicies` through a pure Client-to-row adapter. Preserve canonical policy counting, legacy additional issueDate fallback, raw currency parsing and malformed-data signals. Do not change reporting normalization or stored data.
+2. Add a compact count next to the client name for multiple policies, and a review indicator for malformed policy data. Keep existing columns/sorting/pagination.
+3. Add a read-only, independently expandable Policies section in the existing contact details column when additional policies exist (including additional-only clients) or data is malformed. Each policy shows carrier/type, monthly premium, number, coverage and dates. Single-primary contacts retain the existing layout. Keep generic reserved-field exclusion and all editing/save paths unchanged.
+4. Verify with synthetic component tests, the existing custom-field preservation suite, TypeScript, lint, production build and desktop/narrow browser checks where available. No real client data enters tests or repository.
+5. Update WORK_LOG and open a PR. Production merge/release remains separately gated.
+
+Files intended: `src/lib/client-policy-display.ts`, `src/components/contacts/ClientPolicies.tsx`, `src/pages/Contacts.tsx`, `src/components/contacts/FullScreenContactView.tsx`, focused tests in `src/components/contacts/__tests__/clientPolicies.test.tsx` and the existing `fullScreenContactViewAdditionalPolicies.test.tsx`, `implementation_plan.md`, `WORK_LOG.md`. A short AGENT_RULES amendment will close the already-tracked read-only panel follow-up.
+
+No migration, backend command, RLS, Edge Function, dialer, policy writer, sales event, reporting calculation or production data change.
+
+**Implementation verification:** 97 focused tests pass; root TypeScript passes; strict-app diagnostics are unchanged (84); lint has no errors; production build passes. Synthetic Chromium checks passed at 1440px and 390px, including keyboard expansion and unclipped detail values. GitHub PR/CI and separately approved production release are next.
+
+---
+
 ## 2026-10-16 — IMPLEMENTED: Commission UI pre-PR corrections (approved by Chris; branch `refactor/commission-ui-polish`, draft PR)
 
 **Findings (measured on the synthetic harness, with a production-sized synthetic grid of 44 products and 59 variants):**
