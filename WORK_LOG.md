@@ -1,3 +1,27 @@
+## 2026-10-17 — Sheets Phase B runner (PR #451): re-pinned to production's new migration history (no production change)
+
+Main moved to `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). The Sold Date release added two production migrations: `20261017043142` performance_sold_date_basis and `20261017043757` performance_wins_sold_date_index. Production was re-checked read-only at 07:49 UTC: 329 history rows, latest `20261017043757`, no Sheets objects, and the permission helper is still the reviewed preimage.
+
+**Interaction check:** the two migrations replace reporting functions and add one index on wins. They do not touch `profiles`, `organizations`, `role_permissions`, `_contacts_permission_default` or default privileges. The Sheets migration and its read-backs are unaffected.
+
+**Changed:**
+- Merged main. Only WORK_LOG.md and implementation_plan.md conflicted; both were resolved additively, with main's blocks first, then this branch's.
+- The runner's expected history counts move from 327/327/328 to 329/329/330, and the pinned latest version becomes `20261017043757`. Without this re-pin, every stage would stop at the state check: safe, but it would block the release.
+- The synthetic driver now seeds 328 rows plus that latest version.
+
+**Verified locally:** the full synthetic driver passed against disposable PostgreSQL 17.6 with CLI 2.121.0. It covered:
+- real apply and read-backs;
+- history repair and replay refusal;
+- lock-timeout and watchdog rollbacks;
+- six out-of-order refusals and log redaction;
+- the TLS and read-only session checks.
+
+Exact-head CI is still required before merge.
+
+**Still gated:** Chris's GitHub setup (environment, three secrets, Supabase auto-deploy OFF, Vercel flag absent) and his explicit GO. There is no merge to main, no dispatch and no production change.
+
+---
+
 ## 2026-10-17 — RELEASED: Sold Date reporting accuracy (PR #453; production frontend and backend verified)
 
 **Status/date:** Owner-approved separately gated production release completed October 16, 2026 PDT / October 17 UTC. PR #453 merged to `main` at `12901e5c18922239022afc1c9436df8b2df20c15`; exact reconciled head `4bde52a` passed all six GitHub workflows. Migration filenames match production history, with unchanged SQL bytes.
@@ -64,6 +88,31 @@
 **Verification (isolated checkout based on production 91eabff):** Dashboard-focused 14 suites passed (305 tests passed, 12 skipped); npm run build passed with the existing chunk-size warning; ESLint on touched source/tests was clean; npx tsc --noEmit exited 0 (root config checks no application files); strict npx tsc -p tsconfig.app.json --noEmit emitted the exact same 230 diagnostic lines as the unchanged base (byte-identical); git diff --check passed. Exact-head PR CI and production deploy verification are tracked separately; no production change is claimed in this entry.
 
 ---
+
+## 2026-10-17 — Sheets Phase B runner (PR #451): pooler-safe session settings and TLS check (no production change)
+
+Chris asked Claude to finish the Google Sheets release, so Claude resumes driving PR #451 and PR #442. Production was re-checked read-only at 02:40 UTC: unchanged (327 history rows, latest `20261016035626`, no Sheets objects).
+
+**Changed (two production-only paths the synthetic CI could not exercise):**
+- **Session settings:** check sessions now set `default_transaction_read_only` and `statement_timeout` with in-session `SET` instead of libpq startup options (`PGOPTIONS`). Whether the session pooler forwards startup options is unverified, and `SET` works either way. The migration transaction adds `SET LOCAL statement_timeout = '30s'` next to the 5 s lock timeout.
+- **TLS check:** it reads psql's `\conninfo` for the runner's own connection instead of `pg_stat_ssl`, which describes the pooler's upstream hop. `PGSSLMODE=require` still refuses plaintext.
+
+**Verified locally** against disposable PostgreSQL 17.6 with the full synthetic driver and CLI 2.121.0:
+- real apply and read-backs, real history repair and replay refusal;
+- lock-timeout and watchdog rollbacks, six out-of-order refusals and log redaction;
+- new: TLS required on the runner connection; read-only check sessions with a 30 s timeout.
+
+psql 16's `\conninfo` output was confirmed against a TLS-enabled PostgreSQL 17.6.
+
+## 2026-10-16 — Google Sheets Phase B cloud runner prepared (draft; no production change)
+
+Chris asked to finish PR #442 from the cloud with separate production approvals. Current source is `eaf988b`, cleanly mergeable into `main` `9a90552`; all 16 checks pass and Supabase Preview is skipped. Read-only production inspection: 327 migrations, latest `20261016035626`; helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`; zero Sheets relations/functions; 76 Edge functions, none Sheets. `www.fflagent.com` still points to `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`.
+
+**Changed:** a dispatch-only protected Phase B workflow, plus a no-secret PostgreSQL 17.6 PR verification workflow and its synthetic test driver. Root plan records the file list, validation and unchanged approval gates. Only the pinned migration and four named functions can be deployed; no `db push`, unscoped deploy, flag activation, cron or unrelated function changes exist in the workflow. Failed commands never echo raw output to public logs.
+
+**Local checks:** YAML and Python parse; reviewed source and migration/four bundle digest checks; 12 safety-path checks (ordering, replay refusal, read-only checks, flag/host guards, error redaction, partial-deploy stop and SIGINT behavior). `npx tsc --noEmit` passes; strict app check reports the existing 84 errors. The required real PostgreSQL dry run is moved to dedicated PR CI because this runtime cannot start a local server. No claim of real Google-account testing.
+
+**Access / next:** direct production credentials absent, Supabase hosts unreachable from the shell, GitHub cloud browser signed out. Prepare secure GitHub authentication, protected environment and user-entered credentials. Merge and each production stage remain explicitly approval-gated. PR #442 remains draft; Phases B/C/D/E have not been executed by this session.
 
 ## 2026-10-16 — Client multi-policy display (approved implementation; not merged or deployed)
 

@@ -230,6 +230,24 @@ Browser: the leaderboard visual gate at 390/1440/TV widths includes the new Rece
 
 ---
 
+## 2026-10-16 — Google Sheets Phase B cloud runner implementation (production approval still required)
+
+Chris authorized taking ownership of PR #442 and completing the cloud build, with each production stage separately approved. Direct psql/CLI production access is unavailable in this session: credentials are absent and Supabase hosts are not reachable. The previous prohibition on retrying the large MCP migration remains in force.
+
+**Scope:** implement the planned runner from PR #442 head `eaf988bc276a3922ee0ec6c3c6038665be9f1678` on a separate branch from `main` `9a90552302f96f4b78fad1cbba9c20a4ca7b9869`. No application, SQL migration, function, permission, dialer or package changes.
+
+**Files:** `.github/workflows/google-sheets-phase-b.yml`; `.github/workflows/google-sheets-phase-b-check.yml`; `scripts/tests/google_sheets_phase_b_runner.py`; this plan; `WORK_LOG.md`.
+
+**Plan refinement:** the production workflow stays dispatch-only. A separate unprivileged PR workflow verifies its exact embedded program against synthetic PostgreSQL 17.6 on loopback. This replaces the prior plan's local database dry run because this runtime has no Docker, psql, or ability to start PostgreSQL as an unprivileged process. The verification workflow has no environment, production secret, or deployment step. Opening a draft PR is necessary to obtain this evidence; merging remains blocked until it passes.
+
+**Production workflow:** reviewed source SHA, migration SHA-256 and four bundle hashes pinned; four stage choices and matching confirmation; `main` only; `contents: read`; checkout credentials not persisted; required `google-sheets-production` environment; no concurrent cancellation. Three environment secrets are injected only into the execution step. No application install/build runs with credentials. Read-only checks force `default_transaction_read_only=on`; migration uses the exact reviewed file in one transaction, 5-second local lock timeout, 30-second statement bound and 120-second SIGINT watchdog. Cancellation waits for psql after sending SIGINT. Output from commands and HTTP failures is never echoed. Record-history and four named Edge deploys remain separate stages. The backend flag and cron remain absent.
+
+**Required before merge:** (1) this PR's synthetic runner checks pass; (2) GitHub environment required reviewer `cgarness`, custom deployment branch rule `main` only, admin bypass off; (3) Chris securely enters the database password, session-pooler host and release access token into that environment; (4) Supabase GitHub production auto-deploy is confirmed OFF; (5) explicit approval to merge this workflow PR, acknowledging the existing Vercel integration rebuilds the unchanged frontend. No secret values may enter chat or public logs.
+
+**Required before each production mutation:** fresh read-only connector preflight, exact stage approval, and Chris's required environment approval. The agent may dispatch the approved run; it must never approve Chris's environment review on his behalf. After apply: full SQL read-backs and advisor delta before history. After history: evidence commit and green exact-head CI before Edge deploy. After Edge deploy: per-file read-back and unchanged unrelated inventory. No retry/method switch/automatic rollback after failure. Phases C, D and E remain separately gated under the release package.
+
+**Validation:** local YAML/Python parsing; pinned source and all five artifact checksums; twelve safety-path unit checks; `npx tsc --noEmit` passes on the source; strict app config has the documented 84 existing diagnostics. Real PostgreSQL verification is performed by this PR's dedicated CI, not claimed as local. The final verification status belongs in the PR and Work Log.
+
 ## 2026-10-16 — Approved client multi-policy display fix
 
 Chris approved the display-only fix on October 16 at 16:09 PDT: policy count in Clients and expandable details for each policy. Base: `9a905523`. Reviewed AGENT_RULES.md, VISION.md and newest WORK_LOG entries; no AGENTS.md exists. Concurrent Sheets and commission work stays outside this change.

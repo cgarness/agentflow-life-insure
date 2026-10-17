@@ -1,0 +1,46 @@
+name: Google Sheets release runner verification
+# Synthetic verification only: no environment, secrets, production connection or deployment.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/google-sheets-phase-b*.yml'
+      - 'scripts/tests/google_sheets_phase_b_runner.py'
+permissions:
+  contents: read
+jobs:
+  verify-runner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: synthetic-runner-only
+          POSTGRES_DB: postgres
+        ports: ['55435:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaf988bc276a3922ee0ec6c3c6038665be9f1678
+          path: sheets-source
+          persist-credentials: false
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf
+        with:
+          version: 2.121.0
+      - name: Install isolated verification tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-16
+          python3 -m pip install --user PyYAML==6.0.3
+      - name: Verify exact runner against synthetic PostgreSQL 17.6
+        run: python3 scripts/tests/google_sheets_phase_b_runner.py
