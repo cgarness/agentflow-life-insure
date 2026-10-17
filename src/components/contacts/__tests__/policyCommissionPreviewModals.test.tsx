@@ -247,6 +247,18 @@ describe("ConvertLeadModal", () => {
     expect(view.order).toEqual(["onSuccess", "onClose"]);
   });
 
+  it("issues nothing while a dialer keeps the modal closed or clears its lead (FloatingDialer gating)", async () => {
+    h.perms = new Set([OWN, OTHERS]);
+    mount(<ConvertLeadModal open={false} lead={LEAD} onSuccess={vi.fn()} onClose={vi.fn()} />);
+    await flush();
+    cleanup();
+    mount(<ConvertLeadModal open lead={null} onSuccess={vi.fn()} onClose={vi.fn()} />);
+    await flush();
+    expect(regions()).toHaveLength(0);
+    expect(h.rpcCalls.map(([n]) => n)).not.toContain("get_commission_calculator_context");
+    expect(h.readCalls.filter((table) => table !== "carriers")).toEqual([]);
+  });
+
   it("Cancel closes without converting", async () => {
     const view = openConvert();
     await fillPolicy(0, "Final Expense", "100");
