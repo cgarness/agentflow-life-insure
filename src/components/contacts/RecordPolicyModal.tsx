@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { recordClientPolicy, saleMonthlyPremium } from "@/lib/policySaleRecording";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 
 const policySchema = z.object({
   policy_type: z.string().trim().min(1, "Choose a policy type"),
@@ -73,6 +74,8 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
             <input className="mt-1 w-full rounded border bg-background p-2" type={key === "sold_date" ? "date" : "text"}
               required={key === "carrier" || key === "sold_date"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
           </label>)}
+          <PolicyCommissionEstimate owner={{ kind: "client", id: clientId }} policyType={form.policy_type}
+            carrier={form.carrier} monthlyPremium={form.premium} />
           <label className="flex gap-2 text-sm"><input type="checkbox" checked={historical} onChange={e => setHistorical(e.target.checked)} />
             Historical policy: credit the start of the Sold Date in the agency timezone, without celebration.
           </label>

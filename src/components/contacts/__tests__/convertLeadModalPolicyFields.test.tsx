@@ -43,6 +43,8 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ profile: { first_name: "Dana", last_name: "Agent" }, user: { id: "u-1" } }),
 }));
 vi.mock("@/lib/activityLogger", () => ({ logActivity: vi.fn(async () => undefined) }));
+// The commission preview needs a QueryClient this harness does not mount; policyCommissionPreviewModals covers it.
+vi.mock("@/components/commission/preview/PolicyCommissionEstimate", () => ({ PolicyCommissionEstimate: () => null }));
 
 vi.mock("@/lib/supabase-conversion", () => ({
   conversionSupabaseApi: {

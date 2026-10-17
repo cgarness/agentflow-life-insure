@@ -1,3 +1,314 @@
+## 2026-10-17 — IMPLEMENTED (amended scope approved by Chris at `cc8a2b4`; draft PR, not merged or deployed): Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
+
+**Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as draft PR #455; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
+
+**Decisions (Chris, 2026-10-17)**
+
+| | Decision |
+|---|---|
+| **P1** | **Direct lookup.** The credited agent's level comes from a direct, permission-gated, organization-scoped profile read. No new RPC or migration. "View Own Commission Percentage" governs the signed-in user's own estimate and "View Others' Commission Percentage" governs another agent's; the two are evaluated independently. Existing contact authorization and downline restrictions stay in force, and the permission grants no broader client or profile access. Any unresolved authorization, owner, organization or permission fails closed. This is the existing screen-level model, not database secrecy. Profile permissions and self-edit behavior are not changed. |
+| **P2** | **Final Expense.** Candidates are only the matched carrier's whole-life products, and the agent must select the exact actual product. Never auto-select, substitute, fuzzy-match another carrier, or assume all whole-life products are Final Expense. If there is no exact supported product, show a compact unavailable state; the ordinary save still works. |
+| **P3** | **Preview only.** §8 is **DEFERRED and NOT approved**: no snapshot table, RPC, migration, sale-payload change or post-save write. Previews are never presented as saved, earned, booked or paid commission. |
+| **P4** | **Where it shows.** Creating a client, converting a lead, recording a policy, and the existing first-policy-entry path of client edit. Not ordinary edits of an existing policy. The preview never creates a sale event. |
+
+### As built (2026-10-17)
+**Files:** exactly §6 — 5 new application files, 4 new test files, 3 modals (+16 lines in total), the harness-only mock in the 3 existing modal tests, and the 3 docs. No migration, RPC, RLS, Edge Function, dialer file, sale module or calculator-engine change.
+
+**Refinements within the approved scope (for review):**
+1. Validation reuses the calculator's Zod `validateCalculatorForm` (age, premium, term membership) instead of a second, separately named schema; product membership is structural, since only grid candidates can be selected.
+2. `usePreviewSelection` / `PreviewSelection` live in `usePolicyCommissionPreview.ts` rather than `PolicyCommissionInputs.tsx`, so the component file exports only a component (ESLint `react-refresh/only-export-components`).
+3. Preview controls use explicit `htmlFor`/`id` labels. The real-browser check found that wrapping labels gave each select an accessible name containing its option text.
+4. Age prefill is stricter than §5's wording: a real date of birth that cannot give a valid age on the Sold Date (later than the Sold Date, over 100, or no valid Sold Date) leaves the age blank instead of falling back to a stored age.
+5. The panel stays hidden until a carrier is entered, so "No matching product" never appears before there is a carrier to match.
+6. For another agent, the engine's "Not available at your contract level." reads "Not available at this agent's contract level."
+7. D1: names in the new tests do not appear in the private grid, and the new tests' expected amounts use only synthetic fixture values that do not appear in it (read-only, value-free check). No production values were copied.
+8. Post-PR correction (Chris's owner-cache check): the credited owner is never served from cache. It is re-read on every mount, with an owner cached by an earlier open ignored. It is re-checked on window focus and every 15 seconds while open, and a failed re-check hides the figures. While a modal stays open, a reassignment made elsewhere shows within about 15 seconds; a server push would be needed to remove that window entirely.
+
+**Verification:** see the newest `WORK_LOG.md` entry and draft PR #455.
+
+**High-priority follow-up (separate task, not part of this feature):** the Team Leader hierarchy predicate (`is_ancestor_of` / `hierarchy_path`) is unreliable in production. It is recorded in `AGENT_RULES.md` › Known Tech Debt. No hierarchy data or permission was changed here.
+
+### 1. Goal
+Show a compact emerald estimate directly below each policy's details while the agent enters it:
+
+> Estimated first-year commission: $X
+> Estimated advance (75%): $Y
+
+It recalculates on every input change, reusing the Commission Calculator's grid context, matching rules and exact arithmetic unchanged. It never blocks or alters a save. In multi-policy conversion every policy gets its own estimate, and they are never summed.
+
+### 2. Findings that shape the design (read-only)
+| Area | Finding | Consequence |
+|---|---|---|
+| Engine | `calculateEstimate(context, level, {productId, age, term, monthlyPremium})` returns `estimate`, `unavailable` or `configuration_error`. `estimateCommission` computes monthly × 12 × rate / 100, then the advance as `ADVANCE_PERCENT` (75) of that, in exact BigInt rationals. A stored 0 rate is a real $0; a missing rate is unavailable; ambiguous variants are a configuration error. | Reused unchanged; no parallel engine. |
+| Money | `formatUsd(value: Rational)` rounds half-up to cents itself (`money.ts:48`). | Use `formatUsd(estimate.firstYearCommission)` and `formatUsd(estimate.advance)` directly. Never `formatUsd(toCents(...))`. |
+| Grid context | `get_commission_calculator_context()` returns the selected active grid (id, revision, levels), active products, variants and rates as exact text, plus **the caller's own** level only. `useCommissionCalculatorContext(enabled)` caches it under `commissionCalculatorKeys.context(userId, orgId)` with a 60 s staleTime, disabled under View As. | Reuse the hook, so the preview and the calculator page share one cache. |
+| Categories | The DB CHECK and `CompCategory` allow only `term`, `whole_life`, `iul`. The CRM's `PolicyType` adds "Final Expense". | P2 mapping (§5). |
+| Credited agent (server) | Conversion credits the **stored** `leads.assigned_agent_id` (live `convert_lead_to_client_atomic` inserts it from the row locked `FOR UPDATE`). Manual create credits the owner `Contacts.handleAddClient` passes, which is the effective viewer. First-policy edit and record policy credit the stored `clients.assigned_agent_id`, which `insert_policy_sale` writes into `wins.agent_id`. **The Dialer maps the modal's `lead.assignedAgentId` from `claimed_by` first** (`DialerPage.tsx:238`), so that prop can differ from the agent the server credits. | Read the stored owner (§3). Never trust the prop. |
+| Team Leader scope | The sale writers' Team Leader predicate is `is_ancestor_of`. Contacts' Team scope uses the same predicate through `get_contact_scope_agents`. In production, `is_ancestor_of` holds for only 3 of 11 upline links (the `hierarchy_path` defect documented in `supabase-users.ts`). The `upline_id` resolver `getAgentScopeIds` is broader. | Use the narrower, server-matching `get_contact_scope_agents` (§4). |
+| Others' level displays | Existing `CommissionGate metric="View Others' Commission Percentage"` sites (AgentModal, UserProfileTab, the Contacts agents table) read through `usersApi`/`rowToUser`, which maps a missing level to `"0%"`. | Read the raw `commission_level` column so a missing level stays missing (§4). |
+| Age | `calculateAge` measures to *today* and clamps a future DOB to 0. `parseDOB` is an import normalizer that accepts Excel serials and 2-digit years. `clients` has no DOB or age column. | Strict prefill helper (§5); manual age in AddClient and RecordPolicy. |
+| Controls | All three modals use native `<select>`; the calculator uses Radix Select. | Native selects styled like the host fields. |
+| Sale payloads | `p_client` / `p_policy` are hashed into `private.policy_sale_receipts`; unknown keys are refused. | Preview fields never enter any payload. |
+| Existing tests | `recordPolicyModal.test.tsx`, `addClientSale.test.tsx` and `convertLeadModalPolicyFields.test.tsx` mount the real modals open without a `QueryClientProvider`. Every other suite that renders these modals either mocks them or leaves them closed. | A harness-only change to those three (§6). |
+| Open PRs | #398 touches only `src/underwriting/ui/commission.ts`. #442, #444 and #451 don't touch the planned files. | No conflict beyond newest-first doc entries. |
+
+### 3. Credited agent
+| Surface | Credited agent | How it is resolved |
+|---|---|---|
+| ConvertLeadModal (Contacts, FullScreenContactView, DialerPage, FloatingDialer) | Stored lead owner | `leads.select('assigned_agent_id').eq('id', lead.id).eq('organization_id', org).maybeSingle()`. The query key includes the lead id and the prop's `assignedAgentId`, so a claim while the modal is open refetches. NULL → "No assigned agent". |
+| AddClientModal, new client | The signed-in user. Contacts passes the effective viewer as owner; outside View As that is the signed-in user, and under View As the preview is hidden. | No read. |
+| AddClientModal, first-policy edit | Stored client owner | `clients.select('assigned_agent_id').eq('id', client.id).eq('organization_id', org).maybeSingle()` |
+| RecordPolicyModal | Stored client owner | The same read by `clientId`. The modal's props are unchanged. |
+
+A missing row, read error, NULL owner or organization mismatch means no estimate.
+
+### 4. Authorization and contract level (P1)
+The operator is the signed-in, non-impersonating viewer (`useEffectiveViewer`). Organization-wide access is decided only by `isOrganizationWideViewer`, never by `useOrganization().isSuperAdmin` (invariant #31).
+
+| Credited agent | Required |
+|---|---|
+| The operator | "View Own Commission Percentage" (Admin and Super Admin have full access) |
+| Another agent; operator is Admin or Super Admin (`isOrganizationWideViewer`) | "View Others' Commission Percentage" (full access), and the agent's profile in the operator's organization |
+| Another agent; operator is Team Leader | "View Others' Commission Percentage", and the agent in the operator's existing Contacts Team scope (`get_contact_scope_agents`: self plus `is_ancestor_of`, the sale writers' predicate) |
+| Another agent; operator is Agent | Never. An Agent's hierarchical profile scope is self only. |
+
+- **Independent checks.** The other-agent path never consults "View Own…", and the own path never consults "View Others'…".
+- **Profile read.** It runs only after the permission and scope checks pass: `profiles.select('id, first_name, last_name, email, commission_level').eq('id', agentId).eq('organization_id', org).maybeSingle()`. It keeps the raw value; `rowToUser` is not used.
+- **Strict level.** Then comes the existing strict `parseContractLevel` plus grid membership. Missing, malformed or off-grid produces no estimate and is never defaulted, nearest-matched or replaced. For another agent the message is phrased about that agent.
+- **Fail closed.** No figures while permissions are loading or errored, while the viewer is unresolved, or while the owner, team scope or profile is loading, errored or missing. An organization mismatch also blocks figures.
+- **Operator's own level.** The context RPC still returns it. When only the others' path applies, it is never read or shown.
+- **Unchanged.** Profile RLS, grants and permissions, and the open self-edit follow-up (calculator plan §11).
+- **Known limit, not fixed here.** The `hierarchy_path` defect can hide estimates for part of a Team Leader's downline. This matches what the server's own predicate allows.
+
+### 5. Inputs, matching (P2), state and loading
+**Inputs (per policy, inside the panel).** None is required to save, none is persisted, and none enters a payload.
+- **Product:** a native select.
+- **Term length:** only when the chosen product's variants are termed (`supportedTermLengths`).
+- **Insured age:** a whole number from 0 to 100.
+- **Premium:** the policy's existing Monthly Premium field.
+
+**Matching.**
+- **Categories:** Term → `term`; Whole Life → `whole_life`; IUL → `iul`; Final Expense → `whole_life` (candidates only). A blank or unknown type has no candidates.
+- **Carrier:** an exact match of the policy's carrier text to `comp_products.carrier`, after trimming and ignoring case. No fuzzy or cross-carrier matching.
+- **Candidates:** the selected grid's active products in the mapped categories for that carrier, sorted by product name. Nothing is ever auto-selected, even when there is only one candidate. For Final Expense this lists the carrier's whole-life products without claiming they are Final Expense; the agent's choice names the actual product.
+- **Estimate:** the unchanged `calculateEstimate` then applies variant matching, the exact level, the missing-rate and stored-zero rules, and ambiguous → configuration error.
+
+**Age prefill (ConvertLeadModal only).**
+- Prefer the age on the row's Sold Date, from a strict ISO `YYYY-MM-DD` `lead.dateOfBirth` that is a real calendar date, not after the Sold Date, giving an age of 0–100.
+- Otherwise use `lead.age` if it is a whole number from 0 to 100; otherwise leave it blank.
+- While untouched, the age follows the row's Sold Date. Once edited, the agent's value stays. The other modals start blank.
+
+**Validation.** A Zod `policyPreviewInputSchema` covers age, a product drawn from the candidates, and a term drawn from the supported terms. It reuses the existing `validateCalculatorForm` premium rule (positive, at most 2 decimals). Incomplete input shows a short hint, never a form error.
+
+**Reset rules.** These are derived on the same render the change happens, not in a later effect.
+- A session (user), organization or grid change resets product, term and age.
+- A grid revision, policy type or carrier change keeps product and term only while still valid, otherwise clears them.
+- A credited-agent change keeps a valid product and term, but withholds figures until that agent's level has loaded.
+- A lost permission clears the selection.
+- Figures are recomputed from the current inputs on every render and never stored.
+
+**Caching and stale responses.**
+- **Grid context:** the shared calculator query.
+- **Owner, team-scope and profile reads:** keyed `["commission-preview", kind, userId, orgId, id]`, with a 60 s staleTime, `retry: false` and no placeholder data.
+- **No per-keystroke requests:** typing a premium, age, product or term makes no request.
+- **Stale results:** a profile result is used only if its `id` equals the current credited agent.
+
+**View As.** The hook returns `hidden` before anything else. Every query is disabled, and no query data, cached or fresh, is read or rendered.
+
+**Isolation.**
+- The panel never touches the Save button, validation, payloads, request IDs or callbacks.
+- It sits inside a small local error boundary that renders nothing on error. The app's `ErrorBoundary` is a full-page fallback and isn't suitable. A preview failure therefore cannot unmount a modal or block a save.
+
+### 6. Exact file list
+**New — application**
+1. `src/lib/commission/policyPreview.ts`: pure. Category map, carrier match, candidates, strict age prefill, preview Zod schema, access decision, credited-level resolution (wraps `parseContractLevel`), `previewEstimate` (calls `calculateEstimate`).
+2. `src/lib/commission/previewApi.ts`: the three org-scoped reads (`fetchCreditedOwner`, `fetchCreditedAgentProfile`, `fetchTeamScopeAgentIds`, which uses the existing `get_contact_scope_agents`). Zod-parsed rows, with `.maybeSingle()` wherever zero rows are possible.
+3. `src/hooks/usePolicyCommissionPreview.ts`: combines viewer, permissions, View As, the shared context query and those reads into one state.
+4. `src/components/commission/preview/PolicyCommissionEstimate.tsx`: the panel, its states and the local error boundary. Under 200 lines.
+5. `src/components/commission/preview/PolicyCommissionInputs.tsx`: the product, term and age controls. Under 200 lines.
+
+**New — tests**
+6. `src/lib/commission/__tests__/policyPreview.test.ts`
+7. `src/hooks/__tests__/usePolicyCommissionPreview.test.tsx`
+8. `src/components/commission/preview/__tests__/PolicyCommissionEstimate.test.tsx`
+9. `src/components/contacts/__tests__/policyCommissionPreviewModals.test.tsx`
+
+**Modified — application (surgical)**
+
+10. `src/components/contacts/ConvertLeadModal.tsx`: an import plus one panel per policy row after its Dates block (about +12 lines). `PolicyRow`, the schemas, payload building and callbacks are untouched. The file is already 479 lines; it gets no refactor.
+11. `src/components/contacts/AddClientModal.tsx`: an import plus one panel below the policy fields. It shows when `hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial))`, the same condition the save uses for a new sale (about +8 lines, roughly 202). `handleSubmit` is untouched.
+12. `src/components/contacts/RecordPolicyModal.tsx`: an import plus one panel after Sold Date (about +5 lines).
+
+**Modified — existing tests (harness only, no assertion changes)**
+
+13. `src/components/contacts/__tests__/recordPolicyModal.test.tsx`
+14. `src/components/contacts/__tests__/addClientSale.test.tsx`
+15. `src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx`
+
+Each gains one `vi.mock` of the panel module rendering `null`, because these harnesses mount no `QueryClientProvider`. The real panel inside each real modal is covered by file 9. If the full suite reveals any other existing test that needs a change, I stop and return for approval rather than edit an unlisted file.
+
+**Docs:**
+16. `implementation_plan.md`: as-built record.
+17. `WORK_LOG.md`: a newest-first entry.
+18. `AGENT_RULES.md`: one paragraph under the Commission grids invariant recording the preview contract.
+
+**Not committed:** a throwaway browser harness in the session scratchpad.
+
+**Unchanged (explicit):** `DialerPage.tsx`, `FloatingDialer.tsx`, `TwilioContext.tsx`, `Contacts.tsx`, `FullScreenContactView.tsx`, `supabase-conversion.ts`, `supabase-clients.ts`, `policySaleRecording.ts`, `clientSaleForm.ts`, `policyIdentity.ts`, `src/lib/commission/{api,calculator,estimate,matching,money,contractLevel,schemas,types}.ts`, `src/hooks/useCommissionCalculator.ts`, `src/hooks/usePermissions.ts`, `src/components/commission/calculator/**`, the synthetic grid fixture (reused as is), and all of `supabase/**`.
+
+**Integration contracts preserved:**
+- **Modals:** no change to any modal's props, callbacks, request IDs, `inFlight` or `loading` guards, or close behavior.
+- **ConvertLeadModal:** still calls `onSuccess(clientId)` then `onClose()`. DialerPage sets `conversionSucceededRef` synchronously before awaiting `proceedSaveAndNext` or `proceedSaveOnly`. Cancel and `onOpenChange` still go to `onClose`, which is blocked while loading.
+- **FloatingDialer:**
+  - Its ConvertLeadModal `open`/`lead` gating stays (`lead` is null when the call scope no longer matches), as do its `conversionCallRef` close guard and the `onSuccess` re-checks.
+  - Its RecordPolicyModal remount key, `open` gating and `onSaved` re-checks are untouched.
+  - When `open` is false or `lead` is null, the panel isn't mounted and requests nothing.
+- **No new writes:** the panel writes no calls, queue, lock, disposition, claim or telemetry data, and adds no `await` to any save path.
+
+### 7. Display
+- **Figures:** exactly the two lines in §1, from `formatUsd(estimate.firstYearCommission)` and `formatUsd(estimate.advance)` on the engine's exact Rationals. The "75" comes from `ADVANCE_PERCENT`.
+- **Another agent:** one compact line above, "For {First Last}" (the email if there is no name). With neither a name nor an email, there is no estimate.
+- **Styling:** `rounded-md border border-emerald-500/30 bg-emerald-500/10`, figures in `text-emerald-700 dark:text-emerald-300 tabular-nums`, one column at 390 px.
+- **Hidden (nothing rendered):**
+  - when not eligible under P4, or under View As;
+  - while permissions, viewer, owner or profile are still loading;
+  - when not permitted for this credited agent, or the agent is outside the Team scope;
+  - when the agency has no calculator grid or no access.
+- **Muted single line (never green, never a figure):**
+  - a read error ("Commission estimate unavailable");
+  - "No assigned agent";
+  - a level problem;
+  - "No matching product on your agency's comp grid";
+  - hints ("Choose a product", "Enter age");
+  - the engine's existing unavailable messages, with a configuration error reported as unavailable.
+- **Real zero:** a stored zero rate shows $0.00.
+- **Copy:** no explanatory paragraphs, footnotes or dashboard.
+
+### 8. Persisted estimate snapshot — DEFERRED, NOT APPROVED FOR IMPLEMENTATION (P3)
+Nothing in this section is built in Phase 1: no table, RPC, migration, payload change or post-save write. The first draft's design is kept below for a future, separately approved phase. If it is revived, it also needs an explicit Agency Group peer-read decision: VISION requires one for new tables, and peers can read `wins`.
+
+```sql
+-- DEFERRED REFERENCE DESIGN — NOT APPROVED, NOT TO BE AUTHORED IN PHASE 1
+CREATE TABLE public.policy_commission_estimates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id),
+  policy_id uuid NOT NULL REFERENCES private.policy_identities(policy_id),
+  win_id uuid NOT NULL REFERENCES public.wins(id),
+  credited_agent_id uuid NOT NULL REFERENCES public.profiles(id),
+  grid_id uuid NOT NULL, grid_revision bigint NOT NULL, grid_name text NOT NULL, grid_effective_date date NOT NULL,
+  product_id uuid NOT NULL, variant_id uuid NOT NULL,
+  category text NOT NULL CHECK (category IN ('term','whole_life','iul')),
+  carrier text NOT NULL, product_name text NOT NULL,
+  insured_age integer NOT NULL CHECK (insured_age BETWEEN 0 AND 100), term_years integer CHECK (term_years > 0),
+  contract_level integer NOT NULL CHECK (contract_level BETWEEN 1 AND 999),
+  rate_percent numeric NOT NULL CHECK (rate_percent BETWEEN 0 AND 300 AND rate_percent = round(rate_percent, 2)),
+  monthly_premium numeric NOT NULL CHECK (monthly_premium > 0 AND monthly_premium = round(monthly_premium, 2)),
+  annual_premium numeric NOT NULL, first_year_commission numeric NOT NULL,
+  advance_percent numeric NOT NULL DEFAULT 75 CHECK (advance_percent = 75), advance_amount numeric NOT NULL,
+  calculation_version text NOT NULL DEFAULT 'policy-preview-v1',
+  calculated_by uuid NOT NULL DEFAULT auth.uid(), created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, win_id),
+  CHECK (annual_premium = monthly_premium * 12),
+  CHECK (first_year_commission = annual_premium * rate_percent / 100),
+  CHECK (advance_amount = first_year_commission * advance_percent / 100)
+);
+```
+The reference writer would be a post-commit, idempotent, server-recomputing RPC keyed on `win_id`, with no client-supplied rate, level, premium or amount. Its reads would be limited to the credited agent, Admin and upline. That remains deferred design text only.
+
+### 9. Rules re-read for conflicts (AGENT_RULES.md, VISION.md, newest WORK_LOG.md)
+No conflict. These rules shape the design:
+- **Commission grids invariant:** estimate only, a screen-level permission (D3), no query under View As, strict and never-defaulted contract levels, exact values rounded only for display.
+- **§3 downline scoping:** query-enforced and fail-closed (§4).
+- **#31 effective viewer** (§4).
+- **#11 conversion gating and the Dialer callback order** (§6 contracts).
+- **#34, #35, #40 and the Oct 3 sale-recording note:** no change to writers or payloads.
+- **#36:** guarded async results (§5).
+- **#28:** production stays read-only.
+- **#6 feature-before-permissions:** satisfied, since this ships with its gates.
+- **VISION:** the dark command-center look; the peer-read rule (§8).
+- **Chris's minimal-copy rule** (§7).
+- **WORK_LOG:** the newest entry is the live Sold Date release (#453); no newer work touches these files.
+
+### 10. Verification
+**Fresh baseline on `95009d1` first (no historical count assumed):**
+- the strict app typecheck (`npx tsc -p tsconfig.app.json --noEmit`) diagnostics, saved to the scratchpad;
+- full Vitest per-file results with CI's inert Supabase environment;
+- ESLint on the files to be touched.
+
+Candidate results are compared against that baseline, with pre-existing failures reported separately from new ones.
+
+**Pure:**
+- the category map, including Final Expense: whole-life products of the matched carrier only, never another carrier, never auto-selected;
+- exact carrier matching (case and spaces);
+- termed and non-termed products, and inclusive age edges;
+- an ambiguous grid, a missing rate, a stored zero ($0.00), and a missing or zero premium (no figure);
+- missing, malformed and off-grid levels, for self and for another agent;
+- strict age prefill: invalid or future DOB, leap day, age 101;
+- **parity:** for the same inputs across the synthetic grid, the preview's amounts equal `calculateEstimate`'s and render byte-identically through `formatUsd`.
+
+**Access (hook):**
+- own and others evaluated independently: an other-agent estimate shows while "View Own" is off, and an own estimate shows while "View Others'" is off;
+- each role: Admin, Super Admin, Team Leader inside and outside the Team scope, a team-scope error, and Agent;
+- operator ≠ credited agent never uses the operator's level;
+- a missing profile row, or one in another organization;
+- permissions loading or errored;
+- View As with a pre-seeded cache: nothing renders and nothing is fetched;
+- a stale response (agent A's level arriving after a switch to agent B) is ignored;
+- an organization or session switch resets the panel.
+
+**Panel:**
+- recalculation on every premium, age, product and term change, with fetch counters proving no extra requests;
+- the reset rules;
+- the error boundary keeps the modal alive.
+
+**Modals:**
+- **P4 visibility:** the panel shows on create, convert, record and first-policy edit, and not on an ordinary edit.
+- **Multiple policies:** independent estimates with different products and premiums, and no total.
+- **Payloads:** deep-equal arguments to `convert_lead_to_client_with_sales`, `create_client_with_sale`, `record_client_policy` and `update_client_with_policy_sale`, with and without preview interaction, so receipt hashes are unchanged.
+- **One RPC call per save, so no duplicate wins.**
+- **Save failure:** the form and preview are kept, and a retry reuses the same request ID.
+- **Preview loading or error:** never disables Save.
+- **ConvertLeadModal callbacks:**
+  - `onSuccess(clientId)` runs once, before `onClose()`;
+  - Cancel calls only `onClose`;
+  - closing is blocked while loading.
+
+**Dialer regression (unchanged files, existing suites):** CI's selection `npx vitest run dialer twilio teamOpen teamCampaign dncCheck`. It covers:
+- DialerPage conversion: Save Only and Save & Next, cancel, and callback ordering via `conversionSucceededRef`;
+- Team/Open queue and lock;
+- FloatingDialer conversion and disposition.
+
+Also run the contacts and conversion suites, the commission suites (`src/lib/commission src/components/commission src/components/settings/commission-grids`) and the full suite.
+
+**Browser:** a throwaway local harness with the synthetic grid and mocked Supabase, never production, in Chromium at 1440×900 and 390×844. It covers:
+- real native-select interaction for product and term;
+- typing premium and age;
+- multi-policy rows;
+- the other-agent line;
+- the unavailable states;
+- no horizontal overflow.
+
+Screenshots are inspected, not committed.
+
+**Static:** `npx tsc --noEmit`, the strict app typecheck against the fresh base, ESLint on touched files, `npm run build`, `git diff --check`.
+
+**D1:** before committing, the added fixture and test values are compared against the private grid through a read-only, value-free production count (zero matching product names or level-rate pairs). No production values are copied.
+
+**No backend change**, so no SQL suites, migrations or Supabase mutations.
+
+### 11. Out of scope
+- snapshots, payout ledgers and reporting;
+- booked, earned or paid commission;
+- profile permission, RLS or self-edit changes;
+- a `hierarchy_path` repair;
+- new client columns or required fields;
+- carrier or product catalogs;
+- a configurable advance percent;
+- any dialer change;
+- merge, deploy, or production writes and test writes.
+
+---
+
 ## 2026-10-17 — Sold Date production release COMPLETE (PR #453)
 
 **Owner approval and release:** Chris approved both backend migrations and the separately controlled frontend production merge/deployment. Reviewed feature head `4bde52a727ca47cc5c772e986a03f72e777fc050` passed all six CI workflows. PR #453 merged to `main` as `12901e5c18922239022afc1c9436df8b2df20c15`. The applied SQL bytes are unchanged by the migration filename reconciliation.

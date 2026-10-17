@@ -1,3 +1,110 @@
+## 2026-10-17 — PR #455 correction: the credited owner is re-verified, never served from cache (draft; not merged, not deployed)
+
+**Why:** Chris asked to verify the owner-cache edge case before merge approval. It was a real defect. The owner read used a 60-second shared cache with no re-check, so after a lead or client was reassigned:
+- a modal reopened within that minute showed the previous owner's estimate at once (or the operator's own, after the record moved away from them);
+- a modal left open kept showing it until the next stale-and-focus refetch.
+
+The sale was never affected, because the server credits the stored owner at save time. But the preview could display the wrong agent's commission.
+
+**Fix (approved preview files only):** in `usePolicyCommissionPreview.ts`, the owner query now:
+- refetches on every mount and ignores any owner cached before this panel mounted (hidden until the fresh read returns);
+- re-checks on window focus and every 15 seconds while the panel is mounted (`OWNER_RECHECK_MS`);
+- hides the figures if a re-check fails.
+
+A changed owner switches the panel without ever pairing the old owner's figures with the new state: profile reads are keyed per agent and identity-checked. The grid, Team-scope and profile reads keep their shared cache.
+
+**Bound:** while a modal stays open, a reassignment made elsewhere is reflected within about 15 seconds plus one round trip (sooner on window focus). Removing that window entirely would need a server push (Realtime), which is outside this approved frontend scope.
+
+**Tests:**
+- Hook: 5 new tests — quick reopen (to another agent, and away from the operator), the re-check while open, the re-check on focus, and fail-closed on a failed re-check.
+- Real modal: 1 new test (RecordPolicyModal reopened on a shared cache after reassignment).
+- All 6 failed on the previous code and pass now.
+- Negative controls: trusting a pre-mount cached owner, dropping the interval re-check, and restoring the 60-second cache each fail (3, 2 and 8 tests).
+- No other file changed: no dialer, backend or Supabase change.
+
+**Next:** re-run the CI-equivalent comparison, then confirm the PR #455 checks on the new head before asking for approval. No merge or deploy.
+
+---
+
+## 2026-10-17 — Policy commission preview, Phase 1 (approved; draft PR #455; not merged, not deployed)
+
+**Authorization and scope:** Chris approved the amended plan at `cc8a2b4` (decisions P1–P4). It is frontend-only and preview-only: no migrations, backend changes, production writes or deployment. Base `main` `95009d1`. Plan and as-built notes: root `implementation_plan.md`, top entry.
+
+**Change:**
+- **Where it shows:** a compact emerald estimate — "Estimated first-year commission" and "Estimated advance (75%)" — below each policy's details.
+  - ConvertLeadModal: every policy row, each independent, never summed.
+  - AddClientModal: only when the save would record a new policy, i.e. creation or an existing client's first policy (P4).
+  - RecordPolicyModal: always.
+- **Engine:** the existing calculator grid query and `calculateEstimate` / exact rationals, unchanged, with `formatUsd` applied to the Rational values.
+- **Credited agent:** the STORED owner the sale writers credit (`leads` / `clients.assigned_agent_id`, an org-scoped `.maybeSingle()` read). The Dialer's `lead.assignedAgentId` comes from `claimed_by` first and is never trusted.
+- **Permissions (P1):** "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently.
+  - Another agent's estimate also needs Admin or a non-impersonating Super Admin in the same organization, or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains that agent. An Agent never sees another agent's estimate.
+  - The level shown is that agent's raw `profiles.commission_level`, through the strict level parse.
+- **Fail closed:** no request and no cached data under View As. Any unresolved viewer, permission, owner, scope, profile or grid read shows no figures; a stored zero rate shows a genuine $0.00.
+- **Final Expense (P2):** lists only the matched carrier's whole-life products (exact match after trimming and ignoring case), never auto-selected.
+- **Preview-only inputs:** product, term and insured age. ConvertLeadModal prefills a valid age only: from the lead's date of birth on the Sold Date, else a stored age from 0 to 100. These inputs are never required, persisted or added to a sale payload.
+- **Isolation:** a local error boundary means a preview failure cannot unmount a modal or block a save.
+- **Deferred (P3):** snapshots (plan §8) are deferred and NOT approved.
+
+**Files:**
+- New:
+  - `src/lib/commission/{policyPreview,previewApi}.ts`
+  - `src/hooks/usePolicyCommissionPreview.ts`
+  - `src/components/commission/preview/{PolicyCommissionEstimate,PolicyCommissionInputs}.tsx`
+  - tests: `policyPreview.test.ts`, `usePolicyCommissionPreview.test.tsx`, `PolicyCommissionEstimate.test.tsx`, `policyCommissionPreviewModals.test.tsx`
+- Modified, +16 lines in total: `ConvertLeadModal.tsx`, `AddClientModal.tsx`, `RecordPolicyModal.tsx`.
+- Harness-only one-line mock, no assertion changes: `recordPolicyModal.test.tsx`, `addClientSale.test.tsx`, `convertLeadModalPolicyFields.test.tsx`.
+- Docs: `implementation_plan.md`, `AGENT_RULES.md`, this log.
+- Unchanged: DialerPage, FloatingDialer, TwilioContext, sale modules and RPCs, the calculator engine, `supabase/**`.
+
+**Verification (synthetic data only):**
+- **Fresh baseline on `95009d1`:**
+  - 5,655 tests: 5,618 passed, 36 skipped, 1 failed.
+  - 10 failing files, all pre-existing: 9 fail to load under CI's inert Supabase environment ("supabaseUrl is required"), and `recordingRetentionVoicemail` needs git history this shallow clone lacks.
+  - Strict app typecheck: 84 diagnostics. Root `tsc`: exit 0.
+- **New tests:** 70 (21 pure, 21 hook including the org-scoped reads, 14 panel, 14 real-modal integration).
+  - The integration tests run the real modals, panel, hook, preview reads and sale modules.
+  - They prove deep-equal arguments to all four sale RPCs with and without preview interaction, one RPC call per save, identical retries after a failed save, `onSuccess(clientId)` before `onClose()`, Cancel, the close guard while saving, the stored-owner credit, View As with no requests, and no request while typing.
+  - They also prove no request while a dialer keeps ConvertLeadModal closed or clears its lead (FloatingDialer gating).
+- **Negative controls:** 9 deliberate mutations, each caught by at least one test:
+  - View As allowed;
+  - the operator's level used for another agent;
+  - the others' permission granting the own estimate;
+  - the Team scope skipped;
+  - a single product auto-selected;
+  - Final Expense pulling in non-whole-life products;
+  - fuzzy carrier matching;
+  - a mismatched profile accepted;
+  - the modal's owner hint trusted.
+- **Dialer:** CI's selection (39 files, 500 tests) and all 45 dialer, conversion and sale-recording suites (544 tests) are identical on branch and base. The only failing file is the same pre-existing environment failure.
+- **CI comparison:** `scripts/verify_reports_frontend.py` (the script the Reports frontend workflow runs) against a fresh `95009d1` worktree passed (exit 0) at head `0403533`.
+  - 5,688 passing tests on the branch against 5,618 on base; the +70 are the new tests.
+  - The same single pre-existing failed test and the same 10 pre-existing failing files on both.
+  - Strict app typecheck: 84 diagnostics on both, none new. Root `tsc` exits 0.
+  - The Reports tests, ESLint on changed TypeScript and `npm run build` pass, with 0 unhandled runtime errors.
+- **ESLint on touched files:** 0 errors. New files are clean; the one warning is pre-existing (an unused disable directive, identical on base).
+- **Browser:** a throwaway local harness in Chromium (Playwright 1.56.1) at 1440×900 and 390×844, light and dark, with no page or console errors and no horizontal overflow. Screenshots were inspected and not committed. Covered:
+  - real native-select interaction (product and term);
+  - typing;
+  - a two-policy conversion;
+  - the other-agent line;
+  - the unavailable state.
+
+  It found that wrapping labels put option text into the selects' accessible names; fixed with explicit `htmlFor`/`id` pairs.
+- **D1:** a read-only, value-free check of the private grid. No test names match it, and the new tests' expected amounts use only synthetic values absent from it.
+- **No authenticated production walkthrough** has been performed.
+
+**Migrations/deploys:** none.
+
+**Follow-ups:**
+- 🚨 **HIGH PRIORITY, separate task:** the Team Leader hierarchy predicate. `is_ancestor_of` holds for only 3 of 11 upline links in production, and it governs the sale writers' Team Leader branch and the Contacts Team scope (`AGENT_RULES.md` › Known Tech Debt). Nothing was changed here.
+- Snapshots (§8) remain deferred.
+- `profiles.commission_level` self-edit (calculator plan §11) remains open.
+
+**Next:** Chris reviews the draft PR and its CI. Merge and deployment only with separate approval.
+
+---
+
 ## 2026-10-17 — RELEASED: Sold Date reporting accuracy (PR #453; production frontend and backend verified)
 
 **Status/date:** Owner-approved separately gated production release completed October 16, 2026 PDT / October 17 UTC. PR #453 merged to `main` at `12901e5c18922239022afc1c9436df8b2df20c15`; exact reconciled head `4bde52a` passed all six GitHub workflows. Migration filenames match production history, with unchanged SQL bytes.
