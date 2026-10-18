@@ -1,3 +1,28 @@
+## 2026-10-18 05:30 UTC — Gate A preflight complete; explicit approval required
+
+Chris transferred implementation ownership back to this workspace. Both named Supabase connections work. UV live schema, policies, grants, constraints/indexes, triggers, existing owner and consent identity, migration history, receiver absence and advisor baseline are verified in verification.md. This supersedes earlier access-blocked status; no production gate has been approved or executed.
+
+**Exact next approval scope: UV backend foundation only.** Project `jzdzeevjpootbeuniygx`; apply only `supabase/migrations/20261017222810_agentflow_profile_sync.sql`, SHA-256 `027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd`, then deploy only `agentflow-profile-sync` with these complete files and `verify_jwt=false`:
+
+| File under supabase/functions | SHA-256 |
+|---|---|
+| agentflow-profile-sync/index.ts | 3ff98559f71bc15cbcec8ed47d5a4c37e1196d164bba07041da866b54281f1fe |
+| agentflow-profile-sync/handler.ts | 8053cd4b61022191279fed849db39d8d1b04ad0fdd8f8093993a53bc692e7067 |
+| _shared/uv-profile/payload.ts | 7815b44e5b4656c2c307c96ec52192e430ca5535984cac2e64046fb5e061d228 |
+| _shared/uv-profile/protocol.ts | ccdd801d09744976ea63dac39990f2b72d236c6c0675fc33eef1a2317fc846c4 |
+
+The SQL adds publication/managed flags (existing rows remain published/unmanaged); replaces public SELECT=true with published-only reads plus owner private reads; adds private sources/links/nonces with RLS and no direct PUBLIC/anon/authenticated/service_role grants; locks AF-managed fields against client modification; grants only service_role execution of nonce/apply RPCs with empty search_path. No source/mapping rows, credentials, scheduler or activation are installed. Existing owner write policies, ownership/slugs, biography/booking/testimonials and consent evidence remain intact. The receiver performs dedicated HMAC authentication before privileged apply; gateway JWT checking is intentionally false only for this new function.
+
+**Execution after approval.** Recheck live migration/policies/function absence and file hashes immediately before writing. Apply exact SQL using apply_migration and record the actual hosted version (the tool may assign a different timestamp; never replay the migration directory). Deploy all four files, then read back their complete content and verify_jwt setting. Verify columns/policies/grants/trigger/RPC ACLs, all three new tables empty, no enrollment, unchanged canonical content and consent identity, public page 200, and advisor deltas against the baseline. Probe only unauthenticated canonical receiver requests: with a missing signing credential POST must fail closed with 503; if a valid dedicated credential already exists, an unsigned POST must return 401. Do not create credentials or signed production test data within this gate. Replay/hosted reconciliation acceptance belongs to the separately approved credential/pilot gate.
+
+**Rollback position.** No production action needs rollback yet. After this disabled foundation, withhold source enrollment and activation; retain schema and empty durable state. If later writes occur, retain mapping IDs, versions, withdrawal and consent records, and acknowledge required withdrawals before stopping a worker. Do not restore public SELECT=true or drop durable tables. Any corrective SQL needs its own review/approval. Frontend rollback cannot unpublish data or recall external caches.
+
+**Other gates remain separate.** AF backend (Gate B), credentials, exact-head frontend releases (Gate C), UUID mapping/public fields/activation/scheduler (Gate D), and wider/new-profile publication (Gate E). New-page remedies R1–R4 are proposals requiring their own build scope; allow_provisioning=false. UV's schema must precede its frontend. No actual identity/license verification is added by this feature.
+
+**Canonical pilot is blocked on data review.** Direct live comparison now proves NPN and NV license-number mismatches, not merely missing expiry. AF would publish only one license versus five on UV. Photo bytes match; phone digits match; emails differ; opt-in defaults would remove legal contact details. Do not change either data set, publish the differing NPN/license, or link the consent-pinned page until Chris approves the exact public/contact/legal diff. Source-of-truth direction does not establish that an entered license value is accurate. See verification.md; no actual credential verification is claimed.
+
+Proposed repository invariant (not applied): before first linking or resuming a consent-linked profile, compare exact NPN/license values, approved contact/legal surfaces and pinned identity against current source data; synchronization success is never evidence of credential accuracy.
+
 ## Latest release position — 2026-10-18 04:45 UTC (supersedes the position below)
 Production unchanged; no gate is approved. Isolated candidate unchanged at bf536191cab043bca2089d02dee8a6955ededc28 (UV 397dbb91e42aebc83043d9f5605824ff2ba87211). Evidence: verification.md, newest section.
 

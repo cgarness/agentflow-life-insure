@@ -1,3 +1,15 @@
+## 2026-10-18 — ChatGPT takeover: UV live preflight complete; Gate A ready for approval, NOT live
+
+**Status/authority:** Chris requested this workspace finish the build because Claude cannot use both Supabase accounts. Both named connections now work here. No production approval or mutation: migrations, RLS, functions, secrets, mappings, publication flags, schedules and production deployments unchanged.
+
+**Changes/files:** evidence-only update to this WORK_LOG.md and the feature-scoped implementation_plan.md, verification.md and release.md in both repositories; PR descriptions updated with final head/check evidence. No source, migration, workflow, peer-pin, root plan or AGENT_RULES.md changes. The next Gate A package identifies exact migration/function hashes, RLS/grants, verification and rollback; no new implementation scope was silently added.
+
+**Verified:** existing heads AF 0b49541 / UV c37686c have passing CI; root TypeScript passes again locally; runtime sources remain AF bf536191 / UV 397dbb91. UV exact-project catalog/policies/grants/triggers/indexes and consent-link dependencies match the migration; receiver absent by both list and get; 9 migrations through 20261014155312. Canonical UV UUID/owner and active consent identity confirmed, photo equals AF, preserved UV-content hashes captured. Security/performance advisor baseline recorded. AF migration 20261017043757 remains latest; feature objects and schedule absent. Canonical production deployments unchanged and UV page HTTP 200 with existing metadata. Subsequent documentation-head CI is recorded on the PRs without another evidence commit.
+
+**Blockers/next:** request explicit #APPROVE_RLS_CHANGE Gate A for the exact inactive UV backend foundation. Pilot still requires resolution of differing NPN/NV license number, 5-to-1 license projection and changed/blank contact/legal fields; never repair or publish these silently. New provisioning remains false pending scoped owner/intake/legal/claims remedies. Gate B, credentials, frontends, mapping/activation/scheduler and wider publication remain separate approvals. Hosted end-to-end and new-page workflow acceptance are unverified. No production rollback needed; future rollback retains durable identity/version/withdrawal/consent state.
+
+---
+
 ## 2026-10-18 — UV profile sync: Claude Code access check, AF Gate B preflight and pilot diff (read-only; NOT live)
 
 **Status:** No production change. Candidate source unchanged at bf536191cab043bca2089d02dee8a6955ededc28 (UV 397dbb91e42aebc83043d9f5605824ff2ba87211); this entry's commit is docs-only. Draft PRs #456 / UV #18 remain open.
