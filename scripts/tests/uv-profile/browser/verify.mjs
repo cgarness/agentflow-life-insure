@@ -72,6 +72,17 @@ try {
   assert.equal(await publicPage.getByText('Christopher Garness',{exact:false}).count(),0);
   assert.equal(await publicPage.getByText('What Families Are Saying',{exact:true}).count(),0);
   assert.equal(await publicPage.locator('img').count(),0); // neutral missing photo, never another agent
+  await publicPage.evaluate(()=>document.fonts.ready);
+  // Exercise real scroll reveals before capturing; a full-page screenshot does not scroll.
+  for(const section of await publicPage.locator('section').all()){
+   await section.scrollIntoViewIfNeeded();
+   await publicPage.waitForTimeout(100); // IntersectionObserver and its reveal timer
+   await publicPage.evaluate(()=>Promise.all(document.getAnimations()
+    .filter(animation=>animation.effect?.getComputedTiming().iterations!==Infinity)
+    .map(animation=>animation.finished.catch(()=>{}))));
+  }
+  await publicPage.evaluate(()=>scrollTo(0,0));
+  assert.ok(await publicPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Public profile has no horizontal overflow');
   await publicPage.screenshot({path:output+'/'+width+'-uv.png',fullPage:true});
   row.name='Updated Agent';row.first_name='Updated';row.npn='987654';row.state_licenses=['NY - #UPDATED'];
   row.headshot_url='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';

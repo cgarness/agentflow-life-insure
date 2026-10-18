@@ -54,3 +54,6 @@ Add scripts/tests/uv-profile/browser/{index.html,entry.tsx,auth.tsx,vite.config.
 Browser fixture refinement before editing: add af-subject.tsx and uv-subject.tsx as real test entry modules; Vite dependency scanning cannot read a synthetic filesystem module. No production paths change.
 
 Browser fixture refinement: keep network isolation strict by replacing only the test-loaded UV stylesheet's Google Fonts import with the same installed font families from @fontsource. Load each repository's Tailwind configuration with absolute content paths; do not accidentally style UV with AF's working-directory config. Changes stay in existing fixture config/UV entry files.
+
+## Final evidence inventory (before editing)
+Update this scoped plan, verification.md, release.md and newest-first WORK_LOG.md with immutable CI/browser evidence and remaining live gates. AF additionally refines the existing browser verify.mjs to scroll real sections and wait for entrance animations before screenshots, then updates both UV peer pins in the scoped workflow after the UV documentation commit. No runtime/public/legal copy or backend changes are part of this evidence step. Existing unconditional UV verification badges and licensing assertions require review before any new-page provisioning; the sync does not verify credentials. Keep allow_provisioning=false.
