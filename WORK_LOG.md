@@ -1,3 +1,21 @@
+## 2026-10-18 — UV profile sync: Claude Code access check, AF Gate B preflight and pilot diff (read-only; NOT live)
+
+**Status:** No production change. Candidate source unchanged at bf536191cab043bca2089d02dee8a6955ededc28 (UV 397dbb91e42aebc83043d9f5605824ff2ba87211); this entry's commit is docs-only. Draft PRs #456 / UV #18 remain open.
+
+**Access:** GitHub and AF Supabase work. UV Supabase `jzdzeevjpootbeuniygx` denies every management read for this connector, which is scoped only to org `kuzfuinlgtbfkdhlztxn`; UV is in org `bmuykmwtwicpltmpenqm`. Vercel env listing is 403; container egress denies the UV website and UV Supabase hosts. Gate A live preflight therefore remains blocked.
+
+**Verified:** heads/bases/checks unchanged and green; all candidate hashes recomputed and matching; AF feature objects/worker/secrets/cron absent; dependencies and normalize_us_state match the fixture baseline; AF advisors equal baseline (expected Gate B delta +2 INFO, +2 authenticated definer WARN); both production deployments and served bundles unchanged.
+
+**Found:** pilot is not ready — Chris's AF licensing data would publish NV only (live page shows five states); contact choices default off while the live A2P privacy/terms pages interpolate the profile phone/email; AF email differs from UV's canonical default; name stays consent-pinned with a review warning. Provisioning remains off: `submit_public_intake` has no published/owner check, ownerless pages cannot read requests, and Verified/licensed wording is unconditional. Smallest remedy R1–R4 proposed in release.md, not built.
+
+**Proposed AGENT_RULES invariants (not applied):** (1) A consent/A2P-linked UV page must not be synchronized with a blank or changed public phone/email without explicit review, because its legal pages render those values. (2) The UV license projection publishes only AF licenses with a number and current expiration date; fix incomplete AF licensing data rather than relaxing the filter. (3) New-page provisioning requires owner access, intake routing, consent-safe legal contacts and truthful public wording; sync success never implies credential verification.
+
+**Files:** scoped plan (inventory first), verification.md, release.md, this entry; UV equivalents. No source, migration, workflow, pin or AGENT_RULES change.
+
+**Next:** authorize the Supabase connector for the UV organization, then Gate A preflight and exact `#APPROVE_RLS_CHANGE` package. Gate B package is preflighted and separately approvable.
+
+---
+
 ## 2026-10-18 — corrected build and isolated browser evidence; production blocked
 
 AF f9fdf29a0a56fdbc1571d49604d7f8663dd00c88 profile run [39095262986](https://github.com/cgarness/agentflow-life-insure/actions/runs/39095262986) passed all three jobs: 98 frontend tests, 21 native PostgreSQL paired cases including concurrent workers, both complete Deno entrypoints, root TypeScript, unchanged 84-diagnostic app baseline, changed-TypeScript lint and build. Browser job 117580270476 passed at 1440px and 390px with real AF/UV components and isolated synthetic transport/auth. Artifact 12124042522 contains screenshots and summary. Coverage includes publication/contact choices, Syncing/Published, canonical View/Copy, public content/photo/NPN/licenses, search, withdrawal, and sign-out/View As isolation. No production network writes or consumer submissions. Initial captures preceded entrance-animation completion; the AF test-only follow-up scrolls sections and waits for animations for reviewable screenshots. The final exact-head runs and artifact IDs are recorded on the paired PRs after this documentation commit.
