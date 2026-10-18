@@ -28,9 +28,17 @@ export function safePhoto(value: string): boolean {
     return start.startsWith('RIFF') && start.slice(8, 12) === 'WEBP';
   } catch { return false; }
 }
+function hasControlCharacters(value: string): boolean {
+  // Reject the same C0/DEL range without a control-character regex.
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
 function text(value: unknown, max: number, required = false): value is string {
   return typeof value === 'string' && value.length <= max && (!required || value.trim().length > 0)
-    && !/[\u0000-\u001f\u007f]/.test(value);
+    && !hasControlCharacters(value);
 }
 export function parseEnvelope(value: unknown): ProfileEnvelope {
   const invalid = () => { throw new Error('invalid_profile'); };
@@ -46,6 +54,6 @@ export function parseEnvelope(value: unknown): ProfileEnvelope {
     || !text(p.agency,120,true) || !text(p.agency_slug,80,true) || !/^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$/.test(p.agency_slug)
     || !text(p.npn,40) || typeof p.headshot_url !== 'string' || !safePhoto(p.headshot_url)
     || !Array.isArray(p.state_licenses) || p.state_licenses.length > 60 || p.state_licenses.some(l =>
-      typeof l !== 'string' || !/^[A-Z]{2} - #[^\u0000-\u001f\u007f]{1,50}$/.test(l) || !STATE_CODES.has(l.slice(0,2)))) return invalid();
+      !text(l,56) || !/^[A-Z]{2} - #[\s\S]{1,50}$/.test(l) || !STATE_CODES.has(l.slice(0,2)))) return invalid();
   return value as unknown as ProfileEnvelope;
 }

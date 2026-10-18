@@ -114,10 +114,10 @@ BEGIN
   END IF;
   IF NOT p_force_private AND s.desired_published AND p.status='Active' AND c.enabled AND active THEN
     SELECT coalesce(jsonb_agg(v ORDER BY v),'[]'::jsonb) INTO licenses FROM (
-      SELECT DISTINCT upper(btrim(state))||' - #'||btrim(license_number) AS v FROM public.agent_state_licenses
+      SELECT DISTINCT public.normalize_us_state(state)||' - #'||btrim(license_number) AS v FROM public.agent_state_licenses
       WHERE organization_id=s.organization_id AND agent_id=s.profile_id
         AND expiration_date IS NOT NULL AND expiration_date>=(now() AT TIME ZONE 'UTC')::date
-        AND upper(btrim(state))=ANY(string_to_array('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY',' '))
+        AND public.normalize_us_state(state)=ANY(string_to_array('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY',' '))
         AND length(btrim(license_number)) BETWEEN 1 AND 50 AND license_number !~ '[[:cntrl:]]'
     ) x;
     body := jsonb_build_object('published',true,'first_name',btrim(p.first_name),'last_name',btrim(p.last_name),

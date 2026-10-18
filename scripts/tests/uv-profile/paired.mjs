@@ -65,6 +65,11 @@ GRANT SELECT ON public.agents TO anon,authenticated;
 GRANT UPDATE ON public.agents TO authenticated;
 CREATE TABLE public.agentflow_consent_links(agent_id uuid PRIMARY KEY);
 `);
+// Use the canonical baseline normalizer, not a simplified test-only imitation.
+const baseline = await readFile(path.join(root,'supabase/migrations/20260806000000_baseline_production_schema.sql'),'utf8');
+const normalizer = baseline.match(/CREATE OR REPLACE FUNCTION "public"\."normalize_us_state"[\s\S]*?\n\$\$;/);
+assert.ok(normalizer, 'Canonical state normalizer must be present');
+await af.exec(normalizer[0]);
 await af.exec(await readFile(path.join(root,'supabase/migrations/20261018002956_uv_profile_sync.sql'),'utf8'));
 await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261017222810_agentflow_profile_sync.sql'),'utf8'));
 await build({entryPoints:[path.join(root,'supabase/functions/uv-profile-sync-worker/handler.ts')],bundle:true,platform:'node',format:'esm',outfile:path.join(temp,'worker.mjs'),logLevel:'silent'});
@@ -134,6 +139,12 @@ await check('opt-in publishes allowlisted profile but not contact details',async
  assert.deepEqual(p.state_licenses,['CA - #TEST-VALID']);assert.equal(p.npn,'123456');assert.equal(p.user_id,null);
 });
 const first=await row();
+await check('canonical full-state names normalize, duplicates collapse and invalid names stay private',async()=>{
+ await af.query('INSERT INTO public.agent_state_licenses(organization_id,agent_id,state,license_number,expiration_date) VALUES ($1,$2,$3,$4,current_date+30),($1,$2,$5,$6,current_date+30),($1,$2,$7,$8,current_date+30)',[org,user,'California','TEST-VALID',' New York ','TEST-NY','Atlantis','TEST-INVALID']);
+ await due();assert.equal((await run()).status,200);
+ assert.deepEqual((await row()).state_licenses,['CA - #TEST-VALID','NY - #TEST-NY']);
+});
+
 await check('unchanged profiles do not resend or create duplicate pages',async()=>{
  const before=deliveries;await due();assert.equal((await run()).status,200);assert.equal(deliveries,before);
  assert.equal((await uv.query('SELECT count(*)::int AS n FROM public.agents')).rows[0].n,1);

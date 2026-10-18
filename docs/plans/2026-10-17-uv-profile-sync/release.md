@@ -10,3 +10,6 @@ No migration, function, credential, scheduler, frontend or profile mapping was a
 6. Wider activation is a separate approval after pilot evidence. Rollback: stop new enrollment/publication, leave withdrawal worker functioning until existing requested withdrawals are acknowledged, then disable scheduling/worker. A Vercel rollback alone does NOT unpublish UV database records. Do not drop mapping/tombstone tables or reset version counters.
 
 Context: no consumer leads or SMS sent; no production dialer, RLS, account ownership or consent evidence changed. Actual licensing/identity verification remains out of scope.
+
+## October 18 candidate correction
+AF migration remains unapplied. SHA-256: b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa. This supersedes cf41abf999e6e579f5249183ceeb0266c85b2763e9a531cb5a83c6e88e9b5d09 because license projection now reuses the existing canonical public.normalize_us_state(text); full-name licenses must not disappear. No existing normalizer definition, grants or live state changed. Paired UV candidate: 8d4b817d9bd03db3fc4bec634dbe18b4277c6595; its migration hash remains 027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd.

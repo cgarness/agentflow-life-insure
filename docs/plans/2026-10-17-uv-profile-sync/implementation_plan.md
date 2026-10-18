@@ -1,5 +1,8 @@
 # AgentFlow to Underwriter Verified profile synchronization
 
+## October 18 continuation: approved isolated corrections
+The handoff explicitly requests the validator and configuration corrections under the existing build approval. Before editing: paired shared payload.ts; UV src/test/uvProfileProtocol.test.ts; both existing uv-profile-sync.yml workflows (full changed-TypeScript lint, pinned peer); scoped plan/release/verification documents and newest-first WORK_LOG.md entries. Synthetic checks only. Production gates stay separate; root plan and unrelated releases remain untouched.
+
 Date: 2026-10-17
 Status: Chris approved the isolated build in ChatGPT ("I give you permission to take care of this build"). Production changes, RLS application, credentials, scheduler activation, merges and deployments are NOT approved by this build authorization.
 Base: e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881
@@ -41,3 +44,6 @@ Any additional necessary file must be recorded here before editing. No broad rew
 Use Zod, Tailwind, organization_id, explicit grants and RLS, .maybeSingle() for possible zero rows and surgical components. Read live Edge code before any later deployment; preserve auth settings except for approved new handlers. Generate migration filenames with Supabase CLI, not invented timestamps. Test with synthetic data only in isolated databases: authorization, publication visibility, identity collisions, stable slugs, canonical consent preservation, duplicate/stale deliveries, retries/outage, photo bounds, licensing removal/expiry, profile removal, View As and opt-out races. Run npx tsc --noEmit plus project app typecheck, changed-file lint, focused/full regression suites and builds; distinguish known baseline failures. No production form submission, SMS, lead import, migration or deployment. Run hosted advisors after separately approved backend changes.
 
 Release gates: exact reviewed UV backend/RLS and existing-profile mapping; exact AgentFlow backend/RLS/credentials; tested frontend release; explicit pilot activation with contact-publication consent; wider agency activation only after pilot. Every consequential production action is separately approved. Final report must state actual commits, tests, blockers, migrations/deployments and next step honestly.
+
+## License normalization correction inventory
+Repo Schema Gotchas requires public.normalize_us_state for canonical mixed-format licenses. Read-only live inspection confirms the function and 10 full-name rows. Add the still-unapplied 20261018002956_uv_profile_sync.sql and scripts/tests/uv-profile/paired.mjs to this correction inventory before editing. Reuse the existing normalizer; no production change or alteration of that function. The test fixture loads its exact baseline definition, covers full names/duplicate spelling/invalid names, and keeps expiry, organization and license validation.
