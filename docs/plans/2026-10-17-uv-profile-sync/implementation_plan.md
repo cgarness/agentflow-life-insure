@@ -1,3 +1,11 @@
+## Gate C outcome — 2026-10-18
+Frontend release complete: UV f0ed74b2f3bba5e65d1f524857e1b608f91b2bf8 / dpl_EdXVAX2B2ZQBhpsSj7xYNmQE8DA6, then AF d8ee8431326f1f6a8559f840b3f4ac21bb481e47 / dpl_CECKGd473WSMVC2Bij2gwyJPzq11. Canonical domains and approved trees verified; AF Production-only public flag true. Full evidence and bounded browser/search limitations are in release.md and verification.md. Next: reconcile pilot identity/license/contact fields, prepare the separately approved synthetic hosted pilot, and retain provisioning/worker/source/scheduler off until their exact gates. The original staged checkout was preserved.
+
+## Gate C execution and documentation plan — 2026-10-18
+Chris approved the exact Gate C frontend release at 15:50:32 UTC. Merge approved UV head f604f3e46edd07976cf3b1d3e71b4fa1f67ae581 first, set only canonical AF Production Config VITE_UV_PROFILE_ENABLED=true, then merge approved AF head 1ab91fcdea16ac246e7b4a5eaffda1a745ca5c42. Verify canonical deployments, candidate-tree equality, served assets, public profile/search/metadata and available browser reads. Worker activation, enrollment, mapping, provisioning and scheduler remain excluded.
+
+Closeout file inventory: this scoped implementation_plan.md, release.md, verification.md, and newest-first WORK_LOG.md in each repository; update both existing PR descriptions. Use isolated documentation branches from the released merge commits; preserve the original dirty checkout and unrelated root plan. No runtime/schema/function/secret changes in the closeout. Documentation follow-ups remain unmerged to avoid changing the approved production commits. Record any unavailable hosted acceptance honestly.
+
 ## Credentials-only approval and closeout — 2026-10-18
 Chris explicitly approved credentials-only setup at13:18:23 UTC and performed secure dashboard entry. After correcting mismatched values, “Both saved” at13:39:01 UTC was followed by refreshed readback: signing digests match across AF/UV; worker is distinct and unchanged; activation digest equals literal false; original secret rows including SMS are unchanged. No secret values were read or recorded.
 
