@@ -1,3 +1,7 @@
+## 2026-10-18 05:44 UTC — concurrent main reconciliation
+
+AF main is now `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f` (PR #457 merged at 05:28:38 UTC). Earlier main/deployment statements below describe the earlier read-only snapshot, not the new current base. Reconcile the feature branch with this main; preserve both WORK_LOG prefixes, all other upstream files unchanged, and the unrelated root plan. Feature runtime, migration hashes and UV peer pin remain unchanged. Fresh AF migrations remain through `20261017043757`; security advisor counts remain 27 RLS/no-policy, 22 mutable-search-path, 2 public-RLS-disabled, 3 extension-in-public, 58 anon/121 authenticated definer, 1 leaked-password. The merged security migration is not recorded applied and is outside this release. Re-run exact-base profile and full Reports comparisons; final head/results go on the PR. UV documentation head `4d65109581315d107bd33222753c55d5ae1252df` passed workflow `39100875987`. No production action by this task; Gate A still awaits its explicit approval.
+
 ## 2026-10-18 05:25–05:30 UTC — ChatGPT takeover; UV live preflight complete (read-only)
 
 This supersedes earlier workspace access denials. Explicit named Supabase connections now read both exact projects simultaneously: UV `jzdzeevjpootbeuniygx` in `bmuykmwtwicpltmpenqm` and AF `jncvvsvckxhqgqvkppmj` in `kuzfuinlgtbfkdhlztxn`. No production mutation was performed.

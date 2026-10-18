@@ -1,3 +1,13 @@
+## 2026-10-18 — UV sync: reconcile concurrent main without production changes
+
+PR #457 merged to AF main as f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f during the preceding preflight, superseding the earlier main/deployment snapshot. Its preserved security Work Log and root plan describe an earlier local-only stage; those statements are historical, not evidence that the PR is still unmerged. This feature branch merges the new main and retains both independent WORK_LOG additions. The other seven upstream files (including AGENT_RULES.md, the unrelated root implementation_plan.md, security migration/rollback, tests, runner and CI) remain byte-identical to main. No feature runtime, migration, worker, receiver, peer-pin or workflow changes.
+
+Live AF migration history is still through 20261017043757; neither the security migration nor this feature migration is recorded applied. Fresh security advisor counts still match 27/22/2/3/58/121/1. Gate B must re-baseline immediately before any later approved write. No new main change grants authority to apply unrelated SQL. Full profile/Reports/integration checks run against base f3d9b0c; results and exact new head are recorded on PR #456. UV documentation head 4d65109581315d107bd33222753c55d5ae1252df passes run 39100875987.
+
+Files changed by this reconciliation: WORK_LOG.md plus the existing feature-scoped plan/verification/release evidence. Gate A remains the exact unchanged UV backend package awaiting #APPROVE_RLS_CHANGE; all other release and pilot data approvals remain separate. No production migration, function, credentials, linking, activation or release performed by this task.
+
+---
+
 ## 2026-10-18 — ChatGPT takeover: UV live preflight complete; Gate A ready for approval, NOT live
 
 **Status/authority:** Chris requested this workspace finish the build because Claude cannot use both Supabase accounts. Both named connections now work here. No production approval or mutation: migrations, RLS, functions, secrets, mappings, publication flags, schedules and production deployments unchanged.
@@ -7,6 +17,84 @@
 **Verified:** existing heads AF 0b49541 / UV c37686c have passing CI; root TypeScript passes again locally; runtime sources remain AF bf536191 / UV 397dbb91. UV exact-project catalog/policies/grants/triggers/indexes and consent-link dependencies match the migration; receiver absent by both list and get; 9 migrations through 20261014155312. Canonical UV UUID/owner and active consent identity confirmed, photo equals AF, preserved UV-content hashes captured. Security/performance advisor baseline recorded. AF migration 20261017043757 remains latest; feature objects and schedule absent. Canonical production deployments unchanged and UV page HTTP 200 with existing metadata. Subsequent documentation-head CI is recorded on the PRs without another evidence commit.
 
 **Blockers/next:** request explicit #APPROVE_RLS_CHANGE Gate A for the exact inactive UV backend foundation. Pilot still requires resolution of differing NPN/NV license number, 5-to-1 license projection and changed/blank contact/legal fields; never repair or publish these silently. New provisioning remains false pending scoped owner/intake/legal/claims remedies. Gate B, credentials, frontends, mapping/activation/scheduler and wider publication remain separate approvals. Hosted end-to-end and new-page workflow acceptance are unverified. No production rollback needed; future rollback retains durable identity/version/withdrawal/consent state.
+
+---
+
+## 2026-10-18 — SECURITY: seal `public.list_unrestricted_users()` (D0), built and tested locally only (not committed, not pushed, NOT applied to production)
+
+**Authorization and scope:** Chris approved only D0's isolated local build and test on 2026-10-18. This excludes any commit, push, PR, merge, remote deployment, Supabase branch and production change. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. No `#APPROVE_RLS_CHANGE` was granted or used. D6, C1/C2, the contact guard, F8, P5, D16, D17 and the hierarchy repair are outside this work. Plan: root `implementation_plan.md`, top entry.
+
+**Why:** `public.list_unrestricted_users()` is `SECURITY DEFINER` (owner `postgres`) and returns `SELECT * FROM public.profiles;`. `PUBLIC`, `anon` and `authenticated` can execute it, so the public anon key can read every agency's profiles. It has no callers: zero `pg_depend` dependents, no repository `.rpc(...)` call, and no logged request in the 24 hours inspected.
+
+**Change (authored, not applied):**
+- `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql`: one top-level `DO`.
+  - Guard: refuses unless the function has the exact production md5 (`41b9e7d5…`, computed under the pinned search_path), owner, `SECURITY DEFINER` and ACL. Also refuses if anything depends on it (invariant #37).
+  - Revokes EXECUTE from `PUBLIC`, `anon` and `authenticated` only. `postgres` and `service_role` keep it.
+  - Asserts the exact sealed ACL `{postgres=X/postgres,service_role=X/postgres}` and the effective privileges.
+  - Restores the caller's settings, then `NOTIFY pgrst`.
+- The rollback **re-asserts only and is not an inverse.** It never re-grants EXECUTE to `PUBLIC`, `anon` or `authenticated`, never revokes from `postgres` or `service_role`, and refuses instead of breaking system access or a dependent.
+- Fixture and assertions: `supabase/tests/seal_list_unrestricted_users.sql`.
+- Runner: `scripts/run_seal_list_unrestricted_users_tests.sh`.
+- CI file `.github/workflows/seal-list-unrestricted-users.yml`: path-filtered `pull_request` with `postgres:17.6` through the host-network `docker run` pattern. Authored only.
+
+**Verification (synthetic data, throwaway local cluster; database-role evidence only):**
+- **Server:** PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), run as the `postgres` OS user on 127.0.0.1:55448, with the psql 16.15 client.
+- **Fixture fidelity:** the template reproduces the production preimage exactly: md5 `41b9e7d550c0d013c9306db9dd2b7b27` and the production ACL in production's element order. Nothing about the preimage was changed.
+- **Runner result:** `ALL D0 PROOFS PASSED: S0–S14, N1, N2`, exit 0. Each scenario started from a fresh template clone, and all 20 databases it created were dropped. The scenarios are listed in the plan. Highlights:
+  - anon and authenticated read 4 rows across 2 agencies before the seal, and get `42501 permission denied for function list_unrestricted_users` after it;
+  - `service_role` and `postgres` still read;
+  - the complete command-tag output of the migration is exactly `DO`;
+  - replay and drift are refused;
+  - the rollback keeps the seal, and refuses with a dependent present;
+  - a forced failure at the REVOKE leaves the preimage (S8, in autocommit and `--single-transaction`);
+  - S9 rejects split, internal-COMMIT, hidden-COMMIT, CALL, upper-case-tag, trailing-statement and metacommand variants;
+  - the dependency refusal (S10) leaves the ACL and definition untouched;
+  - the postconditions refuse a re-grant injected after the REVOKE (S11);
+  - a hostile session search_path still seals (S12);
+  - the lock timeout refused after 1182 ms (S13);
+  - `NOTIFY pgrst` only on success (S14);
+  - N1 shows S1/S2 detect `PUBLIC` inheritance;
+  - N2's standalone REVOKE committed under `psql -X -v ON_ERROR_STOP=1 -f` in autocommit even though statement 2 failed, and statement 3 never ran.
+- **Mutation checks:** on scratch copies, all 11 deliberate mutants were caught, each by its intended scenario:
+  - no `PUBLIC` in the REVOKE;
+  - no postcondition;
+  - no dependency guard;
+  - no rollback dependency guard;
+  - no rollback postcondition;
+  - a rollback that grants anon;
+  - no search_path pin;
+  - no lock_timeout;
+  - no NOTIFY;
+  - a split migration;
+  - a loosened md5 guard.
+- **Runner safety:** before any connection it refuses multi-host, scheme-less, database-path, query-string, non-loopback, percent-encoded and IPv6 URLs, and a set `PGHOSTADDR`. A failed first connection withholds libpq's message; a test password never appeared in the output.
+- **Review:** four independent read-only reviewers attacked the files. One CI blocker and four major findings were fixed before this entry:
+  - CI: a published-port service container fails the runner's loopback proof;
+  - S9 static-check bypasses;
+  - S8 overstating what it proves;
+  - PGURL bypasses.
+- **TypeScript:** no TypeScript file changed.
+  - `npx tsc --noEmit` exits 0, but it is vacuous here (AGENT_RULES invariant #35 note).
+  - `npx tsc -p tsconfig.app.json --noEmit` exits 2 with 84 errors, identical to the unchanged base `e2ddef2`: 0 new, 0 removed. The command fails on both trees.
+- **Not proven:** PostgreSQL 17.6 compatibility (needs CI, which needs a PR), PostgREST or browser behaviour, and the preview-branch replay ACL.
+
+**Migrations/deploys:** none. The migration is authored and locally tested only and is NOT applied to production. Production was not read or written during the build.
+
+**Decisions:**
+- The rollback stays re-assert only, with no inverse.
+- The CI file keeps the existing `pull_request` path-filter convention, with no push-trigger exception.
+- The runner's loopback-server proof is kept strict, which is why CI uses host networking.
+
+**Blockers:** none for the local gate.
+
+**Next (each separately gated):**
+- Chris reviews the local diff.
+- Commit and push: first verify automatic preview behaviour and cost.
+- PR, so the 17.6 CI can run.
+- Merge: first confirm automatic production deployment is still OFF.
+- Production apply through `apply_migration`, after a fresh preimage capture.
+- Rename the files to the recorded version with identical bytes.
+- `list_migrations`, targeted security advisors (0028 and 0029 for this function), and a context snapshot.
 
 ---
 
