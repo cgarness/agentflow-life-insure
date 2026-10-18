@@ -81,7 +81,9 @@ try {
     .filter(animation=>animation.effect?.getComputedTiming().iterations!==Infinity)
     .map(animation=>animation.finished.catch(()=>{}))));
   }
-  await publicPage.evaluate(()=>scrollTo(0,0));
+  await publicPage.evaluate(()=>scrollTo({top:0,left:0,behavior:'instant'}));
+  await publicPage.waitForFunction(()=>scrollY===0);
+  await publicPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   assert.ok(await publicPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Public profile has no horizontal overflow');
   await publicPage.screenshot({path:output+'/'+width+'-uv.png',fullPage:true});
   row.name='Updated Agent';row.first_name='Updated';row.npn='987654';row.state_licenses=['NY - #UPDATED'];
