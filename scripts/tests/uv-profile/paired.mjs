@@ -283,6 +283,23 @@ await check('deleted profiles retain durable unpublish delivery',async()=>{
  await af.exec(`DELETE FROM public.profiles WHERE id='${user}'`);await due();assert.equal((await run()).status,200);assert.equal((await row()).is_published,false);
  assert.equal((await af.query('SELECT count(*)::int AS n FROM private.uv_profile_sync')).rows[0].n,1);
 });
+await check('provisioning refuses name claims and preserves owners during slug collisions',async()=>{
+ const identity='20000000-0000-4000-8000-000000000090';
+ const payload={published:true,first_name:'Collision',last_name:'Agent',phone:'',email:'collision@example.invalid',npn:'',headshot_url:'',agency:'Synthetic Agency',agency_slug:'synthetic-agency',state_licenses:[]};
+ const existing=(await uv.query(`INSERT INTO public.agents(slug,agency_slug,name,first_name,last_name,agency,user_id) VALUES ('collision-agent','synthetic-agency','Collision Agent','Collision','Agent','Synthetic Agency',$1) RETURNING id`,[other])).rows[0];
+ const deliver=()=>uvRpc('apply_agentflow_profile_v1',{p_organization_id:org,p_profile_id:identity,p_version:1,p_profile:payload});
+ assert.equal((await deliver()).error.message,'profile_link_required');
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM private.agentflow_profile_links WHERE profile_id=$1',[identity])).rows[0].n,0);
+ await uv.query("UPDATE public.agents SET name='Different Person' WHERE id=$1",[existing.id]);
+ const before=(await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a WHERE id=$1',[existing.id])).rows[0].data;
+ await uv.exec('UPDATE private.agentflow_profile_sources SET allow_provisioning=false');
+ assert.equal((await deliver()).error.message,'profile_link_required');
+ await uv.exec('UPDATE private.agentflow_profile_sources SET allow_provisioning=true');
+ const delivered=await deliver();assert.equal(delivered.error,null);assert.match(delivered.data.public_url,/\/collision-agent-[0-9a-f]{16}$/);
+ assert.deepEqual((await deliver()).data,delivered.data);
+ assert.deepEqual((await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a WHERE id=$1',[existing.id])).rows[0].data,before);
+ const linked=(await uv.query('SELECT agent_id FROM private.agentflow_profile_links WHERE profile_id=$1',[identity])).rows[0];assert.notEqual(linked.agent_id,existing.id);
+});
 if(native) await check('native concurrent workers cannot claim the same delivery',async()=>{
  const {default:postgres}=await import('postgres');const second=postgres(af.url,{max:1});await due();
  await af.exec('BEGIN');const a=await afRpc('claim_uv_profile_sync',{p_limit:1});assert.equal(a.data.length,1);
