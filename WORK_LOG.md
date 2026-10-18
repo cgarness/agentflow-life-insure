@@ -1,3 +1,18 @@
+## 2026-10-18 — UV profile credentials configured and disabled; production workflow still gated
+- Chris explicitly approved credentials-only setup at13:18:23 UTC and performed secure dashboard saves. Final “Both saved” at13:39:01 UTC resolved prior mismatches. Fresh metadata confirms identical AF/UV signing digests, distinct unchanged AF worker credential, false activation, and unchanged original/SMS secret rows. No values read or recorded.
+- Changes: documentation only in this entry and feature-scoped implementation_plan.md/release.md/verification.md; PR descriptions updated with approval, mismatch history and final evidence. No runtime/shared module/workflow/peer/root-plan/rules changes. No new migration or function deployment; Gate A/B recorded hosted versions and bytes preserved.
+- Verification: unsigned AF POST401/GET405, UV POST401 after configuration. AF6fc194c5 all eight workflows pass; Reports39130732793/job117685174478/artifact12138148252 compares d0d4fd8 exactly:5696/5718 passes, unchanged1 failed test/10 failed files,84 app errors,0 unhandled errors. UV0dbfb3a run39105401301 remains successful with tree-equivalent merge proof. New documentation-head CI will be recorded in PR descriptions without another commit.
+- Scope/live state: credentials saved by Chris, activation false; no enrollment, mapping, schedule, provisioning, frontend release or publication. No independent secret entropy/length check or signed hosted synchronization proof. Existing identity/license/contact/legal differences and new-page owner/intake acceptance remain blocked; allow_provisioning=false.
+- Next: exact frontend release approval after candidate checks, then separately reviewed mapping/public fields and bounded pilot. Rollback retains disabled foundation, mappings/versions/withdrawals and consent/STOP; no destructive reversal.
+
+## 2026-10-18 07:19 UTC — UV sync: preserve concurrent D0 closeout on main
+
+Imported main d0d4fd88916761ba41a038648523c94c6b221677 (external PR #458) into this isolated feature branch. Resolved only the overlapping WORK_LOG additions by preserving both complete histories; all seven other upstream files are byte-identical to main, including root plan/rules, security release record, identical-SQL filename renames and runner/workflow references. No feature runtime, applied migration bytes, shared modules, UV peer pin or verification workflow changes. The other PR's pre-merge prose is historical; its merge and production deployment are independently verified. This task did not merge/deploy that PR.
+
+Gate B remains verified: AF hosted20261018064601/worker v1; Gate A UV hosted20261018060903/receiver v1. No credentials, enrollment, mapping, schedule, activation or feature frontend release. AF current external production dpl_4kzLvraub2uMSbwgq4eJQtDphRSw at d0d4fd8; UV dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2 at2501713; canonical UV page HTTP200. Prior exact AF55fb03a checks passed profile39105404379 and Reports39105404360 (5696/5718, unchanged1 failure/84 app diagnostics), plus six integrations; UV0dbfb3a run39105401301 passed117 tests and its generated-merge tree equivalence was verified. Fresh comparison against d0d4fd8 and final branch SHA/status go on both PRs without another evidence commit.
+
+Files edited for this reconciliation: WORK_LOG and feature-scoped plan/release/verification; upstream files only inherited unchanged. Next approval remains credential-only setup via secure dashboard access/user entry; provisioning off and pilot data decisions unresolved. Rollback retains disabled durable schema and consent/STOP state.
+
 ## 2026-10-18 — RELEASED: D0 seal of `public.list_unrestricted_users()`, production closeout (supersedes the local-only entry below)
 
 **Supersedes:** the entry below records the local build stage and is kept as written. Its status ("not committed, not
@@ -102,6 +117,44 @@ Full record, with log windows, checksum provenance and limits: `docs/security/20
 - A preview or baseline replay.
 - 0011.
 - Retiring or wrapping the function.
+## 2026-10-18 06:49 UTC — Gate B AF backend installed and verified; sync OFF
+
+Chris replied “Approved” at06:45:08UTC to the exact Gate B backend-only package. Applied only AF source migration20261018002956_uv_profile_sync.sql (SHA-256 b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa), hosted as20261018064601_uv_profile_sync; recorded SQL matches exactly. Deployed uv-profile-sync-worker v1, IDb57445fe-57d5-41d1-b6ca-9ec279f7e3e0, dedicated Bearer auth/verify_jwt=false. All four deployed files match approved bytes; all76 existing functions unchanged.
+
+Verified two private RLS tables and five exact RPC ACLs/empty search_paths, missing-identity denial, empty source/sync tables/defaults off, hosted unsignedPOST401/GET405, unchanged core policies/triggers/dependency functions and all12 cron jobs. UV source/link/nonce tables remain empty. Advisor additions are expected:2 private RLS INFO,2 authenticated self-profile definer WARN,1 unused delivery-index INFO; no other finding changes. Inherited2 public-RLS-disabled errors remain outside this feature.
+
+Files updated: scoped implementation_plan/release/verification and newest-first WORK_LOG in both repositories, plus PR descriptions. No runtime/migration/workflow/peer/root-plan/rules changes. Approved-candidate CI all passed: AFc582606 profile39103348509/Reports39103348512 (5696/5718, unchanged1 failure/84 app diagnostics); UVca23e9a tree-equivalent39103348172 (117 tests). Documentation follow-up heads/status recorded on PRs.
+
+No credential, source enrollment, mapping, scheduler, activation or frontend release. Next: separately approve credential setup, with secure dashboard sign-in/user entry because connector secrets-management and terminal CLI auth are unavailable. Never send secrets in chat. Pilot NPN/license/contact/legal differences and new-page owner/intake acceptance remain unresolved; provisioning off. Rollback: retain disabled foundation and durable preference/version/withdrawal/consent/STOP records.
+
+## 2026-10-18 06:15 UTC — UV Gate A production foundation applied; synchronization OFF
+
+**Status/approval:** Chris explicitly approved Gate A with `APPROVE_RLS_CHANGE` at06:07:44UTC. Only UV backend migration/RLS and new receiver applied; user workflow not yet live. Both Supabase connections work.
+**Deployment:** UV project jzdzeevjpootbeuniygx source migration20261017222810 (SHA256027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd) recorded as hosted20261018060903; SQL bytes identical. Receiver agentflow-profile-sync v1 ACTIVE, ID569992e7-4011-4523-b5db-3ec5540a32a4, verify_jwt=false plus dedicated HMAC. Complete four-file readback equals approved source. Existing functions untouched.
+**Verification:** policies/grants/RLS/trigger/RPC ACLs correct; all new tables empty/defaults off. Original agent rows and consent/intake/STOP aggregate fingerprints unchanged; anon reads and canonical page200 preserved. Hosted unsigned POST503 not_configured proves fail-closed runtime. Advisors add only3 private-table RLS INFO,1 unused-index INFO and1 expected multiple-SELECT-policy performance WARN; no new security WARN/ERROR.
+**Files:** scoped implementation_plan.md, release.md, verification.md and this newest-first Work Log; PR descriptions. Documentation only, no new source/migration/workflow/peer/rules/root-plan changes. Reviewed runtime CI: AF8d752a4 profile39101784252 and Reports39101784323 pass (5696/5718 tests, unchanged1 failure/84 app diagnostics); UV4d65109 tree-equivalent39100875987 passes117tests. New docs heads/check status recorded on PRs.
+**Concurrent work:** AF external seal_list_unrestricted_users migration20261018060615 is now live; not applied by this task. Fresh AF advisor baseline recorded; UV-sync objects/worker/schedule still absent.
+**Blockers/next:** Gate B exact AF migration/worker approval; credentials, frontends, identity-checked linking, exact contact/NPN/license/legal decisions and pilot/scheduler/wider publication remain separate. New-page owner/intake remedies unapproved; allow_provisioning=false. No profile published/linked, secret set, source enrolled, schedule activated or frontend merged/deployed. Rollback position: retain disabled durable foundation; preserve mapping/version/withdrawal/consent/STOP state.
+
+## 2026-10-18 — UV sync: reconcile concurrent main without production changes
+
+PR #457 merged to AF main as f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f during the preceding preflight, superseding the earlier main/deployment snapshot. Its preserved security Work Log and root plan describe an earlier local-only stage; those statements are historical, not evidence that the PR is still unmerged. This feature branch merges the new main and retains both independent WORK_LOG additions. The other seven upstream files (including AGENT_RULES.md, the unrelated root implementation_plan.md, security migration/rollback, tests, runner and CI) remain byte-identical to main. No feature runtime, migration, worker, receiver, peer-pin or workflow changes.
+
+Live AF migration history is still through 20261017043757; neither the security migration nor this feature migration is recorded applied. Fresh security advisor counts still match 27/22/2/3/58/121/1. Gate B must re-baseline immediately before any later approved write. No new main change grants authority to apply unrelated SQL. Full profile/Reports/integration checks run against base f3d9b0c; results and exact new head are recorded on PR #456. UV documentation head 4d65109581315d107bd33222753c55d5ae1252df passes run 39100875987.
+
+Files changed by this reconciliation: WORK_LOG.md plus the existing feature-scoped plan/verification/release evidence. Gate A remains the exact unchanged UV backend package awaiting #APPROVE_RLS_CHANGE; all other release and pilot data approvals remain separate. No production migration, function, credentials, linking, activation or release performed by this task.
+
+---
+
+## 2026-10-18 — ChatGPT takeover: UV live preflight complete; Gate A ready for approval, NOT live
+
+**Status/authority:** Chris requested this workspace finish the build because Claude cannot use both Supabase accounts. Both named connections now work here. No production approval or mutation: migrations, RLS, functions, secrets, mappings, publication flags, schedules and production deployments unchanged.
+
+**Changes/files:** evidence-only update to this WORK_LOG.md and the feature-scoped implementation_plan.md, verification.md and release.md in both repositories; PR descriptions updated with final head/check evidence. No source, migration, workflow, peer-pin, root plan or AGENT_RULES.md changes. The next Gate A package identifies exact migration/function hashes, RLS/grants, verification and rollback; no new implementation scope was silently added.
+
+**Verified:** existing heads AF 0b49541 / UV c37686c have passing CI; root TypeScript passes again locally; runtime sources remain AF bf536191 / UV 397dbb91. UV exact-project catalog/policies/grants/triggers/indexes and consent-link dependencies match the migration; receiver absent by both list and get; 9 migrations through 20261014155312. Canonical UV UUID/owner and active consent identity confirmed, photo equals AF, preserved UV-content hashes captured. Security/performance advisor baseline recorded. AF migration 20261017043757 remains latest; feature objects and schedule absent. Canonical production deployments unchanged and UV page HTTP 200 with existing metadata. Subsequent documentation-head CI is recorded on the PRs without another evidence commit.
+
+**Blockers/next:** request explicit #APPROVE_RLS_CHANGE Gate A for the exact inactive UV backend foundation. Pilot still requires resolution of differing NPN/NV license number, 5-to-1 license projection and changed/blank contact/legal fields; never repair or publish these silently. New provisioning remains false pending scoped owner/intake/legal/claims remedies. Gate B, credentials, frontends, mapping/activation/scheduler and wider publication remain separate approvals. Hosted end-to-end and new-page workflow acceptance are unverified. No production rollback needed; future rollback retains durable identity/version/withdrawal/consent state.
 
 ---
 
@@ -186,6 +239,80 @@ Full record, with log windows, checksum provenance and limits: `docs/security/20
 - `list_migrations`, targeted security advisors (0028 and 0029 for this function), and a context snapshot.
 
 ---
+
+## 2026-10-18 — UV profile sync: Claude Code access check, AF Gate B preflight and pilot diff (read-only; NOT live)
+
+**Status:** No production change. Candidate source unchanged at bf536191cab043bca2089d02dee8a6955ededc28 (UV 397dbb91e42aebc83043d9f5605824ff2ba87211); this entry's commit is docs-only. Draft PRs #456 / UV #18 remain open.
+
+**Access:** GitHub and AF Supabase work. UV Supabase `jzdzeevjpootbeuniygx` denies every management read for this connector, which is scoped only to org `kuzfuinlgtbfkdhlztxn`; UV is in org `bmuykmwtwicpltmpenqm`. Vercel env listing is 403; container egress denies the UV website and UV Supabase hosts. Gate A live preflight therefore remains blocked.
+
+**Verified:** heads/bases/checks unchanged and green; all candidate hashes recomputed and matching; AF feature objects/worker/secrets/cron absent; dependencies and normalize_us_state match the fixture baseline; AF advisors equal baseline (expected Gate B delta +2 INFO, +2 authenticated definer WARN); both production deployments and served bundles unchanged.
+
+**Found:** pilot is not ready — Chris's AF licensing data would publish NV only (live page shows five states); contact choices default off while the live A2P privacy/terms pages interpolate the profile phone/email; AF email differs from UV's canonical default; name stays consent-pinned with a review warning. Provisioning remains off: `submit_public_intake` has no published/owner check, ownerless pages cannot read requests, and Verified/licensed wording is unconditional. Smallest remedy R1–R4 proposed in release.md, not built.
+
+**Proposed AGENT_RULES invariants (not applied):** (1) A consent/A2P-linked UV page must not be synchronized with a blank or changed public phone/email without explicit review, because its legal pages render those values. (2) The UV license projection publishes only AF licenses with a number and current expiration date; fix incomplete AF licensing data rather than relaxing the filter. (3) New-page provisioning requires owner access, intake routing, consent-safe legal contacts and truthful public wording; sync success never implies credential verification.
+
+**Files:** scoped plan (inventory first), verification.md, release.md, this entry; UV equivalents. No source, migration, workflow, pin or AGENT_RULES change.
+
+**Next:** authorize the Supabase connector for the UV organization, then Gate A preflight and exact `#APPROVE_RLS_CHANGE` package. Gate B package is preflighted and separately approvable.
+
+---
+
+## 2026-10-18 — corrected build and isolated browser evidence; production blocked
+
+AF f9fdf29a0a56fdbc1571d49604d7f8663dd00c88 profile run [39095262986](https://github.com/cgarness/agentflow-life-insure/actions/runs/39095262986) passed all three jobs: 98 frontend tests, 21 native PostgreSQL paired cases including concurrent workers, both complete Deno entrypoints, root TypeScript, unchanged 84-diagnostic app baseline, changed-TypeScript lint and build. Browser job 117580270476 passed at 1440px and 390px with real AF/UV components and isolated synthetic transport/auth. Artifact 12124042522 contains screenshots and summary. Coverage includes publication/contact choices, Syncing/Published, canonical View/Copy, public content/photo/NPN/licenses, search, withdrawal, and sign-out/View As isolation. No production network writes or consumer submissions. Initial captures preceded entrance-animation completion; the AF test-only follow-up scrolls sections and waits for animations for reviewable screenshots. The final exact-head runs and artifact IDs are recorded on the paired PRs after this documentation commit.
+
+UV runtime/source 8d4b817d9bd03db3fc4bec634dbe18b4277c6595 run [39092826730](https://github.com/cgarness/underwriter-verified/actions/runs/39092826730) passed 117 tests, root/app/node TypeScript, changed-TypeScript lint and build. AF runtime-code candidate 881565656bb4634b691906e3d21389cee47e7c07 Reports run [39092893708](https://github.com/cgarness/agentflow-life-insure/actions/runs/39092893708) passed the whole comparison: 5696 base / 5718 candidate passes; the same 1 inherited failure and 84 app diagnostics; zero unhandled errors; lint/build pass. This supersedes FAILED historical Reports run 39086300919. Later test/document-only heads are independently rechecked; prior runs are not mislabeled as final-head evidence.
+
+Limits: synthetic browser acknowledgements are simulated; actual handlers/SQL are tested separately. This is not hosted sync, preview metadata, or production pilot proof. Server metadata/photo visibility and cache behavior have automated coverage; hosted previews remain unverified. Direct public navigation tested https://www.underwriterverified.com/cg-financial/christopher-garness read-only. Synthetic browser URL is /synthetic-agency/test-agent on isolated loopback; no synthetic page was published.
+
+Production remains unchanged: no migration, function, RLS, credentials, mapping, flags, scheduler, frontend merge or release. Exact UV project jzdzeevjpootbeuniygx management reads deny permission; AF reads work and feature schema/worker are absent. Next action is authorize that UV project in the Supabase connection, then inspect live schema/policies/function preimages/advisors before Gate A exact #APPROVE_RLS_CHANGE approval. Frontends, credentials, linking, activation and wider publication retain separate gates. No production rollback is needed. Any later rollback retains mappings/versions/withdrawals/consent and permits needed withdrawal acknowledgements before stopping the worker.
+
+New provisioning remains OFF: no owner assignment/inbox access exists for provisioned rows; request routing/legal contact acceptance is incomplete. Existing UV components also show unconditional Verified/licensed assertions; synchronization does not substantiate these. Review their exact public/legal effect before any new-page pilot and seek approval for the smallest necessary remedy. Do not alter the live consent/A2P page or silently add SSO/imports.
+
+Files/actions: scoped plan/release/verification and this newest-first Work Log; AF test-only browser capture and pinned-peer workflow. Both shared payload/protocol files remain identical. Candidate migration hashes remain AF b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa and UV 027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd. No root plan, unrelated release or production mutation.
+
+---
+
+## 2026-10-18 — UV profile browser acceptance gate added (isolated only)
+Exact corrected candidate 881565656bb4634b691906e3d21389cee47e7c07 passed profile run 39092893678 (98 frontend tests, 21 native PostgreSQL scenarios including contention, complete Deno checks), Reports run 39092893708, and all other triggered regressions. UV 8d4b817d9bd03db3fc4bec634dbe18b4277c6595 passed run 39092826730 with 117 tests. Reports: 5696 base / 5718 candidate passes, the same 1 inherited test failure and 84 app diagnostics, no unhandled runtime errors; changed lint and build passed.
+Added scripts/tests/uv-profile/browser fixtures and a read-only browser job in uv-profile-sync.yml for desktop/mobile real components with synthetic transport/auth only. The fixture intercepts all backend requests and refuses external traffic. It never submits a consumer form. Browser job result is still pending on this new head; hosted/pilot proof remains unclaimed. Local Deno could not fetch esm.sh, while the full native Deno CI gate passed.
+No migration, secrets, scheduler, profile mapping, frontend merge or production deployment. UV management permission remains the release blocker. Scoped plan amended before test-file edits; root plan and production paths unchanged.
+---
+## 2026-10-18 — validator and release-document corrections (NOT live)
+
+GitHub heads and mains match the handoff. Direct git and terminal access work. The canonical Vercel team is team_iPboOWpwdIQRwdxmA5GJp5Rq. AF project prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc serves www.fflagent.com from production dpl_8PzuVCmhxzo7bszbMYvgC7p4S7uk at e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881. UV project prj_8B75x0g4FBYsP2uzSIEeCYHhMJSw serves www.underwriterverified.com from production dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2 at 2501713d368aa1ad0cea6acc1792fb51f3cb1c8c. Preview success is not production release.
+
+Fresh exact-project UV get_project and list_migrations calls both returned permission denial. AF read-only inspection found no sync tables/migration/worker; latest hosted migration is 20261017043757. UV schema, advisors and receiver preimage remain unverified. No production action performed.
+
+Public browser navigation succeeded for https://www.underwriterverified.com/cg-financial/christopher-garness; no form or message submitted. This workspace's browser cannot reach its separate terminal localhost (ERR_CONNECTION_REFUSED), not the old workspace's administrator-denial error. Desktop/mobile synthetic feature acceptance and hosted end-to-end acceptance remain unverified.
+
+Both payload validators now use explicit C0/DEL character-code checks, preserving Unicode and length limits, with exhaustive negative tests. This also rejects a terminal newline on a license string that JavaScript's dollar-anchor previously let through; accepted payloads are not broadened. No lint suppression or protocol/authentication change; protocol.ts stays unchanged and paired bytes remain identical. CI lint now covers changed Edge/shared TypeScript as well as frontend code. UV release names now match executable code: VITE_UV_PROFILE_ENABLED, UV_PROFILE_SYNC_ENABLED, UV_PROFILE_WORKER_SECRET (distinct from UV_PROFILE_SYNC_SECRET); RECEIVER_URL is a code constant, not a runtime environment variable.
+
+Reports run 39086300919 is FAILED, not pending: final assertion follows eslint exit 1 and build exit 0. New exact-candidate workflow results must supersede it. Local root/project TypeScript, focused frontend tests, changed-TypeScript lint and builds passed; AF's 84 inherited app diagnostics must remain exact-base matched. Final paired/native/Deno and broader regression runs remain gates.
+
+New provisioning remains blocked: generated rows have user_id null and owner-only inbox access. No UV-owner SSO or consumer import is implemented. Keep allow_provisioning=false pending separately approved owner-access/intake/legal acceptance. No profile mapping, credentials, activation, cron, migration, frontend merge or production deployment; retain all mapping/version/withdrawal/consent records during any future rollback.
+
+Files: paired payload.ts, UV protocol tests, profile CI workflows, scoped implementation/release/verification documents and WORK_LOG.md. AF additionally corrects its unapplied migration and paired fixture to normalize canonical state names; release hash must be recomputed. No unrelated release or root plan changed.
+
+---
+
+## 2026-10-17 — AgentFlow → Underwriter Verified profile sync reconstructed (approved isolated build; NOT released)
+
+**Status:** Recovered after interruption. UV receiver remains in draft PR #18. The AF transfer stopped at 77347a0f; the uncommitted candidate was unavailable and was rebuilt rather than treated as recovered. Source is now paired with UV 869d95e. Original scoped plan retained; recovery details at docs/plans/2026-10-17-uv-profile-sync/recovery.md.
+
+**Changes:** Opt-in public profile controls on Agent Profile/My Profile; separate public phone/email choices; own-profile/organization/revision checks; durable leased/versioned worker and receiver contract; canonical fresh license/profile reads; retries and privacy tombstones. Normal profile/license saves and telephony unchanged. Existing UV identity/URLs/ownership/consent and UV-owned content preserved. Both activation gates default off.
+
+**Files:** scoped plan package; src/lib/uv-profile/api.ts; useUnderwriterVerifiedProfile.ts; two underwriter-verified components; two profile composition insertions; src/test/uvProfile.test.tsx; shared UV protocol/payload and worker index/handler; only the new config block; migration candidate 20261018002956_uv_profile_sync.sql; paired.mjs; read-only UV CI. Removed interrupted transfer payload/writer.
+
+**Verification:** 98 frontend/profile tests; 19 paired synthetic SQL/handler cases in isolated PGlite databases; root TypeScript, changed-file lint and Vite build pass. App typecheck retains 84 pre-existing diagnostics; exact-baseline comparison, native PostgreSQL concurrency and native Deno checks are CI gates. Inspect final-head CI before release. Earlier AF test totals did not verify the recovered candidate.
+
+**Migrations/deploys:** NONE to production. No secrets, cron, ownership mapping, SMS, lead import, RLS application, frontend release or main push.
+
+**Blockers/next:** final-head CI and browser acceptance; UV live management/schema preflight; exact separately approved UV backend/mapping, AF backend/credentials, frontend and pilot gates. New-profile intake/legal/owner access acceptance before provisioning. Actual verification is not part of this feature. Withdrawals are asynchronous and must be acknowledged before shutting down the worker. Deactivation/transfer revokes publication intent; reactivation requires a new opt-in.
+
+---
+
 
 ## 2026-10-17 — PR #455 correction: the credited owner is re-verified, never served from cache (draft; not merged, not deployed)
 

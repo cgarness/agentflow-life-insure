@@ -1,0 +1,89 @@
+## Credentials-only approval and closeout — 2026-10-18
+Chris explicitly approved credentials-only setup at13:18:23 UTC and performed secure dashboard entry. After correcting mismatched values, “Both saved” at13:39:01 UTC was followed by refreshed readback: signing digests match across AF/UV; worker is distinct and unchanged; activation digest equals literal false; original secret rows including SMS are unchanged. No secret values were read or recorded.
+
+Documentation inventory before this closeout edit: this scoped implementation_plan.md, release.md, verification.md and newest-first WORK_LOG.md in both repositories, plus both PR descriptions. Preserve runtime, workflows, peer pin, applied migration bytes, root plan and rules. This is an evidence-only feature-branch change under the existing build authority; no further backend/configuration action. Record new documentation heads separately from the passing prior exact-head runs; finalize automatically triggered CI evidence in PR descriptions without another documentation commit.
+
+Credentials scope is complete at configuration-metadata/unsigned-endpoint level: AF UV_PROFILE_WORKER_SECRET; paired UV_PROFILE_SYNC_SECRET; AF UV_PROFILE_SYNC_ENABLED=false. Successful signed hosted delivery, credential entropy/length and disabled authenticated worker invocation were not independently tested because secret values are deliberately unavailable. Do not infer pilot acceptance. No source enrollment, mapping, provisioning, frontend release, scheduler/Vault, activation or publication. Those retain separate approvals; allow_provisioning remains false. Exact pilot identity/license/contact/legal discrepancies and new-page owner/intake acceptance remain blockers.
+
+## Concurrent main closeout reconciliation — 2026-10-18 07:19 UTC
+Read-only inspection found PR #458 externally merged as d0d4fd88916761ba41a038648523c94c6b221677 and deployed to canonical AgentFlow. Its body still says not for merge, but merged=true and Vercel production are authoritative; do not infer permission for unrelated production work from that stale prose. Under the existing isolated feature-branch build/reconciliation authority, import this current main into the feature branch, preserve both WORK_LOG histories and all seven other upstream files byte-for-byte (including the root plan/rules, security SQL/rollback renames, test runner/workflow references and release record). Intended feature edits: this scoped plan, scoped release/verification and newest-first WORK_LOG entry plus paired PR descriptions. Resolve only overlapping history; no feature runtime, applied migration bytes, UV peer pin or verification workflow changes. Retain the imported never-regrant D0 rule. No production backend, credentials, frontend release, mapping or activation is authorized by this branch maintenance. Re-run the existing exact-base CI against current main; report pending versus completed accurately.
+
+## Gate B approval and execution inventory — 2026-10-18 06:45:08 UTC
+Chris replied “Approved” directly to the exact Gate B backend-only request identifying the #APPROVE_RLS_CHANGE scope in release.md at c5826066c292ad316077036da587b4f3caed649a. This explicitly approves only AF migration20261018002956_uv_profile_sync.sql (SHA-256 b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa) and the four hashed uv-profile-sync-worker/shared files with verify_jwt=false and dedicated Bearer authentication. Before any write: recheck live migration/object/function absence, dependency columns and advisor baseline. Apply only exact SQL; record the actual hosted version without renaming/replaying the source file; deploy complete content/dependencies; verify catalog/ACLs, file bytes, unauthorized POST/GET, empty registries, unchanged existing functions/core policies/triggers/schedule and advisor deltas. Intended documentation edits are this scoped plan, release.md, verification.md and newest-first WORK_LOG.md in both repositories plus both PR descriptions. No runtime/source/workflow/peer/root-plan/rules edits. Credentials, source enrollment, mapping, provisioning, scheduler, synchronization activation and frontend releases remain separately unapproved.
+
+Execution complete: hosted migration20261018064601, worker v1 b57445fe-57d5-41d1-b6ca-9ec279f7e3e0; exact SQL/file readback, ACL/RLS/identity guard, POST401/GET405, empty registries and preservation/advisor comparisons passed. Credentials and later release gates remain unapproved; secure dashboard access is required for the next credential step.
+
+## Gate A execution result — 2026-10-18 06:15 UTC
+Completed only the approved UV backend foundation. Source migration20261017222810 mapped to hosted20261018060903 with identical SQL; receiver v1 and all four file contents verified. Catalog/ACLs, empty registries, unchanged existing profile/consent/STOP fingerprints, unsigned503 runtime and advisor deltas pass. Detailed release/verification records supersede older “production unchanged / Gate A pending” snapshots below. This evidence follow-up changes only the previously inventoried scoped docs and Work Logs. Gate B and all credentials/frontend/mapping/activation gates remain unapproved. Concurrent AF security migration20261018060615 was applied externally; preserve it and rebaseline before Gate B.
+
+# AgentFlow to Underwriter Verified profile synchronization
+
+## October 18 continuation: approved isolated corrections
+The handoff explicitly requests the validator and configuration corrections under the existing build approval. Before editing: paired shared payload.ts; UV src/test/uvProfileProtocol.test.ts; both existing uv-profile-sync.yml workflows (full changed-TypeScript lint, pinned peer); scoped plan/release/verification documents and newest-first WORK_LOG.md entries. Synthetic checks only. Production gates stay separate; root plan and unrelated releases remain untouched.
+
+Date: 2026-10-17
+Status: Chris approved the isolated build in ChatGPT ("I give you permission to take care of this build"). Production changes, RLS application, credentials, scheduler activation, merges and deployments are NOT approved by this build authorization.
+Base: e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881
+Paired repository: cgarness/underwriter-verified, base 2501713d368aa1ad0cea6acc1792fb51f3cb1c8c
+Branch in both repositories: codex/uv-profile-sync-20261017
+
+## Source review and concurrent work
+AGENT_RULES.md, VISION.md and newest WORK_LOG entries reviewed. Root implementation_plan.md belongs to commission preview PR #455; preserve it. Existing dialer, reporting, commissions and Google Sheets releases are outside scope. UV has no AGENT_RULES.md/VISION.md/AGENTS.md; its Work Log, consent bridge, transfer, profile preview documents and source were reviewed. AgentFlow profile schema was inspected read-only. UV live management access is permission-blocked; verify its live schema and function preimages before any production release.
+
+## Product and boundaries
+AgentFlow is the source for opt-in public name/photo/contact/NPN/licensing. UV stays the public website. Add compact View/Copy/profile publication controls to the existing Agent Profile and My Profile surfaces, with explicit public-phone/public-email choices. No new UV signup for newly provisioned profiles. Preserve existing UV-only biography, booking and authentic testimonial content. Do not generate testimonials or interpret profile readiness as credential verification.
+
+Use stable UUID mapping, never email/name-only account claiming. Existing profiles require an operator-reviewed link before enabling synchronization; no canonical Christopher profile duplication. Preserve UV agent UUID, owner, existing agency/agent slugs and SMS consent evidence. Consent-pinned name and agency changes require separate review, not automatic bridge rewrites. CRM internal agency name is not necessarily the approved public business brand.
+
+## Architecture
+One-way server-to-server synchronization with dedicated credentials unrelated to SMS. An enrolled-profile reconciliation worker reads fresh canonical profile and agent_state_licenses records, creates durable versioned delivery state and retries safely. No remote work or fallible sync trigger in ordinary profile/license save transactions. Worker leases prevent concurrent ownership; receiver rejects stale versions and duplicate-body conflicts. Profile removal, deactivation or organization change schedules unpublishing, not reassignment. Private delivery/link data must not be publicly readable. Backend activation defaults off; no seed rows or cron/secrets applied by schema installation.
+
+Per-organization activation and approved public agency branding are server-controlled. User configuration RPCs derive current user and organization from authenticated context. Only that user may change publication/contact choices; no new admin/downline/View As powers. Public data is explicit allowlisted data only; no lead/client/call/commission/credential exposure. Actual license verification remains a separate feature.
+
+## Intended file inventory before application edits
+AgentFlow:
+- this scoped implementation_plan.md, verification.md, release.md and newest-first WORK_LOG.md entry
+- src/lib/uv-profile/*, src/hooks/useUnderwriterVerifiedProfile.ts
+- src/components/underwriter-verified/*; small composition insertions in src/components/agent-profile/AgentProfileTab.tsx and src/components/settings/MyProfile.tsx
+- focused unit/component tests for those modules
+- new generated supabase/migrations/*_uv_profile_sync.sql (not applied)
+- supabase/functions/uv-profile-sync-worker/* and a dedicated shared profile protocol helper; only corresponding config.toml entry
+- isolated SQL/Edge tests and .github/workflows/uv-profile-sync.yml (test-only; no deployment or production secrets)
+UV:
+- scoped plan/release/verification and WORK_LOG.md entry
+- new generated supabase/migrations/*_agentflow_profile_sync.sql (not applied)
+- dedicated agentflow-profile-sync Edge endpoint/helpers; only corresponding config entry
+- public agent hook/search/metadata publication filters, scoped public AgentData provider and Index composition
+- existing Admin linked-field locking/save payload restriction and tests
+- dedicated test-only CI workflow.
+Any additional necessary file must be recorded here before editing. No broad rewrites.
+
+## Gates and verification
+Use Zod, Tailwind, organization_id, explicit grants and RLS, .maybeSingle() for possible zero rows and surgical components. Read live Edge code before any later deployment; preserve auth settings except for approved new handlers. Generate migration filenames with Supabase CLI, not invented timestamps. Test with synthetic data only in isolated databases: authorization, publication visibility, identity collisions, stable slugs, canonical consent preservation, duplicate/stale deliveries, retries/outage, photo bounds, licensing removal/expiry, profile removal, View As and opt-out races. Run npx tsc --noEmit plus project app typecheck, changed-file lint, focused/full regression suites and builds; distinguish known baseline failures. No production form submission, SMS, lead import, migration or deployment. Run hosted advisors after separately approved backend changes.
+
+Release gates: exact reviewed UV backend/RLS and existing-profile mapping; exact AgentFlow backend/RLS/credentials; tested frontend release; explicit pilot activation with contact-publication consent; wider agency activation only after pilot. Every consequential production action is separately approved. Final report must state actual commits, tests, blockers, migrations/deployments and next step honestly.
+
+## License normalization correction inventory
+Repo Schema Gotchas requires public.normalize_us_state for canonical mixed-format licenses. Read-only live inspection confirms the function and 10 full-name rows. Add the still-unapplied 20261018002956_uv_profile_sync.sql and scripts/tests/uv-profile/paired.mjs to this correction inventory before editing. Reuse the existing normalizer; no production change or alteration of that function. The test fixture loads its exact baseline definition, covers full names/duplicate spelling/invalid names, and keeps expiry, organization and license validation.
+
+## Isolated browser acceptance inventory
+Add scripts/tests/uv-profile/browser/{index.html,entry.tsx,auth.tsx,vite.config.mts,verify.mjs} and a browser job to the existing scoped verification workflow. Run Chromium in GitHub Actions with synthetic RPC/public-read transport and a test-only auth provider; real AF controls/API/hook and UV page/search components. No real credentials, forms, hosted writes, deployment or network-policy changes. Capture desktop/mobile screenshots and verify View/Copy, separate contact choices, status, source updates, public search, withdrawal, and sign-out/View As isolation. This is synthetic browser evidence, not hosted runtime/pilot proof. Metadata/photo handlers remain covered by existing server tests; live hosted acceptance remains gated.
+
+Browser fixture refinement before editing: add af-subject.tsx and uv-subject.tsx as real test entry modules; Vite dependency scanning cannot read a synthetic filesystem module. No production paths change.
+
+Browser fixture refinement: keep network isolation strict by replacing only the test-loaded UV stylesheet's Google Fonts import with the same installed font families from @fontsource. Load each repository's Tailwind configuration with absolute content paths; do not accidentally style UV with AF's working-directory config. Changes stay in existing fixture config/UV entry files.
+
+## Final evidence inventory (before editing)
+Update this scoped plan, verification.md, release.md and newest-first WORK_LOG.md with immutable CI/browser evidence and remaining live gates. AF additionally refines the existing browser verify.mjs to scroll real sections and wait for entrance animations before screenshots, then updates both UV peer pins in the scoped workflow after the UV documentation commit. No runtime/public/legal copy or backend changes are part of this evidence step. Existing unconditional UV verification badges and licensing assertions require review before any new-page provisioning; the sync does not verify credentials. Keep allow_provisioning=false.
+
+## Gate A approval and execution inventory — 2026-10-18 06:07:44 UTC
+Chris replied `APPROVE_RLS_CHANGE` to the exact UV Gate A package at UV 4d65109581315d107bd33222753c55d5ae1252df. Execute only that migration/receiver and verification as recorded in UV release.md. AF changes in this step are documentation only: this scoped plan/release/verification and newest-first WORK_LOG.md, plus both PR descriptions. AF backend, credentials, mapping, frontends, activation, schedules and publication remain separately gated. Preserve every runtime file, shared module, peer pin, root plan and unrelated migration.
+
+## October 18 concurrent-main reconciliation inventory (before editing)
+AF main advanced to f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f via PR #457 during preflight. Reconcile main into this isolated feature branch, preserving all eight upstream files byte-for-byte except WORK_LOG.md, where both independent additions must be retained. Do not author changes to the unrelated root plan, rules or security migration. Update this scoped plan/verification/release and newest-first Work Log with the new base, conflict resolution and unchanged live migration/advisor baseline; update both PR descriptions. Rerun the existing full verification against the new exact base. This branch reconciliation is not a merge of #456 to main and authorizes no production action or security-migration application.
+
+## October 18 ChatGPT takeover inventory (before editing)
+Chris requested this workspace finish the build after Claude's connection limitation. Continue the documented isolated build/evidence authority; no production gate is approved. Update only this scoped plan, verification.md, release.md and newest-first WORK_LOG.md in both repositories, plus the paired PR descriptions, to record restored dual-account access, UV live catalog/ownership/consent/advisor evidence, exact unchanged backend hashes, and the now-reviewable Gate A package. Record newly proven NPN/license/contact differences as pilot blockers; do not correct real profile data or link it. No source, migration, workflow, peer pin, root plan, rules, credentials or deployment edits. Existing full CI evidence is retained; any new documentation heads are identified separately and their automatically triggered checks recorded on the PRs.
+
+## October 18 Claude Code continuation inventory (before editing)
+Read-only access/preflight under the existing authority; no production mutation. Intended edits are documentation only: this plan section, verification.md, release.md and a newest-first WORK_LOG.md entry in this repository; the paired UV scoped plan/verification/release/WORK_LOG.md; both PR descriptions. No source, migration, workflow, peer pin, AGENT_RULES.md or root implementation_plan.md change. Proposed repository-rule invariants are recorded as proposals only. Runtime source stays at bf536191cab043bca2089d02dee8a6955ededc28 / UV 397dbb91e42aebc83043d9f5605824ff2ba87211; a docs-only head is reported as such, not as new exact-head CI evidence.
