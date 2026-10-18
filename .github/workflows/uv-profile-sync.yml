@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npx tsc --noEmit
       - name: Reject additional app typecheck errors against exact base
         env:
@@ -74,7 +74,7 @@ jobs:
           POSTGRES_PASSWORD: synthetic-test-only
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -83,13 +83,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: cgarness/underwriter-verified
-          ref: 869d95ebbcc646ec9c3b9b8e2f33aa66026fa037
+          ref: 9fae219222e954bfb9fbe1421c2c223b6417b756
           path: .uv-peer
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - name: Paired real handlers and native PostgreSQL concurrency
         env:
           UV_PROFILE_PEER: ${{ github.workspace }}/.uv-peer

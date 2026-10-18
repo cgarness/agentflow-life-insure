@@ -41,7 +41,7 @@ async function key(secret: string): Promise<CryptoKey> {
   if (secret.length < 32) throw new Error('profile_sync_not_configured');
   return crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
-async function signedBytes(body: string, timestamp: string, nonce: string): Promise<Uint8Array> {
+async function signedBytes(body: string, timestamp: string, nonce: string): Promise<Uint8Array<ArrayBuffer>> {
   const digest = hex(await crypto.subtle.digest('SHA-256', encoder.encode(body)));
   return encoder.encode(`agentflow-uv-profile-v1\nPOST\n${SYNC_PATH}\n${timestamp}\n${nonce}\n${digest}`);
 }
