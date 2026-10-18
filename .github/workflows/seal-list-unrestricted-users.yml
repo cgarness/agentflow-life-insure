@@ -1,5 +1,5 @@
 name: Seal list_unrestricted_users verification
-# Real PostgreSQL proof of the D0 seal (supabase/migrations/20261018023911_seal_list_unrestricted_users.sql): client
+# Real PostgreSQL proof of the D0 seal (supabase/migrations/20261018060615_seal_list_unrestricted_users.sql): client
 # EXECUTE (PUBLIC, anon, authenticated) is revoked on public.list_unrestricted_users(); postgres and service_role keep it.
 # Synthetic fixture only; no production credential exists in this job. PostgreSQL runs with host networking and
 # listens on 127.0.0.1 only (the dialer-dnc-backend pattern), because the runner refuses any server that does not

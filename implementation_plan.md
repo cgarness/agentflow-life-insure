@@ -1,4 +1,84 @@
+## 2026-10-18 — DOCS / SECURITY, APPROVED: D0 repository closeout (filename reconciliation and durable release record; repository only)
+
+**Status:** Chris approved the repository-only D0 closeout on 2026-10-18.
+- Branch `claude/d0-repository-closeout` from `origin/main` `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f`.
+- Commit, push and a draft PR are approved; the merge needs Chris's separate final approval. Never push directly to `main`.
+- **No further production mutation is authorized:** no `apply_migration`, rollback execution, SQL or history repair,
+  permission re-grant, account change or setting change. Supabase "Deploy to production" stays OFF.
+- This rename does not resolve the other migration-version discrepancies (invariant #30).
+- None of D6, C1/C2, the contact guard, F8, P5, D16, D17, the hierarchy repair or any dialer work is included.
+
+**What is being recorded:** D0 was applied once to production on 2026-10-18 under its own separate approval, through
+`apply_migration`. It was recorded as **`20261018060615 / seal_list_unrestricted_users`** (authored as
+`20261018023911`). The durable release record is `docs/security/2026-10-18-d0-release.md`.
+
+**Change:**
+1. **Rename both files, byte-for-byte** (`git mv`, R100; no copy left under the old name):
+   - `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `supabase/migrations/20261018060615_seal_list_unrestricted_users.sql`.
+     3606 bytes, sha256 `b5e89fd8fee33edae2f078fa13a185a8b66b1c2010719e2295d8882a9730c9f3`.
+   - `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql` → `supabase/migrations/rollback/20261018060615_seal_list_unrestricted_users.rollback.sql`.
+     3409 bytes, sha256 `051c79eaa76acc7b44e7d62c26b33c29c0c07bc31890000d36d25d15b867707a`.
+2. **References:**
+   - the runner's `MIG`/`ROLLBACK` paths and its status header;
+   - the workflow's header comment.
+
+   Test behaviour, permission guards and workflow triggers are unchanged; the path globs already match the new names.
+   The runner keeps mode 100755. `supabase/tests/seal_list_unrestricted_users.sql` has no filename or status reference
+   and stays unchanged.
+3. **Status:**
+   - the AGENT_RULES #20 note says applied, keeping the never-re-grant rule;
+   - the earlier D0 entries here and in `WORK_LOG.md` keep their text and gain a superseded pointer;
+   - a newest-first `WORK_LOG.md` closeout entry is added.
+4. **Durable record:** `docs/security/2026-10-18-d0-release.md` (new).
+
+**Files (exactly eight paths):**
+1. `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `supabase/migrations/20261018060615_seal_list_unrestricted_users.sql` (rename)
+2. `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql` → `supabase/migrations/rollback/20261018060615_seal_list_unrestricted_users.rollback.sql` (rename)
+3. `scripts/run_seal_list_unrestricted_users_tests.sh`
+4. `.github/workflows/seal-list-unrestricted-users.yml`
+5. `implementation_plan.md` (this entry)
+6. `WORK_LOG.md`
+7. `AGENT_RULES.md`
+8. `docs/security/2026-10-18-d0-release.md` (new)
+
+**Verification:**
+- Run the D0 suite against the renamed files on a throwaway loopback PostgreSQL with synthetic data only.
+- Run `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`, compared with base `f3d9b0c`.
+- Check both SQL files are byte-identical before and after.
+- Check no active test or workflow reference names the old files.
+- Draft-PR CI: the four path-filtered checks that passed at `5744ee0`:
+  - Seal list_unrestricted_users verification (`postgres:17.6`);
+  - Dialer DNC integrity;
+  - Reporting integrity;
+  - SMS consent integration.
+
+  Normal Vercel previews run.
+- **Supabase preview.** This PR changes `supabase/migrations/`, so the Supabase GitHub integration will attempt an
+  automatic preview.
+  - Chris's closeout approval allows preview usage only within the existing one-D0-preview authorization (one
+    automatically created D0 preview branch). That authorization is unused: the PR #457 preview was cancelled before
+    any branch was created.
+  - At 06:53:56 UTC, `list_branches` showed the 3-branch limit still full (main, #294, #378), so the attempt is expected to
+    be cancelled.
+  - No Supabase branch, limit or setting is created, reset, deleted or changed to influence it.
+  - Its outcome is reported exactly as observed. A pass would not convert the PR #457 accepted exception
+    (NOT PASSED) without Chris's decision.
+
+**Evidence handoff:**
+- A sanitized evidence export and a checksum manifest are attached to the handoff, not committed. The scratchpad
+  originals stay unchanged.
+- No raw session log, credential, token, profile data or unrelated security detail is committed.
+- A checksum computed now is not proof of what was recorded at apply time; the record says which values were captured
+  when.
+
+---
+
 ## 2026-10-18 — SECURITY, APPROVED FOR ISOLATED LOCAL BUILD AND TEST ONLY: seal `public.list_unrestricted_users()` (D0)
+
+> **Superseded status (2026-10-18 closeout):** this entry records the local build stage and is kept as written. D0 was
+> later committed, merged (PR #457, merge `f3d9b0c`) and applied to production once, recorded as
+> `20261018060615 / seal_list_unrestricted_users`. The files were then renamed from `20261018023911`. See the closeout
+> entry above and `docs/security/2026-10-18-d0-release.md`.
 
 **Status:** Chris approved D0's isolated local build and test on 2026-10-18. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. **Not committed, not pushed, no PR, no merge, no Supabase branch, NOT applied to production.** Each of those is a separate decision. No `#APPROVE_RLS_CHANGE` is granted or needed for this item, and none of D6, C1/C2, the contact guard, F8, P5, D16, D17 or the hierarchy repair is part of it.
 

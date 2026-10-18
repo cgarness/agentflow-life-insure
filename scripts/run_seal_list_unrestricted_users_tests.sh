@@ -17,7 +17,8 @@
 #
 # Scenarios (implementation_plan.md, 2026-10-18 D0): S0–S14, N1, N2.
 # Database-role verification only. It proves nothing about PostgREST, the browser, or a PostgreSQL major version
-# other than the one it runs against. The migration under test is NOT applied to production.
+# other than the one it runs against. The migration under test was applied to production on 2026-10-18 and recorded as
+# 20261018060615 (authored as 20261018023911; bytes unchanged). Never run this runner or its files against production.
 set -euo pipefail
 set +o xtrace   # commands carry the URL, which may hold a password: never trace them
 
@@ -43,8 +44,8 @@ URL_RE='^postgres(ql)?://postgres(:[A-Za-z0-9._~-]*)?@(127\.0\.0\.1|localhost):[
 HOSTPORT="${PGURL##*@}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MIG="$ROOT/supabase/migrations/20261018023911_seal_list_unrestricted_users.sql"
-ROLLBACK="$ROOT/supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql"
+MIG="$ROOT/supabase/migrations/20261018060615_seal_list_unrestricted_users.sql"
+ROLLBACK="$ROOT/supabase/migrations/rollback/20261018060615_seal_list_unrestricted_users.rollback.sql"
 FIXTURE="$ROOT/supabase/tests/seal_list_unrestricted_users.sql"
 for f in "$MIG" "$ROLLBACK" "$FIXTURE"; do [ -f "$f" ] || refuse "missing $f"; done
 
