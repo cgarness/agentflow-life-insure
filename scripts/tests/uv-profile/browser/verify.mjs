@@ -93,7 +93,7 @@ try {
   row.name='Updated Agent';row.first_name='Updated';row.npn='987654';row.state_licenses=['NY - #UPDATED'];
   row.headshot_url='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
   await publicPage.reload();await publicPage.getByRole('heading',{name:'Updated Agent',exact:true}).waitFor();
-  await publicPage.getByText('987654',{exact:true}).waitFor();await publicPage.getByText('NY - #UPDATED',{exact:true}).waitFor();
+  await publicPage.getByText(/^NPN:\s*987654$/).waitFor();await publicPage.getByText('NY - #UPDATED',{exact:true}).waitFor();
   assert.ok(await publicPage.locator('img').count()>0);
   row.phone='';row.email='updated@example.invalid';row.state_licenses=[];
   await publicPage.reload();await publicPage.getByRole('link',{name:'Email',exact:true}).waitFor();
