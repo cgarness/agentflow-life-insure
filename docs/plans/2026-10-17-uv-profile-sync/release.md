@@ -1,3 +1,36 @@
+## 2026-10-18 06:15 UTC — Gate A applied and verified; Gate B awaits approval
+
+Chris's `APPROVE_RLS_CHANGE` at 06:07:44 UTC approved **UV backend foundation only**. This current section supersedes earlier pending/unchanged-production statements below. Gate A is complete; the AgentFlow → UV user workflow is not yet live.
+
+- UV project `jzdzeevjpootbeuniygx`: exact source migration `20261017222810_agentflow_profile_sync.sql` (SHA-256 `027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd`) was recorded by Supabase as **`20261018060903_agentflow_profile_sync`**. Hosted statements equal the source bytes exactly. Preserve this source-to-hosted mapping; do not rename, replay, or edit the applied migration.
+- New receiver `agentflow-profile-sync`, ID `569992e7-4011-4523-b5db-3ec5540a32a4`, **version 1 ACTIVE**, `verify_jwt=false`, dedicated HMAC handler. Bundle SHA-256 `ca816d866cc84db89eb07be8db900a0d63f6495700926b05e5cacb7ea7f92840`. All four retrieved files exactly match the approved hashes below. The other three functions are unchanged.
+- Live columns, policies, RLS, trigger and RPC ACLs match the migration. Private sources/links/nonces contain zero rows; enabled/provisioning defaults are false. Anonymous reads preserve both existing published/unmanaged profiles. All original agent fields and aggregate consent/intake/STOP fingerprints match the pre-change snapshot.
+- Unsigned canonical POST returned **503 `{"error":"not_configured"}`**, no-store, from the deployed Deno runtime; no database delivery occurred. Canonical profile returned HTTP 200 with unchanged title/photo metadata and production bundle.
+- Advisors: only expected additions — three private-table RLS/no-policy INFO, one unused nonce-age index INFO, and one authenticated multiple-permissive SELECT performance WARN. No new security WARN/ERROR, public definer grants, missing RLS or mutable search paths. See verification.md for counts and remediation references.
+
+**Current rollback position:** disabled backend foundation retained. No new source, mapping, credentials, flags, scheduler, profile publication, AF backend, frontend merge or production frontend deployment was performed. No destructive rollback is needed. Retain durable mappings/versions/withdrawal/consent state; do not restore SELECT=true or drop tables. Later withdrawals must be acknowledged before worker shutdown. External preview caches cannot be recalled.
+
+### Exact next approval: Gate B, AgentFlow backend foundation only
+
+Project `jncvvsvckxhqgqvkppmj`; reviewed AF runtime at `8d752a440912cfc541dd9af67dba27b8d2f44fb1`, with documentation-only follow-up. Fresh 06:13 UTC reads: feature tables/RPCs/schedule absent; exact worker lookup says Function not found. Concurrent **`20261018060615_seal_list_unrestricted_users`** is now applied externally, superseding the 05:44 preflight. This task did not apply it. Recheck history/advisors immediately before Gate B.
+
+1. Apply only `supabase/migrations/20261018002956_uv_profile_sync.sql`, SHA-256 **`b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa`**. Two private tables with RLS and no direct client/service-role grants; five SECURITY DEFINER RPCs with empty search_path; authenticated self-profile get/set only, service_role claim/prepare/finish only. No core profile/license triggers, seed rows or schedule.
+2. Deploy complete `uv-profile-sync-worker` with `verify_jwt=false` and its dedicated Bearer authentication; files under supabase/functions:
+
+| File | SHA-256 |
+|---|---|
+| uv-profile-sync-worker/index.ts | d5537a4aadfb0190b27e484ea823be22905d78b7f597da5fa4624ebf45b6684d |
+| uv-profile-sync-worker/handler.ts | 76564f229e5b1e970e8b6ce1f6abf1cda6273e96c93b0696117b717e758fad12 |
+| _shared/uv-profile/payload.ts | 7815b44e5b4656c2c307c96ec52192e430ca5535984cac2e64046fb5e061d228 |
+| _shared/uv-profile/protocol.ts | ccdd801d09744976ea63dac39990f2b72d236c6c0675fc33eef1a2317fc846c4 |
+
+3. Read back complete files/settings, SQL bytes/catalog/grants and empty tables; prove unauthenticated POST 401 and GET 405 (or 503 only if the runtime's own project URL/key is unavailable); compare advisors and ensure no schedule/source activation. Expected security additions: two intentionally inaccessible private-table INFO and two authenticated self-profile SECURITY DEFINER WARN. Do not remediate unrelated findings.
+4. Withhold activation on rollback; preserve preference/version/lease state. Corrective SQL needs separate review.
+
+**Gate B approval excludes credentials.** Credential configuration remains separate: distinct `UV_PROFILE_WORKER_SECRET` (AF only) and dedicated `UV_PROFILE_SYNC_SECRET` (both backends), `UV_PROFILE_SYNC_ENABLED=false`. Values must never enter chat/git/logs; no SMS credential reuse. `VITE_UV_PROFILE_ENABLED` is the frontend flag; `RECEIVER_URL` remains a code constant. Frontend releases, existing UUID linking, exact public/contact/legal choices, pilot activation/scheduler and wider publication retain their separate approvals.
+
+**Pilot blockers remain:** mismatched NPN/NV license number, AF one eligible state versus UV five, different email and consent-pinned name, plus explicit legal contact choices. No profile data was corrected or linked. New-page owner/inbox/intake/legal remedies R1–R4 remain proposals; `allow_provisioning=false`. No actual license/identity verification is claimed.
+
 ## 2026-10-18 05:44 UTC — concurrent main reconciliation
 
 AF main is now `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f` (PR #457 merged at 05:28:38 UTC). Earlier main/deployment statements below describe the earlier read-only snapshot, not the new current base. Reconcile the feature branch with this main; preserve both WORK_LOG prefixes, all other upstream files unchanged, and the unrelated root plan. Feature runtime, migration hashes and UV peer pin remain unchanged. Fresh AF migrations remain through `20261017043757`; security advisor counts remain 27 RLS/no-policy, 22 mutable-search-path, 2 public-RLS-disabled, 3 extension-in-public, 58 anon/121 authenticated definer, 1 leaked-password. The merged security migration is not recorded applied and is outside this release. Re-run exact-base profile and full Reports comparisons; final head/results go on the PR. UV documentation head `4d65109581315d107bd33222753c55d5ae1252df` passed workflow `39100875987`. No production action by this task; Gate A still awaits its explicit approval.

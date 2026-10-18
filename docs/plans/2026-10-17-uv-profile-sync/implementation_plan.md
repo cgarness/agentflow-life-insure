@@ -1,3 +1,6 @@
+## Gate A execution result — 2026-10-18 06:15 UTC
+Completed only the approved UV backend foundation. Source migration20261017222810 mapped to hosted20261018060903 with identical SQL; receiver v1 and all four file contents verified. Catalog/ACLs, empty registries, unchanged existing profile/consent/STOP fingerprints, unsigned503 runtime and advisor deltas pass. Detailed release/verification records supersede older “production unchanged / Gate A pending” snapshots below. This evidence follow-up changes only the previously inventoried scoped docs and Work Logs. Gate B and all credentials/frontend/mapping/activation gates remain unapproved. Concurrent AF security migration20261018060615 was applied externally; preserve it and rebaseline before Gate B.
+
 # AgentFlow to Underwriter Verified profile synchronization
 
 ## October 18 continuation: approved isolated corrections
@@ -57,6 +60,9 @@ Browser fixture refinement: keep network isolation strict by replacing only the 
 
 ## Final evidence inventory (before editing)
 Update this scoped plan, verification.md, release.md and newest-first WORK_LOG.md with immutable CI/browser evidence and remaining live gates. AF additionally refines the existing browser verify.mjs to scroll real sections and wait for entrance animations before screenshots, then updates both UV peer pins in the scoped workflow after the UV documentation commit. No runtime/public/legal copy or backend changes are part of this evidence step. Existing unconditional UV verification badges and licensing assertions require review before any new-page provisioning; the sync does not verify credentials. Keep allow_provisioning=false.
+
+## Gate A approval and execution inventory — 2026-10-18 06:07:44 UTC
+Chris replied `APPROVE_RLS_CHANGE` to the exact UV Gate A package at UV 4d65109581315d107bd33222753c55d5ae1252df. Execute only that migration/receiver and verification as recorded in UV release.md. AF changes in this step are documentation only: this scoped plan/release/verification and newest-first WORK_LOG.md, plus both PR descriptions. AF backend, credentials, mapping, frontends, activation, schedules and publication remain separately gated. Preserve every runtime file, shared module, peer pin, root plan and unrelated migration.
 
 ## October 18 concurrent-main reconciliation inventory (before editing)
 AF main advanced to f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f via PR #457 during preflight. Reconcile main into this isolated feature branch, preserving all eight upstream files byte-for-byte except WORK_LOG.md, where both independent additions must be retained. Do not author changes to the unrelated root plan, rules or security migration. Update this scoped plan/verification/release and newest-first Work Log with the new base, conflict resolution and unchanged live migration/advisor baseline; update both PR descriptions. Rerun the existing full verification against the new exact base. This branch reconciliation is not a merge of #456 to main and authorizes no production action or security-migration application.
