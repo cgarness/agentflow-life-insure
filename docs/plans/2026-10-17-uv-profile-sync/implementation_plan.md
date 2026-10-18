@@ -1,3 +1,16 @@
+## Safe rollout follow-up — 2026-10-18; isolated implementation approved
+Chris approved the scoped exclusion/contact-card plan at 16:58:56 UTC. This authorizes isolated implementation and synthetic tests only.
+
+Implemented: private exact organization/profile exclusions in get/set/claim/prepare; exclusions cannot create a withdrawal or alter protected remote pages. Paired tests now load both follow-up migrations and real intake SQL, exercise both exclusion registries, consent-linked publication/withdrawal/duplicate refusal, contact removal, ownerless intake refusal and unchanged owned synthetic intake. Browser fixtures cover real ownerless contact cards and direct booking/legal-route refusal. Fixtures explicitly use UTC to match production license-expiry semantics.
+
+Candidate migration: 20261018170007_uv_profile_exclusions.sql, SHA-256 b3ce50dd666064acaf0ccfae43dbef9491b47ef9ace7bee40143c380fe562108. Not applied. No real exclusion entries, source registrations, profiles, credentials, worker activation, schedule or production deployment changed.
+
+Validation: 98 AF focused tests, root TypeScript and build pass; UV 123 tests, root/app/node TypeScript, changed-TypeScript lint and build pass. Paired PGlite: 23 scenarios pass. Shared protocol/payload remain byte-identical. Native concurrency, full Deno, desktop/mobile browser and Reports comparison remain final-head CI gates. Local PostgreSQL installation is blocked by container permissions; browser archive is truncated/invalid; Deno dependency host unreachable. Do not label these checks passed.
+
+Next: final paired CI, separately approved exact migration/RLS/function package and protected UUID registry seed, new frontend release, then bounded synthetic pilot. Worker stays off and provisioning false. The canonical CG Financial A2P page stays excluded; no licensing reconciliation or real profile edit is required. Existing deployed Gate C heads remain unchanged. Rollback retains mapping IDs, versions and withdrawal records; keep exclusion guards and stop new publication without losing required withdrawals.
+
+Proposed repository invariant (not an AGENT_RULES edit): excluded identities must be unavailable in self-profile UI and rejected by direct enrollment/worker paths; exclusion is never automatic withdrawal.
+
 ## Remaining rollout plan — 2026-10-18; implementation approval requested
 Chris clarified that AgentFlow profile data is authoritative even when incomplete, and explicitly prohibited changes affecting A2P. Supersede the earlier request to reconcile his real licensing data: the canonical CG Financial page must instead remain outside synchronization. No real profile correction is needed to test this feature.
 

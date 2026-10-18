@@ -12,4 +12,7 @@ import '@fontsource/dancing-script/700.css';
 import {BrowserRouter,Routes,Route} from 'react-router-dom';
 import Index from '@/pages/Index';
 import Search from '@/pages/Search';
-export default function Subject(){return <BrowserRouter><Routes><Route path="/" element={<Search/>}/><Route path="/:agencySlug/:agentSlug" element={<Index/>}/></Routes></BrowserRouter>}
+import BookCall from '@/pages/BookCall';
+import PrivacyPolicy from '@/pages/PrivacyPolicy';
+import TermsAndConditions from '@/pages/TermsAndConditions';
+export default function Subject(){return <BrowserRouter><Routes><Route path="/" element={<Search/>}/><Route path="/:agencySlug/:agentSlug" element={<Index/>}/><Route path="/:agencySlug/:agentSlug/bookcall" element={<BookCall/>}/><Route path="/:agencySlug/:agentSlug/privacy-policy" element={<PrivacyPolicy/>}/><Route path="/:agencySlug/:agentSlug/terms-and-conditions" element={<TermsAndConditions/>}/></Routes></BrowserRouter>}
