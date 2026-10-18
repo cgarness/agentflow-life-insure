@@ -1,4 +1,115 @@
+## 2026-10-18 — RELEASED: D0 seal of `public.list_unrestricted_users()`, production closeout (supersedes the local-only entry below)
+
+**Supersedes:** the entry below records the local build stage and is kept as written. Its status ("not committed, not
+pushed, NOT applied to production") no longer holds: D0 is merged (PR #457) and applied to production.
+
+**Authorization trail (Chris, 2026-10-18; each one separate):**
+1. Local build and test.
+2. Release preflight.
+3. Commit, push and draft PR #457, with up to one automatic D0 preview allowed.
+4. Merge at exact head `5744ee0c94c43e5515e93f29354ed69635a1663e`.
+5. Exactly one production `apply_migration`.
+6. This repository-only closeout.
+
+No `#APPROVE_RLS_CHANGE` was needed or used. Supabase "Deploy to production" is configured OFF (Chris; AGENT_RULES
+#30) and was not changed. The setting was not read back by machine, but no D0 history row appeared after the merge
+before the apply gate.
+
+**Merge and deploys:**
+- PR #457 merged as `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f`; its tree is identical to the tested head.
+- CI at `5744ee0`, all success:
+  - "Seal list_unrestricted_users verification" run `39097581989` on plain `postgres:17.6`;
+  - Dialer DNC integrity run `39097581976`;
+  - Reporting integrity run `39097581884`;
+  - SMS consent integration run `39097582042`.
+- **Supabase Preview: CANCELLED (branch limit full). Accepted exception, NOT PASSED.**
+- Vercel production READY at the merge: `agentflow` `dpl_d5gDLzBMwvLHaGqnKxa79GHZ1daP` and `agentflow-life-insure`
+  `dpl_9zpHHrYyo8Lc82cV8KgN7ayFH3eK`. No application code changed.
+
+**Production apply (`jncvvsvckxhqgqvkppmj`):**
+- **Recorded `20261018060615 / seal_list_unrestricted_users`** (authored as `20261018023911`).
+- The read-only gate at 06:05:49 UTC matched every expected preimage value.
+- Submitted once: 3606 bytes, sha256 `b5e89fd8fee33edae2f078fa13a185a8b66b1c2010719e2295d8882a9730c9f3`. Response
+  `{"success":true}`; no retry.
+- Stored as one statement: 3606 bytes, md5 `34d371d5174889f790c555991254d3b9`, final newline kept. History 329 → 330.
+
+**Verification (read-only, 06:06–06:08 UTC; database-role evidence only):**
+- ACL exactly `{postgres=X/postgres,service_role=X/postgres}`. EXECUTE: anon false, authenticated false,
+  service_role true.
+- Definition md5 `41b9e7d5…` unchanged.
+- The anon and authenticated probes each got `42501 permission denied for function list_unrestricted_users`. The
+  service_role probe returned only `true`.
+- Advisors: 0028 and 0029 no longer list the function; 0011 remains (out of scope); nothing else changed between the
+  05:30 and 06:07 captures.
+- Logs from 06:05:00 to about 06:07:33, all sources, filtered to lines naming the function: only the two probe denials.
+
+Full record, with log windows, checksum provenance and limits: `docs/security/2026-10-18-d0-release.md`.
+
+**This closeout (repository only; branch `claude/d0-repository-closeout` from `f3d9b0c`; draft PR):**
+- **Renamed, byte-for-byte (R100; same sha256, md5 and git blob before and after):**
+  - `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `20261018060615_seal_list_unrestricted_users.sql`
+    (3606 bytes, sha256 `b5e89fd8…c9f3`);
+  - the rollback `rollback/20261018023911_…` → `rollback/20261018060615_seal_list_unrestricted_users.rollback.sql`
+    (3409 bytes, sha256 `051c79ea…707a`).
+- **Updated:**
+  - the runner's `MIG`/`ROLLBACK` paths and status header (mode 100755 kept);
+  - the workflow's header comment (triggers unchanged; their globs already match);
+  - the AGENT_RULES #20 note, now marked applied, keeping the never-re-grant rule. It adds that a search_path fix should
+    use `ALTER FUNCTION`, and that any DROP and re-CREATE must re-assert the seal;
+  - superseded pointers on the earlier D0 entries;
+  - the new record `docs/security/2026-10-18-d0-release.md`.
+- **Unchanged:** `supabase/tests/seal_list_unrestricted_users.sql`, which has no filename or status reference.
+
+**Closeout verification:**
+- **D0 suite:**
+  - against the renamed files on a throwaway PostgreSQL 16.15 loopback cluster with synthetic data:
+    `ALL D0 PROOFS PASSED: S0–S14, N1, N2`, exit 0;
+  - the fixture reproduced md5 `41b9e7d5…` and the production ACL;
+  - S13 lock timeout after 1121 ms;
+  - all 20 test databases dropped, then the cluster removed.
+- **TypeScript** (no TypeScript file changed):
+  - `npx tsc --noEmit` exits 0, which is vacuous here (AGENT_RULES #35 note);
+  - `npx tsc -p tsconfig.app.json --noEmit` exits 2 with 84 errors, identical to base `f3d9b0c` (0 new, 0 removed).
+    These failures already exist.
+- **References:** no executable reference (runner path, workflow glob, test, script) names `20261018023911`. It remains
+  only in historical prose and in mapping notes, including the runner's header comment.
+
+**Migrations/deploys in this closeout:** none. No production call was made.
+
+**Decisions:**
+- The old authoring version is kept only to explain the mapping `20261018023911` → `20261018060615`.
+- Historical entries are annotated, not rewritten.
+- The sanitized evidence export and checksum manifest go with the PR handoff and are not committed. No raw session
+  log, credential, profile data or unrelated security detail is committed.
+
+**Remaining limitations:**
+- **No HTTP-level proof:** PostgREST/API, GraphQL and browser behaviour were not tested.
+- **Caller inventory incomplete:** deployed Edge Function sources, scheduled jobs and direct-connection roles were not
+  inventoried.
+- **Access before the seal not assessed:** only 24 h of logs was reviewed.
+- **Baseline replay still untested:** accepted exception, NOT PASSED.
+- **Other mismatches unresolved:** this rename does not resolve the other migration-version mismatches (#30);
+  Deploy to production stays OFF.
+
+**Next (each separately gated):**
+- Chris's final merge approval for the closeout PR.
+- Report the closeout PR's automatic Supabase preview attempt exactly as observed. Usage is capped at the unused
+  one-D0-preview authorization; the 3-branch limit was still full at 06:53:56 UTC. A pass would not convert the PR #457
+  exception.
+- The optional API check.
+- Assess access before the seal.
+- The caller inventory.
+- A preview or baseline replay.
+- 0011.
+- Retiring or wrapping the function.
+
+---
+
 ## 2026-10-18 — SECURITY: seal `public.list_unrestricted_users()` (D0), built and tested locally only (not committed, not pushed, NOT applied to production)
+
+> **Superseded status (2026-10-18 closeout):** kept as written. D0 was later merged (PR #457, `f3d9b0c`) and applied
+> to production as `20261018060615 / seal_list_unrestricted_users`; the files were renamed from `20261018023911`. See
+> the entry above.
 
 **Authorization and scope:** Chris approved only D0's isolated local build and test on 2026-10-18. This excludes any commit, push, PR, merge, remote deployment, Supabase branch and production change. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. No `#APPROVE_RLS_CHANGE` was granted or used. D6, C1/C2, the contact guard, F8, P5, D16, D17 and the hierarchy repair are outside this work. Plan: root `implementation_plan.md`, top entry.
 
