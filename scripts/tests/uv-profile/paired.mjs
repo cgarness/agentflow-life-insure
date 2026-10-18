@@ -82,7 +82,7 @@ const specs={
 };
 function rpc(db) {return async(name,args={})=>{
  const spec=specs[name];assert.ok(spec,'Known RPC only');
- const values=spec.map(s=>{const [key,type]=s.split(':');return type==='jsonb'&&args[key]!=null?JSON.stringify(args[key]):args[key]??null;});
+ const values=spec.map(s=>{const [key,type]=s.split(':');return type==='jsonb'&&args[key]!=null&&!native?JSON.stringify(args[key]):args[key]??null;});
  try {const out=await db.query(`SELECT public.${name}(${spec.map((s,i)=>'$'+(i+1)+'::'+s.split(':')[1]).join(',')}) AS data`,values);return {data:out.rows[0].data,error:null};}
  catch(error){return {data:null,error:{code:error.code,message:error.message}};}
 };}

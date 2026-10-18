@@ -13,4 +13,3 @@
 **Blockers/next:** final-head CI and browser acceptance; UV live management/schema preflight; exact separately approved UV backend/mapping, AF backend/credentials, frontend and pilot gates. New-profile intake/legal/owner access acceptance before provisioning. Actual verification is not part of this feature. Withdrawals are asynchronous and must be acknowledged before shutting down the worker. Deactivation/transfer revokes publication intent; reactivation requires a new opt-in.
 
 ---
-
