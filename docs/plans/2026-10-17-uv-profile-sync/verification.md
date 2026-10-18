@@ -1,3 +1,7 @@
+## Exact corrected candidate results
+AF 881565656bb4634b691906e3d21389cee47e7c07: profile workflow 39092893678 SUCCESS (98 frontend tests; 21 native PostgreSQL scenarios; both complete Deno entrypoints; root typecheck; exact 84-diagnostic app baseline; full changed-TypeScript lint; build). Reports workflow 39092893708 SUCCESS: 5696 base passes, 5718 candidate passes, same 1 inherited test failure and 84 app diagnostics, zero unhandled errors. This supersedes failed Reports run 39086300919. Other triggered A2P/SMS/DNC/reporting/onboarding/balance jobs passed. UV 8d4b817d9bd03db3fc4bec634dbe18b4277c6595 workflow 39092826730 SUCCESS: 117 tests, root/app/node typechecks, full changed-TypeScript lint (one inherited Fast Refresh warning), build.
+The browser fixture job added subsequently must pass at its own exact head before synthetic visual acceptance is claimed. Local esm.sh connectivity failed; native Deno CI succeeded. No hosted runtime proof.
+
 ## 2026-10-18 continuation: validator and release-document corrections (NOT live)
 
 GitHub heads and mains match the handoff. Direct git and terminal access work. The canonical Vercel team is team_iPboOWpwdIQRwdxmA5GJp5Rq. AF project prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc serves www.fflagent.com from production dpl_8PzuVCmhxzo7bszbMYvgC7p4S7uk at e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881. UV project prj_8B75x0g4FBYsP2uzSIEeCYHhMJSw serves www.underwriterverified.com from production dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2 at 2501713d368aa1ad0cea6acc1792fb51f3cb1c8c. Preview success is not production release.
