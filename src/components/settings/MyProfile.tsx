@@ -1,3 +1,4 @@
+import { UnderwriterVerifiedProfile } from "@/components/underwriter-verified/UnderwriterVerifiedProfile";
 import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,8 @@ const MyProfile: React.FC = () => {
   return (
     <div className="space-y-6">
       <ProfileInfoCard />
+      <UnderwriterVerifiedProfile />
+
       <ProfileStateLicensesCard />
       <ProfileCarriersCard />
       <ProfilePreferencesCard />

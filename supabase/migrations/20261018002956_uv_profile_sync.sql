@@ -17,6 +17,7 @@ CREATE TABLE private.uv_profile_sync (
   version bigint NOT NULL DEFAULT 0 CHECK (version >= 0),
   payload jsonb,
   delivered_version bigint NOT NULL DEFAULT 0,
+  delivered_revision bigint NOT NULL DEFAULT 0,
   remote_published boolean NOT NULL DEFAULT false,
   public_url text CHECK (public_url ~ '^https://www[.]underwriterverified[.]com/[a-z0-9][a-z0-9-]{0,79}/[a-z0-9][a-z0-9-]{0,79}$'),
   warning text CHECK (warning IN ('identity_review_required')),
@@ -45,7 +46,7 @@ BEGIN
   SELECT * INTO s FROM private.uv_profile_sync WHERE organization_id=p.organization_id AND profile_id=p.id;
   target := available AND coalesce(s.desired_published,false);
   state := CASE WHEN s.last_error IS NOT NULL OR s.warning IS NOT NULL THEN 'attention'
-    WHEN coalesce(s.remote_published,false) IS DISTINCT FROM target OR coalesce(s.version,0)>coalesce(s.delivered_version,0) THEN 'pending'
+    WHEN coalesce(s.remote_published,false) IS DISTINCT FROM target OR coalesce(s.version,0)>coalesce(s.delivered_version,0) OR coalesce(s.revision,0)>coalesce(s.delivered_revision,0) THEN 'pending'
     WHEN target THEN 'published' WHEN NOT available AND s.profile_id IS NULL THEN 'disabled' ELSE 'private' END;
   RETURN jsonb_build_object('profile_id',p.id,'organization_id',p.organization_id,'available',available,
     'desired_published',coalesce(s.desired_published,false),'phone_public',coalesce(s.phone_public,false),
@@ -155,6 +156,7 @@ BEGIN
     THEN RAISE EXCEPTION 'receipt_required' USING ERRCODE='22023'; END IF;
   UPDATE private.uv_profile_sync SET lease_token=NULL,lease_expires_at=NULL,
     delivered_version=CASE WHEN success THEN version ELSE delivered_version END,
+    delivered_revision=CASE WHEN success OR (p_error IS NULL AND version=delivered_version) THEN revision ELSE delivered_revision END,
     remote_published=CASE WHEN success THEN (p_receipt->>'published')::boolean ELSE remote_published END,
     public_url=CASE WHEN success THEN p_receipt->>'public_url' ELSE public_url END,
     warning=CASE WHEN success THEN p_receipt->>'warning' ELSE warning END,
