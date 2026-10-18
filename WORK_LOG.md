@@ -1,3 +1,13 @@
+## 2026-10-18 06:49 UTC — Gate B AF backend installed and verified; sync OFF
+
+Chris replied “Approved” at06:45:08UTC to the exact Gate B backend-only package. Applied only AF source migration20261018002956_uv_profile_sync.sql (SHA-256 b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa), hosted as20261018064601_uv_profile_sync; recorded SQL matches exactly. Deployed uv-profile-sync-worker v1, IDb57445fe-57d5-41d1-b6ca-9ec279f7e3e0, dedicated Bearer auth/verify_jwt=false. All four deployed files match approved bytes; all76 existing functions unchanged.
+
+Verified two private RLS tables and five exact RPC ACLs/empty search_paths, missing-identity denial, empty source/sync tables/defaults off, hosted unsignedPOST401/GET405, unchanged core policies/triggers/dependency functions and all12 cron jobs. UV source/link/nonce tables remain empty. Advisor additions are expected:2 private RLS INFO,2 authenticated self-profile definer WARN,1 unused delivery-index INFO; no other finding changes. Inherited2 public-RLS-disabled errors remain outside this feature.
+
+Files updated: scoped implementation_plan/release/verification and newest-first WORK_LOG in both repositories, plus PR descriptions. No runtime/migration/workflow/peer/root-plan/rules changes. Approved-candidate CI all passed: AFc582606 profile39103348509/Reports39103348512 (5696/5718, unchanged1 failure/84 app diagnostics); UVca23e9a tree-equivalent39103348172 (117 tests). Documentation follow-up heads/status recorded on PRs.
+
+No credential, source enrollment, mapping, scheduler, activation or frontend release. Next: separately approve credential setup, with secure dashboard sign-in/user entry because connector secrets-management and terminal CLI auth are unavailable. Never send secrets in chat. Pilot NPN/license/contact/legal differences and new-page owner/intake acceptance remain unresolved; provisioning off. Rollback: retain disabled foundation and durable preference/version/withdrawal/consent/STOP records.
+
 ## 2026-10-18 06:15 UTC — UV Gate A production foundation applied; synchronization OFF
 
 **Status/approval:** Chris explicitly approved Gate A with `APPROVE_RLS_CHANGE` at06:07:44UTC. Only UV backend migration/RLS and new receiver applied; user workflow not yet live. Both Supabase connections work.

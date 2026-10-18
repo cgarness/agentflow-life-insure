@@ -1,3 +1,25 @@
+## 2026-10-18 06:49 UTC — Gate B applied and verified; credentials remain separate
+
+Chris replied **“Approved”** at 06:45:08 UTC to the exact Gate B backend-only request. Gates A and B are complete. The AgentFlow → UV user workflow is still disabled; earlier pending Gate B statements below are historical.
+
+**AgentFlow production:** project `jncvvsvckxhqgqvkppmj`; approved source migration `20261018002956_uv_profile_sync.sql`, SHA-256 `b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa`, applied as hosted **`20261018064601_uv_profile_sync`**. Stored SQL matches the entire approved file byte-for-byte. Preserve this source-to-hosted mapping; never replay, rename or edit the applied migration.
+
+New **`uv-profile-sync-worker` v1 ACTIVE**, ID `b57445fe-57d5-41d1-b6ca-9ec279f7e3e0`, `verify_jwt=false`, dedicated Bearer authentication, bundle SHA-256 `09076e21b46adfe1cbe644fb5873665dc7be1cfb9a8c68497ca718aa71ac8ad6`. Complete four-file readback matches the approved hashes in the Gate B package below. All 76 existing Edge Functions are unchanged. No source or migration code changed.
+
+**Verification:** two private RLS tables with only postgres direct ACLs; authenticated EXECUTE only on self get/set RPCs; service_role EXECUTE only on claim/prepare/finish; all five SECURITY DEFINER functions have empty search_path. Authenticated role without an identity is rejected by get_my_uv_profile. Sources/sync tables empty; publication/contact/enabled defaults false. Unsigned hosted POST returns401 unauthorized and GET405 method_not_allowed. Existing core profile/organization/license policies and triggers, get_org_id/normalize_us_state definitions and all 12 cron jobs match the pre-change fingerprints. UV sources/links/nonces also remain empty.
+
+**Advisors:** exactly two new RLS/no-policy INFO and two authenticated self-profile SECURITY DEFINER WARN; no new anon-executable definer, mutable search path or missing-RLS finding. Existing two public-RLS-disabled ERROR remain unrelated. One expected unused-index INFO for the new delivery index; no other performance changes. Object-level evidence and references in verification.md.
+
+**Next separate approval — credentials only, no activation.** Configure:
+- AF `UV_PROFILE_WORKER_SECRET`: new unique high-entropy value, at least32 characters, AF only.
+- AF and UV `UV_PROFILE_SYNC_SECRET`: a second new high-entropy value shared only between these backends; different from the worker credential and all SMS credentials.
+- AF `UV_PROFILE_SYNC_ENABLED=false`.
+Never expose values in chat/git/logs, place them in VITE variables, copy project service-role keys between projects, change existing SMS credentials, or configure an unused receiver URL variable. Check existing names before writing; any existing profile credential requires separate review before replacement. No Vault/schedule is created by this credential step. Verify names/digests without exposing values, then bounded unauthenticated receiver401/worker401 behavior; signed pilot remains separately gated.
+
+**Credential access limitation tested:** the Supabase connector exposes no Edge-secret inventory/write operation; terminal has no installed Supabase CLI or SUPABASE_ACCESS_TOKEN. The authorized dashboard access check redirects to sign-in. Do not ask for keys/passwords in chat or reuse connector OAuth credentials. Use the secure dashboard sign-in flow after credential approval; browser credential-entry rules require user handoff for entering/submitting new authentication credentials. No credential was generated, viewed or set in Gate B.
+
+**Remaining:** separate exact frontend release, identity-checked mapping and public/contact/legal data decisions, bounded pilot/scheduler and wider publication approvals. NPN/license/email differences and new-page owner/intake/legal acceptance remain unresolved; allow_provisioning=false. No actual licensing verification. Rollback retains the disabled foundation and all durable IDs, preferences, versions, leases, withdrawal and consent/STOP records; no destructive rollback needed. Allow required withdrawal acknowledgements before any later worker shutdown.
+
 ## 2026-10-18 06:15 UTC — Gate A applied and verified; Gate B awaits approval
 
 Chris's `APPROVE_RLS_CHANGE` at 06:07:44 UTC approved **UV backend foundation only**. This current section supersedes earlier pending/unchanged-production statements below. Gate A is complete; the AgentFlow → UV user workflow is not yet live.
