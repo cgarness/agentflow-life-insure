@@ -1,0 +1,86 @@
+name: Finalize approved isolated UV build
+on:
+  push:
+    branches: ['codex/uv-profile-sync-20261017']
+    paths: ['.github/workflows/uv-profile-finalize.yml']
+permissions:
+  contents: read
+jobs:
+  finalize-exact-source:
+    if: github.repository == 'cgarness/agentflow-life-insure' && github.ref == 'refs/heads/codex/uv-profile-sync-20261017'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify exact source and apply bounded composition and log edits
+        run: |
+          python3 - <<'PY'
+          import os,subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git',*args]).decode().strip()
+          branch='codex/uv-profile-sync-20261017'; head=os.environ['GITHUB_SHA']
+          assert os.environ['GITHUB_REPOSITORY']=='cgarness/agentflow-life-insure'
+          assert os.environ['GITHUB_REF']=='refs/heads/'+branch
+          assert git('rev-parse','HEAD')==head and not git('status','--porcelain')
+          subprocess.run(['git','merge-base','--is-ancestor','77347a0feede9d3fd862d937681cc86a40702dde',head],check=True)
+          verified={
+            'supabase/functions/_shared/uv-profile/protocol.ts':'e9f2019fe5b63c7e1053bb896d179689785033ca',
+            'supabase/functions/_shared/uv-profile/payload.ts':'2ea7165c2db667e29d761ab823f68c98ac56ec09',
+            'supabase/functions/uv-profile-sync-worker/index.ts':'60d0e4383d771b64cbfeca47bf7aec326fcf1699',
+            'supabase/functions/uv-profile-sync-worker/handler.ts':'92c4cfcd8d7c32ec5569ae02d8dd9bd90b7ba888',
+            'src/lib/uv-profile/api.ts':'00acc50718f18aabd06a44d1675ebb808071bc4b',
+            'src/hooks/useUnderwriterVerifiedProfile.ts':'2d8542521ad52851224f86973a04eeefdbd39cc1',
+            'src/components/underwriter-verified/UnderwriterVerifiedProfile.tsx':'fdf3a5c41a3f46ece87437bd25220ac9feef2097',
+            'src/components/underwriter-verified/PublicProfilePreferences.tsx':'356b56ebd9cd4ffb58d07bf7bb91cfa35612992f',
+            'src/test/uvProfile.test.tsx':'e3c888e4ea91021336bd61ff1234ceb8223e49a9',
+            'scripts/tests/uv-profile/paired.mjs':'ba16c57d9fffffa5fb6181b183216618a9bb78f9',
+            'docs/plans/2026-10-17-uv-profile-sync/work-log-entry.md':'a97940b400f6253e3c7ae06fa4f5dfc3be44d3c6',
+          }
+          for name,sha in verified.items():
+              actual=git('hash-object',name)
+              assert actual==sha,(name,actual,sha)
+          changes={
+            'src/components/agent-profile/AgentProfileTab.tsx':('b63717fa2d36630ebcabee93e70117340dfedd50','7a844124514f7054cf9c90359af3e7b80ecbbc81'),
+            'src/components/settings/MyProfile.tsx':('1a57b03bc5e9be2cf2e7fa6eef47192a1a7bdcad','9d45a1bf8923f47fdb9c68cea66508d78319d0ea'),
+            'supabase/config.toml':('1477554cb87af09c8a6fa0f8e5d313153282ee99','1ea67e5d30eccaa66091cbe2f232496c30c36c81'),
+            'supabase/migrations/20261018002956_uv_profile_sync.sql':('1d753a0a59ac78cc9464a82c38f6cb034cfbf1e0','ce3b002ee136e781264a032dec3e479618fb8fef'),
+            'WORK_LOG.md':('cc7462f16785db58a4989eb435b6319e8aa8817c','c37c237947e2733123cd4a631ac2a838a77b1bee'),
+          }
+          for name,(before,after) in changes.items():
+              assert git('hash-object',name)==before,name
+          import_line='import { UnderwriterVerifiedProfile } from "@/components/underwriter-verified/UnderwriterVerifiedProfile";\n'
+          for name,anchor in [('src/components/agent-profile/AgentProfileTab.tsx','      <BusinessSnapshot\n'),('src/components/settings/MyProfile.tsx','      <ProfileStateLicensesCard />\n')]:
+              p=Path(name); text=p.read_text(); assert text.count(anchor)==1
+              p.write_text(import_line+text.replace(anchor,'      <UnderwriterVerifiedProfile />\n\n'+anchor,1))
+          p=Path('supabase/config.toml');p.write_text(p.read_text()+'\n# Dedicated server-to-server worker. Inert until separately approved activation.\n[functions.uv-profile-sync-worker]\nverify_jwt = false\n')
+          p=Path('supabase/migrations/20261018002956_uv_profile_sync.sql');text=p.read_text()
+          replacements=[
+            ('  delivered_version bigint NOT NULL DEFAULT 0,','  delivered_version bigint NOT NULL DEFAULT 0,\n  delivered_revision bigint NOT NULL DEFAULT 0,'),
+            ("OR coalesce(s.version,0)>coalesce(s.delivered_version,0) THEN 'pending'","OR coalesce(s.version,0)>coalesce(s.delivered_version,0) OR coalesce(s.revision,0)>coalesce(s.delivered_revision,0) THEN 'pending'"),
+            ('    delivered_version=CASE WHEN success THEN version ELSE delivered_version END,','    delivered_version=CASE WHEN success THEN version ELSE delivered_version END,\n    delivered_revision=CASE WHEN success OR (p_error IS NULL AND version=delivered_version) THEN revision ELSE delivered_revision END,'),
+          ]
+          for old,new in replacements:
+              assert text.count(old)==1
+              text=text.replace(old,new,1)
+          p.write_text(text)
+          p=Path('WORK_LOG.md');p.write_bytes(Path('docs/plans/2026-10-17-uv-profile-sync/work-log-entry.md').read_bytes()+b'\n'+p.read_bytes())
+          for name,(before,after) in changes.items():
+              assert git('hash-object',name)==after,name
+          self_path='.github/workflows/uv-profile-finalize.yml';Path(self_path).unlink()
+          assert set(git('diff','--name-only').splitlines())==set(changes)|{self_path}
+          assert not git('ls-files','--others','--exclude-standard')
+          subprocess.run(['git','add','--',*changes,self_path],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','config','user.name','github-actions[bot]'],check=True)
+          subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
+          subprocess.run(['git','commit','-m','feat: compose verified public profile controls and record isolated build'],check=True)
+          assert git('ls-remote','origin','refs/heads/'+branch).split()[0]==head,'Concurrent branch update; no force push'
+          subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],check=True)
+          print('VERIFIED_AF_PROFILE_HEAD='+git('rev-parse','HEAD'))
+          PY
