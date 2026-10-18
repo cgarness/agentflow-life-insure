@@ -50,3 +50,5 @@ Repo Schema Gotchas requires public.normalize_us_state for canonical mixed-forma
 
 ## Isolated browser acceptance inventory
 Add scripts/tests/uv-profile/browser/{index.html,entry.tsx,auth.tsx,vite.config.mts,verify.mjs} and a browser job to the existing scoped verification workflow. Run Chromium in GitHub Actions with synthetic RPC/public-read transport and a test-only auth provider; real AF controls/API/hook and UV page/search components. No real credentials, forms, hosted writes, deployment or network-policy changes. Capture desktop/mobile screenshots and verify View/Copy, separate contact choices, status, source updates, public search, withdrawal, and sign-out/View As isolation. This is synthetic browser evidence, not hosted runtime/pilot proof. Metadata/photo handlers remain covered by existing server tests; live hosted acceptance remains gated.
+
+Browser fixture refinement before editing: add af-subject.tsx and uv-subject.tsx as real test entry modules; Vite dependency scanning cannot read a synthetic filesystem module. No production paths change.
