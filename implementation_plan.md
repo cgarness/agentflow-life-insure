@@ -1,3 +1,80 @@
+## 2026-10-18 — SECURITY, APPROVED FOR ISOLATED LOCAL BUILD AND TEST ONLY: seal `public.list_unrestricted_users()` (D0)
+
+**Status:** Chris approved D0's isolated local build and test on 2026-10-18. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. **Not committed, not pushed, no PR, no merge, no Supabase branch, NOT applied to production.** Each of those is a separate decision. No `#APPROVE_RLS_CHANGE` is granted or needed for this item, and none of D6, C1/C2, the contact guard, F8, P5, D16, D17 or the hierarchy repair is part of it.
+
+**Problem (read-only evidence, 2026-10-17/18):** `public.list_unrestricted_users()` is `SECURITY DEFINER`, owned by `postgres` (BYPASSRLS), body `SELECT * FROM public.profiles;`, and executable by `PUBLIC`, `anon` and `authenticated`. Anyone holding the public anon key can read every agency's profiles through `/rest/v1/rpc/list_unrestricted_users`. It has no callers:
+- The repository holds only its generated type entry (`src/integrations/supabase/types.ts`), its baseline definition and two historical prose mentions. There is no `.rpc(...)` call.
+- Production has zero `pg_depend` dependents and no policy, view or function reference to it, and logged no request to it in the 24 hours inspected.
+
+**Preimage (production, under `search_path = "$user", public, extensions`):** `md5(pg_get_functiondef) = 41b9e7d550c0d013c9306db9dd2b7b27`; owner `postgres`; `prosecdef = true`; ACL `{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. The fixture reproduces this exactly (the same md5 on PostgreSQL 16.15). It is never changed to make a test pass.
+
+**Change (one migration, one top-level `DO`):**
+- Guard: refuse unless the function exists with the exact md5 (computed under the pinned search_path), owner, `SECURITY DEFINER` and preimage ACL. Also refuse if any catalog-tracked object depends on it (`pg_depend`; invariant #37). `lock_timeout` is 1 s.
+- `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated`. `postgres` (owner) and `service_role` keep EXECUTE, as intended.
+- Postconditions: ACL exactly `{postgres=X/postgres,service_role=X/postgres}`, no effective EXECUTE for `anon` or `authenticated` (inherited grants included), EXECUTE for `service_role`, definition unchanged.
+- Then restore the caller's `search_path` and `lock_timeout`, and `NOTIFY pgrst, 'reload schema'`, which is delivered only on commit.
+- Nothing is dropped, and no data is read or written.
+
+**Rollback:** **"Re-assert only. Not an inverse. Never re-grants EXECUTE."**
+- It never grants EXECUTE to `PUBLIC`, `anon` or `authenticated`, and never revokes from `postgres` or `service_role`.
+- It refuses, changing nothing, if `postgres` or `service_role` would be left without EXECUTE, or if its REVOKE would change the ACL while dependents exist.
+- No inverse is provided. After the rollback runs, re-applying the forward migration is refused by its preimage guard, as intended.
+
+**Tests:** these are database-role verification on a throwaway local cluster. They are not proof of PostgREST, browser or PostgreSQL 17.6 behaviour. Each scenario starts from a fresh clone of the template; S5 and the S7 re-apply deliberately reuse the database they just sealed.
+- S0 reproduction: before the seal, `anon` and `authenticated` read both synthetic agencies.
+- S1 `anon`, and S2 the `authenticated` role, get `42501 permission denied for function list_unrestricted_users`. Claims are set for realism only; the function reads none.
+- S3 `service_role` and `postgres` still read everything.
+- S4 exact ACL, definition and data, checked from a fresh connection.
+- S5 replay refused. S6 definition drift and ACL drift refused, leaving the drifted state untouched.
+- S7 covers the rollback:
+  - its header is verbatim, and it keeps the seal;
+  - re-applying the forward migration afterwards is refused;
+  - on an unsealed database it seals;
+  - with a dependent present it refuses.
+- S8: a test-only `ddl_command_end` event trigger raises at the REVOKE, in autocommit and `--single-transaction`, and a fresh connection still sees the preimage. On its own S8 cannot tell a single `DO` from a split file; S9 and S11 cover that.
+- S9 checks the shape of the migration file:
+  - exactly one top-level `DO` (procedural `BEGIN`/`END` allowed), with only comments and whitespace outside it;
+  - no other statement or psql metacommand, and no transaction control (or `CALL`) inside, scanning the raw body;
+  - complete command-tag output exactly `DO`.
+  
+  It rejects split, internal-`COMMIT`, hidden-`COMMIT`, `CALL`, upper-case-tag, trailing-statement and metacommand variants, each for its asserted reason. The split variant is also caught by the tag check; the `COMMIT` variant only by the static check.
+- S10 dependency refusal: a real catalog-tracked dependent (a view) in a fresh database makes the real migration fail with its specific error. A fresh connection still sees the original ACL and definition. This does not replace the separate caller/reference inventory.
+- S11: a re-grant injected right after the REVOKE makes the migration's own postcondition, and separately the rollback's, refuse. A fresh connection then sees the prior state.
+- S12: the migration still seals under a hostile session `search_path` (`pg_catalog`).
+- S13: a concurrent uncommitted catalog lock makes the migration fail within about 1 s (lock timeout), leaving the preimage.
+- S14: `NOTIFY pgrst` is delivered after the migration and after the rollback, and not after a refused replay.
+- N1: revoking from `anon` and `authenticated` but not `PUBLIC` must fail S1 and S2.
+- N2: a standalone `REVOKE` run with `psql -X -v ON_ERROR_STOP=1 -f` in autocommit finishes and commits, and a later separate top-level statement fails. A fresh connection sees the committed ACL, and statement 3 never runs. This is why the migration must be one statement.
+
+**Files (exactly eight):**
+1. `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql`
+2. `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql`
+3. `supabase/tests/seal_list_unrestricted_users.sql` (fixture and assertion library)
+4. `scripts/run_seal_list_unrestricted_users_tests.sh` (accepts only `postgres(ql)://postgres[:password]@127.0.0.1|localhost:<port>`; refuses `PGHOSTADDR`/`PGSERVICE`; proves a loopback server, superuser and synthetic scope before every destructive step, fixture clone and cleanup; never prints the URL)
+5. `.github/workflows/seal-list-unrestricted-users.yml` (existing path-filtered `pull_request` trigger plus `workflow_dispatch`, no push trigger)
+   - It runs `postgres:17.6` through the repository's host-network `docker run` pattern (as in `dialer-dnc-backend.yml`), listening on 127.0.0.1 only. A published-port service container would present its bridge address to the runner's loopback proof.
+   - It is authored only and unverified until a PR runs it.
+6. `implementation_plan.md` (this entry)
+7. `WORK_LOG.md` (newest-first entry with the actual results)
+8. `AGENT_RULES.md` (one scoped invariant #20 note, added after local testing: authored and tested locally, NOT applied to production)
+
+**Local operations:**
+- The throwaway PostgreSQL 16 cluster runs as the `postgres` OS user on 127.0.0.1:55448, and only this run's cluster is removed afterwards.
+- Expected failures are captured explicitly.
+- Also run `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`, compared with the unchanged base.
+
+**Later and separately gated (not approved):**
+- **Commit and push.** Before any remote publication, verify what automatic preview branching would do and what it would cost. A preview database is built from the baseline replay, not production history, so D0's exact ACL and md5 guard may refuse there if its ACL differs in any element or order (unverified).
+- **PR.**
+- **Merge.** First confirm that automatic production deployment is still OFF.
+- **Production apply** through `apply_migration`, after re-capturing the preimage.
+- **Rename** the migration and rollback files to the recorded version with identical bytes, and update the runner, suite and workflow references together (invariants #25 and #35 pattern).
+- **`list_migrations`.**
+- **Targeted security advisors:** 0028 and 0029 should clear for this function and 0011 stays. Unrelated changes are reported separately.
+- **Context snapshot.**
+
+---
+
 ## 2026-10-17 — IMPLEMENTED (amended scope approved by Chris at `cc8a2b4`; draft PR, not merged or deployed): Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
 
 **Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as draft PR #455; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.

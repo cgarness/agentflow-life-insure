@@ -1,0 +1,54 @@
+name: Seal list_unrestricted_users verification
+# Real PostgreSQL proof of the D0 seal (supabase/migrations/20261018023911_seal_list_unrestricted_users.sql): client
+# EXECUTE (PUBLIC, anon, authenticated) is revoked on public.list_unrestricted_users(); postgres and service_role keep it.
+# Synthetic fixture only; no production credential exists in this job. PostgreSQL runs with host networking and
+# listens on 127.0.0.1 only (the dialer-dnc-backend pattern), because the runner refuses any server that does not
+# accept it on a loopback address; a published-port service container would present its bridge address instead.
+# Database-role verification only: not PostgREST or browser evidence.
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/*seal_list_unrestricted_users*.sql'
+      - 'supabase/migrations/rollback/*seal_list_unrestricted_users*.sql'
+      - 'supabase/tests/seal_list_unrestricted_users.sql'
+      - 'scripts/run_seal_list_unrestricted_users_tests.sh'
+      - '.github/workflows/seal-list-unrestricted-users.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: seal-list-unrestricted-users-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Start disposable PostgreSQL 17.6 on loopback only
+        run: |
+          docker run --detach --name agentflow-seal-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only postgres:17.6 \
+            -c listen_addresses=127.0.0.1 -c port=55448
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 55448 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: D0 seal suite (S0–S14, N1, N2)
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55448
+        run: |
+          set -o pipefail
+          bash scripts/run_seal_list_unrestricted_users_tests.sh 2>&1 | tee seal-list-unrestricted-users-results.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: seal-list-unrestricted-users-evidence-${{ github.run_id }}
+          path: seal-list-unrestricted-users-results.txt
+          retention-days: 14
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force agentflow-seal-postgres
