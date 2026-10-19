@@ -30,6 +30,7 @@ const af=await database('uv_profile_af_test'),uv=await database('uv_profile_rece
 const org='10000000-0000-4000-8000-000000000001',otherOrg='10000000-0000-4000-8000-000000000002';
 const user='20000000-0000-4000-8000-000000000001',other='20000000-0000-4000-8000-000000000002';
 const bootstrap=`
+SET TIME ZONE 'UTC';
 DO $$ BEGIN
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
@@ -72,6 +73,9 @@ assert.ok(normalizer, 'Canonical state normalizer must be present');
 await af.exec(normalizer[0]);
 await af.exec(await readFile(path.join(root,'supabase/migrations/20261018002956_uv_profile_sync.sql'),'utf8'));
 await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261017222810_agentflow_profile_sync.sql'),'utf8'));
+await uv.exec(await readFile(path.join(peer,'supabase/migrations/20260929183000_public_intake_and_sms_consent.sql'),'utf8'));
+await af.exec(await readFile(path.join(root,'supabase/migrations/20261018170007_uv_profile_exclusions.sql'),'utf8'));
+await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261018170007_agentflow_contact_cards.sql'),'utf8'));
 await build({entryPoints:[path.join(root,'supabase/functions/uv-profile-sync-worker/handler.ts')],bundle:true,platform:'node',format:'esm',outfile:path.join(temp,'worker.mjs'),logLevel:'silent'});
 await build({entryPoints:[path.join(peer,'supabase/functions/agentflow-profile-sync/handler.ts')],bundle:true,platform:'node',format:'esm',outfile:path.join(temp,'receiver.mjs'),logLevel:'silent'});
 await build({entryPoints:[path.join(root,'supabase/functions/_shared/uv-profile/protocol.ts')],bundle:true,platform:'node',format:'esm',outfile:path.join(temp,'protocol.mjs'),logLevel:'silent'});
@@ -133,12 +137,51 @@ await check('scope preconditions reject another identity or organization',async(
  assert.equal((await preferences(true,false,false,0,{profile:user,organization:otherOrg})).error.code,'42501');
  const mismatch=await actor(user,otherOrg,()=>afRpc('get_my_uv_profile'));assert.equal(mismatch.error.code,'42501');
 });
-await check('opt-in publishes allowlisted profile but not contact details',async()=>{
- const saved=await preferences(true);assert.equal(saved.error,null);assert.equal(saved.data.desired_published,true);assert.equal(saved.data.revision,'1');const r=await run();assert.equal(r.status,200);
+await check('new ownerless page requires an explicitly published contact',async()=>{
+ assert.equal((await preferences(true)).error,null);assert.equal((await run()).status,503);
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM public.agents')).rows[0].n,0);
+ assert.equal((await preferences(true,true,false)).error,null);assert.equal((await run()).status,200);
+ assert.equal((await row()).contact_card_only,true);
+});
+await check('existing contact card permits removing every public contact',async()=>{
+ const saved=await preferences(true);assert.equal(saved.error,null);assert.equal(saved.data.desired_published,true);const r=await run();assert.equal(r.status,200);
  const p=await row();assert.equal(p.is_published,true);assert.equal(p.phone,'');assert.equal(p.email,'');assert.equal(p.managed_by_agentflow,true);
  assert.deepEqual(p.state_licenses,['CA - #TEST-VALID']);assert.equal(p.npn,'123456');assert.equal(p.user_id,null);
 });
 const first=await row();
+await check('exclusions deny enrollment, claims, prepared leases and receiver mutations',async()=>{
+ await due();
+ const claim=await afRpc('claim_uv_profile_sync',{p_limit:1});const lease=claim.data[0];
+ await af.query('INSERT INTO private.uv_profile_exclusions VALUES ($1,$2)',[org,user]);
+ await uv.query('INSERT INTO private.agentflow_profile_exclusions VALUES ($1,$2)',[org,user]);
+ const before=(await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a')).rows;
+ assert.equal((await actor(user,org,()=>afRpc('get_my_uv_profile'))).data.available,false);
+ assert.equal((await preferences(true)).error.message,'profile_excluded');
+ assert.deepEqual((await afRpc('claim_uv_profile_sync',{p_limit:5})).data,[]);
+ const prepared=await afRpc('prepare_uv_profile_sync',{p_organization_id:org,p_profile_id:user,p_lease_token:lease.lease_token,p_force_private:false});
+ assert.equal(prepared.error.message,'profile_excluded');
+ const refused=await uvRpc('apply_agentflow_profile_v1',{p_organization_id:org,p_profile_id:user,p_version:999,p_profile:{published:false}});
+ assert.equal(refused.error.message,'profile_excluded');
+ assert.deepEqual((await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a')).rows,before);
+ for(const [db,table] of [[af,'uv_profile_exclusions'],[uv,'agentflow_profile_exclusions']]) {
+  const grants=(await db.query(`SELECT has_table_privilege('authenticated','private.${table}','SELECT') AS readable,has_table_privilege('service_role','private.${table}','INSERT') AS writable`)).rows[0];
+  assert.equal(grants.readable,false);assert.equal(grants.writable,false);
+  await db.exec(`DELETE FROM private.${table}`);
+ }
+ await due();
+});
+await check('ownerless intake is rejected before any consent or request writes',async()=>{
+ const invoke=()=>uv.query(`SELECT public.submit_public_intake($1,'quote',$2,$3,$4,'Synthetic','Visitor','visitor@example.invalid','+15555550123','California',false,false,'2026-09-29-separate-sms','')`,[crypto.randomUUID(),'/'+first.agency_slug+'/'+first.slug,first.agency_slug,first.slug]);
+ await assert.rejects(invoke(),/unknown_agent/);
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM public.intake_requests')).rows[0].n,0);
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM public.sms_consent_events')).rows[0].n,0);
+ // An owned synthetic page keeps its established intake and unchecked consent behavior.
+ await uv.query('UPDATE public.agents SET user_id=$1 WHERE id=$2',[user,first.id]);
+ await invoke();
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM public.intake_requests')).rows[0].n,1);
+ assert.deepEqual((await uv.query('SELECT choice FROM public.sms_consent_events ORDER BY purpose')).rows.map(r=>r.choice),['not_granted','not_granted']);
+ await uv.query('UPDATE public.agents SET user_id=NULL WHERE id=$1',[first.id]);
+});
 await check('canonical full-state names normalize, duplicates collapse and invalid names stay private',async()=>{
  await af.query('INSERT INTO public.agent_state_licenses(organization_id,agent_id,state,license_number,expiration_date) VALUES ($1,$2,$3,$4,current_date+30),($1,$2,$5,$6,current_date+30),($1,$2,$7,$8,current_date+30)',[org,user,'California','TEST-VALID',' New York ','TEST-NY','Atlantis','TEST-INVALID']);
  await due();assert.equal((await run()).status,200);
@@ -209,9 +252,18 @@ await check('linked fields are protected while UV-only content and consent remai
  await uv.exec(`BEGIN; SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claim.sub','${user}',true);`);
  await assert.rejects(uv.exec("UPDATE public.agents SET phone='unauthorized'"));await uv.exec('ROLLBACK');
  await uv.exec(`BEGIN; SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claim.sub','${user}',true); UPDATE public.agents SET bio='Updated genuine biography'; COMMIT;`);
- await af.exec(`UPDATE public.profiles SET first_name='Changed' WHERE id='${user}'`);await due();assert.equal((await run()).status,200);
+ const before=(await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a')).rows;
+ const link=(await uv.query('SELECT * FROM private.agentflow_profile_links')).rows[0];
+ for (const payload of [link.last_payload,{published:false}]) {
+  const result=await uvRpc('apply_agentflow_profile_v1',{p_organization_id:org,p_profile_id:user,p_version:link.last_version,p_profile:payload});
+  assert.equal(result.error.message,'profile_consent_protected');
+ }
+ await af.exec(`UPDATE public.profiles SET first_name='Changed' WHERE id='${user}'`);await due();assert.equal((await run()).status,503);
+ assert.deepEqual((await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a')).rows,before);
  const p=await row();assert.equal(p.first_name,'Test');assert.equal(p.user_id,user);assert.equal(p.slug,first.slug);assert.equal(p.bio,'Updated genuine biography');assert.deepEqual(p.testimonials,['Genuine existing review']);
- assert.equal((await af.query('SELECT warning FROM private.uv_profile_sync')).rows[0].warning,'identity_review_required');
+ // Remove only the synthetic consent link to continue unrelated lifecycle scenarios.
+ await uv.exec('DELETE FROM public.agentflow_consent_links');
+ await af.exec(`UPDATE public.profiles SET first_name='Test' WHERE id='${user}'`);
 });
 await check('agency disable still permits unpublish delivery',async()=>{
  await af.exec('UPDATE private.uv_profile_sources SET enabled=false');await uv.exec('UPDATE private.agentflow_profile_sources SET enabled=false');await due();assert.equal((await run()).status,200);assert.equal((await row()).is_published,false);
@@ -230,6 +282,23 @@ await check('organization transfer retains old tombstone, no implicit new enroll
 await check('deleted profiles retain durable unpublish delivery',async()=>{
  await af.exec(`DELETE FROM public.profiles WHERE id='${user}'`);await due();assert.equal((await run()).status,200);assert.equal((await row()).is_published,false);
  assert.equal((await af.query('SELECT count(*)::int AS n FROM private.uv_profile_sync')).rows[0].n,1);
+});
+await check('provisioning refuses name claims and preserves owners during slug collisions',async()=>{
+ const identity='20000000-0000-4000-8000-000000000090';
+ const payload={published:true,first_name:'Collision',last_name:'Agent',phone:'',email:'collision@example.invalid',npn:'',headshot_url:'',agency:'Synthetic Agency',agency_slug:'synthetic-agency',state_licenses:[]};
+ const existing=(await uv.query(`INSERT INTO public.agents(slug,agency_slug,name,first_name,last_name,agency,user_id) VALUES ('collision-agent','synthetic-agency','Collision Agent','Collision','Agent','Synthetic Agency',$1) RETURNING id`,[other])).rows[0];
+ const deliver=()=>uvRpc('apply_agentflow_profile_v1',{p_organization_id:org,p_profile_id:identity,p_version:1,p_profile:payload});
+ assert.equal((await deliver()).error.message,'profile_link_required');
+ assert.equal((await uv.query('SELECT count(*)::int AS n FROM private.agentflow_profile_links WHERE profile_id=$1',[identity])).rows[0].n,0);
+ await uv.query("UPDATE public.agents SET name='Different Person' WHERE id=$1",[existing.id]);
+ const before=(await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a WHERE id=$1',[existing.id])).rows[0].data;
+ await uv.exec('UPDATE private.agentflow_profile_sources SET allow_provisioning=false');
+ assert.equal((await deliver()).error.message,'profile_link_required');
+ await uv.exec('UPDATE private.agentflow_profile_sources SET allow_provisioning=true');
+ const delivered=await deliver();assert.equal(delivered.error,null);assert.match(delivered.data.public_url,/\/collision-agent-[0-9a-f]{16}$/);
+ assert.deepEqual((await deliver()).data,delivered.data);
+ assert.deepEqual((await uv.query('SELECT to_jsonb(a) AS data FROM public.agents a WHERE id=$1',[existing.id])).rows[0].data,before);
+ const linked=(await uv.query('SELECT agent_id FROM private.agentflow_profile_links WHERE profile_id=$1',[identity])).rows[0];assert.notEqual(linked.agent_id,existing.id);
 });
 if(native) await check('native concurrent workers cannot claim the same delivery',async()=>{
  const {default:postgres}=await import('postgres');const second=postgres(af.url,{max:1});await due();

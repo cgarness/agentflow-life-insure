@@ -17,6 +17,7 @@ try {
   const status={profile_id:'20000000-0000-4000-8000-000000000001',organization_id:'10000000-0000-4000-8000-000000000001',available:true,desired_published:false,phone_public:false,email_public:false,revision:'0',state:'private',public_url:null,last_synced_at:null};
   const row={name:'Test Agent',first_name:'Test',last_name:'Agent',agency:'Synthetic Agency',agency_slug:'synthetic-agency',slug:'test-agent',npn:'123456',phone:'',email:'',bio:'',short_bio:'',headshot_url:'',calendar_url:'#contact',state_licenses:['CA - #TEST'],testimonials:[],is_published:false};
   const context=await browser.newContext({viewport:{width,height:1000},permissions:['clipboard-read','clipboard-write']});
+  row.contact_card_only=true;
   const errors=[],unexpected=[];
   await context.route('**/*',async route=>{
    const request=route.request(),url=new URL(request.url());
@@ -72,6 +73,9 @@ try {
   assert.equal(await publicPage.getByText('Christopher Garness',{exact:false}).count(),0);
   assert.equal(await publicPage.getByText('What Families Are Saying',{exact:true}).count(),0);
   assert.equal(await publicPage.locator('img').count(),0); // neutral missing photo, never another agent
+  assert.equal(await publicPage.locator('input,form,a[href^="sms:"]').count(),0);
+  assert.equal(await publicPage.getByText('Agent Verified',{exact:false}).count(),0);
+  assert.ok((await publicPage.title()).includes('Agent Profile'));
   await publicPage.evaluate(()=>document.fonts.ready);
   // Exercise real scroll reveals before capturing; a full-page screenshot does not scroll.
   for(const section of await publicPage.locator('section').all()){
@@ -89,8 +93,17 @@ try {
   row.name='Updated Agent';row.first_name='Updated';row.npn='987654';row.state_licenses=['NY - #UPDATED'];
   row.headshot_url='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
   await publicPage.reload();await publicPage.getByRole('heading',{name:'Updated Agent',exact:true}).waitFor();
-  await publicPage.getByText('987654',{exact:true}).waitFor();await publicPage.getByText('NY - #UPDATED',{exact:true}).waitFor();
+  await publicPage.getByText(/^NPN:\s*987654$/).waitFor();await publicPage.getByText('NY - #UPDATED',{exact:true}).waitFor();
   assert.ok(await publicPage.locator('img').count()>0);
+  row.phone='';row.email='updated@example.invalid';row.state_licenses=[];
+  await publicPage.reload();await publicPage.getByRole('link',{name:'Email',exact:true}).waitFor();
+  assert.equal(await publicPage.locator('a[href^="tel:"]').count(),0);
+  assert.equal(await publicPage.getByText('NY - #UPDATED',{exact:true}).count(),0);
+  for(const route of ['bookcall','privacy-policy','terms-and-conditions']){
+   await publicPage.goto(origins[1]+'/synthetic-agency/test-agent/'+route);
+   await publicPage.getByRole('heading',{name:'Agent Not Found'}).waitFor();
+   assert.equal(await publicPage.locator('form,input').count(),0);
+  }
   await publicPage.goto(origins[1]);await publicPage.getByPlaceholder('Name, agency, phone, email, or NPN…').fill('Updated');
   await publicPage.getByRole('button',{name:'Search',exact:true}).click();await publicPage.getByText('Updated Agent',{exact:true}).waitFor();
   for(const mode of ['view','out']){
