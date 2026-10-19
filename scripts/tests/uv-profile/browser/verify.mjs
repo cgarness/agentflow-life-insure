@@ -67,16 +67,16 @@ try {
   // Simulate the asynchronous acknowledgement; SQL/actual handlers are proven separately.
   row.is_published=true;row.phone='+15550001000';status.state='published';status.public_url=canonical;
   await page.reload();await profile.getByText('Published',{exact:true}).waitFor();
-  assert.equal(await page.getByRole('link',{name:'Underwriter Verified',exact:true}).getAttribute('href'),canonical);
-  await page.getByRole('button',{name:'Copy link',exact:true}).click();
+  assert.equal(await page.getByRole('link',{name:'View UV Page',exact:true}).getAttribute('href'),canonical);
+  await page.getByRole('button',{name:'Copy Link',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Link copied'}).waitFor();
   assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),canonical);
   await page.getByRole('button',{name:'Agent Profile',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Edit public profile settings'}).count(),0);
-  assert.equal(await page.getByRole('link',{name:'Underwriter Verified',exact:true}).count(),1);
-  assert.equal(await page.getByRole('button',{name:'Copy link',exact:true}).count(),1);
+  assert.equal(await page.getByRole('link',{name:'View UV Page',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Copy Link',exact:true}).count(),1);
   await page.screenshot({path:output+'/'+width+'-published.png',fullPage:true});
-  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'Underwriter Verified',exact:true}).click();const publicPage=await popupPromise;
+  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'View UV Page',exact:true}).click();const publicPage=await popupPromise;
   publicPage.on('pageerror',e=>errors.push(e.message));
   await publicPage.getByRole('heading',{name:'Test Agent',exact:true}).waitFor();
   assert.equal(await publicPage.locator('a[href^="mailto:"]').count(),0);
@@ -126,6 +126,12 @@ try {
   await page.getByRole('button',{name:'Agent Profile',exact:true}).click();
   await page.getByText('Verified',{exact:true}).waitFor();
   await page.screenshot({path:output+'/'+width+'-verified-actions.png',fullPage:true});
+  await page.evaluate(()=>document.documentElement.classList.add('dark'));
+  await page.evaluate(()=>Promise.all(document.getAnimations()
+   .filter(animation=>animation.effect?.getComputedTiming().iterations!==Infinity)
+   .map(animation=>animation.finished.catch(()=>{}))));
+  await page.screenshot({path:output+'/'+width+'-verified-actions-dark.png',fullPage:true});
+  await page.evaluate(()=>document.documentElement.classList.remove('dark'));
   await publicPage.reload();await publicPage.getByLabel('Verified agent',{exact:true}).waitFor();
   await publicPage.getByText('Helping families find the right coverage.',{exact:true}).waitFor();
   assert.equal(await publicPage.locator('input,form,a[href^="sms:"]').count(),0);
