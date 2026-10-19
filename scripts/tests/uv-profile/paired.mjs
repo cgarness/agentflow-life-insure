@@ -306,5 +306,28 @@ if(native) await check('native concurrent workers cannot claim the same delivery
  const b=await second`SELECT public.claim_uv_profile_sync(1) AS data`;assert.equal(b[0].data.length,0);
  await af.exec('COMMIT');await second.end();
 });
+await check('compatible receiver migration and signed confirmation/bio delivery',async()=>{
+ await uv.exec('BEGIN');await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261019032157_agentflow_profile_verification.sql'),'utf8'));await uv.exec('COMMIT');
+ const identity='20000000-0000-4000-8000-000000000091';
+ const payload={published:true,first_name:'Verified',last_name:'Agent',phone:'+15550001000',email:'verified@example.invalid',npn:'123456',headshot_url:'https://images.example.com/photo.png',agency:'Synthetic Agency',agency_slug:'synthetic-agency',state_licenses:['CA - #UNDATED'],profile_verified:true,bio:'A real optional biography.'};
+ async function signed(version,profile){
+  const body=JSON.stringify({schema:1,organization_id:org,profile_id:identity,version:String(version),profile});
+  const timestamp=String(Math.floor(Date.now()/1000)),nonce=crypto.randomUUID();
+  return receiverFetch(RECEIVER_URL,{method:'POST',redirect:'error',body,headers:{'content-type':'application/json','x-uv-timestamp':timestamp,'x-uv-nonce':nonce,'x-uv-signature':await sign(body,secret,timestamp,nonce)}});
+ }
+ assert.equal((await signed(1,payload)).status,200);
+ const id=(await uv.query('SELECT agent_id FROM private.agentflow_profile_links WHERE profile_id=$1',[identity])).rows[0].agent_id;
+ const published=(await uv.query('SELECT * FROM public.agents WHERE id=$1',[id])).rows[0];
+ assert.equal(published.profile_verified,true);assert.equal(published.bio,payload.bio);assert.equal(published.contact_card_only,true);
+ // Backend ownership applies even if a managed agent later has an owner.
+ await uv.query('UPDATE public.agents SET user_id=$1 WHERE id=$2',[user,id]);
+ await uv.exec(`BEGIN; SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claim.sub','${user}',true)`);
+ await assert.rejects(uv.query("UPDATE public.agents SET profile_verified=false,bio='tampered' WHERE id=$1",[id]));await uv.exec('ROLLBACK');
+ assert.equal((await signed(2,{...payload,profile_verified:false,headshot_url:''})).status,200);
+ assert.equal((await uv.query('SELECT profile_verified FROM public.agents WHERE id=$1',[id])).rows[0].profile_verified,false);
+ assert.notEqual((await signed(1,payload)).status,200);
+ assert.equal((await signed(3,{published:false})).status,200);
+ assert.equal((await uv.query('SELECT is_published FROM public.agents WHERE id=$1',[id])).rows[0].is_published,false);
+});
 await af.close();await uv.close();if(admin) await admin.end();
 console.log(`PAIRED_PROFILE_CHECKS=${checks} ENGINE=${native?'native-postgresql':'pglite'}`);

@@ -7,7 +7,7 @@ import { useUnderwriterVerifiedProfile } from '@/hooks/useUnderwriterVerifiedPro
 import { UnderwriterVerifiedProfile } from '@/components/underwriter-verified/UnderwriterVerifiedProfile';
 
 const mock=vi.hoisted(()=>({rpc:vi.fn(),auth:{} as Record<string,unknown>}));
-vi.mock('@/integrations/supabase/client',()=>({supabase:{rpc:mock.rpc}}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{rpc:async(name:string,args?:unknown)=>{const result=await mock.rpc(name,args);return name==='get_my_uv_verification'&&result?.data?{...result,data:{status:result.data,verified:false}}:result;}}}));
 vi.mock('@/contexts/AuthContext',()=>({useAuth:()=>mock.auth}));
 const user='20000000-0000-4000-8000-000000000001',org='10000000-0000-4000-8000-000000000001';
 const scope={profileId:user,organizationId:org};

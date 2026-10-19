@@ -22,7 +22,7 @@ export function PublicProfilePreferences({status,phone,email,saving,onClose,onSa
       onInteractOutside={event => {if (saving) event.preventDefault();}}>
       <DialogHeader><DialogTitle>Public profile</DialogTitle></DialogHeader>
       <form onSubmit={submit} className="space-y-5">
-        <DialogDescription>Publish your name, photo, NPN and current state licenses on Underwriter Verified.</DialogDescription>
+        <DialogDescription>Publish your name, photo, NPN and state licenses on Underwriter Verified.</DialogDescription>
         <label className="flex items-center gap-3 text-sm font-medium">
           <Checkbox checked={value.published} disabled={saving || (!status.available && !value.published)}
             onCheckedChange={checked => setValue(v => ({...v,published:checked===true}))}/>Publish profile

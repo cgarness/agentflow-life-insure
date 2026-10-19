@@ -13,7 +13,7 @@ const browser=await chromium.launch({headless:true});
 const results=[];
 try {
  for(const width of [1440,390]){
-  let reads=0,writes=0;
+  let reads=0,writes=0,verified=false;
   const status={profile_id:'20000000-0000-4000-8000-000000000001',organization_id:'10000000-0000-4000-8000-000000000001',available:true,desired_published:false,phone_public:false,email_public:false,revision:'0',state:'private',public_url:null,last_synced_at:null};
   const row={name:'Test Agent',first_name:'Test',last_name:'Agent',agency:'Synthetic Agency',agency_slug:'synthetic-agency',slug:'test-agent',npn:'123456',phone:'',email:'',bio:'',short_bio:'',headshot_url:'',calendar_url:'#contact',state_licenses:['CA - #TEST'],testimonials:[],is_published:false};
   const context=await browser.newContext({viewport:{width,height:1000},permissions:['clipboard-read','clipboard-write']});
@@ -25,7 +25,14 @@ try {
    if(url.origin==='http://127.0.0.1:54321'){
     if(request.method()==='OPTIONS')return route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}});
     const headers={'content-type':'application/json','access-control-allow-origin':'*'};
-    if(url.pathname.endsWith('/rpc/get_my_uv_profile')){reads++;return route.fulfill({headers,body:JSON.stringify(status)});}
+    if(url.pathname.endsWith('/rpc/get_my_uv_verification')){reads++;return route.fulfill({headers,body:JSON.stringify({status,verified})});}
+    if(url.pathname.endsWith('/rpc/get_my_uv_setup')) return route.fulfill({headers,body:JSON.stringify({profile_id:status.profile_id,organization_id:status.organization_id,revision:status.revision,snapshot:'a'.repeat(32),draft:{first_name:'Test',last_name:'Agent',phone:'+15550001000',email:'synthetic@example.invalid',npn:'123456',avatar_url:'',bio:'',licenses:[{id:'30000000-0000-4000-8000-000000000001',state:'California',license_number:'TEST',expiration_date:null}]}})});
+    if(url.pathname.endsWith('/rpc/complete_my_uv_setup')){
+     const args=request.postDataJSON();assert.equal(args.p_expected_revision,status.revision);assert.equal(args.p_profile_id,status.profile_id);
+     assert.equal(args.p_draft.licenses[0].expiration_date,null);assert.equal(args.p_draft.bio,'Helping families find the right coverage.');assert.ok(args.p_draft.avatar_url.startsWith('data:image/png;base64,'));
+     writes++;status.state='pending';status.revision=String(Number(status.revision)+1);row.headshot_url=args.p_draft.avatar_url;row.bio=args.p_draft.bio;
+     return route.fulfill({headers,body:JSON.stringify({status,verified:false})});
+    }
     if(url.pathname.endsWith('/rpc/set_my_uv_profile')){
      writes++;const args=request.postDataJSON();
      assert.equal(args.p_profile_id,status.profile_id);assert.equal(args.p_organization_id,status.organization_id);assert.equal(args.p_expected_revision,status.revision);
@@ -94,12 +101,40 @@ try {
   await publicPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   assert.ok(await publicPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Public profile has no horizontal overflow');
   await publicPage.screenshot({path:output+'/'+width+'-uv.png',fullPage:true});
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Get verified',exact:true}).click();
+  await dialog.getByLabel('First name',{exact:true}).waitFor();
+  assert.equal(await dialog.getByLabel('First name',{exact:true}).inputValue(),'Test');
+  await dialog.getByLabel('Profile photo',{exact:true}).setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});
+  await dialog.getByAltText('Profile preview').waitFor();
+  await page.screenshot({path:output+'/'+width+'-wizard-profile.png',fullPage:true});
+  await dialog.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.screenshot({path:output+'/'+width+'-wizard-licenses.png',fullPage:true});
+  await dialog.getByRole('button',{name:'Continue',exact:true}).click();
+  await dialog.getByRole('textbox',{name:/About you/}).fill('Helping families find the right coverage.');
+  assert.equal(await dialog.getByRole('button',{name:'Confirm & get verified'}).isEnabled(),false);
+  await dialog.getByRole('checkbox',{name:/I confirm/}).check();
+  await page.screenshot({path:output+'/'+width+'-wizard-review.png',fullPage:true});
+  await dialog.getByRole('button',{name:'Confirm & get verified'}).click();
+  await dialog.getByRole('heading',{name:'Setting up your agent site'}).waitFor();
+  assert.equal(await dialog.getByText('Your agent site is ready').count(),0);
+  status.state='published';verified=true;row.profile_verified=true;
+  await dialog.getByRole('heading',{name:'Your agent site is ready'}).waitFor();
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Wizard has no horizontal overflow');
+  await page.screenshot({path:output+'/'+width+'-wizard-complete.png',fullPage:true});
+  await dialog.getByRole('button',{name:'Done',exact:true}).click();
+  await page.getByRole('button',{name:'Agent Profile',exact:true}).click();
+  await page.getByText('Verified',{exact:true}).waitFor();
+  await page.screenshot({path:output+'/'+width+'-verified-actions.png',fullPage:true});
+  await publicPage.reload();await publicPage.getByLabel('Verified agent',{exact:true}).waitFor();
+  await publicPage.getByText('Helping families find the right coverage.',{exact:true}).waitFor();
+  assert.equal(await publicPage.locator('input,form,a[href^="sms:"]').count(),0);
   row.name='Updated Agent';row.first_name='Updated';row.npn='987654';row.state_licenses=['NY - #UPDATED'];
   row.headshot_url='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
   await publicPage.reload();await publicPage.getByRole('heading',{name:'Updated Agent',exact:true}).waitFor();
   await publicPage.getByText(/^NPN:\s*987654$/).waitFor();await publicPage.getByText('NY - #UPDATED',{exact:true}).waitFor();
   assert.ok(await publicPage.locator('img').count()>0);
-  row.phone='';row.email='updated@example.invalid';row.state_licenses=[];
+  row.phone='';row.email='updated@example.invalid';row.state_licenses=[];row.profile_verified=false;verified=false;
   await publicPage.reload();await publicPage.getByRole('link',{name:'Email',exact:true}).waitFor();
   assert.equal(await publicPage.locator('a[href^="tel:"]').count(),0);
   assert.equal(await publicPage.getByText('NY - #UPDATED',{exact:true}).count(),0);
@@ -124,7 +159,7 @@ try {
   assert.equal(await publicPage.locator('a[href^="tel:"],a[href^="mailto:"]').count(),0);
   await publicPage.goto(origins[1]);await publicPage.getByPlaceholder('Name, agency, phone, email, or NPN…').fill('Updated');
   await publicPage.getByRole('button',{name:'Search',exact:true}).click();await publicPage.getByText('No agents found. Try a different search term.').waitFor();
-  assert.equal(writes,2);assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
+  assert.equal(writes,3);assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
   for(const p of [page,publicPage])assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow');
   results.push({width,passed:true,reads,writes});await context.close();
  }

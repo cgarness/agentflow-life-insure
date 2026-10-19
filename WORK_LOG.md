@@ -1,3 +1,15 @@
+## 2026-10-19 — UV profile verification wizard (prepared; NOT live)
+
+Chris requested an expiration-free profile confirmation wizard, optional bio, green completion badges and new buttons at 20:19 PDT October 18. Scoped implementation is on `codex/uv-verification-wizard-20261019`; production migration/Edge/frontend release remains gated.
+
+AF now prefills a three-step Settings wizard, validates photo/full name/phone/email/NPN/canonical numbered state license, atomically saves confirmation and bio, and shows success only after the matching published acknowledgment. Profile navigation uses dark slate and outlined copy actions with emerald status. Missing required fields remove the derived badge on subsequent saved changes. Dates remain stored but do not gate profile confirmation or schedule expiry work. Badge means agent-confirmed profile completeness, not independent license verification. Account/tenant changes fail closed; optimistic snapshots reject stale overwrites. Existing status RPC stays compatible for old clients.
+
+UV accepts optional signed bio/profile_verified fields, displays the explicit server-owned managed badge, and protects managed bio/verification from client writes. Managed pages retain contact-only capabilities. Protected CG Financial/A2P identity, intake, consent, ownership, source activation, RLS, messaging and dialer are unchanged.
+
+Initial validation: AF 120 focused frontend tests; UV 125 full-suite tests; 25 paired SQL/real-handler scenarios and 10 new wizard SQL scenarios on isolated PGlite; builds pass. Exact-head native/browser CI remains required before release. See `docs/plans/2026-10-19-uv-verification/implementation_plan.md` and `release.md`. No production writes or secrets accessed.
+
+---
+
 ## 2026-10-19 — Gold UV profile actions and Settings-only preferences
 
 Chris requested gold UV buttons, no publishing/settings control on Agent Profile, and a public layout matching his existing page. Agent Profile now renders only gold Underwriter Verified (open page) and Copy link actions. Unpublished pages show disabled actions without invented links. Publication/contact controls remain in Settings > My Profile. The protected own-account page receives both navigation actions without enrollment or any sync RPC. Existing authorization, source guards, publication choices and save-driven synchronization are unchanged.

@@ -44,8 +44,8 @@ jobs:
           assert outputs[0]==outputs[1], 'New app typecheck diagnostics: '+str(outputs[1])
           print('APP_TYPECHECK_BASELINE_MATCH=true')
           PY
-      - run: npx vitest run src/test/uvProfile.test.tsx src/components/agent-profile src/components/settings/profile/__tests__/myProfileSurface.test.tsx src/lib/__tests__/profileSetupWizardRemoval.test.ts
-      - run: npx eslint src/lib/uv-profile src/hooks/useUnderwriterVerifiedProfile.ts src/components/underwriter-verified src/test/uvProfile.test.tsx src/components/agent-profile/AgentProfileTab.tsx src/components/settings/MyProfile.tsx supabase/functions/_shared/uv-profile supabase/functions/uv-profile-sync-worker
+      - run: npx vitest run src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile src/components/settings/profile/__tests__/myProfileSurface.test.tsx src/lib/__tests__/profileSetupWizardRemoval.test.ts
+      - run: npx eslint src/lib/uv-profile src/hooks/useUnderwriterVerifiedProfile.ts src/components/underwriter-verified src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile/AgentProfileTab.tsx src/components/settings/MyProfile.tsx supabase/functions/_shared/uv-profile supabase/functions/uv-profile-sync-worker
       - run: npm run build
       - name: Preserve exact credential-free source
         if: always()
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: cgarness/underwriter-verified
-          ref: 34261179f3f64dd110396a31f9845568cb2d79e1
+          ref: 0dd9006f28dbe3c53c3492f6d90dd5e16c719216
           path: .uv-peer
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -98,7 +98,9 @@ jobs:
       - name: Save-driven delivery and idle queue checks
         env:
           UV_PROFILE_NATIVE_DB_URL: postgres://postgres:synthetic-test-only@127.0.0.1:5432/postgres
-        run: node scripts/tests/uv-profile/save-driven.mjs
+        run: |
+          node scripts/tests/uv-profile/save-driven.mjs
+          node scripts/tests/uv-profile/verification.mjs
       - name: Native Deno typecheck of both complete Edge entrypoints
         run: npx --yes deno@2.5.4 check supabase/functions/uv-profile-sync-worker/index.ts .uv-peer/supabase/functions/agentflow-profile-sync/index.ts
   browser:
@@ -112,7 +114,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: cgarness/underwriter-verified
-          ref: 34261179f3f64dd110396a31f9845568cb2d79e1
+          ref: 0dd9006f28dbe3c53c3492f6d90dd5e16c719216
           path: .uv-peer
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

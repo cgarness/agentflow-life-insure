@@ -2,7 +2,7 @@ import { record, UUID, version } from './protocol.ts';
 
 export type PublicProfile = { published: false } | {
   published: true; first_name: string; last_name: string; phone: string; email: string;
-  agency: string; agency_slug: string; npn: string; headshot_url: string; state_licenses: string[];
+  agency: string; agency_slug: string; npn: string; headshot_url: string; state_licenses: string[]; bio?: string; profile_verified?: boolean;
 };
 export interface ProfileEnvelope {
   schema: 1; organization_id: string; profile_id: string; version: string; profile: PublicProfile;
@@ -49,7 +49,10 @@ export function parseEnvelope(value: unknown): ProfileEnvelope {
   const p = value.profile;
   if (p.published === false && Object.keys(p).length === 1) return value as unknown as ProfileEnvelope;
   const fields = ['published','first_name','last_name','phone','email','agency','agency_slug','npn','headshot_url','state_licenses'];
-  if (p.published !== true || Object.keys(p).length !== fields.length || Object.keys(p).some(k => !fields.includes(k))
+  if (p.published !== true || fields.some(k => !(k in p)) || Object.keys(p).some(k => !fields.includes(k) && !['bio','profile_verified'].includes(k))
+    || ('bio' in p && (typeof p.bio !== 'string' || p.bio.length > 2000))
+    || ('profile_verified' in p && typeof p.profile_verified !== 'boolean')
+    || (p.profile_verified === true && (!p.headshot_url || !text(p.npn,40,true) || !Array.isArray(p.state_licenses) || p.state_licenses.length === 0))
     || !text(p.first_name,50,true) || !text(p.last_name,50,true) || !text(p.phone,40) || !text(p.email,254)
     || !text(p.agency,120,true) || !text(p.agency_slug,80,true) || !/^[a-z0-9][a-z0-9-]{0,78}[a-z0-9]$/.test(p.agency_slug)
     || !text(p.npn,40) || typeof p.headshot_url !== 'string' || !safePhoto(p.headshot_url)
