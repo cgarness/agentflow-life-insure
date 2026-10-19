@@ -1,3 +1,9 @@
+## 2026-10-19 — Agent profile header actions
+
+Chris requested that UV actions move into the right-hand profile header row and that the duplicate Profile settings action be removed. ProfileHero now accepts an optional action slot; AgentProfileTab places the existing UV component there once. View Agent Page, Copy Link and Edit profile share a wrapping action row and 44px height. The verified badge and all existing UV access/navigation behavior remain unchanged. The browser fixture now renders the real profile hero for desktop/mobile inspection.
+
+Validation: 44 existing focused tests, root TypeScript, scoped ESLint and whitespace checks passed. React review: composed slot, no new effects or requests, accessible existing controls, unchanged data guards. Exact-head preview/browser and production evidence will be recorded on the PR. No backend, data, A2P or other feature changes. Plan: docs/plans/2026-10-19-uv-action-row/implementation_plan.md.
+
 ## 2026-10-19 — Clear agent page navigation label
 
 Chris approved View Agent Page at 22:00 PDT October 18. Updated only the shared navigation label (including disabled state) and existing test/browser selectors. Underwriter Verified remains the section/group identity; Copy Link, soft emerald styling, URLs, verification and copy behavior remain unchanged.
