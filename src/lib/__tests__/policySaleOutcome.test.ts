@@ -171,6 +171,10 @@ describe("operation status and messages", () => {
     expect(commissionNotice(slot("recorded"), 1)).toBeNull();
     expect(commissionNotice(slot("needs_attention"), 1)).toMatch(/needs attention/);
     expect(commissionNotice(slot("awaiting_confirmation"), 1)).toMatch(/awaits confirmation/);
+    // Superseded: an estimate was recorded later for the policy, so nothing is pending.
+    expect(parseCommissionOutcome({ status: "evidence_recorded", slots: [{ slot: "primary", policy_id: null, status: "superseded", code: null }] }))
+      .toEqual({ status: "evidence_recorded", slots: [{ slot: "primary", policyId: null, status: "superseded", code: null }] });
+    expect(commissionNotice(slot("superseded"), 1)).toBeNull();
     expect(commissionNotice({ status: "not_recorded", slots: [] }, 1)).toMatch(/wasn't recorded/);
     expect(commissionNotice({ status: "not_recorded", slots: [] }, 0)).toBeNull();
   });

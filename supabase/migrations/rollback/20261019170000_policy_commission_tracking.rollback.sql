@@ -56,6 +56,7 @@ DROP FUNCTION private.policy_commission_grid_facts(uuid, jsonb);
 DROP FUNCTION private.policy_commission_policy_facts(uuid[]);
 DROP FUNCTION private.policy_commission_operation_facts(text, text, uuid, text, uuid[]);
 
+ALTER TABLE public.policy_commission_captures DROP CONSTRAINT policy_commission_captures_resolved_fk;
 DROP TABLE public.policy_commission_events;
 DROP TABLE public.policy_commission_receipts;
 DROP TABLE public.policy_commission_installments;

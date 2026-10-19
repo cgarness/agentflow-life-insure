@@ -42,7 +42,8 @@ export function newSaleAttempt(frozen: PreparedSale | null = null): SaleAttempt 
   return { sent: false, frozen, prepared: null, result: null };
 }
 
-export type SlotStatus = "recorded" | "awaiting_confirmation" | "needs_attention" | "not_recorded" | "dismissed";
+/** "superseded": an estimate was recorded later for the policy while this sale-time capture was open (never confirmed). */
+export type SlotStatus = "recorded" | "awaiting_confirmation" | "needs_attention" | "not_recorded" | "dismissed" | "superseded";
 export interface SlotOutcome {
   slot: string;
   policyId: string | null;
@@ -126,7 +127,7 @@ export function freezeSale(prepared: PreparedSale): PreparedSale {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const SLOT_STATUSES: readonly SlotStatus[] = ["recorded", "awaiting_confirmation", "needs_attention", "not_recorded", "dismissed"];
+const SLOT_STATUSES: readonly SlotStatus[] = ["recorded", "awaiting_confirmation", "needs_attention", "not_recorded", "dismissed", "superseded"];
 const OUTCOME_STATUSES: readonly CommissionOutcomeStatus[] = [
   "evidence_recorded", "already_captured", "other_operation", "not_recorded", "unavailable", "not_applicable", "no_new_policy",
 ];
@@ -191,7 +192,8 @@ export function commissionNotice(outcome: CommissionOutcome, sentSlots: number):
   if (outcome.slots.some((slot) => slot.status === "awaiting_confirmation")) {
     return "Policy saved; the commission estimate awaits confirmation by the agent or an admin.";
   }
-  if (outcome.slots.some((slot) => slot.status !== "recorded")) {
+  // A superseded capture already has an estimate (recorded later), so it needs no notice.
+  if (outcome.slots.some((slot) => slot.status !== "recorded" && slot.status !== "superseded")) {
     return "Policy saved; the commission estimate wasn't recorded. You can record it from the contact.";
   }
   return null;

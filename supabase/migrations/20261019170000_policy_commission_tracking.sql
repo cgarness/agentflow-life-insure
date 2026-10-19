@@ -158,11 +158,15 @@ CREATE TABLE public.policy_commission_captures (
   capture_hash        text        NOT NULL CHECK (capture_hash ~ '^[0-9a-f]{64}$'),
   captured_by         uuid        NOT NULL,
   captured_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
-  status              text        NOT NULL CHECK (status IN ('recorded', 'awaiting_confirmation', 'needs_attention', 'dismissed')),
+  status              text        NOT NULL CHECK (status IN ('recorded', 'awaiting_confirmation', 'needs_attention', 'dismissed',
+                                                         'superseded')),
   attention_code      text        CHECK (attention_code IS NULL OR attention_code ~ '^[a-z_]{3,40}$'),
   status_reason       text        CHECK (status_reason IS NULL OR char_length(status_reason) BETWEEN 3 AND 200),
   status_by           uuid,
   status_at           timestamptz,
+  -- 'superseded': an estimate was recorded later for this policy while the capture was still open. The capture keeps
+  -- its original inputs and provenance; it was not confirmed.
+  resolved_by_estimate_id uuid,
   CONSTRAINT policy_commission_captures_handoff_fk FOREIGN KEY (handoff_id, organization_id)
     REFERENCES public.policy_commission_handoffs (id, organization_id),
   CONSTRAINT policy_commission_captures_win_fk FOREIGN KEY (win_id, organization_id, policy_id, credited_agent_id)
@@ -170,7 +174,8 @@ CREATE TABLE public.policy_commission_captures (
   CONSTRAINT policy_commission_captures_slot UNIQUE (handoff_id, slot),
   CONSTRAINT policy_commission_captures_policy UNIQUE (organization_id, policy_id),
   CONSTRAINT policy_commission_captures_link UNIQUE (id, organization_id, policy_id, credited_agent_id),
-  CONSTRAINT policy_commission_captures_attention CHECK ((status = 'needs_attention') = (attention_code IS NOT NULL))
+  CONSTRAINT policy_commission_captures_attention CHECK ((status = 'needs_attention') = (attention_code IS NOT NULL)),
+  CONSTRAINT policy_commission_captures_resolution CHECK ((status = 'superseded') = (resolved_by_estimate_id IS NOT NULL))
 );
 
 CREATE TABLE public.policy_commission_estimates (
@@ -231,6 +236,9 @@ CREATE TABLE public.policy_commission_estimates (
 );
 CREATE UNIQUE INDEX policy_commission_estimates_current
   ON public.policy_commission_estimates (organization_id, policy_id) WHERE status IN ('active', 'on_hold');
+ALTER TABLE public.policy_commission_captures ADD CONSTRAINT policy_commission_captures_resolved_fk
+  FOREIGN KEY (resolved_by_estimate_id, organization_id, policy_id, credited_agent_id)
+  REFERENCES public.policy_commission_estimates (id, organization_id, policy_id, credited_agent_id);
 
 CREATE TABLE public.policy_commission_installments (
   id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -312,6 +320,8 @@ CREATE UNIQUE INDEX policy_commission_events_request
 
 CREATE INDEX policy_commission_handoffs_client ON public.policy_commission_handoffs (organization_id, client_id);
 CREATE INDEX policy_commission_captures_handoff ON public.policy_commission_captures (handoff_id, organization_id);
+CREATE INDEX policy_commission_captures_resolved
+  ON public.policy_commission_captures (resolved_by_estimate_id, organization_id, policy_id, credited_agent_id);
 CREATE INDEX policy_commission_captures_win ON public.policy_commission_captures (win_id, organization_id, policy_id, credited_agent_id);
 CREATE INDEX policy_commission_estimates_agent ON public.policy_commission_estimates (organization_id, credited_agent_id);
 CREATE INDEX policy_commission_estimates_win ON public.policy_commission_estimates (win_id, organization_id, policy_id, credited_agent_id);
@@ -348,7 +358,7 @@ END $privileges$;
 REVOKE ALL ON SEQUENCE public.policy_commission_events_id_seq FROM PUBLIC, anon, authenticated, service_role;
 GRANT USAGE ON SEQUENCE public.policy_commission_events_id_seq TO agentflow_policy_commission_writer;
 
-GRANT UPDATE (status, attention_code, status_reason, status_by, status_at)
+GRANT UPDATE (status, attention_code, status_reason, status_by, status_at, resolved_by_estimate_id)
   ON public.policy_commission_captures TO agentflow_policy_commission_writer;
 GRANT UPDATE (status, status_reason, status_by, status_at, superseded_by, schedule_start_on, schedule_start_source,
               schedule_set_by, schedule_set_at, state_revision)
@@ -419,7 +429,8 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN RETURN NEW; END IF;
   v_mutable := CASE TG_TABLE_NAME
-    WHEN 'policy_commission_captures' THEN ARRAY['status', 'attention_code', 'status_reason', 'status_by', 'status_at']
+    WHEN 'policy_commission_captures' THEN ARRAY['status', 'attention_code', 'status_reason', 'status_by', 'status_at',
+      'resolved_by_estimate_id']
     WHEN 'policy_commission_estimates' THEN ARRAY['status', 'status_reason', 'status_by', 'status_at', 'superseded_by',
       'schedule_start_on', 'schedule_start_source', 'schedule_set_by', 'schedule_set_at', 'state_revision']
     WHEN 'policy_commission_installments' THEN ARRAY['timing_precision', 'expected_on', 'timing_source', 'timing_set_by', 'timing_set_at']
@@ -429,8 +440,8 @@ BEGIN
     RAISE EXCEPTION '% rows are immutable apart from their audited state', TG_TABLE_NAME USING ERRCODE = '23514';
   END IF;
   -- Field access goes through jsonb: one trigger function serves tables with different columns.
-  IF TG_TABLE_NAME = 'policy_commission_captures' AND to_jsonb(OLD)->>'status' IN ('recorded', 'dismissed') THEN
-    RAISE EXCEPTION 'A recorded or dismissed capture is final' USING ERRCODE = '23514';
+  IF TG_TABLE_NAME = 'policy_commission_captures' AND to_jsonb(OLD)->>'status' IN ('recorded', 'dismissed', 'superseded') THEN
+    RAISE EXCEPTION 'A recorded, dismissed or superseded capture is final' USING ERRCODE = '23514';
   END IF;
   IF TG_TABLE_NAME = 'policy_commission_receipts' AND to_jsonb(OLD)->>'voided_at' IS NOT NULL THEN
     RAISE EXCEPTION 'A voided receipt is final' USING ERRCODE = '23514';
@@ -1154,6 +1165,7 @@ BEGIN
   IF policy_commission_authz.access(c.credited_agent_id) IS DISTINCT FROM 'write' THEN
     RAISE EXCEPTION 'Not authorized to confirm this commission' USING ERRCODE = '42501';
   END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(c.organization_id || ':policy-commission-policy:' || c.policy_id, 0));
   SELECT * INTO c FROM public.policy_commission_captures WHERE id = p_capture_id FOR UPDATE;
   IF c.status NOT IN ('awaiting_confirmation', 'needs_attention') THEN
     RAISE EXCEPTION 'This capture is no longer open' USING ERRCODE = '22023';
@@ -1215,7 +1227,7 @@ DECLARE v_hash text := encode(sha256(convert_to(jsonb_build_array('later', p_pol
           p_expected_revision, p_reason)::text, 'UTF8')), 'hex');
   v_prior jsonb; v_policy jsonb; v_grid jsonb; v_eval jsonb; old public.policy_commission_estimates%ROWTYPE;
   v_new uuid := gen_random_uuid(); v_carry jsonb; v_res jsonb; v_uid uuid := policy_commission_authz.actor_uid();
-  v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_before jsonb;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_before jsonb; v_open uuid;
 BEGIN
   v_prior := private.policy_commission_replay(p_request_id, v_hash);
   IF v_prior IS NOT NULL THEN RETURN v_prior; END IF;
@@ -1227,6 +1239,14 @@ BEGIN
   IF policy_commission_authz.access((v_policy->>'agent_id')::uuid) IS DISTINCT FROM 'write' THEN
     RAISE EXCEPTION 'Not authorized to record this commission' USING ERRCODE = '42501';
   END IF;
+  -- Serialize with confirmation of the policy's sale-time capture: whichever commits first wins, and the other then
+  -- sees the committed state (an estimate already recorded, or a capture no longer open).
+  PERFORM pg_advisory_xact_lock(hashtextextended(policy_commission_authz.actor_org() || ':policy-commission-policy:'
+                                                 || p_policy_id, 0));
+  SELECT c.id INTO v_open FROM public.policy_commission_captures c
+   WHERE c.organization_id = policy_commission_authz.actor_org() AND c.policy_id = p_policy_id
+     AND c.status IN ('awaiting_confirmation', 'needs_attention')
+     FOR UPDATE;
   IF p_replace_estimate_id IS NOT NULL THEN
     old := private.policy_commission_lock_estimate(p_replace_estimate_id, p_expected_revision, false);
     IF p_expected_revision IS NULL THEN RAISE EXCEPTION 'Replacement needs the loaded revision' USING ERRCODE = '22023'; END IF;
@@ -1260,6 +1280,17 @@ BEGIN
   v_res := private.policy_commission_insert_estimate(v_new, v_uid, v_policy, p_inputs, v_eval, NULL, 'recorded_later',
              p_request_id, v_hash, v_carry, CASE WHEN old.status = 'on_hold' THEN 'on_hold' ELSE 'active' END,
              CASE WHEN old.status = 'on_hold' THEN old.status_reason END);
+  IF v_open IS NOT NULL THEN
+    UPDATE public.policy_commission_captures SET status = 'superseded', attention_code = NULL,
+           status_reason = 'Estimate recorded later with current rates', status_by = v_uid, status_at = clock_timestamp(),
+           resolved_by_estimate_id = v_new
+     WHERE id = v_open;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.policy_commission_captures c
+              WHERE c.organization_id = policy_commission_authz.actor_org() AND c.policy_id = p_policy_id
+                AND c.status IN ('awaiting_confirmation', 'needs_attention')) THEN
+    RAISE EXCEPTION 'The sale-time estimate for this policy could not be resolved' USING ERRCODE = '42501';
+  END IF;
   IF p_replace_estimate_id IS NOT NULL THEN
     UPDATE public.policy_commission_estimates SET superseded_by = v_new WHERE id = old.id;
     INSERT INTO public.policy_commission_events (organization_id, estimate_id, policy_id, credited_agent_id, event_type,

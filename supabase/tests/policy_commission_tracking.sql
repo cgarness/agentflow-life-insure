@@ -163,6 +163,42 @@ SELECT test_assert(pc_r('dismiss') = pc_r('dismiss_retry') AND pc_r('later') = p
                    'dismissed capture, then a labelled later estimate');
 SELECT test_assert(pc_r('later_changed') = '{"code": "rate_changed", "status": "changed"}', 'later entry never records a different figure');
 
+-- ── A later estimate resolves the policy's still-open sale-time capture: terminal 'superseded', never confirmed ──
+SELECT pc_login(11);
+SET ROLE authenticated;
+INSERT INTO pc_results VALUES ('open_sale', record_client_policy_handoff(test_id(5711), pc_client_id('Track'),
+  jsonb_build_object('policy_type', 'Term', 'carrier', 'Synthetic Life', 'policy_number', 'S-1', 'premium', '50.00', 'sold_date', '2026-10-02'), false,
+  pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '96.00', '50.00', 57600, 43200))));
+INSERT INTO pc_results VALUES ('open_read', (SELECT p FROM jsonb_array_elements(get_client_policy_commissions(pc_client_id('Track'))->'policies') p
+  WHERE p->>'policy_id' = test_id(5711)::text));
+INSERT INTO pc_results VALUES ('resolve', record_policy_commission_estimate_later(test_id(5712), test_id(5711),
+  pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975) - 'slot', NULL, NULL, NULL));
+INSERT INTO pc_results VALUES ('resolve_retry', record_policy_commission_estimate_later(test_id(5712), test_id(5711),
+  pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975) - 'slot', NULL, NULL, NULL));
+INSERT INTO pc_results VALUES ('resolved_read', (SELECT p FROM jsonb_array_elements(get_client_policy_commissions(pc_client_id('Track'))->'policies') p
+  WHERE p->>'policy_id' = test_id(5711)::text));
+SELECT pc_reject(format('SELECT confirm_policy_commission_capture(%L, %L)', test_id(5713), pc_r('open_read')->'capture'->>'id'), '22023');
+SELECT pc_reject(format('SELECT dismiss_policy_commission_capture(%L, %L, %L)', test_id(5714), pc_r('open_read')->'capture'->>'id', 'Too late'), '22023');
+INSERT INTO pc_results VALUES ('open_sale_replay', record_client_policy_handoff(test_id(5711), pc_client_id('Track'),
+  jsonb_build_object('policy_type', 'Term', 'carrier', 'Synthetic Life', 'policy_number', 'S-1', 'premium', '50.00', 'sold_date', '2026-10-02'), false,
+  pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '96.00', '50.00', 57600, 43200))));
+RESET ROLE;
+SELECT test_assert(pc_r('open_read')->>'state' = 'needs_attention', 'the sale-time capture is open');
+SELECT test_assert(pc_r('resolve') = pc_r('resolve_retry') AND pc_r('resolve')->>'status' = 'recorded', 'the later estimate is recorded once');
+SELECT test_assert((SELECT c.status = 'superseded' AND c.resolved_by_estimate_id = (pc_r('resolve')->>'estimate_id')::uuid
+                     AND c.attention_code IS NULL AND c.status_by = test_id(11) AND c.status_at IS NOT NULL
+                     AND c.status_reason = 'Estimate recorded later with current rates'
+                     AND c.rate_percent = 96.00 AND c.first_year_cents = 57600 AND c.advance_cents = 43200 AND c.captured_by = test_id(11)
+                    FROM policy_commission_captures c WHERE c.id = (pc_r('open_read')->'capture'->>'id')::uuid),
+                   'capture superseded with its original inputs and provenance, linked to the later estimate');
+SELECT test_assert((SELECT capture_mode = 'recorded_later' AND capture_id IS NULL FROM policy_commission_estimates
+                    WHERE id = (pc_r('resolve')->>'estimate_id')::uuid), 'the later estimate never claims the capture was confirmed');
+SELECT test_assert(pc_r('resolved_read')->>'state' = 'recorded' AND pc_r('resolved_read')->'capture' = 'null'::jsonb,
+                   'contact read: recorded, no open capture');
+SELECT test_assert(pc_r('open_sale_replay')->'commission'->'slots'->0->>'status' = 'superseded', 'a sale replay reports the slot as superseded');
+SELECT test_assert((SELECT count(*) FROM policy_commission_captures WHERE policy_id = test_id(5711)
+                     AND status IN ('awaiting_confirmation', 'needs_attention')) = 0, 'no open capture remains for the policy');
+
 -- A legacy (non-snapshot) sale: the later estimate uses the stored policy premium and says so.
 ALTER TABLE wins DISABLE TRIGGER wins_policy_identity_guard;
 BEGIN;

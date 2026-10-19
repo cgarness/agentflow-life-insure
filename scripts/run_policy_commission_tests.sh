@@ -153,6 +153,31 @@ wait "$PID"
 sort "$TEMP/one" "$TEMP/two" | tr '\n' ' ' | grep -q 'evidence_recorded no_new_policy' || { echo 'FAIL: concurrent edits'; cat "$TEMP/one" "$TEMP/two"; exit 1; }
 sql -c "SELECT test_assert((SELECT count(*) FROM wins w JOIN clients c ON c.id = w.contact_id WHERE c.first_name = 'Edit race') = 1,
           'concurrent first-policy edits: one sale')" >/dev/null
+# Confirmation vs a later estimate for the same open capture, in both orders: they serialize per policy, the second
+# is refused (22023), and the capture ends recorded (confirmation first) or superseded and linked (later estimate first).
+sql <<'SQL' >/dev/null
+INSERT INTO role_permissions(organization_id, role, permissions) VALUES (test_id(1), 'Team Leader',
+  '{"c":[{"name":"View Own Commission Percentage","teamLeader":true},{"name":"View Others'' Commission Percentage","teamLeader":true}]}');
+SQL
+for FIRST in confirm later; do
+  sql -tA -c "SELECT pc_login(14); SET ROLE authenticated; SELECT create_client_with_sale_handoff(gen_random_uuid(), test_id(1),
+    pc_client('Race $FIRST', 11, '50.00'), true, pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));" >/dev/null
+  POL="(SELECT primary_policy_id FROM clients WHERE first_name = 'Race $FIRST')"
+  CONFIRM="SELECT confirm_policy_commission_capture(gen_random_uuid(), (SELECT id FROM policy_commission_captures WHERE policy_id = $POL))"
+  LATER="SELECT record_policy_commission_estimate_later(gen_random_uuid(), $POL,
+    pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975) - 'slot', NULL, NULL, NULL)"
+  if [ "$FIRST" = confirm ]; then A="$CONFIRM"; B="$LATER"; MODE=sale_entry; CAPTURE=recorded; else A="$LATER"; B="$CONFIRM"; MODE=recorded_later; CAPTURE=superseded; fi
+  sql -tA -c "SELECT pc_login(11); SET ROLE authenticated; BEGIN; $A; SELECT pg_sleep(0.6); COMMIT;" >/dev/null & PID=$!
+  sleep 0.2
+  sql -tA -c "SELECT pc_login(11); SET ROLE authenticated; SELECT pc_reject(\$q\$$B\$q\$, '22023');" >/dev/null
+  wait "$PID"
+  sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_estimates WHERE policy_id = $POL) = 1
+            AND (SELECT capture_mode FROM policy_commission_estimates WHERE policy_id = $POL) = '$MODE'
+            AND (SELECT c.status = '$CAPTURE' AND (c.resolved_by_estimate_id IS NOT NULL) = ('$CAPTURE' = 'superseded')
+                   AND (c.resolved_by_estimate_id IS NULL OR c.resolved_by_estimate_id = (SELECT id FROM policy_commission_estimates WHERE policy_id = $POL))
+                 FROM policy_commission_captures c WHERE c.policy_id = $POL),
+            'confirmation vs later estimate ($FIRST first): one estimate, consistent capture')" >/dev/null
+done
 # Lock contention: commission work waits at most lock_timeout (100 ms), then the sale commits without it.
 sql -tA -c "BEGIN; LOCK TABLE policy_commission_handoffs IN SHARE MODE; SELECT pg_sleep(1.2); COMMIT;" >/dev/null & PID=$!
 sleep 0.2
