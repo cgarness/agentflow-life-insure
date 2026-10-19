@@ -1,9 +1,10 @@
 # Phase 2A — verification record
 
 **Scope:** Gate 2 plus the approved correction pass (plan §12) on branch `claude/friendly-ptolemy-pvpmfj`, draft PR
-#469 against `main` `84ba4f6`. Nothing here touched production: no production migration, RLS or grant change,
-production read or write, merge, deployment or production test. Synthetic data only. Authenticated end-to-end
-acceptance in an authorized environment is still outstanding.
+#469 against `main` `84ba4f6`. Sections 1–12 used synthetic data only and touched nothing in production. §13 records
+the separately approved Gate 3 database release (2026-10-19): the migration only, applied once and recorded as
+`20261019170000`; no merge, deployment, Vercel change or production test write. Authenticated end-to-end acceptance in
+an authorized environment is still outstanding.
 
 Estimates are illustrative and receipts are manually recorded; nothing here verifies either against a carrier.
 
@@ -56,12 +57,32 @@ is HTTP 409 PT409; other writer errors unchanged; legacy writer unchanged; no di
 not exposed; contact read scoped to the seller; receipts, voids and stale revisions over HTTP; operation status read;
 conversion with additional rows and a conversion conflict.
 
-## 4. Save overhead (PostgreSQL 17.6, CI run `39315398293`)
+## 4. Save overhead (PostgreSQL 17.6)
 
 Server time per save inside PostgreSQL (`clock_timestamp()`), each sample on a fresh request and lead in one warm
 session. Overhead = companion percentile minus the matching unchanged writer's. Contention cases hold a lock from a
 second session while a warmed session saves; autovacuum is settled first. **Measured maxima are observations, not
-guarantees.**
+guarantees.** The two runs below use identical code on different GitHub-hosted runners; the final-head runner was
+about 1.4× slower, which is runner variance, not a code change.
+
+**Final head `fc05082` (the Gate 3 source commit; CI job `118281521488`):**
+
+| Case | Samples | Total p50 / p95 / max (ms) | Writer p50 / p95 | Overhead p50 / p95 | Outcome |
+|---|---|---|---|---|---|
+| Create, explicit empty payload | 30 | 1.09 / 1.23 / 1.29 | 0.35 / 0.42 | +0.74 / +0.81 | sale saved |
+| Create, 1 estimate | 30 | 3.34 / 4.59 / 4.63 | 0.35 / 0.42 | +2.99 / +4.17 | 1/1 recorded |
+| Create, commission step fails | 30 | 1.03 / 1.10 / 1.15 | 0.35 / 0.42 | +0.68 / +0.68 | sale saved, `not_recorded` |
+| Convert, 1 policy | 30 | 6.71 / 6.91 / 6.94 | 3.37 / 3.56 | +3.34 / +3.35 | 1/1 recorded |
+| Convert, 5 policies | 30 | 12.38 / 13.40 / 13.64 | 3.95 / 4.13 | +8.44 / +9.26 | 5/5 recorded |
+| Convert, 25 policies (benchmark) | 30 | 41.99 / 49.94 / 55.79 | 6.28 / 6.75 | +35.72 / +43.19 | 25/25 recorded |
+| Convert, 100 policies (defensive cap) | 20 | 182.60 / 197.16 / 198.69 | 17.25 / 18.18 | +165.35 / +178.98 | 100/100 recorded |
+| Create, commission tables locked | 10 | 103.60 / 103.71 / 103.77 | 0.35 / 0.42 | +103.25 / +103.30 | sale saved, `not_recorded` after `lock_timeout` |
+| Create, grid row locked | 10 | 8.22 / 8.33 / 8.40 | 0.35 / 0.42 | +7.87 / +7.91 | 1/1 recorded (not blocked) |
+
+HTTP through PostgREST at `fc05082` (median of 15, warm, sequential): create 1 policy 2.1 → 5.4 ms (+3.3); convert 1
+policy 2.5 → 6.0 (+3.6); 5 policies 3.5 → 12.6 (+9.1); 25 policies 8.1 → 43.1 (+35.0).
+
+**Earlier run, head `b599c96` (CI run `39315398293`; code identical to `fc05082`):**
 
 | Case | Samples | Total p50 / p95 / max (ms) | Writer p50 / p95 | Overhead p50 / p95 | Outcome |
 |---|---|---|---|---|---|
@@ -75,8 +96,8 @@ guarantees.**
 | Create, commission tables locked | 10 | 103.33 / 103.39 / 103.39 | 0.27 / 0.34 | +103.06 / +103.05 | sale saved, `not_recorded` after `lock_timeout` |
 | Create, grid row locked | 10 | 6.95 / 7.17 / 7.18 | 0.27 / 0.34 | +6.69 / +6.83 | 1/1 recorded (not blocked) |
 
-HTTP through PostgREST on 17.6 (median of 15, warm, sequential): create 1 policy 2.1 → 4.9 ms (+2.7); convert 1 policy
-2.2 → 5.0 (+2.8); 5 policies 2.6 → 8.6 (+6.0); 25 policies 5.9 → 29.7 (+23.9).
+HTTP through PostgREST at `b599c96` (median of 15, warm, sequential): create 1 policy 2.1 → 4.9 ms (+2.7); convert 1
+policy 2.2 → 5.0 (+2.8); 5 policies 2.6 → 8.6 (+6.0); 25 policies 5.9 → 29.7 (+23.9).
 
 **Budget and cap.** 250 ms is a *soft calculation-start budget*: a slot's calculation only starts before 250 ms have
 elapsed; validation, evidence, capture inserts, the slot in progress and result building are not cut off, so it is not
@@ -171,10 +192,10 @@ Screenshots: `contact-commissions-*`, `record-payment-*`, `void-receipt-*` (1440
 
 ## 9. CI on the PR
 
-Head `b599c96` (code identical to the final head; later commits change documentation only): Policy commission
-tracking (PostgreSQL 17.6 + PostgREST, frontend tests), Commission grids (PostgreSQL 17.6 suites, calculator tests), UV
-profile sync (frontend typecheck parity, browser, paired-native), SMS consent, Reporting integrity, Dialer DNC
-integrity: success. Supabase Preview: skipped. Exact final-head results are recorded on the PR and in the hand-off.
+Heads `b599c96` and `fc05082` (the Gate 3 source commit; code identical, later commits change documentation only):
+Policy commission tracking (PostgreSQL 17.6 + PostgREST, frontend tests), Commission grids (PostgreSQL 17.6 suites,
+calculator tests), UV profile sync (frontend typecheck parity, browser, paired-native), SMS consent, Reporting
+integrity (frontend), Dialer DNC integrity: success on both, all 12 jobs at `fc05082`. Supabase Preview: skipped.
 An earlier head failed `uv-profile-sync` because this PR moved one existing ConvertLeadModal diagnostic from line 182
 to 202; fixed without behaviour change (plan §12).
 
@@ -197,17 +218,18 @@ The migration refuses unless the seven production preimages match (md5 of `pg_ge
 2. **Unresolved writes are memory-only.** A reload, a new tab or a sign-out loses the retry state; the contact read then
    shows the authoritative history (including a payment that did commit) and a new entry uses a new request id, so a
    person who re-enters a payment without looking could still duplicate it.
-3. **100-slot saves** take ~125 ms on 17.6 CI hardware and up to ~0.4 s on a slow shared container; not a guarantee.
+3. **100-slot saves** took 124.75 ms (`b599c96`) and 182.60 ms (`fc05082`) p50 on two 17.6 CI runners and up to
+   ~0.4 s on a slow shared container; not a guarantee.
 4. **Team Leader read access inherits the `is_ancestor_of` defect** (AGENT_RULES debt): affected Team Leaders see less,
    never more.
 5. **Receipts show no recorder name** (the audit events keep the actor).
 6. **Writer coupling**: the companions map the writers' exact conflict messages to PT409 and recompute their sale
    hashes; the preimage guard protects only the apply.
-7. **Vercel preview** of this branch runs the new frontend against whatever backend its environment points to; without
-   the migration, companion saves are refused (function missing). Do not use the preview for sale or commission
-   testing.
+7. **Vercel preview** of this branch runs the new frontend against whatever backend its environment points to. Since
+   Gate 3 the production database accepts the companion saves and tracking writes, so a preview connected to
+   production would create real sales and commission rows. Do not use any preview for sale or commission testing.
 
-## 12. Proposed database-only release package (Gate 3; not approved, nothing done)
+## 12. Database-only release package (Gate 3; approved and applied 2026-10-19, see §13)
 
 1. Final head with every check green, the draft PR still unmerged.
 2. Read-only production preflight: `SHOW server_version`; the seven preimage md5s match; none of the new role, schema,
@@ -220,3 +242,75 @@ The migration refuses unless the seven production preimages match (md5 of `pg_ge
    write grants; the seven preimages unchanged; advisor delta limited to the expected entries.
 5. No production test writes unless separately approved. The rollback is ready and refuses once any row exists. The
    frontend (Gate 4) stays on the legacy writers until the merge and release are separately approved.
+
+## 13. Gate 3 production release record (2026-10-19)
+
+Chris approved Gate 3 only: the schema, new RLS policies, restricted writer role, grants, functions and supporting
+index in the exact reviewed bytes, recorded under version `20261019170000`. Project `jncvvsvckxhqgqvkppmj`
+(AGENTFLOW CRM, PostgreSQL 17.6). Source commit `fc05082b11573fbb88c50c429fd5c1867b8cfb98`; the file there and on
+disk has SHA-256 `b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f` (MD5
+`689a0a41d3d3c124cb97e9640305831a`, 119,951 bytes). No merge, deployment, Vercel change or production test write.
+
+**Preflight (read-only, 21:52–22:02 UTC).** `main` unchanged at `84ba4f6`; AGENT_RULES, VISION and WORK_LOG re-read
+with no release conflict. All seven preimage md5s matched; no new table, schema, role, function or `wins` index
+existed; version `20261019170000` was free and the latest recorded version was `20261019035819` (UV verification
+wizard), so the new version sorts last. No other open PR carries a pending schema release; no lock waits, no other
+active sessions, no write locks on `public.wins` or `public.organizations` (17 and 6 rows); the 13 cron jobs run no
+DDL; the six event triggers are the standard Supabase ones. `postgres` (the SQL role) owns `wins`, `organizations`
+and `private`, holds REFERENCES and grant options, and may record history. Baselines were captured for the
+existing-object fingerprint (functions, policies, relations, column ACLs, schemas, roles, memberships, default ACLs,
+triggers, indexes, constraints, cron jobs, event triggers, publications) and both advisor lists (240 security, 432
+performance findings).
+
+**Execution method.** `apply_migration` stamps its own version, so it could not preserve `20261019170000`. The
+hosted SQL endpoint ran one multi-statement string in one transaction (confirmed beforehand: `SET LOCAL` carries
+across its statements; separate calls use separate backends, so nothing can be staged between calls):
+`SET LOCAL lock_timeout = '1s'; SET LOCAL statement_timeout = '60s';` (the file's own values, so they bind the
+whole statement) and one `DO` block that (1) holds the migration text as a dollar-quoted literal, its eleven
+box-drawing rules sent as placeholders and expanded server-side; (2) refuses unless the expanded text's MD5,
+SHA-256 and byte length equal the reviewed file's; (3) refuses if the version is already recorded; (4) `EXECUTE`s
+the text unchanged; (5) inserts `('20261019170000', 'policy_commission_tracking', ARRAY[text])` into
+`supabase_migrations.schema_migrations` (`created_by` left NULL). Any error rolls back everything. Rehearsed first on
+disposable PostgreSQL 16.15 databases: schema dump and role identical to `psql -1 -f` of the file; history row
+byte-identical; replay refused; a one-byte change refused before anything ran; a held lock on `wins` failed after
+1.05 s and rolled back completely.
+
+**Result.** Applied once, between 22:02:32 and 22:08:47 UTC, with no error. `schema_migrations` now holds 337 rows,
+the newest `20261019170000 / policy_commission_tracking`, one statement whose MD5, SHA-256 and length equal the file.
+
+**Read-back (read-only, 22:08–22:15 UTC).**
+
+- Existing objects: every baseline fingerprint is identical (576 functions, 354 policies, 202 relations, 72 column
+  ACLs, 16 other schemas, 33 roles, 24 memberships, 27 default ACLs, 137 triggers, 772 indexes, 816 constraints,
+  13 cron jobs, 6 event triggers, 16 publication tables). The only changes are the intended
+  `agentflow_policy_commission_writer=U` on `public` and `private` and the new history row. No existing policy changed.
+- The seven reviewed sale-writer/helper definitions are unchanged (md5 preimages match).
+- New objects equal a locally migrated reference exactly, category by category: 36 function bodies and settings, 6
+  tables' columns, 88 constraints, 33 indexes (including `wins_commission_link_key`, valid and unique), 22 RLS
+  policies, 13 triggers, RLS enabled on all six tables, owners and table comments, the writer role and the
+  authorization schema.
+- Privileges: each table grants `authenticated` SELECT and the writer SELECT/INSERT (plus UPDATE on 24 named columns
+  only); the event sequence grants the writer USAGE; no `anon`, `service_role` or PUBLIC grant. All 36 functions have
+  explicit ACLs: 13 entry points executable by `authenticated`, the handoff by `postgres`, helpers by the writer, the
+  rest by no one but their owner. The writer is NOLOGIN, NOINHERIT, NOBYPASSRLS, not superuser; `postgres` is its
+  only member (the implicit creator grant plus the explicit grant); it owns 17 functions and no relation, has USAGE on
+  `public`, `private` and `policy_commission_authz` only, CREATE nowhere, and no grant on any existing object.
+- Row counts: all six tables 0 rows with zero inserts, updates or deletes; no unexpected activity.
+
+**Advisor delta (each finding reviewed).** Security +13, −0: `authenticated_security_definer_function_executable`
+(WARN) for exactly the four companions, the eight tracking RPCs and `get_policy_sale_operation_status`, the intended
+authenticated entry points, each deriving actor and organization on the server. No new ERROR, `anon`, search-path or
+RLS finding. Performance +25, −0: 13 `unused_index` (INFO) on the new, empty tables; 12 `multiple_permissive_policies`
+(WARN) naming the writer role on eight existing tables (`agency_resource_categories`, `agency_resources`,
+`organizations` SELECT/UPDATE, `report_layouts` SELECT/INSERT/UPDATE/DELETE, `tasks`, `training_categories`,
+`training_progress`, `training_resources`). Those were not in the local delta and were investigated: the tables'
+permissive policies target `{public}`, and the lint lists every role, so the same 12 findings already existed for
+`agentflow_comp_operator`, `anon`, `authenticator`, `cli_login_postgres`, `dashboard_user` and
+`supabase_privileged_role`. The writer holds no table or column privilege on any of the eight and PUBLIC has no grant
+on them, so those policies never apply to it; no access path was added. No unindexed foreign key was added.
+
+**Not done / outstanding.** No production sale, commission or payment call was made, so PostgREST exposure of the new
+RPCs is not proven over HTTP in production (its schema-reload event trigger is the standard one). The deployed
+frontend still calls the legacy writers. Signed-in acceptance and Gate 4 (merge, frontend release, type regeneration
+from production) need separate approval. The rollback file is unchanged and refuses once any commission row exists.
+Never edit, rename or replay the applied migration file.

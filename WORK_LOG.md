@@ -1,3 +1,38 @@
+## 2026-10-19 22:08 UTC — LIVE (database only): Phase 2A commission tracking migration `20261019170000`
+
+Chris approved Gate 3 only for PR #469 (source `fc05082b11573fbb88c50c429fd5c1867b8cfb98`). Applied
+`supabase/migrations/20261019170000_policy_commission_tracking.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it as
+**`20261019170000 / policy_commission_tracking`**: the stored statement's SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`, MD5 `689a0a41d3d3c124cb97e9640305831a` and 119,951
+bytes equal the file. Do not edit, rename or replay it. No merge, deployment, Vercel change or production test write.
+
+Preflight (read-only): AGENT_RULES/VISION/WORK_LOG re-read, no conflict; `main` unchanged at `84ba4f6`; seven preimage
+md5s matched; no new object existed; version free, latest was `20261019035819`; no lock waits, other sessions or
+pending schema release; existing-object fingerprints and advisor baselines (240 security / 432 performance) saved.
+Because `apply_migration` stamps its own version, the hosted SQL endpoint ran one transaction: the file's own
+`lock_timeout 1s` / `statement_timeout 60s`, then a block that refused unless the text's MD5, SHA-256 and length equal
+the reviewed file, refused if the version existed, executed the text unchanged and inserted the history row. Rehearsed
+on disposable PostgreSQL 16.15 first (schema identical to applying the file directly; replay, tampering and a held lock
+all refused with nothing left behind). It succeeded first time between 22:02:32 and 22:08:47 UTC.
+
+Read-back: every existing-object fingerprint is unchanged except the intended writer USAGE on `public`/`private`; the
+seven writer definitions are unchanged; the new objects equal a locally migrated reference (36 functions, 6 tables,
+88 constraints, 33 indexes including a valid `wins_commission_link_key`, 22 policies, 13 triggers, RLS on all six);
+tables grant only `authenticated` SELECT and the writer SELECT/INSERT plus 24 named UPDATE columns; no anon,
+service_role or PUBLIC access; the writer is NOLOGIN/NOBYPASSRLS with `postgres` its only member and no grant on any
+existing object. All six tables have 0 rows and no writes. Advisors: +13 intended authenticated SECURITY DEFINER
+WARNs, +13 unused-index INFOs on the new tables, and +12 `multiple_permissive_policies` WARNs naming the writer on
+eight existing `{public}`-policy tables, reviewed: the same 12 already exist for every other role, the writer has no
+privilege on those tables, and no policy changed. Nothing removed.
+
+PR #469 stays draft; its notes carry the final-head (`fc05082`, job `118281521488`) save measurements with the earlier
+`b599c96` run labelled. The deployed frontend still uses the legacy writers, so nothing writes the new tables yet.
+Outstanding, each needing separate approval: signed-in acceptance; Gate 4 (merge, frontend release, types regenerated
+from production). Do not test sales or commissions through any preview connected to production. Record:
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md` §13.
+
+---
+
 ## 2026-10-19 — Phase 2A correction pass on draft PR #469 (NOT live)
 
 Chris approved a draft PR plus scoped corrections (reviewed checkpoint `d262d9a`; plan §12). Draft PR #469 targets

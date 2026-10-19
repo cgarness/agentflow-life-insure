@@ -771,11 +771,15 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 **Policy commission preview (Phase 1, 2026-10-17; LIVE in `main` since PR #455, merge `e2ddef2`).** ConvertLeadModal (every policy row), AddClientModal (only when the save would record a new policy: creation, or the first policy of an existing client) and RecordPolicyModal show a compact estimate — "Estimated first-year commission" and "Estimated advance (75%)" — from the agency's selected grid through the unchanged calculator engine (`calculateEstimate`, exact rationals, `formatUsd` on the Rational). It is an estimate only: never saved, earned, booked or paid commission. The credited agent is the STORED owner the sale writers credit (`leads.assigned_agent_id` / `clients.assigned_agent_id`, read org-scoped with `.maybeSingle()`; the signed-in user for a new manual client), never a modal prop: the Dialer maps `lead.assignedAgentId` from `claimed_by` first. "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently; another agent's estimate also requires Admin / non-impersonating Super Admin (`isOrganizationWideViewer`, same organization) or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains the agent — never an Agent. Another agent's level is the raw `profiles.commission_level` (never `rowToUser`, which maps a missing level to `"0%"`) through the strict level parse; the operator's own level is never used for someone else. The credited owner is never served from cache: it is re-read on every open (an owner cached by an earlier open is ignored) and re-checked on window focus and every 15 s while open, and a failed re-check hides the figures. No commission request and no cached commission data under View As; any unresolved viewer, permission, owner, scope, profile or grid read shows no figures. Final Expense lists only the matched carrier's whole-life products (exact trimmed, case-insensitive carrier match) and never auto-selects. Product, term and insured age are preview-only inputs: never required, persisted or added to the four sale payloads (receipt hashes, request ids, transactions and callbacks are unchanged). The Phase 1 §8 snapshot design is superseded by Phase 2A below; in production today nothing from the preview is persisted. Screen-level permission model only, not database secrecy (as D3).
 
 
-### Saved policy commissions — Phase 2A (prepared 2026-10-19 on `claude/friendly-ptolemy-pvpmfj`; NOT live)
+### Saved policy commissions — Phase 2A (database APPLIED to production 2026-10-19 as `20261019170000`; frontend NOT released)
 
-Takes effect only after Chris separately approves the production migration (Gate 3) and then the merge and frontend
-release (Gate 4). Until then production has no commission tables, companions or tracking RPCs. Contract:
-`docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence: `verification.md` beside it.
+Gate 3 (database only) is applied: production `jncvvsvckxhqgqvkppmj` records `20261019170000 /
+policy_commission_tracking`, and the stored statement is byte-identical to the repository file (SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`). Never edit, rename or replay that file. The
+deployed frontend still calls the legacy writers, so the commission tables stay empty until Gate 4 (merge and frontend
+release) and signed-in acceptance are separately approved; no preview connected to production may be used for sale or
+commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence:
+`verification.md` beside it (§13 is the release record).
 
 - **Meaning (the invariant).** A saved estimate (`policy_commission_estimates` and its four
   `policy_commission_installments`: Advance 75%, Month 10, Month 11, Month 12) is an illustrative projection from the
