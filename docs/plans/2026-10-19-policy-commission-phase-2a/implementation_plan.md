@@ -305,6 +305,36 @@ hierarchy defect (separate follow-up).
 ## 10. Gates
 
 1. Plan — approved.
-2. Local implementation and verification — this branch (in progress).
+2. Local implementation and verification — this branch: **complete** (`verification.md`); PostgreSQL 17.6 CI still
+   to run on a pull request.
 3. Production migration/RLS/grant release — separately approved; release method chosen with the tested package.
 4. Merge, frontend release and production testing — separately approved.
+
+## 11. Implementation record — deviations from §8 (local build, 2026-10-19)
+
+None of these widens scope, authority or data; each keeps an existing contract intact.
+
+- **`src/lib/profile/normalized-policy.ts` and `src/lib/__tests__/normalizedPolicy.test.ts` are unchanged.**
+  `reportsPolicySource.test.ts` pins the Reports policy canon by blob hash. The stored policy identity
+  (`clients.primary_policy_id`, each additional entry's `policyId`) is attached display-only in
+  `src/lib/client-policy-display.ts` instead.
+- **`PolicyCommissionInputs.tsx`, `clientPolicies.test.tsx` and the conditional harness tests are unchanged** (not
+  needed). Tests modified: `policyCommissionPreviewModals`, `recordPolicyModal`, `addClientSale`,
+  `convertLeadModalPolicyFields` (original behavioural assertions kept; the preview-modal sonner mock gains `warning`
+  because commission notices use `toast.warning`).
+- **No transport in the sale state module.** `policySaleOutcome.ts` holds only types, classification, freezing,
+  parsing and messages (plus `clientSaleRecordsPolicy`). The companion calls (`sendPreparedSale`, `runPreparedSale`,
+  `readSaleOperationStatus`) live in `policySaleRecording.ts`; a PT409 conflict reads the operation's server status in
+  the transport and carries it on `SaleRequestError.operation`. This also removes an import cycle.
+- **`ClientPolicies` lazy-loads the commission section** behind a load boundary (a failed chunk renders nothing). The
+  policy list and the sale modals therefore never load the Supabase client themselves, which keeps the full Vitest
+  run without Supabase environment (as `.github/workflows/reports-frontend.yml` runs it) at the baseline's failures.
+- **Not found is `PT404` (HTTP 404), not `P0002`.** PostgREST maps P0002 to HTTP 500. Both codes are confirmed
+  rejections in the sale classifier.
+- **Record estimate later:** `PreviewOwner` gains `{ kind: "agent", id }` (the credited agent comes from the saved
+  sale) and the preview's ready state carries an optional `creditedAgentId`.
+- **Ownership transfer** grants the writer role `CREATE` on `public` and `private` only around the `ALTER FUNCTION …
+  OWNER` statements (PostgreSQL requires it) and revokes it in the same migration; the runner's ACL inventory check
+  proves the writer keeps only `USAGE` on both schemas.
+- **Dark mode:** the new conflict/rejection notice text and the receipt Void action add `dark:text-red-400` (the
+  app's dark `--destructive` token is too dark for text on the card background).

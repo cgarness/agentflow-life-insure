@@ -6,6 +6,9 @@ migration, RLS or grant change, production test write, merge or deployment is ap
 integration and commission dashboards stay out of scope. The Gate 3 release method is chosen when the tested
 migration package exists.
 
+**Gate 2 (local build and verification) complete** — evidence in
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gate 3 (production migration) awaits approval.
+
 **Current contract and exact file list:** `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
 It supersedes the Phase 1 §8 deferred snapshot design below and every earlier staged-capture/session design.
 

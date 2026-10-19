@@ -1,3 +1,37 @@
+## 2026-10-19 — Phase 2A saved policy commissions (built and verified locally; NOT live)
+
+Chris approved local implementation and disposable-database testing of the companion-function architecture on
+2026-10-19 (branch `claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; commits `a949cf8` plan, `edf1938` database,
+`efd0592` frontend, `89765b0` fixes, then the docs commit). No production migration, RLS/grant change, production read
+or write, merge or deployment happened. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`;
+evidence: `verification.md` and `screenshots/` beside it.
+
+Built: migration `20261019170000_policy_commission_tracking.sql` (SHA-256
+a5cf9c7dc15ac6bdee12fa83cff9676b8fd70009d32f96af44af826f1fea67c5) with a guarded rollback. Four postgres-owned
+companions delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the
+commission inputs shown at sale (bounded savepoint, 250 ms calculation budget, 100-slot cap; commission problems
+never fail a sale). Six RLS tables hold evidence, captures, immutable estimates, the four expected installments
+(Advance 75%, Month 10, 11, 12), manual receipts and audit events; eight tracking RPCs owned by the NOLOGIN/NOBYPASSRLS
+`agentflow_policy_commission_writer` are the only write path, with Own/Others permissions enforced on the server.
+Record Policy, Add/Edit Client and Convert Lead now save through the companions (an explicit empty payload when no
+estimate was shown); unknown outcomes freeze the exact submission in memory and Retry replays it; conflicts are
+closeable, never editable. The contact view shows a compact Commission section per policy with payments, voids and
+replacements, timing, schedule start, holds and estimate replacement. Estimates are illustrative and receipts are
+manual records; neither is carrier-verified (new AGENT_RULES invariant).
+
+Validation: full database runner on PostgreSQL 16.15 passes (guards, 173-object inventory, security/handoff/tracking
+suites, independent-session races and lock contention, existing sale/identity suites, rollback/reapply) plus 12 real
+PostgREST 12.2.3 + supabase-js checks. Server overhead p50: +4.6 ms (1 policy), +14.6 ms (5), +61.6 ms (25, supported
+boundary); HTTP +4.9/+12.2/+53.4 ms; at the 100-slot cap saves reach about 0.4 s worst case (only the calculation is
+budgeted; no timeout raised). Local advisor lints add only the 13 by-design SECURITY DEFINER warnings and fresh-index
+notices. Frontend: full Vitest without Supabase env matches the baseline exactly (same 10 files/1 test, +81 passing);
+inert-env run fails only the pre-existing `recordingRetentionVoicemail`; app tsc diagnostics identical (84); root tsc,
+ESLint (0 errors), build and diff check pass; desktop/mobile light/dark screenshots captured. Not yet run: the
+PostgreSQL 17.6 CI workflow (needs a PR) and an authenticated end-to-end browser session. TwilioContext and dialer
+code reviewed, unchanged.
+
+---
+
 ## 2026-10-19 — Agent profile header actions
 
 Chris requested that UV actions move into the right-hand profile header row and that the duplicate Profile settings action be removed. ProfileHero now accepts an optional action slot; AgentProfileTab places the existing UV component there once. View Agent Page, Copy Link and Edit profile share a wrapping action row and 44px height. The verified badge and all existing UV access/navigation behavior remain unchanged. The browser fixture now renders the real profile hero for desktop/mobile inspection.
