@@ -774,3 +774,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 ### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
 
 Migration `20261019015242_uv_profile_save_driven.sql` is applied as hosted `20261019021934`; successful UV rows sleep until a committed relevant save or their next known license-expiration deadline. Never restore unconditional per-minute profile comparisons: the retained UV cron command dispatches only due, unleased, nonexcluded queue work. Profile/presence reads and unchanged saves must not publish; HTTP dispatch failure must retain durable work without blocking the core profile save. Keep tenant transfer/deactivation/deletion withdrawals and revision/lease supersession. Chris's CG Financial A2P profile remains excluded from sync even when AgentFlow renders its navigation-only View link. Deployment evidence lives in `docs/plans/2026-10-19-uv-save-driven/release.md`; local migration files are not proof of application.
+
+### UV profile presentation separation
+
+Agent Profile renders only gold UV navigation/copy actions. Publication and contact visibility preferences belong in Settings > My Profile. Never publish implicitly to enable a button or fabricate a URL for private/pending profiles. The protected CG Financial owner link remains navigation-only with no sync RPC. Managed UV pages share the full visual template but retain contact-only capabilities; shared styling does not authorize intake, SMS enrollment, verified claims or copied agent content.

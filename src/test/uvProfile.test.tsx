@@ -102,35 +102,44 @@ describe('compact profile controls',()=>{
   const profile={id,organization_id:'a0000000-0000-0000-0000-000000000001'};
   mock.auth={isLoading:false,isImpersonating:false,user:{id},profile,realProfile:profile};
   render(<UnderwriterVerifiedProfile/>,{wrapper});
-  expect(screen.getByRole('link',{name:'View'})).toHaveAttribute('href','https://www.underwriterverified.com/cg-financial/christopher-garness');
+  expect(screen.getByRole('link',{name:'Underwriter Verified'})).toHaveAttribute('href','https://www.underwriterverified.com/cg-financial/christopher-garness');
   expect(screen.queryByRole('button',{name:'Edit public profile settings'})).toBeNull();expect(mock.rpc).not.toHaveBeenCalled();
  });
  it.each(['impersonating','wrong-org','signed-out','loading'])('does not show the protected link when %s',mode=>{
   const id='ecf2bb91-0350-4542-85ec-14d914311e99';
   const profile={id,organization_id:mode==='wrong-org'?org:'a0000000-0000-0000-0000-000000000001'};
   mock.auth={isLoading:mode==='loading',isImpersonating:mode==='impersonating',user:mode==='signed-out'?null:{id},profile,realProfile:profile};
-  render(<UnderwriterVerifiedProfile/>,{wrapper});expect(screen.queryByRole('link',{name:'View'})).toBeNull();
+  render(<UnderwriterVerifiedProfile/>,{wrapper});expect(screen.queryByRole('link',{name:'Underwriter Verified'})).toBeNull();
  });
  it('is inert before UI activation',()=>{
   vi.stubEnv('VITE_UV_PROFILE_ENABLED','false');render(<UnderwriterVerifiedProfile/>);expect(mock.rpc).not.toHaveBeenCalled();expect(screen.queryByText('Underwriter Verified')).toBeNull();
  });
+ it('keeps Agent Profile navigation-only even for an unpublished agent',async()=>{
+  render(<UnderwriterVerifiedProfile/>,{wrapper});
+  await screen.findByRole('button',{name:'Copy link'});
+  expect(screen.getByRole('button',{name:'Underwriter Verified'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Copy link'})).toBeDisabled();
+  expect(screen.queryByRole('button',{name:'Edit public profile settings'})).toBeNull();
+  expect(screen.queryByText('Private')).toBeNull();
+  expect(screen.queryByRole('dialog')).toBeNull();
+ });
  it('starts publication and contact checkboxes unchecked',async()=>{
-  render(<UnderwriterVerifiedProfile/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
+  render(<UnderwriterVerifiedProfile settings/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
   expect(screen.getAllByRole('checkbox')).toHaveLength(3);for(const box of screen.getAllByRole('checkbox'))expect(box).not.toBeChecked();
  });
  it('saves explicit opt-in choices independently',async()=>{
-  render(<UnderwriterVerifiedProfile/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
+  render(<UnderwriterVerifiedProfile settings/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
   fireEvent.click(screen.getByRole('checkbox',{name:'Publish profile'}));fireEvent.click(screen.getByRole('checkbox',{name:/Show email/}));fireEvent.click(screen.getByRole('button',{name:'Save'}));
   await waitFor(()=>expect(mock.rpc).toHaveBeenCalledWith('set_my_uv_profile',expect.objectContaining({p_published:true,p_phone_public:false,p_email_public:true})));
  });
  it('shows real canonical View and Copy links only',async()=>{
   const url='https://www.underwriterverified.com/synthetic-agency/test-agent';mock.rpc.mockResolvedValue({data:{...status,state:'published',desired_published:true,public_url:url},error:null});
   const write=vi.fn().mockResolvedValue(undefined);Object.defineProperty(navigator,'clipboard',{value:{writeText:write},configurable:true});
-  render(<UnderwriterVerifiedProfile/>,{wrapper});const link=await screen.findByRole('link',{name:'View'});expect(link).toHaveAttribute('href',url);
-  fireEvent.click(screen.getByRole('button',{name:'Copy'}));await waitFor(()=>expect(write).toHaveBeenCalledWith(url));
+  render(<UnderwriterVerifiedProfile/>,{wrapper});const link=await screen.findByRole('link',{name:'Underwriter Verified'});expect(link).toHaveAttribute('href',url);
+  fireEvent.click(screen.getByRole('button',{name:'Copy link'}));await waitFor(()=>expect(write).toHaveBeenCalledWith(url));
  });
  it('does not retain an open settings dialog under View As',async()=>{
-  const {rerender}=render(<UnderwriterVerifiedProfile/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
-  mock.auth.isImpersonating=true;rerender(<UnderwriterVerifiedProfile/>);expect(screen.queryByRole('dialog')).toBeNull();
+  const {rerender}=render(<UnderwriterVerifiedProfile settings/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
+  mock.auth.isImpersonating=true;rerender(<UnderwriterVerifiedProfile settings/>);expect(screen.queryByRole('dialog')).toBeNull();
  });
 });

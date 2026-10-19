@@ -28,7 +28,7 @@ const MyProfile: React.FC = () => {
   return (
     <div className="space-y-6">
       <ProfileInfoCard />
-      <UnderwriterVerifiedProfile />
+      <UnderwriterVerifiedProfile settings />
 
       <ProfileStateLicensesCard />
       <ProfileCarriersCard />
