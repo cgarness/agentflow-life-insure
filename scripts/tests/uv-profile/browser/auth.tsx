@@ -5,7 +5,7 @@ export const useAuth = () => useContext(Auth);
 export function FixtureAuth({children}:{children:ReactNode}) {
  const [mode,setMode]=useState('self');
  return <Auth.Provider value={{user:mode==='out'?null:{id:own.id},realProfile:own,profile:own,isLoading:false,isImpersonating:mode==='view'}}>
-  <main className="mx-auto max-w-3xl space-y-4 p-4">
+  <main className="mx-auto max-w-7xl space-y-4 p-4">
    <h1 className="text-lg font-semibold">Synthetic acceptance only</h1>
    <nav className="flex gap-3">{['self','view','out'].map(value=><button key={value} onClick={()=>setMode(value)}>{value}</button>)}</nav>
    {children}

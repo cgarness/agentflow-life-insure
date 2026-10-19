@@ -151,7 +151,10 @@ try {
   }
   await publicPage.goto(origins[1]);await publicPage.getByPlaceholder('Name, agency, phone, email, or NPN…').fill('Updated');
   await publicPage.getByRole('button',{name:'Search',exact:true}).click();await publicPage.getByText('Updated Agent',{exact:true}).waitFor();
+  // Switching surfaces remounts the hook: finish its authorized read before testing view-as/sign-out.
+  const settingsRead=page.waitForResponse(response=>response.url().endsWith('/rpc/get_my_uv_verification'));
   await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await settingsRead;
   for(const mode of ['view','out']){
    const before=reads;await page.getByRole('button',{name:mode,exact:true}).click();
    assert.equal(await profile.count(),0);await page.waitForTimeout(100);assert.equal(reads,before);
