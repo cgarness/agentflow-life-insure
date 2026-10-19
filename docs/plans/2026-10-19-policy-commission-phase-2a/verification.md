@@ -1,30 +1,33 @@
-# Phase 2A — local verification record
+# Phase 2A — verification record
 
-**Scope:** Gate 2 (local implementation and disposable-database testing) on branch `claude/friendly-ptolemy-pvpmfj`,
-based on `main` `84ba4f6`. Nothing here touched production: no production migration, RLS or grant change, production
-read or write, merge, deployment or production test. Synthetic data only. Commit hashes and the final branch head are
-in the WORK_LOG entry and the hand-off report.
+**Scope:** Gate 2 plus the approved correction pass (plan §12) on branch `claude/friendly-ptolemy-pvpmfj`, draft PR
+#469 against `main` `84ba4f6`. Nothing here touched production: no production migration, RLS or grant change,
+production read or write, merge, deployment or production test. Synthetic data only. Authenticated end-to-end
+acceptance in an authorized environment is still outstanding.
 
-Estimates are illustrative and receipts are manually recorded; nothing in this record verifies either against a
-carrier.
+Estimates are illustrative and receipts are manually recorded; nothing here verifies either against a carrier.
 
-## 1. Environment
+## 1. Environments
 
 | Item | Version |
 |---|---|
-| PostgreSQL (disposable loopback cluster, trust auth, `/tmp`) | 16.15 |
-| PostgreSQL in CI (`.github/workflows/policy-commission-tracking.yml`) | 17.6 — **not executed** (see §9) |
+| CI database (`policy-commission-tracking.yml`, GitHub-hosted runner, loopback service container) | PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1) |
+| Local disposable cluster (loopback, trust auth, `/tmp`) | PostgreSQL 16.15 |
 | PostgREST (binary checked against the workflow's pinned sha256) | 12.2.3 |
 | `@supabase/supabase-js` | 2.98.0 |
-| Node / Vitest / Vite | 22 / repository lockfile versions |
-| Browser | Playwright 1.56.1 Chromium (pre-installed) |
+| Type generator (disposable migrated schema) | `@supabase/postgres-meta` 0.100.0 |
+| Browser | Playwright 1.56.1 Chromium |
+
+Every workflow on the PR runs on GitHub-hosted runners against loopback databases built from synthetic fixtures; none
+references secrets or runs `supabase db push`/`link`/`functions deploy`. The Supabase Preview check reported "skipped". Vercel built a preview deployment of the frontend only.
 
 ## 2. Database proofs — `scripts/run_policy_commission_tests.sh`
 
-Full runner on the final migration (PostgreSQL 16.15, `POSTGREST_BIN` set, `PC_MEASURE=1`): **exit 0**.
+PostgreSQL 17.6 in CI (run `39315398293`, head `b599c96`) and PostgreSQL 16.15 locally, final migration, both exit 0:
 
 ```
-PASS migration guards and existing-object inventory (173 objects unchanged)
+PostgreSQL: 17.6 (Debian 17.6-2.pgdg13+1)
+PASS migration guards and existing-object inventory (175 objects unchanged)
  PASS policy commission security
  PASS policy commission handoff
  PASS policy commission tracking
@@ -36,172 +39,184 @@ PASS PostgREST integration (12 checks)
 PASS policy commission tracking database proofs
 ```
 
-Covered (see the suite files for each assertion): preimage refusal of a drifted writer with no residue, replay
-refusal, ACL/ownership inventory of every pre-existing object, writer role attributes and membership, writer subject
-to RLS, no client table writes, Own/Others permission matrix and parity with `permission_defaults.json`, server-proven
-binding for all four companions (including the D7 first-policy edit receipt), byte-identical replay, PT409 mapping
-only for the writers' committed-operation conflicts, explicit empty payload, commission failure never failing a sale,
-57014 not swallowed, 100-slot cap, budget exhaustion, independent-session races (duplicate submissions, receipt vs
-replacement, concurrent first-policy edits), lock contention (locked commission tables leave the sale saved within
-`lock_timeout`; a grid row lock does not block capture), payments/overpayment/voids/replacements/timing/holds and their
-audit events, the delete/truncate retention guard, and rollback refusal with rows, rollback and reapply.
+(Local 16.15 inventories 173 existing objects; the counts differ by server version, each run compares its own
+before/after.) Covered: preimage refusal of a drifted writer with no residue, replay refusal, ACL/ownership inventory,
+writer role attributes and membership, writer subject to RLS, no client table writes, Own/Others matrix and parity with
+`permission_defaults.json`, server-proven binding for all four companions (including the D7 receipt), byte-identical
+replay, PT409 only for the writers' committed-operation conflicts, explicit empty payload, commission failure never
+failing a sale, 57014 not swallowed, 100-slot cap, budget exhaustion, independent-session races, lock contention,
+payments/overpayment/voids/replacements/timing/holds and their audit events, the retention guard, rollback refusal with
+rows, rollback and reapply, and (this pass) the capture lifecycle in §5.3.
 
-## 3. Real PostgREST + supabase-js — `scripts/tests/policy_commission/postgrest_integration.mjs`
+## 3. Real PostgREST + supabase-js
 
-Real PostgREST 12.2.3 and supabase-js 2.98.0 against a disposable database with Supabase-shaped JWT roles:
+All 12 checks pass on PostgreSQL 17.6 and 16.15: anon refused (401/42501); service_role cannot call a companion or read
+commission rows; companion saves the sale and records the estimate; byte-identical replay; committed-operation conflict
+is HTTP 409 PT409; other writer errors unchanged; legacy writer unchanged; no direct table writes and private helpers
+not exposed; contact read scoped to the seller; receipts, voids and stale revisions over HTTP; operation status read;
+conversion with additional rows and a conversion conflict.
 
-```
-ok  anon cannot call a companion (401, 42501)
-ok  service_role cannot call a companion or read commission rows
-ok  companion saves the sale and records the estimate
-ok  a byte-identical replay returns the stored sale and commission outcome
-ok  a committed-operation conflict is HTTP 409 PT409
-ok  other writer errors are unchanged
-ok  legacy writer remains callable unchanged
-ok  no direct table writes; private helpers are not exposed
-ok  contact read: estimate, schedule and access for the seller; hidden from other agents
-ok  receipts, voids and stale revisions over HTTP
-ok  operation status read
-ok  conversion with additional rows and a conversion conflict
-```
+## 4. Save overhead (PostgreSQL 17.6, CI run `39315398293`)
 
-## 4. Save overhead — `scripts/tests/policy_commission/measure_save_overhead.sh`
+Server time per save inside PostgreSQL (`clock_timestamp()`), each sample on a fresh request and lead in one warm
+session. Overhead = companion percentile minus the matching unchanged writer's. Contention cases hold a lock from a
+second session while a warmed session saves; autovacuum is settled first. **Measured maxima are observations, not
+guarantees.**
 
-Server time per save, measured inside PostgreSQL (`clock_timestamp()`), each sample on a fresh request and lead in
-one warm session, synthetic grid, final migration. Writer = the unchanged sale writer; companion = writer + evidence
-+ captures + estimates.
+| Case | Samples | Total p50 / p95 / max (ms) | Writer p50 / p95 | Overhead p50 / p95 | Outcome |
+|---|---|---|---|---|---|
+| Create, explicit empty payload | 30 | 0.81 / 0.96 / 0.99 | 0.27 / 0.34 | +0.54 / +0.62 | sale saved |
+| Create, 1 estimate | 30 | 2.51 / 3.67 / 3.70 | 0.27 / 0.34 | +2.25 / +3.34 | 1/1 recorded |
+| Create, commission step fails | 30 | 0.82 / 0.89 / 0.94 | 0.27 / 0.34 | +0.56 / +0.55 | sale saved, `not_recorded` |
+| Convert, 1 policy | 30 | 4.85 / 5.08 / 5.15 | 2.42 / 2.57 | +2.43 / +2.51 | 1/1 recorded |
+| Convert, 5 policies | 30 | 8.49 / 8.87 / 9.09 | 2.66 / 2.79 | +5.83 / +6.08 | 5/5 recorded |
+| Convert, 25 policies (benchmark) | 30 | 29.07 / 30.23 / 30.72 | 4.35 / 4.57 | +24.72 / +25.66 | 25/25 recorded |
+| Convert, 100 policies (defensive cap) | 20 | 124.75 / 136.85 / 139.86 | 11.83 / 12.09 | +112.91 / +124.76 | 100/100 recorded |
+| Create, commission tables locked | 10 | 103.33 / 103.39 / 103.39 | 0.27 / 0.34 | +103.06 / +103.05 | sale saved, `not_recorded` after `lock_timeout` |
+| Create, grid row locked | 10 | 6.95 / 7.17 / 7.18 | 0.27 / 0.34 | +6.69 / +6.83 | 1/1 recorded (not blocked) |
 
-| Case | Writer p50 / p95 (ms) | Companion p50 / p95 (ms) | Added p50 (ms) | Slots recorded |
-|---|---|---|---|---|
-| Create client, 1 policy, estimate | 0.54 / 0.73 | 5.00 / 8.46 | +4.5 | 1 / 1 |
-| Create client, 1 policy, explicit empty payload | 0.54 / 0.73 | 1.58 / 2.10 | +1.0 | — |
-| Create client, 1 policy, commission step fails | 0.54 / 0.73 | 1.53 / 2.25 | +1.0 | sale saved, `not_recorded` |
-| Convert, 1 policy | 1.93 / 2.11 | 6.49 / 7.02 | +4.6 | 1 / 1 |
-| Convert, 5 policies | 2.92 / 3.96 | 17.54 / 24.22 | +14.6 | 5 / 5 |
-| Convert, 25 policies (supported boundary) | 6.63 / 10.20 | 68.20 / 75.02 | +61.6 | 25 / 25 |
-| Convert, 100 policies (defensive cap; 10 samples) | 20.46 / 26.37 | 277.19 / 378.03 | +256.7 | 100 / 100 |
+HTTP through PostgREST on 17.6 (median of 15, warm, sequential): create 1 policy 2.1 → 4.9 ms (+2.7); convert 1 policy
+2.2 → 5.0 (+2.8); 5 policies 2.6 → 8.6 (+6.0); 25 policies 5.9 → 29.7 (+23.9).
 
-HTTP through PostgREST (median of 15, warm, sequential): create 1 policy 4.3 → 11.4 ms (+7.1); convert 1 policy
-4.0 → 8.9 ms (+4.9); convert 5 policies 5.0 → 17.2 ms (+12.2); convert 25 policies 12.3 → 65.7 ms (+53.4).
+**Budget and cap.** 250 ms is a *soft calculation-start budget*: a slot's calculation only starts before 250 ms have
+elapsed; validation, evidence, capture inserts, the slot in progress and result building are not cut off, so it is not
+an end-to-end guarantee. The 100-slot cap is defensive; policy entry is not limited and an over-cap payload fails the
+commission step as a whole with a visible notice. 25 policies is a benchmark, not a limit (none is enforced anywhere).
 
-**At the 100-slot cap** two further isolated runs gave companion p50/p95/max of 261.7 / 347.2 / 397.7 ms and (with
-`jit = off`) 269.3 / 372.5 / 392.8 ms; an earlier run of the same design on this container gave about 237 / 264 ms.
-The budgeted part (handoff row to last capture update) averaged 214 ms with a maximum of 260 ms, and the budget never
-tripped. The 250 ms budget gates when each slot's calculation starts (plan §2.1); validation, evidence, capture
-inserts and result building around it are not budgeted, which is why the slowest 100-policy saves reach about 0.4 s.
-No timeout was raised. Realistic sales (1–5 policies) add about 5–15 ms server and 5–12 ms HTTP.
+**The same script locally (PostgreSQL 16.15, slower shared container):** 1 policy +4.69 / +5.00; 5 policies
++14.35 / +16.37; 25 policies +56.27 / +70.06; 100 policies 269.72 / 390.51 / 392.81 total (+250.05 / +365.22), still
+100/100 recorded; tables locked 106.11 p50; empty payload +1.33; failure +1.13. On that container the slowest 100-policy
+saves reached about 0.4 s and the budget never tripped. A first local contention run measured the grid-lock case at
+~89 ms p50 because autovacuum was working through the bulk-inserted rows; with autovacuum settled it is ~12 ms (local)
+and 6.95 ms (17.6), and a grid row lock never blocks capture. No timeout was raised.
 
-Per-function profile (all samples, `track_functions = 'pl'`): `policy_commission_insert_estimate` dominates (about
-1.6 ms per estimate including its four installments), then the handoff body, `campaign_actor` and the RLS
-`access()` checks.
+## 5. Correction evidence
 
-## 5. Advisors (local)
+### 5.1 Unknown tracking outcomes survive dismissal and remount
 
-Supabase's open-source advisor lints (`supabase/splinter`, `splinter.sql` from `main`) ran on two disposable databases
-built from the same fixture: without and with the migration. Hosted-only advisors cannot run locally; the production
-advisor delta belongs to Gate 3.
+- **Regression** (`RecordPaymentDialog.test.tsx`): a receipt commits on a fake server but its response is lost; the
+  dialog is cancelled, closed and unmounted; the reopened dialog shows the submitted payment locked with Retry; the
+  retry sends the identical arguments with the same `p_request_id`; the server holds **one** receipt.
+- **Hook** (`useClientPolicyCommissions.test.tsx`): restart refuses while unresolved; a different callback is never sent
+  (the stored call is replayed); after an unknown outcome a 42501 permission error and a `PGRST301` expired-JWT error
+  keep it unresolved with the same id until a success; a PT409 refusal of that same request proves nothing was saved
+  and frees the inputs with a new id; a response arriving after the signed-in user changed is ignored and nothing is
+  kept for the new user; switching users drops unresolved writes from memory.
+- **Every helper user** (`trackingRecovery.test.tsx`): void (submitted reason restored and locked), timing, hold,
+  schedule start (inline control remounted), record estimate (submitted figures shown, picker hidden), capture confirm
+  and dismiss: each resends exactly the same call and id after close and remount.
+- **Server basis:** every tracking function takes the request-scoped advisory lock and returns the stored result before
+  any other check, so a retry with the same id and payload either returns the committed result or proves nothing was
+  committed. No browser storage is used.
 
-| Finding (new with the migration) | Level | Count | Assessment |
-|---|---|---|---|
-| `authenticated_security_definer_function_executable` | WARN | 13 | By design: the four companions, eight tracking RPCs and the operation-status read are the only write/read paths and authorize the real JWT actor internally (the existing sale writers carry the same finding). `get_client_policy_commissions` is SECURITY INVOKER and is not flagged. |
-| `unused_index` | INFO | 12 | Expected on a fresh database with no traffic. |
+### 5.2 Installment selection
 
-No other new finding; none resolved. The first pass also reported `unindexed_foreign_keys` for
-`policy_commission_captures_handoff_fk (handoff_id, organization_id)`; the index was widened to
-`(handoff_id, organization_id)` and every database proof was re-run on the final migration.
+Tests and the browser check: Month 11 suggests $110.00; a fully received advance suggests nothing; a partially received
+Month 10 suggests its $60.00 remaining; an edited amount is cleared (with a visible note) when the installment changes;
+partial and excess amounts are still accepted. Receipt validation is a Zod schema with the previous rules and messages.
 
-## 6. Frontend — baseline (`84ba4f6`) vs branch
+### 5.3 Capture lifecycle
 
-| Check | Baseline `84ba4f6` | Branch | Result |
-|---|---|---|---|
-| Vitest, full, **no Supabase env** (as `reports-frontend` CI) | 10 failed files, 1 failed test, 5,738 passed | same 10 files, same 1 test, 5,819 passed | no new failure (81 new passing tests) |
-| Vitest, full, inert env (`VITE_SUPABASE_URL=http://127.0.0.1:54321`) | — | 1 failed file: `recordingRetentionVoicemail` (the baseline's failing test), 5,908 passed | only the pre-existing failure |
-| `commission-grids.yml` frontend test set, no env | — | 23 passed, 2 skipped (DB integration) | pass |
-| Phase 2A and affected suites, inert env | — | 26 files passed, 2 skipped; 247 tests | pass |
-| `tsc -p tsconfig.app.json` | 84 diagnostics | 84, identical | no new diagnostic |
-| `tsc --noEmit` (root) | exit 0 | exit 0 | pass |
-| ESLint on all 53 changed TS/TSX files | — | 0 errors, 14 warnings on pre-existing lines (one moved verbatim into `clientUpdatePatch`) | pass |
-| `vite build` | pass; main chunk 4,489.89 kB (1,218.04 kB gzip) | pass; main chunk 4,502.54 kB (1,222.29 kB gzip) + lazy `PolicyCommissionSection` chunk 36.59 kB | pass |
-| `git diff --check` | — | clean | pass |
+`policy_commission_tracking.sql`: recording an estimate later while the sale-time capture is open marks it
+`superseded`, links `resolved_by_estimate_id`, keeps the original rate, first-year and advance figures and `captured_by`,
+records actor, time and reason, and never sets `capture_id` on the later estimate. The contact read shows `recorded` with
+no open capture; confirm and dismiss of the old capture are refused (22023); a replay of the original sale reports the
+slot as `superseded`. Runner race, both orders, separate sessions: confirm first → later estimate refused, capture
+`recorded`; later estimate first → confirm refused, capture `superseded` and linked; one current estimate either way.
 
-TwilioContext, DialerPage, FloatingDialer and the dialer contracts were reviewed and are unchanged; the existing
-dialer/telephony suites are part of both full runs above.
+### 5.4 Generated types
 
-## 7. Browser screenshots (`screenshots/`)
+Types generated by `postgres-meta` 0.100.0 from the disposable migrated schema were compared with the hand-written
+entries: same 14 functions, argument names, base types, optional (defaulted) arguments and `Json` returns; differences
+were key order and hand-added `| null`. The 14 entries in `src/integrations/supabase/types.ts` now equal the generated
+text byte for byte. Table types were not added (the frontend never reads the commission tables directly).
 
-Rendered by a local, uncommitted Vite harness that mounts the real `ClientPolicies` (with the lazily loaded
-`PolicyCommissionSection`), `RecordPaymentDialog`, `VoidReceiptDialog` and `SaleSubmissionNotice` components and the
-app's Tailwind theme, with `AuthContext`, `useEffectiveViewer` and the Supabase client stubbed to return synthetic
-`get_client_policy_commissions` data (no login, no network). It is not the full contact page.
+## 6. Advisors (local, splinter `main`)
 
-| File | Shows |
+New with the migration, against the same fixture without it: 13 × `authenticated_security_definer_function_executable`
+(WARN; the four companions, eight tracking RPCs and the operation-status read, by design, as for the existing sale
+writers; `get_client_policy_commissions` is SECURITY INVOKER) and 13 × `unused_index` (INFO, fresh database). No
+unindexed foreign key (the new `resolved_by_estimate_id` key has a covering index). Production advisor deltas belong to
+Gate 3.
+
+## 7. Frontend — baseline `84ba4f6` vs branch
+
+| Check | Result |
 |---|---|
-| `contact-commissions-{desktop-1440,mobile-390}-{light,dark}.png` | A two-policy client (recorded estimate with a voided and replaced receipt, a partial Month 10 payment and a confirmed schedule start; a second policy whose sale-time estimate awaits confirmation), a single-policy client on hold with unconfirmed timing, a client with no estimate, and the frozen / conflict / rejected sale-save notices |
-| `record-payment-{desktop-1440,mobile-390}-{light,dark}.png` | Record payment for Month 10 (remaining amount prefilled) |
-| `void-receipt-{desktop-1440,mobile-390}-{light,dark}.png` | Void a receipt with a reason, optionally recording a corrected payment |
+| Full Vitest, no Supabase env (as `reports-frontend` CI) | Same 10 failed files and 1 failed test as the baseline; 5,836 passed (baseline 5,738) |
+| Full Vitest, inert env | Only the pre-existing `recordingRetentionVoicemail` failure; 5,925 passed |
+| Phase 2A, contacts, sale and hook suites | 52 files, 499 tests pass |
+| `tsc --noEmit` (root) | exit 0 |
+| `tsc -p tsconfig.app.json` | output identical to the base, positions included (as `uv-profile-sync.yml` requires) |
+| ESLint, changed files | 0 errors |
+| `vite build` | pass; main chunk 4,502.64 kB (1,222.32 kB gzip; baseline 1,218.04) plus lazy `PolicyCommissionSection` 41.07 kB |
+| `git diff --check` | clean |
 
-Every capture asserted no console error or warning, no page error and no horizontal overflow at 1440 px and 390 px.
-The first dark-mode pass showed the app's dark `--destructive` text was hard to read on cards; the new notices and the
-Void action now add `dark:text-red-400` (plan §11).
+TwilioContext, DialerPage, FloatingDialer and the dialer contracts are unchanged; their suites are in both full runs.
 
-## 8. Migration checksums (final files)
+## 8. Browser checks and screenshots (`screenshots/`)
+
+A local, uncommitted Vite harness mounts the real `ClientPolicies` (lazy `PolicyCommissionSection`), dialogs and
+notices with the app theme; `AuthContext`, `useEffectiveViewer` and the Supabase client are stubbed. For the payment
+check the stub is a small in-memory server that stores receipts by request id, loses the first response after
+committing it, and serves the contact read from what it stored. Not the full contact page; no login.
+
+Interactive check of the real payment controls in Chromium, 1440 px light and 390 px dark: **22/22 PASS** — suggested
+amounts per installment, edited amount cleared on switch with the note, unknown outcome locks the inputs, close and
+reopen keeps Month 12 / $30.00 / reference locked, the re-read history already shows the committed receipt, Retry
+reuses the request id, exactly one receipt exists, no page errors.
+
+Screenshots: `contact-commissions-*`, `record-payment-*`, `void-receipt-*` (1440/390 × light/dark) and
+`payment-installment-switch-*`, `payment-unconfirmed-*`, `payment-reopened-*` (desktop light, mobile dark).
+
+## 9. CI on the PR
+
+Head `b599c96` (code identical to the final head; later commits change documentation only): Policy commission
+tracking (PostgreSQL 17.6 + PostgREST, frontend tests), Commission grids (PostgreSQL 17.6 suites, calculator tests), UV
+profile sync (frontend typecheck parity, browser, paired-native), SMS consent, Reporting integrity, Dialer DNC
+integrity: success. Supabase Preview: skipped. Exact final-head results are recorded on the PR and in the hand-off.
+An earlier head failed `uv-profile-sync` because this PR moved one existing ConvertLeadModal diagnostic from line 182
+to 202; fixed without behaviour change (plan §12).
+
+## 10. Migration checksums (final files)
 
 | File | Bytes | SHA-256 | MD5 |
 |---|---|---|---|
-| `supabase/migrations/20261019170000_policy_commission_tracking.sql` | 117,415 | `a5cf9c7dc15ac6bdee12fa83cff9676b8fd70009d32f96af44af826f1fea67c5` | `2b7cb7cb8dc92e63757187af96cef03d` |
-| `supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql` | 5,130 | `60a5691c3802802ef9239f1927c6aae8dffc01433b6bce5388055826a008b118` | `c55d06bc0a311a3ea7c924fff5f31099` |
+| `supabase/migrations/20261019170000_policy_commission_tracking.sql` | 119,951 | `b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f` | `689a0a41d3d3c124cb97e9640305831a` |
+| `supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql` | 5,232 | `928800dec6dca11a228980df79e285013a1d66758ee8680ecf639de3ec08b70e` | `b2ad91a9ad687bcaa4b419046ca131e6` |
 
-The migration refuses unless these production preimages (md5 of `pg_get_functiondef`) match: `create_client_with_sale`
-`0fd43910…`, `convert_lead_to_client_with_sales` `3d974a5c…`, `record_client_policy` `b9ffa1e0…`,
-`update_client_with_policy_sale` `96e8f6e7…`, `private.insert_policy_sale` `3f600b75…`, `convert_lead_to_client_atomic`
-`641ba66c…`, `private.campaign_actor` `f582e437…` (full values in the migration's guard).
+The migration refuses unless the seven production preimages match (md5 of `pg_get_functiondef`):
+`create_client_with_sale` `0fd43910…`, `convert_lead_to_client_with_sales` `3d974a5c…`, `record_client_policy`
+`b9ffa1e0…`, `update_client_with_policy_sale` `96e8f6e7…`, `private.insert_policy_sale` `3f600b75…`,
+`convert_lead_to_client_atomic` `641ba66c…`, `private.campaign_actor` `f582e437…`.
 
-## 9. Remaining risks and open items
+## 11. Remaining risks and open items
 
-1. **PostgreSQL 17.6 not executed.** Every database proof ran on local 16.15. The workflow pins 17.6 and the same
-   PostgREST, but it triggers on pull requests only; no PR has been opened (not approved). It must pass before Gate 3.
-2. **No end-to-end authenticated browser run.** The browser evidence is a component harness with stubbed auth and
-   data; the PostgREST suite covers the HTTP contract. A real login against a Supabase stack (GoTrue) was not
-   available here.
-3. **Save time at the 100-slot cap** reaches about 0.4 s in the slowest samples (§4) because only the calculation is
-   budgeted. Supported sizes are fast. If a tighter worst case is wanted, lowering the cap (for example to 50) is a
-   design change for Chris to approve; no timeout was or should be raised.
-4. **Team Leader read access inherits the `is_ancestor_of` defect** (AGENT_RULES known debt: true for 3 of 11
-   profiles with an upline on 2026-10-17). Affected Team Leaders see less, never more.
-5. **Recording an estimate later leaves the earlier open capture row** (`awaiting_confirmation`/`needs_attention`)
-   in place. The contact view shows the recorded estimate, and confirming the old capture is refused because an
-   estimate exists, but the row stays open. Any future report must not count open captures as pending work.
-6. **Receipts show amounts, dates and references but not the recorder's name** (ids are returned; names are not
-   joined). Audit events keep the actor.
-7. **Writer coupling.** The companions map four writers' exact conflict messages to PT409 and recompute their sale
-   hashes. The preimage guard protects only the apply; a later writer change must re-verify the companions.
-8. **`src/integrations/supabase/types.ts` entries are hand-written** for the new RPCs and must be compared with
-   regenerated types after Gate 3.
-9. **A failed lazy chunk load hides the commission section** until the page reloads (by design; the contact view is
-   unaffected).
+1. **Authenticated end-to-end acceptance is outstanding**: no real sign-in against a Supabase stack has exercised the
+   UI; the browser evidence uses stubs and the HTTP contract is covered by PostgREST.
+2. **Unresolved writes are memory-only.** A reload, a new tab or a sign-out loses the retry state; the contact read then
+   shows the authoritative history (including a payment that did commit) and a new entry uses a new request id, so a
+   person who re-enters a payment without looking could still duplicate it.
+3. **100-slot saves** take ~125 ms on 17.6 CI hardware and up to ~0.4 s on a slow shared container; not a guarantee.
+4. **Team Leader read access inherits the `is_ancestor_of` defect** (AGENT_RULES debt): affected Team Leaders see less,
+   never more.
+5. **Receipts show no recorder name** (the audit events keep the actor).
+6. **Writer coupling**: the companions map the writers' exact conflict messages to PT409 and recompute their sale
+   hashes; the preimage guard protects only the apply.
+7. **Vercel preview** of this branch runs the new frontend against whatever backend its environment points to; without
+   the migration, companion saves are refused (function missing). Do not use the preview for sale or commission
+   testing.
 
-## 10. Proposed release steps (not approved; nothing below has been done)
+## 12. Proposed database-only release package (Gate 3; not approved, nothing done)
 
-**Gate 3 — production migration (backend only; the deployed frontend keeps calling the legacy writers).**
-1. Open a PR from this branch (no merge) so `policy-commission-tracking.yml` runs the full DB proof on PostgreSQL
-   17.6 with real PostgREST, plus `reports-frontend`, `commission-grids` and the other path-triggered checks. All green
-   on the exact head.
-2. Read-only production preflight: `SHOW server_version`; md5 of the seven reviewed function definitions equals the
-   migration's preimage table; `agentflow_policy_commission_writer` and the six tables do not exist; existing advisor
-   list saved for a delta; no other pending migration.
-3. Apply the exact migration file (SHA-256 recorded in §8) as one transaction with its own `lock_timeout 1s` /
-   `statement_timeout 60s` at a low-traffic moment. It takes a brief lock on `public.wins` for the new unique index
-   (`wins_commission_link_key`); retry on lock timeout, never raise the timeouts.
-4. Read-only post-checks: stored migration text matches; role NOLOGIN/NOBYPASSRLS with only `postgres` as a member;
-   function owners/ACLs as in the inventory; the writer has only USAGE on `public`/`private`; RLS enabled on the six
-   tables; no table write grants to `anon`/`authenticated`; the seven writer bodies unchanged; advisor delta limited
-   to the expected SECURITY DEFINER WARNs and fresh-index INFOs.
-5. No production test writes unless separately approved. Rollback file is ready and refuses once any row exists.
-
-**Gate 4 — merge and frontend release.**
-6. Regenerate `src/integrations/supabase/types.ts` from production and confirm it matches the hand-written entries.
-7. Merge the PR; Vercel production deploy; served-bundle check that the four modals call the `*_handoff` companions.
-8. Chris's acceptance on his own account (approved test writes only): record a policy with an estimate, confirm it
-   appears under the policy with four installments, record and void a payment, place and release a hold; then
-   confirm a Team Leader sees it read-only and an Agent without the Own toggle sees nothing.
-9. Record evidence in WORK_LOG/verification; keep the rollback available until acceptance passes.
+1. Final head with every check green, the draft PR still unmerged.
+2. Read-only production preflight: `SHOW server_version`; the seven preimage md5s match; none of the new role, schema,
+   tables or functions exists; current advisor list saved for the delta; no other pending migration.
+3. Apply exactly `20261019170000_policy_commission_tracking.sql` (SHA-256 above) in one transaction with its own
+   `lock_timeout 1s` / `statement_timeout 60s`, at a low-traffic time. It briefly locks `public.wins` for the
+   `wins_commission_link_key` index; on a lock timeout, retry later, never raise the timeouts.
+4. Read-only post-checks: stored migration matches; writer role NOLOGIN/NOBYPASSRLS with only `postgres` as a member and
+   only USAGE on `public`/`private`; function owners and ACLs as inventoried; RLS on the six tables; no client table
+   write grants; the seven preimages unchanged; advisor delta limited to the expected entries.
+5. No production test writes unless separately approved. The rollback is ready and refuses once any row exists. The
+   frontend (Gate 4) stays on the legacy writers until the merge and release are separately approved.

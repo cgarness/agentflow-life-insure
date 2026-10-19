@@ -1,3 +1,31 @@
+## 2026-10-19 — Phase 2A correction pass on draft PR #469 (NOT live)
+
+Chris approved a draft PR plus scoped corrections (reviewed checkpoint `d262d9a`; plan §12). Draft PR #469 targets
+`main` `84ba4f6`; it stays draft. No production migration, RLS/grant change, production read or write, merge or
+deployment happened.
+
+Corrections: (1) a tracking write whose outcome is unknown (payment, void, timing, hold, schedule, estimate, confirm,
+dismiss) now survives dialog dismissal and remount in an in-memory registry scoped to the signed-in user and
+organization; restart refuses, Retry resends the exact call and request id, permission/sign-in/transport errors keep it
+unresolved, stale responses after an identity change are ignored, and opening a dialog re-reads the commission data
+(regression: a committed payment whose response was lost is never recorded twice). (2) The payment amount follows the
+selected installment while untouched and an edited amount is cleared on a switch. (3) Recording an estimate later while
+the sale-time capture is open marks it `superseded` with `resolved_by_estimate_id` (never confirmed); confirm and
+record-later serialize per policy (both race orders tested). (4) Wording: 25 policies is a benchmark; 250 ms is a soft
+calculation-start budget; 100 stays the defensive slot cap. (5) The 14 new RPC types equal postgres-meta output from the
+disposable migrated schema. (6) ConvertLeadModal layout restored one existing type diagnostic to its base position for
+`uv-profile-sync.yml`.
+
+Migration SHA-256 now b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f (rollback gains one statement).
+PostgreSQL 17.6 CI: all database proofs and 12 PostgREST checks pass; save overhead p50 +2.43 ms (1 policy), +5.83 (5),
++24.72 (25), +112.91 (100, total 124.75 p50 / 139.86 max, 100/100 recorded); empty payload +0.54; commission tables
+locked 103.33 (sale saved without commission); grid row locked 6.95 (not blocked). Local: full Vitest without env equals
+the baseline failures, inert env only the pre-existing failure, app typecheck output identical to base, ESLint 0
+errors, build passes, 22/22 in-browser payment checks. Authenticated end-to-end acceptance remains outstanding.
+Evidence: `docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`.
+
+---
+
 ## 2026-10-19 — Phase 2A saved policy commissions (built and verified locally; NOT live)
 
 Chris approved local implementation and disposable-database testing of the companion-function architecture on
