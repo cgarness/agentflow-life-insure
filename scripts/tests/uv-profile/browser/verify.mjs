@@ -127,6 +127,9 @@ try {
   await page.getByText('Verified',{exact:true}).waitFor();
   await page.screenshot({path:output+'/'+width+'-verified-actions.png',fullPage:true});
   await page.evaluate(()=>document.documentElement.classList.add('dark'));
+  await page.evaluate(()=>Promise.all(document.getAnimations()
+   .filter(animation=>animation.effect?.getComputedTiming().iterations!==Infinity)
+   .map(animation=>animation.finished.catch(()=>{}))));
   await page.screenshot({path:output+'/'+width+'-verified-actions-dark.png',fullPage:true});
   await page.evaluate(()=>document.documentElement.classList.remove('dark'));
   await publicPage.reload();await publicPage.getByLabel('Verified agent',{exact:true}).waitFor();
