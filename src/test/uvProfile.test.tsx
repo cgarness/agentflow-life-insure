@@ -22,7 +22,7 @@ beforeEach(()=>{
  mock.auth={isLoading:false,isImpersonating:false,user:{id:user},profile,realProfile:profile};
  cache=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0},mutations:{retry:false}}});
 });
-afterEach(()=>{cleanup();cache.clear();vi.unstubAllEnvs();vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();cache.clear();vi.useRealTimers();vi.unstubAllEnvs();vi.unstubAllGlobals();});
 
 describe('profile API contract',()=>{
  it.each(['phonePublic','emailPublic','published'])('requires explicit boolean %s',field=>{
@@ -46,6 +46,27 @@ describe('profile API contract',()=>{
 });
 
 describe('profile hook authorization and async scope',()=>{
+ it.each(['private','published','disabled','attention'])('does not poll a settled %s status',async state=>{
+  vi.useFakeTimers();mock.rpc.mockResolvedValue({data:{...status,state},error:null});
+  renderHook(()=>useUnderwriterVerifiedProfile(true),{wrapper});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(120_000);});
+  expect(mock.rpc).toHaveBeenCalledTimes(1);
+ });
+ it('stops pending status refresh after its short window',async()=>{
+  vi.useFakeTimers();mock.rpc.mockResolvedValue({data:{...status,state:'pending'},error:null});
+  renderHook(()=>useUnderwriterVerifiedProfile(true),{wrapper});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(35_000);});
+  const calls=mock.rpc.mock.calls.length;expect(calls).toBeGreaterThan(1);expect(calls).toBeLessThanOrEqual(17);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(120_000);});expect(mock.rpc).toHaveBeenCalledTimes(calls);
+ });
+ it('refreshes after saved profile data changes but not a presence update',async()=>{
+  const {rerender}=renderHook(()=>useUnderwriterVerifiedProfile(true),{wrapper});
+  await waitFor(()=>expect(mock.rpc).toHaveBeenCalledTimes(1));
+  mock.auth.realProfile={...(mock.auth.realProfile as object),availability:'Available'};rerender();
+  expect(mock.rpc).toHaveBeenCalledTimes(1);
+  mock.auth.realProfile={...(mock.auth.realProfile as object),first_name:'Saved'};rerender();
+  await waitFor(()=>expect(mock.rpc).toHaveBeenCalledTimes(2));
+ });
  it.each(['loading','impersonating','wrong-profile','signed-out'])('never requests data when %s',mode=>{
   if(mode==='loading')mock.auth.isLoading=true;
   if(mode==='impersonating')mock.auth.isImpersonating=true;
@@ -76,8 +97,22 @@ describe('profile hook authorization and async scope',()=>{
 });
 
 describe('compact profile controls',()=>{
+ it('opens the protected owner page without enabling sync or requesting its settings',()=>{
+  const id='ecf2bb91-0350-4542-85ec-14d914311e99';
+  const profile={id,organization_id:'a0000000-0000-0000-0000-000000000001'};
+  mock.auth={isLoading:false,isImpersonating:false,user:{id},profile,realProfile:profile};
+  render(<UnderwriterVerifiedProfile/>,{wrapper});
+  expect(screen.getByRole('link',{name:'View'})).toHaveAttribute('href','https://www.underwriterverified.com/cg-financial/christopher-garness');
+  expect(screen.queryByRole('button',{name:'Edit public profile settings'})).toBeNull();expect(mock.rpc).not.toHaveBeenCalled();
+ });
+ it.each(['impersonating','wrong-org','signed-out','loading'])('does not show the protected link when %s',mode=>{
+  const id='ecf2bb91-0350-4542-85ec-14d914311e99';
+  const profile={id,organization_id:mode==='wrong-org'?org:'a0000000-0000-0000-0000-000000000001'};
+  mock.auth={isLoading:mode==='loading',isImpersonating:mode==='impersonating',user:mode==='signed-out'?null:{id},profile,realProfile:profile};
+  render(<UnderwriterVerifiedProfile/>,{wrapper});expect(screen.queryByRole('link',{name:'View'})).toBeNull();
+ });
  it('is inert before UI activation',()=>{
-  vi.stubEnv('VITE_UV_PROFILE_ENABLED','false');render(<UnderwriterVerifiedProfile/>);expect(mock.rpc).not.toHaveBeenCalled();expect(screen.queryByText('Public profile')).toBeNull();
+  vi.stubEnv('VITE_UV_PROFILE_ENABLED','false');render(<UnderwriterVerifiedProfile/>);expect(mock.rpc).not.toHaveBeenCalled();expect(screen.queryByText('Underwriter Verified')).toBeNull();
  });
  it('starts publication and contact checkboxes unchecked',async()=>{
   render(<UnderwriterVerifiedProfile/>,{wrapper});await screen.findByText('Private');fireEvent.click(screen.getByRole('button',{name:'Edit public profile settings'}));
