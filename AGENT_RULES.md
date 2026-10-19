@@ -778,3 +778,8 @@ Migration `20261019015242_uv_profile_save_driven.sql` is applied as hosted `2026
 ### UV profile presentation separation
 
 Agent Profile renders only gold UV navigation/copy actions. Publication and contact visibility preferences belong in Settings > My Profile. Never publish implicitly to enable a button or fabricate a URL for private/pending profiles. The protected CG Financial owner link remains navigation-only with no sync RPC. Managed UV pages share the full visual template but retain contact-only capabilities; shared styling does not authorize intake, SMS enrollment, verified claims or copied agent content.
+
+
+### UV profile confirmation wizard (prepared 2026-10-19; not live until approved release)
+
+Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only managed badges: use slate navigation/outlined copy actions and emerald Verified only after agent confirmation, all six required fields, and acknowledged publication. Verification denotes profile completeness, not independent license currency; expiration is not a gate. Canonical licenses remain `agent_state_licenses`, and the wizard must preserve dates/IDs and reject stale/foreign snapshots atomically. Optional bio belongs to the AF private sync row and is signed to managed UV pages; protected A2P exclusions and contact-only capabilities remain mandatory. No existing profile is auto-confirmed. Settled rows have no expiry wakeup or continuous sender polling after this migration. Older status RPC response remains unchanged for client compatibility. Release record: `docs/plans/2026-10-19-uv-verification/release.md`.

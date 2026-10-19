@@ -1,5 +1,6 @@
 import { useEffect,useRef } from 'react';
 import { useMutation,useQuery,useQueryClient } from '@tanstack/react-query';
+import { completeSetup,type SetupSnapshot,type SetupDraft } from '@/lib/uv-profile/setup';
 import { useAuth } from '@/contexts/AuthContext';
 import { getProfileStatus,saveProfilePreferences,type Preferences,type Scope } from '@/lib/uv-profile/api';
 
@@ -38,7 +39,18 @@ export function useUnderwriterVerifiedProfile(enabled:boolean) {
     onSuccess:data => {if (current.current===scopeKey) cache.setQueryData(key,data);},
     onError:() => {if (current.current===scopeKey) void cache.invalidateQueries({queryKey:key,exact:true});},
   });
-  return {ready,scopeKey,data:ready && !query.error ? query.data ?? null : null,
+  return {ready,scopeKey,scope,
+    complete:async(snapshot:SetupSnapshot,draft:SetupDraft,phonePublic:boolean,emailPublic:boolean) => {
+      if (!scope || !scopeKey || current.current!==scopeKey) throw new Error('Profile scope changed.');
+      refreshUntil.current=Date.now()+30_000;
+      const data=await completeSetup(scope,snapshot,draft,phonePublic,emailPublic);
+      if(current.current!==scopeKey) throw new Error('Profile scope changed.');
+      cache.setQueryData(key,data);
+      void cache.invalidateQueries({queryKey:['agent-state-licenses']});
+      // Reload canonical profile state after the atomic server save; never write it twice.
+      void auth.refreshProfile?.();
+      return data;
+    },data:ready && !query.error ? query.data ?? null : null,
     loading:ready && query.isPending,error:ready ? query.error : null,
     refresh:() => {refreshUntil.current=Date.now()+30_000;return query.refetch();},save:(input:{preferences:Preferences;revision:string}) => {
       if (!scopeKey || current.current!==scopeKey) return Promise.reject(new Error('Profile scope changed.'));

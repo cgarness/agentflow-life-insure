@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const preferencesSchema = z.object({ published:z.boolean(),phonePublic:z.boolean(),emailPublic:z.boolean() }).strict();
 export type Preferences = z.infer<typeof preferencesSchema>;
 export interface ProfileStatus {
+  verified?:boolean;
   profile_id:string; organization_id:string; available:boolean; desired_published:boolean;
   phone_public:boolean; email_public:boolean; revision:string;
   state:'disabled'|'private'|'pending'|'published'|'attention'; public_url:string|null; last_synced_at:string|null;
@@ -17,7 +18,7 @@ const statusSchema = z.object({
 }).strict();
 export type Scope = {profileId:string;organizationId:string};
 // Only these two user-scoped endpoints are exposed before generated types are refreshed.
-type Client = {rpc:(name:'get_my_uv_profile'|'set_my_uv_profile',args?:Record<string,unknown>) => PromiseLike<{data:unknown;error:unknown}>};
+type Client = {rpc:(name:'get_my_uv_profile'|'get_my_uv_verification'|'set_my_uv_profile',args?:Record<string,unknown>) => PromiseLike<{data:unknown;error:unknown}>};
 const client = supabase as unknown as Client;
 export function parseStatus(data:unknown,scope:Scope):ProfileStatus {
   const parsed = statusSchema.parse(data);
@@ -25,9 +26,10 @@ export function parseStatus(data:unknown,scope:Scope):ProfileStatus {
   return parsed as ProfileStatus;
 }
 export async function getProfileStatus(scope:Scope):Promise<ProfileStatus> {
-  const result = await client.rpc('get_my_uv_profile');
+  const result = await client.rpc('get_my_uv_verification');
   if (result.error) throw new Error('Public profile unavailable.');
-  return parseStatus(result.data,scope);
+  const data=z.object({status:z.unknown(),verified:z.boolean()}).strict().parse(result.data);
+  return {...parseStatus(data.status,scope),verified:data.verified};
 }
 export async function saveProfilePreferences(scope:Scope,value:Preferences,revision:string):Promise<ProfileStatus> {
   const input = preferencesSchema.parse(value);
