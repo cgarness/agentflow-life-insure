@@ -1,3 +1,24 @@
+## 2026-10-19 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Phase 2A saved policy commissions, expected payments and manual receipts
+
+**Status:** Chris approved the local implementation of the companion-function architecture on 2026-10-19. Branch
+`claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; feature-branch commits and pushes are approved. No production
+migration, RLS or grant change, production test write, merge or deployment is approved; reminders, cron, calendar
+integration and commission dashboards stay out of scope. The Gate 3 release method is chosen when the tested
+migration package exists.
+
+**Current contract and exact file list:** `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+It supersedes the Phase 1 §8 deferred snapshot design below and every earlier staged-capture/session design.
+
+**Summary:** four companion save functions delegate to the unchanged sale writers (D7 adds a receipt-bearing
+first-policy-edit companion) and, in the same transaction, record server-proven operation evidence and the immutable
+commission capture inside an error boundary with a bounded work budget, so a commission failure never invalidates a
+legitimate sale. A restricted NOLOGIN/NOBYPASSRLS writer owns the tracking functions; six RLS tables hold evidence,
+captures, estimates, four installments, manual receipts and audit events. Own/Others permissions are enforced on the
+server; sellers own their records; no Agency Group peer access. Frozen submissions replay byte-identically until
+authoritative reconciliation.
+
+---
+
 ## 2026-10-18 — DOCS / SECURITY, APPROVED: D0 repository closeout (filename reconciliation and durable release record; repository only)
 
 **Status:** Chris approved the repository-only D0 closeout on 2026-10-18.
@@ -342,6 +363,8 @@ Each gains one `vi.mock` of the panel module rendering `null`, because these har
 - **Copy:** no explanatory paragraphs, footnotes or dashboard.
 
 ### 8. Persisted estimate snapshot — DEFERRED, NOT APPROVED FOR IMPLEMENTATION (P3)
+**Superseded (2026-10-19):** not a current design. The current saved-commission contract is `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+
 Nothing in this section is built in Phase 1: no table, RPC, migration, payload change or post-save write. The first draft's design is kept below for a future, separately approved phase. If it is revived, it also needs an explicit Agency Group peer-read decision: VISION requires one for new tables, and peers can read `wins`.
 
 ```sql
