@@ -114,6 +114,8 @@ SQL
     wait "$PID"
   done
 }
+# Settle autovacuum/analyze after the bulk saves above so it does not overlap (and confound) the contention samples.
+psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -c "VACUUM ANALYZE" >/dev/null
 contend "LOCK TABLE public.policy_commission_handoffs IN SHARE MODE" 'create 1 · companion, commission tables locked' not_recorded
 contend "SELECT 1 FROM public.comp_grids FOR UPDATE" 'create 1 · companion, grid row locked' recorded
 
