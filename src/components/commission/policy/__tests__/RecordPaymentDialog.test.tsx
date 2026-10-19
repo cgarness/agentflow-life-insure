@@ -3,12 +3,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const h = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, responses: [] as Array<{ data: unknown; error: unknown }> }));
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { rpc: async (name: string, args: Record<string, unknown>) => (h.calls.push([name, args]), h.responses.shift() ?? { data: null, error: { message: "unset" } }) },
+const h = vi.hoisted(() => ({
+  calls: [] as Array<[string, Record<string, unknown>]>,
+  responses: [] as Array<{ data: unknown; error: unknown }>,
+  // A fake server for the lost-response case: receipts by request id (the real function returns the stored one).
+  server: null as null | { receipts: Map<string, Record<string, unknown>>; loseNext: boolean },
 }));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      h.calls.push([name, args]);
+      if (name === "record_policy_commission_receipt" && h.server) {
+        const id = String(args.p_request_id);
+        const existing = h.server.receipts.has(id);
+        if (!existing) h.server.receipts.set(id, args);
+        if (h.server.loseNext) { h.server.loseNext = false; return { data: null, error: { code: "", message: "TypeError: Failed to fetch" } }; }
+        return { data: { receipt_id: "00000000-0000-4000-8000-0000000000f1", status: "recorded", idempotent: existing }, error: null };
+      }
+      return h.responses.shift() ?? { data: null, error: { message: "unset" } };
+    },
+  },
+}));
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "00000000-0000-4000-8000-0000000000a1" }, isImpersonating: false,
+    profile: { id: "00000000-0000-4000-8000-0000000000a1", role: "Agent", organization_id: "00000000-0000-4000-8000-0000000000e1" } }),
+}));
+vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: "00000000-0000-4000-8000-0000000000e1", role: "Agent" }) }));
 
 import { RecordPaymentDialog } from "../RecordPaymentDialog";
+import { resetUnresolvedTrackingWrites } from "@/hooks/useClientPolicyCommissions";
 import { validateReceipt } from "@/lib/commission/installments";
 import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
 
@@ -20,16 +43,23 @@ const installments = ["advance", "month_10", "month_11", "month_12"].map((kind, 
 const receipt = { data: { receipt_id: "00000000-0000-4000-8000-0000000000f1", status: "recorded", idempotent: false }, error: null };
 const lost = { data: null, error: { code: "", message: "TypeError: Failed to fetch" } };
 
+let client: QueryClient;
+const dialog = (isOpen: boolean, onOpenChange: (open: boolean) => void, list = installments, initial = (installments[1] as { id: string }).id) => (
+  <QueryClientProvider client={client}>
+    <RecordPaymentDialog open={isOpen} onOpenChange={onOpenChange} installments={list} initialInstallmentId={initial} />
+  </QueryClientProvider>
+);
 function open(onOpenChange = vi.fn()) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}>
-    <RecordPaymentDialog open onOpenChange={onOpenChange} installments={installments} initialInstallmentId={(installments[1] as { id: string }).id} />
-  </QueryClientProvider>);
+  render(dialog(true, onOpenChange));
   return onOpenChange;
 }
 const sent = () => h.calls.filter(([name]) => name === "record_policy_commission_receipt").map(([, args]) => args);
 
-beforeEach(() => { h.calls = []; h.responses = []; });
+beforeEach(() => {
+  h.calls = []; h.responses = []; h.server = null;
+  resetUnresolvedTrackingWrites();
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+});
 afterEach(cleanup);
 
 describe("RecordPaymentDialog", () => {
@@ -75,5 +105,77 @@ describe("RecordPaymentDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/above \$0.00/);
     expect(sent()).toHaveLength(0);
+  });
+
+  it("a payment that committed but lost its response is never recorded twice after closing and reopening", async () => {
+    h.server = { receipts: new Map(), loseNext: true };
+    const onOpenChange = vi.fn();
+    const view = render(dialog(true, onOpenChange));
+    fireEvent.change(screen.getByLabelText("Amount received"), { target: { value: "40.00" } });
+    fireEvent.change(screen.getByLabelText("Reference (optional)"), { target: { value: "Deposit 7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't confirm/);
+    // Routine dismissal and remount: the unresolved payment is kept, locked, with exactly what was submitted.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    view.rerender(dialog(false, onOpenChange));
+    view.unmount();
+    render(dialog(true, onOpenChange));
+    expect((screen.getByLabelText("Amount received") as HTMLInputElement).value).toBe("40.00");
+    expect((screen.getByLabelText("Reference (optional)") as HTMLInputElement).value).toBe("Deposit 7");
+    expect(screen.getByLabelText("Amount received")).toBeDisabled();
+    expect(screen.getByRole("alert").textContent).toMatch(/Retry sends exactly the same change/);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenLastCalledWith(false));
+    const [first, second] = sent();
+    expect(second).toEqual(first);
+    expect(h.server.receipts.size).toBe(1);
+  });
+
+  it("opening the dialog re-reads the commission data", () => {
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    open();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["policy-commissions"] });
+  });
+});
+
+describe("RecordPaymentDialog installment selection", () => {
+  const paid = (amount: number) => ({ id: id(), amount_cents: amount, received_on: "2026-10-01", reference: null, recorded_by: id(),
+    recorded_at: "2026-10-01T00:00:00Z", replaces_receipt_id: null, voided_at: null, void_reason: null });
+  const list = () => [
+    { id: id(), kind: "advance", expected_cents: 42975, receipts: [paid(20000)] },
+    { id: id(), kind: "month_10", expected_cents: 4775, receipts: [] },
+    { id: id(), kind: "month_11", expected_cents: 4775, receipts: [paid(4775)] },
+    { id: id(), kind: "month_12", expected_cents: 4775, receipts: [] },
+  ].map((installment) => ({ ...installment, timing_precision: "unknown", expected_on: null, timing_source: "unset" })) as never[];
+  const choose = (target: { id: string }) => fireEvent.change(screen.getByLabelText("Expected payment"), { target: { value: target.id } });
+  const amount = () => (screen.getByLabelText("Amount received") as HTMLInputElement).value;
+
+  it("an untouched amount follows the selected installment: partial advance, Month 10, nothing remaining", () => {
+    const items = list() as Array<{ id: string }>;
+    render(dialog(true, vi.fn(), items as never[], items[0].id));
+    expect(amount()).toBe("229.75");
+    choose(items[1]);
+    expect(amount()).toBe("47.75");
+    choose(items[2]);
+    expect(amount()).toBe("");
+    choose(items[0]);
+    expect(amount()).toBe("229.75");
+  });
+
+  it("an edited amount is cleared, with a note, when the installment changes; partial and excess amounts stay valid", async () => {
+    const items = list() as Array<{ id: string }>;
+    h.responses = [receipt];
+    const onOpenChange = vi.fn();
+    render(dialog(true, onOpenChange, items as never[], items[0].id));
+    fireEvent.change(screen.getByLabelText("Amount received"), { target: { value: "100.00" } });
+    choose(items[1]);
+    expect(amount()).toBe("");
+    expect(screen.getByRole("status").textContent).toMatch(/Amount cleared because you changed the expected payment/);
+    choose(items[3]);
+    expect(amount()).toBe("47.75");
+    fireEvent.change(screen.getByLabelText("Amount received"), { target: { value: "60.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(sent()[0]).toMatchObject({ p_installment_id: items[3].id, p_amount_cents: 6000 });
   });
 });

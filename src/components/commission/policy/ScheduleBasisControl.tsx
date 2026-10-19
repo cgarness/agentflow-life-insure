@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
@@ -19,15 +19,25 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
   canWrite: boolean;
 }) {
   const id = useId();
-  const mutation = useTrackingMutation();
+  const mutation = useTrackingMutation<{ startOn: string | null }>(`schedule:${estimate.id}`);
+  const { restart } = mutation;
   const [editing, setEditing] = useState(false);
   const [startOn, setStartOn] = useState("");
+
+  // Remounted with an unresolved change: re-read the commission data before offering the retry.
+  useEffect(() => {
+    if (mutation.unresolved) restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restart]);
 
   const save = async (next: string | null, source: "effective_date" | "manual" | null) => {
     const result = await mutation.run((requestId) => commissionTrackingApi.setScheduleBasis({
       requestId, estimateId: estimate.id, expectedRevision: estimate.state_revision, startOn: next, source,
-    }));
-    if (result) { setEditing(false); mutation.restart(); }
+    }), { startOn: next });
+    if (result) { setEditing(false); restart(); }
+  };
+  const retry = async () => {
+    if (await mutation.retry()) { setEditing(false); restart(); }
   };
 
   const current = estimate.schedule_start_on;
@@ -47,7 +57,17 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
           "Schedule start not confirmed, so Months 10–12 have no expected month yet."
         )}
       </p>
-      {canWrite && !editing && (
+      {canWrite && mutation.unresolved && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground">
+            Unconfirmed change: {mutation.pending?.startOn ? `start ${formatCalendarDate(mutation.pending.startOn)}` : "clear the start"}.
+          </span>
+          <Button type="button" size="sm" className="h-7 px-2 text-[11px]" disabled={mutation.saving || mutation.syncing} onClick={() => void retry()}>
+            {mutation.saving ? "Saving…" : "Retry"}
+          </Button>
+        </div>
+      )}
+      {canWrite && !mutation.unresolved && !editing && (
         <div className="flex flex-wrap gap-3">
           {effectiveDate && effectiveDate !== current && (
             <button type="button" disabled={busy} className="font-medium text-primary hover:underline disabled:opacity-50"
@@ -56,7 +76,7 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
             </button>
           )}
           <button type="button" disabled={busy} className="font-medium text-primary hover:underline disabled:opacity-50"
-            onClick={() => { setStartOn(current ?? ""); setEditing(true); mutation.restart(); }}>
+            onClick={() => { setStartOn(current ?? ""); setEditing(true); restart(); }}>
             {current ? "Change start" : "Set start date"}
           </button>
           {current && (
@@ -67,12 +87,12 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
           )}
         </div>
       )}
-      {canWrite && editing && (
+      {canWrite && !mutation.unresolved && editing && (
         <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); if (/^\d{4}-\d{2}-\d{2}$/.test(startOn)) void save(startOn, "manual"); }}>
           <label htmlFor={`${id}-start`} className="sr-only">Schedule start date</label>
           <input id={`${id}-start`} type="date" className={`${fieldCls} h-8 w-auto text-xs`} value={startOn} disabled={busy}
             onChange={(event) => setStartOn(event.target.value)} />
-          <Button type="submit" size="sm" className="h-8" disabled={mutation.saving || !startOn}>{mutation.locked ? "Retry" : "Save"}</Button>
+          <Button type="submit" size="sm" className="h-8" disabled={mutation.saving || mutation.syncing || !startOn}>Save</Button>
           <Button type="button" size="sm" variant="ghost" className="h-8" disabled={mutation.saving} onClick={() => setEditing(false)}>Cancel</Button>
         </form>
       )}

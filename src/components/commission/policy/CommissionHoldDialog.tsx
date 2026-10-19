@@ -16,7 +16,7 @@ export function CommissionHoldDialog({ open, onOpenChange, estimate }: {
   estimate: CommissionEstimateRecord;
 }) {
   const id = useId();
-  const mutation = useTrackingMutation();
+  const mutation = useTrackingMutation<{ reason: string }>(`hold:${estimate.id}`);
   const { restart } = mutation;
   const onHold = estimate.status === "on_hold";
   const [reason, setReason] = useState("");
@@ -26,7 +26,7 @@ export function CommissionHoldDialog({ open, onOpenChange, estimate }: {
   useEffect(() => {
     if (!open) return;
     restart();
-    setReason("");
+    setReason(mutation.pending?.reason ?? "");
     setError(null);
     setRevision(estimate.state_revision);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -34,12 +34,16 @@ export function CommissionHoldDialog({ open, onOpenChange, estimate }: {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mutation.unresolved) {
+      if (await mutation.retry()) onOpenChange(false);
+      return;
+    }
     const trimmed = reason.trim();
     if (!onHold && (trimmed.length < 3 || trimmed.length > 200)) { setError("Give a reason of 3 to 200 characters."); return; }
     setError(null);
     const result = await mutation.run((requestId) => commissionTrackingApi.setHold({
       requestId, estimateId: estimate.id, expectedRevision: revision, onHold: !onHold, reason: onHold ? null : trimmed,
-    }));
+    }), { reason });
     if (result) onOpenChange(false);
   };
 
@@ -62,7 +66,7 @@ export function CommissionHoldDialog({ open, onOpenChange, estimate }: {
           {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" disabled={mutation.saving}>
+            <Button type="submit" disabled={mutation.saving || mutation.syncing}>
               {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : onHold ? "Release hold" : "Place on hold"}
             </Button>
           </DialogFooter>

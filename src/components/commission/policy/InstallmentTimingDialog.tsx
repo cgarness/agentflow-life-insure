@@ -10,6 +10,8 @@ const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
 const labelCls = "mb-1 block text-xs font-medium text-muted-foreground";
 
+type TimingForm = { precision: TimingPrecision; month: string; date: string };
+
 /** Expected timing for one payment: unconfirmed, a month, or an exact date. Set by hand; survives basis changes. */
 export function InstallmentTimingDialog({ open, onOpenChange, installment, estimateRevision }: {
   open: boolean;
@@ -18,7 +20,7 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
   estimateRevision: number;
 }) {
   const id = useId();
-  const mutation = useTrackingMutation();
+  const mutation = useTrackingMutation<TimingForm>(`timing:${installment?.id ?? "none"}`);
   const { restart } = mutation;
   const [precision, setPrecision] = useState<TimingPrecision>("unknown");
   const [month, setMonth] = useState("");
@@ -29,9 +31,10 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
   useEffect(() => {
     if (!open || !installment) return;
     restart();
-    setPrecision(installment.timing_precision);
-    setMonth(installment.timing_precision === "month" && installment.expected_on ? installment.expected_on.slice(0, 7) : "");
-    setDate(installment.timing_precision === "date" && installment.expected_on ? installment.expected_on : "");
+    const pending = mutation.pending;
+    setPrecision(pending?.precision ?? installment.timing_precision);
+    setMonth(pending?.month ?? (installment.timing_precision === "month" && installment.expected_on ? installment.expected_on.slice(0, 7) : ""));
+    setDate(pending?.date ?? (installment.timing_precision === "date" && installment.expected_on ? installment.expected_on : ""));
     setError(null);
     setRevision(estimateRevision);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -41,6 +44,10 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
   const locked = mutation.locked || mutation.saving;
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mutation.unresolved) {
+      if (await mutation.retry()) onOpenChange(false);
+      return;
+    }
     let expectedOn: string | null = null;
     if (precision === "month") {
       if (!/^\d{4}-\d{2}$/.test(month)) { setError("Choose the expected month."); return; }
@@ -53,7 +60,7 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
     setError(null);
     const result = await mutation.run((requestId) => commissionTrackingApi.setInstallmentTiming({
       requestId, installmentId: installment.id, expectedRevision: revision, precision, expectedOn,
-    }));
+    }), { precision, month, date });
     if (result) onOpenChange(false);
   };
 
@@ -91,7 +98,7 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
           {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" disabled={mutation.saving}>{mutation.saving ? "Saving…" : mutation.locked ? "Retry" : "Save timing"}</Button>
+            <Button type="submit" disabled={mutation.saving || mutation.syncing}>{mutation.saving ? "Saving…" : mutation.locked ? "Retry" : "Save timing"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

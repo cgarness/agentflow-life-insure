@@ -16,24 +16,27 @@ export function CaptureAttentionNotice({ policy, onRecordLater }: { policy: Open
   const id = useId();
   const capture = policy.capture!;
   const canWrite = policy.access === "write";
-  const confirm = useTrackingMutation();
-  const dismiss = useTrackingMutation();
-  const [dismissing, setDismissing] = useState(false);
-  const [reason, setReason] = useState("");
+  const confirm = useTrackingMutation(`confirm:${capture.id}`);
+  const dismiss = useTrackingMutation<{ reason: string }>(`dismiss:${capture.id}`);
+  // A dismissal whose outcome is unknown reopens locked with the submitted reason.
+  const [dismissing, setDismissing] = useState(dismiss.unresolved);
+  const [reason, setReason] = useState(dismiss.pending?.reason ?? "");
   const [note, setNote] = useState<string | null>(null);
   const awaiting = capture.status === "awaiting_confirmation";
 
   const onConfirm = async () => {
     setNote(null);
-    const result = await confirm.run((requestId) => commissionTrackingApi.confirmCapture({ requestId, captureId: capture.id }));
+    const result = confirm.unresolved ? await confirm.retry<Awaited<ReturnType<typeof commissionTrackingApi.confirmCapture>>>()
+      : await confirm.run((requestId) => commissionTrackingApi.confirmCapture({ requestId, captureId: capture.id }));
     if (result && result.status === "needs_attention") { setNote(attentionMessage(result.code)); confirm.restart(); }
   };
   const onDismiss = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (dismiss.unresolved) { await dismiss.retry(); return; }
     const trimmed = reason.trim();
     if (trimmed.length < 3 || trimmed.length > 200) { setNote("Give a reason of 3 to 200 characters."); return; }
     setNote(null);
-    await dismiss.run((requestId) => commissionTrackingApi.dismissCapture({ requestId, captureId: capture.id, reason: trimmed }));
+    await dismiss.run((requestId) => commissionTrackingApi.dismissCapture({ requestId, captureId: capture.id, reason: trimmed }), { reason });
   };
 
   return (
@@ -46,7 +49,7 @@ export function CaptureAttentionNotice({ policy, onRecordLater }: { policy: Open
       </p>
       {canWrite && !dismissing && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" className="h-7 px-2 text-[11px]" disabled={confirm.saving} onClick={() => void onConfirm()}>
+          <Button type="button" size="sm" className="h-7 px-2 text-[11px]" disabled={confirm.saving || confirm.syncing} onClick={() => void onConfirm()}>
             {confirm.saving ? "Checking…" : confirm.locked ? "Retry confirm" : "Confirm estimate"}
           </Button>
           <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={onRecordLater}>Record with current rates</Button>
@@ -58,8 +61,8 @@ export function CaptureAttentionNotice({ policy, onRecordLater }: { policy: Open
           <label htmlFor={`${id}-reason`} className="sr-only">Reason for dismissing</label>
           <input id={`${id}-reason`} className={`${fieldCls} h-8 min-w-0 flex-1 text-xs`} placeholder="Reason for dismissing" maxLength={200}
             value={reason} disabled={dismiss.saving || dismiss.locked} onChange={(event) => setReason(event.target.value)} />
-          <Button type="submit" size="sm" variant="destructive" className="h-8" disabled={dismiss.saving}>{dismiss.locked ? "Retry" : "Dismiss"}</Button>
-          <Button type="button" size="sm" variant="ghost" className="h-8" disabled={dismiss.saving} onClick={() => setDismissing(false)}>Cancel</Button>
+          <Button type="submit" size="sm" variant="destructive" className="h-8" disabled={dismiss.saving || dismiss.syncing}>{dismiss.locked ? "Retry" : "Dismiss"}</Button>
+          <Button type="button" size="sm" variant="ghost" className="h-8" disabled={dismiss.saving || dismiss.unresolved} onClick={() => setDismissing(false)}>Cancel</Button>
         </form>
       )}
       {(note || confirm.message || dismiss.message) && (

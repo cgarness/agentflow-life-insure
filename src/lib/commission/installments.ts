@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { CommissionEstimateRecord, CommissionInstallment, CommissionReceipt, InstallmentKind } from "./trackingSchemas";
 
 /**
@@ -65,17 +66,25 @@ export function parseDollarsToCents(raw: string): number | null {
   return cents > 0 && cents <= 100_000_000 ? cents : null;
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The manual receipt form; issues are reported in field order, so the first one is the message to show. */
+export const receiptFormSchema = (today: string) => z.object({
+  amount: z.string().transform(parseDollarsToCents)
+    .refine((cents): cents is number => cents !== null, "Enter an amount above $0.00 (up to $1,000,000.00)."),
+  receivedOn: z.string().regex(ISO_DATE, "Enter the date the payment was received.")
+    .refine((date) => !ISO_DATE.test(date) || date <= today, "The received date can't be in the future.")
+    .refine((date) => !ISO_DATE.test(date) || date >= "2000-01-01", "Enter a received date from 2000 onward."),
+  reference: z.string().transform((text) => text.trim())
+    .refine((text) => text.length <= 200, "Keep the reference to 200 characters."),
+});
+
 /** Validates the manual receipt fields; returns an error message or the parsed values. */
 export function validateReceipt(input: { amount: string; receivedOn: string; reference: string }, today: string):
   { error: string } | { amountCents: number; receivedOn: string; reference: string | null } {
-  const amountCents = parseDollarsToCents(input.amount);
-  if (amountCents === null) return { error: "Enter an amount above $0.00 (up to $1,000,000.00)." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.receivedOn)) return { error: "Enter the date the payment was received." };
-  if (input.receivedOn > today) return { error: "The received date can't be in the future." };
-  if (input.receivedOn < "2000-01-01") return { error: "Enter a received date from 2000 onward." };
-  const reference = input.reference.trim();
-  if (reference.length > 200) return { error: "Keep the reference to 200 characters." };
-  return { amountCents, receivedOn: input.receivedOn, reference: reference || null };
+  const parsed = receiptFormSchema(today).safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  return { amountCents: parsed.data.amount as number, receivedOn: parsed.data.receivedOn, reference: parsed.data.reference || null };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

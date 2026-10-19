@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import type { CommissionSlotInputs } from "@/lib/commission/capture";
-import { activeReceipts, attentionMessage } from "@/lib/commission/installments";
+import { activeReceipts, attentionMessage, formatCents } from "@/lib/commission/installments";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
 import type { OpenPolicyCommission } from "@/lib/commission/trackingSchemas";
 
@@ -24,7 +24,8 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
   replace: boolean;
 }) {
   const id = useId();
-  const mutation = useTrackingMutation();
+  // One estimate operation per policy (record or replace), so an unresolved one is found from either dialog.
+  const mutation = useTrackingMutation<{ inputs: CommissionSlotInputs; reason: string }>(`estimate:${policy.policy_id}`);
   const { restart } = mutation;
   const capture = useRef<CommissionSlotInputs | null>(null);
   const [hasCapture, setHasCapture] = useState(false);
@@ -37,7 +38,7 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
   useEffect(() => {
     if (!open) return;
     restart();
-    setReason("");
+    setReason(mutation.pending?.reason ?? "");
     setError(null);
     setRevision(policy.estimate?.state_revision ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,6 +47,12 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
   const premium = policy.basis.monthly_premium;
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mutation.unresolved) {
+      const retried = await mutation.retry<Awaited<ReturnType<typeof commissionTrackingApi.recordEstimateLater>>>();
+      if (retried?.status === "changed") { setError(attentionMessage(retried.code)); restart(); }
+      else if (retried) onOpenChange(false);
+      return;
+    }
     const inputs = capture.current;
     if (!inputs) { setError("Complete the estimate first."); return; }
     const trimmed = reason.trim();
@@ -54,7 +61,7 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
     const result = await mutation.run((requestId) => commissionTrackingApi.recordEstimateLater({
       requestId, policyId: policy.policy_id, inputs, replaceEstimateId: estimate?.id ?? null,
       expectedRevision: estimate ? revision : null, reason: estimate ? trimmed : null,
-    }));
+    }), { inputs, reason });
     if (!result) return;
     if (result.status === "changed") { setError(attentionMessage(result.code)); restart(); return; }
     onOpenChange(false);
@@ -79,13 +86,20 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
               {policy.basis.premium_source === "policy_record" && (
                 <p className="text-xs text-muted-foreground">This older sale saved no premium of its own, so the policy's current monthly premium is used.</p>
               )}
-              <PolicyCommissionEstimate
-                owner={{ kind: "agent", id: policy.credited_agent_id }}
-                policyType={policy.basis.policy_type ?? ""}
-                carrier={policy.basis.carrier ?? ""}
-                monthlyPremium={premium}
-                onCaptureChange={(inputs) => { capture.current = inputs; setHasCapture(!!inputs); }}
-              />
+              {mutation.unresolved && mutation.pending ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Submitted estimate: <span className="tabular-nums text-foreground">{formatCents(mutation.pending.inputs.first_year_cents)}</span> first-year,{" "}
+                  <span className="tabular-nums text-foreground">{formatCents(mutation.pending.inputs.advance_cents)}</span> advance.
+                </p>
+              ) : (
+                <PolicyCommissionEstimate
+                  owner={{ kind: "agent", id: policy.credited_agent_id }}
+                  policyType={policy.basis.policy_type ?? ""}
+                  carrier={policy.basis.carrier ?? ""}
+                  monthlyPremium={premium}
+                  onCaptureChange={(inputs) => { capture.current = inputs; setHasCapture(!!inputs); }}
+                />
+              )}
               {estimate && (
                 <div>
                   <label htmlFor={`${id}-reason`} className={labelCls}>Reason for replacing</label>
@@ -96,7 +110,7 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
             {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-              <Button type="submit" disabled={mutation.saving || !hasCapture}>
+              <Button type="submit" disabled={mutation.saving || mutation.syncing || (!hasCapture && !mutation.unresolved)}>
                 {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : estimate ? "Replace estimate" : "Record estimate"}
               </Button>
             </DialogFooter>

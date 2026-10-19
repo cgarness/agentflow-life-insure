@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import { receiptFormSchema,
   addCalendarMonths,
   attentionMessage,
   estimateTotals,
@@ -66,5 +66,20 @@ describe("timing", () => {
     expect(timingLabel({ timing_precision: "date", expected_on: "2026-10-20" })).toBe("Expected Oct 20, 2026");
     expect(attentionMessage("rate_changed")).toMatch(/rate changed/);
     expect(attentionMessage("something_new")).toMatch(/needs a check/);
+  });
+});
+
+describe("receiptFormSchema", () => {
+  it("reports the first problem in field order and parses a valid receipt", () => {
+    const today = "2026-10-19";
+    const first = (input: { amount: string; receivedOn: string; reference: string }) => {
+      const parsed = receiptFormSchema(today).safeParse(input);
+      return parsed.success ? null : parsed.error.issues[0].message;
+    };
+    expect(first({ amount: "", receivedOn: "nope", reference: "" })).toMatch(/above \$0\.00/);
+    expect(first({ amount: "1", receivedOn: "nope", reference: "" })).toBe("Enter the date the payment was received.");
+    expect(first({ amount: "1", receivedOn: "2026-10-20", reference: "" })).toMatch(/future/);
+    expect(receiptFormSchema(today).parse({ amount: "1,000.5", receivedOn: today, reference: " r " }))
+      .toEqual({ amount: 100050, receivedOn: today, reference: "r" });
   });
 });
