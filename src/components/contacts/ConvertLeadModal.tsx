@@ -44,8 +44,7 @@ interface ConvertLeadModalProps {
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
 
 type PolicyRow = {
-  /** Also the stored policy identity of an additional row (Phase 2A binds its commission estimate to it). */
-  key: string;
+  key: string; // also an additional row's stored policy identity (its commission estimate binds to it)
   policyType: string;
   carrier: string;
   policyNumber: string;
@@ -85,12 +84,9 @@ const scheduleSchema = z.object({
 const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null }) => {
   const { organizationId } = useOrganization();
   const { profile, user } = useAuth();
-  // Every conversion goes through the sale companion; an unknown outcome locks the form and Retry replays it exactly.
   const submission = usePolicySaleSubmission();
   const { reset: resetSubmission } = submission;
-  const loading = submission.phase === "sending";
-  const requestId = useRef("");
-  const captures = useRef(new Map<string, CommissionSlotInputs>());
+  const perOpen = useRef({ requestId: "", captures: new Map<string, CommissionSlotInputs>() }); // replaced on every open
   const [carrierNames, setCarrierNames] = useState<string[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [policies, setPolicies] = useState<PolicyRow[]>([newPolicyRow()]);
@@ -115,8 +111,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     if (!open) return;
     resetForm();
     resetSubmission();
-    captures.current.clear();
-    requestId.current = crypto.randomUUID();
+    perOpen.current = { requestId: crypto.randomUUID(), captures: new Map() };
   }, [open, resetForm, resetSubmission]);
 
   useEffect(() => {
@@ -151,21 +146,6 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
   }, [open, organizationId]);
 
   if (!lead) return null;
-
-  const updatePolicy = (key: string, patch: Partial<Omit<PolicyRow, "key">>) => {
-    setPolicies((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
-  };
-
-  const addPolicy = () => setPolicies((prev) => [...prev, newPolicyRow()]);
-
-  const removePolicy = (key: string) => {
-    setPolicies((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.key !== key)));
-  };
-
-  const setCapture = (key: string, inputs: CommissionSlotInputs | null) => {
-    if (inputs) captures.current.set(key, inputs);
-    else captures.current.delete(key);
-  };
 
   const handleConvert = async () => {
     if (submission.locked && !submission.frozen) return;
@@ -218,10 +198,11 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     // Slots in row order: the first row is the primary policy, every other row is keyed by its own UUID.
     const commission = commissionPayload(policies.map((row, index) => ({
       slot: index === 0 ? PRIMARY_SLOT : row.key,
-      inputs: captures.current.get(row.key),
+      inputs: perOpen.current.captures.get(row.key),
     })));
+    // Every conversion goes through the sale companion; an unknown outcome locks the form and Retry replays it exactly.
     const outcome = await submission.submit((attempt) =>
-      conversionSupabaseApi.convertLeadToClientHandoff(attempt, lead, payload, organizationId, campaignId, requestId.current, commission));
+      conversionSupabaseApi.convertLeadToClientHandoff(attempt, lead, payload, organizationId, campaignId, perOpen.current.requestId, commission));
     if (!outcome.saved || !outcome.result) {
       if (outcome.phase === "editing" && outcome.message) toast.error(outcome.message);
       return;
@@ -242,6 +223,23 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     }
     onSuccess(clientId);
     onClose();
+  };
+
+  const loading = submission.phase === "sending";
+
+  const updatePolicy = (key: string, patch: Partial<Omit<PolicyRow, "key">>) => {
+    setPolicies((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  };
+
+  const addPolicy = () => setPolicies((prev) => [...prev, newPolicyRow()]);
+
+  const removePolicy = (key: string) => {
+    setPolicies((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.key !== key)));
+  };
+
+  const setCapture = (key: string, inputs: CommissionSlotInputs | null) => {
+    if (inputs) perOpen.current.captures.set(key, inputs);
+    else perOpen.current.captures.delete(key);
   };
 
   const inputCls = "h-9 text-xs shadow-sm bg-background border-border placeholder:text-muted-foreground/50";

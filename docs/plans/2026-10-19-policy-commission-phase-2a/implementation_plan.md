@@ -384,6 +384,10 @@ commands.
 - `supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql` (added during the pass: one
   statement drops the new capture → estimate constraint before the tables, because the two tables now reference each
   other; no other rollback change)
+- `src/components/contacts/ConvertLeadModal.tsx` (added for the final CI: `uv-profile-sync.yml` requires the app
+  typecheck output to equal the base exactly, positions included, and this PR's earlier edits moved one existing
+  diagnostic from line 182 to 202. Helpers moved below `handleConvert` and the per-open request id and captures
+  merged into one ref; no behaviour change)
 - `supabase/tests/policy_commission_tracking.sql`, `scripts/run_policy_commission_tests.sh` (lifecycle tests and the
   confirm vs record-later race in both orders), `scripts/tests/policy_commission/measure_save_overhead.sh`
 - `src/hooks/useClientPolicyCommissions.ts`, `src/lib/commission/installments.ts`, `src/lib/policySaleOutcome.ts`,
