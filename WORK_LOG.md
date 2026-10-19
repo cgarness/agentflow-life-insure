@@ -1,3 +1,11 @@
+## 2026-10-19 — Soft emerald UV navigation actions
+
+Chris selected option 1 from the displayed light/dark button comparison at 21:30 PDT October 18. The shared actions now use a soft emerald View UV Page button and an outlined Copy Link button, with 44px targets, rounded corners and matching dark-mode colors. Canonical URLs, copy feedback, disabled states and verified status are unchanged. This applies to Agent Profile, Settings and wizard completion. No backend, sync, A2P, profile data or unrelated button changes.
+
+Validation: 44 existing profile/wizard tests pass; root TypeScript, scoped ESLint and diff whitespace checks pass. Existing browser fixtures use the new labels and capture desktop/mobile light/dark action states. Exact-head CI, screenshots and production deployment evidence are recorded on the release PR. Plan: docs/plans/2026-10-19-uv-emerald-actions/implementation_plan.md.
+
+---
+
 ## 2026-10-19 — UV profile verification wizard (prepared; NOT live)
 
 Chris requested an expiration-free profile confirmation wizard, optional bio, green completion badges and new buttons at 20:19 PDT October 18. Scoped implementation is on `codex/uv-verification-wizard-20261019`; production migration/Edge/frontend release remains gated.

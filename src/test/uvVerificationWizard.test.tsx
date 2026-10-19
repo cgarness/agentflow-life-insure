@@ -41,7 +41,7 @@ describe('verification wizard',()=>{
   const props={scope,status,onClose:vi.fn(),onRefresh:vi.fn(),onComplete:vi.fn().mockResolvedValue({})};
   const view=render(<VerificationWizard {...props}/>);await review();fireEvent.click(screen.getByRole('checkbox',{name:/I confirm/}));fireEvent.click(screen.getByRole('button',{name:'Confirm & get verified'}));
   await screen.findByText('Setting up your agent site');view.rerender(<VerificationWizard {...props} status={{...status,state:'published',verified:true,public_url:'https://www.underwriterverified.com/synthetic/test-agent'}}/>);
-  expect(screen.getByText('Your agent site is ready')).toBeInTheDocument();expect(screen.getByRole('link',{name:'Underwriter Verified'})).toHaveAttribute('href','https://www.underwriterverified.com/synthetic/test-agent');
+  expect(screen.getByText('Your agent site is ready')).toBeInTheDocument();expect(screen.getByRole('link',{name:'View UV Page'})).toHaveAttribute('href','https://www.underwriterverified.com/synthetic/test-agent');
  });
  it.each(['first_name','last_name','phone','email','avatar_url'])('requires %s',field=>{expect(identitySchema.safeParse({...draft,[field]:''}).success).toBe(false);});
  it('requires an NPN and numbered license, without an expiration or bio requirement',()=>{
