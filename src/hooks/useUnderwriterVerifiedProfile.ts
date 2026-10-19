@@ -46,7 +46,6 @@ export function useUnderwriterVerifiedProfile(enabled:boolean) {
       const data=await completeSetup(scope,snapshot,draft,phonePublic,emailPublic);
       if(current.current!==scopeKey) throw new Error('Profile scope changed.');
       cache.setQueryData(key,data);
-      void cache.invalidateQueries({queryKey:['agent-state-licenses']});
       // Reload canonical profile state after the atomic server save; never write it twice.
       void auth.refreshProfile?.();
       return data;

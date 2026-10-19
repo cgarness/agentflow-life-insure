@@ -159,7 +159,7 @@ try {
   assert.equal(await publicPage.locator('a[href^="tel:"],a[href^="mailto:"]').count(),0);
   await publicPage.goto(origins[1]);await publicPage.getByPlaceholder('Name, agency, phone, email, or NPN…').fill('Updated');
   await publicPage.getByRole('button',{name:'Search',exact:true}).click();await publicPage.getByText('No agents found. Try a different search term.').waitFor();
-  assert.equal(writes,2);assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
+  assert.equal(writes,3);assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
   for(const p of [page,publicPage])assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow');
   results.push({width,passed:true,reads,writes});await context.close();
  }
