@@ -15,8 +15,8 @@ export function PublicProfileActions({ url, verified = false }: { url: string | 
   return <div>
     <div className="flex flex-wrap gap-2" role="group" aria-label="Underwriter Verified">
       {url ? <Button variant="outline" className={primary} asChild>
-        <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4"/>View UV Page</a>
-      </Button> : <Button variant="outline" className={primary} disabled title="Publish your page in Settings > My Profile"><ExternalLink className="h-4 w-4"/>View UV Page</Button>}
+        <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4"/>View Agent Page</a>
+      </Button> : <Button variant="outline" className={primary} disabled title="Publish your page in Settings > My Profile"><ExternalLink className="h-4 w-4"/>View Agent Page</Button>}
       <Button variant="outline" className={secondary} disabled={!url} onClick={copy}><Copy className="h-4 w-4"/>Copy Link</Button>
     </div>
     {verified && <p className="mt-2 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400" title="Profile details confirmed by the agent"><BadgeCheck className="h-3.5 w-3.5"/>Verified</p>}
