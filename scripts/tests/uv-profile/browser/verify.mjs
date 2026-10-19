@@ -67,16 +67,16 @@ try {
   // Simulate the asynchronous acknowledgement; SQL/actual handlers are proven separately.
   row.is_published=true;row.phone='+15550001000';status.state='published';status.public_url=canonical;
   await page.reload();await profile.getByText('Published',{exact:true}).waitFor();
-  assert.equal(await page.getByRole('link',{name:'View UV Page',exact:true}).getAttribute('href'),canonical);
+  assert.equal(await page.getByRole('link',{name:'View Agent Page',exact:true}).getAttribute('href'),canonical);
   await page.getByRole('button',{name:'Copy Link',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Link copied'}).waitFor();
   assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),canonical);
   await page.getByRole('button',{name:'Agent Profile',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Edit public profile settings'}).count(),0);
-  assert.equal(await page.getByRole('link',{name:'View UV Page',exact:true}).count(),1);
+  assert.equal(await page.getByRole('link',{name:'View Agent Page',exact:true}).count(),1);
   assert.equal(await page.getByRole('button',{name:'Copy Link',exact:true}).count(),1);
   await page.screenshot({path:output+'/'+width+'-published.png',fullPage:true});
-  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'View UV Page',exact:true}).click();const publicPage=await popupPromise;
+  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'View Agent Page',exact:true}).click();const publicPage=await popupPromise;
   publicPage.on('pageerror',e=>errors.push(e.message));
   await publicPage.getByRole('heading',{name:'Test Agent',exact:true}).waitFor();
   assert.equal(await publicPage.locator('a[href^="mailto:"]').count(),0);
