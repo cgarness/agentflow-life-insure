@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: cgarness/underwriter-verified
-          ref: 629f6580601387a4f0126d163e2614fe6ccde57c
+          ref: 34261179f3f64dd110396a31f9845568cb2d79e1
           path: .uv-peer
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: cgarness/underwriter-verified
-          ref: 629f6580601387a4f0126d163e2614fe6ccde57c
+          ref: 34261179f3f64dd110396a31f9845568cb2d79e1
           path: .uv-peer
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

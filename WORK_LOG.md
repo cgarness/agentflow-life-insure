@@ -1,3 +1,9 @@
+## 2026-10-19 — Gold UV profile actions and Settings-only preferences
+
+Chris requested gold UV buttons, no publishing/settings control on Agent Profile, and a public layout matching his existing page. Agent Profile now renders only gold Underwriter Verified (open page) and Copy link actions. Unpublished pages show disabled actions without invented links. Publication/contact controls remain in Settings > My Profile. The protected own-account page receives both navigation actions without enrollment or any sync RPC. Existing authorization, source guards, publication choices and save-driven synchronization are unchanged.
+
+Validation: 42 focused tests pass; root TypeScript, scoped lint and production build pass. Browser fixture now switches between Settings and Agent Profile and asserts no settings controls on Agent Profile. Both paired jobs pin UV 34261179f3f64dd110396a31f9845568cb2d79e1 (shared layout companion PR #22). Exact-base app TypeScript and full required checks run in CI. No backend, credentials, profile data, RLS, A2P, SMS or dialer changes. Scoped plan: docs/plans/2026-10-19-uv-presentation/implementation_plan.md.
+
 ## 2026-10-19 02:21 UTC — LIVE: save-driven UV sync and protected page access
 
 Chris approved publication, exact migration application and frontend release on October 18 at 19:02 PDT, reaffirmed at 19:03. PR #462 merged as c79a1280a6f8f7b3342bfc597b68b96f83d450fc from verified head 92bd4c189c6ac687fbef56940bb2396a2be49f37. Vercel production dpl_AznU7guUBZTPih9WnKw1qGMn8PkJ is READY and assigned to www.fflagent.com. Git CLI had no push credentials, so the connected GitHub account published blobs with exact SHA checks and a tree identical to the local candidate. No approval bypass.

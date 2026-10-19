@@ -60,12 +60,16 @@ try {
   // Simulate the asynchronous acknowledgement; SQL/actual handlers are proven separately.
   row.is_published=true;row.phone='+15550001000';status.state='published';status.public_url=canonical;
   await page.reload();await profile.getByText('Published',{exact:true}).waitFor();
-  assert.equal(await page.getByRole('link',{name:'View',exact:true}).getAttribute('href'),canonical);
-  await page.getByRole('button',{name:'Copy',exact:true}).click();
+  assert.equal(await page.getByRole('link',{name:'Underwriter Verified',exact:true}).getAttribute('href'),canonical);
+  await page.getByRole('button',{name:'Copy link',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Link copied'}).waitFor();
   assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),canonical);
+  await page.getByRole('button',{name:'Agent Profile',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Edit public profile settings'}).count(),0);
+  assert.equal(await page.getByRole('link',{name:'Underwriter Verified',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Copy link',exact:true}).count(),1);
   await page.screenshot({path:output+'/'+width+'-published.png',fullPage:true});
-  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'View',exact:true}).click();const publicPage=await popupPromise;
+  const popupPromise=page.waitForEvent('popup');await page.getByRole('link',{name:'Underwriter Verified',exact:true}).click();const publicPage=await popupPromise;
   publicPage.on('pageerror',e=>errors.push(e.message));
   await publicPage.getByRole('heading',{name:'Test Agent',exact:true}).waitFor();
   assert.equal(await publicPage.locator('a[href^="mailto:"]').count(),0);
@@ -106,6 +110,7 @@ try {
   }
   await publicPage.goto(origins[1]);await publicPage.getByPlaceholder('Name, agency, phone, email, or NPN…').fill('Updated');
   await publicPage.getByRole('button',{name:'Search',exact:true}).click();await publicPage.getByText('Updated Agent',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
   for(const mode of ['view','out']){
    const before=reads;await page.getByRole('button',{name:mode,exact:true}).click();
    assert.equal(await profile.count(),0);await page.waitForTimeout(100);assert.equal(reads,before);
