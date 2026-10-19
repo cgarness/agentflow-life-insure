@@ -1,5 +1,7 @@
 # Save-driven UV updates and existing-page access
 
+Completed in production at 02:21 UTC on 2026-10-19: PR #462, migration hosted20261019021934, Vercel dpl_AznU7guUBZTPih9WnKw1qGMn8PkJ. Exact verification and remaining owner live-agent acceptance are recorded in release.md and production-evidence.json. Earlier pending gates below describe the preparation phase.
+
 Chris approved replacing ongoing profile polling with updates after Profile Information saves, and reported the missing UV button on his Agent Profile. This authorizes preparation and local verification of this scoped replacement. Production application and repository publication are recorded separately after the exact candidate is ready; no earlier permission to change the protected A2P page is inferred.
 
 ## Behavior
