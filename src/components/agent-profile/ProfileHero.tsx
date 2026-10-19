@@ -12,7 +12,7 @@
 
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { BadgeCheck, Building2, IdCard, MapPin, Pencil, Settings2, ShieldCheck } from "lucide-react";
+import { BadgeCheck, Building2, IdCard, MapPin, Pencil, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +35,7 @@ export interface ProfileHeroProps {
   readinessPercent: number | null;
   isFullyReady: boolean;
   isLoading?: boolean;
+  actions?: React.ReactNode;
 }
 
 /**
@@ -64,6 +65,7 @@ export const ProfileHero: React.FC<ProfileHeroProps> = ({
   readinessPercent,
   isFullyReady,
   isLoading = false,
+  actions,
 }) => {
   const navigate = useNavigate();
   const initials = `${firstName.charAt(0) || "A"}${lastName.charAt(0) || ""}`.toUpperCase();
@@ -141,16 +143,13 @@ export const ProfileHero: React.FC<ProfileHeroProps> = ({
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex max-w-full flex-wrap items-start gap-2 lg:justify-end">
+            {actions}
             {/* ABSOLUTE paths: setSearchParams is route-relative and would produce
                 /agent-profile?section=… , a link that goes nowhere. */}
-            <Button variant="outline" size="sm" onClick={() => navigate("/settings?section=my-profile")}>
+            <Button variant="outline" className="h-11 rounded-lg px-4" onClick={() => navigate("/settings?section=my-profile")}>
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               Edit profile
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/settings")}>
-              <Settings2 className="mr-1.5 h-3.5 w-3.5" />
-              Profile settings
             </Button>
           </div>
         </div>

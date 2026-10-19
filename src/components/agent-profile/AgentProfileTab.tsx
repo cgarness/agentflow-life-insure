@@ -83,9 +83,8 @@ export const AgentProfileTab: React.FC<AgentProfileTabProps> = ({
         readinessPercent={readiness?.percent ?? null}
         isFullyReady={readiness?.isFullyReady ?? false}
         isLoading={authLoading || !profile}
+        actions={<UnderwriterVerifiedProfile />}
       />
-
-      <UnderwriterVerifiedProfile />
 
       <BusinessSnapshot
         title="Business snapshot"
