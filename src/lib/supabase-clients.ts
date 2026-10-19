@@ -3,11 +3,11 @@ import { Client, PolicyType } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
-import { notifyRecordedSales, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
+import { notifyRecordedSales, runPreparedSale, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
 import type { Json } from "@/integrations/supabase/types";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { emptyCommissionPayload, type CommissionPayload } from "@/lib/commission/capture";
-import { notSentError, runPreparedSale, type PreparedSale, type SaleAttempt } from "@/lib/policySaleOutcome";
+import { notSentError, type PreparedSale, type SaleAttempt } from "@/lib/policySaleOutcome";
 
 export interface ClientFilters {
     search?: string;

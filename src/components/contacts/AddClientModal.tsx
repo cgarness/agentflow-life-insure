@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { clientSaleFormSchema } from "@/lib/clientSaleForm";
-import { clientSaleRecordsPolicy, type ClientSaleOptions } from "@/lib/policySaleRecording";
-import { commissionNotice } from "@/lib/policySaleOutcome";
+import type { ClientSaleOptions } from "@/lib/policySaleRecording";
+import { clientSaleRecordsPolicy, commissionNotice } from "@/lib/policySaleOutcome";
 import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/lib/commission/capture";
 import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
 import { X, Loader2 } from "lucide-react";

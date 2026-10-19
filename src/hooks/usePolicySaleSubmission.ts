@@ -3,7 +3,6 @@ import {
   conflictMessage,
   FROZEN_MESSAGE,
   newSaleAttempt,
-  readSaleOperationStatus,
   SaleRequestError,
   type PreparedSale,
   type SaleAttempt,
@@ -100,9 +99,8 @@ export function usePolicySaleSubmission(): SaleSubmission {
       const message = failure instanceof Error && failure.message ? failure.message : "Save failed";
       const errorClass = failure instanceof SaleRequestError ? failure.errorClass : attempt.sent ? "unknown" : "not_sent";
       if (errorClass === "conflict") {
-        const prepared = attempt.prepared ?? retry;
         frozen.current = null;
-        const status = prepared ? await readSaleOperationStatus(prepared) : ({ state: "unreadable" } as const);
+        const status = (failure instanceof SaleRequestError && failure.operation) || ({ state: "unreadable" } as const);
         return settle({ phase: "conflict", message: conflictMessage(status) });
       }
       if (retry) {

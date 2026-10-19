@@ -17,11 +17,11 @@ export function SaleSubmissionNotice({ submission }: { submission: SaleSubmissio
   }
   if (submission.phase === "conflict") {
     return (
-      <div role="alert" className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+      <div role="alert" className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive dark:text-red-400">
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         <p className="min-w-0 break-words">{submission.message}</p>
       </div>
     );
   }
-  return <p role="alert" className="break-words text-sm text-destructive">{submission.message}</p>;
+  return <p role="alert" className="break-words text-sm text-destructive dark:text-red-400">{submission.message}</p>;
 }

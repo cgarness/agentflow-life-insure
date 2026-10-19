@@ -22,12 +22,10 @@ import {
   notSentError,
   parseCommissionOutcome,
   parseSaleResult,
-  readSaleOperationStatus,
-  runPreparedSale,
   SaleRequestError,
-  sendPreparedSale,
   type PreparedSale,
 } from "../policySaleOutcome";
+import { readSaleOperationStatus, runPreparedSale, sendPreparedSale } from "../policySaleRecording";
 
 const CLIENT = "00000000-0000-4000-8000-000000000001";
 const WIN = "00000000-0000-4000-8000-000000000002";
@@ -115,8 +113,12 @@ describe("sendPreparedSale", () => {
     expect(h.calls.map(([name]) => name)).not.toContain("notify_win");
   });
   it("classifies server errors and keeps the server message", async () => {
-    h.respond = async () => ({ data: null, error: { message: "This lead is already converted; refresh the client before editing", code: "PT409" }, status: 409 });
-    await expect(sendPreparedSale(prepared(), newSaleAttempt())).rejects.toMatchObject({ errorClass: "conflict", code: "PT409", status: 409 });
+    h.respond = async (name) => name === "get_policy_sale_operation_status"
+      ? { data: { state: "committed_by_another_user" }, error: null }
+      : { data: null, error: { message: "This lead is already converted; refresh the client before editing", code: "PT409" }, status: 409 };
+    await expect(sendPreparedSale(prepared(), newSaleAttempt()))
+      .rejects.toMatchObject({ errorClass: "conflict", code: "PT409", status: 409, operation: { state: "committed_by_another_user" } });
+    expect(h.calls.map(([name]) => name)).toEqual(["convert_lead_to_client_with_sales_handoff", "get_policy_sale_operation_status"]);
     h.respond = async () => ({ data: null, error: { message: "Invalid client payload", code: "22023" }, status: 400 });
     await expect(sendPreparedSale(prepared(), newSaleAttempt())).rejects.toMatchObject({ errorClass: "rejected", message: "Invalid client payload" });
     h.respond = async () => ({ data: null, error: { message: "TypeError: fetch failed", code: "" }, status: 0 });

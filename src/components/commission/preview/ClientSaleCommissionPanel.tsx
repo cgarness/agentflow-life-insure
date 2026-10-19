@@ -1,5 +1,5 @@
 import type { Client } from "@/lib/types";
-import { clientSaleRecordsPolicy } from "@/lib/policySaleRecording";
+import { clientSaleRecordsPolicy } from "@/lib/policySaleOutcome";
 import type { CommissionSlotInputs } from "@/lib/commission/capture";
 import { PolicyCommissionEstimate } from "./PolicyCommissionEstimate";
 

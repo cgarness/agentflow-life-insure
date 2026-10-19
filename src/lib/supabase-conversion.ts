@@ -1,10 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
-import { notifyRecordedSales, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
+import { notifyRecordedSales, runPreparedSale, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import type { CommissionPayload } from "@/lib/commission/capture";
-import { notSentError, runPreparedSale, type PreparedSale, type SaleAttempt, type SaleHandoffResult } from "@/lib/policySaleOutcome";
+import { notSentError, type PreparedSale, type SaleAttempt, type SaleHandoffResult } from "@/lib/policySaleOutcome";
 
 /**
  * Extra policies at conversion time (primary policy maps to `clients` columns). Stored on the client

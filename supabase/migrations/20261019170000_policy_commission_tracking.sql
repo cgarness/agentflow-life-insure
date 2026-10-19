@@ -311,7 +311,7 @@ CREATE UNIQUE INDEX policy_commission_events_request
   ON public.policy_commission_events (organization_id, request_id) WHERE request_id IS NOT NULL;
 
 CREATE INDEX policy_commission_handoffs_client ON public.policy_commission_handoffs (organization_id, client_id);
-CREATE INDEX policy_commission_captures_handoff ON public.policy_commission_captures (handoff_id);
+CREATE INDEX policy_commission_captures_handoff ON public.policy_commission_captures (handoff_id, organization_id);
 CREATE INDEX policy_commission_captures_win ON public.policy_commission_captures (win_id, organization_id, policy_id, credited_agent_id);
 CREATE INDEX policy_commission_estimates_agent ON public.policy_commission_estimates (organization_id, credited_agent_id);
 CREATE INDEX policy_commission_estimates_win ON public.policy_commission_estimates (win_id, organization_id, policy_id, credited_agent_id);

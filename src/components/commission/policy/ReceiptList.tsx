@@ -24,7 +24,7 @@ export function ReceiptList({ receipts, canWrite, onVoid }: {
               <span className="min-w-0 break-words text-muted-foreground">· void: {receipt.void_reason}</span>
             ) : (
               canWrite && (
-                <button type="button" className="text-[11px] font-medium text-destructive hover:underline" onClick={() => onVoid(receipt)}>
+                <button type="button" className="text-[11px] font-medium text-destructive hover:underline dark:text-red-400" onClick={() => onVoid(receipt)}>
                   Void
                 </button>
               )

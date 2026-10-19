@@ -1,21 +1,17 @@
-import { supabase } from "@/integrations/supabase/client";
 import type { CommissionPayload } from "@/lib/commission/capture";
-import { notifyRecordedSales } from "@/lib/policySaleRecording";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
+import type { Client } from "@/lib/types";
 
 /**
  * Phase 2A sale submissions through the commission companions. A sale is one server transaction; whether it
  * committed is decided ONLY by what the server reported. Anything else (no response, an aborted request, an
  * unrecognised error, an unreadable success) is "unknown": the exact submission is kept, in memory only, and a
  * retry replays it byte for byte, so the server's receipt makes it exactly-once.
+ *
+ * This module holds no transport (the companion calls live in policySaleRecording), so the sale modals and their
+ * submission state never load the Supabase client themselves.
  */
 export type SaleKind = "record" | "create" | "convert" | "edit";
-
-const COMPANION: Record<SaleKind, string> = {
-  record: "record_client_policy_handoff",
-  create: "create_client_with_sale_handoff",
-  convert: "convert_lead_to_client_with_sales_handoff",
-  edit: "update_client_with_policy_sale_handoff",
-};
 
 /** A built submission. Deep-frozen; never logged, toasted, persisted or sent anywhere but its companion. */
 export interface PreparedSale {
@@ -78,17 +74,20 @@ export interface SaleHandoffResult {
 
 export type SaleErrorClass = "not_sent" | "rejected" | "conflict" | "unknown";
 
-/** Message unchanged from the server; never carries the submission. */
+/** Message unchanged from the server; never carries the submission. A conflict carries the operation's server status. */
 export class SaleRequestError extends Error {
   readonly code: string | null;
   readonly status: number | null;
   readonly errorClass: SaleErrorClass;
-  constructor(message: string, errorClass: SaleErrorClass, code: string | null = null, status: number | null = null) {
+  readonly operation: SaleOperationState | null;
+  constructor(message: string, errorClass: SaleErrorClass, code: string | null = null, status: number | null = null,
+    operation: SaleOperationState | null = null) {
     super(message);
     this.name = "SaleRequestError";
     this.code = code;
     this.status = status;
     this.errorClass = errorClass;
+    this.operation = operation;
   }
 }
 
@@ -125,7 +124,7 @@ export function freezeSale(prepared: PreparedSale): PreparedSale {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const SLOT_STATUSES: readonly SlotStatus[] = ["recorded", "awaiting_confirmation", "needs_attention", "not_recorded", "dismissed"];
 const OUTCOME_STATUSES: readonly CommissionOutcomeStatus[] = [
@@ -166,67 +165,10 @@ export function parseSaleResult(raw: unknown, expectedClientId: string | null): 
   };
 }
 
-const UNREADABLE_RESPONSE = "The save response couldn't be read, so it may or may not have saved.";
-
-/** Sends one submission to its companion. The attempt records that the request started. */
-export async function sendPreparedSale(prepared: PreparedSale, attempt: SaleAttempt): Promise<SaleHandoffResult> {
-  attempt.prepared = prepared;
-  const args = { ...prepared.saleArgs, p_request_id: prepared.requestId, p_commission: prepared.commission };
-  attempt.sent = true;
-  let response: { data: unknown; error: { message?: string; code?: string } | null; status?: number };
-  try {
-    response = await (supabase as any).rpc(COMPANION[prepared.kind], args);
-  } catch (error) {
-    throw new SaleRequestError(error instanceof Error ? error.message : UNREADABLE_RESPONSE, "unknown");
-  }
-  const { data, error, status } = response;
-  if (error) {
-    const code = typeof error.code === "string" && error.code ? error.code : null;
-    throw new SaleRequestError(error.message || "Save failed", classifySaleError(code, true), code, status ?? null);
-  }
-  const sale = parseSaleResult(data, prepared.expectedClientId);
-  if (!sale) throw new SaleRequestError(UNREADABLE_RESPONSE, "unknown", null, status ?? null);
-  const result = { ...sale, commission: parseCommissionOutcome((data as Record<string, unknown>).commission) };
-  attempt.result = result;
-  if (prepared.notify) await notifyRecordedSales(result.winIds);
-  return result;
-}
-
-/** Retry replays the frozen submission; a fresh attempt builds (and freezes) a new one. */
-export async function runPreparedSale(attempt: SaleAttempt, prepare: () => PreparedSale): Promise<SaleHandoffResult> {
-  let prepared: PreparedSale;
-  try {
-    prepared = attempt.frozen ?? freezeSale(prepare());
-  } catch (error) {
-    if (error instanceof SaleRequestError) throw error;
-    throw notSentError(error instanceof Error ? error.message : "This save couldn't be prepared.");
-  }
-  return sendPreparedSale(prepared, attempt);
-}
-
 export type SaleOperationState =
   | { state: "committed"; samePayload: boolean; thisRequest: boolean | null }
   | { state: "committed_by_another_user" | "committed_without_receipt" | "not_found" }
   | { state: "unreadable" };
-
-/** Caller-scoped server truth for a submission. "Not found" is never proof of rollback (it may be in flight). */
-export async function readSaleOperationStatus(prepared: PreparedSale): Promise<SaleOperationState> {
-  try {
-    const { data, error } = await (supabase as any).rpc("get_policy_sale_operation_status", {
-      p_kind: prepared.kind, p_request_id: prepared.requestId, p_lead_id: prepared.leadId, p_sale_args: prepared.saleArgs,
-    });
-    if (error || !isRecord(data)) return { state: "unreadable" };
-    if (data.state === "committed") {
-      return { state: "committed", samePayload: data.same_payload === true, thisRequest: typeof data.this_request === "boolean" ? data.this_request : null };
-    }
-    if (data.state === "committed_by_another_user" || data.state === "committed_without_receipt" || data.state === "not_found") {
-      return { state: data.state };
-    }
-    return { state: "unreadable" };
-  } catch {
-    return { state: "unreadable" };
-  }
-}
 
 export const FROZEN_MESSAGE =
   "We couldn't confirm whether this save went through. Your entries are locked so a retry can't create a duplicate: Retry sends exactly the same save.";
@@ -253,4 +195,9 @@ export function commissionNotice(outcome: CommissionOutcome, sentSlots: number):
     return "Policy saved; the commission estimate wasn't recorded. You can record it from the contact.";
   }
   return null;
+}
+
+/** True when an Add/Edit Client save records a NEW sale: a new client's policy, or an existing client's first. */
+export function clientSaleRecordsPolicy(form: Partial<Client>, initial: Partial<Client> | null | undefined): boolean {
+  return hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial));
 }

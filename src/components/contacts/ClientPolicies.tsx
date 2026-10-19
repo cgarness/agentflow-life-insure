@@ -1,7 +1,35 @@
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import type { Client } from "@/lib/types";
 import { getClientPolicyDisplay } from "@/lib/client-policy-display";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { PolicyCommissionSection } from "@/components/commission/policy/PolicyCommissionSection";
+
+// Loaded only when a policy with a stored identity is shown, so the policy list itself never loads the commission
+// code (or its data client).
+const PolicyCommissionSection = lazy(() =>
+  import("@/components/commission/policy/PolicyCommissionSection").then((module) => ({ default: module.PolicyCommissionSection })));
+
+/** A commission section that fails to load renders nothing; the contact view is unaffected. */
+class CommissionLoadBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+function PolicyCommission(props: { clientId: string; policyId: string; compact?: boolean }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicyCommissionSection {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
@@ -27,7 +55,7 @@ export function ClientPolicies({ client, formatDate }: {
   const hasAdditional = policies.some(policy => policy.source === "additional");
   if (!hasAdditional && malformedAdditionalPolicies === 0) {
     const primary = policies.find(policy => policy.source === "primary");
-    return client.id && primary?.policyId ? <PolicyCommissionSection clientId={client.id} policyId={primary.policyId} /> : null;
+    return client.id && primary?.policyId ? <PolicyCommission clientId={client.id} policyId={primary.policyId} /> : null;
   }
 
   return (
@@ -65,7 +93,7 @@ export function ClientPolicies({ client, formatDate }: {
                     </div>
                   ))}
                 </dl>
-                {client.id && policy.policyId && <PolicyCommissionSection clientId={client.id} policyId={policy.policyId} compact />}
+                {client.id && policy.policyId && <PolicyCommission clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>
           );

@@ -17,7 +17,8 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import { usePolicySaleSubmission } from "../usePolicySaleSubmission";
-import { runPreparedSale, type PreparedSale, type SaleAttempt } from "@/lib/policySaleOutcome";
+import type { PreparedSale, SaleAttempt } from "@/lib/policySaleOutcome";
+import { runPreparedSale } from "@/lib/policySaleRecording";
 
 const CLIENT = "00000000-0000-4000-8000-0000000000c1";
 const success = { data: { client_id: CLIENT, win_ids: ["00000000-0000-4000-8000-0000000000d1"], idempotent: false,
