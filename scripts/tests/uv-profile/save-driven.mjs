@@ -74,8 +74,9 @@ async function claim(){return (await db.query('SELECT public.claim_uv_profile_sy
 async function prepare(job){return (await db.query('SELECT public.prepare_uv_profile_sync($1,$2,$3,false) AS data',[job.organization_id,job.profile_id,job.lease_token])).rows[0].data;}
 async function finish(job,prepared,error=null){
  const env=prepared.envelope;
- const receipt=error?null:JSON.stringify({version:env.version,published:env.profile.published,warning:null,public_url:env.profile.published?'https://www.underwriterverified.com/synthetic/test-agent':null});
- return (await db.query('SELECT public.finish_uv_profile_sync($1,$2,$3,$4,$5::jsonb,$6) AS ok',[job.organization_id,job.profile_id,job.lease_token,env.version,receipt,error])).rows[0].ok;
+ const receipt=error?null:{version:env.version,published:env.profile.published,warning:null,public_url:env.profile.published?'https://www.underwriterverified.com/synthetic/test-agent':null};
+ const parameter=receipt!==null&&!native?JSON.stringify(receipt):receipt;
+ return (await db.query('SELECT public.finish_uv_profile_sync($1,$2,$3,$4,$5::jsonb,$6) AS ok',[job.organization_id,job.profile_id,job.lease_token,env.version,parameter,error])).rows[0].ok;
 }
 async function drain(){const jobs=await claim();for(const job of jobs){const p=await prepare(job);assert.ok(p);assert.equal(await finish(job,p),true);}return jobs;}
 async function prefs(published){
@@ -91,7 +92,7 @@ await check('migration changes only the UV cron command and preserves RPC ACL',a
  assert.equal(jobs[1].command,'SELECT 1;');
  assert.equal((await db.query("SELECT proacl::text FROM pg_proc WHERE oid='public.finish_uv_profile_sync(uuid,uuid,uuid,bigint,jsonb,text)'::regprocedure")).rows[0].proacl,acl);
  const grants=(await db.query("SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='private' AND (has_function_privilege('anon',p.oid,'EXECUTE') OR has_function_privilege('authenticated',p.oid,'EXECUTE') OR has_function_privilege('service_role',p.oid,'EXECUTE'))")).rows;
- assert.deepEqual(grants,[]);
+ assert.equal(grants.length,0);
 });
 await check('empty queue and unenrolled saves do not invoke worker',async()=>{
  assert.equal(await dispatch(),null);await db.exec(`UPDATE public.profiles SET first_name='Saved' WHERE id='${user}'`);

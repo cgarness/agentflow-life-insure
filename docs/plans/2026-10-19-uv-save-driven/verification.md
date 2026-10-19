@@ -2,6 +2,8 @@
 
 Status: local candidate verified; not published, applied, merged or deployed.
 
+Publication update: PR #462 was opened at 81b2f3105f2fe59cd17669305b43ea16f7e15da0, with tree byte-identical to local 28ae35c. Browser and existing native paired checks passed. The new native suite stopped on a test-only JavaScript prototype comparison (`postgres` returns `Result(0) []`, not a plain Array). The empty-permissions assertion now checks length directly. No migration or application behavior changed; rerun the new head before release.
+
 - 109 frontend tests passed across UV controls, Agent Profile, My Profile and setup-wizard-removal contracts. Includes protected owner link, no protected sync RPC/settings, wrong identity/agency/View As/sign-out/loading rejection, no settled status polling, maximum pending refresh window, and saved-data versus presence changes.
 - 15 save-driven SQL scenarios passed on PGlite using the complete actual new migration with synthetic Vault, pg_net and cron stubs. Checked original finish-function/cron preimages, preserved ACLs, no private helper access, idle/no-op/unpublished behavior, one first-opt-in dispatch, saved changes, rolled-back saves, dispatch failure recovery, obsolete leases, backoff, expired leases, license deadlines and duplicate-label handling, source disable/re-enable, exclusions, deactivation, tenant transfer and deletion tombstones.
 - Existing paired suite: 24 SQL and real worker/receiver-handler scenarios passed on PGlite. This exercises the previously deployed base migrations and unchanged Edge protocol, separately from the 15 new-migration scenarios; it is not a native concurrency result for the new triggers.
