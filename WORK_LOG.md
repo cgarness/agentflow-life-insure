@@ -1,3 +1,9 @@
+## 2026-10-19 — UV verification wizard released
+
+Chris approved the paired production release at 03:54:48 UTC. AF #465 and UV #23 are merged and production READY. Hosted migrations AF 20261019035819 / UV 20261019035753 and Edge versions AF v8 / UV v5 are live, with exact source read-back and scoped ACL verification. All exact-head regression gates passed; canonical sites serve the new bundles. The protected owner page/row are unchanged. No agent was automatically confirmed; user-led signed-in acceptance remains. Full release evidence and recovery: `docs/plans/2026-10-19-uv-verification/release.md`.
+
+---
+
 ## 2026-10-19 — UV profile verification wizard (prepared; NOT live)
 
 Chris requested an expiration-free profile confirmation wizard, optional bio, green completion badges and new buttons at 20:19 PDT October 18. Scoped implementation is on `codex/uv-verification-wizard-20261019`; production migration/Edge/frontend release remains gated.
