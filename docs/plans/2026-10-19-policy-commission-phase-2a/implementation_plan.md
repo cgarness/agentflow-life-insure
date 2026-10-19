@@ -71,14 +71,17 @@ calls the unchanged writer and writes the receipt. `updated_at` is excluded beca
   sale-completeness trigger or resource errors) may abort the whole transaction; the client follows §5.
 - Commission tables have no deferrable constraints, so commission work adds no COMMIT-time checks; this does not
   guarantee every COMMIT succeeds.
-- **Aggregate commission-work budget:** S1 sets `lock_timeout = 100ms` locally and the handoff measures elapsed
-  wall-clock time from its start. Evidence and capture rows are written set-based first; per-slot calculation runs
-  in a nested savepoint S2 only while total elapsed time is below **250 ms**. When the budget is exhausted, remaining
+- **Soft calculation-start budget (not an end-to-end guarantee):** S1 sets `lock_timeout = 100ms` locally and the
+  handoff measures elapsed wall-clock time from its start. Evidence and capture rows are written set-based first; a
+  slot's calculation (nested savepoint S2) only *starts* while total elapsed time is below **250 ms**. Validation,
+  evidence, capture inserts, the slot in progress and result building are not cut off, so the total can exceed 250 ms
+  (measured in `verification.md`). When the budget is exhausted, remaining
   captures stay persisted with `needs_attention / budget_exhausted` (recoverable by explicit confirmation). Grid
   facts are read once per handoff for all slots (one helper call); no grid or receipt row is locked by commission
   work. A capture is never reported as persisted when S1 rolled back.
 - Defensive cap: more than **100** slots fails S1 as a whole (`not_recorded` for every slot; never partial). The
-  conversion row count itself is not limited. Supported, measured boundary: 25 policies per save.
+  conversion row count itself is not limited (no policy-count limit is enforced anywhere). Measured benchmark: 25
+  policies per save.
 
 ### 2.2 Evidence and captures
 
@@ -295,8 +298,8 @@ hierarchy defect (separate follow-up).
   and reapply, existing policy-sale and identity suites unchanged.
 - Real PostgREST 12.2.3 + `@supabase/supabase-js` against that database: companion responses, PT409 → HTTP 409,
   error codes, permission denials, no direct table writes, private helpers not exposed, status read.
-- Measured server and HTTP save overhead (baseline writer vs companion): 1 policy, 5 policies, 25 policies (supported
-  boundary) and 100 (cap); grid and sale-lock contention; failed commission persistence; cancellation.
+- Measured server and HTTP save overhead (baseline writer vs companion): 1 policy, 5 policies, 25 policies (benchmark)
+  and 100 (cap); grid and sale-lock contention; failed commission persistence; cancellation.
   If acceptable overhead cannot be achieved within this design, stop with the evidence before proposing a change.
 - Frontend: new/modified suites, commission/contacts/sale/dialer regressions, scoped lint, `npx tsc --noEmit`, strict
   diagnostics vs baseline, build, `git diff --check`; Chromium at 1440 px and 390 px, light and dark.
@@ -378,6 +381,9 @@ commands.
 **Exact files for this pass**
 - `supabase/migrations/20261019170000_policy_commission_tracking.sql` (capture status/column/constraint, guard,
   record-later and confirm locking; checksum updated)
+- `supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql` (added during the pass: one
+  statement drops the new capture → estimate constraint before the tables, because the two tables now reference each
+  other; no other rollback change)
 - `supabase/tests/policy_commission_tracking.sql`, `scripts/run_policy_commission_tests.sh` (lifecycle tests and the
   confirm vs record-later race in both orders), `scripts/tests/policy_commission/measure_save_overhead.sh`
 - `src/hooks/useClientPolicyCommissions.ts`, `src/lib/commission/installments.ts`, `src/lib/policySaleOutcome.ts`,

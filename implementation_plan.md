@@ -18,7 +18,7 @@ It supersedes the Phase 1 §8 deferred snapshot design below and every earlier s
 
 **Summary:** four companion save functions delegate to the unchanged sale writers (D7 adds a receipt-bearing
 first-policy-edit companion) and, in the same transaction, record server-proven operation evidence and the immutable
-commission capture inside an error boundary with a bounded work budget, so a commission failure never invalidates a
+commission capture inside an error boundary with a soft calculation-start budget, so a commission failure never invalidates a
 legitimate sale. A restricted NOLOGIN/NOBYPASSRLS writer owns the tracking functions; six RLS tables hold evidence,
 captures, estimates, four installments, manual receipts and audit events. Own/Others permissions are enforced on the
 server; sellers own their records; no Agency Group peer access. Frozen submissions replay byte-identically until

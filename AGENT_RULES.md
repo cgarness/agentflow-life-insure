@@ -789,10 +789,25 @@ release (Gate 4). Until then production has no commission tables, companions or 
   with a reason, optionally with a replacement. Estimate, schedule, hold and receipt changes write
   `policy_commission_events`; a capture's confirmation or dismissal is recorded on the capture (actor, reason). The
   rollback refuses while any of the six tables has rows and never deletes `client-edit:` sale receipts.
+- **Open capture = `awaiting_confirmation` or `needs_attention`, nothing else.** `recorded`, `dismissed` and
+  `superseded` are final. Recording an estimate later while the policy's capture is open marks it `superseded` with
+  `resolved_by_estimate_id`, keeping its original inputs; it was never confirmed and must never be counted or shown
+  as confirmed. Confirm and record-later serialize per policy (request lock, policy advisory lock, then the capture
+  row), so the UI, recovery reads and any future report agree.
+- **Unresolved tracking writes.** A payment, void, timing, hold, schedule, estimate, confirm or dismiss whose outcome
+  is unknown stays unresolved across dialog dismissal and remount (in memory only, scoped to the signed-in user and
+  organization; never browser storage). Never reset it with a new request id: retry resends the exact call and id.
+  Only a success, or a stale/invalid/not-found refusal of that same request (every tracking function returns the
+  request's stored result first under a request lock), resolves it; permission, sign-in and transport errors prove
+  nothing. Closing a dialog never means a change was cancelled.
 - **Saves.** Upgraded modals call only the four `*_handoff` companions (postgres-owned SECURITY DEFINER), which
   delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the submitted
-  commission inputs. All commission work runs in a savepoint with a 250 ms budget, `lock_timeout` 100 ms and a 100-slot
-  cap, so commission problems never fail or alter a sale (cancellation 57014 still aborts the whole request). When no
+  commission inputs. All commission work runs in a savepoint with `lock_timeout` 100 ms, a **soft 250 ms
+  calculation-start budget** (a slot's calculation only starts before 250 ms have elapsed; the work around it is not
+  cut off, so it is not an end-to-end guarantee; later slots wait as `budget_exhausted`) and a **100-slot defensive
+  cap** (an over-cap payload fails the commission step as a whole with a visible notice; policy entry itself is not
+  limited). Commission problems never fail or alter a sale (cancellation 57014 still aborts the whole request). 25
+  policies is a measured benchmark, not a limit; measured maxima are observations, never guarantees. When no
   estimate was shown, the modal still sends `{"v":"policy-commission-v1","slots":[]}`. Legacy callers keep the old
   writers. The migration refuses unless the seven reviewed writer/helper definitions match their md5 preimages; any
   later change to a sale writer must re-verify the companions' conflict-message → PT409 mapping and sale hashes.

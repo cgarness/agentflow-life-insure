@@ -910,7 +910,8 @@ BEGIN
     FROM jsonb_array_elements(v_outcomes) o CROSS JOIN LATERAL (SELECT o->'presented' AS p) x
    WHERE o->>'outcome' = 'captured';
 
-  -- Optional calculation under the aggregate budget. Every failure here keeps the evidence and captures. Facts are read
+  -- Optional calculation under a soft budget: a slot's calculation only STARTS before 250 ms have elapsed (work around it
+  -- is not cut off, so this is not an end-to-end limit). Every failure here keeps the evidence and captures. Facts are read
   -- once for all slots; each slot's estimate is written in its own savepoint; capture statuses are set afterwards in
   -- two set-based updates (fewer RLS-checked statements per slot).
   IF v_seller IS NOT NULL AND EXISTS (SELECT 1 FROM public.policy_commission_captures c

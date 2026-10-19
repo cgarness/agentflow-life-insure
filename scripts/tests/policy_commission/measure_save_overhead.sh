@@ -3,7 +3,9 @@
 # database prepared by scripts/run_policy_commission_tests.sh (fixture, harness, migration). Synthetic data only.
 #   DB_URL=postgres://postgres@127.0.0.1:<port>/pc_test_<...> bash scripts/tests/policy_commission/measure_save_overhead.sh
 # Each sample is one call on its own fresh request (and lead) inside one session, timed with clock_timestamp().
-# Prints p50/p95 per case plus the per-function profile of the commission step (pg_stat_user_functions).
+# Contention cases hold a lock from a second session while the save runs. Prints, per case, the sample count,
+# p50/p95/max totals and the overhead against the matching unchanged writer, then the per-function profile of the
+# commission step (pg_stat_user_functions). Measured maxima are observations, not guarantees.
 set -euo pipefail
 : "${DB_URL:?Disposable database URL required}"
 python3 - "$DB_URL" <<'PY'
@@ -13,6 +15,7 @@ if u.hostname not in ('localhost', '127.0.0.1') or not u.path.startswith('/pc_te
     raise SystemExit('REFUSING: disposable policy commission test database required')
 PY
 N=${PC_SAMPLES:-30}
+C=${PC_CONTENTION_SAMPLES:-10}
 DB=$(python3 -c "import sys,urllib.parse;print(urllib.parse.urlparse(sys.argv[1]).path[1:])" "$DB_URL")
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -c "ALTER DATABASE $DB SET track_functions = 'pl'" >/dev/null
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v n="$N" <<'SQL'
@@ -39,6 +42,19 @@ BEGIN
     || coalesce((SELECT jsonb_agg(pc_slot(x::text, 11, 502, 512, 62, NULL, 100, '120.00', '30.00', 43200, 32400)) FROM unnest(ids) x), '[]'::jsonb));
 END $$;
 GRANT EXECUTE ON FUNCTION pc_convert_args(integer) TO authenticated;
+-- One save with an estimate while another session holds a lock (timed unless p_label is NULL, the untimed warm-up
+-- that compiles the session's functions first); checks the expected commission outcome.
+CREATE FUNCTION pc_contended(p_label text, p_expect text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE t timestamptz := clock_timestamp(); r jsonb;
+BEGIN
+  r := create_client_with_sale_handoff(gen_random_uuid(), test_id(1), pc_client('Contended' || floor(random() * 1e9)::bigint, 11, '50.00'), true,
+    pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));
+  IF p_label IS NOT NULL THEN INSERT INTO pc_timing VALUES (p_label, extract(epoch FROM clock_timestamp() - t) * 1000); END IF;
+  IF coalesce(r->'commission'->'slots'->0->>'status', r->'commission'->>'status') <> p_expect THEN
+    RAISE EXCEPTION 'contended save: expected %, got %', p_expect, r->'commission';
+  END IF;
+END $$;
+GRANT EXECUTE ON FUNCTION pc_contended(text, text) TO authenticated;
 SELECT set_config('pc.n', :'n', false);
 SELECT pc_login(11);
 SET ROLE authenticated;
@@ -64,7 +80,7 @@ BEGIN
     IF r->'commission'->>'status' <> 'not_recorded' THEN RAISE EXCEPTION 'expected failure: %', r; END IF;
   END LOOP;
   FOREACH k IN ARRAY ARRAY[1, 5, 25, 100] LOOP
-    FOR i IN 1..CASE WHEN k = 100 THEN greatest(n / 3, 5) ELSE n END + 3 LOOP
+    FOR i IN 1..CASE WHEN k = 100 THEN greatest(n * 2 / 3, 5) ELSE n END + 3 LOOP
       SELECT * INTO a FROM pc_convert_args(k);
       t := clock_timestamp();
       PERFORM convert_lead_to_client_with_sales(pc_next_lead(), test_id(1), a.client, NULL);
@@ -81,11 +97,38 @@ BEGIN
   END LOOP;
 END $$;
 RESET ROLE;
-SELECT label AS "case", count(*) AS samples,
-       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY ms))::numeric, 2) AS p50_ms,
-       round((percentile_cont(0.95) WITHIN GROUP (ORDER BY ms))::numeric, 2) AS p95_ms,
-       round(max(ms), 2) AS max_ms
-  FROM pc_timing GROUP BY label ORDER BY label;
+SQL
+
+# Contention: a second session holds the lock for 1 s. The measuring session first makes one untimed (warm-up) save,
+# waits, then makes the timed save while the lock is still held; each statement is its own transaction.
+contend() { # contend LOCK_SQL LABEL EXPECTED
+  for _ in $(seq 1 "$C"); do
+    psql "$DB_URL" -qX -c "BEGIN; $1; SELECT pg_sleep(1.0); COMMIT;" >/dev/null & PID=$!
+    psql "$DB_URL" -qX -v ON_ERROR_STOP=1 >/dev/null <<SQL
+SELECT pc_login(11);
+SET ROLE authenticated;
+SELECT pc_contended(NULL, '$3');
+SELECT pg_sleep(0.3);
+SELECT pc_contended('$2', '$3');
+SQL
+    wait "$PID"
+  done
+}
+contend "LOCK TABLE public.policy_commission_handoffs IN SHARE MODE" 'create 1 · companion, commission tables locked' not_recorded
+contend "SELECT 1 FROM public.comp_grids FOR UPDATE" 'create 1 · companion, grid row locked' recorded
+
+psql "$DB_URL" -qX -v ON_ERROR_STOP=1 <<'SQL'
+\pset footer off
+WITH stats AS (
+  SELECT label, count(*) AS samples,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY ms) AS p95, max(ms) AS max
+    FROM pc_timing GROUP BY label)
+SELECT s.label AS "case", s.samples,
+       round(s.p50::numeric, 2) AS p50_ms, round(s.p95::numeric, 2) AS p95_ms, round(s.max::numeric, 2) AS max_ms,
+       CASE WHEN s.label LIKE '%companion%' THEN round((s.p50 - w.p50)::numeric, 2) END AS overhead_p50_ms,
+       CASE WHEN s.label LIKE '%companion%' THEN round((s.p95 - w.p95)::numeric, 2) END AS overhead_p95_ms
+  FROM stats s LEFT JOIN stats w ON w.label = split_part(s.label, ' · ', 1) || ' · writer'
+ ORDER BY s.label;
 SELECT funcname AS "function (self time, all samples)", calls, round(self_time::numeric, 1) AS self_ms, round(total_time::numeric, 1) AS total_ms
   FROM pg_stat_user_functions
  WHERE funcname LIKE '%commission%' OR funcname LIKE '%handoff%' OR funcname IN ('access', 'actor_org', 'actor_uid', 'campaign_actor')
