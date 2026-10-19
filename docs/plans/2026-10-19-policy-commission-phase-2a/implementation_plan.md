@@ -338,3 +338,58 @@ None of these widens scope, authority or data; each keeps an existing contract i
   proves the writer keeps only `USAGE` on both schemas.
 - **Dark mode:** the new conflict/rejection notice text and the receipt Void action add `dark:text-red-400` (the
   app's dark `--destructive` token is too dark for text on the card background).
+
+## 12. Correction pass — draft PR (approved 2026-10-19; reviewed checkpoint `d262d9a`)
+
+Approved: open a **draft** PR against `main` (unchanged at `84ba4f6`) so the PostgreSQL 17.6/PostgREST workflow and the
+existing checks run, and make only the corrections below. Not approved: production migration, RLS/grant application,
+production reads or test writes, merge, deployment, reminders, cron, calendar work or dashboards. Every workflow runs on
+GitHub-hosted runners against loopback databases built from synthetic fixtures; none uses secrets or production
+commands.
+
+1. **Draft PR** stays draft; production approval is requested only after checks pass on the final head.
+2. **Cap and wording.** The 100-slot defensive cap stays; policy-entry capacity is unchanged (no existing enforced
+   policy-count limit exists) and over-cap payloads keep failing the commission step as a whole with a visible notice.
+   "25-policy supported limit" becomes "25-policy benchmark"; 250 ms is a **soft calculation-start budget**, not an
+   end-to-end guarantee. `measure_save_overhead.sh` adds contention cases (commission tables locked; grid row locked)
+   and reports sample counts, p50/p95/max totals and overhead; 1/5/25/100-slot, empty-payload, failure and contention
+   measurements are taken from the PostgreSQL 17.6 CI run.
+3. **Unknown tracking outcomes survive dismissal and remount.** `useTrackingMutation` takes an operation key and keeps
+   each unresolved write (request id plus the exact submitted call and form values) in an in-memory registry scoped to
+   the signed-in user and organization: never browser storage, dropped when the signed-in user changes. Reopening the
+   dialog restores the locked state; `restart()` refuses while unresolved; any submit replays the stored call. Only a
+   success resolves it; a definitive server refusal of the same request (PT409/22023/PT404) proves nothing committed,
+   because every tracking function checks the request's stored result first under a request-scoped lock. Auth,
+   permission and transport errors keep it unresolved. Responses that arrive after an identity change are ignored. A
+   reopened dialog re-reads the contact's commission data. Applies to every user of the helper: payment, void,
+   timing, hold, schedule start, record/replace estimate, confirm and dismiss.
+4. **Installment selection.** While the amount is untouched it follows the selected installment's remaining amount
+   (empty when nothing remains); an edited amount is cleared on a switch with a visible note. Partial payments and
+   overpayments stay valid. Receipt validation moves to a Zod schema (same rules and messages).
+5. **Capture lifecycle.** Recording an estimate later while the policy's sale-time capture is still open marks that
+   capture `superseded` (terminal), keeps its original inputs and provenance, and records `resolved_by_estimate_id`,
+   actor, time and reason; it is never shown or counted as confirmed. Confirm and record-later serialize per policy
+   (transaction advisory lock, then the capture row lock), so either order ends with exactly one current estimate and
+   a consistent capture. Sale replays report the slot as `superseded`; the contact read, recovery reads and the
+   AGENT_RULES definition of "open capture" (`awaiting_confirmation`/`needs_attention` only) agree.
+6. **Types and verification.** The hand-written RPC types are compared with types generated (Supabase
+   `postgres-meta`) from the disposable migrated schema; only mismatches in the new entries are corrected.
+
+**Exact files for this pass**
+- `supabase/migrations/20261019170000_policy_commission_tracking.sql` (capture status/column/constraint, guard,
+  record-later and confirm locking; checksum updated)
+- `supabase/tests/policy_commission_tracking.sql`, `scripts/run_policy_commission_tests.sh` (lifecycle tests and the
+  confirm vs record-later race in both orders), `scripts/tests/policy_commission/measure_save_overhead.sh`
+- `src/hooks/useClientPolicyCommissions.ts`, `src/lib/commission/installments.ts`, `src/lib/policySaleOutcome.ts`,
+  `src/integrations/supabase/types.ts` (only if the generated comparison differs)
+- `src/components/commission/policy/{RecordPaymentDialog,VoidReceiptDialog,InstallmentTimingDialog,CommissionHoldDialog,
+  RecordEstimateDialog,ScheduleBasisControl,CaptureAttentionNotice}.tsx`
+- Tests: `src/hooks/__tests__/useClientPolicyCommissions.test.tsx`,
+  `src/components/commission/policy/__tests__/RecordPaymentDialog.test.tsx`,
+  `src/components/commission/policy/__tests__/trackingRecovery.test.tsx` (new),
+  `src/lib/__tests__/policySaleOutcome.test.ts`, `src/lib/commission/__tests__/installments.test.ts`
+- Docs: this file, `verification.md` (and `screenshots/`), root `implementation_plan.md`, `AGENT_RULES.md`,
+  `WORK_LOG.md`
+
+Unchanged: sale-writer bodies, organization scoping, RLS policies and grants, the restricted writer, seller
+ownership, no peer access, idempotency keys, telemetry, TwilioContext and dialer callbacks.

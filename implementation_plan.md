@@ -6,6 +6,10 @@ migration, RLS or grant change, production test write, merge or deployment is ap
 integration and commission dashboards stay out of scope. The Gate 3 release method is chosen when the tested
 migration package exists.
 
+**Correction pass (2026-10-19, approved):** draft PR plus the scoped corrections in §12 of the Phase 2A plan
+(unknown-outcome recovery, installment amount, capture lifecycle, wording, PostgreSQL 17.6 measurements, types).
+Still not approved: production migration/RLS, merge, deployment, production reads or test writes.
+
 **Gate 2 (local build and verification) complete** — evidence in
 `docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gate 3 (production migration) awaits approval.
 
