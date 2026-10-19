@@ -1,6 +1,20 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { CommissionPayload } from "@/lib/commission/capture";
+import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
+import type { Client } from "@/lib/types";
+import { runPreparedSale, type PreparedSale, type SaleAttempt, type SaleHandoffResult } from "@/lib/policySaleOutcome";
 
-export type ClientSaleOptions = { requestId: string; recordSale: boolean; historical?: boolean };
+/**
+ * `attempt` + `commission` route the save through the Phase 2A companion (exactly-once retries, server-recorded
+ * commission evidence). Without them the unchanged sale writer is called, as before.
+ */
+export type ClientSaleOptions = {
+  requestId: string;
+  recordSale: boolean;
+  historical?: boolean;
+  commission?: CommissionPayload;
+  attempt?: SaleAttempt;
+};
 export type RecordedSaleResult = { client_id: string; win_ids: string[]; idempotent: boolean };
 
 export type PolicyEntry = {
@@ -18,6 +32,31 @@ export async function recordClientPolicy(requestId: string, clientId: string, po
   if (result?.client_id !== clientId || !Array.isArray(result.win_ids)) throw new Error("Policy save returned an invalid receipt; retry this save.");
   if (policy.sale_mode !== "historical") await notifyRecordedSales(result.win_ids);
   return result;
+}
+
+/** The Record Policy companion submission (built once, then frozen by the caller's attempt). */
+export function prepareRecordPolicy(requestId: string, clientId: string, policy: PolicyEntry, primary: boolean,
+  commission: CommissionPayload): PreparedSale {
+  return {
+    kind: "record",
+    requestId,
+    leadId: null,
+    expectedClientId: clientId,
+    saleArgs: { p_client_id: clientId, p_policy: policy, p_primary: primary },
+    commission,
+    notify: policy.sale_mode !== "historical",
+  };
+}
+
+/** Existing-client policy and sale in one server transaction, through the commission companion. */
+export function recordClientPolicyHandoff(attempt: SaleAttempt, requestId: string, clientId: string, policy: PolicyEntry,
+  primary: boolean, commission: CommissionPayload): Promise<SaleHandoffResult> {
+  return runPreparedSale(attempt, () => prepareRecordPolicy(requestId, clientId, policy, primary, commission));
+}
+
+/** True when an Add/Edit Client save records a NEW sale: a new client's policy, or an existing client's first. */
+export function clientSaleRecordsPolicy(form: Partial<Client>, initial: Partial<Client> | null | undefined): boolean {
+  return hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial));
 }
 
 /** Never turn malformed or negative premium input into a plausible sale amount. */

@@ -1,6 +1,7 @@
 import type { Client } from "@/lib/types";
 import { getClientPolicyDisplay } from "@/lib/client-policy-display";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { PolicyCommissionSection } from "@/components/commission/policy/PolicyCommissionSection";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
@@ -14,14 +15,20 @@ export function ClientPolicyCount({ client }: { client: Partial<Client> }) {
   return <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{policies.length} policies</span>;
 }
 
-/** Never edits or writes the reserved additional-policy array. */
+/**
+ * Never edits or writes the reserved additional-policy array. Each stored policy can carry its saved commission
+ * (Phase 2A); the commission section renders nothing unless the server lets the signed-in user see it.
+ */
 export function ClientPolicies({ client, formatDate }: {
   client: Partial<Client>;
   formatDate: (value: string) => string;
 }) {
   const { policies, malformedAdditionalPolicies } = getClientPolicyDisplay(client);
   const hasAdditional = policies.some(policy => policy.source === "additional");
-  if (!hasAdditional && malformedAdditionalPolicies === 0) return null;
+  if (!hasAdditional && malformedAdditionalPolicies === 0) {
+    const primary = policies.find(policy => policy.source === "primary");
+    return client.id && primary?.policyId ? <PolicyCommissionSection clientId={client.id} policyId={primary.policyId} /> : null;
+  }
 
   return (
     <section aria-label="Policies" className="min-w-0 border-t border-border pt-3">
@@ -58,6 +65,7 @@ export function ClientPolicies({ client, formatDate }: {
                     </div>
                   ))}
                 </dl>
+                {client.id && policy.policyId && <PolicyCommissionSection clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>
           );

@@ -24,13 +24,29 @@ import type { ReadyCalculatorContext } from "@/lib/commission/types";
  * client, which is what the sale writers credit. `hint` is the caller's own view of the lead owner; it
  * only refreshes the read when it changes (e.g. a claim while the modal is open) and is never trusted.
  */
-export type PreviewOwner = { kind: "self" } | { kind: "lead"; id: string; hint?: string | null } | { kind: "client"; id: string };
+export type PreviewOwner =
+  | { kind: "self" }
+  | { kind: "lead"; id: string; hint?: string | null }
+  | { kind: "client"; id: string }
+  /** Phase 2A "record estimate later": the seller of an already-recorded sale (the server re-checks it). */
+  | { kind: "agent"; id: string };
 
 /** `identity` changes with the viewer and permission set; the panel starts over when it does. */
 export type PolicyCommissionPreview =
   | { status: "hidden"; identity: string }
   | { status: "unavailable"; identity: string; message: string }
-  | { status: "ready"; identity: string; context: ReadyCalculatorContext; level: CreditedLevel; agentName: string | null };
+  | {
+      status: "ready";
+      identity: string;
+      context: ReadyCalculatorContext;
+      level: CreditedLevel;
+      agentName: string | null;
+      /**
+       * The seller the sale credits (verified stored owner, or the signed-in user for a new manual client). Always
+       * set by this hook; without it a displayed estimate is never captured for the sale.
+       */
+      creditedAgentId?: string;
+    };
 
 const STALE_MS = 60_000;
 /**
@@ -70,7 +86,7 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
   const context = useCommissionCalculatorContext(anyPermission);
 
   const [mountedAt] = useState(() => Date.now());
-  const source = owner && owner.kind !== "self" ? owner : null;
+  const source = owner && (owner.kind === "lead" || owner.kind === "client") ? owner : null;
   const hint = source?.kind === "lead" ? source.hint ?? null : null;
   const ownerQuery = useQuery({
     queryKey: policyCommissionPreviewKeys.owner(userId, orgId, source?.kind ?? null, source?.id ?? null, hint),
@@ -83,7 +99,7 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
     retry: false,
   });
   const ownerVerified = ownerQuery.isSuccess && ownerQuery.dataUpdatedAt >= mountedAt;
-  const creditedAgentId = owner?.kind === "self" ? userId : ownerVerified ? ownerQuery.data : null;
+  const creditedAgentId = owner?.kind === "self" ? userId : owner?.kind === "agent" ? owner.id : ownerVerified ? ownerQuery.data : null;
 
   const access: PreviewAccess =
     anyPermission && userId && creditedAgentId
@@ -128,7 +144,7 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
   if (access.kind === "denied" || !creditedAgentId) return hidden;
   if (access.kind === "own") {
     const level = resolveCreditedLevel(grid.commissionLevel, grid.grid.contractLevels, true);
-    return { status: "ready", identity, context: grid, level, agentName: null };
+    return { status: "ready", identity, context: grid, level, agentName: null, creditedAgentId };
   }
   if (needsTeamScope) {
     if (teamQuery.isError) return unavailable();
@@ -140,7 +156,7 @@ export function usePolicyCommissionPreview(owner: PreviewOwner | null): PolicyCo
   const agentName = profile && profile.id === creditedAgentId ? agentDisplayName(profile) : null;
   if (!profile || !agentName) return unavailable();
   const level = resolveCreditedLevel(profile.commissionLevel, grid.grid.contractLevels, false);
-  return { status: "ready", identity, context: grid, level, agentName };
+  return { status: "ready", identity, context: grid, level, agentName, creditedAgentId };
 }
 
 /** Preview-only inputs: never required to save, never persisted, never part of a sale payload. */

@@ -1,5 +1,6 @@
-import { Component, type ReactNode } from "react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import { usePolicyCommissionPreview, usePreviewSelection, type PreviewOwner } from "@/hooks/usePolicyCommissionPreview";
+import { captureKey, captureSlotInputs, type CommissionSlotInputs } from "@/lib/commission/capture";
 import { ADVANCE_PERCENT } from "@/lib/commission/estimate";
 import { formatUsd } from "@/lib/commission/money";
 import {
@@ -20,6 +21,11 @@ export interface PolicyCommissionEstimateProps {
   monthlyPremium: string;
   /** Valid-only insured-age prefill (ConvertLeadModal): DOB on the Sold Date, else a stored age. */
   agePrefill?: { dateOfBirth?: string | null; age?: number | null; onDate?: string | null };
+  /**
+   * Phase 2A: receives the inputs of the estimate currently DISPLAYED (null when none is), so the sale can send
+   * them for server re-validation. Never called with anything that was not shown.
+   */
+  onCaptureChange?: (inputs: CommissionSlotInputs | null) => void;
 }
 
 /** A preview failure must never unmount the policy form or block its save, so it renders nothing. */
@@ -53,7 +59,20 @@ export function PolicyCommissionEstimate(props: PolicyCommissionEstimateProps) {
 
 const Muted = ({ children }: { children: ReactNode }) => <p className="text-[11px] text-muted-foreground">{children}</p>;
 
-function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill }: PolicyCommissionEstimateProps) {
+/** Reports the displayed estimate's inputs whenever they change, and null once the panel is gone. */
+function useCaptureReport(onCaptureChange: PolicyCommissionEstimateProps["onCaptureChange"], capture: CommissionSlotInputs | null) {
+  const report = useRef(onCaptureChange);
+  report.current = onCaptureChange;
+  const latest = useRef(capture);
+  latest.current = capture;
+  const key = captureKey(capture);
+  useEffect(() => {
+    report.current?.(latest.current);
+  }, [key]);
+  useEffect(() => () => report.current?.(null), []);
+}
+
+function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill, onCaptureChange }: PolicyCommissionEstimateProps) {
   const preview = usePolicyCommissionPreview(owner);
   const ready = preview.status === "ready" ? preview : null;
   const products = ready ? candidateProducts(ready.context, policyType, carrier) : null;
@@ -64,10 +83,12 @@ function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill }
     (productId) => (ready ? productTermLengths(ready.context, productId) : []),
   );
 
-  if (preview.status === "hidden" || !carrier.trim()) return null;
-
-  let body: ReactNode;
-  if (preview.status === "unavailable") {
+  const visible = preview.status !== "hidden" && !!carrier.trim();
+  let body: ReactNode = null;
+  let capture: CommissionSlotInputs | null = null;
+  if (!visible) {
+    body = null;
+  } else if (preview.status === "unavailable") {
     body = <Muted>{preview.message}</Muted>;
   } else if (preview.level.kind === "problem") {
     body = <Muted>{preview.level.message}</Muted>;
@@ -83,6 +104,14 @@ function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill }
       { term: selection.term, age, monthlyPremium },
       preview.agentName === null,
     );
+    if (outcome.kind === "estimate" && preview.creditedAgentId) {
+      capture = captureSlotInputs({
+        context: preview.context,
+        creditedAgentId: preview.creditedAgentId,
+        level: preview.level.level,
+        ...outcome.basis,
+      });
+    }
     body = (
       <>
         <PolicyCommissionInputs
@@ -108,6 +137,9 @@ function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill }
       </>
     );
   }
+  useCaptureReport(onCaptureChange, capture);
+
+  if (!visible) return null;
 
   return (
     <section aria-label="Commission estimate" className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2.5">

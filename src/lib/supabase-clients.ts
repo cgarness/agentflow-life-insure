@@ -6,6 +6,8 @@ import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
 import { notifyRecordedSales, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
 import type { Json } from "@/integrations/supabase/types";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
+import { emptyCommissionPayload, type CommissionPayload } from "@/lib/commission/capture";
+import { notSentError, runPreparedSale, type PreparedSale, type SaleAttempt } from "@/lib/policySaleOutcome";
 
 export interface ClientFilters {
     search?: string;
@@ -104,6 +106,12 @@ export const clientsSupabaseApi = {
         // U3 (src/lib/reservedCustomFields.ts): same boundary, same class of defect as update().
         assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.create");
         if (!sale && hasClientPolicyEvidence(data)) throw new Error("Policy creation requires a stable sale request. Use Add Client or Record Policy.");
+        if (sale?.attempt) {
+            const attempt = sale.attempt;
+            const result = await runPreparedSale(attempt, () => prepareCreateClient(data, organizationId, sale));
+            if (!result.client) throw new Error("Client save returned an invalid receipt; retry this save.");
+            return rowToClient(result.client);
+        }
         if (sale || hasClientPolicyEvidence(data)) {
             const options = sale!;
             const recordsPolicy = hasClientPolicyEvidence(data);
@@ -138,34 +146,7 @@ export const clientsSupabaseApi = {
         // BEFORE the request is built, so a refused save writes nothing and reports nothing as saved;
         // malformed data is surfaced, never silently deleted or normalized.
         assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.update");
-        const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (data.firstName !== undefined) updateData.first_name = data.firstName;
-        if (data.lastName !== undefined) updateData.last_name = data.lastName;
-        if (data.phone !== undefined) updateData.phone = data.phone;
-        if (data.email !== undefined) updateData.email = data.email;
-        if (data.state !== undefined) updateData.state = normalizeUsState(data.state);
-        if (data.policyType !== undefined) updateData.policy_type = data.policyType;
-        if (data.carrier !== undefined) updateData.carrier = data.carrier;
-        if (data.policyNumber !== undefined) updateData.policy_number = data.policyNumber;
-        // Canonical numeric policy columns: clients.premium and clients.face_amount.
-        // Blank/unknown values persist as NULL (never a fabricated 0).
-        if (data.premiumAmount !== undefined) updateData.premium = parseCurrencyToNumberOrNull(data.premiumAmount);
-        if (data.faceAmount !== undefined) updateData.face_amount = parseCurrencyToNumberOrNull(data.faceAmount);
-        // Policy dates are text columns; store valid values as YYYY-MM-DD, blanks as NULL.
-        if (data.issueDate !== undefined) updateData.issue_date = normalizeDateOrNull(data.issueDate);
-        if (data.effectiveDate !== undefined) updateData.effective_date = normalizeDateOrNull(data.effectiveDate);
-        // Policy schedule fields (date columns; PostgREST speaks YYYY-MM-DD strings). Blank → NULL.
-        if (data.soldDate !== undefined) updateData.sold_date = normalizeDateOrNull(data.soldDate);
-        if (data.draftDate !== undefined) updateData.draft_date = normalizeDateOrNull(data.draftDate);
-        // Canonical frequency values only (CHECK-constrained in the DB); blank/unknown → NULL.
-        if (data.paymentFrequency !== undefined) updateData.payment_frequency = normalizePaymentFrequencyOrNull(data.paymentFrequency);
-        if (data.beneficiaryName !== undefined) updateData.beneficiary_name = data.beneficiaryName;
-        if (data.beneficiaryRelationship !== undefined) updateData.beneficiary_relationship = data.beneficiaryRelationship;
-        if (data.beneficiaryPhone !== undefined) updateData.beneficiary_phone = data.beneficiaryPhone;
-        if (data.notes !== undefined) updateData.notes = data.notes;
-        if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
-        if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
-        updateData.updated_at = new Date().toISOString();
+        const updateData = clientUpdatePatch(data);
 
         const { data: result, error } = await (supabase as any).rpc("update_client_with_policy_sale", {
             p_client_id: id, p_patch: updateData,
@@ -175,6 +156,18 @@ export const clientsSupabaseApi = {
         if (!saved?.client?.id || !Array.isArray(saved.win_ids)) throw new Error("Client edit returned an invalid receipt; refresh before retrying.");
         await notifyRecordedSales(saved.win_ids);
         return rowToClient(saved.client);
+    },
+
+    /**
+     * Phase 2A: an edit that adds the client's FIRST policy (and so records its sale), through
+     * `update_client_with_policy_sale_handoff`: a receipt makes retries exactly-once and the displayed commission
+     * inputs are recorded with the sale. Other edits keep using `update`.
+     */
+    async updateWithPolicySaleHandoff(attempt: SaleAttempt, id: string, data: Partial<Client>, requestId: string,
+        commission: CommissionPayload = emptyCommissionPayload()): Promise<Client> {
+        const result = await runPreparedSale(attempt, () => prepareFirstPolicyEdit(id, data, requestId, commission));
+        if (!result.client) throw new Error("Client edit returned an invalid receipt; refresh before retrying.");
+        return rowToClient(result.client);
     },
 
     /** Reassign the given clients to an agent. Batched UPDATE (no per-row round trip). Throws on DB error. */
@@ -202,6 +195,76 @@ export const clientsSupabaseApi = {
         if (error) throw new Error(error.message);
     },
 };
+
+// ---- SALE COMPANION SUBMISSIONS (Phase 2A) ----
+
+/** The create companion submission; the same `p_client` the unchanged writer receives. */
+export function prepareCreateClient(data: Omit<Client, "id" | "createdAt" | "updatedAt">, organizationId: string,
+    sale: ClientSaleOptions): PreparedSale {
+    assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.create");
+    const recordsPolicy = hasClientPolicyEvidence(data);
+    if (recordsPolicy && !sale.recordSale) throw notSentError("Every new policy must record a sale. Use historical policy entry for an existing policy.");
+    return {
+        kind: "create",
+        requestId: sale.requestId,
+        leadId: null,
+        expectedClientId: null,
+        saleArgs: {
+            p_expected_org: organizationId,
+            p_client: { ...clientToRow(data), ...(recordsPolicy ? { premium: saleMonthlyPremium(data.premiumAmount) } : {}), sale_mode: sale.historical ? "historical" : "new" },
+            p_record_sale: recordsPolicy,
+        },
+        commission: sale.commission ?? emptyCommissionPayload(),
+        notify: !sale.historical,
+    };
+}
+
+/** The first-policy edit companion submission. `updated_at` is set here but excluded from the server's hash. */
+export function prepareFirstPolicyEdit(id: string, data: Partial<Client>, requestId: string, commission: CommissionPayload): PreparedSale {
+    assertCustomFieldsWriteSafe(data.customFields, "clientsSupabaseApi.update");
+    return {
+        kind: "edit",
+        requestId,
+        leadId: null,
+        expectedClientId: id,
+        saleArgs: { p_client_id: id, p_patch: clientUpdatePatch(data) },
+        commission,
+        notify: true,
+    };
+}
+
+/** The update writer's patch: only provided fields, canonical values, blanks as NULL. */
+export function clientUpdatePatch(data: Partial<Client>): Record<string, unknown> {
+    const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (data.firstName !== undefined) updateData.first_name = data.firstName;
+    if (data.lastName !== undefined) updateData.last_name = data.lastName;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.state !== undefined) updateData.state = normalizeUsState(data.state);
+    if (data.policyType !== undefined) updateData.policy_type = data.policyType;
+    if (data.carrier !== undefined) updateData.carrier = data.carrier;
+    if (data.policyNumber !== undefined) updateData.policy_number = data.policyNumber;
+    // Canonical numeric policy columns: clients.premium and clients.face_amount.
+    // Blank/unknown values persist as NULL (never a fabricated 0).
+    if (data.premiumAmount !== undefined) updateData.premium = parseCurrencyToNumberOrNull(data.premiumAmount);
+    if (data.faceAmount !== undefined) updateData.face_amount = parseCurrencyToNumberOrNull(data.faceAmount);
+    // Policy dates are text columns; store valid values as YYYY-MM-DD, blanks as NULL.
+    if (data.issueDate !== undefined) updateData.issue_date = normalizeDateOrNull(data.issueDate);
+    if (data.effectiveDate !== undefined) updateData.effective_date = normalizeDateOrNull(data.effectiveDate);
+    // Policy schedule fields (date columns; PostgREST speaks YYYY-MM-DD strings). Blank → NULL.
+    if (data.soldDate !== undefined) updateData.sold_date = normalizeDateOrNull(data.soldDate);
+    if (data.draftDate !== undefined) updateData.draft_date = normalizeDateOrNull(data.draftDate);
+    // Canonical frequency values only (CHECK-constrained in the DB); blank/unknown → NULL.
+    if (data.paymentFrequency !== undefined) updateData.payment_frequency = normalizePaymentFrequencyOrNull(data.paymentFrequency);
+    if (data.beneficiaryName !== undefined) updateData.beneficiary_name = data.beneficiaryName;
+    if (data.beneficiaryRelationship !== undefined) updateData.beneficiary_relationship = data.beneficiaryRelationship;
+    if (data.beneficiaryPhone !== undefined) updateData.beneficiary_phone = data.beneficiaryPhone;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+    if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
+    updateData.updated_at = new Date().toISOString();
+    return updateData;
+}
 
 // ---- VALUE HELPERS (exported for unit tests) ----
 

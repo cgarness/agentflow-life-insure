@@ -28,7 +28,7 @@ describe("Add Client sale intent and retries",()=>{
   const {submit,close}=setup(save);fireEvent.change(screen.getAllByTestId("date")[0],{target:{value:"2026-10-03"}});
   submit();await waitFor(()=>expect(screen.getByRole("button",{name:"Add Client"})).not.toBeDisabled());
   expect(close).not.toHaveBeenCalled();submit();await waitFor(()=>expect(close).toHaveBeenCalledTimes(1));
-  expect(save.mock.calls.map(args=>args[1])).toEqual([{requestId:"stable-request",recordSale:true},{requestId:"stable-request",recordSale:true}]);
+  expect(save.mock.calls.map(args=>({requestId:args[1].requestId,recordSale:args[1].recordSale}))).toEqual([{requestId:"stable-request",recordSale:true},{requestId:"stable-request",recordSale:true}]);
  });
  it("blocks double submissions and closing while save is pending",async()=>{
   let finish!:()=>void;const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));

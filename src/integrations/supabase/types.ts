@@ -6208,6 +6208,60 @@ export type Database = {
         Args: { p_lead_id: string; p_expected_org: string; p_client: Json; p_campaign_id?: string | null }
         Returns: Json
       }
+      // Phase 2A policy commission tracking (unapplied; local build only).
+      record_client_policy_handoff: {
+        Args: { p_request_id: string; p_client_id: string; p_policy: Json; p_primary?: boolean; p_commission?: Json | null }
+        Returns: Json
+      }
+      create_client_with_sale_handoff: {
+        Args: { p_request_id: string; p_expected_org: string; p_client: Json; p_record_sale: boolean; p_commission?: Json | null }
+        Returns: Json
+      }
+      convert_lead_to_client_with_sales_handoff: {
+        Args: {
+          p_request_id: string; p_lead_id: string; p_expected_org: string; p_client: Json; p_campaign_id?: string | null
+          p_commission?: Json | null
+        }
+        Returns: Json
+      }
+      update_client_with_policy_sale_handoff: {
+        Args: { p_request_id: string; p_client_id: string; p_patch: Json; p_commission?: Json | null }
+        Returns: Json
+      }
+      get_policy_sale_operation_status: {
+        Args: { p_kind: string; p_request_id: string; p_lead_id?: string | null; p_sale_args?: Json | null }
+        Returns: Json
+      }
+      get_client_policy_commissions: { Args: { p_client_id: string }; Returns: Json }
+      confirm_policy_commission_capture: { Args: { p_request_id: string; p_capture_id: string }; Returns: Json }
+      dismiss_policy_commission_capture: { Args: { p_request_id: string; p_capture_id: string; p_reason: string }; Returns: Json }
+      record_policy_commission_estimate_later: {
+        Args: {
+          p_request_id: string; p_policy_id: string; p_inputs: Json; p_replace_estimate_id?: string | null
+          p_expected_revision?: number | null; p_reason?: string | null
+        }
+        Returns: Json
+      }
+      set_policy_commission_schedule_basis: {
+        Args: { p_request_id: string; p_estimate_id: string; p_expected_revision: number; p_start_on: string | null; p_source: string | null }
+        Returns: Json
+      }
+      set_policy_commission_installment_timing: {
+        Args: { p_request_id: string; p_installment_id: string; p_expected_revision: number; p_precision: string; p_expected_on: string | null }
+        Returns: Json
+      }
+      set_policy_commission_hold: {
+        Args: { p_request_id: string; p_estimate_id: string; p_expected_revision: number; p_on_hold: boolean; p_reason: string | null }
+        Returns: Json
+      }
+      record_policy_commission_receipt: {
+        Args: { p_request_id: string; p_installment_id: string; p_amount_cents: number; p_received_on: string; p_reference?: string | null }
+        Returns: Json
+      }
+      void_policy_commission_receipt: {
+        Args: { p_request_id: string; p_receipt_id: string; p_expected_revision: number; p_reason: string; p_replacement?: Json | null }
+        Returns: Json
+      }
       convert_lead_to_client_atomic: {
         Args: { p_client: Json; p_lead_id: string }
         Returns: Json
