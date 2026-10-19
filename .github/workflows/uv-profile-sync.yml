@@ -95,6 +95,10 @@ jobs:
           UV_PROFILE_PEER: ${{ github.workspace }}/.uv-peer
           UV_PROFILE_NATIVE_DB_URL: postgres://postgres:synthetic-test-only@127.0.0.1:5432/postgres
         run: node scripts/tests/uv-profile/paired.mjs
+      - name: Save-driven delivery and idle queue checks
+        env:
+          UV_PROFILE_NATIVE_DB_URL: postgres://postgres:synthetic-test-only@127.0.0.1:5432/postgres
+        run: node scripts/tests/uv-profile/save-driven.mjs
       - name: Native Deno typecheck of both complete Edge entrypoints
         run: npx --yes deno@2.5.4 check supabase/functions/uv-profile-sync-worker/index.ts .uv-peer/supabase/functions/agentflow-profile-sync/index.ts
   browser:

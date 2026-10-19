@@ -1,0 +1,394 @@
+{
+  "captured_at": "2026-10-19T00:58:04.053Z",
+  "queries": {
+    "af": "select jsonb_build_object('org_rows', (select md5(coalesce(jsonb_agg(to_jsonb(o) order by id)::text,'[]')) from public.organizations o),'protected_profile',(select md5(to_jsonb(p)::text) from public.profiles p where id='ecf2bb91-0350-4542-85ec-14d914311e99'),'cron',(select md5(coalesce(jsonb_agg(to_jsonb(j) order by jobid)::text,'[]')) from cron.job j),'provision_config',(select md5(to_jsonb(c)::text) from private.twilio_provisioning_config c where id=1),'sources',(select count(*) from private.uv_profile_sources),'sync',(select count(*) from private.uv_profile_sync),'exclusions',(select jsonb_agg(to_jsonb(e) order by organization_id,profile_id) from private.uv_profile_exclusions e)) snapshot;",
+    "uv": "select jsonb_build_object('protected_agent',(select md5((to_jsonb(a)-'contact_card_only')::text) from public.agents a where id='e7c2f35a-e215-4e9e-9492-176a344384eb'),'consent_events',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_consent_events x),'suppressions',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_suppressions x),'sender_links',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.agentflow_consent_links x),'disclosures',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_disclosure_versions x),'intakes',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.intake_requests x),'sources',(select count(*) from private.agentflow_profile_sources),'links',(select count(*) from private.agentflow_profile_links),'nonces',(select count(*) from private.agentflow_profile_nonces)) snapshot;",
+    "catalog": "select jsonb_build_object(\n'policies',(select md5(coalesce(jsonb_agg(to_jsonb(p) order by schemaname,tablename,policyname)::text,'[]')) from pg_policies p where schemaname in('public','private')),\n'acls',(select md5(coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',c.relname,'rls',c.relrowsecurity,'force',c.relforcerowsecurity,'acl',c.relacl) order by n.nspname,c.relname)::text,'[]')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in('public','private') and c.relkind in('r','p')),\n'notifications',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by id)::text,'[]')) from public.platform_admin_notifications x)) snapshot;"
+  },
+  "before": {
+    "af": [
+      {
+        "snapshot": {
+          "cron": "193c4700b5056e9bd4ca61d654b93118",
+          "sync": 0,
+          "sources": 0,
+          "org_rows": "e6be029e3e1d5a3d7640568a06df25a7",
+          "exclusions": [
+            {
+              "profile_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+              "organization_id": "a0000000-0000-0000-0000-000000000001"
+            }
+          ],
+          "provision_config": "bbc17b61d0a710908fbfb118bafd0dc2",
+          "protected_profile": "fe940abc4db80684593861e2f06942f7"
+        }
+      }
+    ],
+    "uv": [
+      {
+        "snapshot": {
+          "links": 0,
+          "nonces": 0,
+          "intakes": "d1b9761c275843148f0538f65c867ab1",
+          "sources": 0,
+          "disclosures": "51aa3ffdb9064356bf9f4fef17cbb2ce",
+          "sender_links": "237daca3c4c289dc4c8dc9efa8c1f015",
+          "suppressions": "2a02eda02bc94dd9226ed66ed144210d",
+          "consent_events": "fdb02dbfa207065920d55362301c2bc3",
+          "protected_agent": "518f8a8b78ca758b2fc9de5895b544a0"
+        }
+      }
+    ],
+    "catalog": [
+      {
+        "snapshot": {
+          "acls": "76e52a5db0a009dd5924bc11b0ef2216",
+          "policies": "6f3daf33758400eb662d2e7013e56a7a",
+          "notifications": "84d105aa44c22c68993028047e96f35d"
+        }
+      }
+    ]
+  },
+  "completed_at": "2026-10-19T01:00:10.260Z",
+  "migration": {
+    "version": "20261019005810",
+    "name": "uv_hosted_pilot_organizations",
+    "sha256": "b7caae1e13b62d53c18bdd4aa617f6bb8ec2dbf4010666958a6025266d028890",
+    "stored_sql_byte_identical": true
+  },
+  "postQueries": {
+    "af": "select jsonb_build_object('org_rows', (select md5(coalesce(jsonb_agg(to_jsonb(o) order by id)::text,'[]')) from public.organizations o where id not in ('f382cd5c-48e8-4911-b915-353493e0fbc7','e7fe893d-7702-4d44-9806-748c0bb2e150')),'protected_profile',(select md5(to_jsonb(p)::text) from public.profiles p where id='ecf2bb91-0350-4542-85ec-14d914311e99'),'cron',(select md5(coalesce(jsonb_agg(to_jsonb(j) order by jobid)::text,'[]')) from cron.job j),'provision_config',(select md5(to_jsonb(c)::text) from private.twilio_provisioning_config c where id=1),'sources',(select count(*) from private.uv_profile_sources),'sync',(select count(*) from private.uv_profile_sync),'exclusions',(select jsonb_agg(to_jsonb(e) order by organization_id,profile_id) from private.uv_profile_exclusions e)) snapshot;",
+    "catalog": "select jsonb_build_object(\n'policies',(select md5(coalesce(jsonb_agg(to_jsonb(p) order by schemaname,tablename,policyname)::text,'[]')) from pg_policies p where schemaname in('public','private')),\n'acls',(select md5(coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',c.relname,'rls',c.relrowsecurity,'force',c.relforcerowsecurity,'acl',c.relacl) order by n.nspname,c.relname)::text,'[]')) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in('public','private') and c.relkind in('r','p')),\n'notifications',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by id)::text,'[]')) from public.platform_admin_notifications x where not ((event_type='agency_created' and subject_id in ('f382cd5c-48e8-4911-b915-353493e0fbc7','e7fe893d-7702-4d44-9806-748c0bb2e150')) or (event_type='user_registered' and subject_id in ('1721a969-5ab0-45c8-97cb-96205f26c6fe','22042dc9-efc6-4772-8ab8-2b5c201aae01'))))) snapshot;",
+    "uv": "select jsonb_build_object('protected_agent',(select md5((to_jsonb(a)-'contact_card_only')::text) from public.agents a where id='e7c2f35a-e215-4e9e-9492-176a344384eb'),'consent_events',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_consent_events x),'suppressions',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_suppressions x),'sender_links',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.agentflow_consent_links x),'disclosures',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.sms_disclosure_versions x),'intakes',(select md5(coalesce(jsonb_agg(to_jsonb(x) order by to_jsonb(x)::text)::text,'[]')) from public.intake_requests x),'sources',(select count(*) from private.agentflow_profile_sources),'links',(select count(*) from private.agentflow_profile_links),'nonces',(select count(*) from private.agentflow_profile_nonces)) snapshot;"
+  },
+  "after": {
+    "af": [
+      {
+        "snapshot": {
+          "cron": "193c4700b5056e9bd4ca61d654b93118",
+          "sync": 0,
+          "sources": 0,
+          "org_rows": "e6be029e3e1d5a3d7640568a06df25a7",
+          "exclusions": [
+            {
+              "profile_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+              "organization_id": "a0000000-0000-0000-0000-000000000001"
+            }
+          ],
+          "provision_config": "bbc17b61d0a710908fbfb118bafd0dc2",
+          "protected_profile": "fe940abc4db80684593861e2f06942f7"
+        }
+      }
+    ],
+    "catalog": [
+      {
+        "snapshot": {
+          "acls": "76e52a5db0a009dd5924bc11b0ef2216",
+          "policies": "6f3daf33758400eb662d2e7013e56a7a",
+          "notifications": "84d105aa44c22c68993028047e96f35d"
+        }
+      }
+    ],
+    "uv": [
+      {
+        "snapshot": {
+          "links": 0,
+          "nonces": 0,
+          "intakes": "d1b9761c275843148f0538f65c867ab1",
+          "sources": 0,
+          "disclosures": "51aa3ffdb9064356bf9f4fef17cbb2ce",
+          "sender_links": "237daca3c4c289dc4c8dc9efa8c1f015",
+          "suppressions": "2a02eda02bc94dd9226ed66ed144210d",
+          "consent_events": "fdb02dbfa207065920d55362301c2bc3",
+          "protected_agent": "518f8a8b78ca758b2fc9de5895b544a0"
+        }
+      }
+    ]
+  },
+  "fixture": {
+    "organizations": [
+      {
+        "id": "e7fe893d-7702-4d44-9806-748c0bb2e150",
+        "name": "UV Isolation Pilot — Not a Real Agency",
+        "slug": "uv-isolation-pilot-20261019",
+        "no_sid": true,
+        "status": "active",
+        "lead_sources": 8,
+        "pipeline_stages": 11,
+        "provision_status": "pending",
+        "appointment_types": 6,
+        "no_credential_ref": true,
+        "no_provisioned_at": true
+      },
+      {
+        "id": "f382cd5c-48e8-4911-b915-353493e0fbc7",
+        "name": "UV Synthetic Pilot — Not a Real Agency",
+        "slug": "uv-synthetic-pilot-20261019",
+        "no_sid": true,
+        "status": "active",
+        "lead_sources": 8,
+        "pipeline_stages": 11,
+        "provision_status": "pending",
+        "appointment_types": 6,
+        "no_credential_ref": true,
+        "no_provisioned_at": true
+      }
+    ],
+    "notifications": [
+      {
+        "event": "agency_created",
+        "status": "skipped",
+        "sent_at": null,
+        "subject": "e7fe893d-7702-4d44-9806-748c0bb2e150",
+        "attempts": 0,
+        "provider_id": null,
+        "organization": "e7fe893d-7702-4d44-9806-748c0bb2e150"
+      },
+      {
+        "event": "agency_created",
+        "status": "skipped",
+        "sent_at": null,
+        "subject": "f382cd5c-48e8-4911-b915-353493e0fbc7",
+        "attempts": 0,
+        "provider_id": null,
+        "organization": "f382cd5c-48e8-4911-b915-353493e0fbc7"
+      },
+      {
+        "event": "user_registered",
+        "status": "skipped",
+        "sent_at": null,
+        "subject": "1721a969-5ab0-45c8-97cb-96205f26c6fe",
+        "attempts": 0,
+        "provider_id": null,
+        "organization": "f382cd5c-48e8-4911-b915-353493e0fbc7"
+      },
+      {
+        "event": "user_registered",
+        "status": "skipped",
+        "sent_at": null,
+        "subject": "22042dc9-efc6-4772-8ab8-2b5c201aae01",
+        "attempts": 0,
+        "provider_id": null,
+        "organization": "e7fe893d-7702-4d44-9806-748c0bb2e150"
+      }
+    ],
+    "triggers": [
+      {
+        "def": "CREATE TRIGGER on_organization_created_provision_twilio AFTER INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION handle_new_organization_provisioning()",
+        "name": "on_organization_created_provision_twilio",
+        "enabled": "O"
+      },
+      {
+        "def": "CREATE TRIGGER on_organization_created_seed_appointment_types AFTER INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION handle_new_organization_seed_appointment_types()",
+        "name": "on_organization_created_seed_appointment_types",
+        "enabled": "O"
+      },
+      {
+        "def": "CREATE TRIGGER on_organization_created_seed_lead_sources AFTER INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION handle_new_organization_seed_lead_sources()",
+        "name": "on_organization_created_seed_lead_sources",
+        "enabled": "O"
+      },
+      {
+        "def": "CREATE TRIGGER on_organization_created_seed_pipeline_stages AFTER INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION handle_new_organization_seed_pipeline_stages()",
+        "name": "on_organization_created_seed_pipeline_stages",
+        "enabled": "O"
+      },
+      {
+        "def": "CREATE TRIGGER trg_zz_platform_admin_notify_agency_created AFTER INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION private.enqueue_platform_admin_agency_created()",
+        "name": "trg_zz_platform_admin_notify_agency_created",
+        "enabled": "O"
+      }
+    ]
+  },
+  "advisors": {
+    "security": {
+      "same": true,
+      "before": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "count": 30,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "function_search_path_mutable",
+          "level": "WARN",
+          "count": 22,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+        },
+        {
+          "name": "rls_disabled_in_public",
+          "level": "ERROR",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public"
+        },
+        {
+          "name": "extension_in_public",
+          "level": "WARN",
+          "count": 3,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "level": "WARN",
+          "count": 57,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "count": 122,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ],
+      "after": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "count": 30,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "function_search_path_mutable",
+          "level": "WARN",
+          "count": 22,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+        },
+        {
+          "name": "rls_disabled_in_public",
+          "level": "ERROR",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public"
+        },
+        {
+          "name": "extension_in_public",
+          "level": "WARN",
+          "count": 3,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "level": "WARN",
+          "count": 57,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "count": 122,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ]
+    },
+    "performance": {
+      "same": true,
+      "before": [
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "count": 81,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        },
+        {
+          "name": "auth_rls_initplan",
+          "level": "WARN",
+          "count": 112,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan"
+        },
+        {
+          "name": "unused_index",
+          "level": "INFO",
+          "count": 134,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index"
+        },
+        {
+          "name": "multiple_permissive_policies",
+          "level": "WARN",
+          "count": 98,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies"
+        },
+        {
+          "name": "duplicate_index",
+          "level": "WARN",
+          "count": 6,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index"
+        },
+        {
+          "name": "table_bloat",
+          "level": "INFO",
+          "count": 1,
+          "remediation": "Consider running vacuum full (WARNING: incurs downtime) and tweaking autovacuum settings to reduce bloat."
+        },
+        {
+          "name": "auth_db_connections_absolute",
+          "level": "INFO",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/deployment/going-into-prod"
+        }
+      ],
+      "after": [
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "count": 81,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        },
+        {
+          "name": "auth_rls_initplan",
+          "level": "WARN",
+          "count": 112,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan"
+        },
+        {
+          "name": "unused_index",
+          "level": "INFO",
+          "count": 134,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index"
+        },
+        {
+          "name": "multiple_permissive_policies",
+          "level": "WARN",
+          "count": 98,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies"
+        },
+        {
+          "name": "duplicate_index",
+          "level": "WARN",
+          "count": 6,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index"
+        },
+        {
+          "name": "table_bloat",
+          "level": "INFO",
+          "count": 1,
+          "remediation": "Consider running vacuum full (WARNING: incurs downtime) and tweaking autovacuum settings to reduce bloat."
+        },
+        {
+          "name": "auth_db_connections_absolute",
+          "level": "INFO",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/deployment/going-into-prod"
+        }
+      ]
+    }
+  },
+  "tests": {
+    "offline_scenarios": 10,
+    "root_typescript": "pass",
+    "native_lock_contention": "not simulated",
+    "hosted_publication": "not run",
+    "authenticated_worker": "not run"
+  }
+}
