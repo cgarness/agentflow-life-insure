@@ -1,5 +1,5 @@
 -- Commissions center: disposable harness additions (synthetic data only; never production). Applied after the
--- Phase 2A harness and both applied migrations, before 20261020180000_policy_commission_center_reads.sql.
+-- Phase 2A harness and both applied migrations, before 20261020212000_policy_commission_center_reads.sql.
 -- company_settings with the production read policy (baseline schema, verbatim), so the agency time zone is read
 -- under the caller's own RLS exactly as in production.
 ALTER TABLE public.company_settings ENABLE ROW LEVEL SECURITY;

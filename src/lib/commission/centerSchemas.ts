@@ -2,7 +2,7 @@ import { z } from "zod";
 import { INSTALLMENT_KINDS, openPolicySchema, type OpenPolicyCommission } from "./trackingSchemas";
 
 /**
- * Commissions center reads (migration 20261020180000): strict parsers. Any unexpected shape throws, so the page shows
+ * Commissions center reads (migration 20261020212000): strict parsers. Any unexpected shape throws, so the page shows
  * an error instead of a wrong or partial figure. Amounts are whole cents from saved estimates and manual receipts;
  * neither is carrier-verified.
  */

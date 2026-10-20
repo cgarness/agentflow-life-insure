@@ -1,6 +1,6 @@
-// Commissions center reads (20261020180000): real PostgREST 12 + @supabase/supabase-js against a DISPOSABLE local
+// Commissions center reads (20261020212000): real PostgREST 12 + @supabase/supabase-js against a DISPOSABLE local
 // database prepared by scripts/run_policy_commission_tests.sh (fixture, harness, both applied migrations, the center
-// harness and 20261020180000). Synthetic data only.
+// harness and 20261020212000). Synthetic data only.
 //   PGURL=postgres://postgres@127.0.0.1:<port> DB_URL=<PGURL>/<db> POSTGREST_BIN=/path/to/postgrest node <this file>
 // Proves the HTTP contract of the five reads: shapes, My-commissions scope, drawer parity with the contact read, error
 // codes and statuses (42501, 22023, PT404, 55000), anon/service_role refusal, the helper schema not exposed, no

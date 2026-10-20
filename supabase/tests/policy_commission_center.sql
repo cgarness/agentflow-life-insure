@@ -1,9 +1,9 @@
--- Commissions center reads (20261020180000): definitions, reconciliation of cards, timeline and paginated lists,
+-- Commissions center reads (20261020212000): definitions, reconciliation of cards, timeline and paginated lists,
 -- statuses, receipts (partial, excess, voids, replacements), holds, superseded estimates, month-crossing windows,
 -- month timing, unknown dates, non-monthly schedules, zero rates, missing estimates, open captures, same-org,
 -- cross-org, Agency Group peer, reassignment with a restricted contact, permissions, time zone, validation, ACLs and
 -- reads that never write. Runs on a disposable database after the Phase 2A harness, both applied migrations, the
--- center harness and 20261020180000. Synthetic data only. Dates are relative to the agency date so the suite does not
+-- center harness and 20261020212000. Synthetic data only. Dates are relative to the agency date so the suite does not
 -- depend on when it runs.
 \set ON_ERROR_STOP on
 SET client_min_messages = warning;

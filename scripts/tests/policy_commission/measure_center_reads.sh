@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Commissions center: server-side timing of the five reads for one seller with a large synthetic book, on a DISPOSABLE
 # database prepared by scripts/run_policy_commission_tests.sh (fixture, harness, both applied migrations, the center
-# harness and 20261020180000). Synthetic data only.
+# harness and 20261020212000). Synthetic data only.
 #   DB_URL=postgres://postgres@127.0.0.1:<port>/pc_test_<...> PC_CENTER_POLICIES=2000 bash scripts/tests/policy_commission/measure_center_reads.sh
 # The book: PC_CENTER_POLICIES sales with estimates (Edit dates spread their first premium dates over about two years
 # around today) and a receipt on every third Advance, plus 50 sales without an estimate. Each read is timed with

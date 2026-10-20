@@ -6,7 +6,7 @@
 #           PC_MEASURE=1 adds the save-overhead measurement (scripts/tests/policy_commission/measure_save_overhead.sh)
 #           and the commissions center read timing (measure_center_reads.sh; PC_CENTER_POLICIES, default 500).
 # Steps: migration preimage/replay guards · ACL and ownership inventory diff · security, handoff and tracking suites ·
-# expected-windows migration (20261020040000) guards, inventory and suite · commissions center reads (20261020180000)
+# expected-windows migration (20261020040000) guards, inventory and suite · commissions center reads (20261020212000)
 # guards, drift refusal, inventory and suite · independent-session races and lock contention · existing
 # sale/identity/reporting suites with both migrations applied · non-destructive rollbacks, refusal and reapply.
 # Scenarios run with both applied migrations (the production end state) unless marked otherwise.
@@ -30,8 +30,8 @@ MIGRATION="$ROOT/supabase/migrations/20261019170000_policy_commission_tracking.s
 ROLLBACK="$ROOT/supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql"
 WINDOWS="$ROOT/supabase/migrations/20261020040000_policy_commission_expected_windows.sql"
 WINDOWS_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020040000_policy_commission_expected_windows.rollback.sql"
-CENTER="$ROOT/supabase/migrations/20261020180000_policy_commission_center_reads.sql"
-CENTER_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql"
+CENTER="$ROOT/supabase/migrations/20261020212000_policy_commission_center_reads.sql"
+CENTER_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql"
 CENTER_HARNESS="$ROOT/supabase/tests/policy_commission_center_harness.sql"
 DATABASES=()
 drop_roles() {
@@ -70,7 +70,7 @@ new_db() {
   if [ "${2:-}" != bare ]; then sql -1 -f "$MIGRATION" >/dev/null; fi
   if [ -z "${2:-}" ]; then sql -1 -f "$WINDOWS" >/dev/null; fi
 }
-# center_db NAME: both applied migrations, the center harness and 20261020180000.
+# center_db NAME: both applied migrations, the center harness and 20261020212000.
 center_db() { new_db "$1"; sql -f "$CENTER_HARNESS" >/dev/null; sql -1 -f "$CENTER" >/dev/null; }
 run_suite() { sql -v defaults="$(cat "$ROOT/supabase/tests/fixtures/policy_commission/permission_defaults.json")" -f "$1" | grep -E '^ *PASS' ; }
 expect_fail() { # expect_fail PATTERN FILE: the file must fail with an error matching PATTERN
@@ -190,7 +190,7 @@ echo "PASS expected windows guards and inventory (8 bodies replaced, 4 writer-on
 new_db expected_windows
 run_suite "$ROOT/supabase/tests/policy_commission_expected_windows.sql"
 
-# ── 1c. Commissions center reads (20261020180000): guards, drift refusal, existing-object inventory, suite ────
+# ── 1c. Commissions center reads (20261020212000): guards, drift refusal, existing-object inventory, suite ────
 new_db center_guards applied
 sql -f "$CENTER_HARNESS" >/dev/null
 expect_fail 'require 20261019170000 and 20261020040000' "$CENTER"

@@ -1,4 +1,4 @@
--- Rollback for 20261020180000_policy_commission_center_reads.sql (commissions center reads).
+-- Rollback for 20261020212000_policy_commission_center_reads.sql (commissions center reads).
 -- Drops exactly what that migration created: five public read functions, the policy_commission_reporting schema with
 -- its seven helpers and two types, and two indexes. The migration owns no data, so nothing else is touched.
 -- Production use requires Chris's separate approval.
