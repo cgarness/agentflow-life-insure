@@ -1,3 +1,22 @@
+## 2026-10-20 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Commissions center (Overview · Payments · Policies · Calculator)
+
+**Status:** Chris approved the local implementation and disposable-database tests on 2026-10-20. Branch
+`claude/epic-tesla-fe96b0` from `main` `0312520`; feature-branch commits, pushes and a draft PR are approved. Production
+migration, production reads or test writes, RLS/grant changes in production, merge and deployment each need separate
+approval.
+
+**Contract, metric definitions, migration contract and exact file list:**
+`docs/plans/2026-10-20-commissions-center/implementation_plan.md`.
+
+**Summary:** the sidebar's "Commission Calculator" becomes **Commissions** with four addressable tabs. Overview, Payments
+and Policies report the signed-in user's own saved estimates, installments and manual receipts (My commissions) through
+five new SECURITY INVOKER read functions (new migration `20261020180000_policy_commission_center_reads.sql`; existing
+commission RLS, `wins` and `clients` RLS apply; no writer, grant or policy change). Row actions reuse the Phase 2A
+tracking controls and unresolved-write recovery. The calculator tab reuses `CalculatorWorkspace` unchanged and stays
+hypothetical. Phase 2A (PR #469, merged `0312520`, Gate 4 released 2026-10-20) is the released base.
+
+---
+
 ## 2026-10-19 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Phase 2A saved policy commissions, expected payments and manual receipts
 
 **Status:** Chris approved the local implementation of the companion-function architecture on 2026-10-19. Branch
