@@ -1,0 +1,9 @@
+# Personal agency branding on UV
+
+Requested by Chris October 20, 2026 at 10:10 PDT. Add an optional Agency / Brand Name in Settings > My Profile > UV wizard, prefilled with current effective agency name, shown in review. Agents can update existing verified pages; blank restores shared agency branding. Preserve links, organization membership, permissions and agency-wide settings. No A2P/protected-owner change.
+
+Implementation: AF private sync row stores nullable brand_name (1–120 trimmed characters, no controls); authenticated existing setup RPC reads/saves own value under current locks/revision/snapshot, missing field preserves prior value for older clients. Sender emits effective display name in existing agency field. UV receiver accepts validated display text while still requiring registered organization and exact agency_slug; signed transport, identity mapping, consent/exclusion guards and stable URLs unchanged. No Edge code/protocol or RLS changes.
+
+Files: one migration per repo; AF setup.ts, VerificationFields.tsx, VerificationWizard.tsx; focused wizard/SQL/signed receiver tests and existing browser fixture; workflow peer pin; both work logs and this plan.
+
+Verify: preimage hashes and ACLs; isolated real-migration tests for save/reload/reset, stale and cross-agent rejection, malformed names, old-client preservation, unchanged source agency and URL, signed receiver updates and spoofed slug rejection. Existing tests, root tsc, scoped lint, native paired and desktop/mobile browser CI. Production sequence: UV compatible receiver migration first, AF additive storage/RPC migration second, AF frontend last. No bulk profile refresh or production test messages. Verify catalog hashes, ACL/policy stability, protected profile fingerprints, migrations and ready deployment. Recovery: revert frontend; keep compatible nullable storage, never discard saved branding.

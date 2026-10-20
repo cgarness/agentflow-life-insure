@@ -87,6 +87,7 @@ async function prefs(published){
  }catch(error){await db.exec('ROLLBACK');throw error;}
 }
 await db.exec('BEGIN');await db.exec(await read('20261019032157_uv_profile_verification_wizard.sql'));await db.exec('COMMIT');
+await db.exec('BEGIN');await db.exec(await read('20261020171244_uv_personal_brand.sql'));await db.exec('COMMIT');
 async function actor(fn,id=user,organization=org,role='authenticated') {
  await db.exec(`BEGIN; SET LOCAL ROLE ${role}; SELECT set_config('request.jwt.claim.sub','${id}',true),set_config('request.jwt.claim.org','${organization}',true);`);
  try{const value=await fn();await db.exec('COMMIT');return value;}catch(e){await db.exec('ROLLBACK');throw e;}
@@ -151,6 +152,24 @@ await check('editing bio retains canonical license ID and original expiry',async
  await actor(()=>complete(current,next));await drain();
  const after=(await actor(setup)).draft.licenses[0];assert.equal(after.id,before.id);assert.equal(after.expiration_date,before.expiration_date);
  assert.equal((await state()).payload.bio,'Updated bio');
+});
+await check('personal branding saves, syncs, resets and preserves agency identity',async()=>{
+ const original=await actor(setup);assert.equal(original.draft.brand_name,'Synthetic');
+ await actor(()=>complete(original,{...original.draft,brand_name:'  Independent Life  '}));await drain();
+ assert.equal((await actor(setup)).draft.brand_name,'Independent Life');
+ assert.equal((await state()).payload.agency,'Independent Life');assert.equal((await state()).payload.agency_slug,'synthetic');
+ assert.equal((await db.query('SELECT agency_name FROM private.uv_profile_sources')).rows[0].agency_name,'Synthetic');
+ await assert.rejects(()=>actor(()=>complete(original,{...original.draft,brand_name:'Stale'})));
+ const current=await actor(setup);
+ for(const brand_name of ['x'.repeat(121),'Bad\nName',null,{},42]){
+  await assert.rejects(()=>actor(()=>complete(current,{...current.draft,brand_name})));
+  assert.equal((await actor(setup)).snapshot,current.snapshot);
+ }
+ const legacy={...current.draft};delete legacy.brand_name;
+ await actor(()=>complete(current,legacy));await drain();assert.equal((await state()).payload.agency,'Independent Life');
+ const cleared=await actor(setup);await actor(()=>complete(cleared,{...cleared.draft,brand_name:'  '}));await drain();
+ assert.equal((await state()).payload.agency,'Synthetic');assert.equal((await state()).brand_name,null);
+ assert.equal((await state()).next_due,'infinity');assert.equal(await dispatch(),null);
 });
 await check('removing the only license removes badge without breaking profile save',async()=>{
  await db.exec('DELETE FROM public.agent_state_licenses');await drain();

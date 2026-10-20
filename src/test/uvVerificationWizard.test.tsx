@@ -8,7 +8,7 @@ vi.mock('@/integrations/supabase/client',()=>({supabase:{rpc:mock.rpc}}));
 const profileId='20000000-0000-4000-8000-000000000001',organizationId='10000000-0000-4000-8000-000000000001';
 const scope={profileId,organizationId};
 const photo='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4l8AAAAASUVORK5CYII=';
-const draft={first_name:'Test',last_name:'Agent',phone:'5550001000',email:'agent@example.invalid',avatar_url:photo,npn:'123456',bio:'',
+const draft={first_name:'Test',last_name:'Agent',phone:'5550001000',email:'agent@example.invalid',avatar_url:photo,npn:'123456',bio:'',brand_name:'Shared Agency',
  licenses:[{id:'30000000-0000-4000-8000-000000000001',state:'California',license_number:'1234',expiration_date:null}]};
 const snapshot={profile_id:profileId,organization_id:organizationId,revision:'3',snapshot:'a'.repeat(32),draft};
 const status={profile_id:profileId,organization_id:organizationId,available:true,desired_published:false,phone_public:false,email_public:false,revision:'3',state:'private' as const,public_url:null,last_synced_at:null,verified:false};
@@ -18,10 +18,13 @@ async function review(){await screen.findByDisplayValue('Test');fireEvent.click(
 describe('verification wizard',()=>{
  it('prefills saved details, accepts undated licenses and optional bio, requires confirmation',async()=>{
   const complete=vi.fn().mockResolvedValue({});render(<VerificationWizard scope={scope} status={status} onClose={vi.fn()} onRefresh={vi.fn()} onComplete={complete}/>);
+  await screen.findByDisplayValue('Shared Agency');
+  fireEvent.change(screen.getByRole('textbox',{name:'Agency / Brand Name (optional)'}),{target:{value:'Independent Life'}});
   await review();expect(screen.getByRole('button',{name:'Confirm & get verified'})).toBeDisabled();
+  expect(screen.getByText('Independent Life')).toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox',{name:/About you/}),{target:{value:'Helping families'}});
   fireEvent.click(screen.getByRole('checkbox',{name:/I confirm/}));fireEvent.click(screen.getByRole('button',{name:'Confirm & get verified'}));
-  await waitFor(()=>expect(complete).toHaveBeenCalledWith(snapshot,{...draft,bio:'Helping families'},true,true));
+  await waitFor(()=>expect(complete).toHaveBeenCalledWith(snapshot,{...draft,bio:'Helping families',brand_name:'Independent Life'},true,true));
   expect(screen.queryByText('Your agent site is ready')).toBeNull();expect(await screen.findByText('Setting up your agent site')).toBeInTheDocument();
  });
  it('does not call completion for a missing photo',async()=>{
