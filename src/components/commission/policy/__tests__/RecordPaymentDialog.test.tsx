@@ -84,7 +84,7 @@ describe("RecordPaymentDialog", () => {
       p_request_id: expect.any(String), p_installment_id: (installments[1] as { id: string }).id, p_amount_cents: 4775,
       p_received_on: todayLocalIsoDate(), p_reference: "Deposit 3",
     }]);
-    expect(screen.getByText(/manual record, not a carrier statement/)).toBeTruthy();
+    expect(screen.getByText("Enter a commission payment you received.")).toBeTruthy();
   });
 
   it("after an unknown outcome the inputs lock and Retry resends the same payment with the same request id", async () => {

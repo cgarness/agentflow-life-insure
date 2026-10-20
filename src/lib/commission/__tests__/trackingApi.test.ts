@@ -49,6 +49,26 @@ describe("contact read", () => {
     expect(h.calls[0]).toEqual(["get_client_policy_commissions", { p_client_id: data.client_id }]);
   });
 
+  it("reads the response from before and after migration 20261020040000", () => {
+    const before = parseClientPolicyCommissions({ client_id: id(), policies: [recordedPolicy()] }).policies[0];
+    if (!("estimate" in before) || !before.estimate) throw new Error("expected an estimate");
+    expect([before.estimate.schedule_assumed, before.estimate.schedule_frequency, before.estimate.schedule_convention, before.basis.payment_frequency])
+      .toEqual([false, null, null, null]);
+    expect(before.estimate.installments.map((i) => i.expected_until)).toEqual([null, null, null, null]);
+    const after = recordedPolicy();
+    Object.assign(after.basis, { payment_frequency: "quarterly" });
+    Object.assign(after.estimate, { schedule_start_on: "2026-11-01", schedule_start_source: "effective_date", schedule_assumed: true,
+      schedule_frequency: "quarterly", schedule_convention: "premium_plus_1_3_fed_business_days_v1" });
+    Object.assign(after.estimate.installments[0], { timing_precision: "date", expected_on: "2026-11-02", expected_until: "2026-11-04",
+      timing_source: "schedule_basis" });
+    const parsed = parseClientPolicyCommissions({ client_id: id(), policies: [after] }).policies[0];
+    if (!("estimate" in parsed) || !parsed.estimate) throw new Error("expected an estimate");
+    expect([parsed.estimate.schedule_assumed, parsed.estimate.schedule_frequency, parsed.basis.payment_frequency]).toEqual([true, "quarterly", "quarterly"]);
+    expect(parsed.estimate.installments[0].expected_until).toBe("2026-11-04");
+    Object.assign(after.estimate, { schedule_frequency: "weekly" });
+    expect(() => parseClientPolicyCommissions({ client_id: id(), policies: [after] })).toThrow();
+  });
+
   it("refuses malformed rows instead of showing a wrong figure", () => {
     const bad = recordedPolicy();
     bad.estimate.installments.pop();

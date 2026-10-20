@@ -92,27 +92,49 @@ describe("PolicyCommissionSection", () => {
   it("summarises a recorded estimate compactly and expands to the expected payments", async () => {
     h.read = { client_id: CLIENT, policies: [open("recorded", "write", { estimate: estimate() })] };
     mount(<PolicyCommissionSection clientId={CLIENT} policyId={POLICY} />);
-    const toggle = await screen.findByRole("button", { expanded: false });
-    expect(toggle.textContent).toContain("Est. first-year $573.00");
+    const toggle = await screen.findByRole("button", { name: /Estimated commission/, expanded: false });
+    expect(toggle.textContent).toContain("Estimated commission $573.00");
     expect(toggle.textContent).toContain("Received $200.00");
     expect(toggle.textContent).toContain("Remaining $373.00");
     fireEvent.click(toggle);
     const payments = screen.getByRole("list", { name: "Expected payments" });
     expect(Array.from(payments.children).map((item) => item.textContent)).toEqual([
-      expect.stringContaining("Advance (75%)"), expect.stringContaining("Month 10"), expect.stringContaining("Month 11"), expect.stringContaining("Month 12"),
+      expect.stringContaining("Advance"), expect.stringContaining("Month 10"), expect.stringContaining("Month 11"), expect.stringContaining("Month 12"),
     ]);
-    expect(within(payments).getAllByText(/Payment timing unconfirmed/)).toHaveLength(4);
-    expect(screen.getByText("At sale entry")).toBeTruthy();
-    expect(screen.getByText(/Schedule start not confirmed/)).toBeTruthy();
+    // A response from before migration 20261020040000 (no window fields) still renders: every payment needs a date.
+    expect(within(payments).getAllByText("Date needed")).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "Edit dates" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Edit date" })).toHaveLength(4);
+    // No pay-grid breakdown or repeated explanations in the contact view.
+    expect(section()!.textContent).not.toMatch(/Synthetic Grid|95\.50|level 100|At sale entry|comp grid|carrier statement|Ages 18-60/);
     expect(screen.getAllByRole("button", { name: "Record payment" })).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Place on hold" })).toBeTruthy();
     expect(section()!.textContent).not.toMatch(/earned|overdue|\bdue\b|paid commission/i);
   });
 
+  it("shows assumed windows from the effective date and one short note", async () => {
+    const dated = estimate();
+    const windows = [["2026-11-02", "2026-11-04"], ["2027-08-02", "2027-08-04"], ["2027-09-02", "2027-09-07"], ["2027-10-04", "2027-10-06"]];
+    Object.assign(dated, { schedule_start_on: "2026-11-01", schedule_start_source: "effective_date", schedule_assumed: true,
+      schedule_frequency: null, schedule_convention: "premium_plus_1_3_fed_business_days_v1" });
+    dated.installments.forEach((item, index) => Object.assign(item, { timing_precision: "date", expected_on: windows[index][0],
+      expected_until: windows[index][1], timing_source: "schedule_basis" }));
+    h.read = { client_id: CLIENT, policies: [open("recorded", "write", { estimate: dated })] };
+    mount(<PolicyCommissionSection clientId={CLIENT} policyId={POLICY} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Estimated commission/, expanded: false }));
+    expect(screen.getByText("Estimated from effective date Nov 1, 2026")).toBeTruthy();
+    const payments = screen.getByRole("list", { name: "Expected payments" });
+    expect(Array.from(payments.children).map((item) => item.textContent?.match(/Expected [^·]+/)?.[0].trim())).toEqual([
+      "Expected Nov 2 – 4, 2026", "Expected Aug 2 – 4, 2027", "Expected Sep 2 – 7, 2027", "Expected Oct 4 – 6, 2027"]);
+    fireEvent.click(screen.getByRole("button", { name: "About this estimate" }));
+    expect((await screen.findByText(/AgentFlow estimate\. Expected dates assume payment 1–3 business days after each premium date\. Not carrier-verified\./))).toBeTruthy();
+    expect(h.calls.filter(([name]) => name !== "get_client_policy_commissions")).toEqual([]);
+  });
+
   it("is read-only for a Team Leader and shows a hold", async () => {
     h.read = { client_id: CLIENT, policies: [open("recorded", "read", { estimate: estimate("on_hold") })] };
     mount(<PolicyCommissionSection clientId={CLIENT} policyId={POLICY} />);
-    fireEvent.click(await screen.findByRole("button", { expanded: false }));
+    fireEvent.click(await screen.findByRole("button", { name: /Estimated commission/, expanded: false }));
     expect(screen.getAllByText("On hold").length).toBeGreaterThan(0);
     expect(screen.getByText("On hold: Carrier review")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
@@ -148,7 +170,7 @@ describe("ClientPolicies", () => {
     fireEvent.click(triggers[1]);
     await waitFor(() => expect(screen.getAllByRole("region", { name: "Commission" })).toHaveLength(2));
     const [primary, extra] = screen.getAllByRole("region", { name: "Commission" });
-    expect(primary.textContent).toContain("Est. first-year $573.00");
+    expect(primary.textContent).toContain("Estimated commission $573.00");
     expect(extra.textContent).toContain("No commission estimate recorded.");
     expect(h.calls.filter(([name]) => name === "get_client_policy_commissions")).toHaveLength(1);
   });
@@ -156,6 +178,6 @@ describe("ClientPolicies", () => {
   it("a single-policy client still gets its compact commission section", async () => {
     h.read = { client_id: CLIENT, policies: [open("recorded", "write", { estimate: estimate() })] };
     mount(<ClientPolicies formatDate={(value) => value} client={{ id: CLIENT, primaryPolicyId: POLICY, carrier: "Synthetic Carrier", premiumAmount: "$50.00" }} />);
-    await waitFor(() => expect(section()?.textContent).toContain("Est. first-year $573.00"));
+    await waitFor(() => expect(section()?.textContent).toContain("Estimated commission $573.00"));
   });
 });

@@ -1,5 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useClientPolicyCommissions } from "@/hooks/useClientPolicyCommissions";
 import { isOpenPolicy, type OpenPolicyCommission } from "@/lib/commission/trackingSchemas";
 import { CaptureAttentionNotice } from "./CaptureAttentionNotice";
@@ -53,6 +54,23 @@ function SectionBody({ clientId, policyId, compact = false }: { clientId: string
   return <OpenSection policy={policy} compact={compact} />;
 }
 
+/** The one explanation of what the figures and dates are (opens on click or tap). */
+function EstimateNote() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="About this estimate"
+          className="rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Info className="h-3 w-3" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 p-2.5 text-xs leading-relaxed">
+        AgentFlow estimate. Expected dates assume payment 1–3 business days after each premium date. Not carrier-verified.
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function OpenSection({ policy, compact }: { policy: OpenPolicyCommission; compact: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -89,7 +107,10 @@ function OpenSection({ policy, compact }: { policy: OpenPolicyCommission; compac
 
   return (
     <section aria-label="Commission" className={`min-w-0 space-y-1.5 border-t ${compact ? "mt-2.5 border-border/60 pt-2" : "border-border pt-3"}`}>
-      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Commission</h4>
+      <div className="flex items-center gap-1">
+        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Commission</h4>
+        {policy.state === "recorded" && <EstimateNote />}
+      </div>
       {body}
       {canWrite && <RecordEstimateDialog open={recording} onOpenChange={setRecording} policy={policy} replace={false} />}
     </section>

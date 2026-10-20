@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import type { CommissionSlotInputs } from "./capture";
-import { parseClientPolicyCommissions, trackingResultSchemas, type ClientPolicyCommissions, type TimingPrecision } from "./trackingSchemas";
+import { parseClientPolicyCommissions, trackingResultSchemas, type ClientPolicyCommissions, type TimingChoice } from "./trackingSchemas";
 
 /**
  * Phase 2A tracking calls. Every write carries a request id (one per dialog open) so a retry of an unknown
@@ -75,7 +75,7 @@ export const commissionTrackingApi = {
     call("set_policy_commission_schedule_basis", {
       p_request_id: a.requestId, p_estimate_id: a.estimateId, p_expected_revision: a.expectedRevision, p_start_on: a.startOn, p_source: a.source,
     }, trackingResultSchemas.state),
-  setInstallmentTiming: (a: { requestId: string; installmentId: string; expectedRevision: number; precision: TimingPrecision;
+  setInstallmentTiming: (a: { requestId: string; installmentId: string; expectedRevision: number; precision: TimingChoice;
     expectedOn: string | null }) =>
     call("set_policy_commission_installment_timing", {
       p_request_id: a.requestId, p_installment_id: a.installmentId, p_expected_revision: a.expectedRevision, p_precision: a.precision,

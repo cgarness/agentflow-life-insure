@@ -11,6 +11,11 @@ const cents = z.number().int().nonnegative();
 export const INSTALLMENT_KINDS = ["advance", "month_10", "month_11", "month_12"] as const;
 export type InstallmentKind = (typeof INSTALLMENT_KINDS)[number];
 export type TimingPrecision = "unknown" | "month" | "date";
+/** A per-payment date choice: a stored precision, or "automatic" (back to the estimated schedule). */
+export type TimingChoice = TimingPrecision | "automatic";
+export const PAYMENT_FREQUENCIES = ["monthly", "quarterly", "semi_annual", "annual"] as const;
+export type PaymentFrequency = (typeof PAYMENT_FREQUENCIES)[number];
+const frequency = z.enum(PAYMENT_FREQUENCIES).nullable();
 
 const receiptSchema = z.object({
   id: uuid,
@@ -30,6 +35,9 @@ const installmentSchema = z.object({
   expected_cents: cents,
   timing_precision: z.enum(["unknown", "month", "date"]),
   expected_on: isoDate.nullable(),
+  // Last day of an expected window (1st–3rd business day after the premium date). Fields added by migration
+  // 20261020040000 default to "none" so a response from before it still parses.
+  expected_until: isoDate.nullable().default(null),
   timing_source: z.enum(["unset", "schedule_basis", "manual"]),
   receipts: z.array(receiptSchema),
 });
@@ -58,6 +66,9 @@ const estimateSchema = z.object({
   advance_cents: cents,
   schedule_start_on: isoDate.nullable(),
   schedule_start_source: z.enum(["effective_date", "manual"]).nullable(),
+  schedule_assumed: z.boolean().default(false),
+  schedule_frequency: frequency.default(null),
+  schedule_convention: z.string().nullable().default(null),
   state_revision: z.number().int().positive(),
   installments: z.array(installmentSchema).length(4),
 });
@@ -81,6 +92,7 @@ const basisSchema = z.object({
   monthly_premium: z.string().nullable(),
   premium_source: z.enum(["sale_snapshot", "policy_record"]).nullable(),
   effective_date: isoDate.nullable(),
+  payment_frequency: frequency.default(null),
 });
 
 const closedPolicySchema = z.object({

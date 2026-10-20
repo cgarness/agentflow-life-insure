@@ -1,14 +1,14 @@
 import { z } from "zod";
-import type { CommissionEstimateRecord, CommissionInstallment, CommissionReceipt, InstallmentKind } from "./trackingSchemas";
+import type { CommissionEstimateRecord, CommissionInstallment, CommissionReceipt, InstallmentKind, TimingChoice } from "./trackingSchemas";
 
 /**
  * Display helpers for saved policy commissions (Phase 2A). Expected amounts are estimates; received amounts are
  * what someone recorded by hand. Remaining is per installment and never negative; anything above the expected
  * amount is shown as excess on that installment only (an advance overpayment never counts toward Months 10–12).
- * Calendar dates only: no time-zone shifts, and no "due" or "overdue" states.
+ * Calendar dates only: no time-zone shifts, and no "due" or "overdue" states. Expected dates are estimates.
  */
 export const INSTALLMENT_LABELS: Record<InstallmentKind, string> = {
-  advance: "Advance (75%)",
+  advance: "Advance",
   month_10: "Month 10",
   month_11: "Month 11",
   month_12: "Month 12",
@@ -107,23 +107,72 @@ export function formatCalendarDate(iso: string): string {
   return p ? `${MONTHS[p.m - 1]} ${p.d}, ${p.y}` : iso;
 }
 
-/** The first of the month `offset` calendar months after the month of `iso` (the day is ignored). */
-export function addCalendarMonths(iso: string, offset: number): string | null {
-  const p = parts(iso);
-  if (!p) return null;
-  const index = p.y * 12 + (p.m - 1) + offset;
-  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}-01`;
+/** "Oct 5 – 7, 2026", "Nov 27 – Dec 1, 2026", "Dec 31, 2026 – Jan 5, 2027" */
+export function formatDateRange(from: string, until: string): string {
+  const a = parts(from);
+  const b = parts(until);
+  if (!a || !b || from === until) return formatCalendarDate(from);
+  if (a.y !== b.y) return `${formatCalendarDate(from)} – ${formatCalendarDate(until)}`;
+  if (a.m !== b.m) return `${MONTHS[a.m - 1]} ${a.d} – ${MONTHS[b.m - 1]} ${b.d}, ${b.y}`;
+  return `${MONTHS[a.m - 1]} ${a.d} – ${b.d}, ${b.y}`;
 }
 
-/** Month 10/11/12 from a confirmed schedule start: start month + 9/10/11 months (as the server computes). */
-export function scheduledMonths(startOn: string): Record<Exclude<InstallmentKind, "advance">, string | null> {
-  return { month_10: addCalendarMonths(startOn, 9), month_11: addCalendarMonths(startOn, 10), month_12: addCalendarMonths(startOn, 11) };
-}
-
-export function timingLabel(installment: Pick<CommissionInstallment, "timing_precision" | "expected_on">): string {
-  if (installment.timing_precision === "unknown" || !installment.expected_on) return "Payment timing unconfirmed";
+export function timingLabel(installment: Pick<CommissionInstallment, "timing_precision" | "expected_on" | "expected_until">): string {
+  if (installment.timing_precision === "unknown" || !installment.expected_on) return "Date needed";
   if (installment.timing_precision === "month") return `Expected ${formatMonth(installment.expected_on)}`;
+  if (installment.expected_until) return `Expected ${formatDateRange(installment.expected_on, installment.expected_until)}`;
   return `Expected ${formatCalendarDate(installment.expected_on)}`;
+}
+
+const NON_MONTHLY: Record<string, string> = { quarterly: "Quarterly", semi_annual: "Semi-annual", annual: "Annual" };
+
+/** The start line: where the expected dates come from, and the non-monthly exception. */
+export function scheduleSummary(estimate: Pick<CommissionEstimateRecord, "schedule_start_on" | "schedule_start_source" |
+  "schedule_assumed" | "schedule_frequency">): { text: string; exception: string | null } {
+  const start = estimate.schedule_start_on;
+  if (!start) return { text: "Date needed", exception: null };
+  const text = estimate.schedule_start_source === "manual" ? `From first premium date ${formatCalendarDate(start)}`
+    : `${estimate.schedule_assumed ? "Estimated from" : "From"} effective date ${formatCalendarDate(start)}`;
+  const cadence = estimate.schedule_frequency ? NON_MONTHLY[estimate.schedule_frequency] : undefined;
+  return { text, exception: cadence ? `${cadence} premiums: Months 10–12 need dates.` : null };
+}
+
+/** Edit dates: the policy's effective date, a first premium date a person enters, or none ("Date needed"). */
+export type StartChoice = "effective_date" | "manual" | "none";
+const inRange = (date: string) => date >= "2000-01-01" && date <= "2100-12-31";
+const startDateFormSchema = z.discriminatedUnion("choice", [
+  z.object({ choice: z.literal("effective_date"), effectiveDate: z.string().regex(ISO_DATE, "This policy has no effective date.") }),
+  z.object({ choice: z.literal("manual"), startOn: z.string().regex(ISO_DATE, "Enter the first premium date.")
+    .refine(inRange, "Enter a date between 2000 and 2100.") }),
+  z.object({ choice: z.literal("none") }),
+]);
+
+export function parseStartDateForm(input: { choice: StartChoice; startOn: string; effectiveDate: string | null }):
+  { error: string } | { startOn: string | null; source: "effective_date" | "manual" | null } {
+  const parsed = startDateFormSchema.safeParse({ ...input, effectiveDate: input.effectiveDate ?? "" });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  if (parsed.data.choice === "effective_date") return { startOn: parsed.data.effectiveDate, source: "effective_date" };
+  if (parsed.data.choice === "manual") return { startOn: parsed.data.startOn, source: "manual" };
+  return { startOn: null, source: null };
+}
+
+const paymentDateFormSchema = z.discriminatedUnion("choice", [
+  z.object({ choice: z.literal("automatic") }),
+  z.object({ choice: z.literal("unknown") }),
+  z.object({ choice: z.literal("month"), month: z.string().regex(/^\d{4}-\d{2}$/, "Choose the expected month.")
+    .refine((month) => inRange(`${month}-01`), "Choose a date between 2000 and 2100.") }),
+  z.object({ choice: z.literal("date"), date: z.string().regex(ISO_DATE, "Choose the expected date.")
+    .refine(inRange, "Choose a date between 2000 and 2100.") }),
+]);
+
+/** One payment's date: automatic (the estimated schedule), an exact date, a month, or "Date needed". */
+export function parsePaymentDateForm(input: { choice: TimingChoice; month: string; date: string }):
+  { error: string } | { precision: TimingChoice; expectedOn: string | null } {
+  const parsed = paymentDateFormSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  if (parsed.data.choice === "month") return { precision: "month", expectedOn: `${parsed.data.month}-01` };
+  if (parsed.data.choice === "date") return { precision: "date", expectedOn: parsed.data.date };
+  return { precision: parsed.data.choice, expectedOn: null };
 }
 
 /** Explanations for a capture that needs attention (server codes), in plain language. */

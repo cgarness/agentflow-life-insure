@@ -73,7 +73,7 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
         <DialogHeader>
           <DialogTitle>{estimate ? "Replace commission estimate" : "Record commission estimate"}</DialogTitle>
           <DialogDescription>
-            Uses your agency's current comp grid, not necessarily the rates when the policy was sold. An estimate, not a payment.
+            An estimate, not a payment.
           </DialogDescription>
         </DialogHeader>
         {blockedByReceipts ? (

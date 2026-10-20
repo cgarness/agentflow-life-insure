@@ -9,7 +9,7 @@ import {
 import type { CommissionInstallment, CommissionReceipt } from "@/lib/commission/trackingSchemas";
 import { ReceiptList } from "./ReceiptList";
 
-/** One expected payment: estimate, what was recorded as received, remaining or excess, and its timing. */
+/** One expected payment: estimate, what was recorded as received, remaining or excess, and its expected date. */
 export function InstallmentRow({ installment, canWrite, onRecord, onTiming, onVoid }: {
   installment: CommissionInstallment;
   canWrite: boolean;
@@ -24,7 +24,7 @@ export function InstallmentRow({ installment, canWrite, onRecord, onTiming, onVo
     <li className="rounded-md border border-border/60 px-2.5 py-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
         <span className="text-xs font-medium text-foreground">{INSTALLMENT_LABELS[installment.kind]}</span>
-        <span className="text-xs tabular-nums text-foreground">{formatCents(installment.expected_cents)} est.</span>
+        <span className="text-xs tabular-nums text-foreground">{formatCents(installment.expected_cents)}</span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
         <span>{timingLabel(installment)}</span>
@@ -39,7 +39,7 @@ export function InstallmentRow({ installment, canWrite, onRecord, onTiming, onVo
       {canWrite && (
         <div className="mt-1.5 flex flex-wrap gap-3">
           <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={onRecord}>Record payment</button>
-          <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={onTiming}>Set timing</button>
+          <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={onTiming}>Edit date</button>
         </div>
       )}
     </li>

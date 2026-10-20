@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { CommissionInstallment, CommissionReceipt, OpenPolicyCommission } from "@/lib/commission/trackingSchemas";
-import { CommissionBasis } from "./CommissionBasis";
 import { CommissionHoldDialog } from "./CommissionHoldDialog";
 import { InstallmentRow } from "./InstallmentRow";
 import { InstallmentTimingDialog } from "./InstallmentTimingDialog";
@@ -9,7 +8,7 @@ import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { ScheduleBasisControl } from "./ScheduleBasisControl";
 import { VoidReceiptDialog } from "./VoidReceiptDialog";
 
-/** The expected payment schedule with manual receipts, holds, timing and the recorded calculation basis. */
+/** The expected payments with their dates, manual receipts and holds. The saved calculation inputs are kept, not shown. */
 export function PolicyCommissionDetail({ policy }: { policy: OpenPolicyCommission }) {
   const estimate = policy.estimate!;
   const canWrite = policy.access === "write";
@@ -37,10 +36,6 @@ export function PolicyCommissionDetail({ policy }: { policy: OpenPolicyCommissio
           />
         ))}
       </ul>
-      <CommissionBasis estimate={estimate} />
-      <p className="text-[10px] text-muted-foreground">
-        Estimates use the agency's comp grid assumptions; received amounts are entered by hand. Neither is a carrier statement.
-      </p>
       {canWrite && (
         <div className="flex flex-wrap gap-3 text-[11px]">
           <button type="button" className="font-medium text-primary hover:underline" onClick={() => setHold(true)}>

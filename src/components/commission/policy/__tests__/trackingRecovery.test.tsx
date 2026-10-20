@@ -103,7 +103,7 @@ describe("unknown outcomes survive dismissal and remount in every tracking dialo
       () => {
         fireEvent.click(screen.getByLabelText("Exact date"));
         fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-11-20" } });
-        fireEvent.click(screen.getByRole("button", { name: "Save timing" }));
+        fireEvent.click(screen.getByRole("button", { name: "Save date" }));
       }, /^Retry$/);
   });
 
@@ -121,10 +121,14 @@ describe("unknown outcomes survive dismissal and remount in every tracking dialo
     h.responses = [lost, state];
     await lostThenRetried("set_policy_commission_schedule_basis",
       () => <ScheduleBasisControl estimate={estimate as never} effectiveDate="2026-11-01" canWrite />,
-      () => fireEvent.click(screen.getByRole("button", { name: /Use effective date/ })), /^Retry$/,
+      () => {
+        fireEvent.click(screen.getByRole("button", { name: "Edit dates" }));
+        fireEvent.click(screen.getByLabelText("Effective date (Nov 1, 2026)"));
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      }, /^Retry$/,
       () => {
         expect(screen.getByText(/Unconfirmed change: start Nov 1, 2026/)).toBeTruthy();
-        expect(screen.queryByRole("button", { name: /Use effective date/ })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Edit dates" })).toBeNull();
       });
   });
 

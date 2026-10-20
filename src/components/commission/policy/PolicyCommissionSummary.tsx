@@ -1,13 +1,13 @@
 import { estimateTotals, formatCents } from "@/lib/commission/installments";
 import type { CommissionEstimateRecord } from "@/lib/commission/trackingSchemas";
 
-/** One compact line: estimated first-year, what was recorded as received, and what remains. */
+/** One compact line: estimated commission, what was recorded as received, and what remains. */
 export function PolicyCommissionSummary({ estimate }: { estimate: CommissionEstimateRecord }) {
   const totals = estimateTotals(estimate);
   return (
     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
       <span className="text-foreground">
-        Est. first-year <span className="font-semibold tabular-nums">{formatCents(estimate.first_year_cents)}</span>
+        Estimated commission <span className="font-semibold tabular-nums">{formatCents(estimate.first_year_cents)}</span>
       </span>
       <span className="text-muted-foreground">
         · Received <span className="tabular-nums">{formatCents(totals.received)}</span>

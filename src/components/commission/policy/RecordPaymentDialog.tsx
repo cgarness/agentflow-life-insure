@@ -91,7 +91,7 @@ export function RecordPaymentDialog({ open, onOpenChange, installments, initialI
       <DialogContent className="w-[95vw] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Record payment received</DialogTitle>
-          <DialogDescription>Enter a commission payment you received. This is a manual record, not a carrier statement.</DialogDescription>
+          <DialogDescription>Enter a commission payment you received.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <fieldset disabled={locked} className="space-y-3">
