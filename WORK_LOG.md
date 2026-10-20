@@ -1,3 +1,28 @@
+## 2026-10-20 05:36 UTC — LIVE (database only): Phase 2A expected-windows migration `20261020040000`
+
+Chris approved Gate 3b only for PR #469 (source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`). Applied
+`supabase/migrations/20261020040000_policy_commission_expected_windows.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it
+as **`20261020040000 / policy_commission_expected_windows`**: the stored statement's SHA-256
+`10897ad6123dc052e5cbe5340a821e3ce8595f99f1448e74832e18fb2d0a5ea8`, MD5 `44f590529c0a8bb574f253cc392eb78f` and 45,440
+bytes equal the file. Committed 05:36:31.86 UTC. No merge, deployment, preview-access change, backfill or production test
+write. Do not edit, rename or replay it (or `20261019170000`).
+
+- **Preflight (read-only):** base migration unchanged; 15/15 prerequisite fingerprints; new version, columns and helpers
+  absent; the one estimate satisfied the new checks; writer SET/membership and the two event triggers checked; no
+  concurrent session, lock or schema release; fingerprints, catalog, row digests and advisors (253 / 451) saved.
+- **Method:** the Gate 3 version-preserving wrapper (MD5/SHA-256/length gate, version and base checks, `EXECUTE` of the
+  unchanged text, back-to-`postgres` check, history row), rehearsed locally with replica event triggers: identical
+  dumps, triggers ran as the writer, replay / one byte / held lock each refused.
+- **Read-back:** exactly the intended change (8 bodies replaced with owners and ACLs unchanged, 4 writer-only helpers, 4
+  columns with writer-only UPDATE, rebuilt timing check, new schedule check, RLS and policies unchanged, writer has no
+  CREATE); digests equal the local reference; 7/7 sale writers unchanged; all other objects identical; every commission
+  row preserved, new columns at defaults, no writes; estimate `7e2c476a` and client `2325bc9d` untouched (still "Date
+  needed"); helpers give the reviewed dates on 17.6. Advisor delta: none added or removed.
+- **Correction:** the `cb0cdfc` 100-policy benchmark recorded a median of **99.5/100** estimates, not 100/100; the rest
+  are `budget_exhausted` captures, recoverable by confirmation (handoff suite "Aggregate budget").
+- **Open gates:** Agent own-client read on the updated preview (read-only; no share link until authorized); Gate 4;
+  classification of `2325bc9d` / `7e2c476a`. Record: `verification.md` §15.
+
 ## 2026-10-20 — Phase 2A §13.7: simpler commission copy and expected date windows (local only; NOT live)
 
 Chris approved local implementation of plan §13 with the date-basis safeguard (§13.7) on draft PR #469. Production

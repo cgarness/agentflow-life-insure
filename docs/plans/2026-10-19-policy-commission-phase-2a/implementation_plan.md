@@ -404,7 +404,7 @@ commands.
 Unchanged: sale-writer bodies, organization scoping, RLS policies and grants, the restricted writer, seller
 ownership, no peer access, idempotency keys, telemetry, TwilioContext and dialer callbacks.
 
-## 13. Amendment — simpler commission copy and automatic expected dates (APPROVED 2026-10-20 for local implementation; see §13.7)
+## 13. Amendment — simpler commission copy and automatic expected dates (APPROVED 2026-10-20; database applied as `20261020040000` at Gate 3b, see §13.7 and verification §15)
 
 Requested by Chris after reviewing the preview. Chris approved local implementation and disposable-database
 verification on 2026-10-20 **with the date-basis safeguard in §13.7, which supersedes the anchor rule, schema list and

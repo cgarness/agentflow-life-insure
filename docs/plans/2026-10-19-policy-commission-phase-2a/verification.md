@@ -4,8 +4,9 @@
 #469 against `main` `84ba4f6`. Sections 1–12 used synthetic data only and touched nothing in production. §13 records
 the separately approved Gate 3 database release (2026-10-19): the migration only, applied once and recorded as
 `20261019170000`; no merge, deployment, Vercel change or production test write. §14 records the approved local
-implementation of the §13/§13.7 amendment (new migration `20261020040000`, not applied anywhere hosted). Authenticated
-end-to-end acceptance in an authorized environment is still outstanding.
+implementation of the §13/§13.7 amendment; §15 records its separately approved Gate 3b database release (2026-10-20):
+`20261020040000` only, applied once; no merge, deployment, preview-access change or production test write.
+Authenticated end-to-end acceptance in an authorized environment is still outstanding.
 
 Estimates are illustrative and receipts are manually recorded; nothing here verifies either against a carrier.
 
@@ -396,3 +397,86 @@ updated preview (read-only; share link only once the candidate is ready and the 
 merge and frontend release. The preview conversion of 2026-10-20 02:10 UTC (client `2325bc9d`, estimate `7e2c476a`)
 is still awaiting Chris's classification; it was not touched. After Gate 3b that estimate keeps showing "Date needed"
 (no backfill) until someone uses Edit dates.
+
+## 15. Gate 3b production release record (2026-10-20)
+
+Chris approved Gate 3b only: the exact reviewed `supabase/migrations/20261020040000_policy_commission_expected_windows.sql`
+from source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`, its column grants and function changes, and recording version
+`20261020040000`. Not approved: merge, frontend deployment, preview-access changes, backfill, production test writes or
+cleanup of existing records.
+
+**Preflight (read-only, 05:27–05:33 UTC).** AGENT_RULES, VISION and the newest WORK_LOG re-read, no conflict; plan §13.7
+names Gate 3b as this exact apply before Gate 4. `main` unchanged at `84ba4f6`; branch head `cb0cdfc` (CI green). The
+file recomputed from the pinned source: SHA-256 `10897ad6123dc052e5cbe5340a821e3ce8595f99f1448e74832e18fb2d0a5ea8`, MD5
+`44f590529c0a8bb574f253cc392eb78f`, 45,440 bytes. Production (PostgreSQL 17.6): the stored `20261019170000` statement
+still equals the reviewed file (`b3e4d53f…011f1f`, 119,951 bytes); version `20261020040000` absent; 337 history rows,
+latest `20261019170000`; all 15 prerequisite fingerprints matched (seven sale writers, eight replaced functions); the four
+columns, four helpers and the schedule check absent; the timing check still the applied definition. The one estimate
+(`7e2c476a`, its four installments: Advance $1,125.00 and $125.00 × 3, all unset/unknown) already satisfied the new checks.
+Session `postgres` with no role set (so the migration's `RESET ROLE` returns to it); `postgres` may `SET ROLE` to the writer
+(explicit membership, SET true); the writer had no CREATE. The two production event triggers that fire on this DDL
+(`issue_pg_graphql_access` on CREATE FUNCTION, `pgrst_ddl_watch`) were read: as the writer they only check for
+`pg_graphql` and send a schema-reload NOTIFY. No other active session, DDL, lock wait, lock on the two tables or long
+transaction; no other pending schema release (open PRs and Supabase branches checked). Baselines saved: existing-object
+fingerprints (equal to the Gate 3 post-apply read-back: 576 functions, 354 policies, 202 relations, 72 column ACLs, 16
+schemas, 33 roles, 24 memberships, 27 default ACLs, 137 triggers, 772 indexes, 816 constraints, 13 cron jobs, 6 event
+triggers, 16 publications), the 70-line commission catalog, row digests of all six tables (1 handoff, 1 capture, 1
+estimate, 4 installments, 0 receipts, 1 event), write counters, and advisors (security 253, performance 451 findings).
+
+**Method and rehearsal.** `apply_migration` stamps its own version, so as for Gate 3 one simple-query string ran on the
+hosted SQL endpoint: the file's own `lock_timeout 1s` / `statement_timeout 60s`; a DO block holding the reviewed text
+(long box-drawing rules sent as placeholders and expanded); refusal unless MD5, SHA-256 and length equal the reviewed
+file, unless the base version is recorded, or if `20261020040000` already exists; `EXECUTE` of the unchanged text; a check
+that the session is back to `postgres`; then the history row (`statements` = the exact text, `created_by` NULL).
+Rehearsed on disposable PostgreSQL 16.15 with replicas of the two production event triggers (the writer lacking USAGE
+on `extensions`, as in production) and a probe trigger: file and wrapper produced identical schema dumps (8,709 lines);
+the history row stored the exact bytes; the triggers ran as the writer for its five CREATE FUNCTION commands without
+error; the writer ended with no CREATE; the expected-windows suite passed on the wrapper-applied database; a replay, one
+altered byte and a held reader lock (cancelled at 1.07 s) were each refused with nothing changed.
+
+**Apply.** Once, without error. Committed at **05:36:31.86 UTC** (PostgREST received the schema-reload message then and
+reloaded its cache at 05:36:32.1). No retry was needed.
+
+**Read-back (read-only, 05:37–05:40 UTC).**
+- History: `20261020040000 / policy_commission_expected_windows`, one statement whose MD5, SHA-256 and length equal the
+  reviewed file; 338 rows; `20261019170000` row unchanged.
+- Catalog diff (production before vs after), exactly the intended change: the eight replaced bodies with owners, definer
+  flags and ACLs unchanged; four helpers added (postgres-owned, IMMUTABLE, invoker, EXECUTE for the writer only — not
+  PUBLIC, `anon`, `authenticated` or `service_role`); four new columns with writer-only UPDATE (`schedule_assumed`
+  boolean NOT NULL DEFAULT false; `schedule_frequency`, `schedule_convention`, `expected_until` nullable); columns
+  209 → 213; constraints 88 → 89 (timing check rebuilt, schedule check added, both validated); RLS still enabled on all
+  six tables; policies, triggers, table ACLs, schema ACLs and the writer role (NOLOGIN, NOINHERIT, NOBYPASSRLS; `postgres`
+  its only member) unchanged; the writer has no CREATE on `public` or `private`. All twelve changed or new function
+  digests and both check definitions equal the locally migrated reference.
+- Seven original sale-writer fingerprints unchanged (7/7). Existing non-commission objects: every fingerprint identical
+  to the preflight (only the commission function count 36 → 40 and history 337 → 338 changed).
+- Data: row counts unchanged; every table's row digest (excluding the four new columns) equals the preflight digest; the
+  new columns hold only their defaults (no assumed start, frequency, convention or window anywhere); write counters
+  unchanged (no row inserted, updated or deleted). Estimate `7e2c476a` unchanged (active, sale entry, $1,500.00
+  first-year, $1,125.00 Advance, $125.00 × 3, revision 1, all four payments unset); client `2325bc9d` untouched and still
+  without an effective date, so its payments stay "Date needed" until someone uses Edit dates. No backfill, receipt or
+  classification change.
+- The IMMUTABLE helpers give the reviewed examples on production (Oct 2 → Oct 5–7; Jul 2, 2027 → Jul 6–8; Nov 25 →
+  Nov 27–Dec 1; Dec 30 → Dec 31–Jan 5; Saturday Christmas 2027 → Dec 24–28; MLK Day; Juneteenth 2021 not observed;
+  Memorial Day premium; the clamped Jan 31 schedule; quarterly → Advance only).
+
+**Advisor delta (by finding key).** Security 253 → 253, performance 451 → 451: none added, none removed. Expected: the
+helpers live in `private` (not exposed), pin `search_path` and are not SECURITY DEFINER; the replaced functions keep
+their existing findings. (Performance was 457 right after Gate 3; six `unused_index` notices cleared since because those
+indexes have been used.) PostgREST's periodic "Thread killed by timeout manager" lines occur every 90 s before and after
+the apply and are unrelated.
+
+**Correction to the §13.7 release report.** At `cb0cdfc` the CI 100-policy benchmark recorded a **median of 99.5/100**
+estimates (p95 100/100), not 100/100 as one chat summary said; the PR body already showed 99.5/100. Slots not started
+within the soft 250 ms calculation-start budget are saved as `needs_attention / budget_exhausted` with the sale
+committed. Existing recovery evidence: the handoff suite's "Aggregate budget" scenario (slow persistence → later slots
+`budget_exhausted`, then `confirm_policy_commission_capture` records one: "a budget-exhausted capture is recoverable by
+confirmation"), passing at `cb0cdfc` on PostgreSQL 17.6 with both migrations; recording later also resolves an open
+capture (tracking suite). 25 policies remains the benchmark; 100 is a defensive cap.
+
+**Not done / still gated.** No production sale, commission, Edit dates or payment call; PostgREST exposure of the new
+fields is proven only by its schema reload and the CI HTTP checks. The deployed frontend still calls the legacy writers,
+so no estimate is created in production except through a preview (do not test with one). Remaining: the Agent own-client
+read on the updated preview (read-only; no share link until authorized), Gate 4 (merge, frontend release, type
+regeneration from production), and Chris's classification of client `2325bc9d` / estimate `7e2c476a`. The rollback for
+`20261020040000` still refuses once any new-field value exists; it is not needed and was not run.
