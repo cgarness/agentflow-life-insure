@@ -9,7 +9,7 @@ type Props={draft:SetupDraft;onChange:(value:SetupDraft)=>void;step:number};
 export function VerificationFields({draft,onChange,step}:Props) {
   const [photoError,setPhotoError]=useState('');
   const field=(key:keyof SetupDraft,label:string,type='text') => <label className="block space-y-1.5 text-sm" key={key}>{label}
-    <Input type={type} value={String(draft[key])} onChange={e=>onChange({...draft,[key]:e.target.value})} autoComplete={key==='first_name'?'given-name':key==='last_name'?'family-name':key==='email'?'email':key==='phone'?'tel':'off'}/></label>;
+    <Input type={type} value={String(draft[key] ?? '')} onChange={e=>onChange({...draft,[key]:e.target.value})} autoComplete={key==='first_name'?'given-name':key==='last_name'?'family-name':key==='email'?'email':key==='phone'?'tel':'off'}/></label>;
   async function photo(file?:File) {
     if(!file) return;
     if(!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>3_000_000) {setPhotoError('Choose a JPG, PNG or WebP photo under 3 MB.');return;}
@@ -29,6 +29,7 @@ export function VerificationFields({draft,onChange,step}:Props) {
     </div>
     {photoError&&<p role="alert" className="text-sm text-destructive">{photoError}</p>}
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{field('first_name','First name')}{field('last_name','Last name')}</div>
+    {field('brand_name','Agency / Brand Name (optional)')}
     {field('phone','Phone number','tel')}{field('email','Email','email')}
   </div>;
   if(step===1) return <div className="space-y-5">

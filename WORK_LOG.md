@@ -55,6 +55,12 @@ Chris approved the local implementation and disposable-database tests. Branch `c
   Gate 3: merge and frontend release, only after Gate 2. For Chris: the reused Calculator still shows the contract
   level and grid disclaimer. Unchanged: the preview conversion `2325bc9d` / `7e2c476a` awaits classification.
 
+## 2026-10-20 — Personal agency display branding
+
+Chris requested independent agency branding for individual agents. Optional Agency / Brand Name is saved per agent in the UV setup flow, with blank restoring the registered agency name. Existing agency membership, shared names, slugs/URLs, credentials, permissions, A2P and protected/consent-linked profiles stay unchanged. The sender uses the personal name as display text; the receiver still requires the registered organization and exact agency slug. Old clients preserve saved branding when omitting the optional field.
+
+Validation: 44 focused frontend tests; 11 isolated real-migration SQL scenarios; 25 paired SQL/signed-handler scenarios passed on PGlite. Root TypeScript and scoped lint pass. Production/CI evidence is recorded on the paired PRs; this entry alone is not deployment evidence. No RLS or Edge Function changes. Plan: docs/plans/2026-10-20-uv-personal-brand/implementation_plan.md.
+
 ## 2026-10-20 05:36 UTC — LIVE (database only): Phase 2A expected-windows migration `20261020040000`
 
 Chris approved Gate 3b only for PR #469 (source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`). Applied
