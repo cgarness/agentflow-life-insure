@@ -4,11 +4,13 @@
 WITH checks(n, check_name, value, ok) AS (
   SELECT 1, 'server_version', current_setting('server_version'), current_setting('server_version_num')::int >= 160000
   UNION ALL
-  SELECT 2, 'latest_history', (SELECT max(version) FROM supabase_migrations.schema_migrations),
-         (SELECT max(version) FROM supabase_migrations.schema_migrations) = '20261020040000'
+  SELECT 2, 'prerequisites_recorded', '20261019170000, 20261020040000',
+         (SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version IN ('20261019170000', '20261020040000')) = 2
   UNION ALL
-  SELECT 3, 'version_free', '20261020180000',
-         NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261020180000')
+  -- Later unrelated releases may be recorded (for example 20261020171244, UV personal branding); none may sort at or
+  -- after this version.
+  SELECT 3, 'version_free_and_sorts_last', (SELECT max(version) FROM supabase_migrations.schema_migrations),
+         NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version >= '20261020180000')
   UNION ALL
   SELECT 4, 'applied_20261019170000_unchanged', NULL,
          (SELECT encode(sha256(convert_to(statements[1], 'UTF8')), 'hex') FROM supabase_migrations.schema_migrations

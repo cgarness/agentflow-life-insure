@@ -185,8 +185,8 @@ Unchanged against `main` (verified with `git diff`): `20261019170000_policy_comm
 ## 10. Production release steps (each needs Chris's separate explicit approval)
 
 **Gate 2 — database (`20261020180000`, read functions and two indexes only).**
-1. Read-only preflight on project `jncvvsvckxhqgqvkppmj` (`release/preflight.sql`, §13): latest history `20261020040000` and version
-   `20261020180000` free; schema `policy_commission_reporting` and the five functions absent; the four md5 preimages
+1. Read-only preflight on project `jncvvsvckxhqgqvkppmj` (`release/preflight.sql`, §13): both prerequisite versions
+   recorded and nothing recorded at or after `20261020180000`; schema `policy_commission_reporting` and the five functions absent; the four md5 preimages
    match (the file also refuses otherwise); the agency time zone is set for each organization that will use the
    page (otherwise the page shows "Agency time zone needed"); no lock waits on the commission tables; advisor and
    catalog baselines captured.
@@ -277,8 +277,9 @@ It changes no existing function, table, policy, grant, role or row. Rollback:
 
 1. **Preconditions:** PR #471 final head green on PostgreSQL 17.6; still a draft; `main` checked for overlapping
    schema work; Chris's explicit Gate 2 approval naming this file and checksum.
-2. **Preflight (read-only):** run `release/preflight.sql`. All 15 checks must read `ok = t`: server ≥ 16; latest history
-   `20261020040000` and `20261020180000` free; both applied migrations' stored text still hashes to their SHA-256;
+2. **Preflight (read-only):** run `release/preflight.sql`. All 15 checks must read `ok = t`: server ≥ 16; `20261019170000` and
+   `20261020040000` recorded, and nothing recorded at or after `20261020180000` (later unrelated versions such as `main`'s
+   `20261020171244`, UV personal branding, may already be recorded); both applied migrations' stored text still hashes to their SHA-256;
    prerequisite columns; schema, functions and indexes absent; the four md5 preimages; RLS on the six commission
    tables; no lock waits. Save its row counts and the list of organizations with an unset or invalid agency time zone
    (their page will show "Agency time zone needed"). Also capture advisor and catalog baselines as at Gates 3 and 3b.
@@ -301,5 +302,7 @@ It changes no existing function, table, policy, grant, role or row. Rollback:
 **Validated locally (disposable PostgreSQL 16.15, synthetic fixture):** a database built from both applied migrations
 plus a `supabase_migrations.schema_migrations` mirror holding their exact text. The preflight passed all 15 checks. After
 `psql -1 -f` of the file and its history row, the read-back passed all 12 checks with row counts unchanged. The preflight
-run again then refused (`latest_history`, `version_free`, schema, functions and indexes all `f`). The wrapper rehearsal
+run again then refused (`version_free_and_sorts_last`, schema, functions and indexes all `f`). After merging
+`main` (PR #470 adds `20261020171244`), the guarded rollback restored the pre-apply state, a `20261020171244` row was
+recorded, and the preflight passed all 15 checks again, so a later unrelated release does not block it. The wrapper rehearsal
 (step 3) belongs to Gate 2 and was not run.
