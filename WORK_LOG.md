@@ -1,3 +1,23 @@
+## 2026-10-20 — Commissions center Gate 2 applied; signed-in preview passed; Gate 3 pending
+
+Chris authorized the exact reviewed database package through the supported Supabase SQL Editor browser route.
+Applied `20261020212000 / policy_commission_center_reads` once as `postgres` at 23:05 UTC to
+`jncvvsvckxhqgqvkppmj`; no timestamp substitution or replay. Attached wrapper matched approved generator output;
+embedded migration remained 40,850 bytes, SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`.
+
+Fresh preflight 15/15; readback 13/13; all six full-row fingerprints and write counters identical. No existing catalog
+object, permission, function or RLS policy changed. Security advisors unchanged (253); performance +2 expected
+unused-index notices only (451 → 453). PostgREST reload confirmed. Signed-in read-only primary preview acceptance
+passed Overview, Payments (Scheduled/History), Policies and Calculator on `63267f6`; both Vercel previews READY.
+No test sale/payment, cleanup, backfill, application-code edit or earlier preview-conversion change.
+
+Documentation only, exact announced list: focused `verification.md` (§15 evidence) and `implementation_plan.md`,
+root `implementation_plan.md`, `AGENT_RULES.md` center heading, this newest-first entry. PR #471 remains draft;
+`main` observed at `381bebb`. Separate Gate 3 merge/frontend-release approval is still required, followed by final-head
+CI, PR merge, both production deployments and main-site deployed-commit verification. No frontend release claimed.
+
+---
+
 ## 2026-10-20 — Commissions center: release migration ordering corrected (`20261020180000` → `20261020212000`; NOT applied)
 
 A read-only production check (Chris, 21:11 UTC; re-checked read-only with `list_migrations` at 21:17 UTC) found the hosted

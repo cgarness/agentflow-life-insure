@@ -1,9 +1,10 @@
-## 2026-10-20 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Commissions center (Overview · Payments · Policies · Calculator)
+## 2026-10-20 — GATE 2 APPLIED; FRONTEND RELEASE PENDING: Commissions center (Overview · Payments · Policies · Calculator)
 
-**Status:** Chris approved the local implementation and disposable-database tests on 2026-10-20. Branch
-`claude/epic-tesla-fe96b0` from `main` `0312520`; feature-branch commits, pushes and a draft PR are approved. Production
-migration, production reads or test writes, RLS/grant changes in production, merge and deployment each need separate
-approval.
+**Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration
+`20261020212000`, exact approved bytes, through the Supabase SQL Editor. Preflight 15/15, readback 13/13, six-table
+fingerprints unchanged; signed-in read-only preview checks passed for Overview, Payments, Policies and Calculator.
+PR #471 remains draft; merge and frontend release require separate Gate 3 approval. No production test writes,
+cleanup or backfill are authorized. Evidence: focused `verification.md` §15.
 
 **Contract, metric definitions, migration contract and exact file list:**
 `docs/plans/2026-10-20-commissions-center/implementation_plan.md`.

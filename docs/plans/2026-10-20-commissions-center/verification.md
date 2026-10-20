@@ -1,10 +1,12 @@
-# Commissions center — verification (local build and draft PR, 2026-10-20)
+# Commissions center — verification (Gate 2 applied; Gate 3 pending, 2026-10-20)
 
-Branch `claude/epic-tesla-fe96b0` from `main` `0312520` (`main` `381bebb` merged in). Synthetic data only. **No
-production write, migration, RLS/grant change, merge or deployment was made**; the only production access was one
-read-only migration-history listing for the version correction (§14). Migration **`20261020212000`** (proposed as
-`20261020180000` until §14; byte-identical) is NOT applied anywhere but disposable databases. Sections before §14 record
-evidence gathered under the proposed version name.
+**Current release status:** migration `20261020212000` applied once to production under Chris's explicit database-only
+approval; verification and signed-in read-only preview checks passed (§15). PR #471 remains draft. Merge and frontend
+release are not approved. Sections 1–14 retain the earlier local-build and rehearsal evidence; their "not applied"
+statements describe those earlier checkpoints.
+
+Branch `claude/epic-tesla-fe96b0` from `main` `0312520` (`main` `381bebb` merged in). The migration was proposed as
+`20261020180000` until §14 and renamed byte-identically. Public evidence omits customer details and compensation values.
 
 ## 1. Environments
 
@@ -352,3 +354,75 @@ and inventory ("5 reads, 2 indexes, 173 existing objects unchanged"), the center
 kept, replay refusal, reapply), PostgREST 13 + 9 checks. The rehearsal script stays in the session scratchpad (it is
 wired to the local disposable cluster); its steps are listed above. PostgreSQL 17.6 +
 PostgREST CI on the final head: recorded in the PR body.
+
+## 15. Gate 2 production execution and signed-in preview acceptance (2026-10-20)
+
+**Authorization and source.** Chris's handoff reaffirmed the recorded Gate 2 database-only approval and explicitly
+authorized the supported cloud-browser SQL Editor route for project `jncvvsvckxhqgqvkppmj`. Approved source
+`60e29422d378f37fae57832821849e5376c30ccf`; execution/preview head `63267f6d09944ce520f4e9d10a8879d3012c2be6`.
+The intervening commit only recorded the execution route in plan §14; the migration and release scripts were unchanged.
+PR #471 was open, draft and mergeable against `main` `381bebb8adb46adbd22509127524e43bf4abee6f`; all nine GitHub
+workflows succeeded on that head, including PostgreSQL 17.6 / PostgREST 12.2.3 policy-commission verification.
+No application code was changed for this release record.
+
+**Exact package.** The reattached apply file matched the approved `build_apply.py` output byte-for-byte:
+43,980 bytes, wrapper SHA-256 `dbe3795e0f6e4e036b70c50b8552a5ba0da604b83de88c3b7742a2f72757303f`.
+Its expanded embedded migration was independently checked at 40,850 bytes, SHA-256
+`5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`,
+MD5 `a3a67abaf502d84da0d61f4fd1b37b2b`. The wrapper and embedded-migration checksums are intentionally different.
+
+**Execution.** Immediately before apply, the reviewed preflight passed 15/15, hosted history ended at
+`20261020192723`, and catalog/advisor/data baselines were refreshed (baseline collection completed 23:05:02 UTC).
+No organization with saved estimates had an unset/invalid agency time zone. SQL Editor identity was verified as
+`current_user = session_user = postgres`, database `postgres`, time zone UTC. Full editor clipboard readback matched
+the verified attachment. The unchanged file was submitted once as one atomic request, retaining version
+`20261020212000`, 1 s lock timeout, 60 s statement timeout and every guard. The editor reported "Success. No rows
+returned"; no retry, replay, migration timestamp substitution or manual SQL reconstruction occurred.
+
+**Readback (23:05:38 UTC).** Reviewed `release/readback.sql` passed 13/13: exact stored migration hash/length and
+last history version, schema ownership/USAGE, all 12 functions' invoker/owner/search-path/EXECUTE settings, valid
+indexes, four unchanged function preimages and RLS on all six commission tables. Every fingerprint column matched
+before/after; session time zone was UTC throughout:
+
+| Table | Rows, before = after | Full-row content MD5, before = after | Insert / update / delete counters, before = after |
+|---|---:|---|---|
+| `policy_commission_captures` | 1 | `348550cceac10ab5a980b367160fca25` | 1 / 1 / 0 |
+| `policy_commission_estimates` | 9 | `c3cddcc4d44342dd156e06f089c42935` | 9 / 0 / 0 |
+| `policy_commission_events` | 9 | `87024261631f70cb26a057a389103b93` | 9 / 0 / 0 |
+| `policy_commission_handoffs` | 2 | `9e38319f812467a0118080826ba5c1e0` | 2 / 0 / 0 |
+| `policy_commission_installments` | 36 | `827c12507ddb415fc128de6bf98e1543` | 36 / 0 / 0 |
+| `policy_commission_receipts` | 0 | `d41d8cd98f00b204e9800998ecf8427e` | 0 / 0 / 0 |
+
+**Catalog and permissions.** Broad per-object fingerprints across 15 categories found zero existing objects removed
+or changed. Additions were exactly the reporting schema, 12 functions (five public reads/seven helpers), two composite
+types and their 41 attributes, and two indexes with five index attributes. Counts: columns 3,356 → 3,402; functions
+616 → 628; indexes 1,027 → 1,029; relations 895 → 899; schemas 17 → 18. Unchanged: 1,019 constraints, 13 cron jobs,
+27 default ACLs, six event triggers, 26 memberships, 376 RLS policies, two publications/10 published tables, 34 roles,
+1,278 triggers. The runner's reviewed inventories likewise preserved all 602 general and 830 commission baseline
+entries, adding only approved objects (606 and 883 entries afterwards). Existing permissions/functions and
+organization isolation were preserved.
+
+**Advisors and API.** Security findings 253 → 253, identical. Performance findings 451 → 453; the only additions
+were INFO `unused_index` for `policy_commission_receipts_agent_received` and
+`policy_commission_captures_agent_open`, expected immediately after creation. No unexpected finding was removed or
+added. PostgREST logs confirmed the reload notification at 23:05:12.452860 UTC, config reload at 23:05:12.525559,
+schema query completion at 23:05:12.959250 and cache loaded at 23:05:12.963542 (128 relations, 152 relationships,
+224 functions, 1,194 time zones).
+
+**Read-only browser acceptance.** The primary authorized Vercel preview at
+`https://agentflow-a5n96c1wb-cgarness-projects.vercel.app` was READY at the execution head
+(`dpl_7Gbut4ok6R6dkK1VzVT7k2FhJBqr`). Secure sign-in completed as Chris Garness.
+Overview rendered period cards, timeline, upcoming and review counts. Payments rendered Scheduled's selected-period
+empty state and Any date's four existing undated installments; History rendered the no-recorded-payments state.
+Policies rendered the one eligible existing policy with its saved estimate and undated next payment, consistent with
+the schedule and Overview review count. Calculator loaded its existing grid-backed workspace and hypothetical
+estimate notice. No load-error screen was observed. No sale, receipt, date, estimate, setting or existing preview
+conversion was created or modified. Customer names, carrier products and compensation values are omitted here.
+This was a desktop read-only acceptance check, not a new write-path/mobile test; retained browser console logs were
+unavailable after secure credential delivery, so no console-clean claim is made.
+
+The secondary preview `https://agentflow-life-insure-7dq58hrfj-cgarness-projects.vercel.app`
+(`dpl_9buuUcg7icSKDPQBWpFgcSsbz4rb`) was also READY at the same head; the signed-in UI check was on the primary preview.
+**Gate 3 remains pending Chris's separate approval.** After approval: verify final-head CI, merge through PR #471,
+verify both Vercel production deployments and the main website's deployed commit, then record release evidence.
+Neither production deployment nor a frontend release is claimed here.

@@ -1,10 +1,11 @@
 # Commissions center — Overview, Payments, Policies, Calculator
 
-**Status:** approved by Chris on 2026-10-20 for **local implementation and disposable-database testing only**. Branch
-`claude/epic-tesla-fe96b0` (the session's designated branch; the prompt suggested `claude/commissions-center`) from
-`main` `0312520b4933b1474ad14089b77b3cb16c956b85` (re-fetched 2026-10-20, unchanged). Feature-branch commits, pushes and
-a draft PR are approved. **Not approved:** production migration, RLS or grant change in production, production reads
-or test writes, merge, deployment, data cleanup or backfill. Each needs Chris's separate approval.
+**Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval and explicit
+authorization for the supported Supabase SQL Editor browser route. Migration `20261020212000` is applied and immutable.
+Preflight 15/15, readback 13/13 and all six data fingerprints passed; signed-in read-only preview checks passed for
+Overview, Payments, Policies and Calculator. Branch `claude/epic-tesla-fe96b0`, PR #471, stays draft pending separate
+Gate 3 approval for merge and frontend release. No application-code changes, production test writes, cleanup or backfill.
+Earlier sections retain the original local-build authorization; the current release evidence is in `verification.md` §15.
 
 Public document: synthetic examples only; no compensation values, carrier products or private grid data (D1).
 
@@ -385,3 +386,9 @@ frontend release stay separately gated. No application code changes.
 **Release-documentation files (only):** `docs/plans/2026-10-20-commissions-center/verification.md` (Gate 2 release
 record), this plan (status), `implementation_plan.md` (root status line), `AGENT_RULES.md` (center heading: migration
 status), `WORK_LOG.md` (newest-first release entry).
+
+**Execution result (2026-10-20, 23:05 UTC).** Chris's subsequent handoff explicitly authorized the agent to execute
+the same reviewed package through the supported cloud-browser SQL Editor route. The attached wrapper matched
+`build_apply.py` output byte-for-byte and was run unchanged once as `postgres`; no timestamp substitution or replay.
+All release checks passed; only the two expected new-index advisor notices appeared. The four-tab signed-in preview
+check used existing records without saving anything. Gate 3 remains unapproved. Full evidence: `verification.md` §15.
