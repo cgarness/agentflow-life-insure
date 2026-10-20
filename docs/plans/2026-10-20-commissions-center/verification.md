@@ -1,8 +1,10 @@
 # Commissions center — verification (local build and draft PR, 2026-10-20)
 
-Branch `claude/epic-tesla-fe96b0` from `main` `0312520`. Synthetic data only. **No production read, write, migration,
-RLS/grant change, merge or deployment was made.** Migration `20261020180000` is NOT applied anywhere but disposable
-databases.
+Branch `claude/epic-tesla-fe96b0` from `main` `0312520` (`main` `381bebb` merged in). Synthetic data only. **No
+production write, migration, RLS/grant change, merge or deployment was made**; the only production access was one
+read-only migration-history listing for the version correction (§14). Migration **`20261020212000`** (proposed as
+`20261020180000` until §14; byte-identical) is NOT applied anywhere but disposable databases. Sections before §14 record
+evidence gathered under the proposed version name.
 
 ## 1. Environments
 
@@ -176,25 +178,31 @@ change the head. The workflows that cover these paths run PostgreSQL 17.6 + Post
 
 | File | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/migrations/20261020180000_policy_commission_center_reads.sql` | `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08` | 40,850 |
-| `supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql` | `1ea39c4c23662a829b4b36d9ec1845adeb7da912810e9d35cae8d69deaaa1f18` | 1,984 |
+| `supabase/migrations/20261020212000_policy_commission_center_reads.sql` | `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08` (MD5 `a3a67abaf502d84da0d61f4fd1b37b2b`) | 40,850 |
+| `supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql` | `7ada5b7dff4dfb4bf1361893b9eded8f7e0f4a969cfe0de8252f55fed92e728b` | 1,984 |
+
+The migration's bytes are unchanged by the §14 rename. The rollback's only change is the version in its first-line
+comment (`-- Rollback for 20261020180000_…` → `-- Rollback for 20261020212000_…`; it was `1ea39c4c…1f18`).
 
 Unchanged against `main` (verified with `git diff`): `20261019170000_policy_commission_tracking.sql`
 (`b3e4d53f…011f1f`) and `20261020040000_policy_commission_expected_windows.sql` (`10897ad6…0a5ea8`).
 
 ## 10. Production release steps (each needs Chris's separate explicit approval)
 
-**Gate 2 — database (`20261020180000`, read functions and two indexes only).**
+**Gate 2 — database (`20261020212000`, read functions and two indexes only).** The authoritative steps are §13; this
+summary follows them.
 1. Read-only preflight on project `jncvvsvckxhqgqvkppmj` (`release/preflight.sql`, §13): both prerequisite versions
-   recorded and nothing recorded at or after `20261020180000`; schema `policy_commission_reporting` and the five functions absent; the four md5 preimages
+   recorded and nothing recorded at or after `20261020212000` in the HOSTED history; schema `policy_commission_reporting` and the five functions absent; the four md5 preimages
    match (the file also refuses otherwise); the agency time zone is set for each organization that will use the
    page (otherwise the page shows "Agency time zone needed"); no lock waits on the commission tables; advisor and
    catalog baselines captured.
 2. Apply the exact bytes once with the Gate 3 method (`apply_migration` stamps its own version): one transaction with
    the file's `lock_timeout 1s` / `statement_timeout 60s`, refusing unless MD5, SHA-256 (`5bc2eb14…bd3e08`) and length
-   (40,850) match and the version is unrecorded; record `('20261020180000', 'policy_commission_center_reads')`.
+   (40,850) match and the version is unrecorded and sorts last; record `('20261020212000', 'policy_commission_center_reads')`
+   (`release/build_apply.py` builds that exact statement).
 3. Read-back (`release/readback.sql`, §13): existing-object fingerprints unchanged; the new objects equal a locally migrated reference; ACLs as in
-   §2; no row written in any commission table; advisor delta reviewed. PostgREST schema reload.
+   §2; six-table fingerprints (counts, content digests, write counters) equal the preflight's; advisor delta reviewed.
+   PostgREST schema reload.
 4. Rollback if needed: the guarded rollback file drops only the new objects and touches no data.
 
 **Gate 3 — frontend (merge and deploy).** Only after Gate 2: the page calls functions that exist only then. Mark the
@@ -266,43 +274,81 @@ loading its rows. Files: `screenshots/calculator-*`, `calculator-estimate-*`, `s
 
 ## 13. Database-only release package — Gate 2 (for Chris's separate approval; nothing applied)
 
-**What:** `supabase/migrations/20261020180000_policy_commission_center_reads.sql` exactly as on the PR's final head:
+**What:** `supabase/migrations/20261020212000_policy_commission_center_reads.sql` exactly as on the PR's final head:
 SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, MD5 `a3a67abaf502d84da0d61f4fd1b37b2b`,
-40,850 bytes (219 box-drawing characters, three `§`, two `–`; dollar quotes `$$` and `$guard$` only). Creates the
-`policy_commission_reporting` schema (USAGE `authenticated`), two composite types, seven helpers and five public reads
-(SECURITY INVOKER, `search_path = pg_catalog, pg_temp`, EXECUTE `authenticated` only) and two indexes on Phase 2A tables.
-It changes no existing function, table, policy, grant, role or row. Rollback:
-`supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql` (SHA-256
-`1ea39c4c…1f18`), dropping only those objects.
+40,850 bytes (219 box-drawing characters, three `§`, two `–`; dollar quotes `$$` and `$guard$` only; no INSERT, UPDATE,
+DELETE or transaction control). Creates the `policy_commission_reporting` schema (USAGE `authenticated`), two
+composite types, seven helpers and five public reads (SECURITY INVOKER, `search_path = pg_catalog, pg_temp`, EXECUTE
+`authenticated` only) and two indexes on Phase 2A tables. It changes no existing function, table, policy, grant, role or
+row. Rollback: `supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql` (SHA-256
+`7ada5b7d…e728b`), dropping only those objects (it leaves the history row; removing one needs its own approval).
 
 1. **Preconditions:** PR #471 final head green on PostgreSQL 17.6; still a draft; `main` checked for overlapping
-   schema work; Chris's explicit Gate 2 approval naming this file and checksum.
-2. **Preflight (read-only):** run `release/preflight.sql`. All 15 checks must read `ok = t`: server ≥ 16; `20261019170000` and
-   `20261020040000` recorded, and nothing recorded at or after `20261020180000` (later unrelated versions such as `main`'s
-   `20261020171244`, UV personal branding, may already be recorded); both applied migrations' stored text still hashes to their SHA-256;
-   prerequisite columns; schema, functions and indexes absent; the four md5 preimages; RLS on the six commission
-   tables; no lock waits. Save its row counts and the list of organizations with an unset or invalid agency time zone
-   (their page will show "Agency time zone needed"). Also capture advisor and catalog baselines as at Gates 3 and 3b.
-3. **Apply once** with the Gate 3/3b version-preserving method (`apply_migration` would stamp its own version): one
-   transaction, the file's own `SET LOCAL lock_timeout '1s'` / `statement_timeout '60s'`, a `DO` block holding the
-   text (box-drawing characters as placeholders expanded server-side) that refuses unless the expanded text's MD5,
-   SHA-256 and length equal the values above and the version is unrecorded, `EXECUTE`s it unchanged and records
-   `('20261020180000', 'policy_commission_center_reads', ARRAY[text])`. Rehearse that exact wrapper on a disposable
-   database first (identical schema dump to `psql -1 -f`; replay, one changed byte and a held lock each refused). The two
-   `CREATE INDEX` statements take brief SHARE locks on the receipts and captures tables; on a lock timeout, retry later and
-   never raise the timeouts.
-4. **Read-back (read-only):** run `release/readback.sql`. All 12 checks must read `ok = t` (history row and stored-text
-   SHA-256/length; schema owner and USAGE; 12 functions, invoker, owner, `search_path`; EXECUTE `authenticated` only and no
-   PUBLIC grant; both indexes valid; the four preimages unchanged; RLS on). Row counts must equal the preflight's. Confirm
-   the existing-object fingerprints and advisor delta, then PostgREST's schema reload.
-5. **Stop conditions:** any preflight or read-back row not `t`, a hash or length mismatch, any unexpected catalog or
-   advisor change, or any commission row change — stop, do not retry blindly, report. No production test writes; the
-   frontend (Gate 3) stays unreleased until separately approved.
+   schema work; Chris's explicit Gate 2 approval naming this file, version and checksum.
+2. **Preflight (read-only):** list the hosted history (`list_migrations`) and run `release/preflight.sql`. All 15 checks
+   must read `ok = t`: server ≥ 16; `20261019170000` and `20261020040000` recorded; **nothing recorded at or after
+   `20261020212000`** (the hosted head was `20261020192723 / uv_personal_brand` on 2026-10-20 21:17 UTC; if anything
+   later has been recorded, stop: the version must be re-chosen, never the history edited); both applied migrations'
+   stored text still hashes to their SHA-256; prerequisite columns; schema, functions and indexes absent; the four md5
+   preimages; RLS on the six commission tables; no lock waits. Save the **six-table fingerprints** (row count, MD5 of
+   every row's full text, `n_tup_ins` / `n_tup_upd` / `n_tup_del`, and the session time zone) for handoffs, captures,
+   estimates, installments, receipts and events, the list of organizations with an unset or invalid agency time zone
+   (their page will show "Agency time zone needed"), and the advisor and catalog baselines as at Gates 3 and 3b.
+3. **Apply once:** `python3 docs/plans/2026-10-20-commissions-center/release/build_apply.py > apply.sql` (it refuses
+   unless the file's SHA-256, MD5 and length are the reviewed values) and send `apply.sql` as **one** request to the
+   hosted SQL endpoint (`apply_migration` would stamp its own version). In one transaction it sets the file's own
+   `lock_timeout '1s'` / `statement_timeout '60s'`, expands the three non-ASCII characters server-side, refuses unless the
+   expanded text's MD5, SHA-256 and UTF-8 length equal the reviewed values, both prerequisites are recorded, nothing is
+   recorded at or after `20261020212000` and the caller is `postgres`; then `EXECUTE`s the text unchanged, re-checks the
+   role and records `('20261020212000', 'policy_commission_center_reads', ARRAY[text])`. Any refusal or error rolls back
+   everything. The two `CREATE INDEX` statements take brief SHARE locks on receipts and captures; on a lock timeout,
+   retry later and never raise the timeouts.
+4. **Read-back (read-only):** run `release/readback.sql`. All 13 checks must read `ok = t` (history row with the
+   stored text's SHA-256 and length; recorded last; schema owner and USAGE; 12 functions, invoker, owner,
+   `search_path`; EXECUTE `authenticated` only and no PUBLIC grant; both indexes valid; the four preimages unchanged;
+   RLS on). Its six-table fingerprints must equal the preflight's in every column. Confirm the existing-object
+   fingerprints and the advisor delta (expected: two `unused_index` notices for the new indexes, nothing else), then
+   PostgREST's schema reload.
+5. **Stop conditions:** any preflight or read-back row not `t`, a hash or length mismatch, a later recorded version,
+   any unexpected catalog or advisor change, or any fingerprint difference — stop, do not retry blindly, report. No
+   production test writes; the frontend (Gate 3) stays unreleased until separately approved.
 
-**Validated locally (disposable PostgreSQL 16.15, synthetic fixture):** a database built from both applied migrations
-plus a `supabase_migrations.schema_migrations` mirror holding their exact text. The preflight passed all 15 checks. After
-`psql -1 -f` of the file and its history row, the read-back passed all 12 checks with row counts unchanged. The preflight
-run again then refused (`version_free_and_sorts_last`, schema, functions and indexes all `f`). After merging
-`main` (PR #470 adds `20261020171244`), the guarded rollback restored the pre-apply state, a `20261020171244` row was
-recorded, and the preflight passed all 15 checks again, so a later unrelated release does not block it. The wrapper rehearsal
-(step 3) belongs to Gate 2 and was not run.
+## 14. Version correction and apply rehearsal (local, 2026-10-20; plan §13)
+
+**Finding (Chris, read-only, 21:11 UTC; re-checked read-only with `list_migrations` at 21:17 UTC):** the hosted head is
+`20261020192723 / uv_personal_brand` (PR #470's source file is `20261020171244`; the hosted version was stamped at
+apply). The proposed `20261020180000` sorts before it, and the preflight's `version_free_and_sorts_last` correctly
+refused it. `20261020180000` was never recorded.
+
+**Correction:** renamed to `20261020212000` with `git mv` (similarity 100%: SHA-256 `5bc2eb14…bd3e08`, MD5
+`a3a67aba…2b4b`, 40,850 bytes, unchanged); the rollback differs only in its first-line comment. Current references were
+updated in the runner (`CENTER`, `CENTER_ROLLBACK`, comments), test-script and test-SQL comments, one source comment
+(`centerSchemas.ts`, no code change), the release SQL, the plans and AGENT_RULES. The workflow's path filters are
+version-agnostic globs. No applied migration, history row, reporting SQL, permission, definition, UI, writer or the UV
+release was changed; no history row was inserted out of order and the ordering guard stays.
+
+**Rehearsal (disposable PostgreSQL 16.15, synthetic data).** History: `20261019170000` and `20261020040000` with their
+exact text, and `20261020192723 / uv_personal_brand` (recorded with its source text, not executed: the fixture has no
+UV schema). Book seeded through the existing companions and tracking functions: handoffs 13, captures 12, estimates 12,
+installments 48, receipts 4, events 24. The apply statement came from `release/build_apply.py` and was sent as one
+request, as on the hosted endpoint.
+
+| Step | Result |
+|---|---|
+| Preflight before apply | 15/15 `t` |
+| Lock contention (an open `ROW EXCLUSIVE` writer on receipts) | refused after 1.05 s (lock timeout); schema absent, no history row |
+| One changed byte in the sent text | refused by the hash check before anything ran |
+| A later recorded version present | refused ("would not sort last"); removed afterwards (disposable) |
+| Apply | 0.07 s; recorded `20261020212000 / policy_commission_center_reads`, one statement, MD5 `a3a67aba…`, SHA-256 `5bc2eb14…`, 40,850 bytes |
+| Read-back | 13/13 `t`; six-table counts, content digests and write counters identical to the preflight's |
+| Advisors (splinter `main`) | 86 → 88: `+2 unused_index` (the two new indexes, fresh database), nothing removed, no security finding added |
+| Replay | refused by the wrapper (version recorded) and by the file's own guard ("already applied; refusing replay"); one history row; the preflight then refuses (4 checks `f`) |
+| Rollback | the full schema dump (owners and ACLs) equals the pre-apply dump; fingerprints unchanged |
+| Reapply after removing the disposable history row | applied; read-back 13/13 |
+| Reference `psql -1 -f` on a fresh database | schema dump identical to the wrapper-applied one, owners and ACLs included (9,349 lines) |
+
+Regression: `scripts/run_policy_commission_tests.sh` on the renamed files passed (exit 0): every Phase 2A suite, center guards
+and inventory ("5 reads, 2 indexes, 173 existing objects unchanged"), the center suite, rollback (exact restore, records
+kept, replay refusal, reapply), PostgREST 13 + 9 checks. The rehearsal script stays in the session scratchpad (it is
+wired to the local disposable cluster); its steps are listed above. PostgreSQL 17.6 +
+PostgREST CI on the final head: recorded in the PR body.

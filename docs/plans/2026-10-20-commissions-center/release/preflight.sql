@@ -1,4 +1,5 @@
--- Commissions center, Gate 2 (database only): READ-ONLY preflight for 20261020180000_policy_commission_center_reads.sql.
+-- Commissions center, Gate 2 (database only): READ-ONLY preflight for 20261020212000_policy_commission_center_reads.sql
+-- (proposed earlier as 20261020180000, which sorts before the hosted head 20261020192723; renamed, bytes unchanged).
 -- Run as postgres against production only after Chris approves Gate 2. It reads catalog state and row counts; it never
 -- writes. Every row in the first result must read ok = t; stop if any does not.
 WITH checks(n, check_name, value, ok) AS (
@@ -7,10 +8,10 @@ WITH checks(n, check_name, value, ok) AS (
   SELECT 2, 'prerequisites_recorded', '20261019170000, 20261020040000',
          (SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version IN ('20261019170000', '20261020040000')) = 2
   UNION ALL
-  -- Later unrelated releases may be recorded (for example 20261020171244, UV personal branding); none may sort at or
-  -- after this version.
+  -- Use the HOSTED history, not source filenames: later unrelated releases may be recorded (the hosted head on
+  -- 2026-10-20 21:17 UTC was 20261020192723 / uv_personal_brand); none may sort at or after this version.
   SELECT 3, 'version_free_and_sorts_last', (SELECT max(version) FROM supabase_migrations.schema_migrations),
-         NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version >= '20261020180000')
+         NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version >= '20261020212000')
   UNION ALL
   SELECT 4, 'applied_20261019170000_unchanged', NULL,
          (SELECT encode(sha256(convert_to(statements[1], 'UTF8')), 'hex') FROM supabase_migrations.schema_migrations
@@ -56,14 +57,28 @@ WITH checks(n, check_name, value, ok) AS (
 )
 SELECT check_name, value, ok FROM checks ORDER BY n;
 
--- Informational (saved for the read-back): commission row counts, and organizations whose agency time zone is unset or
--- invalid (their Commissions page shows "Agency time zone needed"; the reads fail closed with 55000).
-SELECT 'estimates' AS t, count(*) FROM public.policy_commission_estimates
-UNION ALL SELECT 'installments', count(*) FROM public.policy_commission_installments
-UNION ALL SELECT 'receipts', count(*) FROM public.policy_commission_receipts
-UNION ALL SELECT 'captures', count(*) FROM public.policy_commission_captures
-UNION ALL SELECT 'events', count(*) FROM public.policy_commission_events;
+-- Data fingerprints for all six commission tables: row count, a digest of every row's full text, and the cumulative
+-- write counters. Run it in the preflight and again in the read-back, from sessions with the same TimeZone (shown; the
+-- hosted SQL endpoint uses UTC), and compare every column: the migration contains no INSERT, UPDATE or DELETE.
+WITH d(t, n, digest) AS (
+  SELECT 'policy_commission_handoffs', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_handoffs x
+  UNION ALL
+  SELECT 'policy_commission_captures', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_captures x
+  UNION ALL
+  SELECT 'policy_commission_estimates', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_estimates x
+  UNION ALL
+  SELECT 'policy_commission_installments', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_installments x
+  UNION ALL
+  SELECT 'policy_commission_receipts', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_receipts x
+  UNION ALL
+  SELECT 'policy_commission_events', count(*), md5(coalesce(string_agg(x::text, E'\n' ORDER BY x::text), '')) FROM public.policy_commission_events x)
+SELECT d.t AS table_name, d.n AS row_count, d.digest AS content_md5, s.n_tup_ins, s.n_tup_upd, s.n_tup_del,
+       current_setting('TimeZone') AS session_time_zone
+  FROM d LEFT JOIN pg_stat_user_tables s ON s.schemaname = 'public' AND s.relname = d.t
+ ORDER BY d.t;
 
+-- Informational: organizations with commission estimates whose agency time zone is unset or invalid (their Commissions
+-- page shows "Agency time zone needed"; the reads fail closed with 55000).
 SELECT e.organization_id, cs.timezone
   FROM (SELECT DISTINCT organization_id FROM public.policy_commission_estimates) e
   LEFT JOIN public.company_settings cs ON cs.organization_id = e.organization_id

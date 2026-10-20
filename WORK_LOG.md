@@ -1,3 +1,28 @@
+## 2026-10-20 — Commissions center: release migration ordering corrected (`20261020180000` → `20261020212000`; NOT applied)
+
+A read-only production check (Chris, 21:11 UTC; re-checked read-only with `list_migrations` at 21:17 UTC) found the hosted
+head `20261020192723 / uv_personal_brand` (PR #470's source file `20261020171244` was recorded under the version stamped
+at apply). The proposed, never-applied `20261020180000_policy_commission_center_reads.sql` therefore sorted before the
+hosted head, and the preflight's `version_free_and_sorts_last` check correctly refused it. **`20261020180000` is
+superseded and was never recorded anywhere; earlier entries and evidence that name it are kept as recorded.**
+
+- **Correction.** Renamed to `20261020212000` (sorts after the hosted head and every repository migration) with its bytes
+  unchanged: SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, MD5 `a3a67aba…2b4b`, 40,850
+  bytes. The rollback changed only its first-line comment (now SHA-256 `7ada5b7d…e728b`). Runner paths and comments,
+  release SQL, plans and AGENT_RULES updated; the workflow's path globs needed no change. Applied migrations, history
+  rows, reporting SQL, permissions, definitions, UI, writers and the UV release unchanged; the ordering guard stays.
+- **Release package.** Preflight and read-back now fingerprint all six commission tables (counts, row-content digests,
+  write counters; handoffs included). New `release/build_apply.py` builds the exact version-preserving apply statement and
+  refuses on any hash or length mismatch.
+- **Rehearsal (disposable, history including hosted `20261020192723`).** Preflight 15/15; lock contention refused after
+  1.05 s with nothing applied; one changed byte refused; a later recorded version refused; apply recorded
+  `20261020212000` with the exact text; read-back 13/13 with all six fingerprints identical; replay refused twice;
+  rollback restored the exact schema; reapply passed; wrapper and `psql -1 -f` schema dumps identical; advisors `+2
+  unused_index` only. Full regression runner passed. Record: `docs/plans/2026-10-20-commissions-center/verification.md`
+  §13–§14.
+- **Open gates.** Gate 2 (production apply of `20261020212000`) and Gate 3 (merge and frontend release) each still need
+  Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is untouched.
+
 ## 2026-10-20 — Commissions center: final copy and filter corrections (PR #471, still draft; NOT live)
 
 Chris approved local corrections on reviewed head `fbe50a8`. No production read, write, migration, merge or deployment.

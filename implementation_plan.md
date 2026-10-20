@@ -14,7 +14,8 @@ filters, and Next 90 days / Any date independent of an unfinished custom range. 
 
 **Summary:** the sidebar's "Commission Calculator" becomes **Commissions** with four addressable tabs. Overview, Payments
 and Policies report the signed-in user's own saved estimates, installments and manual receipts (My commissions) through
-five new SECURITY INVOKER read functions (new migration `20261020180000_policy_commission_center_reads.sql`; existing
+five new SECURITY INVOKER read functions (new migration `20261020212000_policy_commission_center_reads.sql`, proposed
+as `20261020180000` and renamed byte-identically for hosted ordering — plan §13; existing
 commission RLS, `wins` and `clients` RLS apply; EXECUTE on the new functions only; no writer, existing grant or policy change). Row actions reuse the Phase 2A
 tracking controls and unresolved-write recovery. The calculator tab reuses `CalculatorWorkspace` unchanged and stays
 hypothetical. Phase 2A (PR #469, merged `0312520`, Gate 4 released 2026-10-20) is the released base.

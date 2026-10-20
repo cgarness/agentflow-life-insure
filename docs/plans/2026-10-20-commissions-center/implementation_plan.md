@@ -149,7 +149,7 @@ fetch. If records change between page requests a later page can shift; the total
 latest response, and every tracking write invalidates all commission queries. (An earlier draft also proposed an
 "Updated" marker when totals change between pages; it was not built — see §11.)
 
-## 5. Migration contract — `supabase/migrations/20261020180000_policy_commission_center_reads.sql`
+## 5. Migration contract — `supabase/migrations/20261020212000_policy_commission_center_reads.sql` (proposed as `20261020180000`; renamed in §13)
 
 One transaction; `lock_timeout 1s`, `statement_timeout 60s`. Read-only functions and two indexes. No change to any
 existing function, table, column, RLS policy, grant, role, trigger or data.
@@ -199,7 +199,7 @@ not in PostgREST's exposed schemas. Holds the shared definitions so every read u
 `policy_commission_captures_agent_open (organization_id, credited_agent_id) WHERE status IN ('awaiting_confirmation',
 'needs_attention')`. Wins already have `performance_wins_org_agent_date (organization_id, agent_id, created_at)`.
 
-**Rollback** `supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql`: drops exactly
+**Rollback** `supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql`: drops exactly
 the new functions, schema and indexes (refuses if not installed); touches no data (there is none of its own).
 
 **Generated types:** `src/integrations/supabase/types.ts` gains the five public functions (postgres-meta output from
@@ -236,8 +236,8 @@ confirmations and unresolved-save warnings keep their existing wording. Body tex
 
 | File | Change |
 |---|---|
-| `supabase/migrations/20261020180000_policy_commission_center_reads.sql` | New migration (§5) |
-| `supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql` | Guarded rollback |
+| `supabase/migrations/20261020212000_policy_commission_center_reads.sql` | New migration (§5; renamed from `20261020180000` in §13) |
+| `supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql` | Guarded rollback |
 | `supabase/tests/policy_commission_center.sql` | New suite: definitions, reconciliation, pagination, permissions, cross-org, reassignment, reads write nothing |
 | `supabase/tests/policy_commission_center_harness.sql` | Test-only: production `company_settings_select` policy and agency time zones for the synthetic orgs |
 | `scripts/run_policy_commission_tests.sh` | Guards, inventory diff, suite, rollback/reapply for the new migration; benchmark |
@@ -273,7 +273,7 @@ synthetic fixtures (real sidebar, page and dialogs; stubbed auth and RPCs) at 14
 ## 10. Gates
 
 1. **Local build and draft PR** (this approval).
-2. Production migration `20261020180000` (database only, read functions and two indexes) — separate approval.
+2. Production migration `20261020212000` (database only, read functions and two indexes) — separate approval.
 3. Frontend release (merge, deploy) — separate approval; the new UI calls functions that exist only after gate 2.
 
 ## 11. Implementation record — deviations and findings (local build, 2026-10-20)
@@ -341,3 +341,34 @@ migration, merge or deployment. No database code changes are planned, so migrati
 
 Unchanged: migrations, SQL tests, PostgREST checks, `centerApi.ts`, the calculator engine (`src/lib/commission/calculator.ts`,
 including the now-unused `disclaimerText` and its unit test), tracking writers and retry protection, routes and layout.
+
+## 13. Amendment — release migration ordering (approved 2026-10-20, local only; reviewed head `a5e497f`)
+
+A read-only production check at 21:11 UTC found the latest hosted version `20261020192723 / uv_personal_brand`
+(PR #470's source file `20261020171244` was recorded under the version stamped at apply). The proposed, never-applied
+`20261020180000_policy_commission_center_reads.sql` therefore sorts before the hosted head and the preflight's
+`version_free_and_sorts_last` check correctly refuses it. Re-checked read-only at 21:17 UTC with `list_migrations`: the
+same latest version, `20261020180000` not recorded.
+
+**Correction:** the unapplied migration and its rollback are renamed to **`20261020212000`**, which sorts after the
+hosted head and after every migration file in the repository. The migration's SQL bytes are unchanged (it never names
+its own version; SHA-256 stays `5bc2eb14…bd3e08`). The rollback's first line is a comment naming the file; only its
+version digits change. The ordering guard stays; no history row is inserted out of order; applied migrations, their
+history rows, the reporting SQL, permissions, definitions, UI, writers and the UV release are unchanged. The release
+package gains six-table data fingerprints (row counts, content digests and write counters, handoffs included) and a
+generator for the exact version-preserving apply, rehearsed on a disposable database whose history includes
+`20261020192723`.
+
+**Exact intended files**
+
+| File | Change |
+|---|---|
+| `supabase/migrations/20261020180000_policy_commission_center_reads.sql` → `20261020212000_policy_commission_center_reads.sql` | Rename only (bytes unchanged) |
+| `supabase/migrations/rollback/20261020180000_…rollback.sql` → `20261020212000_…rollback.sql` | Rename; first-line comment names the new file |
+| `scripts/run_policy_commission_tests.sh` | `CENTER` / `CENTER_ROLLBACK` paths and comments |
+| `scripts/tests/policy_commission/{commission_center_postgrest.mjs,measure_center_reads.sh}`, `supabase/tests/policy_commission_center{,_harness}.sql`, `src/lib/commission/centerSchemas.ts` | Comments naming the version only (no behavior change) |
+| `docs/plans/2026-10-20-commissions-center/release/{preflight,readback}.sql` | New version; six-table counts, content digests and write counters |
+| `docs/plans/2026-10-20-commissions-center/release/build_apply.py` (new) | Builds the version-preserving apply statement from the reviewed file and refuses on any hash or length mismatch |
+| `docs/plans/2026-10-20-commissions-center/{implementation_plan,verification}.md`, `implementation_plan.md`, `AGENT_RULES.md`, `WORK_LOG.md` | Current references and the correction record; earlier evidence kept as recorded |
+
+`.github/workflows/policy-commission-tracking.yml` needs no change: its path filters use `*_policy_commission_center_reads.sql`.

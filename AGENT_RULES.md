@@ -843,7 +843,13 @@ Gate 3, §15 Gate 3b, §16 Gate 4 note).
   carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
   breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
 
-### Commissions center (approved 2026-10-20 for local build and a draft PR; migration `20261020180000` NOT applied; UI NOT released)
+### Commissions center (approved 2026-10-20 for local build and a draft PR; migration `20261020212000` NOT applied; UI NOT released)
+
+Release ordering: a migration version is chosen against the HOSTED migration history (`list_migrations` /
+`supabase_migrations.schema_migrations`), never against source filenames, and must sort after the hosted head. Never insert
+an out-of-order history row or relax the ordering guard; an unapplied migration that would sort earlier is renamed with its
+bytes unchanged (the center reads were proposed as `20261020180000` and renamed to `20261020212000` on 2026-10-20 after
+the hosted head became `20261020192723 / uv_personal_brand`).
 
 `/commissions` — Overview · Payments (Scheduled | History) · Policies · Calculator — replaces the Commission Calculator
 nav entry. Contract and metric definitions: `docs/plans/2026-10-20-commissions-center/implementation_plan.md` §4;
