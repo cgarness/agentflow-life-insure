@@ -403,3 +403,153 @@ commands.
 
 Unchanged: sale-writer bodies, organization scoping, RLS policies and grants, the restricted writer, seller
 ownership, no peer access, idempotency keys, telemetry, TwilioContext and dialer callbacks.
+
+## 13. Amendment — simpler commission copy and automatic expected dates (PROPOSED 2026-10-20; awaiting approval)
+
+Requested by Chris after reviewing the preview. **Nothing in this section is approved yet:** no source edit, new
+migration, backend command, merge, deployment or production write happens until he approves this scope. Migration
+`20261019170000` is applied and immutable; every database change below goes into a NEW migration with its own
+production approval (Gate 3b). Amounts, rates, grid data, receipt idempotency, seller ownership, RLS, the four
+companions, the handoff and the seven reviewed sale-writer bodies do not change.
+
+### 13.1 Copy and presentation (contact view only)
+
+Keep the three-column contact layout and the per-policy Commission section. Labels: **Estimated commission**,
+**Received**, **Remaining**, **Advance**, **Month 10 / Month 11 / Month 12**, **Expected** *date range*, **Record
+payment**, **Edit dates**; "Date needed" when no usable date exists.
+
+- Remove `CommissionBasis` (product, grid, revision, rate, contract level, insured, premium, recorded-how) from the
+  policy surface and delete the component; no other grid panel replaces it. The data stays saved and returned by the
+  read (calculation and audit provenance are unchanged).
+- Remove the repeated grid/manual-entry/carrier-statement sentences: the Detail footer paragraph, the second sentence
+  of the Record payment description, the Record estimate description's grid sentence, the "Schedule start not
+  confirmed…" line and the timing dialog's planning-note sentence.
+- One optional ⓘ tooltip next to "Estimated commission": "AgentFlow estimate. Expected dates assume payment 1–3 business
+  days after each premium date. Not carrier-verified."
+- Kept unchanged: validation messages, attention-code explanations, unresolved-save warnings and Retry, void and
+  replacement confirmations, hold reasons, receipt recovery. The separate Commission Calculator, the Record estimate
+  picker (its inputs are needed to calculate) and the admin Commission Grid settings are not touched.
+
+### 13.2 Automatic expected dates (server-computed when an estimate is saved)
+
+**Premium start date (anchor).** Chosen once, by the server, in the transaction that records the estimate:
+
+1. *Sale-time draft date* — only for estimates saved from the sale-time capture (`capture_mode = 'sale_entry'`): the
+   primary policy's Draft Date **as it stood when the sale was saved**, snapshotted on the capture row at sale time.
+   `clients.draft_date` is documented as the *next known* draft date and may move later, so it is never re-read for
+   this purpose.
+2. Otherwise the **policy's own Effective Date** (primary: the client's; additional policy: that policy's own
+   `effectiveDate`). An additional policy never borrows the primary's dates. Record-later estimates use this even when
+   a draft date is on file (Edit dates can choose the draft date explicitly).
+3. Otherwise none: every installment shows "Date needed".
+
+Dates outside 2000-01-01…2100-12-31 or unparsable count as missing. Production evidence (read-only): 10 of 18 clients
+have a draft date; 7 equal the effective date, 3 are 1, 27 and 30 days later.
+
+**Frequency.** Primary: `payment_frequency` (sale-time snapshot for sale-entry estimates, current value for record-later).
+Additional policies have no frequency field: unknown. Unknown or `monthly` → monthly schedule. Explicit `quarterly`,
+`semi_annual` or `annual` → **non-monthly exception**: only the Advance gets an expected window; Months 10–12 show "Date
+needed" (no monthly premium events are invented).
+
+**Premium dates.** Advance = anchor A. Month 10 / 11 / 12 = A + 9 / 10 / 11 calendar months, each computed from the
+original anchor (never chained); a day that does not exist becomes that month's last day without shifting later
+months. Examples: A = Jan 31 → Oct 31, Nov 30, Dec 31; A = May 31, 2027 → Month 10 Feb 29, 2028.
+
+**Payout window (convention `premium_plus_1_3_fed_business_days_v1`).** Expected = from the 1st through the 3rd
+business day strictly after the premium date. Business day = Monday–Friday that is not a Federal Reserve Bank holiday
+(commission deposits settle by ACH): New Year's Day, Martin Luther King Jr. Day (3rd Mon Jan), Washington's Birthday (3rd
+Mon Feb), Memorial Day (last Mon May), Juneteenth (Jun 19), Independence Day (Jul 4), Labor Day (1st Mon Sep), Columbus
+Day (2nd Mon Oct), Veterans Day (Nov 11), Thanksgiving (4th Thu Nov), Christmas (Dec 25). A fixed-date holiday on Sunday
+is observed the following Monday; on Saturday it is not moved (Reserve Banks open the preceding Friday). Calendar dates
+only, no time zones. Examples: premium Fri Oct 2, 2026 → Oct 5–7; Fri Jul 2, 2027 → Jul 6–8 (Jul 5 observed holiday);
+Wed Nov 25, 2026 → Nov 27 – Dec 1; Wed Dec 30, 2026 → Dec 31, 2026 – Jan 5, 2027. This is AgentFlow's estimate from
+Chris's workflow, not a carrier rule.
+
+**Assumed vs confirmed.** Automatic dates are saved as *assumed* and labelled Estimated, never Confirmed. A choice made
+in Edit dates is saved as *confirmed*. Manual per-payment dates (exact date, month, Date needed) always win and are never
+overwritten by automatic or start-date changes.
+
+**When it is written.** Only inside the existing write transactions: sale-time capture with calculation, capture
+confirmation, record later, replacement (which carries the old schedule and overrides as today) and Edit dates. Reads
+never write; there is no backfill and no recalculation when policy details change. The one production estimate saved so
+far (`7e2c476a…`, no dates on its policy) keeps showing "Date needed" until someone uses Edit dates.
+
+### 13.3 Smallest compatible schema extension (new migration)
+
+`supabase/migrations/<timestamp>_policy_commission_expected_windows.sql` (+ guarded rollback), one transaction, own
+`lock_timeout 1s` / `statement_timeout 60s`, refusing unless the commission functions it replaces still match their
+`20261019170000` definitions and it has not run before:
+
+- `policy_commission_installments`: `expected_until date` (window end); `timing_precision` gains `window` (expected_on =
+  window start); the timing CHECK is rebuilt: window ⇔ expected_until present, expected_until within 0–14 days after
+  expected_on, window only from `schedule_basis`, and the Advance may now be `schedule_basis`.
+- `policy_commission_estimates`: `schedule_confirmed boolean` (NULL when no start date), `schedule_frequency text`
+  (snapshot; NULL = unknown), `schedule_convention text`; `schedule_start_source` gains `initial_draft_date`.
+- `policy_commission_captures`: `premium_start_on date`, `premium_frequency text` — sale-time snapshot written by a new
+  BEFORE INSERT trigger from the primary policy's client row (NULL for additional policies); immutable afterwards.
+- Writer UPDATE grants extended to the new mutable columns; the retention/immutability guard's column lists updated.
+
+Functions (CREATE OR REPLACE keeps owners and ACLs; same signatures, so generated types do not change):
+
+| Function | Change |
+|---|---|
+| `private.policy_commission_bank_day_after(date, int)` (new, IMMUTABLE) | Business-day arithmetic and the holiday rules above |
+| `private.policy_commission_expected_windows(date, text)` (new, IMMUTABLE) | Four premium dates and windows; non-monthly exception |
+| `private.policy_commission_capture_premium_snapshot()` + trigger (new) | Sale-time draft date and frequency on captures |
+| `private.policy_commission_insert_estimate` | Inserts the estimate and installments with the automatic schedule (or the carried one) |
+| `private.policy_commission_policy_facts` | Adds `draft_date` and `payment_frequency` (primary only) |
+| `private.policy_commission_estimate_state` | Audit state includes window end, confirmed, frequency, convention |
+| `private.policy_commission_guard` | New mutable columns |
+| `public.set_policy_commission_schedule_basis` | Edit dates start date: effective / sale-time draft / entered date; windows for all four; confirmed |
+| `public.set_policy_commission_installment_timing` | Clears the window end on manual dates; adds "automatic" to return one payment to the schedule |
+| `public.record_policy_commission_estimate_later` | Replacement carry includes the new fields |
+| `public.get_client_policy_commissions` | Returns the new fields and the policy's draft date and frequency |
+
+Unchanged: companions, handoff, confirm, dismiss, hold, receipt, void, replay, lock, events, operation status, sale
+writers (their seven preimages are re-checked by the guard).
+
+### 13.4 Exact intended files
+
+| File | Change |
+|---|---|
+| `supabase/migrations/<ts>_policy_commission_expected_windows.sql` | New migration (13.3) |
+| `supabase/migrations/rollback/<ts>_policy_commission_expected_windows.rollback.sql` | Restores the prior definitions and constraints; refuses once any window or new-field value exists |
+| `supabase/tests/policy_commission_expected_windows.sql` | New suite: holidays, business days, month ends, leap years, year and month crossings, anchors, frequencies, overrides, carry, retries, reads write nothing |
+| `scripts/run_policy_commission_tests.sh` | Applies the new migration after `20261019170000`; runs the new suite; rollback/reapply of the new migration |
+| `scripts/tests/policy_commission/postgrest_integration.mjs` | Contact read returns windows; Edit dates over HTTP |
+| `src/lib/commission/trackingSchemas.ts` | `window`, `expected_until`, schedule fields, basis draft date and frequency |
+| `src/lib/commission/installments.ts` | Labels, "Expected Jul 6 – 8, 2027" ranges (month/year crossings), "Date needed"; drop unused month helpers |
+| `src/lib/commission/trackingApi.ts` | Start-date sources and the "automatic" payment option (Zod-validated) |
+| `src/components/commission/policy/PolicyCommissionSummary.tsx` | "Estimated commission · Received · Remaining" and the single tooltip |
+| `src/components/commission/policy/PolicyCommissionDetail.tsx` | Remove basis panel and footer copy; start-date line with Edit dates |
+| `src/components/commission/policy/InstallmentRow.tsx` | Labels, expected window, Record payment, per-payment date change |
+| `src/components/commission/policy/ScheduleBasisControl.tsx` | Becomes the Edit dates start-date form (no mandatory confirmation) |
+| `src/components/commission/policy/InstallmentTimingDialog.tsx` | Per-payment date: automatic, exact date, month, date needed; shorter copy |
+| `src/components/commission/policy/RecordPaymentDialog.tsx`, `RecordEstimateDialog.tsx` | Description sentences only |
+| `src/components/commission/policy/CommissionBasis.tsx` | Deleted |
+| Tests beside the above (`__tests__/…`, `src/lib/commission/__tests__/installments.test.ts`) | Updated and new cases |
+| `docs/plans/…/implementation_plan.md`, `verification.md`, `WORK_LOG.md`, `AGENT_RULES.md`, root `implementation_plan.md` | Records (AGENT_RULES text below) |
+
+`src/integrations/supabase/types.ts` is not expected to change (signatures unchanged; verified against regenerated types).
+
+### 13.5 Verification
+
+Disposable PostgreSQL only (16.15 locally, 17.6 + PostgREST in CI): initial sale saves (create, record, convert with an
+additional policy, first-policy edit), record later, capture confirmation after the client's draft date changed,
+multiple policies, missing dates, differing draft/effective dates, non-monthly frequencies, month ends, leap years,
+weekends, each holiday rule (Saturday and Sunday cases), month and year crossings, manual overrides surviving start-date
+changes, replacement carry, idempotent retries, unknown outcomes, and reads causing no writes (counters unchanged).
+Existing security, handoff, tracking, race, sale, identity and reporting suites; full Vitest against the baseline; app
+typecheck parity; `npx tsc --noEmit`; scoped ESLint; build; `git diff --check`; advisors on the disposable database;
+browser check of the simplified section and Edit dates at 1440 px light and 390 px dark.
+
+### 13.6 Proposed AGENT_RULES amendment (Phase 2A section)
+
+> **Automatic estimated payment dates.** When an estimate is saved, the server sets an *assumed* premium start date —
+> the sale-time Draft Date for estimates saved from the sale, otherwise the policy's own Effective Date, never another
+> policy's — and saves each payment's expected window as the 1st–3rd Federal Reserve business day after its premium
+> date (Advance: the start date; Months 10–12: start + 9/10/11 calendar months from the original anchor, clamped to
+> month end). Explicit non-monthly schedules get only the Advance window. Assumed dates are labelled Estimated and are
+> never shown as confirmed; an Edit dates choice is confirmed; manual payment dates always win. Saved schedules are
+> never recalculated when policy details change and reads never write. Expected dates are AgentFlow's estimate, not a
+> carrier rule; a customer's premium payment is not a commission receipt.

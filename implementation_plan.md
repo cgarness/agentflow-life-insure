@@ -10,6 +10,9 @@ migration package exists.
 (unknown-outcome recovery, installment amount, capture lifecycle, wording, PostgreSQL 17.6 measurements, types).
 Still not approved: production migration/RLS, merge, deployment, production reads or test writes.
 
+**Amendment proposed 2026-10-20 (awaiting approval):** simpler commission copy and automatic expected payment dates —
+§13 of the Phase 2A plan. Needs a new migration with separate production approval; nothing is implemented yet.
+
 **Gate 2 (local build and verification) complete** — evidence in
 `docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gate 3 (production migration) awaits approval.
 
