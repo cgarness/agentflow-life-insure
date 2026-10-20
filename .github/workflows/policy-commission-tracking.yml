@@ -6,6 +6,8 @@ on:
       - 'supabase/migrations/rollback/*_policy_commission_tracking.rollback.sql'
       - 'supabase/migrations/*_policy_commission_expected_windows.sql'
       - 'supabase/migrations/rollback/*_policy_commission_expected_windows.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_center_reads.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_center_reads.rollback.sql'
       - 'supabase/migrations/*_leaderboard_sale_recording.sql'
       - 'supabase/migrations/*_policy_identity_sale_integrity.sql'
       - 'supabase/migrations/*_commission_grids_*.sql'
@@ -24,7 +26,11 @@ on:
       - 'src/hooks/usePolicySaleSubmission.ts'
       - 'src/hooks/useClientPolicyCommissions.ts'
       - 'src/hooks/usePolicyCommissionPreview.ts'
+      - 'src/hooks/useCommissionsCenter.ts'
       - 'src/components/commission/**'
+      - 'src/components/commissions/**'
+      - 'src/pages/CommissionsPage.tsx'
+      - 'src/components/layout/CommissionsNavItem.tsx'
       - 'src/components/contacts/**'
       - 'src/pages/Contacts.tsx'
       - '.github/workflows/policy-commission-tracking.yml'
@@ -66,7 +72,7 @@ jobs:
           echo "9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c  $RUNNER_TEMP/postgrest.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/postgrest.tar.xz" -C "$RUNNER_TEMP"
           "$RUNNER_TEMP/postgrest" --version
-      - name: Guards, inventory, suites, races, existing suites, rollback, PostgREST, save overhead
+      - name: Guards, inventory, suites, races, existing suites, commissions center reads, rollback, PostgREST, timings
         env:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55447
           PGPASSWORD: isolated-test-only
@@ -85,7 +91,7 @@ jobs:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Commission, sale submission, contact and dialer handoff tests (synthetic data)
+      - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
           VITE_SUPABASE_ANON_KEY: inert-test-key
@@ -93,4 +99,5 @@ jobs:
           npx vitest run src/lib/commission src/components/commission src/lib/__tests__/policySaleOutcome.test.ts
           src/lib/__tests__/saleHandoffApis.test.ts src/hooks/__tests__/usePolicySaleSubmission.test.tsx
           src/hooks/__tests__/useClientPolicyCommissions.test.tsx src/components/contacts src/pages/__tests__/contactsClientSaleHandoff.test.tsx
-          src/lib/__tests__/normalizedPolicy.test.ts
+          src/lib/__tests__/normalizedPolicy.test.ts src/components/commissions src/pages/__tests__/commissionsPage.test.tsx
+          src/hooks/__tests__/useCommissionsCenter.test.tsx src/components/layout/__tests__/viewAsSidebarNav.test.tsx

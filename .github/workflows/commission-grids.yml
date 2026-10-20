@@ -16,10 +16,11 @@ on:
       - 'src/hooks/useCommissionGridsAdmin.ts'
       - 'src/hooks/useGridEditorDraft.ts'
       - 'src/hooks/useUnsavedNavigationGuard.ts'
-      - 'src/pages/CommissionCalculatorPage.tsx'
+      - 'src/pages/CommissionsPage.tsx'
+      - 'src/components/commissions/**'
       - 'src/components/commission/**'
       - 'src/components/settings/commission-grids/**'
-      - 'src/components/layout/CommissionCalculatorNavItem.tsx'
+      - 'src/components/layout/CommissionsNavItem.tsx'
       - 'src/components/layout/Sidebar.tsx'
       - 'src/config/settingsConfig.ts'
       - 'src/pages/SettingsPage.tsx'
@@ -74,5 +75,6 @@ jobs:
       - name: Pure calculator, calculator page, navigation and settings tests (synthetic data)
         run: >-
           npx vitest run src/lib/commission src/components/commission src/components/settings/commission-grids
-          src/hooks/__tests__/useUnsavedNavigationGuard.test.tsx src/pages/__tests__/commissionCalculatorPage.test.tsx
+          src/hooks/__tests__/useUnsavedNavigationGuard.test.tsx src/components/commissions/__tests__/CalculatorTab.test.tsx
+          src/pages/__tests__/commissionsPage.test.tsx
           src/components/layout/__tests__/viewAsSidebarNav.test.tsx src/pages/__tests__/settingsPageHeading.test.tsx
