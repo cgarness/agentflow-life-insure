@@ -1,9 +1,9 @@
 # Commissions center — verification (Gate 2 applied; Gate 3 pending, 2026-10-20)
 
 **Current release status:** migration `20261020212000` applied once to production under Chris's explicit database-only
-approval; verification and signed-in read-only preview checks passed (§15). PR #471 remains draft. Merge and frontend
-release are not approved. Sections 1–14 retain the earlier local-build and rehearsal evidence; their "not applied"
-statements describe those earlier checkpoints.
+approval; verification and signed-in read-only preview checks passed (§15; independent re-check §16). PR #471 remains
+draft. Merge and frontend release are not approved. Sections 1–14 retain the earlier local-build and rehearsal evidence;
+their "not applied" statements describe those earlier checkpoints.
 
 Branch `claude/epic-tesla-fe96b0` from `main` `0312520` (`main` `381bebb` merged in). The migration was proposed as
 `20261020180000` until §14 and renamed byte-identically. Public evidence omits customer details and compensation values.
@@ -426,3 +426,47 @@ The secondary preview `https://agentflow-life-insure-7dq58hrfj-cgarness-projects
 **Gate 3 remains pending Chris's separate approval.** After approval: verify final-head CI, merge through PR #471,
 verify both Vercel production deployments and the main website's deployed commit, then record release evidence.
 Neither production deployment nor a frontend release is claimed here.
+
+## 16. Independent post-apply re-check (2026-10-20, 23:14–23:16 UTC)
+
+A second session (the one that built the package) re-ran the checks read-only with `execute_sql` and `get_advisors`. It
+compared them with its **own** pre-apply baseline (22:28 UTC; still unapplied at 22:51 UTC), not with §15's figures.
+This session made no database write; the apply in §15 is the only one.
+
+- **History.** There is exactly one row for `20261020212000 / policy_commission_center_reads`: one statement, SHA-256
+  `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, 40,850 bytes. The hosted head is
+  `20261020212000` and the table holds 340 rows (339 before). The previous head `20261020192723` and both
+  prerequisites are unchanged. Nothing was replayed.
+- **`readback.sql`:** 13/13 ok.
+- **Six-table fingerprints** (TimeZone UTC): every count, content MD5 and insert/update/delete counter matches 22:28
+  and §15. No commission row was written between 22:28 and 23:15.
+- **Catalog.** The fingerprint excludes exactly the objects this migration creates. All 14 categories match 22:28 in
+  count and digest, so no existing function, relation, index, RLS policy, ACL, default ACL, trigger, constraint,
+  type, schema, role, membership, event trigger or publication changed:
+
+  | Category | Objects | Digest |
+  |---|---:|---|
+  | column_acls | 100 | `3cdcb89bd7bdb20232ace4031de35db2` |
+  | constraints | 906 | `1c122cee02ffe811459dc5cbdafbabf2` |
+  | default_acls | 27 | `6a451785b4d138cfe00b732c8daf282f` |
+  | event_triggers | 6 | `29efe8faa96b368d0ad669e4ec2a37ee` |
+  | functions | 616 | `73bc1585e4c7848b769907c84188ba46` |
+  | indexes | 681 | `eededcd8d1ce3cc31ed106b952a90ec9` |
+  | memberships | 26 | `e9fbc5a833531deca349cfee862b40b4` |
+  | policies | 376 | `e2380d9dd9fc631a2209f0cc3ad1f158` |
+  | publication_tables | 16 | `572a98f22e9d3c162c18d06ec0201f39` |
+  | relations | 216 | `62a0d4d709f1a70a62c0cb7966234aa2` |
+  | roles | 34 | `58a37c0c209ccc09b9a1cd15469b6c16` |
+  | schemas | 16 | `0db04d557eca4b8ec88979c6d81467fe` |
+  | triggers | 150 | `ac2839289373131302b06c13a50a104b` |
+  | types | 454 | `8361204cedbd79412c82de7dad6ae471` |
+
+- **Security advisors:** 253 findings, the same set as at 22:28.
+- **Performance advisors:** 451 → **452**. One finding was added and none removed: INFO `unused_index` for
+  `policy_commission_captures_agent_open`. This differs from §15's 453 at 23:05, which also listed
+  `policy_commission_receipts_agent_received`. That notice has since cleared because the index has been used:
+  `pg_stat_user_indexes` shows 6 scans, the last at 23:10:01 UTC, inside the signed-in preview acceptance window. No
+  tuples were read because receipts holds no rows. This is expected, not a defect.
+- **PostgREST:** this session did not send another reload. §15 records the reload and the loaded cache at 23:05:12 UTC.
+
+**Result:** the independent checks agree with §15 apart from that advisor count. There were no unexpected differences.

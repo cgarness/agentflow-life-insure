@@ -1,3 +1,20 @@
+## 2026-10-20 — Commissions center Gate 2: independent post-apply re-check passed
+
+The session that built the release package re-checked production read-only at 23:14–23:16 UTC and made no writes. It
+compared the results with its own 22:28 UTC pre-apply baseline:
+- one history row for `20261020212000`, with the exact SHA-256 and 40,850 bytes;
+- readback 13/13;
+- all six commission-table fingerprints identical;
+- all 14 catalog categories identical in count and digest, with the new objects excluded;
+- security advisors unchanged at 253.
+
+Performance advisors read 452, not the 453 recorded at 23:05. The `policy_commission_receipts_agent_received`
+unused-index notice cleared once the index was used: 6 scans, the last at 23:10:01 UTC, during the preview check. Only
+the `policy_commission_captures_agent_open` notice remains. There were no unexpected differences. Evidence:
+`verification.md` §16. Documentation only; PR #471 stays draft and Gate 3 is still pending.
+
+---
+
 ## 2026-10-20 — Commissions center Gate 2 applied; signed-in preview passed; Gate 3 pending
 
 Chris authorized the exact reviewed database package through the supported Supabase SQL Editor browser route.
