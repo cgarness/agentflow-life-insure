@@ -2,7 +2,8 @@
 // prepared by scripts/run_policy_commission_tests.sh (fixture, harness and migration). Synthetic data only.
 //   PGURL=postgres://postgres@127.0.0.1:<port> DB_URL=<PGURL>/<db> POSTGREST_BIN=/path/to/postgrest node <this file>
 // Proves the HTTP contract: companion responses, PT409 → HTTP 409, error codes, permission denials, no direct table
-// writes, private helpers not exposed, status reads, and HTTP save timing (legacy writer vs companion).
+// writes, private helpers not exposed, status reads, expected windows and Edit dates (20261020040000), and HTTP save
+// timing (legacy writer vs companion).
 import { spawn } from 'node:child_process';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -151,7 +152,8 @@ try {
       const del = await ava.from(table).delete().eq('organization_id', id(1));
       assert.equal(del.status, 403, table);
     }
-    for (const fn of ['policy_commission_handoff', 'policy_sale_commission_step', 'policy_commission_grid_facts', 'policy_commission_toggle']) {
+    for (const fn of ['policy_commission_handoff', 'policy_sale_commission_step', 'policy_commission_grid_facts', 'policy_commission_toggle',
+      'policy_commission_expected_schedule', 'policy_commission_business_day_after']) {
       const r = await ava.rpc(fn, {});
       assert.equal(r.status, 404, fn); assert.equal(r.error.code, 'PGRST202');
     }
@@ -166,6 +168,13 @@ try {
     const [policy] = r.data.policies;
     assert.equal(policy.state, 'recorded'); assert.equal(policy.access, 'write'); estimate = policy.estimate;
     assert.deepEqual(estimate.installments.map((i) => i.expected_cents), [42975, 4775, 4775, 4775]);
+    // Assumed from the effective date (Sunday 2026-11-01): 1st–3rd Federal Reserve business day after each premium date.
+    assert.deepEqual([estimate.schedule_start_on, estimate.schedule_start_source, estimate.schedule_assumed, estimate.schedule_frequency,
+      estimate.schedule_convention], ['2026-11-01', 'effective_date', true, null, 'premium_plus_1_3_fed_business_days_v1']);
+    assert.deepEqual(estimate.installments.map((i) => [i.timing_precision, i.expected_on, i.expected_until, i.timing_source]), [
+      ['date', '2026-11-02', '2026-11-04', 'schedule_basis'], ['date', '2027-08-02', '2027-08-04', 'schedule_basis'],
+      ['date', '2027-09-02', '2027-09-07', 'schedule_basis'], ['date', '2027-10-04', '2027-10-06', 'schedule_basis']]);
+    assert.equal(policy.basis.payment_frequency, null);
     const other = await as(12).rpc('get_client_policy_commissions', { p_client_id: saved.client_id });
     assert.equal(other.status, 404); assert.equal(other.error.code, 'PT404');
     const rows = await as(12).from('policy_commission_estimates').select('id');
@@ -188,6 +197,33 @@ try {
     const tl = await as(14).rpc('set_policy_commission_hold', { p_request_id: randomUUID(), p_estimate_id: estimate.id,
       p_expected_revision: 2, p_on_hold: true, p_reason: 'Leader' });
     assert.equal(tl.status, 403); assert.equal(tl.error.code, '42501');
+  });
+  check('Edit dates and per-payment dates over HTTP', async () => {
+    const read = async () => (await ava.rpc('get_client_policy_commissions', { p_client_id: saved.client_id })).data.policies[0].estimate;
+    let current = await read();
+    const basis = await ava.rpc('set_policy_commission_schedule_basis', { p_request_id: randomUUID(), p_estimate_id: current.id,
+      p_expected_revision: current.state_revision, p_start_on: '2026-11-15', p_source: 'manual' });
+    assert.equal(basis.status, 200, JSON.stringify(basis.error));
+    current = await read();
+    assert.deepEqual([current.schedule_start_on, current.schedule_start_source, current.schedule_assumed], ['2026-11-15', 'manual', false]);
+    assert.deepEqual(current.installments.map((i) => `${i.expected_on}..${i.expected_until}`),
+      ['2026-11-16..2026-11-18', '2027-08-16..2027-08-18', '2027-09-16..2027-09-20', '2027-10-18..2027-10-20']);
+    const manual = await ava.rpc('set_policy_commission_installment_timing', { p_request_id: randomUUID(), p_installment_id: current.installments[1].id,
+      p_expected_revision: current.state_revision, p_precision: 'unknown', p_expected_on: null });
+    assert.equal(manual.status, 200, JSON.stringify(manual.error));
+    current = await read();
+    assert.deepEqual([current.installments[1].timing_precision, current.installments[1].timing_source], ['unknown', 'manual']);
+    const automatic = await ava.rpc('set_policy_commission_installment_timing', { p_request_id: randomUUID(),
+      p_installment_id: current.installments[1].id, p_expected_revision: current.state_revision, p_precision: 'automatic', p_expected_on: null });
+    assert.equal(automatic.status, 200, JSON.stringify(automatic.error));
+    current = await read();
+    assert.deepEqual([current.installments[1].expected_on, current.installments[1].expected_until], ['2027-08-16', '2027-08-18']);
+    const invalid = await ava.rpc('set_policy_commission_installment_timing', { p_request_id: randomUUID(),
+      p_installment_id: current.installments[1].id, p_expected_revision: current.state_revision, p_precision: 'window', p_expected_on: null });
+    assert.equal(invalid.status, 400); assert.equal(invalid.error.code, '22023');
+    const leader = await as(14).rpc('set_policy_commission_schedule_basis', { p_request_id: randomUUID(), p_estimate_id: current.id,
+      p_expected_revision: current.state_revision, p_start_on: null, p_source: null });
+    assert.equal(leader.status, 403); assert.equal(leader.error.code, '42501');
   });
   check('operation status read', async () => {
     const r = await ava.rpc('get_policy_sale_operation_status', { p_kind: 'create', p_request_id: createArgs.p_request_id, p_lead_id: null,

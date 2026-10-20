@@ -4,6 +4,8 @@ on:
     paths:
       - 'supabase/migrations/*_policy_commission_tracking.sql'
       - 'supabase/migrations/rollback/*_policy_commission_tracking.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_expected_windows.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_expected_windows.rollback.sql'
       - 'supabase/migrations/*_leaderboard_sale_recording.sql'
       - 'supabase/migrations/*_policy_identity_sale_integrity.sql'
       - 'supabase/migrations/*_commission_grids_*.sql'

@@ -5,8 +5,9 @@
 # Optional: POSTGREST_BIN=/path/to/postgrest (12.2.3) adds the real PostgREST + supabase-js integration;
 #           PC_MEASURE=1 adds the save-overhead measurement (scripts/tests/policy_commission/measure_save_overhead.sh).
 # Steps: migration preimage/replay guards · ACL and ownership inventory diff · security, handoff and tracking suites ·
-# independent-session races and lock contention · existing sale/identity/reporting suites with this migration applied ·
-# non-destructive rollback, refusal and reapply.
+# expected-windows migration (20261020040000) guards, inventory and suite · independent-session races and lock
+# contention · existing sale/identity/reporting suites with both migrations applied · non-destructive rollbacks,
+# refusal and reapply. Scenarios run with both migrations (the production end state) unless marked otherwise.
 set -euo pipefail
 : "${PGURL:?Disposable localhost PostgreSQL cluster URL, without database path, required}"
 python3 - "$PGURL" <<'PY'
@@ -25,6 +26,8 @@ PREFIX="pc_test_$$"
 TEMP=$(mktemp -d)
 MIGRATION="$ROOT/supabase/migrations/20261019170000_policy_commission_tracking.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql"
+WINDOWS="$ROOT/supabase/migrations/20261020040000_policy_commission_expected_windows.sql"
+WINDOWS_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020040000_policy_commission_expected_windows.rollback.sql"
 DATABASES=()
 drop_roles() {
   for role in agentflow_policy_commission_writer agentflow_comp_operator; do
@@ -44,8 +47,9 @@ echo "PostgreSQL: $(psql "$ADMIN_URL" -tAX -c 'SHOW server_version')"
 python3 "$ROOT/scripts/policy_commission_fixture.py" > "$TEMP/fixture.sql"
 
 sql() { psql "$DB_URL" -qX -v ON_ERROR_STOP=1 "$@"; }
-# new_db NAME [bare]: a fresh database with the fixture and harness (and the migration unless bare). Roles are
-# cluster-global, so the previous scenario's database and roles are removed first.
+# new_db NAME [bare|applied]: a fresh database with the fixture and harness, then both migrations (default), only
+# 20261019170000 (applied) or neither (bare). Roles are cluster-global, so the previous scenario's database and roles
+# are removed first.
 new_db() {
   for old_db in "${DATABASES[@]}"; do psql "$ADMIN_URL" -qX -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $old_db WITH (FORCE)" >/dev/null; done
   DATABASES=()
@@ -59,6 +63,7 @@ new_db() {
   DB_URL="${PGURL%/}/$DB"
   sql -f "$TEMP/fixture.sql" >/dev/null
   if [ "${2:-}" != bare ]; then sql -1 -f "$MIGRATION" >/dev/null; fi
+  if [ -z "${2:-}" ]; then sql -1 -f "$WINDOWS" >/dev/null; fi
 }
 run_suite() { sql -v defaults="$(cat "$ROOT/supabase/tests/fixtures/policy_commission/permission_defaults.json")" -f "$1" | grep -E '^ *PASS' ; }
 expect_fail() { # expect_fail PATTERN FILE: the file must fail with an error matching PATTERN
@@ -79,6 +84,25 @@ inventory() {
                WHERE n.nspname IN ('public', 'private') AND c.relkind IN ('r', 'v', 'S') AND c.relname NOT LIKE 'policy\_commission\_%'
                UNION ALL
                SELECT 'n|' || nspname || '|' || coalesce(nspacl::text, '-') FROM pg_namespace WHERE nspname IN ('public', 'private', 'auth')
+               ORDER BY 1"
+}
+# Every commission object: functions (owner, definer flag, ACL, body digest), constraints, columns (with column ACLs),
+# table ACLs and schema ACLs.
+commission_inventory() {
+  sql -tAX -c "SELECT 'f|' || p.oid::regprocedure || '|' || pg_get_userbyid(p.proowner) || '|' || p.prosecdef || '|' || coalesce(p.proacl::text, '-')
+                 || '|' || md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+               WHERE n.nspname IN ('public', 'private', 'policy_commission_authz') AND p.prokind = 'f'
+               UNION ALL
+               SELECT 'c|' || conrelid::regclass || '|' || conname || '|' || pg_get_constraintdef(oid) FROM pg_constraint
+               WHERE conrelid::regclass::text LIKE 'policy\_commission\_%'
+               UNION ALL
+               SELECT 'a|' || attrelid::regclass || '|' || attname || '|' || format_type(atttypid, atttypmod) || '|' || attnotnull || '|'
+                 || coalesce(attacl::text, '-') FROM pg_attribute
+               WHERE attrelid::regclass::text LIKE 'policy\_commission\_%' AND attnum > 0 AND NOT attisdropped
+               UNION ALL
+               SELECT 'r|' || c.oid::regclass || '|' || coalesce(c.relacl::text, '-') FROM pg_class c WHERE c.relname LIKE 'policy\_commission\_%'
+               UNION ALL
+               SELECT 'n|' || nspname || '|' || coalesce(nspacl::text, '-') FROM pg_namespace WHERE nspname IN ('public', 'private')
                ORDER BY 1"
 }
 
@@ -110,10 +134,54 @@ grep -E '^n\|(public|private)\|' "$TEMP/inventory.after" | grep -c 'agentflow_po
 diff -u <(normalize "$TEMP/inventory.before") <(normalize "$TEMP/inventory.after") || { echo 'FAIL: existing objects changed'; exit 1; }
 expect_fail 'already applied; refusing replay' "$MIGRATION"
 echo "PASS migration guards and existing-object inventory ($(wc -l < "$TEMP/inventory.before") objects unchanged)"
-for suite in security handoff tracking; do
+for suite in security handoff; do
   new_db "$suite"
   run_suite "$ROOT/supabase/tests/policy_commission_$suite.sql"
 done
+# The applied 20261019170000 timing rules (confirmed month-level schedule only); 20261020040000 supersedes them and is
+# proved by the expected-windows suite below.
+new_db tracking applied
+run_suite "$ROOT/supabase/tests/policy_commission_tracking.sql"
+
+# ── 1b. Expected windows (20261020040000): guards, existing-object inventory, suite ─────────────────────────
+new_db windows_guards bare
+expect_fail 'requires 20261019170000' "$WINDOWS"
+new_db windows_drift applied
+# A replaced function that drifted from its 20261019170000 definition is refused; nothing is changed.
+sql -c "SELECT pg_get_functiondef('public.get_client_policy_commissions(uuid)'::regprocedure)" -tAX > "$TEMP/read.sql"
+python3 - "$TEMP/read.sql" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().rstrip() + ';\n'
+s = s.replace("RAISE EXCEPTION 'Client not found'", "RAISE EXCEPTION 'Client  not found'", 1)
+open(p, 'w').write(s)
+PY
+sql -f "$TEMP/read.sql" >/dev/null
+expect_fail 'differs from the reviewed preimage' "$WINDOWS"
+test -z "$(sql -tAX -c "SELECT to_regprocedure('private.policy_commission_expected_schedule(date,text)')")" || { echo 'FAIL: helper leaked'; exit 1; }
+new_db windows_inventory applied
+inventory > "$TEMP/inventory.before"
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$WINDOWS" >/dev/null
+inventory > "$TEMP/inventory.after"
+commission_inventory > "$TEMP/commission.after"
+diff -u "$TEMP/inventory.before" "$TEMP/inventory.after" || { echo 'FAIL: expected windows changed existing non-commission objects'; exit 1; }
+# Replaced functions keep owner, definer flag and ACL; only their bodies change. Added: four writer-only helpers.
+grep '^f|' "$TEMP/commission.before" | cut -d'|' -f1-5 | LC_ALL=C sort > "$TEMP/meta.before"
+grep '^f|' "$TEMP/commission.after" | cut -d'|' -f1-5 | LC_ALL=C sort > "$TEMP/meta.after"
+test "$(LC_ALL=C comm -23 "$TEMP/meta.before" "$TEMP/meta.after" | wc -l)" = 0 || { echo 'FAIL: a function lost its owner or ACL'; exit 1; }
+ADDED=$(LC_ALL=C comm -13 "$TEMP/meta.before" "$TEMP/meta.after" | cut -d'|' -f2 | LC_ALL=C sort | tr '\n' ' ')
+[ "$ADDED" = 'private.policy_commission_business_day_after(date,integer) private.policy_commission_expected_schedule(date,text) private.policy_commission_fed_holiday(date) private.policy_commission_iso_date(text) ' ] \
+  || { echo "FAIL: unexpected new functions: $ADDED"; exit 1; }
+LC_ALL=C comm -13 "$TEMP/meta.before" "$TEMP/meta.after" | grep -q 'agentflow_policy_commission_writer=X/postgres}$' || { echo 'FAIL: helper ACL'; exit 1; }
+CHANGED=$(LC_ALL=C comm -13 <(grep '^f|' "$TEMP/commission.before" | LC_ALL=C sort) <(grep '^f|' "$TEMP/commission.after" | LC_ALL=C sort) | cut -d'|' -f2 \
+  | grep -v -E '_(business_day_after|expected_schedule|fed_holiday|iso_date)\(' | LC_ALL=C sort | tr '\n' ' ')
+[ "$CHANGED" = 'get_client_policy_commissions(uuid) private.policy_commission_estimate_state(uuid) private.policy_commission_guard() private.policy_commission_insert_estimate(uuid,uuid,jsonb,jsonb,jsonb,uuid,text,uuid,text,jsonb,text,text) private.policy_commission_policy_facts(uuid[]) record_policy_commission_estimate_later(uuid,uuid,jsonb,uuid,bigint,text) set_policy_commission_installment_timing(uuid,uuid,bigint,text,date) set_policy_commission_schedule_basis(uuid,uuid,bigint,date,text) ' ] \
+  || { echo "FAIL: unexpected replaced functions: $CHANGED"; exit 1; }
+expect_fail 'already applied; refusing replay' "$WINDOWS"
+echo "PASS expected windows guards and inventory (8 bodies replaced, 4 writer-only helpers, $(wc -l < "$TEMP/inventory.before") other objects unchanged)"
+new_db expected_windows
+run_suite "$ROOT/supabase/tests/policy_commission_expected_windows.sql"
 
 # ── 2. Independent sessions: duplicate submissions, receipt vs replacement, first-policy edits, lock contention ──
 new_db races
@@ -219,13 +287,14 @@ for label, body in steps:
     if label == 'identity upgrade':
         out += [('commission grid schema', migration('commission_grids_schema')),
                 ('commission grid operations', migration('commission_grids_operations')),
-                ('policy commission tracking', migration('policy_commission_tracking'))]
-assert sum(1 for label, _ in out if label == 'policy commission tracking') == 1
+                ('policy commission tracking', migration('policy_commission_tracking')),
+                ('policy commission expected windows', migration('policy_commission_expected_windows'))]
+assert sum(1 for label, _ in out if label == 'policy commission expected windows') == 1
 for label, body in out:
     print('-- ' + label + '\nBEGIN;\n' + body + '\nCOMMIT;')
 PY
 sql -f "$TEMP/existing.sql" > "$TEMP/existing.log" 2>&1 || { tail -30 "$TEMP/existing.log"; echo 'FAIL: existing suites with the migration'; exit 1; }
-echo 'PASS existing sale recording, identity, performance, Sold Date and repair suites with the migration applied'
+echo 'PASS existing sale recording, identity, performance, Sold Date and repair suites with both migrations applied'
 
 # ── 4. Rollback: refuses while records exist; otherwise restores the exact inventory and can be reapplied ──
 new_db rollback_refusal
@@ -245,6 +314,29 @@ expect_fail 'not installed; refusing replay' "$ROLLBACK"
 sql -1 -f "$MIGRATION" >/dev/null
 run_suite "$ROOT/supabase/tests/policy_commission_security.sql"
 echo 'PASS non-destructive rollback, refusal, replay refusal and reapply'
+# Expected windows rollback: refuses once a schedule field is in use; otherwise restores 20261019170000 exactly.
+new_db windows_rollback_refusal
+sql -c "SELECT pc_login(11); SET ROLE authenticated; SELECT create_client_with_sale_handoff(test_id(9501), test_id(1), pc_client('Dated', 11, '50.00'), true,
+  pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));" >/dev/null
+expect_fail 'refusing to discard them' "$WINDOWS_ROLLBACK"
+sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_installments WHERE expected_until IS NOT NULL) = 4, 'refused rollback kept the windows')" >/dev/null
+new_db windows_rollback_rows
+sql -c "SELECT pc_login(11); SET ROLE authenticated; SELECT create_client_with_sale_handoff(test_id(9502), test_id(1), pc_client('Undated', 11, '50.00') - 'effective_date',
+  true, pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));" >/dev/null
+sql -1 -f "$WINDOWS_ROLLBACK" >/dev/null
+sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_estimates) = 1 AND (SELECT count(*) FROM policy_commission_installments) = 4,
+          'a rollback with no schedule fields in use keeps every record')" >/dev/null
+sql -1 -f "$WINDOWS" >/dev/null
+new_db windows_rollback applied
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$WINDOWS" >/dev/null
+sql -1 -f "$WINDOWS_ROLLBACK" >/dev/null
+commission_inventory > "$TEMP/commission.rolledback"
+diff -u "$TEMP/commission.before" "$TEMP/commission.rolledback" || { echo 'FAIL: expected windows rollback did not restore 20261019170000'; exit 1; }
+expect_fail 'not installed; refusing replay' "$WINDOWS_ROLLBACK"
+sql -1 -f "$WINDOWS" >/dev/null
+run_suite "$ROOT/supabase/tests/policy_commission_expected_windows.sql"
+echo "PASS expected windows rollback: refusal, record-keeping rollback, exact restore ($(wc -l < "$TEMP/commission.before") commission catalog lines), replay refusal and reapply"
 
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
