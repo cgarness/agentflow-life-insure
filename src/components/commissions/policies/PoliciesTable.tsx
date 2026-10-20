@@ -24,12 +24,12 @@ function NextPayment({ row }: { row: PolicyRow }) {
   );
 }
 
-/** One row per policy (stable policy id) credited to the seller. */
-export function PoliciesTable({ rows, onOpen }: { rows: PolicyRow[] | null; onOpen: OpenPolicy }) {
+/** One row per policy (stable policy id) credited to the seller. `pending`: the earlier page while the next loads (inert). */
+export function PoliciesTable({ rows, onOpen, pending = false }: { rows: PolicyRow[] | null; onOpen: OpenPolicy; pending?: boolean }) {
   if (rows === null) return <LoadingBlock label="Loading policies…" rows={5} />;
   if (rows.length === 0) return <CenterEmpty title="No policies match these filters" />;
   return (
-    <div role="table" aria-label="Policies" className="text-sm">
+    <div role="table" aria-label="Policies" aria-busy={pending} className={`text-sm ${pending ? "opacity-60" : ""}`}>
       <div role="row" className={`hidden px-2 pb-2 text-xs font-medium text-muted-foreground ${GRID}`}>
         <span role="columnheader">Client / policy</span><span role="columnheader">Effective</span>
         <span role="columnheader" className="text-right">Estimate</span><span role="columnheader" className="text-right">Received</span>
@@ -42,7 +42,7 @@ export function PoliciesTable({ rows, onOpen }: { rows: PolicyRow[] | null; onOp
           return (
             <div role="row" key={row.policy_id} className={`grid grid-cols-2 gap-x-3 gap-y-1 px-2 py-2.5 hover:bg-muted/30 ${GRID}`}>
               <span role="cell" className="col-span-2 md:col-span-1">
-                <button type="button" onClick={() => onOpen(row.policy_id)} className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <button type="button" disabled={pending} onClick={() => onOpen(row.policy_id)} className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <PolicyIdentity contact={row.contact} detail={[row.carrier, row.product].filter(Boolean).join(" · ") || "Policy"} />
                 </button>
               </span>
@@ -53,7 +53,7 @@ export function PoliciesTable({ rows, onOpen }: { rows: PolicyRow[] | null; onOp
               <span role="cell" className="col-span-2 md:col-span-1"><NextPayment row={row} /></span>
               <span role="cell" className="col-span-2 md:col-span-1">
                 {row.setup === "missing" ? (
-                  <button type="button" className="font-medium text-primary hover:underline" onClick={() => onOpen(row.policy_id)}>Record estimate</button>
+                  <button type="button" disabled={pending} className="font-medium text-primary hover:underline disabled:no-underline" onClick={() => onOpen(row.policy_id)}>Record estimate</button>
                 ) : setup ? <Chip tone={setup.tone}>{setup.label}</Chip> : null}
               </span>
             </div>

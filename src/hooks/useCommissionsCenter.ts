@@ -1,18 +1,20 @@
-import { useQuery, type Query } from "@tanstack/react-query";
+import { hashKey, useQuery, type Query } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { usePermissions } from "@/hooks/usePermissions";
 import { CALCULATOR_PERMISSION } from "@/hooks/useCommissionCalculator";
 import { commissionCenterApi } from "@/lib/commission/centerApi";
-import { periodReady, type CommissionPeriod, type HistoryFilter, type PoliciesFilter, type ScheduledFilter } from "@/lib/commission/centerFilters";
+import {
+  effectiveScheduled, periodReady, scheduledReady, type CommissionPeriod, type HistoryFilter, type PoliciesFilter, type ScheduledFilter,
+} from "@/lib/commission/centerFilters";
 
 /**
  * Commissions center access and reads. The page, its navigation item and every read require the existing "View Own
  * Commission Percentage" toggle (the same one the server enforces); nothing is requested under "View As" (the server
  * would answer for the real user). Keys sit under the ["policy-commissions"] prefix, so every tracking write
  * (useTrackingMutation → useRefreshPolicyCommissions) refreshes the center, the drawer and the contact view together.
- * They include the signed-in user, organization and every filter, so an earlier identity's or filter's result is never
- * shown for a newer one.
+ * They include the signed-in user, organization and every effective filter, so an earlier identity's or filter's result
+ * is never shown for a newer one.
  */
 export function useCommissionsAccess() {
   const { user, isImpersonating } = useAuth();
@@ -36,10 +38,18 @@ export const commissionCenterKeys = {
 
 const common = { staleTime: 15_000, retry: false } as const;
 
-/** Keeps the previous page on screen while the next loads, but only for the same signed-in user and organization. */
-function previousPageFor<T>(userId: string | null, orgId: string | null) {
+/** Everything that identifies a list's result except its page. */
+const listIdentity = (key: readonly unknown[]) => hashKey([key[2], key[3], key[4], { ...(key[5] as object), page: 0 }]);
+
+/**
+ * Keeps the shown page on screen (as placeholder data, marked by `isPlaceholderData`) only while ANOTHER PAGE of the same
+ * effective filter loads for the same user and organization. A changed filter or identity gets no placeholder: the list
+ * shows its loading state until its own rows arrive, and a failed request shows the error.
+ */
+function previousPageFor<T>(key: readonly unknown[]) {
+  const identity = listIdentity(key);
   return (previous: T | undefined, query: Query<T, Error, T, readonly unknown[]> | undefined) =>
-    query && query.queryKey[2] === userId && query.queryKey[3] === orgId ? previous : undefined;
+    query && listIdentity(query.queryKey) === identity ? previous : undefined;
 }
 
 export function useCommissionOverview(period: CommissionPeriod) {
@@ -54,33 +64,37 @@ export function useCommissionOverview(period: CommissionPeriod) {
 
 export function useScheduledPayments(filter: ScheduledFilter) {
   const a = useCommissionsAccess();
+  const effective = effectiveScheduled(filter);
+  const queryKey = commissionCenterKeys.scheduled(a.userId, a.orgId, effective);
   return useQuery({
-    queryKey: commissionCenterKeys.scheduled(a.userId, a.orgId, filter),
-    queryFn: ({ signal }) => commissionCenterApi.scheduled(filter, signal),
-    enabled: a.enabled && periodReady(filter.period),
-    placeholderData: previousPageFor(a.userId, a.orgId),
+    queryKey,
+    queryFn: ({ signal }) => commissionCenterApi.scheduled(effective, signal),
+    enabled: a.enabled && scheduledReady(effective),
+    placeholderData: previousPageFor(queryKey),
     ...common,
   });
 }
 
 export function usePaymentHistory(filter: HistoryFilter) {
   const a = useCommissionsAccess();
+  const queryKey = commissionCenterKeys.history(a.userId, a.orgId, filter);
   return useQuery({
-    queryKey: commissionCenterKeys.history(a.userId, a.orgId, filter),
+    queryKey,
     queryFn: ({ signal }) => commissionCenterApi.history(filter, signal),
     enabled: a.enabled && periodReady(filter.period),
-    placeholderData: previousPageFor(a.userId, a.orgId),
+    placeholderData: previousPageFor(queryKey),
     ...common,
   });
 }
 
 export function useCommissionPolicies(filter: PoliciesFilter) {
   const a = useCommissionsAccess();
+  const queryKey = commissionCenterKeys.policies(a.userId, a.orgId, filter);
   return useQuery({
-    queryKey: commissionCenterKeys.policies(a.userId, a.orgId, filter),
+    queryKey,
     queryFn: ({ signal }) => commissionCenterApi.policies(filter, signal),
     enabled: a.enabled,
-    placeholderData: previousPageFor(a.userId, a.orgId),
+    placeholderData: previousPageFor(queryKey),
     ...common,
   });
 }

@@ -5,6 +5,7 @@ import { PAGE_SIZE, SETUP_FILTERS, SETUP_LABELS, parsePolicies, withParam } from
 import type { OpenPolicy } from "../CommissionDrawer";
 import { FilterSelect, InfoTip, Pager } from "../shared/Bits";
 import { CenterError } from "../shared/CenterState";
+import { useCarrierOptions } from "../shared/useCarrierOptions";
 import { PoliciesTable } from "./PoliciesTable";
 
 const ALL = "__all__";
@@ -15,8 +16,9 @@ export function PoliciesTab({ onOpen }: { onOpen: OpenPolicy }) {
   const filter = parsePolicies(params);
   const query = useCommissionPolicies(filter);
   const data = query.data;
+  const pending = query.isPlaceholderData;
   const counts = data?.counts;
-  const carriers = data?.carriers ?? (filter.carrier ? [filter.carrier] : []);
+  const carriers = useCarrierOptions(data?.carriers, filter.carrier);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -44,9 +46,9 @@ export function PoliciesTab({ onOpen }: { onOpen: OpenPolicy }) {
       {!data && query.isError ? <CenterError error={query.error} onRetry={() => void query.refetch()} /> : (
         <>
           {data && query.isError && <CenterError compact error={query.error} onRetry={() => void query.refetch()} />}
-          <PoliciesTable rows={data?.rows ?? null} onOpen={onOpen} />
+          <PoliciesTable rows={data?.rows ?? null} onOpen={onOpen} pending={pending} />
           {data && (
-            <Pager label="Policy pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count}
+            <Pager label="Policy pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count} pending={pending}
               onPage={(page) => setParams(withParam(params, "page", String(page), "1"))} />
           )}
         </>

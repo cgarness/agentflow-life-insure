@@ -3,12 +3,13 @@ import { useScheduledPayments } from "@/hooks/useCommissionsCenter";
 import { formatCents } from "@/lib/commission/installments";
 import {
   KIND_LABELS, PAGE_SIZE, PAYMENT_KINDS, SCHEDULED_SCOPES, SCHEDULED_STATUSES, SCOPE_LABELS, STATUS_LABELS, parseScheduled,
-  periodReady, withParam, writePeriod, type PaymentKindFilter,
+  scheduledReady, withParam, writePeriod, type PaymentKindFilter,
 } from "@/lib/commission/centerFilters";
 import { CommissionPeriodControl } from "../CommissionPeriodControl";
 import type { OpenPolicy } from "../CommissionDrawer";
 import { FilterSelect, Pager } from "../shared/Bits";
 import { CenterError } from "../shared/CenterState";
+import { useCarrierOptions } from "../shared/useCarrierOptions";
 import { ScheduledTable } from "./ScheduledTable";
 
 const ALL = "__all__";
@@ -19,8 +20,9 @@ export function ScheduledView({ onOpen }: { onOpen: OpenPolicy }) {
   const filter = parseScheduled(params);
   const query = useScheduledPayments(filter);
   const data = query.data;
+  const pending = query.isPlaceholderData;
   const set = (key: string, value: string | null, fallback?: string) => setParams(withParam(params, key, value, fallback));
-  const carriers = data?.carriers ?? (filter.carrier ? [filter.carrier] : []);
+  const carriers = useCarrierOptions(data?.carriers, filter.carrier);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -37,12 +39,12 @@ export function ScheduledView({ onOpen }: { onOpen: OpenPolicy }) {
         <FilterSelect<string> label="Carrier" value={filter.carrier ?? ALL} className="w-44"
           options={[[ALL, "All carriers"], ...carriers.map((c) => [c, c] as const)]} onChange={(c) => set("carrier", c === ALL ? null : c)} />
       </div>
-      {!periodReady(filter.period) && filter.scope === "period" ? null : !data ? (
+      {!scheduledReady(filter) ? null : !data ? (
         query.isError ? <CenterError error={query.error} onRetry={() => void query.refetch()} /> : <ScheduledTable rows={null} onOpen={onOpen} />
       ) : (
         <>
           {query.isError && <CenterError compact error={query.error} onRetry={() => void query.refetch()} />}
-          <ScheduledTable rows={data.rows} onOpen={onOpen} />
+          <ScheduledTable rows={data.rows} onOpen={onOpen} pending={pending} />
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-sm">
             <span className="text-muted-foreground">{data.total_count} {data.total_count === 1 ? "payment" : "payments"}</span>
             <span className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
@@ -52,13 +54,13 @@ export function ScheduledView({ onOpen }: { onOpen: OpenPolicy }) {
               {data.totals.excess_cents > 0 && <span className="text-amber-800 dark:text-amber-200">{formatCents(data.totals.excess_cents)} above estimate</span>}
             </span>
           </div>
-          {data.held_count > 0 && filter.status !== "on_hold" && (
+          {data.held_count > 0 && filter.status !== "on_hold" && !pending && (
             <Link to={`?${withParam(params, "status", "on_hold").toString()}`} className="text-sm font-medium text-primary hover:underline">
               On hold: {data.held_count} not shown
             </Link>
           )}
           <Pager label="Scheduled payments pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count}
-            onPage={(page) => set("page", String(page), "1")} />
+            pending={pending} onPage={(page) => set("page", String(page), "1")} />
         </>
       )}
     </div>

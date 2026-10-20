@@ -25,6 +25,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
   const filter = parseHistory(params);
   const query = usePaymentHistory(filter);
   const data = query.data;
+  const pending = query.isPlaceholderData;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -40,7 +41,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
       ) : data.rows.length === 0 ? <CenterEmpty title="No payments recorded in this period" /> : (
         <>
           {query.isError && <CenterError compact error={query.error} onRetry={() => void query.refetch()} />}
-          <div role="table" aria-label="Payment history" className="text-sm">
+          <div role="table" aria-label="Payment history" aria-busy={pending} className={`text-sm ${pending ? "opacity-60" : ""}`}>
             <div role="row" className={`hidden px-2 pb-2 text-xs font-medium text-muted-foreground ${GRID}`}>
               <span role="columnheader">Received</span><span role="columnheader">Client / policy</span><span role="columnheader">Payment</span>
               <span role="columnheader" className="text-right">Amount</span><span role="columnheader">Corrections</span>
@@ -50,7 +51,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
                 <div role="row" key={row.receipt_id} className={`grid grid-cols-2 gap-x-3 gap-y-1 px-2 py-2.5 hover:bg-muted/30 ${GRID}`}>
                   <span role="cell" className="tabular-nums">{formatCalendarDate(row.received_on)}</span>
                   <span role="cell" className="order-first col-span-2 md:order-none md:col-span-1">
-                    <button type="button" onClick={() => onOpen(row.policy_id)} className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <button type="button" disabled={pending} onClick={() => onOpen(row.policy_id)} className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <PolicyIdentity contact={row.contact} detail={[row.carrier, row.product].filter(Boolean).join(" · ")} />
                     </button>
                   </span>
@@ -65,7 +66,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
             <span className="text-muted-foreground">{data.totals.valid_count} recorded{data.totals.voided_count > 0 ? ` · ${data.totals.voided_count} voided` : ""}</span>
             <span className="tabular-nums">Received <span className="font-semibold">{formatCents(data.totals.received_cents)}</span></span>
           </div>
-          <Pager label="Payment history pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count}
+          <Pager label="Payment history pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count} pending={pending}
             onPage={(page) => setParams(withParam(params, "page", String(page), "1"))} />
         </>
       )}

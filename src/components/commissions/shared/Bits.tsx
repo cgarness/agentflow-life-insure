@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { CenterContact } from "@/lib/commission/centerSchemas";
@@ -45,14 +45,19 @@ export function PolicyIdentity({ contact, detail }: { contact: CenterContact; de
   );
 }
 
-/** "1–25 of 80" with Previous / Next. */
-export function Pager({ page, pageSize, total, onPage, label }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; label: string }) {
+/** "1–25 of 80" with Previous / Next; "Updating…" while the requested page is still loading (the shown rows are the earlier page). */
+export function Pager({ page, pageSize, total, onPage, label, pending = false }: {
+  page: number; pageSize: number; total: number; onPage: (page: number) => void; label: string; pending?: boolean;
+}) {
   if (total <= pageSize) return null;
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, total);
   return (
     <nav aria-label={label} className="flex items-center justify-between gap-3 px-1 pt-3 text-xs text-muted-foreground">
-      <span className="tabular-nums">{first}–{last} of {total}</span>
+      <span className="flex items-center gap-3">
+        <span className="tabular-nums">{first}–{last} of {total}</span>
+        {pending && <span role="status" className="inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Updating…</span>}
+      </span>
       <span className="flex gap-2">
         <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}
           className="h-8 rounded-md border border-border px-3 text-foreground hover:bg-muted disabled:opacity-40">Previous</button>

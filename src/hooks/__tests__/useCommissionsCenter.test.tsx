@@ -79,6 +79,30 @@ describe("useCommissionsCenter", () => {
     expect(result.current.data).toBeUndefined();
   });
 
+  it("never keeps the previous result for a changed filter, only for another page of the same filter", async () => {
+    const { result, rerender } = renderHook(({ search }) => useScheduledPayments(parseScheduled(new URLSearchParams(search))),
+      { wrapper, initialProps: { search: "" } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const first = result.current.data;
+    h.hold = true;
+    rerender({ search: "page=2" });
+    expect(result.current.data).toBe(first);
+    expect(result.current.isPlaceholderData).toBe(true);
+    for (const search of ["status=received", "kind=advance", "carrier=Harbor%20Mutual", "dates=any", "period=last_month", "status=received&page=2"]) {
+      rerender({ search });
+      expect(result.current.data).toBeUndefined();
+    }
+  });
+
+  it("Next 90 days and Any date share one key and request whatever the hidden custom range holds", async () => {
+    const next90 = parseScheduled(new URLSearchParams("dates=next_90&period=custom&from=2026-10-05"));
+    const { result } = renderHook(() => useScheduledPayments(next90), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(h.calls.at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_period: "this_month", p_from: null, p_to: null });
+    expect(client.getQueryCache().findAll({ queryKey: ["policy-commissions", "center", USER, ORG, "scheduled"] })[0].queryKey)
+      .toEqual(commissionCenterKeys.scheduled(USER, ORG, parseScheduled(new URLSearchParams("dates=next_90"))));
+  });
+
   it("refreshes the center after any tracking write (shared prefix with the contact view)", async () => {
     const { result } = renderHook(() => ({ overview: useCommissionOverview(MONTH), refresh: useRefreshPolicyCommissions() }), { wrapper });
     await waitFor(() => expect(result.current.overview.isSuccess).toBe(true));

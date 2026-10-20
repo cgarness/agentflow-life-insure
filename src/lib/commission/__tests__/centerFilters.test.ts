@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  customPeriod, historyHref, parseHistory, parsePeriod, parsePolicies, parseScheduled, periodArgs, periodReady, policiesHref,
-  scheduledHref, tabPath, withParam, writePeriod,
+  customPeriod, effectiveScheduled, historyHref, parseHistory, parsePeriod, parsePolicies, parseScheduled, periodArgs, periodReady,
+  policiesHref, scheduledHref, scheduledReady, tabPath, withParam, writePeriod,
 } from "../centerFilters";
 
 const q = (s: string) => new URLSearchParams(s);
@@ -21,6 +21,21 @@ describe("commissions center URL filters", () => {
     expect(periodReady(customPeriod("2026-10-01", "2026-10-05"))).toBe(true);
     expect(periodArgs({ preset: "last_month", from: "2026-01-01", to: "2026-01-02" })).toEqual({ p_period: "last_month", p_from: null, p_to: null });
     expect(periodArgs(customPeriod("2026-10-01", "2026-10-05"))).toEqual({ p_period: "custom", p_from: "2026-10-01", p_to: "2026-10-05" });
+  });
+
+  it("Scheduled: the period counts only for Selected period; Next 90 days and Any date ignore a hidden custom range", () => {
+    const month = { preset: "this_month", from: null, to: null };
+    for (const search of ["dates=next_90&period=custom", "dates=any&period=custom&from=2026-10-05", "dates=any&period=last_year"]) {
+      const effective = effectiveScheduled(parseScheduled(q(search)));
+      expect(effective.period).toEqual(month);
+      expect(scheduledReady(parseScheduled(q(search)))).toBe(true);
+    }
+    expect(effectiveScheduled(parseScheduled(q("dates=next_90&period=custom&status=received"))))
+      .toEqual(effectiveScheduled(parseScheduled(q("dates=next_90&status=received"))));
+    const unfinished = parseScheduled(q("period=custom&from=2026-10-05"));
+    expect(effectiveScheduled(unfinished)).toBe(unfinished);
+    expect(scheduledReady(unfinished)).toBe(false);
+    expect(scheduledReady(parseScheduled(q("period=custom&from=2026-10-01&to=2026-10-05")))).toBe(true);
   });
 
   it("parses list filters with defaults; a filter change returns to page 1", () => {

@@ -19,6 +19,7 @@ export const PERIOD_LABELS: Record<PeriodPreset, string> = {
   all: "All time", custom: "Custom range",
 };
 export interface CommissionPeriod { preset: PeriodPreset; from: string | null; to: string | null }
+export const DEFAULT_PERIOD: CommissionPeriod = { preset: "this_month", from: null, to: null };
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => d >= "2000-01-01" && d <= "2100-12-31");
 const presetSchema = z.enum(PERIOD_PRESETS);
@@ -79,6 +80,13 @@ export interface ScheduledFilter { period: CommissionPeriod; scope: ScheduledSco
   carrier: string | null; page: number }
 export interface HistoryFilter { period: CommissionPeriod; includeVoided: boolean; page: number }
 export interface PoliciesFilter { setup: SetupFilter; carrier: string | null; page: number }
+
+/**
+ * The filter a Scheduled read actually uses. The period counts only for "Selected period"; "Next 90 days" and "Any
+ * date" ignore it (the server does too), so a hidden or unfinished custom range never blocks them or reaches the RPC.
+ */
+export const effectiveScheduled = (f: ScheduledFilter): ScheduledFilter => (f.scope === "period" ? f : { ...f, period: DEFAULT_PERIOD });
+export const scheduledReady = (f: ScheduledFilter) => f.scope !== "period" || periodReady(f.period);
 
 export const parseView = (params: URLSearchParams) => (params.get("view") === "history" ? "history" : "scheduled") as "scheduled" | "history";
 
