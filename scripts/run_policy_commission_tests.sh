@@ -3,11 +3,13 @@
 # Synthetic data only. Refuses anything but a loopback cluster without hosted platform roles.
 #   PGURL=postgres://postgres@127.0.0.1:<port> bash scripts/run_policy_commission_tests.sh
 # Optional: POSTGREST_BIN=/path/to/postgrest (12.2.3) adds the real PostgREST + supabase-js integration;
-#           PC_MEASURE=1 adds the save-overhead measurement (scripts/tests/policy_commission/measure_save_overhead.sh).
+#           PC_MEASURE=1 adds the save-overhead measurement (scripts/tests/policy_commission/measure_save_overhead.sh)
+#           and the commissions center read timing (measure_center_reads.sh; PC_CENTER_POLICIES, default 500).
 # Steps: migration preimage/replay guards · ACL and ownership inventory diff · security, handoff and tracking suites ·
-# expected-windows migration (20261020040000) guards, inventory and suite · independent-session races and lock
-# contention · existing sale/identity/reporting suites with both migrations applied · non-destructive rollbacks,
-# refusal and reapply. Scenarios run with both migrations (the production end state) unless marked otherwise.
+# expected-windows migration (20261020040000) guards, inventory and suite · commissions center reads (20261020180000)
+# guards, drift refusal, inventory and suite · independent-session races and lock contention · existing
+# sale/identity/reporting suites with both migrations applied · non-destructive rollbacks, refusal and reapply.
+# Scenarios run with both applied migrations (the production end state) unless marked otherwise.
 set -euo pipefail
 : "${PGURL:?Disposable localhost PostgreSQL cluster URL, without database path, required}"
 python3 - "$PGURL" <<'PY'
@@ -28,6 +30,9 @@ MIGRATION="$ROOT/supabase/migrations/20261019170000_policy_commission_tracking.s
 ROLLBACK="$ROOT/supabase/migrations/rollback/20261019170000_policy_commission_tracking.rollback.sql"
 WINDOWS="$ROOT/supabase/migrations/20261020040000_policy_commission_expected_windows.sql"
 WINDOWS_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020040000_policy_commission_expected_windows.rollback.sql"
+CENTER="$ROOT/supabase/migrations/20261020180000_policy_commission_center_reads.sql"
+CENTER_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql"
+CENTER_HARNESS="$ROOT/supabase/tests/policy_commission_center_harness.sql"
 DATABASES=()
 drop_roles() {
   for role in agentflow_policy_commission_writer agentflow_comp_operator; do
@@ -65,6 +70,8 @@ new_db() {
   if [ "${2:-}" != bare ]; then sql -1 -f "$MIGRATION" >/dev/null; fi
   if [ -z "${2:-}" ]; then sql -1 -f "$WINDOWS" >/dev/null; fi
 }
+# center_db NAME: both applied migrations, the center harness and 20261020180000.
+center_db() { new_db "$1"; sql -f "$CENTER_HARNESS" >/dev/null; sql -1 -f "$CENTER" >/dev/null; }
 run_suite() { sql -v defaults="$(cat "$ROOT/supabase/tests/fixtures/policy_commission/permission_defaults.json")" -f "$1" | grep -E '^ *PASS' ; }
 expect_fail() { # expect_fail PATTERN FILE: the file must fail with an error matching PATTERN
   if sql -1 -f "$2" > "$TEMP/out" 2>&1; then echo "FAIL: $2 unexpectedly applied"; exit 1; fi
@@ -182,6 +189,55 @@ expect_fail 'already applied; refusing replay' "$WINDOWS"
 echo "PASS expected windows guards and inventory (8 bodies replaced, 4 writer-only helpers, $(wc -l < "$TEMP/inventory.before") other objects unchanged)"
 new_db expected_windows
 run_suite "$ROOT/supabase/tests/policy_commission_expected_windows.sql"
+
+# ── 1c. Commissions center reads (20261020180000): guards, drift refusal, existing-object inventory, suite ────
+new_db center_guards applied
+sql -f "$CENTER_HARNESS" >/dev/null
+expect_fail 'require 20261019170000 and 20261020040000' "$CENTER"
+new_db center_drift
+sql -f "$CENTER_HARNESS" >/dev/null
+# An authorization function that drifted from its applied definition is refused; nothing is created.
+sql -c "SELECT pg_get_functiondef('policy_commission_authz.access(uuid)'::regprocedure)" -tAX > "$TEMP/access.sql"
+python3 - "$TEMP/access.sql" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().rstrip() + ';\n'
+s = s.replace("IF p_agent IS NULL THEN RETURN NULL; END IF;", "IF p_agent IS NULL THEN RETURN NULL;  END IF;", 1)
+open(p, 'w').write(s)
+PY
+sql -f "$TEMP/access.sql" >/dev/null
+expect_fail 'differs from the reviewed preimage' "$CENTER"
+test -z "$(sql -tAX -c "SELECT to_regnamespace('policy_commission_reporting')")" || { echo 'FAIL: reporting schema leaked'; exit 1; }
+new_db center_inventory
+sql -f "$CENTER_HARNESS" >/dev/null
+inventory > "$TEMP/inventory.before"
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$CENTER" >/dev/null
+inventory > "$TEMP/inventory.after"
+commission_inventory > "$TEMP/commission.after"
+# Nothing existing changes: no line is removed or altered. Added: the five public reads (the general inventory's name
+# filter omits get_my_policy_commission) and the two indexes on Phase 2A tables. The reporting schema's own helpers
+# are checked by the suite.
+test "$(LC_ALL=C comm -23 <(LC_ALL=C sort "$TEMP/inventory.before") <(LC_ALL=C sort "$TEMP/inventory.after") | wc -l)" = 0 \
+  || { echo 'FAIL: the center reads changed an existing object'; exit 1; }
+test "$(LC_ALL=C comm -23 <(LC_ALL=C sort "$TEMP/commission.before") <(LC_ALL=C sort "$TEMP/commission.after") | wc -l)" = 0 \
+  || { echo 'FAIL: the center reads changed a commission object'; exit 1; }
+ADDED=$(LC_ALL=C comm -13 <(LC_ALL=C sort "$TEMP/inventory.before") <(LC_ALL=C sort "$TEMP/inventory.after") | cut -d'|' -f2 | LC_ALL=C sort | tr '\n' ' ')
+[ "$ADDED" = 'get_my_commission_installments(text,date,date,text,text,text,text,integer,integer) get_my_commission_overview(text,date,date) get_my_commission_policies(text,text,integer,integer) get_my_commission_receipts(text,date,date,boolean,integer,integer) ' ] \
+  || { echo "FAIL: unexpected new objects: $ADDED"; exit 1; }
+LC_ALL=C comm -13 <(LC_ALL=C sort "$TEMP/commission.before") <(LC_ALL=C sort "$TEMP/commission.after") > "$TEMP/commission.added"
+ADDED=$(grep -E '^(f|r)\|' "$TEMP/commission.added" | cut -d'|' -f1-2 | LC_ALL=C sort | tr '\n' ' ')
+[ "$ADDED" = 'f|get_my_commission_installments(text,date,date,text,text,text,text,integer,integer) f|get_my_commission_overview(text,date,date) f|get_my_commission_policies(text,text,integer,integer) f|get_my_commission_receipts(text,date,date,boolean,integer,integer) f|get_my_policy_commission(uuid) r|policy_commission_captures_agent_open r|policy_commission_receipts_agent_received ' ] \
+  || { echo "FAIL: unexpected new commission objects: $ADDED"; exit 1; }
+# Column lines appear only for the two new indexes and the two reporting row types; no constraint or schema line changes.
+ADDED=$(grep -E '^a\|' "$TEMP/commission.added" | cut -d'|' -f2 | LC_ALL=C sort -u | tr '\n' ' ')
+[ "$ADDED" = 'policy_commission_captures_agent_open policy_commission_receipts_agent_received policy_commission_reporting.installment_fact policy_commission_reporting.policy_fact ' ] \
+  || { echo "FAIL: unexpected new commission columns: $ADDED"; exit 1; }
+! grep -qvE '^(f|r|a)\|' "$TEMP/commission.added" || { echo 'FAIL: unexpected commission catalog lines'; exit 1; }
+expect_fail 'already applied; refusing replay' "$CENTER"
+echo "PASS commissions center guards and inventory (5 reads, 2 indexes, $(wc -l < "$TEMP/inventory.before") existing objects unchanged)"
+center_db center
+run_suite "$ROOT/supabase/tests/policy_commission_center.sql"
 
 # ── 2. Independent sessions: duplicate submissions, receipt vs replacement, first-policy edits, lock contention ──
 new_db races
@@ -337,14 +393,40 @@ expect_fail 'not installed; refusing replay' "$WINDOWS_ROLLBACK"
 sql -1 -f "$WINDOWS" >/dev/null
 run_suite "$ROOT/supabase/tests/policy_commission_expected_windows.sql"
 echo "PASS expected windows rollback: refusal, record-keeping rollback, exact restore ($(wc -l < "$TEMP/commission.before") commission catalog lines), replay refusal and reapply"
+# Commissions center rollback: restores both inventories exactly (it owns no data), keeps every record, refuses replay.
+new_db center_rollback
+sql -f "$CENTER_HARNESS" >/dev/null
+inventory > "$TEMP/inventory.before"
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$CENTER" >/dev/null
+sql -c "SELECT pc_login(11); SET ROLE authenticated; SELECT create_client_with_sale_handoff(test_id(9601), test_id(1), pc_client('Reported', 11, '50.00'), true,
+  pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));" >/dev/null
+sql -1 -f "$CENTER_ROLLBACK" >/dev/null
+inventory > "$TEMP/inventory.rolledback"
+commission_inventory > "$TEMP/commission.rolledback"
+diff -u "$TEMP/inventory.before" "$TEMP/inventory.rolledback" || { echo 'FAIL: center rollback did not restore the inventory'; exit 1; }
+diff -u "$TEMP/commission.before" "$TEMP/commission.rolledback" || { echo 'FAIL: center rollback did not restore the commission catalog'; exit 1; }
+test -z "$(sql -tAX -c "SELECT to_regnamespace('policy_commission_reporting')")" || { echo 'FAIL: reporting schema remains'; exit 1; }
+sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_estimates) = 1, 'the center rollback keeps every commission record')" >/dev/null
+expect_fail 'not installed; refusing replay' "$CENTER_ROLLBACK"
+sql -1 -f "$CENTER" >/dev/null
+sql -c "SELECT pc_login(11); SET ROLE authenticated;
+  SELECT test_assert((get_my_commission_overview()#>>'{setup,with_estimate_count}')::integer = 1, 'reapplied reads see the kept estimate')" >/dev/null
+echo 'PASS commissions center rollback: exact restore, records kept, replay refusal and reapply'
 
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
   new_db postgrest
   PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/postgrest_integration.mjs"
 fi
+if [ -n "${POSTGREST_BIN:-}" ]; then
+  center_db postgrest_center
+  PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/commission_center_postgrest.mjs"
+fi
 if [ "${PC_MEASURE:-}" = 1 ]; then
   new_db measure
   DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_save_overhead.sh"
+  center_db measure_center
+  DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_center_reads.sh"
 fi
 echo 'PASS policy commission tracking database proofs'
