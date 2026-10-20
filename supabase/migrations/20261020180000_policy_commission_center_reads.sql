@@ -427,7 +427,7 @@ BEGIN
     SELECT DISTINCT ON (n.policy_id) n.policy_id, jsonb_build_object('kind', n.kind, 'timing_precision', n.timing_precision,
              'expected_on', n.expected_on, 'expected_until', n.expected_until, 'remaining_cents', n.remaining_cents,
              'status', n.status) AS next_payment
-      FROM inst n WHERE n.remaining_cents > 0 AND n.estimate_status = 'active'
+      FROM inst n WHERE n.remaining_cents > 0
      ORDER BY n.policy_id, n.sequence),
   agg AS (
     SELECT f.policy_id, sum(f.received_cents)::bigint AS received, sum(f.remaining_cents)::bigint AS remaining,

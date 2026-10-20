@@ -355,6 +355,10 @@ SELECT test_assert((SELECT (r->>'received_cents')::bigint = 50000 AND (r->>'rema
                    'policy row: estimate, received, remaining, excess, next payment, effective date and contact');
 SELECT test_assert((SELECT (r->>'date_needed_count')::integer = 4 FROM jsonb_array_elements(cc_get('policies')->'rows') r
                      WHERE (r->>'policy_id')::uuid = cc_policy('Delta')), 'policy row counts its Date needed payments');
+SELECT test_assert((SELECT r->>'setup' = 'on_hold' AND r#>>'{next_payment,kind}' = 'advance' AND r#>>'{next_payment,status}' = 'on_hold'
+                          AND (r#>>'{next_payment,remaining_cents}')::bigint = 42975 - 10000
+                     FROM jsonb_array_elements(cc_get('policies')->'rows') r WHERE (r->>'policy_id')::uuid = cc_policy('Gamma')),
+                   'a held policy still shows its next unpaid payment (marked on hold)');
 SELECT cc_put('walk_policies', cc_walk('SELECT get_my_commission_policies(''all'', NULL, %s, %s)', 'policy_id', 5));
 SELECT test_assert((cc_get('walk_policies')->>'distinct')::integer = 12 AND (cc_get('walk_policies')->>'count')::integer = 12,
                    'policy pages cover every policy once');
