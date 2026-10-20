@@ -1,6 +1,7 @@
 import { saleMonthlyPremium } from "@/lib/policySaleRecording";
 import { TEAM_LEADER_ROLE } from "@/lib/effectiveViewer";
 import { calculateEstimate } from "./calculator";
+import type { CommissionEstimate } from "./estimate";
 import {
   LEVEL_MALFORMED_MESSAGE,
   LEVEL_MISSING_MESSAGE,
@@ -150,10 +151,20 @@ export function agentDisplayName(profile: { firstName: string; lastName: string;
 }
 
 // ── Outcome ────────────────────────────────────────────────────────────────────────────────────────
+/** The exact inputs behind a displayed estimate (Phase 2A sends them with the sale for server re-validation). */
+export interface PreviewEstimateBasis {
+  productId: string;
+  variantId: string;
+  age: number;
+  term: number | null;
+  monthlyPremium: string;
+  estimate: CommissionEstimate;
+}
+
 export type PreviewOutcome =
   | { kind: "hint"; message: string }
   | { kind: "unavailable"; message: string }
-  | { kind: "estimate"; firstYearCommission: Rational; advance: Rational };
+  | { kind: "estimate"; firstYearCommission: Rational; advance: Rational; basis: PreviewEstimateBasis };
 
 /** The monthly premium the sale writers would record, as exact text (never a float); "" when blank. */
 export function previewPremiumText(raw: string): string {
@@ -200,5 +211,13 @@ export function previewOutcome(
     kind: "estimate",
     firstYearCommission: result.estimate.firstYearCommission,
     advance: result.estimate.advance,
+    basis: {
+      productId: form.productId,
+      variantId: result.variantId,
+      age: form.age,
+      term: form.term,
+      monthlyPremium: form.monthlyPremium,
+      estimate: result.estimate,
+    },
   };
 }

@@ -1,6 +1,35 @@
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import type { Client } from "@/lib/types";
 import { getClientPolicyDisplay } from "@/lib/client-policy-display";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+
+// Loaded only when a policy with a stored identity is shown, so the policy list itself never loads the commission
+// code (or its data client).
+const PolicyCommissionSection = lazy(() =>
+  import("@/components/commission/policy/PolicyCommissionSection").then((module) => ({ default: module.PolicyCommissionSection })));
+
+/** A commission section that fails to load renders nothing; the contact view is unaffected. */
+class CommissionLoadBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+function PolicyCommission(props: { clientId: string; policyId: string; compact?: boolean }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicyCommissionSection {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
@@ -14,14 +43,20 @@ export function ClientPolicyCount({ client }: { client: Partial<Client> }) {
   return <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{policies.length} policies</span>;
 }
 
-/** Never edits or writes the reserved additional-policy array. */
+/**
+ * Never edits or writes the reserved additional-policy array. Each stored policy can carry its saved commission
+ * (Phase 2A); the commission section renders nothing unless the server lets the signed-in user see it.
+ */
 export function ClientPolicies({ client, formatDate }: {
   client: Partial<Client>;
   formatDate: (value: string) => string;
 }) {
   const { policies, malformedAdditionalPolicies } = getClientPolicyDisplay(client);
   const hasAdditional = policies.some(policy => policy.source === "additional");
-  if (!hasAdditional && malformedAdditionalPolicies === 0) return null;
+  if (!hasAdditional && malformedAdditionalPolicies === 0) {
+    const primary = policies.find(policy => policy.source === "primary");
+    return client.id && primary?.policyId ? <PolicyCommission clientId={client.id} policyId={primary.policyId} /> : null;
+  }
 
   return (
     <section aria-label="Policies" className="min-w-0 border-t border-border pt-3">
@@ -58,6 +93,7 @@ export function ClientPolicies({ client, formatDate }: {
                     </div>
                   ))}
                 </dl>
+                {client.id && policy.policyId && <PolicyCommission clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>
           );

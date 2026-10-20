@@ -1,3 +1,156 @@
+## 2026-10-20 05:36 UTC — LIVE (database only): Phase 2A expected-windows migration `20261020040000`
+
+Chris approved Gate 3b only for PR #469 (source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`). Applied
+`supabase/migrations/20261020040000_policy_commission_expected_windows.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it
+as **`20261020040000 / policy_commission_expected_windows`**: the stored statement's SHA-256
+`10897ad6123dc052e5cbe5340a821e3ce8595f99f1448e74832e18fb2d0a5ea8`, MD5 `44f590529c0a8bb574f253cc392eb78f` and 45,440
+bytes equal the file. Committed 05:36:31.86 UTC. No merge, deployment, preview-access change, backfill or production test
+write. Do not edit, rename or replay it (or `20261019170000`).
+
+- **Preflight (read-only):** base migration unchanged; 15/15 prerequisite fingerprints; new version, columns and helpers
+  absent; the one estimate satisfied the new checks; writer SET/membership and the two event triggers checked; no
+  concurrent session, lock or schema release; fingerprints, catalog, row digests and advisors (253 / 451) saved.
+- **Method:** the Gate 3 version-preserving wrapper (MD5/SHA-256/length gate, version and base checks, `EXECUTE` of the
+  unchanged text, back-to-`postgres` check, history row), rehearsed locally with replica event triggers: identical
+  dumps, triggers ran as the writer, replay / one byte / held lock each refused.
+- **Read-back:** exactly the intended change (8 bodies replaced with owners and ACLs unchanged, 4 writer-only helpers, 4
+  columns with writer-only UPDATE, rebuilt timing check, new schedule check, RLS and policies unchanged, writer has no
+  CREATE); digests equal the local reference; 7/7 sale writers unchanged; all other objects identical; every commission
+  row preserved, new columns at defaults, no writes; estimate `7e2c476a` and client `2325bc9d` untouched (still "Date
+  needed"); helpers give the reviewed dates on 17.6. Advisor delta: none added or removed.
+- **Correction:** the `cb0cdfc` 100-policy benchmark recorded a median of **99.5/100** estimates, not 100/100; the rest
+  are `budget_exhausted` captures, recoverable by confirmation (handoff suite "Aggregate budget").
+- **Repeated approval (14:57 UTC):** the same Gate 3b approval arrived again; not reapplied (version and objects already
+  present). A read-only re-check matched the post-apply read-back exactly (catalog, fingerprints, data, no writes,
+  advisors 253 / 451 with no delta).
+- **Open gates:** Agent own-client read on the updated preview (read-only; no share link until authorized); Gate 4;
+  classification of `2325bc9d` / `7e2c476a`. Record: `verification.md` §15.
+
+## 2026-10-20 — Phase 2A §13.7: simpler commission copy and expected date windows (local only; NOT live)
+
+Chris approved local implementation of plan §13 with the date-basis safeguard (§13.7) on draft PR #469. Production
+migration, merge, deployment, production-data cleanup and production test writes are not approved. Nothing hosted was
+queried or changed; migration `20261019170000` is untouched (SHA-256 `b3e4d53f…011f1f`).
+
+- **Dates.** New migration `20261020040000_policy_commission_expected_windows.sql` (SHA-256 `10897ad6…0a5ea8`, 45,440
+  bytes; guarded rollback). When an estimate is saved the server assumes the start from that policy's own Effective
+  Date — never Draft Date (the next scheduled draft) or another policy's dates — and saves windows of the 1st–3rd
+  Federal Reserve business day after each premium date (Advance; Months 10–12 at +9/+10/+11 months, clamped).
+  Non-monthly premiums get only the Advance window. Edit dates confirms the effective date, sets a first premium date
+  or clears it; manual payment dates (including "Date needed") always win; `automatic` returns a payment to the
+  schedule. Reads never write; no backfill; replacement carries the saved schedule. Same RPC signatures, so generated
+  types are unchanged.
+- **Copy.** Estimated commission · Received · Remaining; Advance / Month 10–12; "Expected Oct 5 – 7, 2026" or "Date
+  needed"; Record payment, Edit date, Edit dates; one ⓘ note. Pay-grid breakdown (`CommissionBasis.tsx`) and repeated
+  explanations removed; saved calculation provenance unchanged. Responses from before the migration still parse.
+- **Verification.** Disposable PostgreSQL 16.15: guards, inventory (8 bodies replaced, 4 writer-only helpers, 173
+  other objects unchanged), new suite (calendar 2000–2100, anchors, Draft Date ignored, frequencies, Edit dates,
+  overrides, carry, receipts, reads assign no transaction id, constraints, ACLs), existing suites, races, rollback
+  refusal/exact restore/reapply, PostgREST 12.2.3 (13 checks), advisors 93 → 93. Frontend: `npx tsc --noEmit` passes,
+  app typecheck identical to `main`, ESLint, build and `git diff --check` clean, CI set 523 passed, full Vitest 5,930
+  passed with the one failure that also fails on `main` (`recordingRetentionVoicemail` v29). Screenshots in
+  `docs/plans/2026-10-19-policy-commission-phase-2a/screenshots/s13-*`. Record: `verification.md` §14.
+- **Open gates.** Gate 3b (production apply of `20261020040000`, before Gate 4); Agent own-client read on the updated
+  preview (read-only; no share link until authorized); Gate 4 (merge and frontend release). The 02:10 UTC preview
+  conversion (client `2325bc9d`, estimate `7e2c476a`) still awaits Chris's classification and was not touched.
+
+## 2026-10-19 22:08 UTC — LIVE (database only): Phase 2A commission tracking migration `20261019170000`
+
+Chris approved Gate 3 only for PR #469 (source `fc05082b11573fbb88c50c429fd5c1867b8cfb98`). Applied
+`supabase/migrations/20261019170000_policy_commission_tracking.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it as
+**`20261019170000 / policy_commission_tracking`**: the stored statement's SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`, MD5 `689a0a41d3d3c124cb97e9640305831a` and 119,951
+bytes equal the file. Do not edit, rename or replay it. No merge, deployment, Vercel change or production test write.
+
+Preflight (read-only): AGENT_RULES/VISION/WORK_LOG re-read, no conflict; `main` unchanged at `84ba4f6`; seven preimage
+md5s matched; no new object existed; version free, latest was `20261019035819`; no lock waits, other sessions or
+pending schema release; existing-object fingerprints and advisor baselines (240 security / 432 performance) saved.
+Because `apply_migration` stamps its own version, the hosted SQL endpoint ran one transaction: the file's own
+`lock_timeout 1s` / `statement_timeout 60s`, then a block that refused unless the text's MD5, SHA-256 and length equal
+the reviewed file, refused if the version existed, executed the text unchanged and inserted the history row. Rehearsed
+on disposable PostgreSQL 16.15 first (schema identical to applying the file directly; replay, tampering and a held lock
+all refused with nothing left behind). It succeeded first time between 22:02:32 and 22:08:47 UTC.
+
+Read-back: every existing-object fingerprint is unchanged except the intended writer USAGE on `public`/`private`; the
+seven writer definitions are unchanged; the new objects equal a locally migrated reference (36 functions, 6 tables,
+88 constraints, 33 indexes including a valid `wins_commission_link_key`, 22 policies, 13 triggers, RLS on all six);
+tables grant only `authenticated` SELECT and the writer SELECT/INSERT plus 24 named UPDATE columns; no anon,
+service_role or PUBLIC access; the writer is NOLOGIN/NOBYPASSRLS with `postgres` its only member and no grant on any
+existing object. All six tables have 0 rows and no writes. Advisors: +13 intended authenticated SECURITY DEFINER
+WARNs, +13 unused-index INFOs on the new tables, and +12 `multiple_permissive_policies` WARNs naming the writer on
+eight existing `{public}`-policy tables, reviewed: the same 12 already exist for every other role, the writer has no
+privilege on those tables, and no policy changed. Nothing removed.
+
+PR #469 stays draft; its notes carry the final-head (`fc05082`, job `118281521488`) save measurements with the earlier
+`b599c96` run labelled. The deployed frontend still uses the legacy writers, so nothing writes the new tables yet.
+Outstanding, each needing separate approval: signed-in acceptance; Gate 4 (merge, frontend release, types regenerated
+from production). Do not test sales or commissions through any preview connected to production. Record:
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md` §13.
+
+---
+
+## 2026-10-19 — Phase 2A correction pass on draft PR #469 (NOT live)
+
+Chris approved a draft PR plus scoped corrections (reviewed checkpoint `d262d9a`; plan §12). Draft PR #469 targets
+`main` `84ba4f6`; it stays draft. No production migration, RLS/grant change, production read or write, merge or
+deployment happened.
+
+Corrections: (1) a tracking write whose outcome is unknown (payment, void, timing, hold, schedule, estimate, confirm,
+dismiss) now survives dialog dismissal and remount in an in-memory registry scoped to the signed-in user and
+organization; restart refuses, Retry resends the exact call and request id, permission/sign-in/transport errors keep it
+unresolved, stale responses after an identity change are ignored, and opening a dialog re-reads the commission data
+(regression: a committed payment whose response was lost is never recorded twice). (2) The payment amount follows the
+selected installment while untouched and an edited amount is cleared on a switch. (3) Recording an estimate later while
+the sale-time capture is open marks it `superseded` with `resolved_by_estimate_id` (never confirmed); confirm and
+record-later serialize per policy (both race orders tested). (4) Wording: 25 policies is a benchmark; 250 ms is a soft
+calculation-start budget; 100 stays the defensive slot cap. (5) The 14 new RPC types equal postgres-meta output from the
+disposable migrated schema. (6) ConvertLeadModal layout restored one existing type diagnostic to its base position for
+`uv-profile-sync.yml`.
+
+Migration SHA-256 now b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f (rollback gains one statement).
+PostgreSQL 17.6 CI: all database proofs and 12 PostgREST checks pass; save overhead p50 +2.43 ms (1 policy), +5.83 (5),
++24.72 (25), +112.91 (100, total 124.75 p50 / 139.86 max, 100/100 recorded); empty payload +0.54; commission tables
+locked 103.33 (sale saved without commission); grid row locked 6.95 (not blocked). Local: full Vitest without env equals
+the baseline failures, inert env only the pre-existing failure, app typecheck output identical to base, ESLint 0
+errors, build passes, 22/22 in-browser payment checks. Authenticated end-to-end acceptance remains outstanding.
+Evidence: `docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`.
+
+---
+
+## 2026-10-19 — Phase 2A saved policy commissions (built and verified locally; NOT live)
+
+Chris approved local implementation and disposable-database testing of the companion-function architecture on
+2026-10-19 (branch `claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; commits `a949cf8` plan, `edf1938` database,
+`efd0592` frontend, `89765b0` fixes, then the docs commit). No production migration, RLS/grant change, production read
+or write, merge or deployment happened. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`;
+evidence: `verification.md` and `screenshots/` beside it.
+
+Built: migration `20261019170000_policy_commission_tracking.sql` (SHA-256
+a5cf9c7dc15ac6bdee12fa83cff9676b8fd70009d32f96af44af826f1fea67c5) with a guarded rollback. Four postgres-owned
+companions delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the
+commission inputs shown at sale (bounded savepoint, soft 250 ms calculation-start budget, 100-slot cap; commission problems
+never fail a sale). Six RLS tables hold evidence, captures, immutable estimates, the four expected installments
+(Advance 75%, Month 10, 11, 12), manual receipts and audit events; eight tracking RPCs owned by the NOLOGIN/NOBYPASSRLS
+`agentflow_policy_commission_writer` are the only write path, with Own/Others permissions enforced on the server.
+Record Policy, Add/Edit Client and Convert Lead now save through the companions (an explicit empty payload when no
+estimate was shown); unknown outcomes freeze the exact submission in memory and Retry replays it; conflicts are
+closeable, never editable. The contact view shows a compact Commission section per policy with payments, voids and
+replacements, timing, schedule start, holds and estimate replacement. Estimates are illustrative and receipts are
+manual records; neither is carrier-verified (new AGENT_RULES invariant).
+
+Validation: full database runner on PostgreSQL 16.15 passes (guards, 173-object inventory, security/handoff/tracking
+suites, independent-session races and lock contention, existing sale/identity suites, rollback/reapply) plus 12 real
+PostgREST 12.2.3 + supabase-js checks. Server overhead p50: +4.6 ms (1 policy), +14.6 ms (5), +61.6 ms (25, benchmark
+— corrected from "supported boundary" on 2026-10-19); HTTP +4.9/+12.2/+53.4 ms; at the 100-slot cap saves reach about 0.4 s worst case (only the calculation is
+budgeted; no timeout raised). Local advisor lints add only the 13 by-design SECURITY DEFINER warnings and fresh-index
+notices. Frontend: full Vitest without Supabase env matches the baseline exactly (same 10 files/1 test, +81 passing);
+inert-env run fails only the pre-existing `recordingRetentionVoicemail`; app tsc diagnostics identical (84); root tsc,
+ESLint (0 errors), build and diff check pass; desktop/mobile light/dark screenshots captured. Not yet run: the
+PostgreSQL 17.6 CI workflow (needs a PR) and an authenticated end-to-end browser session. TwilioContext and dialer
+code reviewed, unchanged.
+
+---
+
 ## 2026-10-19 — Agent profile header actions
 
 Chris requested that UV actions move into the right-hand profile header row and that the duplicate Profile settings action be removed. ProfileHero now accepts an optional action slot; AgentProfileTab places the existing UV component there once. View Agent Page, Copy Link and Edit profile share a wrapping action row and 44px height. The verified badge and all existing UV access/navigation behavior remain unchanged. The browser fixture now renders the real profile hero for desktop/mobile inspection.

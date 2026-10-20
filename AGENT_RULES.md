@@ -768,8 +768,77 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - Run `scripts/run_commission_grids_tests.sh` on a disposable loopback cluster only (invariant #28).
 - Do not call PostgreSQL 17.6 CI verified until `.github/workflows/commission-grids.yml` has actually run.
 
-**Policy commission preview (Phase 1, 2026-10-17; draft PR #455 — takes effect only when merged).** ConvertLeadModal (every policy row), AddClientModal (only when the save would record a new policy: creation, or the first policy of an existing client) and RecordPolicyModal show a compact estimate — "Estimated first-year commission" and "Estimated advance (75%)" — from the agency's selected grid through the unchanged calculator engine (`calculateEstimate`, exact rationals, `formatUsd` on the Rational). It is an estimate only: never saved, earned, booked or paid commission. The credited agent is the STORED owner the sale writers credit (`leads.assigned_agent_id` / `clients.assigned_agent_id`, read org-scoped with `.maybeSingle()`; the signed-in user for a new manual client), never a modal prop: the Dialer maps `lead.assignedAgentId` from `claimed_by` first. "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently; another agent's estimate also requires Admin / non-impersonating Super Admin (`isOrganizationWideViewer`, same organization) or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains the agent — never an Agent. Another agent's level is the raw `profiles.commission_level` (never `rowToUser`, which maps a missing level to `"0%"`) through the strict level parse; the operator's own level is never used for someone else. The credited owner is never served from cache: it is re-read on every open (an owner cached by an earlier open is ignored) and re-checked on window focus and every 15 s while open, and a failed re-check hides the figures. No commission request and no cached commission data under View As; any unresolved viewer, permission, owner, scope, profile or grid read shows no figures. Final Expense lists only the matched carrier's whole-life products (exact trimmed, case-insensitive carrier match) and never auto-selects. Product, term and insured age are preview-only inputs: never required, persisted or added to the four sale payloads (receipt hashes, request ids, transactions and callbacks are unchanged). Persisted estimate snapshots (plan §8) are DEFERRED and NOT approved. Screen-level permission model only, not database secrecy (as D3).
+**Policy commission preview (Phase 1, 2026-10-17; LIVE in `main` since PR #455, merge `e2ddef2`).** ConvertLeadModal (every policy row), AddClientModal (only when the save would record a new policy: creation, or the first policy of an existing client) and RecordPolicyModal show a compact estimate — "Estimated first-year commission" and "Estimated advance (75%)" — from the agency's selected grid through the unchanged calculator engine (`calculateEstimate`, exact rationals, `formatUsd` on the Rational). It is an estimate only: never saved, earned, booked or paid commission. The credited agent is the STORED owner the sale writers credit (`leads.assigned_agent_id` / `clients.assigned_agent_id`, read org-scoped with `.maybeSingle()`; the signed-in user for a new manual client), never a modal prop: the Dialer maps `lead.assignedAgentId` from `claimed_by` first. "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently; another agent's estimate also requires Admin / non-impersonating Super Admin (`isOrganizationWideViewer`, same organization) or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains the agent — never an Agent. Another agent's level is the raw `profiles.commission_level` (never `rowToUser`, which maps a missing level to `"0%"`) through the strict level parse; the operator's own level is never used for someone else. The credited owner is never served from cache: it is re-read on every open (an owner cached by an earlier open is ignored) and re-checked on window focus and every 15 s while open, and a failed re-check hides the figures. No commission request and no cached commission data under View As; any unresolved viewer, permission, owner, scope, profile or grid read shows no figures. Final Expense lists only the matched carrier's whole-life products (exact trimmed, case-insensitive carrier match) and never auto-selects. Product, term and insured age are preview-only inputs: never required, persisted or added to the four sale payloads (receipt hashes, request ids, transactions and callbacks are unchanged). The Phase 1 §8 snapshot design is superseded by Phase 2A below; in production today nothing from the preview is persisted. Screen-level permission model only, not database secrecy (as D3).
 
+
+### Saved policy commissions — Phase 2A (database APPLIED to production: `20261019170000` on 2026-10-19, `20261020040000` on 2026-10-20; frontend NOT released)
+
+Gate 3 (database only) is applied: production `jncvvsvckxhqgqvkppmj` records `20261019170000 /
+policy_commission_tracking`, and the stored statement is byte-identical to the repository file (SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`). Never edit, rename or replay that file. The
+deployed frontend still calls the legacy writers, so the commission tables stay empty until Gate 4 (merge and frontend
+release) and signed-in acceptance are separately approved; no preview connected to production may be used for sale or
+commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence:
+`verification.md` beside it (§13 is the release record).
+
+- **Meaning (the invariant).** A saved estimate (`policy_commission_estimates` and its four
+  `policy_commission_installments`: Advance 75%, Month 10, Month 11, Month 12) is an illustrative projection from the
+  agency's comp-grid assumptions when it was recorded. A receipt (`policy_commission_receipts`) is the agent's or an
+  admin's manual record of money they say they received. Neither is carrier-verified, guaranteed, earned, paid,
+  payroll, booked commission or a carrier reconciliation. Never label, aggregate, report, export or reconcile them as
+  any of those, and never treat a received amount as confirming an estimate. Reports, dashboards, reminders, cron and
+  calendar integration over these tables are out of scope until separately approved.
+- **History is append-only.** Estimates are immutable: replacing one needs a reason and no active receipts (void them
+  first), and the old estimate is kept as superseded. Receipts are never edited or deleted: a correction is a void
+  with a reason, optionally with a replacement. Estimate, schedule, hold and receipt changes write
+  `policy_commission_events`; a capture's confirmation or dismissal is recorded on the capture (actor, reason). The
+  rollback refuses while any of the six tables has rows and never deletes `client-edit:` sale receipts.
+- **Open capture = `awaiting_confirmation` or `needs_attention`, nothing else.** `recorded`, `dismissed` and
+  `superseded` are final. Recording an estimate later while the policy's capture is open marks it `superseded` with
+  `resolved_by_estimate_id`, keeping its original inputs; it was never confirmed and must never be counted or shown
+  as confirmed. Confirm and record-later serialize per policy (request lock, policy advisory lock, then the capture
+  row), so the UI, recovery reads and any future report agree.
+- **Unresolved tracking writes.** A payment, void, timing, hold, schedule, estimate, confirm or dismiss whose outcome
+  is unknown stays unresolved across dialog dismissal and remount (in memory only, scoped to the signed-in user and
+  organization; never browser storage). Never reset it with a new request id: retry resends the exact call and id.
+  Only a success, or a stale/invalid/not-found refusal of that same request (every tracking function returns the
+  request's stored result first under a request lock), resolves it; permission, sign-in and transport errors prove
+  nothing. Closing a dialog never means a change was cancelled.
+- **Saves.** Upgraded modals call only the four `*_handoff` companions (postgres-owned SECURITY DEFINER), which
+  delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the submitted
+  commission inputs. All commission work runs in a savepoint with `lock_timeout` 100 ms, a **soft 250 ms
+  calculation-start budget** (a slot's calculation only starts before 250 ms have elapsed; the work around it is not
+  cut off, so it is not an end-to-end guarantee; later slots wait as `budget_exhausted`) and a **100-slot defensive
+  cap** (an over-cap payload fails the commission step as a whole with a visible notice; policy entry itself is not
+  limited). Commission problems never fail or alter a sale (cancellation 57014 still aborts the whole request). 25
+  policies is a measured benchmark, not a limit; measured maxima are observations, never guarantees. When no
+  estimate was shown, the modal still sends `{"v":"policy-commission-v1","slots":[]}`. Legacy callers keep the old
+  writers. The migration refuses unless the seven reviewed writer/helper definitions match their md5 preimages; any
+  later change to a sale writer must re-verify the companions' conflict-message → PT409 mapping and sale hashes.
+- **Unknown outcomes.** A sale whose outcome is unknown freezes the exact submission in memory only (never logged,
+  toasted, persisted or sent anywhere but its companion). Retry replays it byte for byte; only a confirmed success or a
+  PT409 conflict leaves that state. Classification is an allowlist of codes that prove nothing committed; anything
+  else is unknown.
+- **Authority.** Commission writes go only through the eight tracking RPCs owned by `agentflow_policy_commission_writer`
+  (NOLOGIN, NOBYPASSRLS, owns no table, only `postgres` is a member), so RLS applies to every write; `authenticated`
+  has no table write grants. `policy_commission_authz.access` mirrors "View Own/Others' Commission Percentage"
+  (pinned with `usePermissions` by `supabase/tests/fixtures/policy_commission/permission_defaults.json`): the
+  credited agent (Own toggle) and same-organization Admins/Super Admins (Others toggle) write; Team Leaders with the
+  Others toggle read agents below them by `is_ancestor_of` (see the hierarchy debt above); no Agency Group peer
+  access; nothing is requested under View As. Never add an application-controlled authority token or a
+  postgres-owned fallback writer.
+- **Errors.** PT409 conflict (HTTP 409), PT404 not found (never P0002, which PostgREST maps to HTTP 500), 42501
+  denied, 22023 invalid input with a human message.
+- **Automatic estimated payment dates (database APPLIED 2026-10-20 as `20261020040000`, byte-identical, SHA-256
+  `10897ad6…0a5ea8`; never edit or replay it; the UI is not live until Gate 4).** When an estimate is saved, the server sets an *assumed* start date only from that policy's
+  own Effective Date — never Draft Date (the next scheduled draft) and never another policy's dates — and saves each
+  payment's expected window as the 1st–3rd Federal Reserve business day after its premium date (Advance: the start;
+  Months 10–12: start + 9/10/11 calendar months from the original anchor, clamped to month end). Explicit non-monthly
+  schedules get only the Advance window. A first premium date other than the effective date comes only from a person in
+  Edit dates and is saved as confirmed; manual payment dates (including "Date needed") always win. Saved schedules are
+  never recalculated when policy details change, and reads never write. Expected dates are AgentFlow's estimate, not a
+  carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
+  breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
 
 ### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
 

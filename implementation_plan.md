@@ -1,3 +1,36 @@
+## 2026-10-19 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Phase 2A saved policy commissions, expected payments and manual receipts
+
+**Status:** Chris approved the local implementation of the companion-function architecture on 2026-10-19. Branch
+`claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; feature-branch commits and pushes are approved. No production
+migration, RLS or grant change, production test write, merge or deployment is approved; reminders, cron, calendar
+integration and commission dashboards stay out of scope. The Gate 3 release method is chosen when the tested
+migration package exists.
+
+**Correction pass (2026-10-19, approved):** draft PR plus the scoped corrections in §12 of the Phase 2A plan
+(unknown-outcome recovery, installment amount, capture lifecycle, wording, PostgreSQL 17.6 measurements, types).
+Still not approved: production migration/RLS, merge, deployment, production reads or test writes.
+
+**Amendment approved 2026-10-20:** simpler commission copy and automatic expected payment dates (effective date only;
+Draft Date never used) — §13 and §13.7 of the Phase 2A plan. Gate 3b APPLIED 2026-10-20: production records
+`20261020040000 / policy_commission_expected_windows` (byte-identical; `verification.md` §15). Gate 4 (merge and frontend
+release) still needs separate approval.
+
+**Gate 2 (local build and verification) complete** — evidence in
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gate 3 (production migration) awaits approval.
+
+**Current contract and exact file list:** `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+It supersedes the Phase 1 §8 deferred snapshot design below and every earlier staged-capture/session design.
+
+**Summary:** four companion save functions delegate to the unchanged sale writers (D7 adds a receipt-bearing
+first-policy-edit companion) and, in the same transaction, record server-proven operation evidence and the immutable
+commission capture inside an error boundary with a soft calculation-start budget, so a commission failure never invalidates a
+legitimate sale. A restricted NOLOGIN/NOBYPASSRLS writer owns the tracking functions; six RLS tables hold evidence,
+captures, estimates, four installments, manual receipts and audit events. Own/Others permissions are enforced on the
+server; sellers own their records; no Agency Group peer access. Frozen submissions replay byte-identically until
+authoritative reconciliation.
+
+---
+
 ## 2026-10-18 — DOCS / SECURITY, APPROVED: D0 repository closeout (filename reconciliation and durable release record; repository only)
 
 **Status:** Chris approved the repository-only D0 closeout on 2026-10-18.
@@ -342,6 +375,8 @@ Each gains one `vi.mock` of the panel module rendering `null`, because these har
 - **Copy:** no explanatory paragraphs, footnotes or dashboard.
 
 ### 8. Persisted estimate snapshot — DEFERRED, NOT APPROVED FOR IMPLEMENTATION (P3)
+**Superseded (2026-10-19):** not a current design. The current saved-commission contract is `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+
 Nothing in this section is built in Phase 1: no table, RPC, migration, payload change or post-save write. The first draft's design is kept below for a future, separately approved phase. If it is revived, it also needs an explicit Agency Group peer-read decision: VISION requires one for new tables, and peers can read `wins`.
 
 ```sql

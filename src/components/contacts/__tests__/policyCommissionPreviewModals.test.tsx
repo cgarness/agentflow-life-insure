@@ -38,6 +38,8 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/integrations/supabase/client", () => {
   const SALES = new Set(["convert_lead_to_client_with_sales", "create_client_with_sale", "record_client_policy", "update_client_with_policy_sale"]);
+  // Phase 2A: the modals save through the commission companions, which return the writer's result.
+  const writer = (name: string) => name.replace(/_handoff$/, "");
   const rows: Record<string, (filters: Record<string, unknown>) => unknown> = {
     leads: () => ({ assigned_agent_id: h.leadOwner }),
     clients: () => ({ assigned_agent_id: h.clientOwner }),
@@ -60,11 +62,11 @@ vi.mock("@/integrations/supabase/client", () => {
     h.rpcCalls.push([name, JSON.parse(JSON.stringify(args ?? null))]);
     if (name === "get_commission_calculator_context") return { data: h.context, error: null };
     if (name === "get_contact_scope_agents") return { data: h.team.map((id) => ({ id, first_name: "S", last_name: "T" })), error: null };
-    if (!SALES.has(name)) return { data: null, error: null };
+    if (!SALES.has(writer(name))) return { data: null, error: null };
     if (h.saleGate) await h.saleGate;
     if (h.saleFailures > 0) return (h.saleFailures -= 1, { data: null, error: { message: "Connection lost" } });
-    if (name === "convert_lead_to_client_with_sales") return { data: { client_id: h.ids.newClient, win_ids: ["w-1"] }, error: null };
-    if (name === "record_client_policy") return { data: { client_id: h.ids.client, win_ids: ["w-1"], idempotent: false }, error: null };
+    if (writer(name) === "convert_lead_to_client_with_sales") return { data: { client_id: h.ids.newClient, win_ids: ["w-1"] }, error: null };
+    if (writer(name) === "record_client_policy") return { data: { client_id: h.ids.client, win_ids: ["w-1"], idempotent: false }, error: null };
     return { data: { client: { id: h.ids.client }, client_id: h.ids.client, win_ids: ["w-1"] }, error: null };
   };
   // Like PostgREST, the request is awaitable and accepts an abort signal (the calculator API passes one).
@@ -85,7 +87,7 @@ vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizati
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ canSeeCommission: (name: string) => h.perms.has(name), isLoading: false, error: null }),
 }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 vi.mock("@/lib/activityLogger", () => ({ logActivity: vi.fn(async () => undefined) }));
 vi.mock("@/components/shared/DateInput", () => ({
   DateInput: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
@@ -134,6 +136,12 @@ const lines = (region: HTMLElement) =>
   within(region).queryAllByText(/^Estimated (first-year commission|advance \(75%\)):/).map((node) => node.textContent);
 const choose = (region: HTMLElement, label: string, value: string) => fireEvent.change(within(region).getByLabelText(label), { target: { value } });
 const salesTo = (name: string) => h.rpcCalls.filter(([n]) => n === name).map(([, args]) => args);
+// Phase 2A: the sale writer's own arguments (the displayed estimate's inputs travel separately in p_commission).
+const saleArgs = (name: string) => salesTo(name).map((args) => {
+  const { p_commission: _commission, ...rest } = args as Record<string, unknown>;
+  return rest;
+});
+const commissionSlots = (name: string) => salesTo(name).map((args) => ((args as { p_commission: { slots: unknown[] } }).p_commission.slots.length));
 const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
 beforeEach(() => {
@@ -207,17 +215,18 @@ describe("ConvertLeadModal", () => {
   it("sends the identical conversion payload with or without the preview, then onSuccess before onClose", async () => {
     h.perms = new Set();
     await convertTwoPolicies(false);
-    const withoutPermission = salesTo("convert_lead_to_client_with_sales");
+    const withoutPermission = saleArgs("convert_lead_to_client_with_sales_handoff");
     expect(h.rpcCalls.some(([n]) => n === "get_commission_calculator_context")).toBe(false);
     cleanup();
     h.rpcCalls = [];
     h.perms = new Set([OWN]);
     await convertTwoPolicies(false);
-    const untouched = salesTo("convert_lead_to_client_with_sales");
+    const untouched = saleArgs("convert_lead_to_client_with_sales_handoff");
     cleanup();
     h.rpcCalls = [];
     const view = await convertTwoPolicies(true);
-    const touched = salesTo("convert_lead_to_client_with_sales");
+    const touched = saleArgs("convert_lead_to_client_with_sales_handoff");
+    expect(commissionSlots("convert_lead_to_client_with_sales_handoff")).toEqual([2]);
     expect(withoutPermission).toHaveLength(1);
     expect(untouched).toEqual(withoutPermission);
     expect(touched).toEqual(withoutPermission);
@@ -232,7 +241,7 @@ describe("ConvertLeadModal", () => {
     choose(regions()[0], "Product", IDS.finalPlan);
     h.saleFailures = 1;
     convert();
-    await waitFor(() => expect(salesTo("convert_lead_to_client_with_sales")).toHaveLength(1));
+    await waitFor(() => expect(salesTo("convert_lead_to_client_with_sales_handoff")).toHaveLength(1));
     await flush();
     expect(view.onSuccess).not.toHaveBeenCalled();
     expect(lines(regions()[0])).toHaveLength(2);
@@ -245,7 +254,7 @@ describe("ConvertLeadModal", () => {
     expect(view.onClose).not.toHaveBeenCalled();
     await act(async () => release());
     await waitFor(() => expect(view.onSuccess).toHaveBeenCalledTimes(1));
-    const [failed, retried] = salesTo("convert_lead_to_client_with_sales");
+    const [failed, retried] = salesTo("convert_lead_to_client_with_sales_handoff");
     expect(retried).toEqual(failed);
     expect(view.order).toEqual(["onSuccess", "onClose"]);
   });
@@ -268,7 +277,7 @@ describe("ConvertLeadModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(view.onClose).toHaveBeenCalledTimes(1);
     expect(view.onSuccess).not.toHaveBeenCalled();
-    expect(salesTo("convert_lead_to_client_with_sales")).toHaveLength(0);
+    expect(salesTo("convert_lead_to_client_with_sales_handoff")).toHaveLength(0);
   });
 
   it("credits the STORED lead owner, never the modal's lead object or the operator", async () => {
@@ -317,9 +326,12 @@ const fill = (label: string, value: string) =>
 
 function openAddClient(initial?: Partial<Client>) {
   const onClose = vi.fn();
+  // Routes like Contacts.tsx: a first-policy edit carries a sale attempt (Phase 2A companion), other edits do not.
   const onSave = vi.fn((data: Partial<Client>, sale?: Parameters<typeof clientsSupabaseApi.create>[2]) =>
     initial
-      ? clientsSupabaseApi.update(initial.id!, data).then(() => undefined)
+      ? (sale?.attempt
+        ? clientsSupabaseApi.updateWithPolicySaleHandoff(sale.attempt, initial.id!, data, sale.requestId, sale.commission)
+        : clientsSupabaseApi.update(initial.id!, data)).then(() => undefined)
       : clientsSupabaseApi.create({ ...data, assignedAgentId: A } as never, ORG, sale).then(() => undefined));
   mount(<AddClientModal open onClose={onClose} onSave={onSave} initial={initial ?? null} />);
   return { onClose, onSave, submit: () => fireEvent.submit(document.querySelector("form")!) };
@@ -342,7 +354,7 @@ async function newClientSale(touchPreview: boolean, failures = 0) {
   }
   for (let attempt = 0; attempt <= failures; attempt += 1) {
     view.submit();
-    await waitFor(() => expect(salesTo("create_client_with_sale")).toHaveLength(attempt + 1));
+    await waitFor(() => expect(salesTo("create_client_with_sale_handoff")).toHaveLength(attempt + 1));
     await flush();
   }
   await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1));
@@ -370,11 +382,12 @@ describe("AddClientModal", () => {
 
   it("sends the identical create_client_with_sale payload, and a failed save retries the same request", async () => {
     await newClientSale(false);
-    const control = salesTo("create_client_with_sale");
+    const control = saleArgs("create_client_with_sale_handoff");
     cleanup();
     h.rpcCalls = [];
     await newClientSale(true, 1);
-    const [failed, retried] = salesTo("create_client_with_sale");
+    const [failed, retried] = saleArgs("create_client_with_sale_handoff");
+    expect(commissionSlots("create_client_with_sale_handoff")).toEqual([1, 1]);
     expect(control).toHaveLength(1);
     expect(failed).toEqual(control[0]);
     expect(retried).toEqual(control[0]);
@@ -396,7 +409,7 @@ describe("AddClientModal", () => {
       }
       view.submit();
       await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1));
-      const [args] = salesTo("update_client_with_policy_sale") as Array<{ p_patch: Record<string, unknown> }>;
+      const [args] = saleArgs("update_client_with_policy_sale_handoff") as Array<{ p_patch: Record<string, unknown> }>;
       expect(typeof args.p_patch.updated_at).toBe("string");
       return { ...args, p_patch: { ...args.p_patch, updated_at: "<now>" } };
     };
@@ -426,7 +439,7 @@ describe("RecordPolicyModal", () => {
     const control = openRecord();
     control.submit();
     await waitFor(() => expect(control.onSaved).toHaveBeenCalledTimes(1));
-    const [baseline] = salesTo("record_client_policy");
+    const [baseline] = saleArgs("record_client_policy_handoff");
     cleanup();
     h.rpcCalls = [];
     h.saleFailures = 1;
@@ -436,11 +449,12 @@ describe("RecordPolicyModal", () => {
     choose(regions()[0], "Insured age", "60");
     expect(lines(regions()[0])).toEqual(["Estimated first-year commission: $1,056.00", "Estimated advance (75%): $792.00"]);
     view.submit();
-    await screen.findByText("Connection lost");
+    await screen.findByText(/Connection lost/);
     expect(view.onClose).not.toHaveBeenCalled();
     view.submit();
     await waitFor(() => expect(view.onSaved).toHaveBeenCalledTimes(1));
-    const [failed, retried] = salesTo("record_client_policy");
+    const [failed, retried] = saleArgs("record_client_policy_handoff");
+    expect(commissionSlots("record_client_policy_handoff")).toEqual([1, 1]);
     expect(failed).toEqual(baseline);
     expect(retried).toEqual(baseline);
   });

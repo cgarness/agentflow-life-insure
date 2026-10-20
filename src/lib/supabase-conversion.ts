@@ -1,8 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
-import { notifyRecordedSales, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
+import { notifyRecordedSales, runPreparedSale, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
+import type { CommissionPayload } from "@/lib/commission/capture";
+import { notSentError, type PreparedSale, type SaleAttempt, type SaleHandoffResult } from "@/lib/policySaleOutcome";
 
 /**
  * Extra policies at conversion time (primary policy maps to `clients` columns). Stored on the client
@@ -10,6 +12,11 @@ import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
  * `issueDate` instead of `soldDate`; readers must tolerate both keys.
  */
 export type AdditionalPolicyPayload = {
+  /**
+   * Phase 2A: the row's own UUID, kept as the stored policy identity so a commission estimate shown for this row
+   * binds to exactly this policy. Optional for legacy callers (the server then assigns one).
+   */
+  policyId?: string;
   policyType: string;
   carrier: string;
   policyNumber: string;
@@ -47,6 +54,46 @@ function parseCurrencyToNumber(raw: string | null | undefined): number {
   return parseFloat((raw ?? "").replace(/[^0-9.-]+/g, "") || "0") || 0;
 }
 
+/** The writer's `p_client` for a conversion; shared by the legacy writer and the companion. */
+function conversionClient(lead: Lead, policyInfo: LeadConversionPayload) {
+  const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
+  const premium = saleMonthlyPremium(policyInfo.premiumAmount);
+  const policyType = policyInfo.policyType || "Term";
+  return {
+    policy_type: policyType,
+    carrier: policyInfo.carrier || "",
+    policy_number: policyInfo.policyNumber || "",
+    premium,
+    face_amount: parseCurrencyToNumber(policyInfo.faceAmount),
+    // issue_date stays in the contract as legacy storage (the modal no longer collects it).
+    issue_date: policyInfo.issueDate || null,
+    effective_date: policyInfo.effectiveDate || null,
+    sold_date: policyInfo.soldDate || null,
+    draft_date: policyInfo.draftDate || null,
+    payment_frequency: normalizePaymentFrequencyOrNull(policyInfo.paymentFrequency),
+    beneficiary_name: policyInfo.beneficiaryName || null,
+    beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
+    beneficiary_phone: policyInfo.beneficiaryPhone || null,
+    notes: policyInfo.notes || lead.notes || null,
+    custom_fields,
+  };
+}
+
+/** The conversion companion submission (built once, then frozen by the caller's attempt). */
+export function prepareConversion(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null,
+  campaignId: string | null, requestId: string, commission: CommissionPayload): PreparedSale {
+  if (!organizationId) throw notSentError("Cannot convert a lead without an organization.");
+  return {
+    kind: "convert",
+    requestId,
+    leadId: lead.id,
+    expectedClientId: null,
+    saleArgs: { p_lead_id: lead.id, p_expected_org: organizationId, p_client: conversionClient(lead, policyInfo), p_campaign_id: campaignId },
+    commission,
+    notify: true,
+  };
+}
+
 export const conversionSupabaseApi = {
   /**
    * Converts a lead and records its policy sales in ONE transaction. The wrapper delegates to the
@@ -63,28 +110,7 @@ export const conversionSupabaseApi = {
    */
   async convertLeadToClient(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null = null, campaignId: string | null = null): Promise<string> {
     if (!organizationId) throw new Error("Cannot convert a lead without an organization.");
-    const custom_fields = mergeCustomFieldsOnConversion(lead, policyInfo.additionalPolicies);
-    const premium = saleMonthlyPremium(policyInfo.premiumAmount);
-    const policyType = policyInfo.policyType || "Term";
-
-    const p_client = {
-      policy_type: policyType,
-      carrier: policyInfo.carrier || "",
-      policy_number: policyInfo.policyNumber || "",
-      premium,
-      face_amount: parseCurrencyToNumber(policyInfo.faceAmount),
-      // issue_date stays in the contract as legacy storage (the modal no longer collects it).
-      issue_date: policyInfo.issueDate || null,
-      effective_date: policyInfo.effectiveDate || null,
-      sold_date: policyInfo.soldDate || null,
-      draft_date: policyInfo.draftDate || null,
-      payment_frequency: normalizePaymentFrequencyOrNull(policyInfo.paymentFrequency),
-      beneficiary_name: policyInfo.beneficiaryName || null,
-      beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
-      beneficiary_phone: policyInfo.beneficiaryPhone || null,
-      notes: policyInfo.notes || lead.notes || null,
-      custom_fields,
-    };
+    const p_client = conversionClient(lead, policyInfo);
 
     const { data, error } = await supabase.rpc("convert_lead_to_client_with_sales", {
       p_lead_id: lead.id,
@@ -103,5 +129,15 @@ export const conversionSupabaseApi = {
     await notifyRecordedSales(result.win_ids);
 
     return clientId;
-  }
+  },
+
+  /**
+   * Phase 2A: the same conversion through `convert_lead_to_client_with_sales_handoff`, which delegates to the
+   * unchanged writer and records, in the same transaction, which request created the sale and the commission
+   * inputs that were displayed. A retry of an unknown outcome replays the frozen submission exactly.
+   */
+  convertLeadToClientHandoff(attempt: SaleAttempt, lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null,
+    campaignId: string | null, requestId: string, commission: CommissionPayload): Promise<SaleHandoffResult> {
+    return runPreparedSale(attempt, () => prepareConversion(lead, policyInfo, organizationId, campaignId, requestId, commission));
+  },
 };

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { Shield, Loader2, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -19,6 +19,10 @@ import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { logActivity } from "@/lib/activityLogger";
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
+import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/lib/commission/capture";
+import { commissionNotice } from "@/lib/policySaleOutcome";
+import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
+import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -40,7 +44,7 @@ interface ConvertLeadModalProps {
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
 
 type PolicyRow = {
-  key: string;
+  key: string; // also an additional row's stored policy identity (its commission estimate binds to it)
   policyType: string;
   carrier: string;
   policyNumber: string;
@@ -80,7 +84,9 @@ const scheduleSchema = z.object({
 const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null }) => {
   const { organizationId } = useOrganization();
   const { profile, user } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const submission = usePolicySaleSubmission();
+  const { reset: resetSubmission } = submission;
+  const perOpen = useRef({ requestId: "", captures: new Map<string, CommissionSlotInputs>() }); // replaced on every open
   const [carrierNames, setCarrierNames] = useState<string[]>([]);
   const [carriersLoading, setCarriersLoading] = useState(false);
   const [policies, setPolicies] = useState<PolicyRow[]>([newPolicyRow()]);
@@ -104,7 +110,9 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
   useEffect(() => {
     if (!open) return;
     resetForm();
-  }, [open, resetForm]);
+    resetSubmission();
+    perOpen.current = { requestId: crypto.randomUUID(), captures: new Map() };
+  }, [open, resetForm, resetSubmission]);
 
   useEffect(() => {
     if (!open || !organizationId) return;
@@ -139,17 +147,8 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
 
   if (!lead) return null;
 
-  const updatePolicy = (key: string, patch: Partial<Omit<PolicyRow, "key">>) => {
-    setPolicies((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
-  };
-
-  const addPolicy = () => setPolicies((prev) => [...prev, newPolicyRow()]);
-
-  const removePolicy = (key: string) => {
-    setPolicies((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.key !== key)));
-  };
-
   const handleConvert = async () => {
+    if (submission.locked && !submission.frozen) return;
     for (let i = 0; i < policies.length; i++) {
       const parsed = policyRowSchema.safeParse(policies[i]);
       if (!parsed.success) {
@@ -168,6 +167,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     const additionalPolicies: AdditionalPolicyPayload[] | undefined =
       rest.length > 0
         ? rest.map((p) => ({
+            policyId: p.key,
             policyType: p.policyType,
             carrier: p.carrier.trim(),
             policyNumber: p.policyNumber.trim(),
@@ -195,30 +195,51 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
       additionalPolicies,
     };
 
-    setLoading(true);
-    try {
-      const clientId = await conversionSupabaseApi.convertLeadToClient(lead, payload, organizationId, campaignId);
-
-      toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
-      if (organizationId) {
-        void logActivity({
-          action: `Converted lead ${lead.firstName} ${lead.lastName} to client`,
-          category: "contacts",
-          organizationId,
-          userId: user?.id,
-          userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-          metadata: { leadId: lead.id, clientId, policyType: primary.policyType },
-        });
-      }
-      onSuccess(clientId);
-      onClose();
-    } catch (err: unknown) {
-      console.error("Conversion error:", err);
-      const message = err instanceof Error ? err.message : "Failed to convert lead to client";
-      toast.error(message);
-    } finally {
-      setLoading(false);
+    // Slots in row order: the first row is the primary policy, every other row is keyed by its own UUID.
+    const commission = commissionPayload(policies.map((row, index) => ({
+      slot: index === 0 ? PRIMARY_SLOT : row.key,
+      inputs: perOpen.current.captures.get(row.key),
+    })));
+    // Every conversion goes through the sale companion; an unknown outcome locks the form and Retry replays it exactly.
+    const outcome = await submission.submit((attempt) =>
+      conversionSupabaseApi.convertLeadToClientHandoff(attempt, lead, payload, organizationId, campaignId, perOpen.current.requestId, commission));
+    if (!outcome.saved || !outcome.result) {
+      if (outcome.phase === "editing" && outcome.message) toast.error(outcome.message);
+      return;
     }
+    const clientId = outcome.result.clientId;
+    toast.success(`${lead.firstName} ${lead.lastName} converted to client!`);
+    const notice = commissionNotice(outcome.result.commission, commission.slots.length);
+    if (notice) toast.warning(notice);
+    if (organizationId) {
+      void logActivity({
+        action: `Converted lead ${lead.firstName} ${lead.lastName} to client`,
+        category: "contacts",
+        organizationId,
+        userId: user?.id,
+        userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+        metadata: { leadId: lead.id, clientId, policyType: primary.policyType },
+      });
+    }
+    onSuccess(clientId);
+    onClose();
+  };
+
+  const loading = submission.phase === "sending";
+
+  const updatePolicy = (key: string, patch: Partial<Omit<PolicyRow, "key">>) => {
+    setPolicies((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  };
+
+  const addPolicy = () => setPolicies((prev) => [...prev, newPolicyRow()]);
+
+  const removePolicy = (key: string) => {
+    setPolicies((prev) => (prev.length <= 1 ? prev : prev.filter((p) => p.key !== key)));
+  };
+
+  const setCapture = (key: string, inputs: CommissionSlotInputs | null) => {
+    if (inputs) perOpen.current.captures.set(key, inputs);
+    else perOpen.current.captures.delete(key);
   };
 
   const inputCls = "h-9 text-xs shadow-sm bg-background border-border placeholder:text-muted-foreground/50";
@@ -243,7 +264,10 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
           </div>
         </DialogHeader>
 
-        <div className="p-5 space-y-5 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+        <fieldset
+          disabled={submission.locked}
+          className="m-0 min-w-0 border-0 p-5 space-y-5 flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-muted-foreground/20"
+        >
           {policies.map((row, index) => (
             <div key={row.key} className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -377,6 +401,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
                 carrier={row.carrier}
                 monthlyPremium={row.premiumAmount}
                 agePrefill={{ dateOfBirth: lead.dateOfBirth, age: lead.age, onDate: row.soldDate }}
+                onCaptureChange={(inputs) => setCapture(row.key, inputs)}
               />
               {index < policies.length - 1 && <div className="h-px bg-border/50" />}
             </div>
@@ -457,7 +482,13 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
               placeholder="Any details about the sale or next steps..."
             />
           </div>
-        </div>
+        </fieldset>
+
+        {submission.message && (
+          <div className="px-5 pb-1">
+            <SaleSubmissionNotice submission={submission} />
+          </div>
+        )}
 
         <DialogFooter className="p-5 border-t border-border bg-muted/5 flex items-center justify-end gap-3">
           <Button
@@ -467,12 +498,12 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
             disabled={loading}
             className="h-9 px-4 text-[10px] font-bold uppercase text-muted-foreground hover:bg-muted transition-colors"
           >
-            CANCEL
+            {submission.phase === "conflict" ? "CLOSE" : "CANCEL"}
           </Button>
           <Button
             size="sm"
             onClick={handleConvert}
-            disabled={loading}
+            disabled={loading || submission.phase === "conflict" || submission.phase === "saved"}
             className="h-9 px-6 text-[10px] font-bold uppercase tracking-widest bg-green-600 shadow-lg shadow-green-600/20 hover:shadow-xl hover:translate-y-[-1px] transition-all flex items-center gap-2"
           >
             {loading && <Loader2 className="w-3 h-3 animate-spin" />}

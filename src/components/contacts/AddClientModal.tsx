@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { clientSaleFormSchema } from "@/lib/clientSaleForm";
 import type { ClientSaleOptions } from "@/lib/policySaleRecording";
-import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
+import { clientSaleRecordsPolicy, commissionNotice } from "@/lib/policySaleOutcome";
+import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/lib/commission/capture";
+import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
 import { X, Loader2 } from "lucide-react";
 import { Client, PolicyType } from "@/lib/types";
 import { toast } from "sonner";
@@ -9,7 +11,8 @@ import { PhoneInput } from "@/components/shared/PhoneInput";
 import { DateInput } from "@/components/shared/DateInput";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
 import { StateSelector } from "@/components/shared/StateSelector";
-import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
+import { ClientSaleCommissionPanel } from "@/components/commission/preview/ClientSaleCommissionPanel";
+import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -29,7 +32,12 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
   const [historical, setHistorical] = useState(false);
   const requestId = useRef("");
   const inFlight = useRef(false);
-  const close = () => { if (!inFlight.current) onClose(); };
+  const capture = useRef<CommissionSlotInputs | null>(null);
+  // New clients and first-policy edits go through the sale companions (Phase 2A); other edits are unchanged.
+  const submission = usePolicySaleSubmission();
+  const { reset } = submission;
+  const busy = saving || submission.phase === "sending";
+  const close = () => { if (!inFlight.current && submission.phase !== "sending") onClose(); };
 
   useEffect(() => {
     const base: Partial<Client> = {
@@ -52,26 +60,44 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
     };
     setForm(base);
     setHistorical(false);
+    capture.current = null;
+    reset();
     if (open) requestId.current = crypto.randomUUID();
-  }, [initial, open]);
+  }, [initial, open, reset]);
 
   if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (inFlight.current) return;
+    if (inFlight.current || (submission.locked && !submission.frozen)) return;
 
-    const isNewSale = hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial));
+    const isNewSale = clientSaleRecordsPolicy(form, initial);
     const parsed = clientSaleFormSchema.safeParse({ ...form, recordSale: isNewSale });
     if (!parsed.success) {
       toast.error(parsed.error.errors[0].message);
       return;
     }
 
+    if (!initial || isNewSale) {
+      const commission = commissionPayload([{ slot: PRIMARY_SLOT, inputs: isNewSale ? capture.current : null }]);
+      const sale: Omit<ClientSaleOptions, "attempt"> = {
+        requestId: requestId.current, recordSale: isNewSale, ...(historical && isNewSale ? { historical: true } : {}), commission,
+      };
+      const outcome = await submission.submit(async (attempt) => { await onSave(form, { ...sale, attempt }); });
+      if (!outcome.saved) {
+        if (outcome.phase === "editing" && outcome.message) toast.error(outcome.message);
+        return;
+      }
+      const notice = outcome.result ? commissionNotice(outcome.result.commission, commission.slots.length) : null;
+      if (notice) toast.warning(notice);
+      onClose();
+      return;
+    }
+
     inFlight.current = true;
     setSaving(true);
     try {
-      await onSave(form, initial ? undefined : { requestId: requestId.current, recordSale: isNewSale, ...(historical && isNewSale ? { historical: true } : {}) });
+      await onSave(form, undefined);
       onClose();
     } catch (err: unknown) {
       // Persistence failed — keep the modal open, do not show success.
@@ -91,7 +117,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
           <button aria-label="Close client form" onClick={close} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={handleSubmit}>
-          <fieldset disabled={saving} className="space-y-3">
+          <fieldset disabled={busy || submission.locked} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground block mb-1">First Name *</label>
@@ -171,10 +197,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
               </select>
             </div>
           </div>
-          {hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial)) && (
-            <PolicyCommissionEstimate owner={!initial ? { kind: "self" } : initial.id ? { kind: "client", id: initial.id } : null}
-              policyType={form.policyType || "Term"} carrier={form.carrier || ""} monthlyPremium={form.premiumAmount || ""} />
-          )}
+          <ClientSaleCommissionPanel form={form} initial={initial} onCaptureChange={(inputs) => { capture.current = inputs; }} />
 
           {!initial && (
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -182,14 +205,18 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
               Historical policy: credit the Sold Date in the agency timezone, without a new-sale celebration. Every new policy records one sale.
             </label>
           )}
+          </fieldset>
+          <div className="mt-3 space-y-3">
+          <SaleSubmissionNotice submission={submission} />
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={close} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors">Cancel</button>
-            <button type="submit" disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            <button type="button" onClick={close} disabled={busy} className="flex-1 h-9 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50">
+              {submission.phase === "conflict" ? "Close" : "Cancel"}</button>
+            <button type="submit" disabled={busy || submission.phase === "conflict" || submission.phase === "saved"} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+              {busy && <Loader2 className="w-4 h-4 animate-spin" />}
               {initial ? "Save Changes" : "Add Client"}
             </button>
           </div>
-          </fieldset>
+          </div>
         </form>
       </div>
     </div>
