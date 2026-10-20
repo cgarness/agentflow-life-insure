@@ -3,8 +3,9 @@
 **Scope:** Gate 2 plus the approved correction pass (plan §12) on branch `claude/friendly-ptolemy-pvpmfj`, draft PR
 #469 against `main` `84ba4f6`. Sections 1–12 used synthetic data only and touched nothing in production. §13 records
 the separately approved Gate 3 database release (2026-10-19): the migration only, applied once and recorded as
-`20261019170000`; no merge, deployment, Vercel change or production test write. Authenticated end-to-end acceptance in
-an authorized environment is still outstanding.
+`20261019170000`; no merge, deployment, Vercel change or production test write. §14 records the approved local
+implementation of the §13/§13.7 amendment (new migration `20261020040000`, not applied anywhere hosted). Authenticated
+end-to-end acceptance in an authorized environment is still outstanding.
 
 Estimates are illustrative and receipts are manually recorded; nothing here verifies either against a carrier.
 
@@ -314,3 +315,84 @@ RPCs is not proven over HTTP in production (its schema-reload event trigger is t
 frontend still calls the legacy writers. Signed-in acceptance and Gate 4 (merge, frontend release, type regeneration
 from production) need separate approval. The rollback file is unchanged and refuses once any commission row exists.
 Never edit, rename or replay the applied migration file.
+
+## 14. Amendment §13.7 — simpler copy and expected date windows (local, 2026-10-20)
+
+Approved by Chris for local implementation and disposable-database verification only, with the date-basis safeguard:
+a first premium date is used only when a person establishes it in Edit dates; otherwise the policy's own Effective
+Date is assumed. Draft Date (the next scheduled draft) is never read. Synthetic data only; nothing hosted was queried or
+changed. Migration `20261019170000` is byte-identical to the applied file (SHA-256 `b3e4d53f…011f1f`).
+
+**Package.** `supabase/migrations/20261020040000_policy_commission_expected_windows.sql` — SHA-256
+`10897ad6123dc052e5cbe5340a821e3ce8595f99f1448e74832e18fb2d0a5ea8`, MD5 `44f590529c0a8bb574f253cc392eb78f`, 45,440
+bytes. Rollback `rollback/20261020040000_policy_commission_expected_windows.rollback.sql` — SHA-256
+`f596d2135189a9fcd93f9b9ad9e486b0ab68fa27766ea1a9f405a9c43c8c5bc2`, MD5 `b1ea7b27958f2c1177c89f8d6bb0fd17`, 31,869
+bytes. The migration refuses unless the seven sale-writer preimages and the eight replaced functions match their
+`20261019170000` definitions (md5 of `pg_get_functiondef`; the local reference equals the production-verified Gate 3
+aggregate `db8dee08…`), and refuses replay. Changes: `expected_until` on installments and a rebuilt timing check;
+`schedule_assumed` (default false, metadata-only), `schedule_frequency`, `schedule_convention` and a schedule check on
+estimates; writer UPDATE on those four columns; guard lists; four postgres-owned IMMUTABLE calendar helpers executable
+by the writer only; eight bodies replaced with owners, definer flags and ACLs unchanged. Writer-owned bodies are
+replaced under `SET LOCAL ROLE` with CREATE on `public`/`private` granted only for that step (the same capability
+production exercised for Gate 3's ownership transfers).
+
+**Database proofs (PostgreSQL 16.15 local; CI repeats on 17.6).** `scripts/run_policy_commission_tests.sh` passes end
+to end (39 s; 81 s with PostgREST and measurement):
+- Guards: refused without `20261019170000`, refused when a replaced function drifted (nothing created), refused on
+  replay. Existing-object inventory unchanged (173 non-commission objects); exactly the eight intended bodies changed
+  and four writer-only helpers added.
+- Suites with both migrations: security, handoff, the new expected-windows suite, races and lock contention, and the
+  existing sale/identity/reporting suites. The tracking suite runs against `20261019170000` alone (its month-level
+  timing rules are the applied behaviour the new migration supersedes).
+- Expected-windows suite: holiday rules including Saturday/Sunday fixed-date cases and Juneteenth from 2022 (10 weekday
+  holidays in 2026, 9 in 2027); every premium date 2000-01-01…2100-12-24 yields a business-day window starting after it
+  and within 14 days; the documented examples (Oct 2 → Oct 5–7; Jul 2, 2027 → Jul 6–8; Nov 25 → Nov 27–Dec 1; Dec 30 →
+  Dec 31–Jan 5; Jan 31 → Oct 31/Nov 30/Dec 31 premiums; May 31, 2027 → Feb 29, 2028); untrusted dates (`2026-02-30`,
+  `11/01/2026`, out of range) treated as missing. Sale entry assumes the effective date; a differing Draft Date is
+  ignored (and was saved on the client); missing or invalid dates save the estimate with every payment "Date needed";
+  quarterly/annual get only the Advance window; an additional policy uses its own effective date and never the
+  primary's dates or frequency; confirmation reads the effective date at confirmation; record-later is automatic.
+  Edit dates: first premium date (confirmed, all four windows), replay-safe, changed payload refused, stale revision
+  PT409, effective-date mismatch refused, unknown source refused; manual month and manual "Date needed" survive start
+  changes; `automatic` restores a payment; current frequency re-read (annual → Advance only); clearing keeps manual
+  dates; Team Leader 42501, other agency PT404. Replacement carries an assumed schedule verbatim even after the
+  effective date changed; replacing an undated estimate gets the automatic schedule with its manual date kept.
+  Receipts and voids leave dates unchanged. Contact reads assign no transaction id (they write nothing). Audit shape
+  equals the estimate state; the new checks reject a >14-day window, a manual window end, a month-level Advance, an
+  assumed manual start, an unknown frequency and an unknown convention. The writer keeps no CREATE.
+- Rollback: refused once a window exists (records kept); allowed with rows that use no new field (rows kept); on an
+  unused database it restores the `20261019170000` commission catalog exactly (512 lines: functions with owners, ACLs
+  and digests, constraints, columns with column ACLs, table and schema ACLs); replay refused; reapply passes.
+- PostgREST 12.2.3 + supabase-js: 13 checks pass, including the contact read returning the assumed windows over HTTP,
+  Edit dates, manual "Date needed", `automatic`, an invalid precision (HTTP 400, 22023) and a Team Leader edit (403).
+- Save overhead (this slower container; A/B on the same cluster): the date calculation itself is ~0.04 ms per estimate
+  and call counts are identical with and without the migration; differences are within run-to-run noise (convert 25:
+  65.5 → 69.4 ms p50). The 100-slot defensive case sits at the existing soft 250 ms calculation-start budget here (A:
+  100/100 recorded at ~300 ms; B: ~81 recorded, the rest `budget_exhausted` as designed). CI measurements for the
+  pushed head are recorded in the PR body.
+- Advisors (splinter on the fixture, `20261019170000` alone vs both): 93 → 93 findings, none added or removed.
+
+**Frontend.** Copy per §13.1/§13.7: "Estimated commission · Received · Remaining", Advance and Month 10/11/12,
+"Expected Oct 5 – 7, 2026" ranges (month and year crossings), "Date needed", Record payment, Edit date (per payment:
+Automatic, Exact date, Month, Date needed), Edit dates (Effective date, First premium date, Date needed), one ⓘ note by
+the Commission heading. Removed: the pay-grid/rate/level basis panel (`CommissionBasis.tsx` deleted; the saved
+calculation provenance is unchanged and still returned), the footer paragraph and the grid/carrier-statement sentences.
+Zod validates both date forms and the new response fields; responses from before `20261020040000` parse with safe
+defaults (tested), so the updated preview renders against production before Gate 3b; the current client keeps parsing
+new responses (windows use precision `date`). Results: `npx tsc --noEmit` passes; app typecheck output identical to
+`main` `84ba4f6` (230 lines, positions included); scoped ESLint clean; `npm run build` passes; `git diff --check`
+clean; the CI frontend set 523 passed / 7 skipped; full Vitest 5,930 passed, 36 skipped, 1 failed — the
+`recordingRetentionVoicemail` v29 byte-identity test, which fails identically on `main` `84ba4f6` and is unrelated.
+
+**Browser (synthetic stub, no backend).** 1440 px and 390 px, light and dark: no console errors or warnings, no
+horizontal overflow. Screenshots: `screenshots/s13-contact-commissions-desktop-1440-light.png`,
+`s13-contact-commissions-mobile-390-dark.png`, `s13-edit-dates-desktop-1440-light.png`,
+`s13-edit-dates-mobile-390-dark.png`, `s13-payment-date-mobile-390-dark.png`,
+`s13-estimate-note-page-mobile-390-dark.png`.
+
+**Release gates still open (each separately approved).** Gate 3b: apply `20261020040000` to production with its exact
+bytes (version-preserving method, preflight, advisor delta), before Gate 4. Remaining Agent own-client read on the
+updated preview (read-only; share link only once the candidate is ready and the access scope is authorized). Gate 4:
+merge and frontend release. The preview conversion of 2026-10-20 02:10 UTC (client `2325bc9d`, estimate `7e2c476a`)
+is still awaiting Chris's classification; it was not touched. After Gate 3b that estimate keeps showing "Date needed"
+(no backfill) until someone uses Edit dates.

@@ -1,3 +1,31 @@
+## 2026-10-20 — Phase 2A §13.7: simpler commission copy and expected date windows (local only; NOT live)
+
+Chris approved local implementation of plan §13 with the date-basis safeguard (§13.7) on draft PR #469. Production
+migration, merge, deployment, production-data cleanup and production test writes are not approved. Nothing hosted was
+queried or changed; migration `20261019170000` is untouched (SHA-256 `b3e4d53f…011f1f`).
+
+- **Dates.** New migration `20261020040000_policy_commission_expected_windows.sql` (SHA-256 `10897ad6…0a5ea8`, 45,440
+  bytes; guarded rollback). When an estimate is saved the server assumes the start from that policy's own Effective
+  Date — never Draft Date (the next scheduled draft) or another policy's dates — and saves windows of the 1st–3rd
+  Federal Reserve business day after each premium date (Advance; Months 10–12 at +9/+10/+11 months, clamped).
+  Non-monthly premiums get only the Advance window. Edit dates confirms the effective date, sets a first premium date
+  or clears it; manual payment dates (including "Date needed") always win; `automatic` returns a payment to the
+  schedule. Reads never write; no backfill; replacement carries the saved schedule. Same RPC signatures, so generated
+  types are unchanged.
+- **Copy.** Estimated commission · Received · Remaining; Advance / Month 10–12; "Expected Oct 5 – 7, 2026" or "Date
+  needed"; Record payment, Edit date, Edit dates; one ⓘ note. Pay-grid breakdown (`CommissionBasis.tsx`) and repeated
+  explanations removed; saved calculation provenance unchanged. Responses from before the migration still parse.
+- **Verification.** Disposable PostgreSQL 16.15: guards, inventory (8 bodies replaced, 4 writer-only helpers, 173
+  other objects unchanged), new suite (calendar 2000–2100, anchors, Draft Date ignored, frequencies, Edit dates,
+  overrides, carry, receipts, reads assign no transaction id, constraints, ACLs), existing suites, races, rollback
+  refusal/exact restore/reapply, PostgREST 12.2.3 (13 checks), advisors 93 → 93. Frontend: `npx tsc --noEmit` passes,
+  app typecheck identical to `main`, ESLint, build and `git diff --check` clean, CI set 523 passed, full Vitest 5,930
+  passed with the one failure that also fails on `main` (`recordingRetentionVoicemail` v29). Screenshots in
+  `docs/plans/2026-10-19-policy-commission-phase-2a/screenshots/s13-*`. Record: `verification.md` §14.
+- **Open gates.** Gate 3b (production apply of `20261020040000`, before Gate 4); Agent own-client read on the updated
+  preview (read-only; no share link until authorized); Gate 4 (merge and frontend release). The 02:10 UTC preview
+  conversion (client `2325bc9d`, estimate `7e2c476a`) still awaits Chris's classification and was not touched.
+
 ## 2026-10-19 22:08 UTC — LIVE (database only): Phase 2A commission tracking migration `20261019170000`
 
 Chris approved Gate 3 only for PR #469 (source `fc05082b11573fbb88c50c429fd5c1867b8cfb98`). Applied

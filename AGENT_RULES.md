@@ -829,6 +829,16 @@ commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/im
   postgres-owned fallback writer.
 - **Errors.** PT409 conflict (HTTP 409), PT404 not found (never P0002, which PostgREST maps to HTTP 500), 42501
   denied, 22023 invalid input with a human message.
+- **Automatic estimated payment dates (PROPOSED 2026-10-20; not live until Gate 3b applies `20261020040000` and Gate 4
+  releases the frontend).** When an estimate is saved, the server sets an *assumed* start date only from that policy's
+  own Effective Date — never Draft Date (the next scheduled draft) and never another policy's dates — and saves each
+  payment's expected window as the 1st–3rd Federal Reserve business day after its premium date (Advance: the start;
+  Months 10–12: start + 9/10/11 calendar months from the original anchor, clamped to month end). Explicit non-monthly
+  schedules get only the Advance window. A first premium date other than the effective date comes only from a person in
+  Edit dates and is saved as confirmed; manual payment dates (including "Date needed") always win. Saved schedules are
+  never recalculated when policy details change, and reads never write. Expected dates are AgentFlow's estimate, not a
+  carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
+  breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
 
 ### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
 
