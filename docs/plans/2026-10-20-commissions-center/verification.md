@@ -185,7 +185,7 @@ Unchanged against `main` (verified with `git diff`): `20261019170000_policy_comm
 ## 10. Production release steps (each needs Chris's separate explicit approval)
 
 **Gate 2 — database (`20261020180000`, read functions and two indexes only).**
-1. Read-only preflight on project `jncvvsvckxhqgqvkppmj`: latest history `20261020040000` and version
+1. Read-only preflight on project `jncvvsvckxhqgqvkppmj` (`release/preflight.sql`, §13): latest history `20261020040000` and version
    `20261020180000` free; schema `policy_commission_reporting` and the five functions absent; the four md5 preimages
    match (the file also refuses otherwise); the agency time zone is set for each organization that will use the
    page (otherwise the page shows "Agency time zone needed"); no lock waits on the commission tables; advisor and
@@ -193,7 +193,7 @@ Unchanged against `main` (verified with `git diff`): `20261019170000_policy_comm
 2. Apply the exact bytes once with the Gate 3 method (`apply_migration` stamps its own version): one transaction with
    the file's `lock_timeout 1s` / `statement_timeout 60s`, refusing unless MD5, SHA-256 (`5bc2eb14…bd3e08`) and length
    (40,850) match and the version is unrecorded; record `('20261020180000', 'policy_commission_center_reads')`.
-3. Read-back: existing-object fingerprints unchanged; the new objects equal a locally migrated reference; ACLs as in
+3. Read-back (`release/readback.sql`, §13): existing-object fingerprints unchanged; the new objects equal a locally migrated reference; ACLs as in
    §2; no row written in any commission table; advisor delta reviewed. PostgREST schema reload.
 4. Rollback if needed: the guarded rollback file drops only the new objects and touches no data.
 
@@ -209,12 +209,97 @@ sale or commission tests.
 - Balances are current, not historical as-of balances; a missing receipt is not evidence that nothing was paid.
 - Pages are offset-paginated; if records change between page requests a later page can shift (totals always come
   from the latest response).
-- The Calculator tab reuses `CalculatorWorkspace` unchanged, so it still shows the user's contract level and its grid
-  disclaimer (the reporting tabs show neither). Changing that needs a decision from Chris.
 - Reused Phase 2A components keep their 11 px secondary text inside the drawer.
-- Settings › Commission Grids still says agents "won't see the Commission Calculator" without a grid. With this
-  change the Commissions page stays visible and only the Calculator tab shows its "not set up" notice. That copy was
-  left unchanged to keep this PR's scope; it is a one-line follow-up.
+- Resolved in §12: the Calculator's contract-level line and grid disclaimer, and the stale Settings › Commission Grids
+  wording.
 - The unresolved-write registry is in memory: a full reload or sign-out loses Retry state (Phase 2A behaviour).
 - No reminders, cron, exports, imports, team views or Reports-page changes. The earlier preview conversion
   (`2325bc9d` / `7e2c476a`) was not touched and still awaits Chris's classification.
+
+## 12. Amendment — final copy and filter corrections (local, 2026-10-20; plan §12)
+
+Reviewed head `fbe50a8`. No database, SQL-test or script change (`git diff fbe50a8 -- supabase/ scripts/` is empty),
+so the migration keeps SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08` (MD5
+`a3a67abaf502d84da0d61f4fd1b37b2b`, 40,850 bytes) and the disposable SQL/PostgREST suites were not re-run locally (the
+PR's PostgreSQL 17.6 job re-runs them on the final head).
+
+**Filter regressions — failing first.** The new and extended tests (`filterConsistency.test.tsx`,
+`useCommissionsCenter.test.tsx`, `centerFilters.test.ts`) were run against the unfixed code: **12 failed, 11 passed**
+of 23. After the fix: **23 passed**.
+
+| Regression | Failing-first evidence (before) | After |
+|---|---|---|
+| Old rows under a new filter (`previousPageFor` checked only user and organization) | a changed Status still showed the previous filter's rows; rapid Carrier → Status → Type changes showed the first filter's rows while the last was pending; a changed Policies filter showed the previous policies; paging (Scheduled and History) had no busy marker (`aria-busy` absent); the hook returned the old data for a changed status, the first case it checks | loading state until the filter's own rows arrive; with out-of-order responses only the latest filter's rows appear; a failed request shows "Couldn't load", never earlier rows; paging keeps the shown page with `aria-busy="true"`, "Updating…" beside the pager and every row action disabled (a click does nothing) until the new page arrives; back/forward show each filter's own cached rows |
+| Hidden custom range blocks Next 90 days / Any date | `?dates=next_90&period=custom`, `?dates=any&period=custom` and `?dates=any&period=custom&from=2026-10-05` made no request (the list stayed on its skeleton); switching Dates from an unfinished custom range made no request; the hook never succeeded for Next 90 days with a hidden range; the normalization helper did not exist yet (`TypeError`) | each requests `p_scope` with `p_period: this_month`, `p_from: null`, `p_to: null` and shows its rows; Next 90 days and Any date share one cache key whatever the hidden range holds; switching back to Selected period waits for a complete range |
+
+Identity changes keep their existing proof (no earlier user's page for another user, hook test) and the page remounts
+per user and organization. A side effect found by an existing test: Carrier options came from the old placeholder, so
+they vanished while a changed filter loaded; `useCarrierOptions` keeps the seller's carrier list (filter-independent on
+the server) for the same identity.
+
+**Calculator and Settings.** "Your level: 100"; "Estimate only" with an ⓘ ("About this estimate") holding "Assumes a 75%
+advance. Actual commission and payment timing may vary by age, plan type and carrier rules. Calculator results aren't
+saved or reported." No grid name, effective date or revision appears (asserted). The unchanged engine gives the same
+figures as before in the workspace unit test and in a new page test that also keeps the full estimate across a tab
+switch ("92.5%", "$1,110.00", "$832.50", "$92.50" ×3). Settings: "No grid is selected, so the Calculator is off. Saved
+commission history stays available."; turning it off: "The Calculator needs a grid, so it stays off until you choose
+one again. Saved commission history stays available."; disabling or deleting the calculator grid: "… the Calculator
+stays off until you choose another grid; saved commission history stays available." Deletion consequences ("Its 3
+products and every rate are deleted. This can't be undone."), the private-copy sentence and every confirmation are
+unchanged. The history claim holds: saved estimates keep their own grid snapshot and have no foreign key to a grid.
+
+**Frontend checks (this head vs `main` `0312520`).**
+
+| Check | `main` | Branch |
+|---|---|---|
+| Full Vitest, inert env | 380 files, 5,967 tests; 1 failed (`recordingRetentionVoicemail`) | 388 files, 6,026 tests; the same 1 failed |
+| Full Vitest, no env | 10 files failed, 1 test failed | the same 10 files and the same 1 test (388 files, 5,937 tests) |
+| App typecheck | 84 diagnostics | the same 84 diagnostic lines |
+| `npx tsc --noEmit`, ESLint (changed files), `vite build`, `git diff --check` | — | `tsc` exit 0; ESLint clean; build exit 0; diff check clean |
+
+**Browser (harness, Chromium, 1440 and 390 px, light and dark; no overflow, no console error).** Calculator empty and
+with an estimate and the ⓘ open; Settings › Commission Grids (harness-only route with synthetic grid data, as in its
+unit test) with no grid, the turn-off dialog, the disable dialog and the delete dialog; Payments with the next page held
+back 4 s (`aria-busy="true"`, one "Updating…", 46 row buttons disabled, none enabled); `?dates=next_90&period=custom&from=…`
+loading its rows. Files: `screenshots/calculator-*`, `calculator-estimate-*`, `settings-*`, `payments-updating-*`,
+`payments-next90-custom-*`.
+
+## 13. Database-only release package — Gate 2 (for Chris's separate approval; nothing applied)
+
+**What:** `supabase/migrations/20261020180000_policy_commission_center_reads.sql` exactly as on the PR's final head:
+SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, MD5 `a3a67abaf502d84da0d61f4fd1b37b2b`,
+40,850 bytes (219 box-drawing characters, three `§`, two `–`; dollar quotes `$$` and `$guard$` only). Creates the
+`policy_commission_reporting` schema (USAGE `authenticated`), two composite types, seven helpers and five public reads
+(SECURITY INVOKER, `search_path = pg_catalog, pg_temp`, EXECUTE `authenticated` only) and two indexes on Phase 2A tables.
+It changes no existing function, table, policy, grant, role or row. Rollback:
+`supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql` (SHA-256
+`1ea39c4c…1f18`), dropping only those objects.
+
+1. **Preconditions:** PR #471 final head green on PostgreSQL 17.6; still a draft; `main` checked for overlapping
+   schema work; Chris's explicit Gate 2 approval naming this file and checksum.
+2. **Preflight (read-only):** run `release/preflight.sql`. All 15 checks must read `ok = t`: server ≥ 16; latest history
+   `20261020040000` and `20261020180000` free; both applied migrations' stored text still hashes to their SHA-256;
+   prerequisite columns; schema, functions and indexes absent; the four md5 preimages; RLS on the six commission
+   tables; no lock waits. Save its row counts and the list of organizations with an unset or invalid agency time zone
+   (their page will show "Agency time zone needed"). Also capture advisor and catalog baselines as at Gates 3 and 3b.
+3. **Apply once** with the Gate 3/3b version-preserving method (`apply_migration` would stamp its own version): one
+   transaction, the file's own `SET LOCAL lock_timeout '1s'` / `statement_timeout '60s'`, a `DO` block holding the
+   text (box-drawing characters as placeholders expanded server-side) that refuses unless the expanded text's MD5,
+   SHA-256 and length equal the values above and the version is unrecorded, `EXECUTE`s it unchanged and records
+   `('20261020180000', 'policy_commission_center_reads', ARRAY[text])`. Rehearse that exact wrapper on a disposable
+   database first (identical schema dump to `psql -1 -f`; replay, one changed byte and a held lock each refused). The two
+   `CREATE INDEX` statements take brief SHARE locks on the receipts and captures tables; on a lock timeout, retry later and
+   never raise the timeouts.
+4. **Read-back (read-only):** run `release/readback.sql`. All 12 checks must read `ok = t` (history row and stored-text
+   SHA-256/length; schema owner and USAGE; 12 functions, invoker, owner, `search_path`; EXECUTE `authenticated` only and no
+   PUBLIC grant; both indexes valid; the four preimages unchanged; RLS on). Row counts must equal the preflight's. Confirm
+   the existing-object fingerprints and advisor delta, then PostgREST's schema reload.
+5. **Stop conditions:** any preflight or read-back row not `t`, a hash or length mismatch, any unexpected catalog or
+   advisor change, or any commission row change — stop, do not retry blindly, report. No production test writes; the
+   frontend (Gate 3) stays unreleased until separately approved.
+
+**Validated locally (disposable PostgreSQL 16.15, synthetic fixture):** a database built from both applied migrations
+plus a `supabase_migrations.schema_migrations` mirror holding their exact text. The preflight passed all 15 checks. After
+`psql -1 -f` of the file and its history row, the read-back passed all 12 checks with row counts unchanged. The preflight
+run again then refused (`latest_history`, `version_free`, schema, functions and indexes all `f`). The wrapper rehearsal
+(step 3) belongs to Gate 2 and was not run.

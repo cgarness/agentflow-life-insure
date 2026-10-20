@@ -873,9 +873,16 @@ evidence: `verification.md` beside it.
   registry; no new writer, paid checkbox or bulk action. Query keys sit under `["policy-commissions", "center", user,
   org, …]` so every tracking write refreshes the center and the contact view together; nothing is requested under View
   As.
-- **Calculator stays hypothetical.** The Calculator tab reuses `CalculatorWorkspace` unchanged (monthly premium basis);
-  it never writes or affects reporting; its inputs persist across tab switches only within one signed-in user and
-  organization.
+- **Results always match the filters on screen.** Keys and RPC arguments use the effective filter (Scheduled's period
+  counts only for "Selected period"; Next 90 days and Any date never send or wait for a hidden custom range). Earlier
+  rows are kept only while paging within the same effective filter, user and organization, marked "Updating…"
+  (`aria-busy`) with row actions disabled; a changed filter shows loading and a failed request shows the error, never
+  another filter's rows.
+- **Calculator stays hypothetical.** The Calculator tab reuses `CalculatorWorkspace`'s engine, inputs and matching
+  (monthly premium basis); it shows "Your level: …" and "Estimate only" with one ⓘ, never a grid name, revision or rate
+  breakdown; it never writes or affects reporting; its inputs persist across tab switches only within one signed-in
+  user and organization. Settings copy says the Calculator needs a selected grid and saved commission history stays
+  available (estimates keep their own grid snapshot).
 - **Labels.** Estimates are AgentFlow projections and receipts are manual records; neither is carrier-verified, earned,
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.

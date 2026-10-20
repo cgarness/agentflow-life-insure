@@ -8,6 +8,10 @@ approval.
 **Contract, metric definitions, migration contract and exact file list:**
 `docs/plans/2026-10-20-commissions-center/implementation_plan.md`.
 
+**Amendment approved 2026-10-20 (local only, PR #471 stays draft):** final copy and filter corrections — compact
+calculator copy ("Your level", "Estimate only" with ⓘ), Settings wording, results kept only while paging within the same
+filters, and Next 90 days / Any date independent of an unfinished custom range. No database change. Plan §12.
+
 **Summary:** the sidebar's "Commission Calculator" becomes **Commissions** with four addressable tabs. Overview, Payments
 and Policies report the signed-in user's own saved estimates, installments and manual receipts (My commissions) through
 five new SECURITY INVOKER read functions (new migration `20261020180000_policy_commission_center_reads.sql`; existing

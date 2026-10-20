@@ -61,8 +61,8 @@ calendar integration, carrier imports, chargebacks, renewals, payroll, exports, 
 
 ## 3. Calculator tab
 
-- Reuses `CalculatorWorkspace` unchanged (engine, inputs, exact rational money, matching, monthly premium as the
-  basis, level parsing, disclaimer). The tab body is the former `CommissionCalculatorPage` body without its own `h1`
+- Reuses `CalculatorWorkspace` (engine, inputs, exact rational money, matching, monthly premium as the basis, level
+  parsing). Its copy was amended in §12: "Your level: …" and "Estimate only" with ⓘ in place of the grid disclaimer. The tab body is the former `CommissionCalculatorPage` body without its own `h1`
   (one "Commissions" heading on the page).
 - The grid snapshot is requested only once the Calculator tab is opened; reporting never waits for it.
 - Inputs are retained across tab switches: the panel stays mounted (hidden) after its first visit. The workspace keeps
@@ -289,10 +289,8 @@ synthetic fixtures (real sidebar, page and dialogs; stubbed auth and RPCs) at 14
   the On hold chip) so a held policy never reads "Nothing remaining".
 - **"Updated" marker not built** (§4 consistency): totals always come from the latest response and every tracking
   write invalidates the center, so the extra marker was dropped to keep the copy simple.
-- **Calculator tab shows its existing contract level and grid disclaimer.** `CalculatorWorkspace` is reused unchanged
-  (§3), so the hypothetical calculator still names the user's contract level and its grid disclaimer. The no-grid-name
-  rule is met on the reporting tabs. **For Chris:** hiding those in the calculator would change the shared workspace —
-  left as is pending your call.
+- **Calculator tab copy** (resolved by §12): the level is a compact "Your level: …" and the grid disclaimer became
+  "Estimate only" with ⓘ; no grid name is shown anywhere in the center.
 - **Drawer typing.** The drawer's policy parses with a nullable `source` (a restricted contact has none) and is cast to
   the Phase 2A `OpenPolicyCommission` type for the reused components (`asTrackedPolicy`); `parseDrawer` fails closed
   when a recorded policy has no estimate.
@@ -302,3 +300,44 @@ synthetic fixtures (real sidebar, page and dialogs; stubbed auth and RPCs) at 14
   page, tabs, drawer and dialogs, with stubbed auth, talking to real PostgREST 12.2.3 over a disposable database seeded
   with synthetic records (no production data, nothing committed). Chromium via playwright-core at 1440 px and 390 px,
   light and dark.
+
+## 12. Amendment — final copy and filter corrections (approved 2026-10-20, local only; reviewed head `fbe50a8`)
+
+Chris approved these local corrections and their disposable tests on draft PR #471. The PR stays a draft; no production
+migration, merge or deployment. No database code changes are planned, so migration `20261020180000` keeps SHA-256
+`5bc2eb14…bd3e08`.
+
+1. **Calculator copy.** The engine, inputs, matching, amounts, missing-level/grid notices and form validation stay as
+   they are. The level line becomes a compact "Your level: …". The grid-based disclaimer paragraph is replaced by a short
+   "Estimate only" label with one accessible ⓘ control holding the longer explanation (75% advance; actual commission
+   and timing vary by age, plan type and carrier rules). No grid name, revision or pay-grid breakdown is shown. No change
+   to calculator permissions or reporting.
+2. **Settings wording.** The three "won't see / don't see the Commission Calculator" sentences say instead that the
+   Calculator needs a selected grid and saved commission history stays available (true: saved estimates keep their own
+   grid snapshot and have no foreign key to a grid). Deletion consequences, private-copy text and confirmations stay.
+3. **Filter/result consistency.** Earlier results are kept on screen only while paging within the same effective
+   filters, user and organization. A changed filter shows the loading placeholder until its own data arrives; a failed
+   request never shows another filter's rows as its result. While a page is pending, the earlier page stays visible but
+   marked (a short "Updating" status, `aria-busy`) and its row actions are disabled. Same contract for Scheduled, History
+   and Policies.
+4. **Date-scope independence.** Scheduled normalizes its effective filter before the query key, the enabled check and
+   the RPC arguments: "Selected period" requires a complete valid period; "Next 90 days" and "Any date" ignore the
+   (possibly unfinished, hidden) custom range and send the default period (`this_month`, no dates), which the server
+   validates and does not use for those scopes. Metric definitions and the migration are unchanged.
+
+**Exact intended files**
+
+| File | Change |
+|---|---|
+| `src/components/commission/calculator/CalculatorWorkspace.tsx` | "Your level" label; "Estimate only" + ⓘ in place of the disclaimer paragraph |
+| `src/components/settings/commission-grids/{CalculatorGridCard,SharedGridsCard,PrivateGridsCard}.tsx` | Wording only |
+| `src/lib/commission/centerFilters.ts` | `effectiveScheduled` normalization and the page-independent filter identity used by the placeholder rule |
+| `src/hooks/useCommissionsCenter.ts` | Placeholder only within the same effective filters and identity; effective Scheduled filter in key, enabled check and API call |
+| `src/components/commissions/payments/{ScheduledView,ScheduledTable,HistoryView}.tsx`, `policies/{PoliciesTab,PoliciesTable}.tsx`, `shared/Bits.tsx` | "Updating" status; placeholder rows marked busy with actions disabled |
+| `src/components/commissions/shared/useCarrierOptions.ts` (new; added during the build) | Keeps the seller's carrier list (filter-independent) while a changed filter loads, since earlier results are no longer kept |
+| `docs/plans/2026-10-20-commissions-center/release/{preflight,readback}.sql` (new) | Read-only Gate 2 checks (database-only release package) |
+| Tests: `src/components/commission/calculator/__tests__/CalculatorWorkspace.test.tsx`, `src/components/settings/commission-grids/__tests__/CommissionGridsSettings.test.tsx`, `src/lib/commission/__tests__/centerFilters.test.ts`, `src/hooks/__tests__/useCommissionsCenter.test.tsx`, `src/components/commissions/__tests__/filterConsistency.test.tsx` (new), `src/pages/__tests__/commissionsPage.test.tsx` | Affected assertions; failing-first regressions; calculation and input retention across tabs |
+| `docs/plans/2026-10-20-commissions-center/{implementation_plan,verification}.md`, `screenshots/` (calculator and settings), `implementation_plan.md`, `WORK_LOG.md`, `AGENT_RULES.md` (center invariant wording) | Records |
+
+Unchanged: migrations, SQL tests, PostgREST checks, `centerApi.ts`, the calculator engine (`src/lib/commission/calculator.ts`,
+including the now-unused `disclaimerText` and its unit test), tracking writers and retry protection, routes and layout.

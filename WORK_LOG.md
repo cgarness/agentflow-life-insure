@@ -1,3 +1,29 @@
+## 2026-10-20 — Commissions center: final copy and filter corrections (PR #471, still draft; NOT live)
+
+Chris approved local corrections on reviewed head `fbe50a8`. No production read, write, migration, merge or deployment.
+No database change: migration `20261020180000` is unchanged (SHA-256 `5bc2eb14…bd3e08`, 40,850 bytes); the applied
+migrations are untouched.
+
+- **Calculator copy.** "Your level: …"; the grid disclaimer paragraph became "Estimate only" with one ⓘ holding the
+  75% advance and timing explanation; no grid name or revision. Engine, inputs, matching, notices and validation
+  unchanged (same figures in the unit and page tests; inputs and the estimate kept across tabs).
+- **Settings wording.** Calculator grid, AgentFlow grids and private grids now say the Calculator needs a selected grid
+  and saved commission history stays available (true: estimates keep their own grid snapshot). Deletion consequences,
+  private-copy text and confirmations unchanged.
+- **Filter/result consistency (failing first: 12 of 23 tests failed before the fix, 23 pass after).** Earlier results
+  are kept only while paging within the same effective filter and identity, marked "Updating…" with row actions
+  disabled; a changed filter shows loading; failed and out-of-order requests never show another filter's rows; same for
+  Scheduled, History and Policies. Carrier options stay stable while a list loads.
+- **Date scope.** Next 90 days and Any date no longer wait for or send a hidden unfinished custom range (direct URLs and
+  switching both covered); Selected period still requires a complete range.
+- **Verification.** Full Vitest inert: 388 files / 6,026 tests, only `recordingRetentionVoicemail` failing as on `main`.
+  Typecheck, scoped ESLint, build and diff check in `docs/plans/2026-10-20-commissions-center/verification.md` §12.
+  Screenshots (Calculator, Settings, Payments updating and Next 90 days) at 1440 and 390 px, light and dark.
+- **Release package.** Read-only Gate 2 `release/preflight.sql` and `release/readback.sql`, validated on a disposable
+  database (15/15 and 12/12 checks; preflight refuses after an apply); steps in verification §13. Gate 2 (database) and
+  Gate 3 (frontend) each still need Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is
+  untouched.
+
 ## 2026-10-20 — Commissions center (Overview · Payments · Policies · Calculator) — local build and draft PR; NOT live
 
 Chris approved the local implementation and disposable-database tests. Branch `claude/epic-tesla-fe96b0` from `main`
