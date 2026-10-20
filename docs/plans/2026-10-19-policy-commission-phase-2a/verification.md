@@ -480,3 +480,13 @@ so no estimate is created in production except through a preview (do not test wi
 read on the updated preview (read-only; no share link until authorized), Gate 4 (merge, frontend release, type
 regeneration from production), and Chris's classification of client `2325bc9d` / estimate `7e2c476a`. The rollback for
 `20261020040000` still refuses once any new-field value exists; it is not needed and was not run.
+
+**Re-check after a repeated approval (14:57 UTC, read-only).** The same Gate 3b approval was sent again at about 14:55 UTC.
+The pinned source still hashes to `10897ad6…0a5ea8`, but production already records `20261020040000` and the new objects
+exist, so the preflight's absence checks fail by design and nothing was applied a second time. Production again matched the
+05:37–05:40 read-back exactly: the history rows (338; both statements' MD5, SHA-256 and length unchanged), 7/7 sale
+writers, the four columns with writer-only UPDATE, both checks validated, the four helpers (owners, IMMUTABLE, ACLs, digests;
+not executable by `anon`, `authenticated` or `service_role`), the writer with no CREATE, RLS on all six tables, the whole
+commission catalog line for line, every existing-object fingerprint, and every row digest, new-column value and write counter
+(no commission row inserted, updated or deleted since). Estimate `7e2c476a` and client `2325bc9d` unchanged. Advisors:
+security 253 and performance 451, none added or removed since the post-apply read-back.

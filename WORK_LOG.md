@@ -20,6 +20,9 @@ write. Do not edit, rename or replay it (or `20261019170000`).
   needed"); helpers give the reviewed dates on 17.6. Advisor delta: none added or removed.
 - **Correction:** the `cb0cdfc` 100-policy benchmark recorded a median of **99.5/100** estimates, not 100/100; the rest
   are `budget_exhausted` captures, recoverable by confirmation (handoff suite "Aggregate budget").
+- **Repeated approval (14:57 UTC):** the same Gate 3b approval arrived again; not reapplied (version and objects already
+  present). A read-only re-check matched the post-apply read-back exactly (catalog, fingerprints, data, no writes,
+  advisors 253 / 451 with no delta).
 - **Open gates:** Agent own-client read on the updated preview (read-only; no share link until authorized); Gate 4;
   classification of `2325bc9d` / `7e2c476a`. Record: `verification.md` §15.
 
