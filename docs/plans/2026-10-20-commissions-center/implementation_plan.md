@@ -101,9 +101,9 @@ gives real $0.00 installments.
   counted exactly once; rows always show the full window (e.g. "Nov 27 – Dec 1, 2026" counts in November).
 - **Past** ⇔ `window_end < today` (a month is not past until it ends; a window not until its last day).
 
-**Row status** (first match): `received` (remaining = 0 and received > 0) · `on_hold` · `date_needed` · `check_payment`
-(past and remaining > 0) · `upcoming` (not past and remaining > 0) · `none` (a real $0.00 installment with nothing
-received). Copy: Received, On hold, Date needed, Check payment, Upcoming. "Check payment" is never "Overdue": missing
+**Row status** (first match): `on_hold` (the current estimate is held, whatever was received) · `received` (remaining
+= 0 and received > 0) · `none` (a real $0.00 installment with nothing received) · `date_needed` (no stored timing) ·
+`check_payment` (past and remaining > 0) · `upcoming` (not past and remaining > 0). Copy: Received, On hold, Date needed, Check payment, Upcoming. "Check payment" is never "Overdue": missing
 receipt history does not prove the carrier did not pay.
 
 **Period** `[from, to]`, inclusive, resolved on the server from a preset against agency today: This month (default),
@@ -124,8 +124,10 @@ balances, not historical "as-of" balances; a missing receipt is not evidence tha
 **Timeline.** Months covering the period, padded to 12 (⌊(12 − n)/2⌋ before, the rest after) when the period spans
 n < 12 months. A month inside the period is clipped to the period's dates; padding months are whole and marked as
 outside the period. Per month: *Received* (receipts by `received_on`) and *Expected* (cohort allocation) split into
-Advance and Months 10–12 — two grouped bars, never stacked on each other. In-period buckets sum exactly to the
-Expected and Received cards. Clicking a month opens Payments filtered to that month's dates.
+Advance and Months 10–12 — a Received bar beside an Expected bar (Advance and Months 10–12 stacked within Expected,
+hatched as estimates); Received is never stacked on Expected. In-period buckets sum exactly to the Expected and Received
+cards. Choosing a month (a bar or the Month select) shows its figures with links to Payments filtered to exactly that
+month's dates; an sr-only table carries every bucket.
 
 **Needs review** (independent of the period): Check payment (count, Σ remaining) · Date needed (non-held installments
 with unknown timing and remaining > 0: count) · Needs review (open captures on policies with no current estimate:
@@ -144,8 +146,8 @@ estimate's own saved carrier/product. `wins.contact_name` is never used.
 **Consistency.** Each function is `STABLE`, so a response (rows, totals and counts) is one snapshot. Pages are
 offset-paginated (≤ 100 rows) with an exact `total_count` and totals over the *whole* filter, never over a capped
 fetch. If records change between page requests a later page can shift; the totals shown are always those of the
-latest response, every tracking write invalidates all commission queries, and the UI shows "Updated" when a list's
-totals change between pages.
+latest response, and every tracking write invalidates all commission queries. (An earlier draft also proposed an
+"Updated" marker when totals change between pages; it was not built — see §11.)
 
 ## 5. Migration contract — `supabase/migrations/20261020180000_policy_commission_center_reads.sql`
 
@@ -158,6 +160,8 @@ these existing definitions match their md5 preimages (authorization and RLS inpu
 `policy_commission_authz.actor_org()`, `policy_commission_authz.access(uuid)`, `private.campaign_actor()`,
 `public.get_client_policy_commissions(uuid)` (the drawer parity reference).
 
+**Types** `policy_commission_reporting.installment_fact` and `policy_fact` (composite row types for the helpers).
+
 **Schema** `policy_commission_reporting` — owner `postgres`; `USAGE` to `authenticated` only (revoked from `PUBLIC`);
 not in PostgREST's exposed schemas. Holds the shared definitions so every read uses the same rules.
 
@@ -165,9 +169,9 @@ not in PostgREST's exposed schemas. Holds the shared definitions so every read u
 |---|---|---|---|---|
 | `policy_commission_reporting.viewer()` | plpgsql STABLE INVOKER → (uid, org, today, time_zone) | postgres | authenticated | `pg_catalog, pg_temp` |
 | `policy_commission_reporting.period(text, date, date, date, integer)` | IMMUTABLE → (from, to) | postgres | authenticated | same |
-| `policy_commission_reporting.installments(uuid, uuid, date)` | SQL STABLE INVOKER, one row per current installment (§4 fields and status) | postgres | authenticated | same |
-| `policy_commission_reporting.policies(uuid, uuid, date)` | SQL STABLE INVOKER, one row per eligible policy (estimate, capture, contact) | postgres | authenticated | same |
-| `policy_commission_reporting.installment_json(…)`, `policy_detail(uuid, uuid, uuid)` | row / drawer JSON builders | postgres | authenticated | same |
+| `policy_commission_reporting.installments(uuid, uuid, date, uuid[] DEFAULT NULL)` | SQL STABLE INVOKER → `installment_fact`, one row per current installment (§4 fields and status); optional policy list | postgres | authenticated | same |
+| `policy_commission_reporting.policies(uuid, uuid, uuid DEFAULT NULL)` | SQL STABLE INVOKER → `policy_fact`, one row per eligible policy (estimate, open capture, contact); optional single policy | postgres | authenticated | same |
+| `policy_commission_reporting.contact_json(policy_fact)`, `iso_or_null(text)`, `installment_json(installment_fact, policy_fact)` | row JSON builders | postgres | authenticated | same |
 | `public.get_my_commission_overview(p_period text, p_from date, p_to date)` | plpgsql STABLE INVOKER → jsonb | postgres | authenticated | same |
 | `public.get_my_commission_installments(p_period, p_from, p_to, p_scope, p_status, p_kind, p_carrier, p_limit, p_offset)` | plpgsql STABLE INVOKER → jsonb page | postgres | authenticated | same |
 | `public.get_my_commission_receipts(p_period, p_from, p_to, p_include_voided, p_limit, p_offset)` | plpgsql STABLE INVOKER → jsonb page | postgres | authenticated | same |
@@ -183,9 +187,10 @@ not in PostgREST's exposed schemas. Holds the shared definitions so every read u
   `range | next_90 | any`, status `all | remaining | upcoming | check_payment | received | date_needed | on_hold`
   (`all` excludes held rows; `on_hold` lists them), kind `advance | month_10 | month_11 | month_12 | later`, setup
   `all | missing | needs_review | recorded | on_hold`, limit 1–100, offset ≥ 0.
-- `get_my_policy_commission` returns `{policy, contact}` where `policy` has exactly the per-policy shape of
-  `get_client_policy_commissions` (parity-tested for a visible client) and `contact` is `{client_id, name}` or null
-  (restricted). `PT404` when the policy is not one of the caller's eligible policies.
+- `get_my_policy_commission` returns `{policy, contact, meta}` where `policy` has exactly the per-policy shape of
+  `get_client_policy_commissions` (parity-tested for a visible client; basis fields for a restricted contact come from
+  the win's own snapshot, never from the client row), `contact` is `{client_id, name}` or null (restricted) and `meta`
+  carries today and the time zone. `PT404` when the policy is not one of the caller's eligible policies.
 - Reads never write (`STABLE`; tests assert no transaction id is assigned and every table's write counters are
   unchanged).
 
@@ -209,7 +214,8 @@ the disposable migrated schema, as for Phase 2A).
   five queries. Keys: `["policy-commissions", "center", userId, orgId, <read>, …filters]` — under the existing
   `["policy-commissions"]` prefix, so every tracking write (`useTrackingMutation` → `useRefreshPolicyCommissions`)
   refreshes the Overview, both Payments views, Policies, the drawer and the contact Commission section together.
-  `retry: false`, `staleTime` 15 s, `placeholderData` keeps the previous page while paging.
+  `retry: false`, `staleTime` 15 s (drawer 0), `placeholderData` keeps the previous page while paging, but only for
+  the same user and organization.
 - Drawer (`Sheet`): loads `get_my_policy_commission` and reuses `PolicyCommissionSummary`, `PolicyCommissionDetail`
   (Record payment, Edit dates, Edit date, Void with replacement, hold, replace), `CaptureAttentionNotice` and
   `RecordEstimateDialog` — the same `useTrackingMutation` registry, request ids and unresolved-write recovery. No new
@@ -233,17 +239,19 @@ confirmations and unresolved-save warnings keep their existing wording. Body tex
 | `supabase/migrations/20261020180000_policy_commission_center_reads.sql` | New migration (§5) |
 | `supabase/migrations/rollback/20261020180000_policy_commission_center_reads.rollback.sql` | Guarded rollback |
 | `supabase/tests/policy_commission_center.sql` | New suite: definitions, reconciliation, pagination, permissions, cross-org, reassignment, reads write nothing |
+| `supabase/tests/policy_commission_center_harness.sql` | Test-only: production `company_settings_select` policy and agency time zones for the synthetic orgs |
 | `scripts/run_policy_commission_tests.sh` | Guards, inventory diff, suite, rollback/reapply for the new migration; benchmark |
 | `scripts/tests/policy_commission/commission_center_postgrest.mjs` | Real PostgREST + supabase-js checks for the five reads |
-| `.github/workflows/policy-commission-tracking.yml` | Path filters and frontend test list |
+| `scripts/tests/policy_commission/measure_center_reads.sh` | Timings over a synthetic book (`PC_MEASURE=1`) |
+| `.github/workflows/policy-commission-tracking.yml`, `commission-grids.yml` | Path filters and frontend test lists (moved calculator files) |
 | `src/integrations/supabase/types.ts` | Five function signatures |
 | `src/App.tsx` | `/commissions/:tab?` route and the legacy redirect |
 | `src/components/layout/Sidebar.tsx`, `CommissionsNavItem.tsx` (replaces `CommissionCalculatorNavItem.tsx`) | Nav entry |
 | `src/components/layout/TopBar.tsx` | Title map entries only |
 | `src/pages/CommissionsPage.tsx` (new); `src/pages/CommissionCalculatorPage.tsx` → `src/components/commissions/CalculatorTab.tsx` | Page and calculator tab |
 | `src/components/commissions/**` (new) | Tabs, period control, cards, timeline, upcoming, review, scheduled/history/policies tables, filters, pager, drawer, notices |
-| `src/hooks/useCommissionsCenter.ts` (new), `src/hooks/useCommissionCalculator.ts` | Center hooks; calculator hook unchanged except the shared access helper |
-| `src/lib/commission/{centerSchemas,centerApi,centerFilters}.ts` (new) | Parsing, calls, URL filters |
+| `src/hooks/useCommissionsCenter.ts` (new) | Access gate and center hooks (`useCommissionCalculator.ts` unchanged) |
+| `src/lib/commission/{centerSchemas,centerApi,centerFilters}.ts` (new); `trackingSchemas.ts` | Parsing, calls, URL filters; `openPolicySchema` exported for the drawer |
 | Tests: `src/lib/commission/__tests__/center*.test.ts`, `src/components/commissions/__tests__/*`, `src/pages/__tests__/commissionsPage.test.tsx` (replaces `commissionCalculatorPage.test.tsx`), `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`, `src/hooks/__tests__/useCommissionsCenter.test.tsx` | New and updated |
 | `docs/plans/2026-10-20-commissions-center/{implementation_plan,verification}.md`, `screenshots/` | Records |
 | `implementation_plan.md`, `WORK_LOG.md`, `AGENT_RULES.md`, Phase 2A `implementation_plan.md` / `verification.md` (status lines, §16 release note) | Records and reconciliation |
@@ -259,7 +267,7 @@ and regression suites (commission, contacts, sale handoff, sidebar/View As, calc
 inventory, the new suite (multiple/partial/excess/voided/replaced receipts, holds, superseded, month-crossing windows,
 month timing, unknown dates, non-monthly, zero rate, missing estimates, open captures, pagination reconciliation,
 same-org denial, cross-org, Agency Group peer, reassignment with restricted contact, Own toggle off, time zone unset,
-reads write nothing), rollback/reapply, PostgREST checks, local advisors. Browser: an uncommitted visual harness with
+reads write nothing), rollback/reapply, PostgREST checks. (Local advisors were not run; see `verification.md`.) Browser: an uncommitted visual harness with
 synthetic fixtures (real sidebar, page and dialogs; stubbed auth and RPCs) at 1440 px and 390 px, light and dark.
 
 ## 10. Gates
@@ -267,3 +275,30 @@ synthetic fixtures (real sidebar, page and dialogs; stubbed auth and RPCs) at 14
 1. **Local build and draft PR** (this approval).
 2. Production migration `20261020180000` (database only, read functions and two indexes) — separate approval.
 3. Frontend release (merge, deploy) — separate approval; the new UI calls functions that exist only after gate 2.
+
+## 11. Implementation record — deviations and findings (local build, 2026-10-20)
+
+- **Indexes: two, not three.** A third index on installments (organization, agent, expected date) served a
+  range-filtered helper; that helper was reverted (next point), so the index had no user and was removed. Read cost is
+  dominated by RLS's per-row `access()` check (about 23 µs per row), not by the scans.
+- **Plan caching.** A PL/pgSQL `installments()` helper with range parameters switched to a generic plan after five
+  calls (2.7 s per read on a 2,000-policy book); forcing custom plans was about 2× slower than the SQL version. The final
+  helper is SQL-language with default plan caching, and the Policies page computes installments only for the page's
+  policies (`p_policies`). Timings are in `verification.md`.
+- **Held policies keep their next payment.** The Policies page's next payment includes held installments (shown with
+  the On hold chip) so a held policy never reads "Nothing remaining".
+- **"Updated" marker not built** (§4 consistency): totals always come from the latest response and every tracking
+  write invalidates the center, so the extra marker was dropped to keep the copy simple.
+- **Calculator tab shows its existing contract level and grid disclaimer.** `CalculatorWorkspace` is reused unchanged
+  (§3), so the hypothetical calculator still names the user's contract level and its grid disclaimer. The no-grid-name
+  rule is met on the reporting tabs. **For Chris:** hiding those in the calculator would change the shared workspace —
+  left as is pending your call.
+- **Drawer typing.** The drawer's policy parses with a nullable `source` (a restricted contact has none) and is cast to
+  the Phase 2A `OpenPolicyCommission` type for the reused components (`asTrackedPolicy`); `parseDrawer` fails closed
+  when a recorded policy has no estimate.
+- **Reused drawer text sizes.** The reused Phase 2A components keep their own 11 px secondary text inside the drawer;
+  the center's own text is at least 12 px.
+- **Visual harness.** Screenshots come from an uncommitted Vite harness in the session scratchpad: the real sidebar,
+  page, tabs, drawer and dialogs, with stubbed auth, talking to real PostgREST 12.2.3 over a disposable database seeded
+  with synthetic records (no production data, nothing committed). Chromium via playwright-core at 1440 px and 390 px,
+  light and dark.

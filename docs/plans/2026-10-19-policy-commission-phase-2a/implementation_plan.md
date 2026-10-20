@@ -1,6 +1,13 @@
 # Phase 2A — saved policy commissions, expected payments and manual receipts
 
-**Status:** approved by Chris on 2026-10-19 for **local implementation and disposable-database testing only**
+**Current status (2026-10-20): RELEASED.** Gate 3 (`20261019170000`) applied 2026-10-19; Gate 3b (`20261020040000`)
+applied 2026-10-20; Gate 4 (merge and frontend release) on 2026-10-20 — PR #469 merged as `0312520` after Chris approved
+the updated preview (the PR body is the Gate 4 record; `verification.md` §16). A named-Agent own-client browser check
+was not independently observed during that release. The earlier preview conversion (`2325bc9d` / `7e2c476a`) is untouched
+and still awaits Chris's classification. The status paragraph below is the original local-build approval, kept as
+history.
+
+**Original status:** approved by Chris on 2026-10-19 for **local implementation and disposable-database testing only**
 (branch `claude/friendly-ptolemy-pvpmfj`, from `main` `84ba4f6`). Feature-branch commits and pushes are approved.
 **Not approved:** any production migration, RLS or grant change, production test write, merge to `main`, deployment,
 reminders, cron, calendar integration or commission dashboards. The Gate 3 release method is chosen only once the
@@ -310,8 +317,10 @@ hierarchy defect (separate follow-up).
 1. Plan — approved.
 2. Local implementation and verification — this branch: **complete** (`verification.md`); PostgreSQL 17.6 CI still
    to run on a pull request.
-3. Production migration/RLS/grant release — separately approved; release method chosen with the tested package.
-4. Merge, frontend release and production testing — separately approved.
+3. Production migration/RLS/grant release — **applied** 2026-10-19 (`verification.md` §13); Gate 3b applied
+   2026-10-20 (§15).
+4. Merge and frontend release — **released** 2026-10-20 (PR #469, merge `0312520`; §16). Production testing with a
+   named Agent remains separately gated.
 
 ## 11. Implementation record — deviations from §8 (local build, 2026-10-19)
 
@@ -652,7 +661,7 @@ premium date …", or "Date needed"; non-monthly: "Quarterly premiums: Months 10
 
 **Revised proposed AGENT_RULES invariant (replaces 13.6).**
 
-> **Automatic estimated payment dates (proposed; not live until Gate 3b and Gate 4).** When an estimate is saved, the
+> **Automatic estimated payment dates (live since Gate 4 on 2026-10-20; originally proposed text).** When an estimate is saved, the
 > server sets an *assumed* start date only from that policy's own Effective Date — never Draft Date (the next scheduled
 > draft) and never another policy's dates — and saves each payment's expected window as the 1st–3rd Federal Reserve
 > business day after its premium date (Advance: the start; Months 10–12: start + 9/10/11 calendar months from the

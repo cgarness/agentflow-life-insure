@@ -1,3 +1,34 @@
+## 2026-10-20 — Commissions center (Overview · Payments · Policies · Calculator) — local build and draft PR; NOT live
+
+Chris approved the local implementation and disposable-database tests. Branch `claude/epic-tesla-fe96b0` from `main`
+`0312520`. No production read, write, migration, RLS/grant change, merge or deployment; the applied migrations
+`20261019170000` and `20261020040000` are byte-identical to `main`.
+
+- **What changed.** The sidebar's "Commission Calculator" is now **Commissions** (`/commissions/:tab?`; the old
+  `/commission-calculator` redirects to the Calculator tab; View As and the own-commission permission gate the nav
+  item and page). Overview (Expected, Received, Remaining, Next 90 days; Timeline; Upcoming; Needs review), Payments
+  (Scheduled | History), Policies and the reused, hypothetical Calculator. Rows open a drawer that reuses the Phase 2A
+  tracking controls (Record payment, Edit dates, Record estimate) and their unresolved-write recovery; no new writer.
+- **Database.** New migration `20261020180000_policy_commission_center_reads.sql` (SHA-256 `5bc2eb14…bd3e08`, 40,850
+  bytes; guarded rollback): five SECURITY INVOKER STABLE reads (`get_my_commission_overview` / `_installments` /
+  `_receipts` / `_policies`, `get_my_policy_commission`) over shared helpers in the non-exposed schema
+  `policy_commission_reporting`, EXECUTE `authenticated` only, plus two indexes. My commissions only (credited seller,
+  caller's organization, existing RLS); agency time zone (fails closed); exact cents; receipts aggregated before joins;
+  superseded excluded; held separate; month-crossing windows counted once by start; unknown dates go to review.
+- **Verification.** PostgreSQL 16.15: guards, inventory (5 reads, 2 indexes, 173 existing objects unchanged), the new
+  suite (cards = independent recomputation; every drill-down walked across pagination equals its card; statuses;
+  reassignment; same-org, cross-org and Agency Group peer isolation; 42501 / 55000 / 22023; reads write nothing),
+  rollback/reapply, PostgREST 12.2.3 (13 + 9 checks); all Phase 2A suites still pass. Frontend: full Vitest
+  identical to `main` apart from the new tests (inert env 6,010 tests with only `recordingRetentionVoicemail` failing,
+  as on `main`; no env the same 10 files as on `main`), app typecheck diagnostics identical to `main`, `npx tsc
+  --noEmit`, scoped ESLint, build and `git diff --check` clean. Screenshots at 1440 and 390 px, light and dark, in
+  `docs/plans/2026-10-20-commissions-center/screenshots/`. Record: that folder's `verification.md`.
+- **Records reconciled.** Phase 2A Gate 4 (PR #469, merge `0312520`) is now recorded as released in AGENT_RULES, the
+  root plan, the Phase 2A plan and `verification.md` §16; AGENT_RULES gains the Commissions center invariant.
+- **Open gates.** Gate 2: production apply of `20261020180000` (separate approval; steps in `verification.md` §10).
+  Gate 3: merge and frontend release, only after Gate 2. For Chris: the reused Calculator still shows the contract
+  level and grid disclaimer. Unchanged: the preview conversion `2325bc9d` / `7e2c476a` awaits classification.
+
 ## 2026-10-20 05:36 UTC — LIVE (database only): Phase 2A expected-windows migration `20261020040000`
 
 Chris approved Gate 3b only for PR #469 (source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`). Applied

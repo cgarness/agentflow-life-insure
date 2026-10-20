@@ -490,3 +490,18 @@ not executable by `anon`, `authenticated` or `service_role`), the writer with no
 commission catalog line for line, every existing-object fingerprint, and every row digest, new-column value and write counter
 (no commission row inserted, updated or deleted since). Estimate `7e2c476a` and client `2325bc9d` unchanged. Advisors:
 security 253 and performance 451, none added or removed since the post-apply read-back.
+
+## 16. Gate 4 — merge and frontend release (2026-10-20; record reconciled 2026-10-20)
+
+PR #469 was marked ready and merged on 2026-10-20 at 15:37:01 UTC as `0312520b4933b1474ad14089b77b3cb16c956b85`
+(reviewed head `6b09fdfe5ca4373ad666404c0310880be447ad7a`) after Chris approved the updated preview ("Looks good.
+Approved."). The PR body is the Gate 4 record: all seven verification workflows and both Vercel preview checks passed on
+the reviewed head; both production deployments were READY at the merge commit; production types matched the 14
+checked-in commission RPC signatures, so no type rewrite was needed; no migration was applied or replayed (338 history
+entries, latest `20261020040000`, stored hashes unchanged); no business-data write, backfill, cleanup or
+reclassification. The post-release read still showed one estimate, four installments, zero receipts and one event.
+
+**Not observed:** a named-Agent own-client browser check during the release. It must not be reported as completed.
+**Still open:** Chris's classification of the earlier preview conversion (`2325bc9d` / `7e2c476a`); it was not
+modified. This section was added by the Commissions center branch (`docs/plans/2026-10-20-commissions-center/`), which
+only records the release; it made no production read or write.
