@@ -404,10 +404,12 @@ commands.
 Unchanged: sale-writer bodies, organization scoping, RLS policies and grants, the restricted writer, seller
 ownership, no peer access, idempotency keys, telemetry, TwilioContext and dialer callbacks.
 
-## 13. Amendment — simpler commission copy and automatic expected dates (PROPOSED 2026-10-20; awaiting approval)
+## 13. Amendment — simpler commission copy and automatic expected dates (APPROVED 2026-10-20 for local implementation; see §13.7)
 
-Requested by Chris after reviewing the preview. **Nothing in this section is approved yet:** no source edit, new
-migration, backend command, merge, deployment or production write happens until he approves this scope. Migration
+Requested by Chris after reviewing the preview. Chris approved local implementation and disposable-database
+verification on 2026-10-20 **with the date-basis safeguard in §13.7, which supersedes the anchor rule, schema list and
+file list below wherever they differ**. Not approved: production migration, merge, deployment, production-data
+cleanup or production test writes. Migration
 `20261019170000` is applied and immutable; every database change below goes into a NEW migration with its own
 production approval (Gate 3b). Amounts, rates, grid data, receipt idempotency, seller ownership, RLS, the four
 companions, the handoff and the seven reviewed sale-writer bodies do not change.
@@ -553,3 +555,109 @@ browser check of the simplified section and Edit dates at 1440 px light and 390 
 > never shown as confirmed; an Edit dates choice is confirmed; manual payment dates always win. Saved schedules are
 > never recalculated when policy details change and reads never write. Expected dates are AgentFlow's estimate, not a
 > carrier rule; a customer's premium payment is not a commission receipt.
+
+### 13.7 Approved amendment (2026-10-20): date-basis safeguard and exact scope
+
+**Date basis (supersedes 13.2's anchor list).** A policy-specific first premium date is used only when it is genuinely
+established as the first payment. AgentFlow's only draft field, `clients.draft_date`, is documented and labelled as the
+*next* scheduled draft ("Draft Date is the next scheduled premium draft"), so it never establishes Month 1, whenever it
+was captured. Therefore:
+
+1. **Automatic:** the policy's own Effective Date (primary: `clients.effective_date`; additional policy: its own
+   `effectiveDate`; never another policy's), read in the transaction that saves the estimate. Saved as **assumed**
+   (`schedule_assumed = true`, source `effective_date`) and shown as estimated. No confirmation step.
+2. **First premium date entered in Edit dates** (source `manual`) or **Use effective date** chosen in Edit dates: saved as
+   confirmed (`schedule_assumed = false`). Edit dates is the only way a first premium date other than the effective date
+   is used.
+3. Neither: every payment shows **Date needed** (with Edit dates).
+
+Draft Date is never read, snapshotted or offered as a start date. Dropped from 13.3/13.4: the capture
+`premium_start_on`/`premium_frequency` columns and snapshot trigger, the `initial_draft_date` source, and draft date in
+`policy_facts` and the read. Frequency, windows (`premium_plus_1_3_fed_business_days_v1`, Juneteenth from 2022, the year
+the Reserve Banks first observed it), month clamping, non-monthly exceptions, manual overrides, carry on replacement,
+no backfill and reads that never write are as in 13.2. Edit dates re-reads the policy's current payment frequency (an
+explicit, audited write); a saved schedule is otherwise never recalculated. Expected dates are estimates, never
+evidence that a premium or commission was received.
+
+**Storage change from 13.3 (smaller and readable by the current client).** A window is stored as precision `date` with
+`expected_on` = window start and a new `expected_until` = window end (source `schedule_basis`), instead of a new
+`window` precision, so the current client's strict parser still reads every row (it ignores the new keys). "Date
+needed" chosen for one payment is stored as a manual override (`unknown`/`manual`) so later start-date changes keep
+it; the new per-payment option `automatic` returns that payment to the schedule.
+
+**New migration** `supabase/migrations/20261020040000_policy_commission_expected_windows.sql` (one transaction, file's
+own `lock_timeout 1s` / `statement_timeout 60s`). It refuses unless `20261019170000` is present, every function it
+replaces still has its `20261019170000` definition (md5), the seven sale-writer preimages still match, and it has not
+run before.
+
+- `policy_commission_installments`: `expected_until date`; the `policy_commission_installments_timing` CHECK is rebuilt
+  (window end present only for a `schedule_basis` date, 0–14 days after its start; the Advance may be `schedule_basis`
+  only as a window; `unset` ⇒ `unknown`; a manual row may be `unknown`). Existing rows satisfy it.
+- `policy_commission_estimates`: `schedule_assumed boolean NOT NULL DEFAULT false` (metadata-only add, no backfill),
+  `schedule_frequency text`, `schedule_convention text`, and CHECK `policy_commission_estimates_schedule` (assumed ⇒
+  source `effective_date`; frequency and convention only with a start date and from fixed lists).
+- Writer UPDATE grants on the four new columns; `private.policy_commission_guard` mutable-column lists include them.
+- New postgres-owned IMMUTABLE helpers, EXECUTE for the writer only: `private.policy_commission_iso_date(text)`,
+  `private.policy_commission_fed_holiday(date)`, `private.policy_commission_business_day_after(date, integer)`,
+  `private.policy_commission_expected_schedule(date, text)`.
+- Replaced (same signatures, owners and ACLs; writer-owned bodies are replaced under `SET LOCAL ROLE` with CREATE on
+  `public`/`private` granted only for that step, as in `20261019170000`): `private.policy_commission_policy_facts`
+  (+ `payment_frequency`, primary only), `private.policy_commission_insert_estimate` (automatic schedule or the carried
+  one; manual overrides kept), `private.policy_commission_estimate_state` (new fields in the audit state),
+  `public.set_policy_commission_schedule_basis` (Edit dates: windows for all four payments, confirmed, current
+  frequency), `public.set_policy_commission_installment_timing` (`automatic`; manual rows clear the window end),
+  `public.record_policy_commission_estimate_later` (carry includes the new fields),
+  `public.get_client_policy_commissions` (returns them and the policy's `payment_frequency`).
+- Unchanged: companions, handoff, confirm, dismiss, hold, receipt, void, replay, lock, events, operation status, RLS
+  policies, table grants other than the four columns, sale writers. `src/integrations/supabase/types.ts` does not change.
+
+**Rollback** `supabase/migrations/rollback/20261020040000_policy_commission_expected_windows.rollback.sql` restores the
+`20261019170000` definitions (verified by md5), constraints, grants and guard, and drops the helpers and columns. It
+refuses once any new-field value, window, automatic Advance date or manual "Date needed" row exists, and refuses replay.
+
+**Release transition.** The new client reads both shapes (new keys default to "no window", "not assumed",
+"frequency unknown"), so the updated preview renders against production before Gate 3b. The current preview at
+`4f8232b` keeps parsing after Gate 3b. Gate 3b (this migration) precedes Gate 4 (merge and frontend release). Until
+Gate 3b, Edit dates in the updated preview would call the old functions; the remaining acceptance is read-only.
+
+**Copy (13.1, refined).** The ⓘ tooltip sits beside the Commission heading (a button cannot contain the expand toggle's
+nested control): "AgentFlow estimate. Expected dates assume payment 1–3 business days after each premium date. Not
+carrier-verified." Start line: "Estimated from effective date Oct 2, 2026", "From effective date …", "From first
+premium date …", or "Date needed"; non-monthly: "Quarterly premiums: Months 10–12 need dates." Rows: "Expected Oct 5 –
+7, 2026", "Expected Oct 2027" (a manual month), "Date needed", with **Record payment** and **Edit date**.
+
+**Exact files (supersedes 13.4)**
+
+| File | Change |
+|---|---|
+| `supabase/migrations/20261020040000_policy_commission_expected_windows.sql` | New migration (above) |
+| `supabase/migrations/rollback/20261020040000_policy_commission_expected_windows.rollback.sql` | Guarded rollback |
+| `supabase/tests/policy_commission_expected_windows.sql` | New suite: holidays (Saturday/Sunday cases), business days, month ends, leap years, month/year crossings, effective-date anchors, Draft Date ignored, frequencies, Edit dates, overrides, automatic, carry, retries, reads write nothing |
+| `scripts/run_policy_commission_tests.sh` | Applies the new migration after `20261019170000` everywhere except the applied-migration tracking suite; inventory diff, new suite, rollback refusal/restore/reapply |
+| `scripts/tests/policy_commission/postgrest_integration.mjs` | Contact read returns windows over HTTP; Edit dates over HTTP |
+| `.github/workflows/policy-commission-tracking.yml` | Path filter adds the new migration and rollback |
+| `src/lib/commission/trackingSchemas.ts` | `expected_until`, schedule fields, basis `payment_frequency` (defaults for the old shape) |
+| `src/lib/commission/installments.ts` | Labels, date ranges, "Date needed", schedule line; month helpers removed |
+| `src/lib/commission/trackingApi.ts` | `automatic` timing option |
+| `src/components/commission/policy/PolicyCommissionSection.tsx` | The single ⓘ tooltip by the heading |
+| `src/components/commission/policy/PolicyCommissionSummary.tsx` | "Estimated commission · Received · Remaining" |
+| `src/components/commission/policy/PolicyCommissionDetail.tsx` | Basis panel and footer copy removed |
+| `src/components/commission/policy/InstallmentRow.tsx` | Labels, expected window, Record payment, Edit date |
+| `src/components/commission/policy/ScheduleBasisControl.tsx` | Start line and the Edit dates form (effective date, first premium date, date needed) |
+| `src/components/commission/policy/InstallmentTimingDialog.tsx` | Automatic, exact date, month, date needed; short copy |
+| `src/components/commission/policy/RecordPaymentDialog.tsx`, `RecordEstimateDialog.tsx` | Description sentence only |
+| `src/components/commission/policy/CommissionBasis.tsx` | Deleted |
+| `src/components/commission/policy/__tests__/{PolicyCommissionSection,scheduleTiming,trackingRecovery,RecordPaymentDialog}.test.tsx`, `src/lib/commission/__tests__/{installments,trackingApi}.test.ts` | Updated and new cases, including old-shape parsing |
+| `docs/plans/…/implementation_plan.md`, `verification.md`, root `implementation_plan.md`, `WORK_LOG.md`, `AGENT_RULES.md` | Records; AGENT_RULES gets the revised invariant below as **proposed** text |
+
+**Revised proposed AGENT_RULES invariant (replaces 13.6).**
+
+> **Automatic estimated payment dates (proposed; not live until Gate 3b and Gate 4).** When an estimate is saved, the
+> server sets an *assumed* start date only from that policy's own Effective Date — never Draft Date (the next scheduled
+> draft) and never another policy's dates — and saves each payment's expected window as the 1st–3rd Federal Reserve
+> business day after its premium date (Advance: the start; Months 10–12: start + 9/10/11 calendar months from the
+> original anchor, clamped to month end). Explicit non-monthly schedules get only the Advance window. A first premium
+> date other than the effective date comes only from a person in Edit dates and is saved as confirmed; manual payment
+> dates (including Date needed) always win. Saved schedules are never recalculated when policy details change, and
+> reads never write. Expected dates are AgentFlow's estimate, not a carrier rule, and never evidence that a premium or
+> commission was received.
