@@ -26,10 +26,11 @@ try {
     if(request.method()==='OPTIONS')return route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}});
     const headers={'content-type':'application/json','access-control-allow-origin':'*'};
     if(url.pathname.endsWith('/rpc/get_my_uv_verification')){reads++;return route.fulfill({headers,body:JSON.stringify({status,verified})});}
-    if(url.pathname.endsWith('/rpc/get_my_uv_setup')) return route.fulfill({headers,body:JSON.stringify({profile_id:status.profile_id,organization_id:status.organization_id,revision:status.revision,snapshot:'a'.repeat(32),draft:{first_name:'Test',last_name:'Agent',phone:'+15550001000',email:'synthetic@example.invalid',npn:'123456',avatar_url:'',bio:'',licenses:[{id:'30000000-0000-4000-8000-000000000001',state:'California',license_number:'TEST',expiration_date:null}]}})});
+    if(url.pathname.endsWith('/rpc/get_my_uv_setup')) return route.fulfill({headers,body:JSON.stringify({profile_id:status.profile_id,organization_id:status.organization_id,revision:status.revision,snapshot:'a'.repeat(32),draft:{brand_name:'Synthetic Agency',first_name:'Test',last_name:'Agent',phone:'+15550001000',email:'synthetic@example.invalid',npn:'123456',avatar_url:'',bio:'',licenses:[{id:'30000000-0000-4000-8000-000000000001',state:'California',license_number:'TEST',expiration_date:null}]}})});
     if(url.pathname.endsWith('/rpc/complete_my_uv_setup')){
      const args=request.postDataJSON();assert.equal(args.p_expected_revision,status.revision);assert.equal(args.p_profile_id,status.profile_id);
      assert.equal(args.p_draft.licenses[0].expiration_date,null);assert.equal(args.p_draft.bio,'Helping families find the right coverage.');assert.ok(args.p_draft.avatar_url.startsWith('data:image/png;base64,'));
+     assert.equal(args.p_draft.brand_name,'Independent Life');row.agency=args.p_draft.brand_name;
      writes++;status.state='pending';status.revision=String(Number(status.revision)+1);row.headshot_url=args.p_draft.avatar_url;row.bio=args.p_draft.bio;
      return route.fulfill({headers,body:JSON.stringify({status,verified:false})});
     }
@@ -104,6 +105,7 @@ try {
   await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('button',{name:'Get verified',exact:true}).click();
   await dialog.getByLabel('First name',{exact:true}).waitFor();
+  await dialog.getByLabel('Agency / Brand Name (optional)',{exact:true}).fill('Independent Life');
   assert.equal(await dialog.getByLabel('First name',{exact:true}).inputValue(),'Test');
   await dialog.getByLabel('Profile photo',{exact:true}).setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});
   await dialog.getByAltText('Profile preview').waitFor();

@@ -308,6 +308,7 @@ if(native) await check('native concurrent workers cannot claim the same delivery
 });
 await check('compatible receiver migration and signed confirmation/bio delivery',async()=>{
  await uv.exec('BEGIN');await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261019032157_agentflow_profile_verification.sql'),'utf8'));await uv.exec('COMMIT');
+ await uv.exec('BEGIN');await uv.exec(await readFile(path.join(peer,'supabase/migrations/20261020171251_agentflow_personal_brand.sql'),'utf8'));await uv.exec('COMMIT');
  const identity='20000000-0000-4000-8000-000000000091';
  const payload={published:true,first_name:'Verified',last_name:'Agent',phone:'+15550001000',email:'verified@example.invalid',npn:'123456',headshot_url:'https://images.example.com/photo.png',agency:'Synthetic Agency',agency_slug:'synthetic-agency',state_licenses:['CA - #UNDATED'],profile_verified:true,bio:'A real optional biography.'};
  async function signed(version,profile){
@@ -326,7 +327,14 @@ await check('compatible receiver migration and signed confirmation/bio delivery'
  assert.equal((await signed(2,{...payload,profile_verified:false,headshot_url:''})).status,200);
  assert.equal((await uv.query('SELECT profile_verified FROM public.agents WHERE id=$1',[id])).rows[0].profile_verified,false);
  assert.notEqual((await signed(1,payload)).status,200);
- assert.equal((await signed(3,{published:false})).status,200);
+ assert.equal((await signed(3,{...payload,agency:'Independent Life'})).status,200);
+ const branded=(await uv.query('SELECT agency,agency_slug,slug FROM public.agents WHERE id=$1',[id])).rows[0];
+ assert.equal(branded.agency,'Independent Life');assert.equal(branded.agency_slug,published.agency_slug);assert.equal(branded.slug,published.slug);
+ assert.equal((await signed(4,{...payload,agency:'Independent Life',agency_slug:'another-agency'})).status,400);
+ for(const agency of ['', 'x'.repeat(121), 'Bad\nName'])assert.equal((await signed(4,{...payload,agency})).status,400);
+ assert.equal((await signed(4,payload)).status,200);
+ assert.equal((await uv.query('SELECT agency FROM public.agents WHERE id=$1',[id])).rows[0].agency,payload.agency);
+ assert.equal((await signed(5,{published:false})).status,200);
  assert.equal((await uv.query('SELECT is_published FROM public.agents WHERE id=$1',[id])).rows[0].is_published,false);
 });
 await af.close();await uv.close();if(admin) await admin.end();

@@ -6,6 +6,7 @@ import { safePhoto } from '../../../supabase/functions/_shared/uv-profile/payloa
 export const stateCodes = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
 const clean = (max: number) => z.string().trim().max(max).refine(s => ![...s].some(c => c.charCodeAt(0)<32 || c.charCodeAt(0)===127), 'Remove special control characters');
 export const identitySchema = z.object({
+  brand_name: clean(120).optional(),
   first_name: clean(50).refine(Boolean, 'Enter your first name'),
   last_name: clean(50).refine(Boolean, 'Enter your last name'),
   phone: clean(40).refine(s => /^\d{10,15}$/.test(s.replace(/\D/g,'')), 'Enter a valid phone number'),
@@ -21,7 +22,7 @@ export const credentialsSchema = z.object({npn:clean(40).refine(Boolean,'Enter y
 export const setupDraftSchema = identitySchema.merge(credentialsSchema).extend({bio:z.string().trim().max(2000)});
 export type SetupDraft = z.infer<typeof setupDraftSchema>;
 const snapshotSchema = z.object({profile_id:z.string().uuid(),organization_id:z.string().uuid(),revision:z.string(),snapshot:z.string().regex(/^[a-f0-9]{32}$/),
-  draft:z.object({first_name:z.string(),last_name:z.string(),phone:z.string(),email:z.string(),avatar_url:z.string(),npn:z.string(),bio:z.string(),licenses:z.array(licenseSchema)})});
+  draft:z.object({brand_name:clean(120).optional(),first_name:z.string(),last_name:z.string(),phone:z.string(),email:z.string(),avatar_url:z.string(),npn:z.string(),bio:z.string(),licenses:z.array(licenseSchema)})});
 export type SetupSnapshot = z.infer<typeof snapshotSchema>;
 type Client = {rpc:(name:string,args?:Record<string,unknown>) => PromiseLike<{data:unknown;error:unknown}>};
 const client=supabase as unknown as Client;
