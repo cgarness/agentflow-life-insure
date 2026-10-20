@@ -170,6 +170,29 @@ describe("Commissions page", () => {
     expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("");
   });
 
+  it("the calculator's estimate is unchanged by the new copy and survives a tab switch exactly", async () => {
+    renderAt("/commissions/calculator");
+    const choose = (label: string, option: string) => {
+      fireEvent.keyDown(screen.getByRole("combobox", { name: label }), { key: "Enter" });
+      fireEvent.click(screen.getByRole("option", { name: option }));
+    };
+    choose("Policy type", "Term");
+    choose("Carrier", "Synthetic Carrier North");
+    choose("Product", "North Level Term");
+    fireEvent.change(screen.getByLabelText("Client age"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
+    choose("Term length", "20 years");
+    const estimate = () => within(screen.getByLabelText("Estimate")).getAllByRole("definition").map((cell) => cell.textContent);
+    // The same figures as the calculator's own unit test (engine and inputs unchanged).
+    expect(estimate()).toEqual(["92.5%", "$1,110.00", "$832.50", "$92.50", "$92.50", "$92.50"]);
+    expect(screen.getByText("Your level:").textContent).toBe("Your level: 100");
+    expect(screen.getByText("Estimate only")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Payments" }));
+    await waitFor(() => expect(calls("get_my_commission_installments")).toHaveLength(1));
+    fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
+    expect(estimate()).toEqual(["92.5%", "$1,110.00", "$832.50", "$92.50", "$92.50", "$92.50"]);
+  });
+
   it("requests nothing under View As or without the Own commission permission", async () => {
     h.impersonating = true;
     renderAt("/commissions");

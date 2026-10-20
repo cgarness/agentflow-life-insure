@@ -1,9 +1,10 @@
 import React from "react";
 import { BadgeCheck, Info } from "lucide-react";
-import { calculateEstimate, disclaimerText, resolveLevel } from "@/lib/commission/calculator";
+import { calculateEstimate, resolveLevel } from "@/lib/commission/calculator";
 import { validateCalculatorForm } from "@/lib/commission/schemas";
 import type { ReadyCalculatorContext } from "@/lib/commission/types";
 import { IconTile } from "@/components/commission/ui/CommissionSurface";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import CalculatorInputs from "./CalculatorInputs";
 import CalculatorResults from "./CalculatorResults";
 import { useCalculatorInputs } from "./useCalculatorInputs";
@@ -39,9 +40,8 @@ const CalculatorWorkspace: React.FC<CalculatorWorkspaceProps> = ({ context }) =>
         <section className="rounded-xl border border-border/60 bg-card shadow-sm">
           <div className="flex items-center gap-3 border-b border-border/50 px-5 py-4">
             <IconTile icon={BadgeCheck} />
-            <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-muted-foreground">
-              Your contract level:
-              <span className="text-lg font-semibold tabular-nums tracking-tight text-foreground">{shownLevel}</span>
+            <p className="text-sm text-muted-foreground">
+              Your level: <span className="font-semibold tabular-nums text-foreground">{shownLevel}</span>
             </p>
           </div>
           <div className="p-5">
@@ -63,9 +63,20 @@ const CalculatorWorkspace: React.FC<CalculatorWorkspaceProps> = ({ context }) =>
           </div>
         )}
       </div>
-      <p className="flex max-w-3xl items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
-        <span>{disclaimerText(context.grid.name, context.grid.effectiveDate)}</span>
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        Estimate only
+        <Popover>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label="About this estimate"
+              className="rounded-full p-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Info className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" className="w-72 p-3 text-xs leading-relaxed">
+            Assumes a 75% advance. Actual commission and payment timing may vary by age, plan type and carrier rules. Calculator
+            results aren&apos;t saved or reported.
+          </PopoverContent>
+        </Popover>
       </p>
     </div>
   );
