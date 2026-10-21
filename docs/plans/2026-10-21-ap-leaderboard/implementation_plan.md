@@ -371,3 +371,76 @@ verification did not cover it. That gap is recorded here.
 Admin role is exercised by having Playwright serve the existing stub module, unchanged except for its role string, to
 a separate browser context. No file outside the table above changes. The harness `README.md` still describes the
 retired checks; updating it needs Chris's approval (flagged in `verification.md`).
+
+---
+
+## §14. Amendment — final UI polish: "Annual Premium" labels and a two-cell TV totals strip (PLAN, AWAITING CHRIS'S APPROVAL)
+
+**Request (Chris, 2026-10-21):** exactly two changes on PR #475.
+1. Every visible "AP" label on the Leaderboard and TV Mode becomes **"Annual Premium"**. The shared display labels
+   change, and the subtitle becomes **"Ranked by Annual Premium"**. Longer labels must fit on mobile without clipping.
+   No calculation or ranking logic changes.
+2. TV Mode's top **Active-Agent Totals** strip shows only **Annual Premium** and **Policies**, in a balanced two-column
+   layout. **Calls stay** on every podium card (page and TV), in the page's Full Rankings, and in TV ranks 4–10.
+
+**Checked first:** branch `claude/sweet-cannon-jve7ak` is clean at `ccddd27` and matches the remote; `main` is still
+`51b0e56`; PR #475 has no review threads or human comments; all checks on `ccddd27` are green (§9 records the
+equivalent `fd0220c`). The newest Work Log entries are this PR's own, so there is no conflicting work.
+
+**Inventory of visible "AP" (8 render sites, all fed by two constants in `leaderboardTypes.ts`):**
+
+| Surface | Today | After |
+|---|---|---|
+| Page subtitle (`LeaderboardFilters`) | "Ranked by Annualized Premium (AP)" | "Ranked by Annual Premium" |
+| Podium card label (`LeaderboardPodiumCard`) | "AP" | "Annual Premium" |
+| Your Performance label | "AP" | "Annual Premium" |
+| Full Rankings column header | "AP" (accessible name "Annualized Premium") | "Annual Premium" (wraps to two lines below `sm`; one line from `sm`) |
+| TV podium label (`TVPodium`) | "AP" | "Annual Premium" |
+| TV ranks 4–10 header and badge (`TVRankingsTable`) | "AP"; "Live Ranking · Annualized Premium" | "Annual Premium"; "Live Ranking · Annual Premium" |
+| TV ranks 11+ header (`TVDeepRankPanel`) | "AP" | "Annual Premium" |
+| TV totals label (`TVAgencyTotalsStrip`) | "AP" | "Annual Premium" |
+
+**Approach.**
+- `AP_LABEL` / `AP_FULL_LABEL` become one shared `ANNUAL_PREMIUM_LABEL = "Annual Premium"`. The screen then
+  uses one term (matching the existing caption "Annual premium (N policies with unknown premium)"). The `title` and
+  `aria-label` attributes that existed only to expand "AP" are dropped where the visible text now says the same
+  thing. The table's accessible name becomes "Full rankings by Annual Premium". Code comments that say "AP" are not
+  visible and stay as they are.
+- **Mobile fit:** on phones the Full Rankings "Annual Premium" header may wrap to two short lines (right-aligned,
+  tight leading) inside the existing column, and stays on one line from `sm` up. No column or AP-cell width changes.
+  The podium, Your Performance and TV labels already have room. Each is measured in the browser for clipping (below).
+- **TV totals:** the Calls cell and the now-unused Calls total are removed from the strip; the grid becomes
+  `grid-cols-2`, Annual Premium (still highlighted) then Policies, with equal cell widths. The roster-wide "—" rule for
+  all-unknown premium is unchanged. No data, request, gate or poll change.
+- **Unchanged:** `compareAgentsByAp` / `rankAgents`, AP values and their "—" / `*` rules, every calculation, the
+  CSV export (its "Annualized Premium USD" header included), the on-screen notes, RPCs, RLS, Supabase and telephony.
+
+**Intended files (only these):**
+
+| File | Change |
+|---|---|
+| `src/components/leaderboard/leaderboardTypes.ts` | One shared `ANNUAL_PREMIUM_LABEL` replaces `AP_LABEL` / `AP_FULL_LABEL` |
+| `src/components/leaderboard/LeaderboardFilters.tsx` | Subtitle "Ranked by Annual Premium" |
+| `src/components/leaderboard/LeaderboardPodiumCard.tsx` | Label |
+| `src/components/leaderboard/LeaderboardYourPerformance.tsx` | Label |
+| `src/components/leaderboard/LeaderboardRankingsTable.tsx` | Header label, mobile wrap, table accessible name |
+| `src/components/leaderboard/TVPodium.tsx` | Label |
+| `src/components/leaderboard/TVRankingsTable.tsx` | Header label and badge |
+| `src/components/leaderboard/TVDeepRankPanel.tsx` | Header label |
+| `src/components/leaderboard/TVAgencyTotalsStrip.tsx` | Label; remove the Calls cell; two-column grid |
+| `src/pages/__tests__/leaderboardPage.test.tsx` | Subtitle, column names, podium label text |
+| `src/components/leaderboard/__tests__/tvModeRegression.test.tsx` | Header, badge, totals (two cells, no Calls) and the totals-premium lookup |
+| `src/components/leaderboard/__tests__/leaderboardYourPerformance.test.tsx` | Label assertion added |
+| `scripts/tests/leaderboard-visual/verify.mjs` | Expected labels, badge and two-cell totals. Adds browser checks: no clipped label (scroll width ≤ client width) on the page at 390 px and on TV at every viewport; the two totals cells sit side by side with equal widths. Podium and both tables still assert Calls. |
+| Docs: this §14, `verification.md` §10, `WORK_LOG.md`, root `implementation_plan.md` | Records |
+
+Not touched: `entry.tsx`, the workflows, `stubs.ts`, `vite.config.ts`, the harness `README.md`, `AGENT_RULES.md` (no
+new invariant), the Dashboard widget (it shows no premium label), `leaderboardExport.ts` and everything outside the
+Leaderboard.
+
+**Verification plan:** the targeted Vitest suites, `npx tsc --noEmit`, the app check against the 84-error baseline,
+ESLint on touched files, `npm run build` and `git diff --check`. Then the real Playwright visual harness locally
+(fresh Vite, as CI runs it), fixture screenshots of the page at 1440/1024/390 (dark and light) and TV at 1920/1280,
+and every PR #475 check green on the final head. No Supabase command, migration, merge or deployment.
+
+**Status:** plan only; no application, test or harness file edited. Waiting for Chris's explicit approval.

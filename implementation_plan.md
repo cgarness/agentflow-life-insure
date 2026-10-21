@@ -1,3 +1,16 @@
+## 2026-10-21 — PLAN, AWAITING APPROVAL: PR #475 final UI polish ("Annual Premium" labels; TV totals without Calls)
+
+**Status:** plan only on `claude/sweet-cannon-jve7ak` (`ccddd27`). No application, test or harness file changed; no
+Supabase or Vercel command run. Scope, inventory and exact files are in
+`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §14.
+
+**Summary:** every visible "AP" label on the Leaderboard and TV Mode becomes "Annual Premium". There is one shared
+label, the subtitle reads "Ranked by Annual Premium", and the Full Rankings header may wrap on phones. TV's
+Active-Agent Totals strip shows only Annual Premium and Policies in two equal columns. Calls stay on the podium cards
+and in both ranking tables. No calculation, ranking, CSV, data, RPC, RLS or telephony change.
+
+---
+
 ## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): AP-only Leaderboard redesign (frontend only)
 
 **Status:** Chris approved the plan on 2026-10-21 with D1–D5 = A, plus the instruction that tie-break rank changes show
