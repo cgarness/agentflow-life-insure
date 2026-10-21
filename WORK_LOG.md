@@ -1,3 +1,13 @@
+## 2026-10-21 — Commissions insights Gate 2: independent post-apply re-check passed
+
+The session that built the Gate 2 package re-checked production read-only after the 05:32 UTC apply, against its own
+04:50 UTC baseline (no database write): history head `20261021180000` (one row, exact text); `readback.sql` 24/24;
+six-table fingerprints and all 16 existing catalog categories unchanged, additions exactly as rehearsed; advisors
+security 253 / performance 452 with identical finding sets. Record: `verification.md` §9. Gate 3 remains unapproved;
+PR #474 stays draft.
+
+---
+
 ## 2026-10-21 — Commissions insights Gate 2 APPLIED and verified; PR #474 draft, Gate 3 pending
 
 Executed at approximately 05:32 UTC (October 20, 10:32 PM PDT) under Chris's exact database-only handoff approval,

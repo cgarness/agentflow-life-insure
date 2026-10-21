@@ -288,3 +288,20 @@ No `main` push, merge, frontend release, manual deployment, production goal, rec
 
 **Next:** ready for read-only preview acceptance. Gate 3 requires Chris's separate frontend approval and final-head
 CI review before merge/release. Signed-in preview acceptance has not been performed in this Gate 2 execution.
+
+## 9. Independent post-apply re-check (2026-10-21, 05:38–05:40 UTC)
+
+The session that built the package (its own 04:50 UTC baseline, §7) re-ran the checks read-only with
+`list_migrations`, `execute_sql` SELECTs and `get_advisors`. It made no database write; the apply in §8 is the only one.
+
+- **History.** One row `20261021180000 / policy_commission_center_insights`; it is the hosted head; the previous head
+  `20261020212000` and both earlier prerequisites are unchanged. Nothing was replayed.
+- **`readback.sql`:** 24/24 `t` (exact stored text: 34,179 bytes, MD5 `428020c9…`, SHA-256 `d390cc8e…`; goal table,
+  constraints, single owner policy, table and column grants, zero goal rows; insights schema; 12 exact function bodies,
+  invoker/owner/`search_path`/volatility, EXECUTE `authenticated` only; eight preimages; RLS; not published).
+- **Six-table fingerprints** (UTC, 05:38:41): every count, content MD5 and insert/update/delete counter equals §7's
+  04:50 baseline (captures 1, estimates 9, events 9, handoffs 2, installments 36, receipts 0).
+- **Catalog.** All 16 categories' `n_existing` and digests equal §7's baseline; additions exactly schemas +1,
+  relations +2, columns +6, constraints +4, indexes +1, functions +12, policies +1, types +2; every other category +0.
+- **Advisors.** Security 253 and performance 452, and the full finding sets (name, level, metadata, detail) are
+  identical to §7's baseline: zero added, zero removed; none names a new object.
