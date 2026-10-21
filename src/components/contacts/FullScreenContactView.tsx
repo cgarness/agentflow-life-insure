@@ -25,7 +25,7 @@ import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
 import { ClientPolicies } from "@/components/contacts/ClientPolicies";
 import { ClientLeadHistory } from "@/components/contacts/ClientLeadHistory";
-import { clientDobEditor, formatSpouseInfo, isEditableSpouseInfo, optionsWithCurrent, validateChangedClientPersonFields } from "@/lib/clientLeadDetails";
+import { clientDobEditor, formatSpouseInfo, isEditableSpouseInfo, omitUnchangedPersonFields, optionsWithCurrent, validateChangedClientPersonFields } from "@/lib/clientLeadDetails";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -694,7 +694,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     // must not be reported a second time — but it must be treated exactly like a failure here,
     // because nothing was written either way.
     try {
-      await onUpdate(contact.id, editForm);
+      // Clients: preserved person fields the agent did not touch are left out, so they are never rewritten.
+      await onUpdate(contact.id, type === "client" ? omitUnchangedPersonFields(contact, editForm) : editForm);
     } catch (e) {
       if (isContactSaveRefusedError(e)) {
         if (!e.reported && e.message.trim()) toast.error(e.message);

@@ -19,7 +19,7 @@ CREATE TEMP TABLE lead_conversion_preservation_rollback_meta ON COMMIT DROP AS
 
 DO $guard$
 BEGIN
-  IF md5(pg_get_functiondef('public.convert_lead_to_client_atomic(uuid,jsonb)'::regprocedure)) <> 'ac116f01810768581707e837a5ca3b99'
+  IF md5(pg_get_functiondef('public.convert_lead_to_client_atomic(uuid,jsonb)'::regprocedure)) <> '7109fdab661eac16ab6ff4f8d8343c20'
      OR md5(pg_get_functiondef('public.update_client_with_policy_sale(uuid,jsonb)'::regprocedure)) <> '6313ca0c1fc374a613bfcb7e9e587d4c' THEN
     RAISE EXCEPTION 'lead conversion preservation rollback: the installed bodies are not the reviewed post-images; refusing';
   END IF;

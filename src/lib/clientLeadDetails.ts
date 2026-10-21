@@ -22,6 +22,7 @@ const leadConversionSchema = z.object({
   lead_created_at: text,
   lead_last_contacted_at: text,
   lead_notes: text,
+  legacy_conversion_notes: text,
   preserved_custom_fields: z.unknown().optional(),
 }).passthrough();
 
@@ -40,6 +41,7 @@ export function parseLeadConversion(raw: unknown): LeadConversionHistory | undef
     leadCreatedAt: h.lead_created_at,
     leadLastContactedAt: h.lead_last_contacted_at,
     leadNotes: h.lead_notes,
+    legacyConversionNotes: h.legacy_conversion_notes,
     hasPreservedCustomFields: h.preserved_custom_fields !== undefined && h.preserved_custom_fields !== null,
   };
 }
@@ -102,11 +104,32 @@ export const clientPersonFieldsSchema = z.object({
 type PersonKey = keyof z.infer<typeof clientPersonFieldsSchema>;
 const PERSON_KEYS: PersonKey[] = ["dateOfBirth", "age", "bestTimeToCall", "spouseInfo"];
 
-const same = (a: unknown, b: unknown) => (blank(a) && blank(b)) || a === b || String(a ?? "") === String(b ?? "");
+/** Unchanged = exactly the saved value (structured values compared by content); empty, null and undefined match. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (blank(a) && blank(b)) return true;
+  if (a === b) return true;
+  return typeof a === "object" && a !== null && typeof b === "object" && b !== null && JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The person fields the agent changed from the saved contact. Validation and sending use this same set. */
+export function changedClientPersonFields(original: Partial<Client>, edited: Partial<Client>): PersonKey[] {
+  return PERSON_KEYS.filter((k) => !sameValue(original[k], edited[k]));
+}
+
+/**
+ * The edit to send: person fields the agent did not change are left out entirely, so an unrelated edit can never trim,
+ * normalize, clear or otherwise rewrite a stored DOB, age, best time to call or spouse value (legacy formats included).
+ */
+export function omitUnchangedPersonFields<T extends Partial<Client>>(original: Partial<Client>, edited: T): T {
+  const changed = new Set(changedClientPersonFields(original, edited));
+  const out = { ...edited };
+  for (const k of PERSON_KEYS) if (!changed.has(k)) delete out[k];
+  return out;
+}
 
 /** Messages for the person fields the agent changed from the saved contact; [] when the save may proceed. */
 export function validateChangedClientPersonFields(original: Partial<Client>, edited: Partial<Client>): string[] {
-  const changed = PERSON_KEYS.filter((k) => !same(original[k], edited[k]));
+  const changed = changedClientPersonFields(original, edited);
   if (changed.length === 0) return [];
   const result = clientPersonFieldsSchema.safeParse(Object.fromEntries(PERSON_KEYS.map((k) => [k, edited[k]])));
   if (result.success) return [];

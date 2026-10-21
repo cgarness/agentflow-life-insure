@@ -238,9 +238,9 @@ describe("lead details preserved at conversion (20261021200000)", () => {
     for (const key of ["date_of_birth", "age", "best_time_to_call", "spouse_info", "lead_conversion"]) expect(patch).not.toHaveProperty(key);
   });
 
-  it("sends edited person fields: text trimmed but never re-formatted, blanks as NULL, age as an integer", () => {
-    expect(clientUpdatePatch({ dateOfBirth: " 03/04/1960 ", age: 55, bestTimeToCall: "Anytime", spouseInfo: "Jamie" })).toMatchObject({
-      date_of_birth: "03/04/1960", age: 55, best_time_to_call: "Anytime", spouse_info: "Jamie" });
+  it("sends person fields verbatim: non-blank text never trimmed or re-formatted, blanks as NULL, age as an integer", () => {
+    expect(clientUpdatePatch({ dateOfBirth: " 03/04/1960 ", age: 55, bestTimeToCall: " Anytime ", spouseInfo: " Jamie " })).toMatchObject({
+      date_of_birth: " 03/04/1960 ", age: 55, best_time_to_call: " Anytime ", spouse_info: " Jamie " });
     expect(clientUpdatePatch({ dateOfBirth: "", age: "" as never, bestTimeToCall: " ", spouseInfo: "" })).toMatchObject({
       date_of_birth: null, age: null, best_time_to_call: null, spouse_info: null });
     expect(clientUpdatePatch({ age: "47" as never }).age).toBe(47);

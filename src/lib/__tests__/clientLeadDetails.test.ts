@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   clientDobEditor,
+  changedClientPersonFields,
   formatSpouseInfo,
   isEditableSpouseInfo,
+  omitUnchangedPersonFields,
   optionsWithCurrent,
   parseLeadConversion,
   validateChangedClientPersonFields,
@@ -20,7 +22,7 @@ describe("parseLeadConversion — protected history from clients.lead_conversion
     expect(h).toEqual({
       version: 1, leadId: "lead-1", convertedAt: "2026-10-21T20:00:00+00:00", convertedBy: "agent-1",
       leadStatus: "Interested", leadSource: "Facebook", leadCreatedAt: "2026-09-01T12:00:00+00:00",
-      leadLastContactedAt: null, leadNotes: null, hasPreservedCustomFields: false,
+      leadLastContactedAt: null, leadNotes: null, legacyConversionNotes: null, hasPreservedCustomFields: false,
     });
     expect(JSON.stringify(h)).not.toContain("score");
   });
@@ -29,6 +31,12 @@ describe("parseLeadConversion — protected history from clients.lead_conversion
     const h = parseLeadConversion({ ...stored, lead_notes: "Original notes", preserved_custom_fields: { additional_policies: "x" } });
     expect(h?.leadNotes).toBe("Original notes");
     expect(h?.hasPreservedCustomFields).toBe(true);
+  });
+
+  it("surfaces an older app version's unclassifiable conversion notes verbatim", () => {
+    const h = parseLeadConversion({ ...stored, legacy_conversion_notes: "  Typed by an old tab\nsecond line" });
+    expect(h?.legacyConversionNotes).toBe("  Typed by an old tab\nsecond line");
+    expect(h?.leadNotes).toBeNull();
   });
 
   it.each([
@@ -108,5 +116,32 @@ describe("validateChangedClientPersonFields (Zod) — only what the agent change
 
   it("reports only the changed field when a legacy neighbour is also invalid", () => {
     expect(validateChangedClientPersonFields(legacy, { ...legacy, age: 200 })).toEqual(["Age must be a whole number from 0 to 130."]);
+  });
+});
+
+describe("unchanged person fields are never sent (an unrelated edit cannot rewrite them)", () => {
+  const saved = { dateOfBirth: " 03/04/1960 ", age: 140, bestTimeToCall: " Morning ", spouseInfo: { name: "Pat" } };
+
+  it("an unrelated edit carries none of the person fields, whatever their stored shape", () => {
+    const edited = { ...saved, firstName: "Renamed", notes: "Edited" };
+    expect(changedClientPersonFields(saved, edited)).toEqual([]);
+    const out = omitUnchangedPersonFields(saved, edited);
+    expect(out).toEqual({ firstName: "Renamed", notes: "Edited" });
+    expect(edited.dateOfBirth).toBe(" 03/04/1960 "); // the caller's form is not mutated
+  });
+
+  it("only the field the agent changed is kept, exactly as typed", () => {
+    const out = omitUnchangedPersonFields(saved, { ...saved, bestTimeToCall: "Anytime" });
+    expect(out).toEqual({ bestTimeToCall: "Anytime" });
+  });
+
+  it("clearing a value is a change; typing then clearing an empty field is not", () => {
+    expect(omitUnchangedPersonFields(saved, { ...saved, dateOfBirth: "" })).toEqual({ dateOfBirth: "" });
+    expect(omitUnchangedPersonFields({}, { dateOfBirth: "", age: "" as never, spouseInfo: null })).toEqual({});
+  });
+
+  it("structured values compare by content", () => {
+    expect(changedClientPersonFields(saved, { ...saved, spouseInfo: { name: "Pat" } })).toEqual([]);
+    expect(changedClientPersonFields(saved, { ...saved, spouseInfo: { name: "Sam" } })).toEqual(["spouseInfo"]);
   });
 });

@@ -21,8 +21,15 @@ CREATE FUNCTION lcp_lead(p_n integer, p_fields jsonb DEFAULT '{}', p_owner integ
     'updated_at', '2026-09-02T12:00:00Z') || p_fields)
   RETURNING id
 $$;
--- The browser's conversion payload: the agent's policy inputs plus whatever notes/custom fields that browser sends.
+-- The current browser's conversion payload: the agent's policy inputs, its note marked notes_source =
+-- 'conversion_note', and whatever custom fields that browser sends.
 CREATE FUNCTION lcp_payload(p_n integer, p_notes text DEFAULT NULL, p_custom jsonb DEFAULT NULL) RETURNS jsonb
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT public.pc_client('Payload' || p_n, 11, '50.00') || jsonb_build_object('notes', p_notes, 'notes_source', 'conversion_note')
+    || CASE WHEN p_custom IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('custom_fields', p_custom) END
+$$;
+-- An older (released) browser's payload: `notes` is its conversion note OR its copy of the lead notes.
+CREATE FUNCTION lcp_legacy_payload(p_n integer, p_notes text DEFAULT NULL, p_custom jsonb DEFAULT NULL) RETURNS jsonb
 LANGUAGE sql IMMUTABLE AS $$
   SELECT public.pc_client('Payload' || p_n, 11, '50.00') || jsonb_build_object('notes', p_notes)
     || CASE WHEN p_custom IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('custom_fields', p_custom) END
@@ -38,7 +45,7 @@ LANGUAGE sql IMMUTABLE AS $$
     'policyNumber', 'ADD-' || p_id, 'premiumAmount', p_premium, 'faceAmount', '25000', 'soldDate', p_sold,
     'effectiveDate', '2026-11-01')
 $$;
-GRANT EXECUTE ON FUNCTION lcp_r(text), lcp_payload(integer, text, jsonb), lcp_convert(integer, integer, jsonb, uuid, integer, jsonb),
+GRANT EXECUTE ON FUNCTION lcp_r(text), lcp_payload(integer, text, jsonb), lcp_legacy_payload(integer, text, jsonb), lcp_convert(integer, integer, jsonb, uuid, integer, jsonb),
   lcp_policy(integer, text, text, text) TO authenticated;
 
 -- ── P2: every standard lead field transfers exactly; an old browser's stale bag and notes copy change nothing ─────
@@ -51,7 +58,7 @@ SELECT pc_login(11);
 SET ROLE authenticated;
 -- The released browser sends the in-memory lead notes as a fallback and a stale custom-field copy.
 INSERT INTO lcp_results VALUES ('p2', lcp_convert(7101, 7001,
-  lcp_payload(7001, 'Lead notes A', jsonb_build_object('Gender', 'Male (stale)', 'Injected', 'x'))));
+  lcp_legacy_payload(7001, 'Lead notes A', jsonb_build_object('Gender', 'Male (stale)', 'Injected', 'x'))));
 RESET ROLE;
 SELECT test_assert((lcp_r('p2')->>'idempotent')::boolean IS FALSE AND (lcp_r('p2')->>'client_id')::uuid = (lcp_c(7001)).id, 'p2 converted');
 SELECT test_assert((c).first_name = 'Lead7001' AND (c).last_name = 'Synthetic' AND (c).phone = '5550107001'
@@ -69,7 +76,8 @@ SELECT test_assert(h->>'version' = '1' AND h->>'lead_id' = test_id(7001)::text A
                    AND h->>'lead_last_contacted_at' = '2026-10-01T10:00:00Z'
                    AND h->>'lead_owner_id' = test_id(11)::text AND h->>'lead_assigned_agent_id' = test_id(11)::text
                    AND h->>'lead_imported_by_user_id' = test_id(13)::text AND (h->>'converted_at')::timestamptz IS NOT NULL
-                   AND NOT h ? 'lead_notes' AND NOT h ? 'preserved_custom_fields', 'p2 protected history')
+                   AND NOT h ? 'lead_notes' AND NOT h ? 'legacy_conversion_notes' AND NOT h ? 'preserved_custom_fields',
+                   'p2 protected history')
 FROM (SELECT (lcp_c(7001)).lead_conversion h) x;
 SELECT test_assert(NOT EXISTS (SELECT 1 FROM leads WHERE id = test_id(7001)), 'p2 lead row removed as before');
 
@@ -135,19 +143,33 @@ SELECT test_assert((lcp_c(7005)).custom_fields IS NULL AND NOT (lcp_c(7005)).lea
 SELECT test_assert((lcp_c(7006)).custom_fields = '{}'::jsonb, 'p3e empty bag preserved');
 
 -- ── P4: notes are never silently overwritten (agent note, lead note, both, equal, blank, stale browser copy) ──────
-SELECT lcp_lead(7010 + n, jsonb_build_object('notes', v)) FROM (VALUES
-  (1, 'L'), (2, 'L'), (3, NULL), (4, 'L'), (5, '  L  '), (6, 'L'), (7, 'Current DB notes'), (8, NULL), (9, '')) t(n, v);
+-- Same nine cases twice: leads 7011–7019 from the current browser (notes marked as the conversion note), leads 7071–7079
+-- from an older browser (unmarked, ambiguous notes). Each result reads client Notes | history lead_notes | history legacy_conversion_notes.
+SELECT lcp_lead(base + n, jsonb_build_object('notes', v)) FROM (VALUES
+  (1, 'L'), (2, 'L'), (3, NULL), (4, 'L'), (5, '  L  '), (6, 'L'), (7, 'Current DB notes'), (8, NULL), (9, '')) t(n, v),
+  (VALUES (7010), (7070)) b(base);
 SELECT pc_login(11);
 SET ROLE authenticated;
-SELECT lcp_convert(7110 + n, 7010 + n, lcp_payload(7010 + n, v)) FROM (VALUES
-  (1, NULL), (2, 'Conversion note'), (3, 'Conversion note'), (4, 'L'), (5, 'L'), (6, '   '), (7, 'Stale browser copy'),
+SELECT lcp_convert(7110 + n, 7010 + n, lcp_payload(7010 + n, v)), lcp_convert(7180 + n, 7070 + n, lcp_legacy_payload(7070 + n, v))
+FROM (VALUES (1, NULL), (2, 'Conversion note'), (3, 'Conversion note'), (4, 'L'), (5, 'L'), (6, '   '), (7, 'Stale browser copy'),
   (8, NULL), (9, 'Conversion note')) t(n, v);
 RESET ROLE;
-SELECT test_assert(array_agg(coalesce((c).notes, '<null>') || '|' || coalesce((c).lead_conversion->>'lead_notes', '<none>') ORDER BY n)
-  = ARRAY['L|<none>', 'Conversion note|L', 'Conversion note|<none>', 'L|<none>', '  L  |<none>', 'L|<none>',
-          'Stale browser copy|Current DB notes', '<null>|<none>', 'Conversion note|<none>'],
-  'p4 notes matrix: database notes win unless the agent wrote a different note, and displaced notes are kept verbatim')
-FROM (SELECT n, lcp_c(7010 + n) c FROM generate_series(1, 9) n) x;
+CREATE FUNCTION lcp_notes(p_lead integer) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT coalesce((c).notes, '<null>') || '|' || coalesce((c).lead_conversion->>'lead_notes', '<none>') || '|'
+    || coalesce((c).lead_conversion->>'legacy_conversion_notes', '<none>') FROM (SELECT lcp_c(p_lead) c) x
+$$;
+SELECT test_assert(array_agg(lcp_notes(7010 + n) ORDER BY n)
+  = ARRAY['L|<none>|<none>', 'Conversion note|L|<none>', 'Conversion note|<none>|<none>', 'L|<none>|<none>',
+          '  L  |<none>|<none>', 'L|<none>|<none>', 'Stale browser copy|Current DB notes|<none>', '<null>|<none>|<none>',
+          'Conversion note|<none>|<none>'],
+  'p4 current browser: the agent''s note becomes the Notes and displaced lead notes are kept verbatim')
+FROM generate_series(1, 9) n;
+SELECT test_assert(array_agg(lcp_notes(7070 + n) ORDER BY n)
+  = ARRAY['L|<none>|<none>', 'L|<none>|Conversion note', '<null>|<none>|Conversion note', 'L|<none>|<none>',
+          '  L  |<none>|<none>', 'L|<none>|<none>', 'Current DB notes|<none>|Stale browser copy', '<null>|<none>|<none>',
+          '|<none>|Conversion note'],
+  'p4 older browser: a stale copy never becomes the Notes; the current lead notes stay and unclassifiable text is kept')
+FROM generate_series(1, 9) n;
 
 -- ── P5: history is protected and read-only for every role and path ───────────────────────────────────────────────
 SELECT pc_login(11);
@@ -392,5 +414,32 @@ SELECT test_assert(to_jsonb(lcp_c(7002)) - ARRAY['state', 'notes', 'updated_at']
                    AND (lcp_c(7002)).state = 'NV' AND (lcp_c(7002)).notes = 'Old browser edit',
                    'p15 an old-browser edit changes only what it sent; person fields, history and policies are untouched');
 SELECT test_assert((SELECT count(*) FROM wins WHERE contact_id = (lcp_c(7002)).id) = 3, 'p15 no sale added or removed');
+
+-- Values stored before any normalization existed (padded text, legacy formats, an out-of-range age) survive an
+-- unrelated edit byte-for-byte: the writer applies only what the patch carries.
+UPDATE clients SET date_of_birth = ' 03/04/1960 ', age = 140, best_time_to_call = ' Morning ', spouse_info = '" Pat "'
+ WHERE lead_id = test_id(7001);
+INSERT INTO lcp_results VALUES ('p15_legacy_before', to_jsonb(lcp_c(7001)));
+SELECT pc_login(11);
+SET ROLE authenticated;
+SELECT update_client_with_policy_sale((SELECT id FROM clients WHERE lead_id = test_id(7001)), '{"notes": "Unrelated edit"}');
+RESET ROLE;
+SELECT test_assert(to_jsonb(lcp_c(7001)) - ARRAY['notes', 'updated_at'] = lcp_r('p15_legacy_before') - ARRAY['notes', 'updated_at']
+                   AND (lcp_c(7001)).date_of_birth = ' 03/04/1960 ' AND (lcp_c(7001)).age = 140
+                   AND (lcp_c(7001)).best_time_to_call = ' Morning ' AND (lcp_c(7001)).spouse_info = '" Pat "',
+                   'p15 an unrelated edit leaves unchanged person fields exactly as stored');
+
+-- ── P16: a notes format this database does not know (never sent by any browser) fails closed with a refresh ─────
+SELECT lcp_lead(7090, '{"notes": "Keep these notes"}');
+SELECT pc_login(11);
+SET ROLE authenticated;
+SELECT test_assert(pc_reject($q$SELECT lcp_convert(7190, 7090, lcp_payload(7090, 'New note') || '{"notes_source": "lead_copy"}')$q$, '22023')
+  = 'Conversion notes were sent in an unrecognized format. Refresh AgentFlow and try again.', 'p16 unknown notes format refused with a refresh instruction');
+SELECT test_assert(pc_reject($q$SELECT lcp_convert(7191, 7090, lcp_payload(7090, 'New note') || '{"notes_source": null}')$q$, '22023')
+  = 'Conversion notes were sent in an unrecognized format. Refresh AgentFlow and try again.', 'p16 a null notes format is refused too');
+RESET ROLE;
+SELECT test_assert(EXISTS (SELECT 1 FROM leads WHERE id = test_id(7090) AND notes = 'Keep these notes') AND lcp_c(7090) IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM private.policy_sale_receipts WHERE operation_key = 'conversion:' || test_id(7090)),
+                   'p16 the refused conversion changed nothing');
 
 SELECT 'PASS lead conversion preservation' AS result;

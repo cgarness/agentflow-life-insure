@@ -11,7 +11,8 @@
 --   * convert_lead_to_client_atomic reads every preserved value from the locked lead row: state,
 --     the four person fields, every user-defined custom field, and the history. Only the agent's
 --     conversion inputs (policy fields, beneficiary, conversion notes, additional_policies) come from
---     the payload. Lead notes are never silently replaced.
+--     the payload. Lead notes are never silently replaced, and an older browser's unclassifiable notes
+--     text can never become the client's Notes (it is kept separately in the history).
 --   * update_client_with_policy_sale accepts exactly the four person fields in addition to its
 --     existing allowlist, so the client profile can edit them. It can never write lead_conversion.
 --   * A trigger keeps lead_conversion immutable and writable only by the conversion function.
@@ -109,12 +110,14 @@ FOR EACH ROW EXECUTE FUNCTION private.guard_client_lead_conversion();
 
 -- ── 3. convert_lead_to_client_atomic ─────────────────────────────────────────────────────────────────────────────
 -- Body restated verbatim from 20260812042319 with EXACTLY these changes:
---   * DECLARE gains v_lead_cf, v_policies, v_set_aside, v_conv_notes, v_client_notes, v_history.
+--   * DECLARE gains v_lead_cf, v_policies, v_set_aside, v_conv_notes, v_client_notes, v_history, v_explicit_note,
+--     v_legacy_notes.
 --   * custom_fields: every key from the locked lead row; only additional_policies from the payload. A lead value
 --     that cannot live in the client namespace (the reserved key, or a non-object bag) is set aside verbatim in
 --     the history instead of being dropped or turned into policies.
---   * notes: the database lead notes unless the agent entered a different conversion note; displaced lead notes
---     are kept verbatim in the history.
+--   * notes: the database lead notes unless the agent entered a different conversion note (marked explicitly with
+--     notes_source = 'conversion_note'); displaced lead notes are kept verbatim in the history. An older browser's
+--     differing notes text cannot be classified, so the database notes stay and that text is kept in the history.
 --   * INSERT gains state, date_of_birth, age, best_time_to_call, spouse_info and lead_conversion, all from v_lead.
 -- Everything else (auth, org guard, authorization, double idempotency, payment frequency, policy columns,
 -- contact-graph transfer, lead delete, return shape) is unchanged. CREATE OR REPLACE preserves owner + grants.
@@ -141,6 +144,8 @@ DECLARE
   v_conv_notes text;
   v_client_notes text;
   v_history jsonb;
+  v_explicit_note boolean;
+  v_legacy_notes text;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '28000'; END IF;
   IF v_org IS NULL THEN RAISE EXCEPTION 'no_org' USING ERRCODE = '28000'; END IF;
@@ -197,11 +202,27 @@ BEGIN
                          ELSE jsonb_build_object('additional_policies', v_policies) END
           END;
 
-  -- Notes: the database lead notes, unless the agent entered a different conversion note. Then the conversion
-  -- note is the client's Notes and the displaced lead notes are kept verbatim in the history.
+  -- Notes. The current browser marks `notes` as the agent's conversion note with notes_source = 'conversion_note'. An
+  -- older browser sends `notes` unmarked: either the agent's note or that tab's (possibly stale) copy of the lead notes.
+  -- A stale copy must never become the client's Notes, and neither the current lead notes nor an agent's note may be lost:
+  --   blank, or equal to the database lead notes        -> the database lead notes;
+  --   marked conversion note that differs                -> the client's Notes; displaced lead notes kept in history;
+  --   unmarked text that differs (unclassifiable)        -> the database lead notes stay; the text is kept verbatim
+  --                                                        in history as legacy_conversion_notes.
+  -- Any other notes_source value is a format this database does not know and is refused (fail closed).
+  v_explicit_note := p_client ? 'notes_source';
+  IF v_explicit_note AND (p_client->>'notes_source') IS DISTINCT FROM 'conversion_note' THEN
+    RAISE EXCEPTION 'Conversion notes were sent in an unrecognized format. Refresh AgentFlow and try again.' USING ERRCODE = '22023';
+  END IF;
   v_conv_notes := NULLIF(btrim(COALESCE(p_client->>'notes', '')), '');
-  v_client_notes := CASE WHEN v_conv_notes IS NULL OR v_conv_notes = btrim(COALESCE(v_lead.notes, ''))
-                         THEN v_lead.notes ELSE p_client->>'notes' END;
+  IF v_conv_notes IS NULL OR v_conv_notes = btrim(COALESCE(v_lead.notes, '')) THEN
+    v_client_notes := v_lead.notes;
+  ELSIF v_explicit_note THEN
+    v_client_notes := p_client->>'notes';
+  ELSE
+    v_client_notes := v_lead.notes;
+    v_legacy_notes := p_client->>'notes';
+  END IF;
 
   -- Historical-only metadata: protected and read-only (clients_lead_conversion_guard). Blank text → JSON null.
   v_history := jsonb_build_object(
@@ -219,6 +240,9 @@ BEGIN
     'lead_imported_by_user_id', v_lead.imported_by_user_id);
   IF v_client_notes IS DISTINCT FROM v_lead.notes AND NULLIF(btrim(COALESCE(v_lead.notes, '')), '') IS NOT NULL THEN
     v_history := v_history || jsonb_build_object('lead_notes', v_lead.notes);
+  END IF;
+  IF v_legacy_notes IS NOT NULL THEN
+    v_history := v_history || jsonb_build_object('legacy_conversion_notes', v_legacy_notes);
   END IF;
   IF v_set_aside IS NOT NULL THEN
     v_history := v_history || jsonb_build_object('preserved_custom_fields', v_set_aside);

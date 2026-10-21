@@ -74,9 +74,12 @@ function conversionClient(lead: Lead, policyInfo: LeadConversionPayload) {
     beneficiary_name: policyInfo.beneficiaryName || null,
     beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
     beneficiary_phone: policyInfo.beneficiaryPhone || null,
-    // Only the agent's conversion note. The server keeps the locked lead row's notes (and, if this note replaces
-    // them, preserves them verbatim in the client's read-only conversion history); never send this tab's copy.
+    // Only the agent's conversion note, never this tab's copy of the lead notes. `notes_source` marks it as the agent's
+    // note, so the server can tell it from an older tab's ambiguous `notes`. The server keeps the locked lead row's notes
+    // and, if this note replaces them, preserves them verbatim in the read-only conversion history. (A database without
+    // 20261021200000 ignores the marker and reads `notes` as before, so a typed note is never dropped.)
     notes: policyInfo.notes?.trim() ? policyInfo.notes : null,
+    notes_source: "conversion_note",
     // The server reads every other custom field (and state, DOB, age, best time, spouse, source, status) from the
     // locked lead row; only `additional_policies` is taken from here (20261021200000).
     custom_fields,

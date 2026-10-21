@@ -56,9 +56,10 @@ describe("conversion entry points submit the same server-authoritative payload",
     expect(args.p_expected_org).toBe("org-1");
     const keys = Object.keys(args.p_client).sort();
     expect(keys).toEqual(["beneficiary_name", "beneficiary_phone", "beneficiary_relationship", "carrier", "custom_fields",
-      "draft_date", "effective_date", "face_amount", "issue_date", "notes", "payment_frequency", "policy_number", "policy_type",
-      "premium", "sold_date"]);
-    expect(args.p_client.notes).toBeNull();
+      "draft_date", "effective_date", "face_amount", "issue_date", "notes", "notes_source", "payment_frequency",
+      "policy_number", "policy_type", "premium", "sold_date"]);
+    expect(args.p_client.notes).toBeNull(); // the agent wrote nothing; never this lead object's notes copy
+    expect(args.p_client.notes_source).toBe("conversion_note");
   });
 
   it("everything except the lead's own custom-field copy is identical across entry points", () => {
@@ -66,6 +67,7 @@ describe("conversion entry points submit the same server-authoritative payload",
     const first = strip(shapes[0][1]);
     for (const [, lead] of shapes) expect(strip(lead)).toEqual(first);
     expect(first.notes).toBe("Agent note");
+    expect(first.notes_source).toBe("conversion_note");
   });
 
   it("additional policies are the agent's input and pass through verbatim for every shape", () => {

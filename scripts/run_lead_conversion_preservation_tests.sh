@@ -34,7 +34,7 @@ CENTER_HARNESS="$ROOT/supabase/tests/policy_commission_center_harness.sql"
 INSIGHTS="$ROOT/supabase/migrations/20261021180000_policy_commission_center_insights.sql"
 HISTORY_READ="$ROOT/supabase/migrations/20261003192857_contact_history_read_model.sql"
 HISTORY_EVENTS="$ROOT/supabase/migrations/20261003192907_contact_history_operational_events.sql"
-POST_ATOMIC=ac116f01810768581707e837a5ca3b99
+POST_ATOMIC=7109fdab661eac16ab6ff4f8d8343c20
 POST_UPDATE=6313ca0c1fc374a613bfcb7e9e587d4c
 DATABASES=()
 drop_roles() {
@@ -199,7 +199,7 @@ new_db boundary pre
 sql > /dev/null <<'SQL'
 INSERT INTO leads(id, organization_id, user_id, assigned_agent_id, first_name, last_name, state, notes, custom_fields, date_of_birth, age)
 SELECT test_id(9000 + n), test_id(1), test_id(11), test_id(11), 'Boundary' || n, 'Synthetic', 'CA', 'Lead note ' || n,
-       jsonb_build_object('Gender', 'F'), '1960-01-0' || n, 60 + n FROM generate_series(1, 4) n;
+       jsonb_build_object('Gender', 'F'), '1960-01-0' || n, 60 + n FROM generate_series(1, 5) n;
 SELECT pc_login(11);
 SET ROLE authenticated;
 -- Pre-release: an old browser converts lead 9001; a manual client and a recorded policy exist too.
@@ -208,7 +208,13 @@ SELECT convert_lead_to_client_with_sales_handoff(test_id(9101), test_id(9001), t
 SELECT create_client_with_sale_handoff(test_id(9102), test_id(1), pc_client('ManualBefore', 11, '41.00'), true, pc_payload());
 SELECT record_client_policy_handoff(test_id(9103), (SELECT id FROM clients WHERE first_name = 'ManualBefore'),
   '{"policy_type": "Term", "carrier": "Synthetic Life", "policy_number": "SYN-REC", "premium": "19.00", "sold_date": "2026-10-04"}', false, pc_payload());
+-- Release-order accident: the NEW browser's marked note reaching the OLD database is read as `notes`, so a typed note is
+-- never dropped (the old database still has its old notes behavior, nothing worse).
+SELECT convert_lead_to_client_with_sales_handoff(test_id(9107), test_id(9005), test_id(1),
+  pc_client('Boundary5', 11, '50.00') || '{"notes": "Typed by the new browser", "notes_source": "conversion_note"}', NULL, pc_payload());
 RESET ROLE;
+SELECT test_assert(notes = 'Typed by the new browser', 'new browser on the old database: the typed conversion note is kept')
+FROM clients WHERE lead_id = test_id(9005);
 SQL
 BEFORE=$(fingerprint)
 sql -1 -f "$MIGRATION" >/dev/null
@@ -234,17 +240,18 @@ SELECT convert_lead_to_client_with_sales_handoff(test_id(9104), test_id(9002), t
 -- The same old browser with no conversion note and an up-to-date copy.
 SELECT convert_lead_to_client_with_sales_handoff(test_id(9105), test_id(9003), test_id(1),
   pc_client('Boundary3', 11, '50.00') || '{"notes": "Lead note 3", "custom_fields": {"Gender": "F"}}', NULL, pc_payload());
--- The new browser sends conversion notes only and no lead notes fallback.
+-- The new browser sends only the agent's note, marked as such (none here), and no lead notes fallback.
 SELECT convert_lead_to_client_with_sales_handoff(test_id(9106), test_id(9004), test_id(1),
-  pc_client('Boundary4', 11, '50.00') || '{"notes": null, "custom_fields": {"Gender": "F"}}', NULL, pc_payload());
+  pc_client('Boundary4', 11, '50.00') || '{"notes": null, "notes_source": "conversion_note", "custom_fields": {"Gender": "F"}}', NULL, pc_payload());
 -- An old browser edit of a pre-release client sends only the old keys.
 SELECT update_client_with_policy_sale((SELECT id FROM clients WHERE lead_id = test_id(9001)), '{"notes": "Old tab edit", "state": "CA"}');
 RESET ROLE;
-SELECT test_assert(custom_fields = '{"Gender": "F", "Tobacco": "No"}' AND notes = 'Lead note 2'
-                   AND lead_conversion->>'lead_notes' = 'Current lead note 2' AND date_of_birth = '1960-01-02' AND age = 62 AND state = 'CA',
-                   'old browser after release: stale custom bag ignored; the current lead notes are kept beside its stale copy')
+SELECT test_assert(custom_fields = '{"Gender": "F", "Tobacco": "No"}' AND notes = 'Current lead note 2' AND NOT lead_conversion ? 'lead_notes'
+                   AND lead_conversion->>'legacy_conversion_notes' = 'Lead note 2' AND date_of_birth = '1960-01-02' AND age = 62 AND state = 'CA',
+                   'old browser after release: stale custom bag ignored; its stale notes never replace the current Notes and are kept separately')
 FROM clients WHERE lead_id = test_id(9002);
-SELECT test_assert(notes = 'Lead note 3' AND NOT lead_conversion ? 'lead_notes' AND custom_fields = '{"Gender": "F"}',
+SELECT test_assert(notes = 'Lead note 3' AND NOT lead_conversion ? 'lead_notes' AND NOT lead_conversion ? 'legacy_conversion_notes'
+                   AND custom_fields = '{"Gender": "F"}',
                    'old browser after release, current copy: nothing displaced') FROM clients WHERE lead_id = test_id(9003);
 SELECT test_assert(notes = 'Lead note 4' AND NOT lead_conversion ? 'lead_notes', 'new browser: database notes') FROM clients WHERE lead_id = test_id(9004);
 SELECT test_assert(notes = 'Old tab edit' AND lead_conversion IS NULL AND date_of_birth IS NULL, 'pre-release client edited by an old tab stays historical')
@@ -326,7 +333,7 @@ new_db race
 sql -c "INSERT INTO leads(id, organization_id, user_id, assigned_agent_id, first_name, last_name, state, notes)
         VALUES (test_id(9201), test_id(1), test_id(11), test_id(11), 'Race', 'Synthetic', 'NY', 'Race note');" >/dev/null
 RACE="SELECT pc_login(11); SET ROLE authenticated; SELECT convert_lead_to_client_with_sales_handoff(test_id(9202), test_id(9201), test_id(1),
-  pc_client('Race', 11, '50.00') || '{\"notes\": \"Agent note\"}', NULL, pc_payload())->>'client_id';"
+  pc_client('Race', 11, '50.00') || '{\"notes\": \"Agent note\", \"notes_source\": \"conversion_note\"}', NULL, pc_payload())->>'client_id';"
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -tA -c "$RACE" > "$TEMP/one" &
 RACE_PID=$!
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -tA -c "$RACE" > "$TEMP/two"

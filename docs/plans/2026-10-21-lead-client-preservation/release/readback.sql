@@ -18,10 +18,10 @@ WITH fn AS (
   UNION ALL
   SELECT 2, 'history_text_is_reviewed_file', NULL,
          (SELECT encode(sha256(convert_to(statements[1], 'UTF8')), 'hex') FROM supabase_migrations.schema_migrations
-           WHERE version = '20261021200000') = 'b1488c4e3285e9fead40406d37fcfcce81d90f7ac81e211607492ffc723c8127'
+           WHERE version = '20261021200000') = 'ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5'
   UNION ALL
   SELECT 3, 'converter_postimage', (SELECT digest FROM fn WHERE name = 'convert_lead_to_client_atomic(uuid,jsonb)'),
-         (SELECT digest FROM fn WHERE name = 'convert_lead_to_client_atomic(uuid,jsonb)') = 'ac116f01810768581707e837a5ca3b99'
+         (SELECT digest FROM fn WHERE name = 'convert_lead_to_client_atomic(uuid,jsonb)') = '7109fdab661eac16ab6ff4f8d8343c20'
   UNION ALL
   SELECT 4, 'update_writer_postimage', (SELECT digest FROM fn WHERE name = 'update_client_with_policy_sale(uuid,jsonb)'),
          (SELECT digest FROM fn WHERE name = 'update_client_with_policy_sale(uuid,jsonb)') = '6313ca0c1fc374a613bfcb7e9e587d4c'

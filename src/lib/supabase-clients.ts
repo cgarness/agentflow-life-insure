@@ -263,19 +263,20 @@ export function clientUpdatePatch(data: Partial<Client>): Record<string, unknown
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
     if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
-    // Person fields preserved from the source lead. Text is only trimmed, never re-formatted (a legacy DOB format
-    // survives unrelated edits); blank → NULL. A structured spouse value is read-only and never sent back.
-    // Conversion history (lead_conversion) is never sent.
-    if (data.dateOfBirth !== undefined) updateData.date_of_birth = blankToNull(data.dateOfBirth);
+    // Person fields preserved from the source lead, sent VERBATIM: non-blank text exactly as given (never trimmed or
+    // re-formatted), blank → NULL, age as given. The profile omits the ones the agent did not change
+    // (omitUnchangedPersonFields), so an unrelated edit never rewrites them. A structured spouse value is read-only and
+    // never sent back. Conversion history (lead_conversion) is never sent.
+    if (data.dateOfBirth !== undefined) updateData.date_of_birth = textOrNull(data.dateOfBirth);
     if (data.age !== undefined) updateData.age = ageOrNull(data.age);
-    if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = blankToNull(data.bestTimeToCall);
-    if (data.spouseInfo !== undefined && isEditableSpouseInfo(data.spouseInfo)) updateData.spouse_info = blankToNull(data.spouseInfo);
+    if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = textOrNull(data.bestTimeToCall);
+    if (data.spouseInfo !== undefined && isEditableSpouseInfo(data.spouseInfo)) updateData.spouse_info = textOrNull(data.spouseInfo);
     updateData.updated_at = new Date().toISOString();
     return updateData;
 }
 
-function blankToNull(value: string | null | undefined): string | null {
-    return value == null || value.trim() === "" ? null : value.trim();
+function textOrNull(value: string | null | undefined): string | null {
+    return value == null || value.trim() === "" ? null : value;
 }
 
 function ageOrNull(value: unknown): number | null {

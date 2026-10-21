@@ -1,9 +1,9 @@
 -- Lead → Client conversion differential (20261021200000): the SAME conversions run on a database WITHOUT and WITH the
 -- migration must produce byte-identical sales, policy identities, receipts, commission captures/estimates/installments,
--- moved history, refusals and results. Only the new columns (excluded here) and the documented notes rule may differ,
--- clients.state (now populated from the lead — the defect being fixed; asserted by the preservation suite) is also
--- excluded. This scenario uses fresh browser payloads (custom fields equal to the lead's, distinct conversion notes), where
--- the notes rule agrees with the old one. Disposable database only, synthetic data only. Prints one canonical JSON
+-- moved history, refusals and results. Excluded, because they are the intended changes the preservation suite asserts:
+-- the new columns, clients.state (now populated from the lead; P2) and clients.notes (an older browser's distinct notes
+-- text no longer replaces the lead notes; P4). Payloads are older-browser shaped (`notes`), the only shape the database
+-- without the migration understands. Disposable database only, synthetic data only. Prints one canonical JSON
 -- document; scripts/run_lead_conversion_preservation_tests.sh diffs the two outputs.
 \set ON_ERROR_STOP on
 SET client_min_messages = warning;
@@ -142,7 +142,7 @@ WITH scenario_clients AS (
 SELECT jsonb_pretty(lcd_canon(jsonb_build_object(
   'results', (SELECT jsonb_object_agg(key, data) FROM lcd_out),
   'leads_remaining', (SELECT jsonb_agg(id ORDER BY id) FROM public.leads WHERE id::text LIKE '00000000-0000-0000-0000-0000000080%'),
-  'clients', (SELECT jsonb_agg(to_jsonb(c) - ARRAY['state', 'date_of_birth', 'age', 'best_time_to_call', 'spouse_info', 'lead_conversion']
+  'clients', (SELECT jsonb_agg(to_jsonb(c) - ARRAY['state', 'notes', 'date_of_birth', 'age', 'best_time_to_call', 'spouse_info', 'lead_conversion']
                                ORDER BY c.lead_id) FROM scenario_clients c),
   'wins', (SELECT jsonb_agg(to_jsonb(w) ORDER BY w.idempotency_key) FROM public.wins w JOIN scenario_clients c ON c.id = w.contact_id),
   'policy_identities', (SELECT jsonb_agg(to_jsonb(p) ORDER BY lcd_map(p.policy_id)) FROM policies p),

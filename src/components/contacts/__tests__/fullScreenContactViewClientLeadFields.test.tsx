@@ -19,7 +19,14 @@ function makeQuery(table: string) {
 }
 
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { from: (table: string) => makeQuery(table) },
+  supabase: {
+    from: (table: string) => makeQuery(table),
+    // The canonical client edit RPC: captures the exact patch and echoes a saved row.
+    rpc: (name: string, args: Record<string, unknown>) => {
+      h.rpc.push({ name, args });
+      return Promise.resolve({ data: { client: h.rpcRow, client_id: "synthetic-client", win_ids: [] }, error: null });
+    },
+  },
 }));
 
 const h = vi.hoisted(() => ({
@@ -30,6 +37,8 @@ const h = vi.hoisted(() => ({
   organizationId: "org-1",
   userId: "user-1",
   canEdit: true,
+  rpc: [] as Array<{ name: string; args: Record<string, unknown> }>,
+  rpcRow: null as Record<string, unknown> | null,
 }));
 
 vi.mock("sonner", () => ({
@@ -90,7 +99,7 @@ vi.mock("../TasksPanel", () => ({ TasksPanel: () => null }));
 vi.mock("@/lib/supabase-dispositions", () => ({ dispositionsSupabaseApi: { getAll: vi.fn(async () => []) } }));
 import FullScreenContactView from "@/components/contacts/FullScreenContactView";
 
-import { rowToClient } from "@/lib/supabase-clients";
+import { clientsSupabaseApi, rowToClient } from "@/lib/supabase-clients";
 
 // A converted client exactly as the server returns it after 20261021200000 (mapped by the real rowToClient).
 const convertedRow = {
@@ -122,6 +131,7 @@ beforeEach(() => {
   cleanup(); vi.clearAllMocks();
   h.fields = []; h.organizationId = "org-1"; h.userId = "user-1"; h.canEdit = true;
   h.errorToasts.length = 0; h.successToasts.length = 0; h.activityAdds.length = 0;
+  h.rpc.length = 0; h.rpcRow = null;
   onUpdate.mockImplementation(async () => {});
   for (const key of Object.keys(tableData)) delete tableData[key];
 });
@@ -161,11 +171,9 @@ describe("converted client — preserved lead information in the existing profil
     await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
     const sent = onUpdate.mock.calls[0][1];
     expect(sent.firstName).toBe("Patricia");
-    expect(sent.dateOfBirth).toBe("03/04/1960");
-    expect(sent.age).toBe(66);
-    expect(sent.spouseInfo).toEqual({ name: "Sam", age: 64 });
+    // Untouched preserved fields are not sent at all, so the save cannot rewrite them.
+    for (const key of ["dateOfBirth", "age", "bestTimeToCall", "spouseInfo"]) expect(sent).not.toHaveProperty(key);
     expect(sent.customFields).toEqual(convertedRow.custom_fields);
-    expect(sent.leadConversion).toEqual(rowToClient(convertedRow).leadConversion);
   });
 
   it("saves edited person fields and refuses an invalid change without leaving edit mode", async () => {
@@ -181,7 +189,34 @@ describe("converted client — preserved lead information in the existing profil
     fireEvent.change(editor("Spouse Info")!, { target: { value: "Sam Lee" } });
     save();
     await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-    expect(onUpdate.mock.calls[0][1]).toMatchObject({ age: 67, bestTimeToCall: "Anytime", spouseInfo: "Sam Lee", dateOfBirth: "03/04/1960" });
+    expect(onUpdate.mock.calls[0][1]).toMatchObject({ age: 67, bestTimeToCall: "Anytime", spouseInfo: "Sam Lee" });
+    expect(onUpdate.mock.calls[0][1]).not.toHaveProperty("dateOfBirth"); // unchanged, so not sent
+  });
+
+  it("end to end: an unrelated edit's patch to update_client_with_policy_sale carries no preserved field", async () => {
+    // Stored values no browser would produce: padded text, a legacy DOB format, an out-of-range age.
+    const legacyRow = { ...convertedRow, date_of_birth: " 03/04/1960 ", age: 140, best_time_to_call: " Morning ", spouse_info: " Sam " };
+    h.rpcRow = legacyRow;
+    onUpdate.mockImplementation(async (id: string, data: Record<string, unknown>) => { await clientsSupabaseApi.update(id, data); });
+    await mount("client", rowToClient(legacyRow) as unknown as Record<string, unknown>);
+    edit();
+    fireEvent.change(editor("First Name")!, { target: { value: "Patricia" } });
+    save();
+    await waitFor(() => expect(h.rpc.filter(c => c.name === "update_client_with_policy_sale")).toHaveLength(1));
+    const patch = h.rpc.find(c => c.name === "update_client_with_policy_sale")!.args.p_patch as Record<string, unknown>;
+    expect(patch.first_name).toBe("Patricia");
+    for (const key of ["date_of_birth", "age", "best_time_to_call", "spouse_info", "lead_conversion"]) expect(patch).not.toHaveProperty(key);
+    expect(h.errorToasts).toEqual([]);
+
+    // Changing one of them sends only that one, exactly as typed; the others stay out.
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull());
+    edit();
+    fireEvent.change(editor("Best Time to Call")!, { target: { value: "Anytime" } });
+    save();
+    await waitFor(() => expect(h.rpc.filter(c => c.name === "update_client_with_policy_sale")).toHaveLength(2));
+    const second = h.rpc.filter(c => c.name === "update_client_with_policy_sale")[1].args.p_patch as Record<string, unknown>;
+    expect(second.best_time_to_call).toBe("Anytime");
+    for (const key of ["date_of_birth", "age", "spouse_info"]) expect(second).not.toHaveProperty(key);
   });
 
   it("a historical client without the new fields renders safely: nothing invented, no panel, editable when wanted", async () => {

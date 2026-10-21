@@ -2,7 +2,8 @@ import type { LeadConversionHistory } from "@/lib/types";
 
 /**
  * Read-only "Original lead" panel for a converted client: what the lead was when it became a client (source, status,
- * dates, who converted it) and any lead notes a conversion note replaced. Historical only — never the client's current
+ * dates, who converted it), any lead notes a conversion note replaced, and notes an older app version sent that could
+ * not be classified. Historical only — never the client's current
  * workflow state, never editable, and nothing renders for manual or historical clients without stored history.
  */
 export function ClientLeadHistory({ history, resolveAgentName, formatDate }: {
@@ -38,6 +39,15 @@ export function ClientLeadHistory({ history, resolveAgentName, formatDate }: {
         <div className="mt-2">
           <p className="text-[10px] text-muted-foreground leading-tight">Original lead notes</p>
           <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground">{history.leadNotes}</p>
+        </div>
+      )}
+      {history.legacyConversionNotes && (
+        <div className="mt-2">
+          <p className="text-[10px] text-muted-foreground leading-tight">Conversion notes (older app version)</p>
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground">{history.legacyConversionNotes}</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">
+            Sent by an older version of AgentFlow, so it was kept here instead of replacing the lead&apos;s notes.
+          </p>
         </div>
       )}
       {history.hasPreservedCustomFields && (

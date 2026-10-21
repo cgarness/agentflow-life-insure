@@ -159,6 +159,11 @@ export interface LeadConversionHistory {
   leadLastContactedAt: string | null;
   /** The lead's notes, kept only when a conversion note replaced them. */
   leadNotes: string | null;
+  /**
+   * Notes text an older app version sent at conversion that differed from the lead notes: either the agent's note or
+   * that tab's older copy of the lead notes, so it could not become the client's Notes. Kept verbatim, read-only.
+   */
+  legacyConversionNotes: string | null;
   /** True when lead custom data that could not live on the client was set aside in history. */
   hasPreservedCustomFields: boolean;
 }
