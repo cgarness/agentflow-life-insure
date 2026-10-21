@@ -62,11 +62,17 @@ export function getDefaultFieldOrder(t: ContactType): string[] {
   if (t === "client") {
     // 'issueDate' is retired from the default layout (Sold Date replaced it, approved D4). The
     // render case remains, so saved layouts that still contain 'issueDate' keep working.
+    // dateOfBirth/age/spouseInfo/bestTimeToCall are preserved from the source lead (20261021200000). Saved layouts
+    // without them still show them: buildContactDetailFields appends standard fields a layout omits.
     return [
       "firstName",
       "lastName",
       "phone",
       "email",
+      "dateOfBirth",
+      "age",
+      "spouseInfo",
+      "bestTimeToCall",
       "policyType",
       "carrier",
       "state",

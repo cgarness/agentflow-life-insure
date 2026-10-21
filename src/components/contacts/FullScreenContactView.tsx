@@ -24,6 +24,8 @@ import AppointmentModal from "@/components/calendar/AppointmentModal";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
 import { ClientPolicies } from "@/components/contacts/ClientPolicies";
+import { ClientLeadHistory } from "@/components/contacts/ClientLeadHistory";
+import { clientDobEditor, formatSpouseInfo, isEditableSpouseInfo, optionsWithCurrent, validateChangedClientPersonFields } from "@/lib/clientLeadDetails";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import { useCalendar } from "@/contexts/CalendarContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -672,6 +674,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       toast.error(`Missing required fields: ${missing.join(", ")}`);
       return;
     }
+    // Person fields preserved from the lead: only values the agent changed are validated (a legacy value never blocks).
+    const personErrors = type === "client" ? validateChangedClientPersonFields(contact, editForm) : [];
+    if (personErrors.length > 0) {
+      toast.error(personErrors.join(" "));
+      return;
+    }
 
     // A save can be REFUSED rather than merely fail: the client write boundary throws on a corrupted
     // reserved key (U3, src/lib/reservedCustomFields.ts) and writes nothing, and a PostgREST/RLS
@@ -853,7 +861,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             )}
             {!custom && errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
           </>
-        ) : ( <CopyField value={custom ? val : key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : key === "dateOfBirth" ? formatDOB(val) : fieldType === "date" ? formatDate(val) : val} /> )}
+        ) : ( <CopyField value={custom ? val : key === "phone" ? formatPhoneNumber(val) : key === "state" ? formatStateToAbbreviation(val) : key === "dateOfBirth" ? formatDOB(val) || (type === "client" ? val : "") : fieldType === "date" ? formatDate(val) : val} /> )}
       </div>
     );
   };
@@ -1068,11 +1076,24 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                         // No 'leadScore' case: lead score is internal queue metadata and is
                         // rendered in neither read nor edit mode. Stale saved layouts are
                         // sanitized by resolveFieldOrder; the stored value is untouched.
-                        case 'age': return type === "lead" ? renderField("Age", "age", "number") : null;
-                        case 'dateOfBirth': return type === "lead" ? renderField("DOB", "dateOfBirth", "date") : null;
-                        case 'bestTimeToCall': return type === "lead" ? renderField("Best Time to Call", "bestTimeToCall", "select", bestTimes) : null;
+                        // Clients keep these from the source lead (20261021200000); legacy values stay visible and editable.
+                        case 'age': return type === "lead" || type === "client" ? renderField("Age", "age", "number") : null;
+                        case 'dateOfBirth':
+                          return type === "lead" ? renderField("DOB", "dateOfBirth", "date")
+                            : type === "client" ? renderField("DOB", "dateOfBirth", clientDobEditor(contact.dateOfBirth)) : null;
+                        case 'bestTimeToCall':
+                          return type === "lead" ? renderField("Best Time to Call", "bestTimeToCall", "select", bestTimes)
+                            : type === "client" ? renderField("Best Time to Call", "bestTimeToCall", "select", optionsWithCurrent(bestTimes, contact.bestTimeToCall)) : null;
                         case 'beneficiaryName': return type === "client" ? renderField("Beneficiary Name", "beneficiaryName") : null;
-                        case 'spouseInfo': return type === "lead" ? renderField("Spouse Info", "spouseInfo") : null;
+                        case 'spouseInfo':
+                          if (type === "lead" || (type === "client" && isEditableSpouseInfo(editForm.spouseInfo))) return renderField("Spouse Info", "spouseInfo");
+                          // A structured stored value is never bound to a text box (it would be replaced by a string).
+                          return type === "client" ? (
+                            <div key="spouseInfo" className="min-w-0 flex flex-col">
+                              <label className="text-[10px] text-muted-foreground uppercase tracking-wide leading-tight block mb-0.5">Spouse Info</label>
+                              <CopyField value={formatSpouseInfo(editForm.spouseInfo)} />
+                            </div>
+                          ) : null;
                         case 'policyType': return type === "client" ? renderField("Policy Type", "policyType", "select", policyTypes) : null;
                         case 'carrier': return type === "client" ? renderField("Carrier", "carrier") : null;
                         case 'policyNumber': return type === "client" ? renderField("Policy #", "policyNumber") : null;
@@ -1128,6 +1149,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               
               {!coreLoading && !editMode && type === "client" && (
                 <ClientPolicies key={`${organizationId}|${contact.id}`} client={contact} formatDate={formatDate} />
+              )}
+
+              {!coreLoading && !editMode && type === "client" && (
+                <ClientLeadHistory history={contact.leadConversion} resolveAgentName={getAgentDisplayName} formatDate={formatDate} />
               )}
 
               {canDeleteContact && (

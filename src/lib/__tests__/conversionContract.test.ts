@@ -115,4 +115,13 @@ describe("conversionSupabaseApi.convertLeadToClient", () => {
     await expect(conversionSupabaseApi.convertLeadToClient(LEAD, POLICY)).rejects.toThrow(/organization/);
     expect(state.rpc).toHaveLength(0);
   });
+  it("sends only the agent's conversion note — never this tab's copy of the lead notes (20261021200000)", async () => {
+    await conversionSupabaseApi.convertLeadToClient(LEAD, POLICY, "org-1");
+    expect(state.rpc[0].args.p_client.notes).toBe("conv note");
+    for (const notes of [undefined, "", "   "]) {
+      state.rpc.length = 0;
+      await conversionSupabaseApi.convertLeadToClient(LEAD, { ...POLICY, notes }, "org-1");
+      expect(state.rpc[0].args.p_client.notes).toBeNull(); // the server keeps the locked lead row's notes
+    }
+  });
 });

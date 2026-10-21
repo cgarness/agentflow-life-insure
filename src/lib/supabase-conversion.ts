@@ -74,7 +74,11 @@ function conversionClient(lead: Lead, policyInfo: LeadConversionPayload) {
     beneficiary_name: policyInfo.beneficiaryName || null,
     beneficiary_relationship: policyInfo.beneficiaryRelationship || null,
     beneficiary_phone: policyInfo.beneficiaryPhone || null,
-    notes: policyInfo.notes || lead.notes || null,
+    // Only the agent's conversion note. The server keeps the locked lead row's notes (and, if this note replaces
+    // them, preserves them verbatim in the client's read-only conversion history); never send this tab's copy.
+    notes: policyInfo.notes?.trim() ? policyInfo.notes : null,
+    // The server reads every other custom field (and state, DOB, age, best time, spouse, source, status) from the
+    // locked lead row; only `additional_policies` is taken from here (20261021200000).
     custom_fields,
   };
 }
