@@ -1,3 +1,22 @@
+## 2026-10-21 — PLAN, AWAITING APPROVAL: Lead → Client conversion preserves every meaningful lead field
+
+**Status:** Step 1 plan only. No code, SQL, test or backend command written or run; production not contacted.
+Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`. Future conversions only: no backfill, no change to
+existing clients, no merge, migration apply or deployment without separate approval.
+
+**Contract, migration design, exact files, tests, rollout, rollback and decisions D1–D9:**
+`docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md`.
+
+**Summary:** `convert_lead_to_client_atomic` drops state, DOB, age, best time to call, spouse info, lead source,
+status and score, takes custom fields from the browser snapshot, and lets conversion notes replace the lead's notes.
+One new forward-only migration (`20261021200000`, preimage-guarded) makes the converter read every preserved field
+from the locked lead row, adds four nullable editable client columns and one protected read-only `lead_conversion`
+history column, keeps displaced lead notes verbatim, and lets the client editor save the four person fields. The
+profile shows them in the existing details grid plus a read-only "Original lead" panel. Wrapper, commission
+companions, policy cards, telemetry and authorization unchanged.
+
+---
+
 ## 2026-10-21 — PR #474: Gate 3 approved, read-only preview accepted; frontend release pending final checks
 
 Chris approved the separate frontend release by replying "Continue" after Gate 2 completion. Signed-in read-only
