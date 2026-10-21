@@ -210,4 +210,33 @@ single pre-existing `react-refresh/only-export-components` warning at `entry.tsx
 **Not changed, flagged for approval:** `scripts/tests/leaderboard-visual/README.md` still describes the retired
 metric-switch/rotation checks and the old caption. Updating it is outside the approved scope.
 
-**GitHub checks on the final head:** recorded in §9 once the run completes.
+**GitHub checks:** §9.
+
+---
+
+## §9. GitHub checks on the fix head `fd0220c70bc025b8625109fe5fa717ed99494737` (2026-10-21 UTC)
+
+Every applicable check passed. No job was re-run, skipped or edited.
+
+| Check (workflow run / job) | Result | Time (UTC) |
+|---|---|---|
+| **tv-browser** — Policy sale transaction verification (`39634527078` / `119341344608`) | **success** | 16:24:49–16:27:44 |
+| postgres — same workflow (`39634527078` / `119341344222`) | success | 16:24:48–16:25:20 |
+| frontend — Reports frontend verification (`39634527092` / `119341344764`) | success | 16:24:49–16:42:46 |
+| frontend / browser / paired-native (`39634527089`) | success ×3 | 16:24:48–16:26:20 |
+| postgres (`39634527082` / `119341344260`) | success | 16:24:48–16:25:56 |
+| native (`39634527080` / `119341343898`) | success | 16:24:48–16:26:27 |
+| Vercel – agentflow, Vercel – agentflow-life-insure (commit statuses; previews only) | success | 16:37:44 / 16:38:13 |
+| Vercel Preview Comments | success | 16:38:16 |
+| Supabase Preview | skipped (same as every earlier head; no Supabase change) | 16:36:46 |
+
+`tv-browser` printed the same 15 PASS lines as the local runs: `1366x768`, `1920x1080`, `3840x2160`, `1093x614`,
+`period-switch`, `roster-1/2/3/14`, `live-policy-update`, `live-tiebreak-reorder`, `live-ap-reorder`, `reentered-tv`,
+`routine-1366x768`, and the closing "PASS TV layout, AP ranking and tie-breaks, movement, period switch, roster
+sizes, entry/exit, no rotation, Admin ticker settings, normal standings and routine-caption checks". Its evidence
+artifact `leaderboard-visual-evidence-39634527078` (32 files) uploaded.
+
+The documentation commit that adds this section changes only `verification.md` and `WORK_LOG.md`. Its own check
+results on the final head are reported on PR #475 and in the final hand-off, not here, because writing them here
+would change that head again.
+

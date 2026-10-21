@@ -21,8 +21,9 @@ tsconfig.
   identical to `main` (84); targeted Vitest 331/331; ESLint 0 errors (one pre-existing warning); build passes.
 - **No** migration, Supabase command, deployment, merge or release. Flagged: the harness README still
   describes the retired checks (outside the approved scope).
-- **Next:** all PR #475 checks green on the final head (recorded in `verification.md` §9), then Chris's final
-  review.
+- **CI:** on `fd0220c` every check passed: `tv-browser` 15/15 PASS lines, postgres ×2, both frontend jobs, browser,
+  native, paired-native and both Vercel previews; Supabase Preview skipped as before (`verification.md` §9).
+- **Next:** Chris's final review of PR #475 (still draft). Merge and release need his separate approval.
 
 ---
 
