@@ -3,7 +3,7 @@ import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import OdometerValue from "@/components/leaderboard/OdometerValue";
 import type { AgentStats, Period } from "@/components/leaderboard/leaderboardTypes";
-import { AP_FULL_LABEL, AP_LABEL, formatCount, formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL, formatCount, formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
 import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
@@ -18,7 +18,7 @@ interface TVAgencyTotalsStripProps {
   onPeriodChange: (period: Period) => void;
 }
 
-/** Roster totals: AP (the ranking metric, always highlighted), then Policies and Calls. */
+/** Roster totals: Annual Premium (the ranking metric, always highlighted), then Policies. */
 const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
   agents,
   period,
@@ -26,7 +26,6 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
 }) => {
   const totals = useMemo(
     () => ({
-      calls: agents.reduce((sum, a) => sum + a.callsMade, 0),
       policies: agents.reduce((sum, a) => sum + a.policiesSold, 0),
       premium: agents.reduce((sum, a) => sum + a.premiumSold, 0),
       unknownPremiums: agents.reduce((sum, a) => sum + (a.unknownPremiums ?? 0), 0),
@@ -35,17 +34,15 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
   );
 
   const cells: {
-    key: "premium" | "policies" | "calls";
+    key: "premium" | "policies";
     label: string;
-    title?: string;
     value: number | null;
     format: (n: number) => string;
     valueClass: string;
   }[] = [
     {
       key: "premium",
-      label: AP_LABEL,
-      title: AP_FULL_LABEL,
+      label: ANNUAL_PREMIUM_LABEL,
       // The roster sold policies but every premium is unknown: "—", never $0 (D14).
       value: isPremiumWhollyUnknown(totals.policies, totals.unknownPremiums) ? null : totals.premium,
       format: formatPremiumSold,
@@ -57,13 +54,6 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
       value: totals.policies,
       format: formatCount,
       valueClass: "text-blue-300",
-    },
-    {
-      key: "calls",
-      label: "Calls",
-      value: totals.calls,
-      format: formatCount,
-      valueClass: "text-slate-100",
     },
   ];
 
@@ -105,7 +95,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4">
         {cells.map((cell) => {
           const highlighted = cell.key === "premium";
           return (
@@ -118,7 +108,7 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
                   : "border-white/5 bg-white/[0.02]",
               )}
             >
-              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500" title={cell.title}>{cell.label}</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">{cell.label}</p>
               <OdometerValue
                 value={cell.value}
                 format={cell.format}

@@ -6,7 +6,7 @@ import OdometerValue from "./OdometerValue";
 import LeaderboardApValue from "./LeaderboardApValue";
 import { metalConfig } from "./tvPodiumMetal";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, AP_FULL_LABEL, AP_LABEL, formatCount } from "./leaderboardTypes";
+import { type AgentStats, ANNUAL_PREMIUM_LABEL, formatCount } from "./leaderboardTypes";
 import { type RankMotionKind, podiumEnterInitial, tvGlideTransition, tvPodiumEnterTransition, tvPodiumExitTransition } from "./leaderboardRankMotion";
 interface Props {
   agents: AgentStats[];
@@ -94,8 +94,8 @@ export default function TVPodium({agents, tvRankMotions, tvRankAnimations, spotl
                             className={`leading-none ${isFirst ? "text-4xl [@media(min-height:900px)]:text-5xl" : "text-3xl [@media(min-height:900px)]:text-4xl"}`}
                           />
                         </div>
-                        <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500" title={AP_FULL_LABEL}>
-                          {AP_LABEL}
+                        <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                          {ANNUAL_PREMIUM_LABEL}
                         </span>
                         <div className="mt-2 flex items-center gap-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
                           <span><OdometerValue value={a.policiesSold} format={formatCount} tv className="text-base text-blue-300" /> Policies</span>

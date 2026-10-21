@@ -229,28 +229,30 @@ describe("board preservation on RPC-fed standings", () => {
 });
 
 describe("AP-only board", () => {
-  it("has no metric selector and says the board ranks by Annualized Premium", () => {
+  it("has no metric selector and says the board ranks by Annual Premium", () => {
     render(<Leaderboard />);
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Metric")).not.toBeInTheDocument();
-    expect(screen.getByText("Ranked by Annualized Premium (AP)")).toBeInTheDocument();
+    expect(screen.getByText("Ranked by Annual Premium")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\bAP\b|Annualized/);
   });
 
-  it("Full Rankings has exactly Rank, Agent, AP, Policies and Calls", () => {
+  it("Full Rankings has exactly Rank, Agent, Annual Premium, Policies and Calls", () => {
     render(<Leaderboard />);
-    expect(screen.getAllByRole("columnheader").map((c) => c.getAttribute("aria-label") ?? c.textContent)).toEqual([
-      "Rank", "Agent", "Annualized Premium", "Policies", "Calls",
+    expect(screen.getByRole("table", { name: "Full rankings by Annual Premium" })).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
+      "Rank", "Agent", "Annual Premium", "Policies", "Calls",
     ]);
     const drew = tableRows()[3];
     expect(within(drew).getAllByRole("cell").map((c) => c.textContent)).toEqual(["4", "DDDrew D.", "$1,200.00", "1", "10"]);
   });
 
-  it("each podium card shows AP first, then Policies and Calls", () => {
+  it("each podium card shows Annual Premium first, then Policies and Calls", () => {
     render(<Leaderboard />);
     const blake = podiumCards()[0];
     expect(blake).toHaveTextContent("#2 Silver");
-    // AP, its label, then each stat (label first in the DOM for screen readers; the figure sits above it on screen).
-    expect(blake.textContent).toMatch(/\$3,600\.00AP.*Policies3.*Calls30$/);
+    // Annual Premium, its label, then each stat (label first in the DOM for screen readers; the figure sits above it on screen).
+    expect(blake.textContent).toMatch(/\$3,600\.00Annual Premium.*Policies3.*Calls30$/);
   });
 
   it("shows no Appointments anywhere — podium, card, table, notes — even when appointments were excluded", () => {
@@ -506,12 +508,12 @@ describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
   it("podium: an all-unknown premium reads —, a partial one keeps its amount", () => {
     h.hookState = { ...baseHookState(), agents: D14_ROSTER };
     render(<Leaderboard />);
-    // One podium card per agent: the card root is the rounded flex column that carries the AP caption.
+    // One podium card per agent: the card root is the rounded flex column that carries the Annual Premium caption.
     const podiumValue = (first: string) => {
       const cards = [...new Set(screen.getAllByText(new RegExp(`^${first}`))
         .map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
       expect(cards).toHaveLength(1);
-      expect(cards[0]).toHaveTextContent("AP");
+      expect(cards[0]).toHaveTextContent("Annual Premium");
       return cards[0];
     };
     expect(podiumValue("Casey")).toHaveTextContent("—");

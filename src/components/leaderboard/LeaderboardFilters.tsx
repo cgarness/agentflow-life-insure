@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AgencyGroupInfo } from "@/hooks/useAgencyGroup";
 import type { Period, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { AP_FULL_LABEL, AP_LABEL } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL } from "@/components/leaderboard/leaderboardTypes";
 
 interface LeaderboardFiltersProps {
   view: LeaderboardView;
@@ -38,7 +38,7 @@ const LeaderboardFilters: React.FC<LeaderboardFiltersProps> = ({
           <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" aria-label="Refreshing" />
         )}
       </div>
-      <p className="text-xs text-muted-foreground">Ranked by {AP_FULL_LABEL} ({AP_LABEL})</p>
+      <p className="text-xs text-muted-foreground">Ranked by {ANNUAL_PREMIUM_LABEL}</p>
     </div>
     <div className="flex items-center gap-3 flex-wrap">
       {agencyGroup && (

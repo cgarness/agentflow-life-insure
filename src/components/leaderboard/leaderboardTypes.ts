@@ -3,8 +3,7 @@ import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 export type Period = "Today" | "This Week" | "This Month";
 /** Annualized Premium is the Leaderboard's only ranking metric (page, TV and the Dashboard preview). */
-export const AP_LABEL = "AP";
-export const AP_FULL_LABEL = "Annualized Premium";
+export const ANNUAL_PREMIUM_LABEL = "Annual Premium";
 
 export const ANNUAL_PREMIUM_MULTIPLIER = 12;
 export type LeaderboardView = "org" | "group";

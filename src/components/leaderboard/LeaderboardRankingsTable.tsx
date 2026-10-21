@@ -7,7 +7,7 @@ import LeaderboardApValue from "@/components/leaderboard/LeaderboardApValue";
 import LeaderboardRankMovement from "@/components/leaderboard/LeaderboardRankMovement";
 import OdometerValue from "@/components/leaderboard/OdometerValue";
 import type { AgentStats, LeaderboardView, RankMovement } from "@/components/leaderboard/leaderboardTypes";
-import { AP_FULL_LABEL, AP_LABEL, formatCount } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL, formatCount } from "@/components/leaderboard/leaderboardTypes";
 import {
   type RankMotionKind,
   tableRowLayoutTransition,
@@ -68,7 +68,7 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
       </button>
     </div>
     <div className="overflow-x-auto">
-      <div className="min-w-[21rem] w-full text-sm" role="table" aria-label={`Full rankings by ${AP_FULL_LABEL}`}>
+      <div className="min-w-[21rem] w-full text-sm" role="table" aria-label={`Full rankings by ${ANNUAL_PREMIUM_LABEL}`}>
         <div className={`${ROW_GRID} text-muted-foreground border-b bg-accent/50`} role="row">
           <div className="py-3 pl-3 sm:pl-4 pr-1 font-medium text-left whitespace-nowrap" role="columnheader">
             Rank
@@ -76,13 +76,12 @@ const LeaderboardRankingsTable: React.FC<LeaderboardRankingsTableProps> = ({
           <div className="py-3 pl-2 pr-2 font-medium text-left whitespace-nowrap" role="columnheader">
             Agent
           </div>
+          {/* Wraps to two short lines wherever the column is narrower than the label; the column keeps its width. */}
           <div
-            className="py-3 px-1 sm:px-2 font-semibold text-right whitespace-nowrap text-foreground"
+            className="py-3 px-1 sm:px-2 font-semibold text-right leading-tight text-foreground"
             role="columnheader"
-            aria-label={AP_FULL_LABEL}
-            title={AP_FULL_LABEL}
           >
-            {AP_LABEL}
+            {ANNUAL_PREMIUM_LABEL}
           </div>
           <div className="py-3 px-0.5 sm:px-2 text-xs sm:text-sm font-medium text-right whitespace-nowrap" role="columnheader">
             Policies

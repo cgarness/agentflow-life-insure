@@ -27,7 +27,29 @@ await page.addInitScript(()=>{
   const sum=k=>rows.reduce((total,row)=>total+(row[k]??0),0);
   return {ranked:ranked.map((r,i)=>({id:r.id,rank:String(i+1),name:`${r.first_name} ${r.last_name[0]}.`,ap:ap(r),policies:String(r.policiesSold),calls:String(r.callsMade)})),
    podium:[ranked[1],ranked[0],ranked[2]].filter(Boolean).map(r=>r.id),
-   totals:[sum('policiesSold')>0&&sum('unknownPremiums')>=sum('policiesSold')?'—':usd(sum('premiumSold')),String(sum('policiesSold')),String(sum('callsMade'))]};
+   totals:[sum('policiesSold')>0&&sum('unknownPremiums')>=sum('policiesSold')?'—':usd(sum('premiumSold')),String(sum('policiesSold'))]};
+ };
+ // Every rendered "Annual Premium" label that is clipped: wider than its own box, or cut off by an ancestor that hides
+ // overflow, or pushed out sideways behind a scroll container (anything past one is reached by scrolling it).
+ window.__labelClips=()=>{
+  const found=[],clipped=[];
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+  for(let node=walker.nextNode();node;node=walker.nextNode()){
+   if(!node.textContent.includes('Annual Premium'))continue;
+   const range=document.createRange();range.selectNodeContents(node);const r=range.getBoundingClientRect();
+   if(!r.width)continue;
+   const el=node.parentElement;found.push(node.textContent.trim());
+   if(getComputedStyle(el).display==='inline'||el.scrollWidth>el.clientWidth)clipped.push(`${node.textContent.trim()}: ${el.scrollWidth} > ${el.clientWidth}`);
+   for(let a=el.parentElement;a&&a!==document.body;a=a.parentElement){
+    const style=getComputedStyle(a),b=a.getBoundingClientRect();
+    const hidden=v=>v==='hidden'||v==='clip';
+    const scrolls=[style.overflowX,style.overflowY].some(v=>v==='auto'||v==='scroll');
+    if((hidden(style.overflowX)||scrolls)&&(r.left<b.left-1||r.right>b.right+1)||!scrolls&&hidden(style.overflowY)&&(r.top<b.top-1||r.bottom>b.bottom+1))
+     clipped.push(`${node.textContent.trim()}: cut off by ${a.tagName.toLowerCase()}.${a.className}`);
+    if(scrolls)break;
+   }
+  }
+  return {found,clipped};
  };
  window.__tvTable=()=>{
   const container=document.querySelector('[data-testid="tv-rankings"] .divide-y');
@@ -46,12 +68,13 @@ await page.addInitScript(()=>{
   const cards=[...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')];
   eq('podium',cards.map(c=>c.dataset.agentId),e.podium);
   for(const card of cards){const r=e.ranked.find(x=>x.id===card.dataset.agentId);
-   for(const want of [`${r.ap}AP`,`${r.policies} Policies`,`${r.calls} Calls`])if(!card.textContent.includes(want))diff.push(`podium ${r.name} lacks "${want}"`);}
+   for(const want of [`${r.ap}Annual Premium`,`${r.policies} Policies`,`${r.calls} Calls`])if(!card.textContent.includes(want))diff.push(`podium ${r.name} lacks "${want}"`);}
   eq('totals',[...document.querySelectorAll('[data-testid="tv-agency-totals"] .tabular-nums')].map(x=>x.textContent),e.totals);
-  eq('total labels',[...document.querySelectorAll('[data-testid="tv-agency-totals"] .grid > div > p')].map(x=>x.textContent),['AP','Policies','Calls']);
+  eq('total labels',[...document.querySelectorAll('[data-testid="tv-agency-totals"] .grid > div > p')].map(x=>x.textContent),['Annual Premium','Policies']);
   const header=document.querySelector('[data-testid="tv-rankings"] .divide-y')?.previousElementSibling;
-  eq('table header',[...(header?.children??[])].map(x=>x.textContent),['Rank','Agent','AP','Policies','Calls']);
-  if(!/Ranking · Annualized Premium/.test(document.querySelector('[data-testid="tv-rankings"]')?.textContent??''))diff.push('table badge lacks "Ranking · Annualized Premium"');
+  eq('table header',[...(header?.children??[])].map(x=>x.textContent),['Rank','Agent','Annual Premium','Policies','Calls']);
+  if(!/Ranking · Annual Premium/.test(document.querySelector('[data-testid="tv-rankings"]')?.textContent??''))diff.push('table badge lacks "Ranking · Annual Premium"');
+  if(!/Annual Premium/.test(window.__tvDeep().text))diff.push('ranks 11+ header lacks "Annual Premium"');
   const tableWant=e.ranked.slice(3,10);
   eq('ranks 4-10',window.__tvTable().map(({movement,...cells})=>cells),tableWant.map(({id,...cells})=>cells));
   if(!tableWant.length&&!/ALL AGENTS COMPETING ON THE PODIUM/.test(document.querySelector('[data-testid="tv-rankings"]').textContent))diff.push('empty table message');
@@ -64,7 +87,9 @@ await page.addInitScript(()=>{
 async function assertBoard(label){
  await page.waitForFunction(()=>window.__boardDiff().length===0,null,{timeout:8000}).catch(()=>{});
  assert.deepEqual(await page.evaluate(()=>window.__boardDiff()),[],`${label}: TV board must match the AP ranking`);
- assert.doesNotMatch(await page.locator('body').innerText(),REMOVED,`${label}: removed metrics on screen`);
+ const text=await page.locator('body').innerText();
+ assert.doesNotMatch(text,REMOVED,`${label}: removed metrics on screen`);
+ assert.doesNotMatch(text,/\bAP\b|Annualized/,`${label}: premium is labelled "Annual Premium"`);
 }
 const tvNames=()=>page.evaluate(()=>window.__tvTable().map(r=>r.name));
 const tvMovements=()=>page.evaluate(()=>Object.fromEntries(window.__tvTable().filter(r=>r.movement).map(r=>[r.name,r.movement])));
@@ -119,11 +144,22 @@ try {
    const table=document.querySelector('[data-testid="tv-rankings"]');
    const tablePhotos=[...table.querySelectorAll('img')].map(rect);
    const panels=[...document.querySelector('[data-testid="tv-lower-panels"]').children].map(rect);
-   return {centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,panels,table:rect(table),tablePhotos,
+   const totalCells=[...document.querySelectorAll('[data-testid="tv-agency-totals"] .grid > div')].map(rect);
+   const totalsRow=rect(document.querySelector('[data-testid="tv-agency-totals"] .grid'));
+   return {totalsRow,centerError:Math.abs(totals.x+totals.w/2-podium.x-podium.w/2),cards,photos,panels,table:rect(table),tablePhotos,totalCells,labels:window.__labelClips(),
     horizontalOverflow:document.documentElement.scrollWidth>window.innerWidth,originalRanks:window.fixtureRanks()};
   });
   assert.ok(metrics.centerError<1,`${label}: podium and Agency Totals centerline`);
   assert.equal(metrics.horizontalOverflow,false,`${label}: horizontal page overflow`);
+  // Two totals cells (Annual Premium, Policies) side by side with equal widths, together filling the strip's row.
+  const [premiumCell,policiesCell]=metrics.totalCells,row=metrics.totalsRow;
+  assert.equal(metrics.totalCells.length,2,`${label}: two totals cells`);
+  assert.ok(Math.abs(premiumCell.y-policiesCell.y)<1&&premiumCell.right<=policiesCell.x+1&&Math.abs(premiumCell.w-policiesCell.w)<1&&
+   Math.abs(premiumCell.x-row.x)<1&&Math.abs(policiesCell.right-row.right)<1,
+   `${label}: totals cells side by side with equal widths: ${JSON.stringify({row,cells:metrics.totalCells})}`);
+  // Every label on screen: badge, ranks 4-10 and 11+ headers, totals and one per podium card.
+  assert.equal(metrics.labels.found.length,4+metrics.cards.length,`${label}: Annual Premium labels ${JSON.stringify(metrics.labels.found)}`);
+  assert.deepEqual(metrics.labels.clipped,[],`${label}: clipped Annual Premium labels`);
   for(let i=0;i<metrics.panels.length;i++)for(let j=i+1;j<metrics.panels.length;j++) {
    const a=metrics.panels[i],b=metrics.panels[j];
    assert.ok(a.right<=b.x+1||b.right<=a.x+1||a.bottom<=b.y+1||b.bottom<=a.y+1,`${label}: lower panels overlap ${i}/${j}: ${JSON.stringify(metrics.panels)}`);
@@ -204,17 +240,25 @@ try {
  assert.equal(await page.getByText(CAPTION,{exact:true}).count(),1,'normal standings caption');
  // Full Rankings: every ranked agent in AP order, five columns, the signed-in agent's YOU row.
  const normal=await page.evaluate(()=>({expected:window.__apExpected().ranked,
-  headers:[...document.querySelectorAll('[role="columnheader"]')].map(h=>h.getAttribute('aria-label')??h.textContent),
+  headers:[...document.querySelectorAll('[role="columnheader"]')].map(h=>h.textContent),
   rows:[...document.querySelectorAll('[role="rowgroup"] [role="row"]')].map(row=>{const c=[...row.querySelectorAll('[role="cell"]')];
    return {rank:c[0].querySelector('span').textContent,name:c[1].querySelector('span[title]').textContent,ap:c[2].textContent,policies:c[3].textContent,calls:c[4].textContent,
     you:/You/.test(c[1].textContent),current:row.getAttribute('aria-current')};})}));
- assert.deepEqual(normal.headers,['Rank','Agent','Annualized Premium','Policies','Calls'],'Full Rankings columns');
+ assert.deepEqual(normal.headers,['Rank','Agent','Annual Premium','Policies','Calls'],'Full Rankings columns');
+ assert.equal(await page.getByRole('table',{name:'Full rankings by Annual Premium'}).count(),1,'Full Rankings accessible name');
  assert.deepEqual(normal.rows.map(({you,current,...cells})=>cells),normal.expected.map(({id,...cells})=>cells),'Full Rankings AP order and cells');
  assert.deepEqual(normal.rows.filter(r=>r.you).map(r=>[r.name,r.rank,r.current]),[['Gray T.','7','true']],'one YOU row, mid-table');
  assert.ok(normal.rows.some(r=>r.ap==='—*'),'all-unknown premium reads —, never $0');
  for(const [width,height] of [[1440,1000],[390,844]]){
   await page.setViewportSize({width,height});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
+  // The Annual Premium header fits (two lines on phones) and no column hides behind the table's sideways scroll.
+  const fit=await page.evaluate(()=>{const wrap=document.querySelector('[role="table"]').parentElement;
+   return {labels:window.__labelClips(),hiddenColumns:wrap.scrollWidth>wrap.clientWidth};});
+  assert.deepEqual(fit.labels.found,['Annual Premium'],`normal-${width}: one Annual Premium header`);
+  assert.deepEqual(fit.labels.clipped,[],`normal-${width}: clipped Annual Premium header`);
+  assert.equal(fit.hiddenColumns,false,`normal-${width}: Full Rankings columns hidden behind scroll`);
+  assert.doesNotMatch(await page.locator('body').innerText(),/\bAP\b|Annualized/,`normal-${width}: premium is labelled "Annual Premium"`);
   assert.doesNotMatch(await page.locator('body').innerText(),REMOVED,`normal-${width}: removed metrics on screen`);
   await assertSoldDateRows(`normal-${width}`);
   await page.screenshot({path:`${output}/normal-${width}.png`});

@@ -23,7 +23,7 @@ describe("Your Performance", () => {
   it("shows the signed-in agent's AP, rank of N, Policies and Calls for the period and scope", () => {
     render(<LeaderboardYourPerformance agents={board()} userId={ME} period="This Week" view="org" />);
     expect(card()).toHaveTextContent("This Week · My Agency");
-    expect(card()).toHaveTextContent("$4,800.50");
+    expect(within(card()).getByText("Annual Premium").nextElementSibling).toHaveTextContent("$4,800.50");
     expect(stat("Rank")).toHaveTextContent("#2 of 3");
     expect(stat("Policies")).toHaveTextContent("4");
     expect(stat("Calls")).toHaveTextContent("37");

@@ -58,7 +58,7 @@ describe("TV ranks by AP only",()=>{
   for(const _ of [1,2,3]) await act(async()=>{vi.advanceTimersByTime(30_000);});
   expect(screen.getByTestId("tv-podium")).toBe(podium);
   expect(podiumIds()).toEqual(["agent-10","agent-11","agent-9"]);
-  expect(screen.getByText("Live Ranking · Annualized Premium")).toBeTruthy();
+  expect(screen.getByText("Live Ranking · Annual Premium")).toBeTruthy();
  });
  it("ignores and removes the obsolete metric and auto-rotate preferences",async()=>{
   localStorage.setItem("leaderboardTvMetricIndex","1");localStorage.setItem("leaderboardTvAutoRotate","1");
@@ -72,16 +72,20 @@ describe("TV ranks by AP only",()=>{
   const current=screen.getByTestId("tv-podium");page.rerender(view(rows,"This Week"));
   expect(screen.getByTestId("tv-podium")).not.toBe(current);
  });
- it("podium, tables and totals show AP, Policies and Calls — no Appointments, Talk Time or Policies / 100 Calls",async()=>{
+ it("podium and tables show Annual Premium, Policies and Calls; totals show Annual Premium and Policies — no Appointments, Talk Time or Policies / 100 Calls",async()=>{
   render(view(agents()));await act(async()=>{});
   const header=screen.getByText("Rank").parentElement as HTMLElement;
-  expect(Array.from(header.children).map(e=>e.textContent)).toEqual(["Rank","Agent","AP","Policies","Calls"]);
+  expect(Array.from(header.children).map(e=>e.textContent)).toEqual(["Rank","Agent","Annual Premium","Policies","Calls"]);
+  expect(screen.getByText("Ranks 11+").parentElement).toHaveTextContent("Annual Premium");
   const totals=screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement;
-  expect(Array.from(totals.querySelectorAll("p")).map(e=>e.textContent)).toEqual(["AP","Policies","Calls"]);
-  expect(within(totals).getByText("AP").parentElement).toHaveTextContent("$7,920.00");
+  expect(Array.from(totals.querySelectorAll("p")).map(e=>e.textContent)).toEqual(["Annual Premium","Policies"]);
+  expect(within(totals).getByText("Annual Premium").parentElement).toHaveTextContent("$7,920.00");
+  expect(within(totals).getByText("Policies").parentElement).toHaveTextContent("78");
+  expect(totals.textContent).not.toMatch(/calls/i);
   const gold=screen.getByTestId("tv-podium").querySelector('[data-agent-id="agent-11"]') as HTMLElement;
-  expect(gold.textContent).toMatch(/\$1,320\.00AP.*1 Policies.*110 Calls/);
+  expect(gold.textContent).toMatch(/\$1,320\.00Annual Premium.*1 Policies.*110 Calls/);
   expect(document.body.textContent).not.toMatch(/appointment|appts|talk|per 100|\/ 100/i);
+  expect(document.body.textContent).not.toMatch(/\bAP\b|Annualized/);
  });
  it.each([1,2,3,12])("renders %i agents without inventing or duplicating podium agents",async n=>{
   render(view(agents().slice(0,n)));await act(async()=>{});
@@ -95,7 +99,7 @@ describe("D14 on TV: a wholly unknown premium is never shown as a $0 sale",()=>{
  const premiumView=async(rows:AgentStats[])=>{
   render(view(rows));await act(async()=>{});
  };
- const totalsPremium=()=>within(screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement).getByText("AP").parentElement as HTMLElement;
+ const totalsPremium=()=>within(screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement).getByText("Annual Premium").parentElement as HTMLElement;
  const podiumCard=(id:string)=>screen.getByTestId("tv-podium").querySelector(`[data-agent-id="${id}"]`) as HTMLElement;
  const tableRow=(name:string)=>within(screen.getByTestId("tv-rankings")).getByText(name).parentElement!.parentElement as HTMLElement;
  const deepItem=(name:string)=>within(screen.getByText("Ranks 11+").closest("div")!.parentElement as HTMLElement).getByText(name).closest("li") as HTMLElement;

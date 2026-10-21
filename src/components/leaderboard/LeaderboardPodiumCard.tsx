@@ -6,7 +6,7 @@ import OdometerValue from "@/components/leaderboard/OdometerValue";
 import { cn } from "@/lib/utils";
 import LeaderboardApValue from "@/components/leaderboard/LeaderboardApValue";
 import type { AgentStats, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { AP_FULL_LABEL, AP_LABEL, formatCount } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL, formatCount } from "@/components/leaderboard/leaderboardTypes";
 import {
   type RankMotionKind,
   leaderboardGlideTransition,
@@ -130,11 +130,8 @@ const LeaderboardPodiumCard: React.FC<LeaderboardPodiumCardProps> = ({
             )}
           />
         </div>
-        <p
-          className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mt-0.5 truncate"
-          title={AP_FULL_LABEL}
-        >
-          {AP_LABEL}
+        <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mt-0.5 truncate">
+          {ANNUAL_PREMIUM_LABEL}
         </p>
         <dl className="mt-1.5 grid grid-cols-2 border-t border-foreground/10 pt-1.5 pb-0.5">
           {([["Policies", agent.policiesSold], ["Calls", agent.callsMade]] as const).map(([label, value]) => (

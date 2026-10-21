@@ -11,8 +11,7 @@ import {
   type LeaderboardView,
   type Period,
   type RankMovement,
-  AP_FULL_LABEL,
-  AP_LABEL,
+  ANNUAL_PREMIUM_LABEL,
   formatCount,
 } from "@/components/leaderboard/leaderboardTypes";
 
@@ -73,8 +72,8 @@ const LeaderboardYourPerformance: React.FC<LeaderboardYourPerformanceProps> = ({
         // Beside the podium (xl) the card is a column; stacked under it, AP and the stats share one row.
         <div className="mt-4 grid gap-4 sm:grid-cols-2 sm:items-end xl:grid-cols-1 xl:items-stretch">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title={AP_FULL_LABEL}>
-              {AP_LABEL}
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {ANNUAL_PREMIUM_LABEL}
             </p>
             <div className="whitespace-nowrap text-3xl font-extrabold leading-tight tracking-tight text-foreground">
               <LeaderboardApValue agent={me} />

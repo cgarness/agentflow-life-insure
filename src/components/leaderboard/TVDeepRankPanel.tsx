@@ -7,7 +7,7 @@ import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlig
 import { tvTableRowLayoutTransition } from "@/components/leaderboard/leaderboardRankMotion";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
 import type { AgentStats } from "@/components/leaderboard/leaderboardTypes";
-import { AP_FULL_LABEL, AP_LABEL } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL } from "@/components/leaderboard/leaderboardTypes";
 
 interface TVDeepRankPanelProps {
   agents: AgentStats[];
@@ -30,7 +30,7 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
             <Hash className="h-4 w-4 text-slate-400" />
             Ranks 11+
           </h3>
-          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500" title={AP_FULL_LABEL}>{AP_LABEL}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{ANNUAL_PREMIUM_LABEL}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 py-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">

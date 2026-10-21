@@ -7,7 +7,7 @@ import LeaderboardApValue from "./LeaderboardApValue";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "./tvPanelLayout";
 import { cn } from "@/lib/utils";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type RankMovement, AP_FULL_LABEL, AP_LABEL, formatCount } from "./leaderboardTypes";
+import { type AgentStats, type RankMovement, ANNUAL_PREMIUM_LABEL, formatCount } from "./leaderboardTypes";
 import { type RankMotionKind, tvTableRowLayoutTransition } from "./leaderboardRankMotion";
 /** Rank · Agent · AP · Policies · Calls — the same columns as the page's Full Rankings. */
 const TV_TABLE_ROW = "grid w-full grid-cols-[3rem_minmax(7rem,1.6fr)_minmax(6.5rem,1.2fr)_minmax(3.5rem,0.7fr)_minmax(3.5rem,0.7fr)] items-center gap-x-2 px-3";
@@ -48,7 +48,7 @@ export default function TVRankingsTable({ tableAgents, live, tvRankMotions, tvRa
             <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
                 <TrendingUp className="h-4 w-4" />
-                {live ? "Live Ranking" : "Ranking"} · {AP_FULL_LABEL}
+                {live ? "Live Ranking" : "Ranking"} · {ANNUAL_PREMIUM_LABEL}
               </div>
             </div>
 
@@ -58,7 +58,7 @@ export default function TVRankingsTable({ tableAgents, live, tvRankMotions, tvRa
               >
                 <span className="text-left">Rank</span>
                 <span className="text-center">Agent</span>
-                <span className="text-center text-amber-300/80" title={AP_FULL_LABEL}>{AP_LABEL}</span>
+                <span className="text-center text-amber-300/80">{ANNUAL_PREMIUM_LABEL}</span>
                 <span className="text-center">Policies</span>
                 <span className="text-center">Calls</span>
               </div>
