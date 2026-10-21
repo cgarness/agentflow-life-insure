@@ -32,6 +32,7 @@ on:
       - 'src/components/commission/**'
       - 'src/components/commissions/**'
       - 'src/pages/CommissionsPage.tsx'
+      - 'src/pages/__tests__/commissions*.test.tsx'
       - 'src/components/layout/CommissionsNavItem.tsx'
       - 'src/components/contacts/**'
       - 'src/pages/Contacts.tsx'
@@ -102,4 +103,5 @@ jobs:
           src/lib/__tests__/saleHandoffApis.test.ts src/hooks/__tests__/usePolicySaleSubmission.test.tsx
           src/hooks/__tests__/useClientPolicyCommissions.test.tsx src/components/contacts src/pages/__tests__/contactsClientSaleHandoff.test.tsx
           src/lib/__tests__/normalizedPolicy.test.ts src/components/commissions src/pages/__tests__/commissionsPage.test.tsx
+          src/pages/__tests__/commissionsHideAmounts.test.tsx
           src/hooks/__tests__/useCommissionsCenter.test.tsx src/components/layout/__tests__/viewAsSidebarNav.test.tsx

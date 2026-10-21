@@ -260,3 +260,21 @@ idempotency, schedule rules, calculator engine and matching, `CommissionsNavItem
    re-check hosted history; advisors before/after.
 3. Frontend release (merge, deploy) — separate approval, only after gate 2 (the new UI calls functions that exist
    only after it).
+
+## 10. Implementation record — deviations and findings (local build, 2026-10-21)
+
+- **Extra files beyond §7:** `src/components/commission/ui/amountsContext.ts` (context, hook and placeholder split from
+  `AmountsVisibility.tsx` so the component file exports components only — lint's fast-refresh rule);
+  `src/components/commissions/overview/GoalEditor.tsx` (keeps `GoalProgress` small);
+  `src/components/commissions/CommissionPeriodControl.tsx` (optional `label`, for "Sold");
+  `scripts/tests/policy_commission/measure_center_reads.sh` (times the four new reads when the migration is present).
+- **Generated types:** the six function signatures only, as the released center did (the commission tables are not in
+  `Tables`).
+- **Missing estimates in charts:** a carrier or product with no saved estimate shows "—" in the Est. commission view
+  (found in self-review; a `$0.00` there would have read as a real zero).
+- **Goal progress accessibility:** the shared `Progress` component does not forward `value` to Radix, so the goal bar
+  passes `aria-valuenow` (capped) and `aria-valuetext` (the real percentage) itself; the shared component is unchanged.
+- **Doughnut** starts at 12 o'clock and runs clockwise; colours are categorical slots 1–5 (validated light and dark;
+  the light-mode contrast warning is relieved by the labelled legend and the details table) with Unknown neutral.
+- **Disposable cluster location:** PostgreSQL refuses to run as root and the session scratchpad is root-only, so the
+  loopback test cluster lived in `/tmp/pc_cluster_55432`.

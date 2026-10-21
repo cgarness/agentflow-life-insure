@@ -1,3 +1,38 @@
+## 2026-10-21 — Commissions Overview: breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts (local build, draft PR; NOT live)
+
+Chris approved the scoped local implementation and disposable tests only. Branch `claude/zen-clarke-wdwrrb` from `main`
+`e762454`. No production write, migration, policy, merge or deployment; the only hosted contact was a read-only
+`list_migrations` (head `20261020212000`). Applied migrations `20261019170000`, `20261020040000` and `20261020212000`
+are byte-identical to `main`. PR #473 (navigation icon) is untouched: `CommissionsNavItem.tsx` is not changed.
+
+- **What changed.** Overview gains By carrier (horizontal bars: Policies · Est. commission · Received) and By product
+  (doughnut: Policies · Est. commission), each bar or slice opening exactly matching lists; compact comparisons over
+  server-resolved fair windows; the next agency month's remaining Months 10–12; an optional owner-only monthly goal
+  under Received (one whole month only; Received by `received_on`; bar capped, figure not). Policies gains Sold, Type
+  and Unknown-carrier filters with whole-filter totals (All time by default, so its address keeps its meaning); History
+  gains a carrier filter. One eye control hides every amount across tabs, drawer, dialogs and the calculator (money
+  plots replaced; counts kept; explicit Show amounts before any financial edit; drafts and unresolved writes kept;
+  browser-local per user and agency, read before the first render).
+- **Database (proposed, NOT applied).** `20261021180000_policy_commission_center_insights.sql` (SHA-256
+  `d390cc8e…5b3345`, 34,179 bytes; guarded rollback refuses while goals exist): owner-only `policy_commission_goals`
+  (RLS on the Own toggle; `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for `authenticated`; nothing for
+  `anon`/`service_role`), schema `policy_commission_insights` (6 helpers), reads `get_my_commission_breakdown`,
+  `_policy_list`, `_receipt_list`, `_goal`, and SECURITY INVOKER `set_/clear_my_commission_goal`. Additive; released
+  reads stay for older browsers.
+- **Definitions.** Policies by Sold Date (undated disclosed); Est. commission = saved first-year of ACTIVE estimates (held
+  disclosed; missing "—", never $0; never equated with Expected); carrier = estimate's saved carrier, else visible client,
+  else Unknown (case/spaces only); product = sale type, else visible client type, else Unknown (never the grid category).
+- **Verification.** Disposable PostgreSQL 16.15: guards, drift refusal, inventory (177 existing objects unchanged), new
+  suite (8 sections), released center suite on the final state, rollback/refusal/reapply, PostgREST 12.2.3 (9 new HTTP
+  checks). Frontend: `npx tsc --noEmit` exit 0; app typecheck identical to `main` (84); 48 new tests; full Vitest as in
+  `verification.md`; scoped ESLint, build and `git diff --check` clean; screenshots at 1440/390 px, light and dark;
+  keyboard check. Record: `docs/plans/2026-10-21-commissions-insights/{implementation_plan,verification}.md`.
+- **Records.** Root `implementation_plan.md` entry; AGENT_RULES gains a **proposed** (not live) invariant section.
+- **Open gates.** Gate 2: production apply of `20261021180000` (new table, RLS policy, grants, functions) — separate
+  exact-action approval, hosted-history re-check, advisors before/after. Gate 3: merge and frontend release after Gate 2.
+
+---
+
 ## 2026-10-20 — Commissions center RELEASED: Gate 3, PR #471
 
 Chris approved the separate merge/frontend-release gate by replying "Continue". Reviewed the additional
