@@ -5,7 +5,8 @@ import { useCarrierOptions } from "./useCarrierOptions";
 
 const ALL = "__all__";
 const UNKNOWN = "__unknown__";
-const key = (name: string) => name.trim().toLowerCase();
+/** The server's carrier key, lower(btrim()): surrounding spaces and case only. */
+const key = (name: string) => name.replace(/^ +| +$/g, "").toLowerCase();
 
 /**
  * Carrier filter for a list: All, one carrier (matched by case and surrounding spaces, as on the server) or Unknown

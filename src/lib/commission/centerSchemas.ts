@@ -202,7 +202,9 @@ export const breakdownSchema = z.object({
     && sum(b.carriers, (g) => g.estimate_cents) === b.sold.estimate_cents && sum(b.products, (g) => g.estimate_cents) === b.sold.estimate_cents
     && sum(b.carriers, (g) => g.received_cents) === b.received.received_cents
     && new Set(b.products.map((g) => g.category)).size === b.products.length
-    && new Set(b.carriers.map((g) => g.carrier?.trim().toLowerCase() ?? null)).size === b.carriers.length;
+    // Each server group is labelled by one of its own names, so distinct groups never share a label. The key itself is
+    // not re-derived here: JS case folding is not Postgres lower() for every character.
+    && new Set(b.carriers.map((g) => g.carrier)).size === b.carriers.length;
   if (!ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Breakdown groups do not add up" });
 });
 export type CommissionBreakdown = z.infer<typeof breakdownSchema>;

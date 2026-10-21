@@ -15,9 +15,12 @@ describe("insights schemas", () => {
     expect(off({ sold: { ...b.sold, policies: 10 } })).toBe(false);
     expect(off({ received: { ...b.received, received_cents: 1 } })).toBe(false);
     expect(off({ products: [...b.products.slice(1), { ...b.products[0], category: "whole_life" }] })).toBe(false);
-    expect(off({ carriers: b.carriers.map((c) => (c.carrier === "Harbor Mutual" ? { ...c, carrier: " synthetic life " } : c)) })).toBe(false);
+    expect(off({ carriers: b.carriers.map((c) => (c.carrier === "Harbor Mutual" ? { ...c, carrier: "Synthetic Life" } : c)) })).toBe(false);
     expect(off({ products: [...b.products.slice(0, 3), { ...b.products[3], category: "annuity" }] })).toBe(false);
     expect(off({ sold: { ...b.sold, estimate_cents: -1 } })).toBe(false);
+    // Grouping is the server's (lower(btrim())); labels the client would fold together still parse as separate groups.
+    expect(off({ carriers: b.carriers.map((c) => (c.carrier === "Harbor Mutual" ? { ...c, carrier: "Synthetic Life\t" } : c)) })).toBe(true);
+    expect(off({ carriers: b.carriers.map((c) => (c.carrier === "Harbor Mutual" ? { ...c, carrier: "SYNTHETIC LİFE" } : c)) })).toBe(true);
   });
 
   it("goal reads and writes: whole cents within limits, null when unset", () => {
