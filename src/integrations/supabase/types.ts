@@ -6331,6 +6331,48 @@ export type Database = {
         }
         Returns: Json
       }
+      get_my_commission_overview: {
+        Args: { p_from?: string; p_period?: string; p_to?: string }
+        Returns: Json
+      }
+      get_my_commission_installments: {
+        Args: {
+          p_carrier?: string
+          p_from?: string
+          p_kind?: string
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_scope?: string
+          p_status?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_receipts: {
+        Args: {
+          p_from?: string
+          p_include_voided?: boolean
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_policies: {
+        Args: {
+          p_carrier?: string
+          p_limit?: number
+          p_offset?: number
+          p_setup?: string
+        }
+        Returns: Json
+      }
+      get_my_policy_commission: {
+        Args: { p_policy_id: string }
+        Returns: Json
+      }
       convert_lead_to_client_atomic: {
         Args: { p_client: Json; p_lead_id: string }
         Returns: Json

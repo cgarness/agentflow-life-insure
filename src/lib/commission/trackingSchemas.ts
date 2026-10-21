@@ -101,7 +101,7 @@ const closedPolicySchema = z.object({
   state: z.enum(["hidden", "unavailable"]),
 });
 
-const openPolicySchema = z.object({
+export const openPolicySchema = z.object({
   policy_id: uuid,
   source: z.enum(["primary", "additional"]),
   state: z.enum(["not_recorded", "recorded", "awaiting_confirmation", "needs_attention"]),

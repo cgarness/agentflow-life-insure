@@ -1,5 +1,5 @@
 # AgentFlow | AI System Instructions & Protocols (v5.0.0)
-**Owner:** Chris Garness | **Last Updated:** October 10, 2026 (Reports refresh and R-3 overlap-seconds correction shipped; evidence in invariant #41 and the Reports personal layout invariant)
+**Owner:** Chris Garness | **Last Updated:** October 20, 2026 (Phase 2A saved policy commissions released; Commissions center approved for local build — see the Phase 2A and Commissions center sections)
 
 ---
 
@@ -758,7 +758,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - A durable private location for the source and artifact must be named before release.
 
 **Calculator and settings surfaces.**
-- The calculator nav item and route respect the existing "View Own Commission Percentage" permission (D3). This is screen-level, not a database secrecy claim.
+- The Commissions nav item (where "Commission Calculator" was) and the `/commissions` route, including its Calculator tab (`/commissions/calculator`; the old `/commission-calculator` address redirects there), respect the existing "View Own Commission Percentage" permission (D3). The nav item no longer needs a ready grid: only the Calculator tab does. This is screen-level for the calculator, not a database secrecy claim.
 - Neither surface is a View As surface: no query is issued under View As.
 - Contract levels are parsed strictly and never defaulted, nearest-matched or written back.
 - Settings › Commission Grids is admin-only through `ADMIN_ONLY_SETTINGS_SECTIONS`. Never add it to `SETTINGS_CONFIG`: every section there inherits Agent / Team Leader access by default.
@@ -771,23 +771,26 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 **Policy commission preview (Phase 1, 2026-10-17; LIVE in `main` since PR #455, merge `e2ddef2`).** ConvertLeadModal (every policy row), AddClientModal (only when the save would record a new policy: creation, or the first policy of an existing client) and RecordPolicyModal show a compact estimate — "Estimated first-year commission" and "Estimated advance (75%)" — from the agency's selected grid through the unchanged calculator engine (`calculateEstimate`, exact rationals, `formatUsd` on the Rational). It is an estimate only: never saved, earned, booked or paid commission. The credited agent is the STORED owner the sale writers credit (`leads.assigned_agent_id` / `clients.assigned_agent_id`, read org-scoped with `.maybeSingle()`; the signed-in user for a new manual client), never a modal prop: the Dialer maps `lead.assignedAgentId` from `claimed_by` first. "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently; another agent's estimate also requires Admin / non-impersonating Super Admin (`isOrganizationWideViewer`, same organization) or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains the agent — never an Agent. Another agent's level is the raw `profiles.commission_level` (never `rowToUser`, which maps a missing level to `"0%"`) through the strict level parse; the operator's own level is never used for someone else. The credited owner is never served from cache: it is re-read on every open (an owner cached by an earlier open is ignored) and re-checked on window focus and every 15 s while open, and a failed re-check hides the figures. No commission request and no cached commission data under View As; any unresolved viewer, permission, owner, scope, profile or grid read shows no figures. Final Expense lists only the matched carrier's whole-life products (exact trimmed, case-insensitive carrier match) and never auto-selects. Product, term and insured age are preview-only inputs: never required, persisted or added to the four sale payloads (receipt hashes, request ids, transactions and callbacks are unchanged). The Phase 1 §8 snapshot design is superseded by Phase 2A below; in production today nothing from the preview is persisted. Screen-level permission model only, not database secrecy (as D3).
 
 
-### Saved policy commissions — Phase 2A (database APPLIED to production: `20261019170000` on 2026-10-19, `20261020040000` on 2026-10-20; frontend NOT released)
+### Saved policy commissions — Phase 2A (LIVE: database `20261019170000` on 2026-10-19 and `20261020040000` on 2026-10-20; frontend released 2026-10-20 by PR #469, merge `0312520`)
 
 Gate 3 (database only) is applied: production `jncvvsvckxhqgqvkppmj` records `20261019170000 /
 policy_commission_tracking`, and the stored statement is byte-identical to the repository file (SHA-256
-`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`). Never edit, rename or replay that file. The
-deployed frontend still calls the legacy writers, so the commission tables stay empty until Gate 4 (merge and frontend
-release) and signed-in acceptance are separately approved; no preview connected to production may be used for sale or
-commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence:
-`verification.md` beside it (§13 is the release record).
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`). Never edit, rename or replay that file. Gate 4
+(merge and frontend release) happened on 2026-10-20: PR #469 merged as `0312520` after Chris approved the updated
+preview, so the upgraded modals save through the companions; its PR body is the Gate 4 record (no migration applied or
+replayed, no production business-data write). A named-Agent own-client browser check was not independently observed
+during that release. No preview connected to production may be used for sale or commission tests. Contract:
+`docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence: `verification.md` beside it (§13
+Gate 3, §15 Gate 3b, §16 Gate 4 note).
 
 - **Meaning (the invariant).** A saved estimate (`policy_commission_estimates` and its four
   `policy_commission_installments`: Advance 75%, Month 10, Month 11, Month 12) is an illustrative projection from the
   agency's comp-grid assumptions when it was recorded. A receipt (`policy_commission_receipts`) is the agent's or an
   admin's manual record of money they say they received. Neither is carrier-verified, guaranteed, earned, paid,
   payroll, booked commission or a carrier reconciliation. Never label, aggregate, report, export or reconcile them as
-  any of those, and never treat a received amount as confirming an estimate. Reports, dashboards, reminders, cron and
-  calendar integration over these tables are out of scope until separately approved.
+  any of those, and never treat a received amount as confirming an estimate. The approved Commissions center (section
+  below) is the one reporting surface over these tables; Reports-page changes, team or agency reporting, exports,
+  reminders, cron and calendar integration remain out of scope until separately approved.
 - **History is append-only.** Estimates are immutable: replacing one needs a reason and no active receipts (void them
   first), and the old estimate is kept as superseded. Receipts are never edited or deleted: a correction is a void
   with a reason, optionally with a replacement. Estimate, schedule, hold and receipt changes write
@@ -830,7 +833,7 @@ commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/im
 - **Errors.** PT409 conflict (HTTP 409), PT404 not found (never P0002, which PostgREST maps to HTTP 500), 42501
   denied, 22023 invalid input with a human message.
 - **Automatic estimated payment dates (database APPLIED 2026-10-20 as `20261020040000`, byte-identical, SHA-256
-  `10897ad6…0a5ea8`; never edit or replay it; the UI is not live until Gate 4).** When an estimate is saved, the server sets an *assumed* start date only from that policy's
+  `10897ad6…0a5ea8`; never edit or replay it; UI live since Gate 4 on 2026-10-20).** When an estimate is saved, the server sets an *assumed* start date only from that policy's
   own Effective Date — never Draft Date (the next scheduled draft) and never another policy's dates — and saves each
   payment's expected window as the 1st–3rd Federal Reserve business day after its premium date (Advance: the start;
   Months 10–12: start + 9/10/11 calendar months from the original anchor, clamped to month end). Explicit non-monthly
@@ -839,6 +842,56 @@ commission tests. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/im
   never recalculated when policy details change, and reads never write. Expected dates are AgentFlow's estimate, not a
   carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
   breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
+
+### Commissions center (Gate 2 applied 2026-10-20; migration `20261020212000` immutable; UI NOT released — Gate 3 pending)
+
+Release ordering: a migration version is chosen against the HOSTED migration history (`list_migrations` /
+`supabase_migrations.schema_migrations`), never against source filenames, and must sort after the hosted head. Never insert
+an out-of-order history row or relax the ordering guard; an unapplied migration that would sort earlier is renamed with its
+bytes unchanged (the center reads were proposed as `20261020180000` and renamed to `20261020212000` on 2026-10-20 after
+the hosted head became `20261020192723 / uv_personal_brand`).
+
+`/commissions` — Overview · Payments (Scheduled | History) · Policies · Calculator — replaces the Commission Calculator
+nav entry. Contract and metric definitions: `docs/plans/2026-10-20-commissions-center/implementation_plan.md` §4;
+evidence: `verification.md` beside it.
+
+- **My commissions only.** Every role sees only rows credited to the signed-in seller (`credited_agent_id` =
+  `auth.uid()`, the sale's `wins.agent_id`, never the client's assignee) in the caller's own organization, behind the
+  existing Own toggle. No agent id or organization is accepted from the browser. Team, agency, leaderboard or
+  Agency Group views need separate approval, and so does any new permission or setting.
+- **Reads only.** Five SECURITY INVOKER, STABLE reads (`get_my_commission_overview` / `_installments` / `_receipts` /
+  `_policies`, `get_my_policy_commission`) over shared definitions in the non-exposed schema
+  `policy_commission_reporting` (EXECUTE `authenticated` only). Existing RLS on the commission tables, `wins`,
+  `clients` and `company_settings` applies to every row; wins are filtered to the caller's organization explicitly
+  (`wins_select` also admits Agency Group peers). They never write, backfill, change dates or acknowledge payments.
+  Never add a privileged fallback, an application-controlled authority input or a second calculation engine.
+- **Definitions are server-side and shared.** Saved cents only (never today's grid or a current premium); receipts
+  aggregated per installment before joins; remaining = max(expected − all valid receipts, 0) and excess shown
+  separately (an Advance overpayment never settles Months 10–12); current estimates only (superseded never count);
+  held amounts separate; open captures are not amounts; a stored 0 is a real zero; an installment is counted once in
+  the period of its window's first day; month timing is not past until the month ends; "Check payment", never
+  "Overdue"; unknown dates go to review, not forecasts; today is the agency date (unset zone fails closed, `55000`).
+  Cards, timeline buckets and paginated list totals must reconcile (the suite proves it).
+- **Contact access stays separate from financial access.** Client names, links and client-record policy fields come
+  only from `clients` under the caller's own RLS; otherwise the row reads "Restricted contact" with the estimate's own
+  carrier/product. Never use `wins.contact_name` for display.
+- **Writes reuse Phase 2A.** The drawer reuses the existing tracking dialogs, request ids and unresolved-write
+  registry; no new writer, paid checkbox or bulk action. Query keys sit under `["policy-commissions", "center", user,
+  org, …]` so every tracking write refreshes the center and the contact view together; nothing is requested under View
+  As.
+- **Results always match the filters on screen.** Keys and RPC arguments use the effective filter (Scheduled's period
+  counts only for "Selected period"; Next 90 days and Any date never send or wait for a hidden custom range). Earlier
+  rows are kept only while paging within the same effective filter, user and organization, marked "Updating…"
+  (`aria-busy`) with row actions disabled; a changed filter shows loading and a failed request shows the error, never
+  another filter's rows.
+- **Calculator stays hypothetical.** The Calculator tab reuses `CalculatorWorkspace`'s engine, inputs and matching
+  (monthly premium basis); it shows "Your level: …" and "Estimate only" with one ⓘ, never a grid name, revision or rate
+  breakdown; it never writes or affects reporting; its inputs persist across tab switches only within one signed-in
+  user and organization. Settings copy says the Calculator needs a selected grid and saved commission history stays
+  available (estimates keep their own grid snapshot).
+- **Labels.** Estimates are AgentFlow projections and receipts are manual records; neither is carrier-verified, earned,
+  paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
+  reporting tabs; definitions live in one ⓘ control.
 
 ### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
 

@@ -23,15 +23,16 @@ const estimateRows = () =>
     .map((cell) => cell.textContent);
 
 describe("CalculatorWorkspace", () => {
-  it("shows the read-only contract level and the exact disclaimer", () => {
+  it("shows the read-only level and a short Estimate only label; the explanation is in the info control, with no grid name", () => {
     render(<CalculatorWorkspace context={syntheticContext(" 100 ")} />);
-    expect(screen.getByText("Your contract level:").textContent).toContain("100");
-    expect(
-      screen.getByText(
-        "Estimate only. Assumes a 75% advance. Actual commission and payment timing may vary by age, plan type and carrier rules. Based on the Synthetic Test Grid effective March 1, 2025.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /contract level/i })).toBeNull();
+    expect(screen.getByText("Your level:").textContent).toBe("Your level: 100");
+    expect(screen.getByText("Estimate only")).toBeInTheDocument();
+    expect(screen.queryByText(/Assumes a 75% advance/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "About this estimate" }));
+    expect(screen.getByText(/Assumes a 75% advance\. Actual commission and payment timing may vary by age, plan type and carrier rules\./))
+      .toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Synthetic Test Grid|effective March 1, 2025|Based on the/);
+    expect(screen.queryByRole("textbox", { name: /level/i })).toBeNull();
   });
 
   it("shows the off-grid message and no inputs for a level that is not on the grid", () => {
@@ -42,7 +43,7 @@ describe("CalculatorWorkspace", () => {
 
   it("distinguishes a missing level (setup) from earnings", () => {
     render(<CalculatorWorkspace context={syntheticContext(null)} />);
-    expect(screen.getByText("Your contract level:").textContent).toContain("Not set");
+    expect(screen.getByText("Your level:").textContent).toBe("Your level: Not set");
     expect(screen.getByText(/hasn't been set up yet/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Estimate")).toBeNull();
   });

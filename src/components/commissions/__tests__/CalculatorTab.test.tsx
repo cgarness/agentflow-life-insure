@@ -1,5 +1,5 @@
 /**
- * The calculator route guards itself: the "View Own Commission Percentage" permission (D3), never under
+ * The Calculator tab guards itself: the "View Own Commission Percentage" permission (D3), never under
  * "View As" (no query is even enabled), and distinct states for loading, not configured, no access and
  * load errors. The workspace is keyed by user, agency and grid so nothing survives an identity change.
  */
@@ -34,7 +34,7 @@ vi.mock("@/components/commission/calculator/CalculatorWorkspace", () => ({
   default: ({ context }: { context: { grid: { name: string } } }) => <div data-testid="workspace">{context.grid.name}</div>,
 }));
 
-import CommissionCalculatorPage from "../CommissionCalculatorPage";
+import CalculatorTab from "../CalculatorTab";
 
 beforeEach(() => {
   h.isImpersonating = false;
@@ -46,10 +46,10 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("Commission Calculator page", () => {
+describe("Commissions › Calculator tab", () => {
   it("never enables a query under View As", () => {
     h.isImpersonating = true;
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByText("Commission Calculator isn't available")).toBeInTheDocument();
     expect(h.contextEnabled.every((enabled) => enabled === false)).toBe(true);
     expect(h.accessOptions).toEqual(expect.arrayContaining([{ enabled: false }]));
@@ -57,18 +57,18 @@ describe("Commission Calculator page", () => {
 
   it("respects the View Own Commission Percentage permission and issues no query without it", () => {
     h.permitted = false;
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByText("Commission Calculator isn't available for your role")).toBeInTheDocument();
     expect(h.contextEnabled.every((enabled) => enabled === false)).toBe(true);
   });
 
   it("shows loading while permissions or the grid load", () => {
     h.permissionsLoading = true;
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByRole("status").textContent).toContain("Loading");
     cleanup();
     h.permissionsLoading = false;
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByRole("status").textContent).toContain("Loading");
     expect(h.contextEnabled.at(-1)).toBe(true);
   });
@@ -78,24 +78,24 @@ describe("Commission Calculator page", () => {
     ["no_access", "Commission Calculator isn't available"],
   ])("explains the %s state", (status, text) => {
     h.context.data = { status };
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByText(text)).toBeInTheDocument();
     expect(screen.queryByTestId("workspace")).toBeNull();
   });
 
   it("offers a retry on a load error instead of showing any fallback data", () => {
     h.context.isError = true;
-    render(<CommissionCalculatorPage />);
+    render(<CalculatorTab />);
     expect(screen.getByText("The calculator couldn't load")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(h.context.refetch).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("workspace")).toBeNull();
   });
 
-  it("renders the workspace for a ready grid", () => {
+  it("renders the workspace for a ready grid, without a heading of its own (the page has the one Commissions heading)", () => {
     h.context.data = syntheticContext();
-    render(<CommissionCalculatorPage />);
-    expect(screen.getByRole("heading", { level: 1, name: "Commission Calculator" })).toBeInTheDocument();
+    render(<CalculatorTab />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.getByTestId("workspace").textContent).toBe("Synthetic Test Grid");
   });
 });

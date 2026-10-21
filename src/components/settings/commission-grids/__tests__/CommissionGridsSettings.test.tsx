@@ -65,7 +65,7 @@ describe("Settings › Commission Grids", () => {
     h.overview = { calculatorGridId: null, grids: [] };
     h.catalog = h.catalog.map((entry) => ({ ...entry, isEnabled: false }));
     render(<CommissionGridsSettings />);
-    expect(screen.getByText("No grid is selected, so agents don't see the Commission Calculator.")).toBeInTheDocument();
+    expect(screen.getByText("No grid is selected, so the Calculator is off. Saved commission history stays available.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /View/ })).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Enable" })[0]);
     expect(h.mutations.enable.mutate).toHaveBeenCalledWith(SHARED, expect.anything());
@@ -74,7 +74,7 @@ describe("Settings › Commission Grids", () => {
   it("confirms before disabling the grid the calculator uses", () => {
     render(<CommissionGridsSettings />);
     fireEvent.click(screen.getByRole("button", { name: "Disable" }));
-    expect(screen.getByText(/Your calculator uses this grid\. Agents won't see the Commission Calculator/)).toBeInTheDocument();
+    expect(screen.getByText(/Your calculator uses this grid\. The Calculator stays off until you choose another grid; saved commission history stays available\./)).toBeInTheDocument();
     expect(h.mutations.disable.mutate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Disable" }));
     expect(h.mutations.disable.mutate).toHaveBeenCalledWith(SHARED, expect.anything());

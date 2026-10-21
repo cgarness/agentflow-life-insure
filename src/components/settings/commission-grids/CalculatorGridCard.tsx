@@ -35,7 +35,7 @@ const CalculatorGridCard: React.FC<CalculatorGridCardProps> = ({ overview }) => 
       title: target ? `Use ${target.name} for the calculator?` : "Turn the calculator off?",
       description: target
         ? "Agents will estimate from this grid right away."
-        : "Agents won't see the Commission Calculator until you choose a grid again.",
+        : "The Calculator needs a grid, so it stays off until you choose one again. Saved commission history stays available.",
       confirmLabel: target ? "Use this grid" : "Turn off",
       destructive: !target,
       onConfirm: () =>
@@ -67,7 +67,7 @@ const CalculatorGridCard: React.FC<CalculatorGridCardProps> = ({ overview }) => 
             <p className="mt-0.5 text-xs text-muted-foreground">
               {current
                 ? "Agents estimate first-year commission from this grid and their own contract level."
-                : "No grid is selected, so agents don't see the Commission Calculator."}
+                : "No grid is selected, so the Calculator is off. Saved commission history stays available."}
             </p>
           </div>
         </div>

@@ -1,3 +1,122 @@
+## 2026-10-20 — Commissions center Gate 2: independent post-apply re-check passed
+
+The session that built the release package re-checked production read-only at 23:14–23:16 UTC and made no writes. It
+compared the results with its own 22:28 UTC pre-apply baseline:
+- one history row for `20261020212000`, with the exact SHA-256 and 40,850 bytes;
+- readback 13/13;
+- all six commission-table fingerprints identical;
+- all 14 catalog categories identical in count and digest, with the new objects excluded;
+- security advisors unchanged at 253.
+
+Performance advisors read 452, not the 453 recorded at 23:05. The `policy_commission_receipts_agent_received`
+unused-index notice cleared once the index was used: 6 scans, the last at 23:10:01 UTC, during the preview check. Only
+the `policy_commission_captures_agent_open` notice remains. There were no unexpected differences. Evidence:
+`verification.md` §16. Documentation only; PR #471 stays draft and Gate 3 is still pending.
+
+---
+
+## 2026-10-20 — Commissions center Gate 2 applied; signed-in preview passed; Gate 3 pending
+
+Chris authorized the exact reviewed database package through the supported Supabase SQL Editor browser route.
+Applied `20261020212000 / policy_commission_center_reads` once as `postgres` at 23:05 UTC to
+`jncvvsvckxhqgqvkppmj`; no timestamp substitution or replay. Attached wrapper matched approved generator output;
+embedded migration remained 40,850 bytes, SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`.
+
+Fresh preflight 15/15; readback 13/13; all six full-row fingerprints and write counters identical. No existing catalog
+object, permission, function or RLS policy changed. Security advisors unchanged (253); performance +2 expected
+unused-index notices only (451 → 453). PostgREST reload confirmed. Signed-in read-only primary preview acceptance
+passed Overview, Payments (Scheduled/History), Policies and Calculator on `63267f6`; both Vercel previews READY.
+No test sale/payment, cleanup, backfill, application-code edit or earlier preview-conversion change.
+
+Documentation only, exact announced list: focused `verification.md` (§15 evidence) and `implementation_plan.md`,
+root `implementation_plan.md`, `AGENT_RULES.md` center heading, this newest-first entry. PR #471 remains draft;
+`main` observed at `381bebb`. Separate Gate 3 merge/frontend-release approval is still required, followed by final-head
+CI, PR merge, both production deployments and main-site deployed-commit verification. No frontend release claimed.
+
+---
+
+## 2026-10-20 — Commissions center: release migration ordering corrected (`20261020180000` → `20261020212000`; NOT applied)
+
+A read-only production check (Chris, 21:11 UTC; re-checked read-only with `list_migrations` at 21:17 UTC) found the hosted
+head `20261020192723 / uv_personal_brand` (PR #470's source file `20261020171244` was recorded under the version stamped
+at apply). The proposed, never-applied `20261020180000_policy_commission_center_reads.sql` therefore sorted before the
+hosted head, and the preflight's `version_free_and_sorts_last` check correctly refused it. **`20261020180000` is
+superseded and was never recorded anywhere; earlier entries and evidence that name it are kept as recorded.**
+
+- **Correction.** Renamed to `20261020212000` (sorts after the hosted head and every repository migration) with its bytes
+  unchanged: SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, MD5 `a3a67aba…2b4b`, 40,850
+  bytes. The rollback changed only its first-line comment (now SHA-256 `7ada5b7d…e728b`). Runner paths and comments,
+  release SQL, plans and AGENT_RULES updated; the workflow's path globs needed no change. Applied migrations, history
+  rows, reporting SQL, permissions, definitions, UI, writers and the UV release unchanged; the ordering guard stays.
+- **Release package.** Preflight and read-back now fingerprint all six commission tables (counts, row-content digests,
+  write counters; handoffs included). New `release/build_apply.py` builds the exact version-preserving apply statement and
+  refuses on any hash or length mismatch.
+- **Rehearsal (disposable, history including hosted `20261020192723`).** Preflight 15/15; lock contention refused after
+  1.05 s with nothing applied; one changed byte refused; a later recorded version refused; apply recorded
+  `20261020212000` with the exact text; read-back 13/13 with all six fingerprints identical; replay refused twice;
+  rollback restored the exact schema; reapply passed; wrapper and `psql -1 -f` schema dumps identical; advisors `+2
+  unused_index` only. Full regression runner passed. Record: `docs/plans/2026-10-20-commissions-center/verification.md`
+  §13–§14.
+- **Open gates.** Gate 2 (production apply of `20261020212000`) and Gate 3 (merge and frontend release) each still need
+  Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is untouched.
+
+## 2026-10-20 — Commissions center: final copy and filter corrections (PR #471, still draft; NOT live)
+
+Chris approved local corrections on reviewed head `fbe50a8`. No production read, write, migration, merge or deployment.
+No database change: migration `20261020180000` is unchanged (SHA-256 `5bc2eb14…bd3e08`, 40,850 bytes); the applied
+migrations are untouched.
+
+- **Calculator copy.** "Your level: …"; the grid disclaimer paragraph became "Estimate only" with one ⓘ holding the
+  75% advance and timing explanation; no grid name or revision. Engine, inputs, matching, notices and validation
+  unchanged (same figures in the unit and page tests; inputs and the estimate kept across tabs).
+- **Settings wording.** Calculator grid, AgentFlow grids and private grids now say the Calculator needs a selected grid
+  and saved commission history stays available (true: estimates keep their own grid snapshot). Deletion consequences,
+  private-copy text and confirmations unchanged.
+- **Filter/result consistency (failing first: 12 of 23 tests failed before the fix, 23 pass after).** Earlier results
+  are kept only while paging within the same effective filter and identity, marked "Updating…" with row actions
+  disabled; a changed filter shows loading; failed and out-of-order requests never show another filter's rows; same for
+  Scheduled, History and Policies. Carrier options stay stable while a list loads.
+- **Date scope.** Next 90 days and Any date no longer wait for or send a hidden unfinished custom range (direct URLs and
+  switching both covered); Selected period still requires a complete range.
+- **Verification.** Full Vitest inert: 388 files / 6,026 tests, only `recordingRetentionVoicemail` failing as on `main`.
+  Typecheck, scoped ESLint, build and diff check in `docs/plans/2026-10-20-commissions-center/verification.md` §12.
+  Screenshots (Calculator, Settings, Payments updating and Next 90 days) at 1440 and 390 px, light and dark.
+- **Release package.** Read-only Gate 2 `release/preflight.sql` and `release/readback.sql`, validated on a disposable
+  database (15/15 and 12/12 checks; preflight refuses after an apply); steps in verification §13. Gate 2 (database) and
+  Gate 3 (frontend) each still need Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is
+  untouched.
+
+## 2026-10-20 — Commissions center (Overview · Payments · Policies · Calculator) — local build and draft PR; NOT live
+
+Chris approved the local implementation and disposable-database tests. Branch `claude/epic-tesla-fe96b0` from `main`
+`0312520`. No production read, write, migration, RLS/grant change, merge or deployment; the applied migrations
+`20261019170000` and `20261020040000` are byte-identical to `main`.
+
+- **What changed.** The sidebar's "Commission Calculator" is now **Commissions** (`/commissions/:tab?`; the old
+  `/commission-calculator` redirects to the Calculator tab; View As and the own-commission permission gate the nav
+  item and page). Overview (Expected, Received, Remaining, Next 90 days; Timeline; Upcoming; Needs review), Payments
+  (Scheduled | History), Policies and the reused, hypothetical Calculator. Rows open a drawer that reuses the Phase 2A
+  tracking controls (Record payment, Edit dates, Record estimate) and their unresolved-write recovery; no new writer.
+- **Database.** New migration `20261020180000_policy_commission_center_reads.sql` (SHA-256 `5bc2eb14…bd3e08`, 40,850
+  bytes; guarded rollback): five SECURITY INVOKER STABLE reads (`get_my_commission_overview` / `_installments` /
+  `_receipts` / `_policies`, `get_my_policy_commission`) over shared helpers in the non-exposed schema
+  `policy_commission_reporting`, EXECUTE `authenticated` only, plus two indexes. My commissions only (credited seller,
+  caller's organization, existing RLS); agency time zone (fails closed); exact cents; receipts aggregated before joins;
+  superseded excluded; held separate; month-crossing windows counted once by start; unknown dates go to review.
+- **Verification.** PostgreSQL 16.15: guards, inventory (5 reads, 2 indexes, 173 existing objects unchanged), the new
+  suite (cards = independent recomputation; every drill-down walked across pagination equals its card; statuses;
+  reassignment; same-org, cross-org and Agency Group peer isolation; 42501 / 55000 / 22023; reads write nothing),
+  rollback/reapply, PostgREST 12.2.3 (13 + 9 checks); all Phase 2A suites still pass. Frontend: full Vitest
+  identical to `main` apart from the new tests (inert env 6,010 tests with only `recordingRetentionVoicemail` failing,
+  as on `main`; no env the same 10 files as on `main`), app typecheck diagnostics identical to `main`, `npx tsc
+  --noEmit`, scoped ESLint, build and `git diff --check` clean. Screenshots at 1440 and 390 px, light and dark, in
+  `docs/plans/2026-10-20-commissions-center/screenshots/`. Record: that folder's `verification.md`.
+- **Records reconciled.** Phase 2A Gate 4 (PR #469, merge `0312520`) is now recorded as released in AGENT_RULES, the
+  root plan, the Phase 2A plan and `verification.md` §16; AGENT_RULES gains the Commissions center invariant.
+- **Open gates.** Gate 2: production apply of `20261020180000` (separate approval; steps in `verification.md` §10).
+  Gate 3: merge and frontend release, only after Gate 2. For Chris: the reused Calculator still shows the contract
+  level and grid disclaimer. Unchanged: the preview conversion `2325bc9d` / `7e2c476a` awaits classification.
+
 ## 2026-10-20 — Personal agency display branding
 
 Chris requested independent agency branding for individual agents. Optional Agency / Brand Name is saved per agent in the UV setup flow, with blank restoring the registered agency name. Existing agency membership, shared names, slugs/URLs, credentials, permissions, A2P and protected/consent-linked profiles stay unchanged. The sender uses the personal name as display text; the receiver still requires the registered organization and exact agency slug. Old clients preserve saved branding when omitting the optional field.

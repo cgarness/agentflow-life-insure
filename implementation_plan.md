@@ -1,4 +1,29 @@
-## 2026-10-19 — APPROVED FOR LOCAL BUILD AND TESTING ONLY: Phase 2A saved policy commissions, expected payments and manual receipts
+## 2026-10-20 — GATE 2 APPLIED; FRONTEND RELEASE PENDING: Commissions center (Overview · Payments · Policies · Calculator)
+
+**Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration
+`20261020212000`, exact approved bytes, through the Supabase SQL Editor. Preflight 15/15, readback 13/13, six-table
+fingerprints unchanged; signed-in read-only preview checks passed for Overview, Payments, Policies and Calculator.
+PR #471 remains draft; merge and frontend release require separate Gate 3 approval. No production test writes,
+cleanup or backfill are authorized. Evidence: focused `verification.md` §15.
+
+**Contract, metric definitions, migration contract and exact file list:**
+`docs/plans/2026-10-20-commissions-center/implementation_plan.md`.
+
+**Amendment approved 2026-10-20 (local only, PR #471 stays draft):** final copy and filter corrections — compact
+calculator copy ("Your level", "Estimate only" with ⓘ), Settings wording, results kept only while paging within the same
+filters, and Next 90 days / Any date independent of an unfinished custom range. No database change. Plan §12.
+
+**Summary:** the sidebar's "Commission Calculator" becomes **Commissions** with four addressable tabs. Overview, Payments
+and Policies report the signed-in user's own saved estimates, installments and manual receipts (My commissions) through
+five new SECURITY INVOKER read functions (new migration `20261020212000_policy_commission_center_reads.sql`, proposed
+as `20261020180000` and renamed byte-identically for hosted ordering — plan §13; existing
+commission RLS, `wins` and `clients` RLS apply; EXECUTE on the new functions only; no writer, existing grant or policy change). Row actions reuse the Phase 2A
+tracking controls and unresolved-write recovery. The calculator tab reuses `CalculatorWorkspace` unchanged and stays
+hypothetical. Phase 2A (PR #469, merged `0312520`, Gate 4 released 2026-10-20) is the released base.
+
+---
+
+## 2026-10-19 — RELEASED 2026-10-20 (originally approved for local build): Phase 2A saved policy commissions, expected payments and manual receipts
 
 **Status:** Chris approved the local implementation of the companion-function architecture on 2026-10-19. Branch
 `claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; feature-branch commits and pushes are approved. No production
@@ -13,10 +38,11 @@ Still not approved: production migration/RLS, merge, deployment, production read
 **Amendment approved 2026-10-20:** simpler commission copy and automatic expected payment dates (effective date only;
 Draft Date never used) — §13 and §13.7 of the Phase 2A plan. Gate 3b APPLIED 2026-10-20: production records
 `20261020040000 / policy_commission_expected_windows` (byte-identical; `verification.md` §15). Gate 4 (merge and frontend
-release) still needs separate approval.
+release) RELEASED 2026-10-20: PR #469 merged as `0312520` after Chris approved the updated preview (`verification.md`
+§16). A named-Agent own-client browser check was not independently observed.
 
 **Gate 2 (local build and verification) complete** — evidence in
-`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gate 3 (production migration) awaits approval.
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gates 3, 3b and 4 have since been released (above).
 
 **Current contract and exact file list:** `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
 It supersedes the Phase 1 §8 deferred snapshot design below and every earlier staged-capture/session design.

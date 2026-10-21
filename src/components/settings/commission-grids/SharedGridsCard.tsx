@@ -54,7 +54,7 @@ const SharedGridsCard: React.FC<SharedGridsCardProps> = ({ catalog, calculatorGr
       title: `Disable ${entry.name}?`,
       description:
         entry.id === calculatorGridId
-          ? "Your calculator uses this grid. Agents won't see the Commission Calculator until you choose another grid. Your private copies are not affected."
+          ? "Your calculator uses this grid. The Calculator stays off until you choose another grid; saved commission history stays available. Your private copies are not affected."
           : "Your agency stops seeing this grid's contents. Your private copies are not affected.",
       confirmLabel: "Disable",
       destructive: true,

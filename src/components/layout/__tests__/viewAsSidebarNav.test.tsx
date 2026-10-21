@@ -54,17 +54,11 @@ vi.mock("@/hooks/useCustomMenuLinks", () => ({
   },
 }));
 vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
-const calculatorState = vi.hoisted(() => ({
-  ready: true,
-  lastOptions: undefined as undefined | { enabled?: boolean },
-}));
-vi.mock("@/hooks/useCommissionCalculator", () => ({
-  // Records the Sidebar's query-level gate for the calculator status read (as for custom links), and
-  // mirrors the real hook: visible only when enabled AND the agency has a ready grid.
-  useCommissionCalculatorAccess: (options?: { enabled?: boolean }) => {
-    calculatorState.lastOptions = options;
-    return { visible: options?.enabled !== false && calculatorState.ready };
-  },
+const commissionsState = vi.hoisted(() => ({ permitted: true }));
+vi.mock("@/hooks/useCommissionsCenter", () => ({
+  // Mirrors the real access hook: the Own toggle decides, impersonation comes from the session. The navigation
+  // requests nothing (reporting needs no calculator grid).
+  useCommissionsAccess: () => ({ permitted: commissionsState.permitted, isImpersonating: state.isImpersonating }),
 }));
 
 import Sidebar from "../Sidebar";
@@ -81,7 +75,7 @@ const SETTINGS_SECTION_LABELS = SETTINGS_CONFIG.flatMap((c) => c.sections.map((s
 const SUPPORTED = ["Contacts", "Conversations"];
 const UNSUPPORTED = [
   "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
-  "AI Agents", "Training", "Resources", "Commission Calculator", "Settings",
+  "AI Agents", "Training", "Resources", "Commissions", "Settings",
 ];
 const SUPER_ADMIN_ONLY = ["AI Testing", "Agencies", "Control Center"];
 
@@ -91,8 +85,7 @@ beforeEach(() => {
   state.isSuperAdmin = true;
   state.sectionAccess = () => true;
   customLinksState.lastOptions = undefined;
-  calculatorState.ready = true;
-  calculatorState.lastOptions = undefined;
+  commissionsState.permitted = true;
 });
 afterEach(cleanup);
 
@@ -238,28 +231,36 @@ describe("on a BLOCKED Settings URL while impersonating", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-describe("Commission Calculator navigation", () => {
-  it("sits directly below Resources for an ordinary session with a ready grid", () => {
+describe("Commissions navigation", () => {
+  it("replaces Commission Calculator in its place, directly below Resources", () => {
     renderSidebar();
     const labels = screen.getAllByRole("link").map((link) => link.textContent?.trim());
-    expect(labels.indexOf("Commission Calculator")).toBe(labels.indexOf("Resources") + 1);
-  });
-
-  it("is hidden when the agency has no ready grid or the role may not view its own commission", () => {
-    calculatorState.ready = false;
-    renderSidebar();
+    expect(labels.indexOf("Commissions")).toBe(labels.indexOf("Resources") + 1);
     expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
+    expect(screen.getByRole("link", { name: "Commissions" }).getAttribute("href")).toBe("/commissions");
   });
 
-  it("is not even QUERIED under View As (enabled: false), and is queried for an ordinary session", () => {
+  it("is shown without a calculator grid, and hidden when the role may not view its own commission", () => {
+    renderSidebar();
+    expect(screen.getAllByText("Commissions").length).toBe(1);
+    cleanup();
+    commissionsState.permitted = false;
+    renderSidebar();
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+  });
+
+  it("is hidden under View As", () => {
     state.isImpersonating = true;
     renderSidebar();
-    expect(calculatorState.lastOptions).toEqual({ enabled: false });
-    expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
-    cleanup();
-    state.isImpersonating = false;
-    renderSidebar();
-    expect(calculatorState.lastOptions).toEqual({ enabled: true });
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+  });
+
+  it("stays active on every tab", () => {
+    for (const url of ["/commissions", "/commissions/payments?view=history", "/commissions/calculator"]) {
+      renderSidebarAt(url);
+      expect(screen.getByRole("link", { name: "Commissions" }).className).toContain("bg-primary");
+      cleanup();
+    }
   });
 });
 
