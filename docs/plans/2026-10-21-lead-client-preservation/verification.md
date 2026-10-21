@@ -3,7 +3,9 @@
 **Status (2026-10-21):** Gate 1 complete — local build and disposable-database tests only. Migration
 `20261021200000` is **NOT applied** anywhere but disposable localhost clusters; frontend **NOT merged or released**.
 Stopped at Gate 2. Contract: `implementation_plan.md` beside this file (Gate 1 approved by Chris: D1–D9 and the file
-list, plus the mixed-version requirement in §5 below).
+list, plus the mixed-version requirement in §5 below). **Updated for the §14 bugfix** (explicit conversion note;
+unchanged person fields never rewritten): every value below is regenerated for the corrected migration bytes; §7
+records the bugfix proofs.
 
 ## 1. Production contact (read-only, Gate 1 §9.1)
 
@@ -20,10 +22,12 @@ One `list_migrations` and one SELECT (`release/production-readonly-check-2026102
 
 | File | SHA-256 | MD5 | Bytes |
 |---|---|---|---|
-| `supabase/migrations/20261021200000_lead_client_conversion_preservation.sql` | `b1488c4e3285e9fead40406d37fcfcce81d90f7ac81e211607492ffc723c8127` | `35f1eb12bdda76daf6124b7783ba8248` | 23,279 |
-| `supabase/migrations/rollback/20261021200000_lead_client_conversion_preservation.rollback.sql` | `59add9cabf76c5838212529b662ba63cb1ed46418beafde3fca994e98db2049e` | `92345b07ef783f29e60f0870596d61a9` | 11,897 |
+| `supabase/migrations/20261021200000_lead_client_conversion_preservation.sql` | `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5` | `3b8f527b3991660d2ae0d03fe42b1af7` | 24,911 |
+| `supabase/migrations/rollback/20261021200000_lead_client_conversion_preservation.rollback.sql` | `adffa3d3379c6114e865d130075bb83b2165be624f4263b2dd4d546ca841188e` | `88ee9a93cca27a200489c12320c81813` | 11,897 |
 
-Post-image digests: converter `ac116f01810768581707e837a5ca3b99`, update writer `6313ca0c1fc374a613bfcb7e9e587d4c`,
+Superseded by the §14 bugfix (never applied anywhere but disposable databases): SHA-256 `b1488c4e…8127`, converter
+post-image `ac116f01…`. Current post-image digests: converter `7109fdab661eac16ab6ff4f8d8343c20`, update writer
+`6313ca0c1fc374a613bfcb7e9e587d4c` (unchanged by the bugfix),
 guard `private.guard_client_lead_conversion()` `f2558ce56aae6f7db84df1b17f085aa0`. Both replaced bodies were diffed
 against their source migrations: only the planned lines differ (plan §3.5–3.6). The rollback embeds the two preimage
 bodies copied byte-for-byte from `20260812042319` and `20261005161611` (generated, not retyped) and re-verifies
@@ -43,7 +47,7 @@ asserts the converter preimage), applied commission migrations, contact-history 
 | Inventory | Exactly 2 bodies replaced (owner, definer flag, ACL kept), 5 nullable columns with no default and no column ACL, 1 trigger + its guard; 1,043 other objects (functions, relations, columns, triggers, policies, schema ACLs) unchanged; replay refused. |
 | Historical rows + release boundary | A full-row fingerprint of clients (minus new columns), leads, wins, policy identities, receipts, commission handoffs/captures/estimates/installments, calls, messages, campaign leads and contact-history events is identical before and after the migration; every existing client reads NULL in all new columns. A pre-release conversion's frozen retry replays exactly once with no change. See §5. |
 | Preservation suite P2–P15 | `supabase/tests/lead_conversion_preservation.sql` — PASS (table below). |
-| Differential | `supabase/tests/lead_conversion_differential.sql` run on a database without and with the migration: 1,713 canonical lines identical (7 clients, 10 sales, 10 policy identities, 7 receipts/handoffs, commission captures/estimates/8 installments, calls, SMS, notes, appointments, campaign rows, 21 history events, 3 refusals). Only `state` (now populated) and the new columns are excluded. |
+| Differential | `supabase/tests/lead_conversion_differential.sql` run on a database without and with the migration: 1,706 canonical lines identical (7 clients, 10 sales, 10 policy identities, 7 receipts/handoffs, commission captures/estimates/8 installments, calls, SMS, timeline notes, appointments, campaign rows, 21 history events, 3 refusals). Excluded as intended changes: the new columns, `state` (now populated; P2) and client `notes` (an older browser's distinct notes text no longer replaces the lead notes; P4). |
 | Existing suites with the migration | Commission security, handoff, tracking, expected windows, center (11 sections) and insights (8 sections) PASS; the 44-step sale/identity/performance/Sold Date/reconciliation/reviewed-repair chain PASS with the migration inserted after the last suite that pins the old converter bytes. |
 | Race | Two independent backends submit the same conversion: identical results, one client, one sale, notes and state preserved. |
 | Rollback | Restores both exact preimages; preserved data, protection trigger and its refusal kept; the restored converter runs as before; second rollback refused; forward re-apply restores the post-images. |
@@ -54,7 +58,7 @@ Suite scenarios (every conversion through `convert_lead_to_client_with_sales_han
 |---|---|
 | P2 | Names, phone, email, owner, state (`' california '` → `CA`), DOB, age, best time, spouse object, notes and custom fields from the locked row, while the payload carries a stale bag and a notes copy; full history content. |
 | P3 | Arbitrary custom fields (number, boolean, nested, spaced keys, punctuation, Unicode, empty, JSON null) survive; injected/stale payload keys ignored; `additional_policies` verbatim and in order; three sales with correct policy ids, premium snapshots and seller; commission slots recorded; lead's reserved key / non-object bag set aside in history; NULL and `{}` bags kept. |
-| P4 | Notes matrix (9 cases incl. whitespace, equal text and an old tab's stale copy): never lost. |
+| P4 | Notes matrix, 9 cases each from the current browser (explicit `conversion_note`) and an older browser (`notes`): the agent's explicit note becomes the Notes with displaced lead notes kept; an older browser's differing text never becomes the Notes — the current lead notes stay and the text is kept as `legacy_conversion_notes`; blank/equal/whitespace cases keep the database notes. |
 | P5 | `authenticated` and `service_role` cannot insert or change history; `postgres` cannot change it; lineage mismatch refused; the update writer refuses the key; ordinary edits unaffected. |
 | P6 | Blank lead values stay NULL / JSON null; text spouse, unknown state, legacy DOB format kept verbatim. |
 | P7 | Calls (duration, disposition, recording, campaign ids), SMS (both link paths), email, appointment, task, activity, timeline note and workflow execution move; campaign row preserved; sale carries the campaign; contact history records `converted` with no capture gap. |
@@ -63,7 +67,8 @@ Suite scenarios (every conversion through `convert_lead_to_client_with_sales_han
 | P11 | Cross-organization, non-owner agent and out-of-downline Team Leader refused; Team Leader, Admin, Super Admin (home org) and unassigned-lead conversions succeed; nothing crosses organizations. |
 | P12 | Personal, Team and Open Pool campaign conversions and a no-campaign (Floating Dialer) conversion, each with a stale snapshot, preserve the database lead and record the right campaign; a campaign not containing the lead is refused. |
 | P14 | The update writer saves and clears the four person fields, refuses `lead_source`, `lead_conversion` and a bad age; history unchanged; contact history records the edited fields by name; the first-policy companion still records one sale. |
-| P15 | An older browser's edit (old keys + whole custom bag) changes only what it sent. |
+| P15 | An older browser's edit (old keys + whole custom bag) changes only what it sent; padded text, a legacy DOB format and an out-of-range age survive an unrelated edit byte-for-byte. |
+| P16 | A payload with both note forms is refused (22023 "Conversion notes were sent in two formats. Refresh AgentFlow and try again.") and changes nothing. |
 
 Fail-first: with the columns present but the original bodies restored (rollback), the suite fails at P2.
 
@@ -78,7 +83,7 @@ policies, clients ACL, wins rows) identical across the apply; replay refused.
 |---|---|
 | `npx tsc --noEmit` | exit 0 (vacuous: solution-style root config, AGENT_RULES #35) |
 | `npx tsc -p tsconfig.app.json --noEmit` | 84 errors = `main` `51b0e56` baseline 84; line-insensitive multiset identical; none in touched files |
-| Vitest (full) | 387 files passed / 10 failed / 2 skipped; 5,987 tests passed / 1 failed / 36 skipped. `main`: 383 / 10 / 2 files, 5,948 / 1 / 36 tests. The failure set is identical to `main` (9 files that need `VITE_SUPABASE_URL` in this environment, and `recordingRetentionVoicemail` deployed-bundle identity). +4 files, +39 tests. |
+| Vitest (full) | Final tree (after §14): 387 files passed / 10 failed / 2 skipped; 5,994 tests passed / 1 failed / 36 skipped. `main`: 383 / 10 / 2 files, 5,948 / 1 / 36 tests. The failure set is identical to `main` (9 files that need `VITE_SUPABASE_URL` in this environment, and `recordingRetentionVoicemail` deployed-bundle identity). +4 files, +46 tests (5,987 before §14). |
 | ESLint (touched files) | 0 errors; 7 warnings identical to `main` (pre-existing in `FullScreenContactView.tsx`, `supabase-clients.ts`); new files clean |
 | `npm run build` | passed |
 | `git diff --check`, scans | clean; no secrets, service-role key, `.single()`, Telnyx or inline styles added |
@@ -96,17 +101,15 @@ the notes contract fails 6 cases against the old payload line.
 | Browser | Database | Conversions | Client edits |
 |---|---|---|---|
 | Released (old) | Current | Today's defects | Unchanged |
-| **Old** | **New** | Every preserved field comes from the locked row; the old tab's stale custom-field bag is ignored (P2, P3, P12, runner §3). Its notes fallback: an identical copy is ignored; a **stale** copy becomes the client's Notes while the current database notes are kept verbatim as read-only "Original lead notes" (P4 case 7, runner §3). Frozen pre-release retries replay exactly once (runner §3). | The old patch never contains the new keys; person fields, history and policies are untouched (P15, runner §3). |
-| New | New | Target behavior; the browser sends only the conversion note (P4, `conversionContract`). | Saves the four person fields (P14, view suite). |
-| New | Old | Must not happen (database first). It degrades safely: conversions behave as today; a client save that sends a new person field is refused with `Invalid client edit` and stays in edit mode (no loss, no false success). | — |
+| **Old** | **New** | Every preserved field comes from the locked row; the old tab's stale custom-field bag is ignored (P2, P3, P12, runner §3). Its unmarked `notes`: blank or equal to the database notes → the database notes; anything else cannot be classified, so the **current database lead notes stay the client's Notes** and the submitted text is kept verbatim as read-only "Conversion notes (older app version)" (P4 older-browser matrix, runner §3). Frozen pre-release retries replay exactly once (runner §3). | The old patch never contains the new keys; person fields, history and policies are untouched (P15, runner §3). |
+| New | New | Target behavior; the browser sends only the agent's note, marked `notes_source: "conversion_note"` (P4 current-browser matrix, `conversionContract`, `conversionEntryPoints`). | Saves only the person fields the agent changed (P14, view suite). |
+| New | Old | Must not happen (database first). It degrades safely: the old database ignores the marker and reads `notes` as today, so a typed note is kept (runner §3 release-order case); a client save that sends a new person field is refused with `Invalid client edit` and stays in edit mode (no loss, no false success). | — |
 
-**Remaining transitional risk** (between the database release and every agent refreshing onto the new frontend):
-an old tab converting a lead **without** typing a conversion note, whose in-memory notes are older than the database
-(edited elsewhere after that tab loaded the lead), makes that older copy the client's Notes. Nothing is lost — the
-current lead notes are preserved verbatim and shown as "Original lead notes" — but the client's Notes field shows the
-older text until edited. The server cannot tell such a fallback from a typed note. Mitigation: release the frontend
-promptly after Gate 2 and ask agents to refresh after their current call. No other mixed-version path loses or
-silently replaces original lead information.
+**Transitional risk after the §14 bugfix:** none that loses or silently replaces original lead information. During the
+window between the database release and agents refreshing, an old tab's agent-typed conversion note that differs from
+the lead notes lands in "Conversion notes (older app version)" instead of the client's Notes (visible, verbatim,
+read-only); the client's Notes stay the current lead notes. Agents refreshing promptly after the frontend release
+shortens the window. An unknown `notes_source` fails closed with a refresh instruction.
 
 ## 6. Not proven here (stated honestly)
 
@@ -120,3 +123,36 @@ silently replaces original lead information.
 - Observed and out of scope (not fixed): a kanban drop of a card not on the current table page does nothing; the
   Dialer drawer's camelCase merge leaves `row.custom_fields` stale; the deep-link page has no Convert button;
   `rowToClient` maps a nonexistent `clients.user_id`. Conversion is now immune to the stale-snapshot ones.
+
+## 7. §14 bugfix proofs (2026-10-21)
+
+Chris reported PR #476's seven workflows and both Vercel previews green, then asked for two corrections before Gate 2.
+`main` unchanged at `51b0e56`; no new Work Log entries or conflicting work. No production contact in this pass.
+
+**Mixed-version notes.** The new browser marks its note with `notes_source: "conversion_note"`; an older browser's
+unmarked differing `notes` is kept separately and never becomes the Notes; an unknown marker is refused (22023, refresh
+instruction). Proofs: P4 (18 cases: current-browser and older-browser matrices), P16 (unknown and null markers refused,
+nothing changed), runner §3 (old tab after release keeps the current Notes and the stale text separately; new browser
+on the OLD database keeps a typed note), `conversionContract` and `conversionEntryPoints` (every entry point sends
+`notes` = the agent's note or null plus the marker, never a lead copy), `clientLeadDetails`/`clientLeadHistory` (the
+older-version notes are parsed and shown read-only). Fail-first: against the previous migration the current-browser
+matrix still passes (same behavior) and the older-browser matrix fails. A first draft used a separate
+`conversion_note` key; review showed the old database would have ignored it and dropped a typed note in a
+frontend-first accident, so the marker design replaced it before any commit.
+
+**Unchanged person fields.** `clientUpdatePatch` sends non-blank text verbatim (no trimming), and the profile omits
+every person field the agent did not change (`omitUnchangedPersonFields`, the same changed-field set the Zod check
+uses). Proofs: `clientLeadDetails` (omission rules, structured comparison, the form is not mutated), `clientMapping`
+(verbatim patch), the view suite (an unrelated edit sends none; an end-to-end case through the real
+`clientsSupabaseApi.update` shows the `update_client_with_policy_sale` patch carries no preserved field for an
+unrelated edit and only the changed one, as typed, otherwise), SQL P15 (padded text, a legacy DOB and age 140 survive an
+unrelated edit byte-for-byte). Fail-first: 4 cases fail against the previous `FullScreenContactView`/`supabase-clients`.
+
+**Regenerated values.** Migration SHA-256 `ce189016…9ae5` (24,911 bytes), rollback `adffa3d3…188e`, converter
+post-image `7109fdab…` (rollback guard, runner, read-back updated); update writer `6313ca0c…` and guard `f2558ce5…`
+unchanged. SQL runner: all stages PASS on PostgreSQL 16.15 (39 s; differential 1,706 identical lines). Release
+rehearsal: preflight 12/12, read-back 11/11, fingerprints identical, replay refused, rollback restores
+`641ba66c…`/`96e8f6e7…`. Frontend gates on the final tree: root `tsc --noEmit` exit 0; app typecheck 84 = `main` (identical multiset); Vitest
+5,994 passed with the failure set identical to `main`; scoped ESLint 0 errors (7 pre-existing warnings, identical);
+build passed; `git diff --check` and secret/pattern scans clean. Previous head `c6f17a2`: all seven workflows green
+(both PostgreSQL 17.6 jobs included), Supabase Preview cancelled (the accepted, recorded exception).

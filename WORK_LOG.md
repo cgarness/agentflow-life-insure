@@ -1,3 +1,36 @@
+## 2026-10-21 — BUGFIX (within Gate 1, PR #476; NOT live): older-browser notes and unchanged client fields
+
+Chris reported PR #476's seven workflows and both Vercel previews green and asked for two corrections before Gate 2.
+Reviewed AGENT_RULES, VISION and WORK_LOG: `main` still `51b0e56`, no new entries or conflicting work. Stayed inside the
+Gate 1 approval: local build and disposable-database tests only, approved files, PR #476. No production contact,
+migration apply, merge or deployment.
+
+- **Mixed-version notes.** The new browser sends only the agent's note in `notes` with the marker
+  `notes_source: "conversion_note"`. An older browser's unmarked `notes` that differs from the database lead notes
+  (its typed note or a stale lead copy — not classifiable) can no longer become the client's Notes: the current lead
+  notes stay and the text is kept verbatim, read-only, as `lead_conversion.legacy_conversion_notes` ("Conversion
+  notes (older app version)" in the Original lead panel). An unknown marker fails closed (22023, "Refresh AgentFlow
+  and try again."). A marker beside `notes`, not a new key, so a database without the migration still keeps a typed
+  note (a first draft's separate key would have been ignored and lost it; caught before commit).
+- **Unchanged person fields.** The profile now sends only the person fields the agent changed
+  (`omitUnchangedPersonFields`, the same set the Zod check uses) and `clientUpdatePatch` sends text verbatim, so an
+  unrelated edit can never trim, normalize, clear or rewrite a stored DOB, age, best time to call or spouse value.
+- **Migration (still NOT applied).** Converter notes logic only; update writer, guard, columns and every other line
+  unchanged. SHA-256 `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5` (24,911 bytes); converter
+  post-image `7109fdab661eac16ab6ff4f8d8343c20`; rollback `adffa3d3…188e`; rollback guard, runner and `readback.sql`
+  regenerated and re-verified.
+- **Tests.** SQL: P4 now 18 cases (current and older browser), P15 legacy byte-for-byte case, new P16 (unknown/null
+  marker refused); runner release-boundary checks (old tab keeps current Notes, new browser on the old database keeps a
+  typed note). Full runner PASS on PostgreSQL 16.15; release rehearsal preflight 12/12, read-back 11/11, fingerprints
+  identical, rollback exact. Frontend: new omission/verbatim/legacy-notes/end-to-end patch cases. Fail-first: the
+  older-browser matrix fails on the previous migration; 4 view/mapping cases fail on the previous frontend.
+- **Gates.** `npx tsc --noEmit` exit 0; app typecheck 84 = `main` (identical multiset); Vitest 5,994 passed, failure set
+  identical to `main`; scoped ESLint 0 errors; build OK. Final-head CI pending at push.
+- **Docs.** Focused plan §14, `verification.md` (values, §5 matrix, §7), root plan entry, AGENT_RULES proposed section.
+- **Next.** Final-head CI green, then Chris's Gate 2 (database-only) approval.
+
+---
+
 ## 2026-10-21 — Lead → Client conversion preserves every meaningful lead field (Gate 1: local build, draft PR; NOT live)
 
 Chris approved Gate 1 (decisions D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR)

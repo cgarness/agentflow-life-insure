@@ -967,9 +967,13 @@ Future conversions only: no backfill, and existing clients are never read or cha
   reserved `additional_policies` array (stored verbatim and in order, because the wrapper records one sale per element
   by ordinal and `private.insert_policy_sale` reads the stored array by that ordinal). Never take lead data from a
   browser snapshot again. `mergeCustomFieldsOnConversion` and the reserved key literal are unchanged (#35).
-- **Notes are never silently replaced.** The client's Notes are the database lead notes unless the agent wrote a
-  different conversion note; then the conversion note is the Notes and the lead notes are kept verbatim in
-  `lead_conversion.lead_notes`. The browser sends only the conversion note (blank → NULL), never its copy of the lead.
+- **Notes are never silently replaced.** The browser sends only the agent's note in `notes` (blank → NULL) with the
+  marker `notes_source: "conversion_note"`, never its copy of the lead. A marked note that differs from the database
+  lead notes becomes the Notes and the lead notes are kept verbatim in `lead_conversion.lead_notes`. An UNMARKED
+  `notes` (older browsers: the agent's note or a possibly stale lead copy) that differs cannot be classified: the
+  current database notes stay the Notes and the text is kept verbatim as `lead_conversion.legacy_conversion_notes`.
+  Any other marker value fails closed (22023, refresh instruction). Keep the marker beside `notes` (never a separate
+  key): a database without the migration ignores it and still keeps a typed note.
 - **`clients.lead_conversion` is protected, read-only history** (version 1: lead id, converted at/by, lead status,
   source, score, created/last-contacted timestamps, owner/assignee/importer ids, displaced notes, and any lead custom
   value that cannot live in the client namespace — the reserved key or a non-object bag — under
@@ -980,8 +984,10 @@ Future conversions only: no backfill, and existing clients are never read or cha
 - **Client person fields are ordinary editable columns** (`date_of_birth`, `age`, `best_time_to_call`,
   `spouse_info`, all nullable, no default, no CHECK). `update_client_with_policy_sale` accepts exactly these four
   beyond its previous allowlist and can never write `lead_conversion`; its messages, authorization and the D7
-  companion's PT409 mapping are unchanged. The profile validates (Zod) only fields the agent changed, edits a non-ISO
-  DOB as text, keeps legacy options selectable, and never binds a structured spouse value to a text box.
+  companion's PT409 mapping are unchanged. An unrelated edit must never rewrite them: the profile sends only the person
+  fields the agent changed (`omitUnchangedPersonFields`, the same set the Zod check validates) and `clientUpdatePatch`
+  sends text verbatim (no trimming). It edits a non-ISO DOB as text, keeps legacy options selectable, and never binds a
+  structured spouse value to a text box.
 - **Release order is database first, rollback frontend first.** The new frontend sends the four keys, which the old
   update writer refuses (22023). The rollback restores both exact preimages and keeps the columns, their data and the
   trigger; dropping the columns needs its own approval and a proven export (#28, #29).

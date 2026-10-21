@@ -477,3 +477,56 @@ The new frontend must never run against the old database: the old update writer 
 read-only production check in §9.1, local implementation and tests, commits and pushes to
 `claude/sweet-fermi-jpsnyn`, and one draft PR. Not requested now: production migration (Gate 2), merge or frontend
 release (Gate 3).
+
+## 14. Bugfix within Gate 1 — final data-integrity corrections (requested by Chris 2026-10-21)
+
+PR #476's seven workflows and both Vercel previews were green. Two corrections before requesting Gate 2, kept inside
+the Gate 1 approval (local build and disposable-database tests, the approved files, PR #476 only). No production
+contact, migration apply, merge or deployment. Review: AGENT_RULES, VISION and WORK_LOG re-checked; `main` is still
+`51b0e56` with no new entries or conflicting work.
+
+### 14.1 Mixed-version conversion notes (replaces the §4.4 legacy behavior)
+
+The old browser sends `notes: conversion note || its copy of lead.notes || null`, so a non-blank value that differs
+from the database lead notes is either the agent's note or a stale copy — it cannot be classified. Rule:
+
+- **New browser (explicit):** it sends only the agent's note in `notes` (or null) together with the indicator
+  `notes_source: "conversion_note"`. A non-blank note that differs from the database lead notes becomes the client's
+  Notes; the displaced lead notes are kept verbatim in `lead_conversion.lead_notes` (unchanged §4.4 rule).
+- **Old browser (legacy, no indicator):** blank, or equal (after trimming) to the database lead notes → the database
+  notes. Anything else is unclassifiable: the client's canonical Notes stay the **current database lead notes**, and
+  the submitted text is kept verbatim, read-only, as `lead_conversion.legacy_conversion_notes`, shown as "Conversion
+  notes (older app version)". Neither the current lead notes nor an agent-entered note is discarded, and a stale copy
+  can never become the Notes.
+- **Unknown indicator** (any `notes_source` other than `conversion_note`, including null; never sent by any browser):
+  refused, 22023 "Conversion notes were sent in an unrecognized format. Refresh AgentFlow and try again." — fail closed;
+  the whole conversion rolls back.
+- **Why an indicator beside `notes`, not a new key:** a database without this migration ignores the indicator and
+  reads `notes` exactly as today, so even a mistaken frontend-first release can never drop a typed conversion note.
+  (A first draft used a separate `conversion_note` key; the old function would have ignored it and lost the note.)
+- Preserve-separately is chosen over failing closed for every legacy note because a refusal would block a sale in the
+  Dialer wrap-up for the whole transition window.
+
+### 14.2 Unchanged preserved client fields are never rewritten
+
+- `clientUpdatePatch` sends the four person fields **verbatim**: non-blank text exactly as given (no trimming or
+  reformatting), blank → NULL, age as given (integer text → integer). A structured spouse value is still never sent.
+- `FullScreenContactView.handleSave` (clients) omits every person field the agent did not change before calling
+  `onUpdate`, so an unrelated edit sends none of them (`omitUnchangedPersonFields`). Changed means different from the
+  saved contact, with blank / null / undefined treated as the same "empty". The edit surfaces are `Contacts` and
+  `ContactDeepLinkPage` (both through this view → `clientsSupabaseApi.update`); `AddClientModal` never sends these
+  fields; Calendar and the Dialer mount the view for leads only.
+- The changed-field set is shared with the Zod validation, so validation and sending agree.
+
+### 14.3 Exact files
+
+Modified only (all already in §10): the migration (converter notes logic; the update writer, guard, columns and every
+other line unchanged) and its rollback (post-image guard); `supabase/tests/lead_conversion_preservation.sql`,
+`lead_conversion_differential.sql` (client notes now an intended difference for legacy distinct notes, asserted by
+P4), `scripts/run_lead_conversion_preservation_tests.sh` (post-image digest, boundary/race payloads);
+`release/readback.sql`; `src/lib/supabase-conversion.ts`, `supabase-clients.ts`, `clientLeadDetails.ts`, `types.ts`;
+`src/components/contacts/FullScreenContactView.tsx`, `ClientLeadHistory.tsx`; tests `conversionContract`,
+`conversionEntryPoints`, `clientMapping`, `clientLeadDetails`, `clientLeadHistory`,
+`fullScreenContactViewClientLeadFields`; `verification.md`, this plan, root `implementation_plan.md`, `WORK_LOG.md`,
+`AGENT_RULES.md`. Because the migration bytes change, every checksum, post-image digest, rollback guard and release
+script value is regenerated and re-verified.

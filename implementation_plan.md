@@ -6,6 +6,11 @@ Gate 2. Migration `20261021200000` NOT applied; frontend NOT merged or released;
 read-only check. Future conversions only: no backfill, no change to existing clients. Evidence:
 `docs/plans/2026-10-21-lead-client-preservation/verification.md`.
 
+**§14 bugfix (within Gate 1, 2026-10-21):** older-browser notes can no longer replace the client's Notes (explicit
+`notes_source` marker; unclassifiable legacy text kept separately; unknown markers fail closed) and an unrelated client
+edit can no longer rewrite unchanged DOB/age/best time/spouse values. Migration bytes changed (still NOT applied):
+SHA-256 `ce189016…9ae5`; every digest, guard and release script regenerated. Focused plan §14; `verification.md` §7.
+
 **Contract, migration design, exact files, tests, rollout, rollback and decisions D1–D9:**
 `docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md`.
 
