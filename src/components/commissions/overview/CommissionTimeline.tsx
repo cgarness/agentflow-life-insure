@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CHART_THEME, TOOLTIP_FRAME } from "@/components/reports/reportChartTheme";
-import { formatCents, formatMonth } from "@/lib/commission/installments";
+import { AmountsHiddenPanel } from "@/components/commission/ui/AmountsVisibility";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
+import { formatMonth } from "@/lib/commission/installments";
 import { customPeriod, historyHref, scheduledHref } from "@/lib/commission/centerFilters";
 import type { TimelineBucket } from "@/lib/commission/centerSchemas";
 import { rangeLabel } from "../shared/format";
@@ -16,15 +18,16 @@ const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "O
 type Point = TimelineBucket & { label: string; received: number; advance: number; later: number };
 
 function MonthTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: Point }> }) {
+  const { money } = useAmounts();
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   return (
     <div className={TOOLTIP_FRAME}>
       <p className="mb-2 font-semibold">{rangeLabel(p.from, p.to)}</p>
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
-        <dt>Received</dt><dd className="text-right tabular-nums">{formatCents(p.received_cents)}</dd>
-        <dt>Expected · Advance</dt><dd className="text-right tabular-nums">{formatCents(p.expected_advance_cents)}</dd>
-        <dt>Expected · Months 10–12</dt><dd className="text-right tabular-nums">{formatCents(p.expected_later_cents)}</dd>
+        <dt>Received</dt><dd className="text-right tabular-nums">{money(p.received_cents)}</dd>
+        <dt>Expected · Advance</dt><dd className="text-right tabular-nums">{money(p.expected_advance_cents)}</dd>
+        <dt>Expected · Months 10–12</dt><dd className="text-right tabular-nums">{money(p.expected_later_cents)}</dd>
       </dl>
     </div>
   );
@@ -34,9 +37,11 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: Array<{
  * Timeline: per month, recorded receipts and scheduled estimates as two separate bars — never stacked on each other.
  * Expected splits into Advance and Months 10–12 (hatched: estimates). Months inside the period sum exactly to the
  * Expected and Received cards; padding months outside it are dimmed. Choosing a month (click a bar or the select)
- * shows its figures and links to its exact records.
+ * shows its figures and links to its exact records. With amounts hidden the plot and its data table are replaced by a
+ * neutral panel (bar heights and the axis would reveal values); the month links and their counts stay.
  */
 export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
+  const { hidden, money } = useAmounts();
   const data = useMemo<Point[]>(() => buckets.map((b) => ({
     ...b, label: `${SHORT[Number(b.month.slice(5)) - 1]}${b.month.endsWith("-01") ? ` ${b.month.slice(2, 4)}` : ""}`,
     received: b.received_cents / 100, advance: b.expected_advance_cents / 100, later: b.expected_later_cents / 100,
@@ -52,6 +57,7 @@ export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
 
   return (
     <div className="space-y-3">
+      {hidden ? <AmountsHiddenPanel className="h-56 sm:h-64" /> : (<>
       <TimelineKey />
       <div className="h-56 sm:h-64 [--cc-advance:#2a78d6] [--cc-later:#eb6834] [--cc-received:#1baf7a] dark:[--cc-advance:#3987e5] dark:[--cc-later:#d95926] dark:[--cc-received:#199e70]">
         <ResponsiveContainer width="100%" height="100%">
@@ -76,6 +82,7 @@ export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      </>)}
       {month && (
         <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
@@ -83,9 +90,9 @@ export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
               options={buckets.map((b) => [b.month, formatMonth(`${b.month}-01`)] as const)} onChange={setChosen} />
             <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 text-sm" aria-live="polite">
               <dt className="text-muted-foreground">Expected</dt>
-              <dd className="tabular-nums">{formatCents(month.expected_advance_cents + month.expected_later_cents)}
-                <span className="text-xs text-muted-foreground"> · Advance {formatCents(month.expected_advance_cents)} · Months 10–12 {formatCents(month.expected_later_cents)}</span></dd>
-              <dt className="text-muted-foreground">Received</dt><dd className="tabular-nums">{formatCents(month.received_cents)}</dd>
+              <dd className="tabular-nums">{money(month.expected_advance_cents + month.expected_later_cents)}
+                <span className="text-xs text-muted-foreground"> · Advance {money(month.expected_advance_cents)} · Months 10–12 {money(month.expected_later_cents)}</span></dd>
+              <dt className="text-muted-foreground">Received</dt><dd className="tabular-nums">{money(month.received_cents)}</dd>
             </dl>
           </div>
           <div className="flex gap-4 whitespace-nowrap text-sm font-medium">
@@ -98,17 +105,17 @@ export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
           </div>
         </div>
       )}
-      {/* A table ignores the 1px box of sr-only, so the wrapper carries it. */}
-      <div className="sr-only"><table>
+      {/* A table ignores the 1px box of sr-only, so the wrapper carries it. Not rendered while amounts are hidden. */}
+      {!hidden && <div className="sr-only"><table>
         <caption>Received and expected commission by month</caption>
         <thead><tr><th scope="col">Dates</th><th scope="col">Received</th><th scope="col">Expected, Advance</th><th scope="col">Expected, Months 10–12</th></tr></thead>
         <tbody>
           {buckets.map((b) => (
-            <tr key={b.month}><th scope="row">{rangeLabel(b.from, b.to)}</th><td>{formatCents(b.received_cents)}</td>
-              <td>{formatCents(b.expected_advance_cents)}</td><td>{formatCents(b.expected_later_cents)}</td></tr>
+            <tr key={b.month}><th scope="row">{rangeLabel(b.from, b.to)}</th><td>{money(b.received_cents)}</td>
+              <td>{money(b.expected_advance_cents)}</td><td>{money(b.expected_later_cents)}</td></tr>
           ))}
         </tbody>
-      </table></div>
+      </table></div>}
     </div>
   );
 }

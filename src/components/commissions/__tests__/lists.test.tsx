@@ -47,9 +47,9 @@ beforeEach(() => {
       scheduledRow(2, { contact: null, status: "received", remaining_cents: 0, received_cents: 42975 }),
       scheduledRow(3, { kind: "month_10", timing_precision: "unknown", expected_on: null, expected_until: null, window_end: null, status: "date_needed" }),
     ]),
-    get_my_commission_receipts: historyPage([historyRow(1), historyRow(2, { voided: true, void_reason: "Recorded twice" }),
+    get_my_commission_receipt_list: historyPage([historyRow(1), historyRow(2, { voided: true, void_reason: "Recorded twice" }),
       historyRow(3, { replaces_receipt_id: "00000000-0000-4000-8000-000000000501", contact: null })]),
-    get_my_commission_policies: policiesPage([
+    get_my_commission_policy_list: policiesPage([
       policyRow(1),
       policyRow(2, { setup: "missing", estimate_cents: null, received_cents: null, remaining_cents: null, excess_cents: null, next_payment: null,
         product: "Term" }),
@@ -107,15 +107,32 @@ describe("Payments › History", () => {
     expect(rows[1].textContent).toContain("Recorded twice");
     expect(rows[2].textContent).toContain("Correction");
     expect(rows[2].textContent).toContain("Restricted contact");
-    expect(lastArgs("get_my_commission_receipts")).toMatchObject({ p_include_voided: false });
+    expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_include_voided: false });
     fireEvent.click(screen.getByLabelText("Show voided"));
-    await waitFor(() => expect(lastArgs("get_my_commission_receipts")).toMatchObject({ p_include_voided: true }));
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_include_voided: true }));
   });
 
   it("switching views keeps the period and drops view-only filters", async () => {
     renderAt("/commissions/payments?period=last_month&status=received", <PaymentsTab onOpen={onOpen} />);
     fireEvent.click(await screen.findByRole("button", { name: "History" }));
     expect(screen.getByTestId("where").textContent).toBe("?period=last_month&view=history");
+  });
+
+  it("carrier filter (what Received by carrier opens): one carrier or Unknown, composed with period and voided", async () => {
+    h.data.get_my_commission_receipt_list = historyPage([historyRow(1)], { carriers: ["Harbor Mutual", "Synthetic Life"], has_unknown_carrier: true });
+    renderAt("/commissions/payments?view=history&period=last_month&carrier=synthetic%20life", <PaymentsTab onOpen={onOpen} />);
+    await screen.findByRole("table", { name: "Payment history" });
+    expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_period: "last_month", p_carrier: "synthetic life", p_carrier_unknown: false });
+    expect((screen.getByLabelText("Carrier") as HTMLSelectElement).value).toBe("Synthetic Life");
+    expect([...(screen.getByLabelText("Carrier") as HTMLSelectElement).options].map((o) => o.text))
+      .toEqual(["All carriers", "Harbor Mutual", "Synthetic Life", "Unknown carrier"]);
+    fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: "__unknown__" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_carrier: null, p_carrier_unknown: true }));
+    expect(screen.getByTestId("where").textContent).toBe("?view=history&period=last_month&carrier_unknown=1");
+    fireEvent.click(screen.getByLabelText("Show voided"));
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_carrier_unknown: true, p_include_voided: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+    expect(screen.getByTestId("where").textContent).toBe("?period=last_month");
   });
 });
 
@@ -135,6 +152,30 @@ describe("Policies", () => {
     expect(rows[2].textContent).toContain("Advance · Nov 2 – 4, 2026");
     expect(screen.getByText("10 of 12")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
-    await waitFor(() => expect(lastArgs("get_my_commission_policies")).toMatchObject({ p_setup: "missing", p_offset: 0 }));
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject({ p_setup: "missing", p_offset: 0 }));
+  });
+
+  it("Sold, Type and Unknown carrier compose with Show; totals cover the whole filter (held disclosed, missing not $0)", async () => {
+    h.data.get_my_commission_policy_list = policiesPage([policyRow(1)], { has_unknown_carrier: true,
+      totals: { policies: 4, with_estimate_count: 2, estimate_cents: 114600, on_hold_count: 1, on_hold_cents: 57300, without_estimate_count: 1 } });
+    renderAt("/commissions/policies?period=this_month&type=final_expense&carrier_unknown=1&setup=missing", <PoliciesTab onOpen={onOpen} />);
+    await screen.findByRole("table", { name: "Policies" });
+    expect(lastArgs("get_my_commission_policy_list")).toEqual({ p_setup: "missing", p_carrier: null, p_carrier_unknown: true,
+      p_category: "final_expense", p_period: "this_month", p_from: null, p_to: null, p_limit: 25, p_offset: 0 });
+    expect(screen.getByText("4 policies · 2 with estimate · On hold: 1 not included")).toBeInTheDocument();
+    expect(screen.getByText("$1,146.00")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Sold"), { target: { value: "all" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject({ p_period: "all", p_category: "final_expense" }));
+    expect(screen.getByTestId("where").textContent).toBe("?type=final_expense&carrier_unknown=1&setup=missing");
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "__all__" } });
+    fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: "Synthetic Life" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject(
+      { p_category: null, p_carrier: "Synthetic Life", p_carrier_unknown: false, p_setup: "missing" }));
+  });
+
+  it("an unfinished custom Sold range requests nothing", async () => {
+    renderAt("/commissions/policies?period=custom&from=2026-10-01", <PoliciesTab onOpen={onOpen} />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.calls).toEqual([]);
   });
 });

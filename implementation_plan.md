@@ -1,3 +1,28 @@
+## 2026-10-21 — PR #474: Gate 3 approved, read-only preview accepted; frontend release pending final checks
+
+Chris approved the separate frontend release by replying "Continue" after Gate 2 completion. Signed-in read-only
+preview acceptance passed on `a5cd1b0`; no production test data was written. Merge waits for all final-head workflows,
+both preview deployments and the Supabase automatic-production-deploy safeguard. PR #474 records the eventual merge
+and both production deployments. Focused `verification.md` §10. Earlier status entries below are historical.
+
+**Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `docs/plans/2026-10-21-commissions-insights/verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
+
+**Status:** Gate 2 database release applied and verified at approximately 05:32 UTC on 2026-10-21 under the exact
+approval for source `0aebd01` and migration `20261021180000` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes). Fresh
+preflight 20/20 and read-back 24/24 passed; fingerprints, existing catalog and both advisors unchanged. Draft PR #474
+stays on `claude/zen-clarke-wdwrrb`; Gate 3 frontend release needs Chris's separate approval. No merge, frontend
+release or production test write. Feature plan §11; `verification.md` §8.
+
+**Contract, metric definitions, migration scope, exact files and tests:**
+`docs/plans/2026-10-21-commissions-insights/implementation_plan.md`.
+
+**Summary:** By carrier (horizontal bars: Policies · Est. commission · Received) and By product (doughnut: Policies ·
+Est. commission) with exactly matching drill-downs; fair comparisons; a next-month Months 10–12 highlight; an optional
+owner-only monthly commission goal measured by recorded receipts; and a browser-local Hide amounts preference across
+the whole Commissions Center. The released reads, writers and definitions are unchanged.
+
+---
+
 ## 2026-10-20 — RELEASED: Commissions center (Overview · Payments · Policies · Calculator)
 
 **Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration

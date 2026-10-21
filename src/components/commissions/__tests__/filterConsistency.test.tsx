@@ -186,30 +186,30 @@ describe("Scheduled: Next 90 days and Any date never depend on a hidden custom r
 describe("History and Policies follow the same contract", () => {
   it("History: a new period shows loading, not the previous period's receipts; paging marks the shown page", async () => {
     renderAt("/commissions/payments?view=history", <PaymentsTab onOpen={onOpen} />);
-    await waitFor(() => expect(calls("get_my_commission_receipts")).toHaveLength(1));
-    await answer(last("get_my_commission_receipts"), ok(historyPage([historyRow(1)], { total_count: 40 })));
+    await waitFor(() => expect(calls("get_my_commission_receipt_list")).toHaveLength(1));
+    await answer(last("get_my_commission_receipt_list"), ok(historyPage([historyRow(1)], { total_count: 40 })));
     await screen.findByText("Client 1");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(calls("get_my_commission_receipts")).toHaveLength(2));
+    await waitFor(() => expect(calls("get_my_commission_receipt_list")).toHaveLength(2));
     expect(screen.getByRole("table", { name: "Payment history" }).getAttribute("aria-busy")).toBe("true");
     for (const button of within(screen.getByRole("table", { name: "Payment history" })).getAllByRole("button")) expect(button).toBeDisabled();
-    await answer(last("get_my_commission_receipts"), ok(historyPage([historyRow(2)], { total_count: 40 })));
+    await answer(last("get_my_commission_receipt_list"), ok(historyPage([historyRow(2)], { total_count: 40 })));
     await screen.findByText("Client 2");
     fireEvent.change(screen.getByLabelText("Period"), { target: { value: "last_month" } });
-    await waitFor(() => expect(last("get_my_commission_receipts").args).toMatchObject({ p_period: "last_month", p_offset: 0 }));
+    await waitFor(() => expect(last("get_my_commission_receipt_list").args).toMatchObject({ p_period: "last_month", p_offset: 0 }));
     expect(screen.queryByText("Client 2")).toBeNull();
     expect(screen.getByText("Loading payments…")).toBeInTheDocument();
   });
 
   it("Policies: a new filter shows loading, not the previous filter's policies; a failure shows the error", async () => {
     renderAt("/commissions/policies", <PoliciesTab onOpen={onOpen} />);
-    await waitFor(() => expect(calls("get_my_commission_policies")).toHaveLength(1));
-    await answer(last("get_my_commission_policies"), ok(policiesPage([policyRow(1)])));
+    await waitFor(() => expect(calls("get_my_commission_policy_list")).toHaveLength(1));
+    await answer(last("get_my_commission_policy_list"), ok(policiesPage([policyRow(1)])));
     await screen.findByText("Client 1");
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
-    await waitFor(() => expect(calls("get_my_commission_policies")).toHaveLength(2));
+    await waitFor(() => expect(calls("get_my_commission_policy_list")).toHaveLength(2));
     expect(screen.queryByText("Client 1")).toBeNull();
-    await answer(last("get_my_commission_policies"), { data: null, error: { code: "XX000", message: "boom" } });
+    await answer(last("get_my_commission_policy_list"), { data: null, error: { code: "XX000", message: "boom" } });
     expect(await screen.findByText("Couldn't load")).toBeInTheDocument();
     expect(screen.queryByText("Client 1")).toBeNull();
   });

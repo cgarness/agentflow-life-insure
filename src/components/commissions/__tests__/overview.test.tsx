@@ -1,9 +1,25 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    rpc: () => {
+      const request = Promise.resolve({ data: { month: "2026-10-01", target_cents: null, updated_at: null,
+        meta: { today: "2026-10-20", time_zone: "America/Los_Angeles", as_of: "2026-10-20T17:00:00Z" } }, error: null });
+      return Object.assign(request, { abortSignal: () => request });
+    },
+  },
+}));
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { id: USER_ID }, isImpersonating: false, profile: { id: USER_ID, role: "Agent", organization_id: ORG_ID } }),
+}));
+vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG_ID, role: "Agent" }) }));
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: () => true, isLoading: false }) }));
+const USER_ID = "00000000-0000-4000-8000-000000000901";
+const ORG_ID = "00000000-0000-4000-8000-000000000902";
 import { overviewSchema } from "@/lib/commission/centerSchemas";
 import { SummaryCards } from "../overview/SummaryCards";
 import { CommissionTimeline } from "../overview/CommissionTimeline";
@@ -17,7 +33,8 @@ beforeAll(() => {
 afterEach(cleanup);
 const data = overviewSchema.parse(overview());
 const MONTH = { preset: "this_month", from: null, to: null } as const;
-const inRouter = (node: React.ReactNode) => render(<MemoryRouter>{node}</MemoryRouter>);
+const inRouter = (node: React.ReactNode) =>
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>);
 const href = (name: string | RegExp) => screen.getByRole("link", { name }).getAttribute("href");
 
 describe("Overview", () => {

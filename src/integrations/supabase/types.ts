@@ -6373,6 +6373,49 @@ export type Database = {
         Args: { p_policy_id: string }
         Returns: Json
       }
+      get_my_commission_breakdown: {
+        Args: { p_from?: string; p_period?: string; p_to?: string }
+        Returns: Json
+      }
+      get_my_commission_policy_list: {
+        Args: {
+          p_carrier?: string
+          p_carrier_unknown?: boolean
+          p_category?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_setup?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_receipt_list: {
+        Args: {
+          p_carrier?: string
+          p_carrier_unknown?: boolean
+          p_from?: string
+          p_include_voided?: boolean
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_goal: {
+        Args: { p_month: string }
+        Returns: Json
+      }
+      set_my_commission_goal: {
+        Args: { p_month: string; p_target_cents: number }
+        Returns: Json
+      }
+      clear_my_commission_goal: {
+        Args: { p_month: string }
+        Returns: Json
+      }
       convert_lead_to_client_atomic: {
         Args: { p_client: Json; p_lead_id: string }
         Returns: Json

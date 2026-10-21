@@ -1,3 +1,129 @@
+## 2026-10-21 — Commissions insights Gate 3 approved; signed-in read-only preview acceptance passed
+
+Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. This authorizes
+PR #474's frontend release after read-only preview acceptance and green final-head CI. Application source remains
+`0aebd01`; acceptance ran on `a5cd1b02ac8481532cd88ad75f2022400a8e17c4`, with both Vercel previews READY.
+
+- Signed-in Overview loaded the breakdowns, comparisons, timeline and Months 10–12; carrier and product links
+  selected the expected Sold/Carrier/Type filters and reconciled with the displayed Overview totals.
+- Hide amounts masked Overview, Policies and the commission drawer; the payment dialog and Calculator required
+  Show amounts. The browser-local preference was restored to shown. Goal editor opened and was cancelled empty.
+  History loaded its valid-empty state with the Carrier control. No production goal, receipt, sale or policy was saved.
+- Six exact-head workflows were green at acceptance; Reports frontend verification was still running. The final
+  documentation head must pass all workflows and both Vercel preview statuses before merge. No CI failure is waived.
+- Exact documentation files: this log, `AGENT_RULES.md`, root `implementation_plan.md`, and focused insights
+  `implementation_plan.md` / `verification.md` §10. No application, SQL or test changes.
+- Gate 2 is complete and immutable; no migration replay or additional backend write. PR #473, earlier preview
+  conversion and ordinary agent data remain untouched. No direct main push or branch cleanup.
+- Supabase integration checked at 05:49 UTC: Deploy to production OFF; automatic branching ON; no setting changed.
+  Release remains pending final-head checks.
+  PR #474's release record will hold the final merge SHA and both production deployment confirmations.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2: independent post-apply re-check passed
+
+The session that built the Gate 2 package re-checked production read-only after the 05:32 UTC apply, against its own
+04:50 UTC baseline (no database write): history head `20261021180000` (one row, exact text); `readback.sql` 24/24;
+six-table fingerprints and all 16 existing catalog categories unchanged, additions exactly as rehearsed; advisors
+security 253 / performance 452 with identical finding sets. Record: `verification.md` §9. Gate 3 remains unapproved;
+PR #474 stays draft.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2 APPLIED and verified; PR #474 draft, Gate 3 pending
+
+Executed at approximately 05:32 UTC (October 20, 10:32 PM PDT) under Chris's exact database-only handoff approval,
+through the supported cloud Supabase SQL Editor, Primary database as `postgres`. Migration `20261021180000` applied
+once; source `0aebd014002341a92e04cba65fd1ffce6a68a1c9`, package source
+`8f368e8ecabbe379f80fbc2744b5b23cbff8430a`. Embedded migration: 34,179 bytes, SHA-256 `d390cc8e…5b3345`;
+generated package: 37,157 bytes, SHA-256 `3cee7e7c…3778`; full editor contents independently matched before Run.
+
+- Fresh history/preflight at 05:31–05:32 UTC: target absent, hosted head `20261020212000`, 20/20 passed. No reliance on
+  the earlier 04:50 snapshot. SQL Editor returned Success. No rows returned; no retry or replay.
+- Read-back 24/24; one exact stored migration text; goals RLS/grants/constraints and all 12 new functions verified;
+  all eight existing preimages unchanged; zero goals. All six commission-table fingerprints/write counters and all
+  16 existing catalog category digests/counts unchanged; only the expected additive objects appeared.
+- Both advisors unchanged: security 253, performance 452; zero added/removed findings, excluding observation times.
+- Files: `AGENT_RULES.md`, root `implementation_plan.md`, focused commissions-insights plan and `verification.md` §8,
+  `release/gate2-execution-evidence.json`, `release/gate2-sql-success.jpg`, and this newest-first entry. PR body status
+  updated separately. No application-code or migration edit; code test reruns are not claimed for documentation only.
+- No production goals, receipts, sales or test policies; no cleanup, backfill, previous-preview-conversion change,
+  Edge Function deployment, main push, merge or frontend release. PR #473 untouched. PR #474 stays draft.
+- Gate 2 complete. Ready for read-only preview acceptance; Gate 3 frontend approval remains separate. No blockers
+  to database completion; signed-in preview acceptance and frontend release are not claimed.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2 (database only): approved, rehearsed, production preflight passed — NOT applied (no execution route)
+
+Chris approved Gate 2 only for source `0aebd014002341a92e04cba65fd1ffce6a68a1c9` and migration
+`20261021180000_policy_commission_center_insights.sql` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes; recomputed from the
+approved commit and byte-identical in the working tree). PR #474 stays draft; PR #473 untouched; no merge, frontend
+release, backfill, cleanup or production goal/receipt/sale/test-policy write.
+
+- **Blocker.** The established route is the Supabase SQL Editor signed in as `postgres` in a browser, or an authorized
+  direct database connection. This cloud session had neither (no browser on Chris's computer or browser takeover; no
+  credentials). `execute_sql` stayed read-only (AGENT_RULES §11) and `apply_migration` would stamp its own version, so
+  nothing was applied and no route was improvised. Production unchanged.
+- **Prepared.** `docs/plans/2026-10-21-commissions-insights/release/`: `preflight.sql` (20 checks + six-table
+  fingerprints), `catalog.sql` (16-category catalog digests excluding exactly the new objects), `readback.sql`
+  (24 checks: exact history row, goal table/constraints/owner policy/grants, schema, 12 exact function bodies and
+  attributes, EXECUTE `authenticated` only, preimages, RLS, not published) and `build_apply.py` (version-preserving
+  one-request package; output SHA-256 `3cee7e7c…3778`, 37,157 bytes, deterministic).
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history and production's default privileges: refusals
+  for lock contention (1.04 s), a changed byte, a later version and a non-`postgres` caller; apply 0.055 s; read-back
+  24/24; existing catalog identical, additions exactly as expected; fingerprints identical; replay refused twice;
+  rollback and reapply restore exact dumps; equal to a reference `psql -1 -f` apply; insights suite 8/8 on the
+  wrapper-applied copy.
+- **Production read-only (~04:50 UTC).** History head `20261020212000`; preflight 20/20 (all eight preimage
+  fingerprints equal); six-table fingerprints identical to the 2026-10-20 record; catalog baseline captured; advisors:
+  security 253, performance 452 (expected delta after apply: none).
+- **Docs.** Goal-write wording corrected (the app uses the goal functions; authorized owners also have direct table
+  writes limited by RLS, grants and checks) in AGENT_RULES, the feature plan, `verification.md` and the PR body; the
+  approved SQL is unchanged. Feature plan §11 (method, files), `verification.md` §7 (evidence, remaining steps), root
+  plan status.
+- **Next.** Finish Gate 2 from an authorized route (SQL Editor on Chris's computer, e.g. a Claude Desktop or
+  `claude remote-control` session, or Chris running the package): re-run the preflight, regenerate and match the
+  package hash, apply once, then read-back, catalog, fingerprints and advisors. Gate 3 separately.
+
+---
+
+## 2026-10-21 — Commissions Overview: breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts (local build, draft PR; NOT live)
+
+Chris approved the scoped local implementation and disposable tests only. Branch `claude/zen-clarke-wdwrrb` from `main`
+`e762454`. No production write, migration, policy, merge or deployment; the only hosted contact was a read-only
+`list_migrations` (head `20261020212000`). Applied migrations `20261019170000`, `20261020040000` and `20261020212000`
+are byte-identical to `main`. PR #473 (navigation icon) is untouched: `CommissionsNavItem.tsx` is not changed.
+
+- **What changed.** Overview gains By carrier (horizontal bars: Policies · Est. commission · Received) and By product
+  (doughnut: Policies · Est. commission), each bar or slice opening exactly matching lists; compact comparisons over
+  server-resolved fair windows; the next agency month's remaining Months 10–12; an optional owner-only monthly goal
+  under Received (one whole month only; Received by `received_on`; bar capped, figure not). Policies gains Sold, Type
+  and Unknown-carrier filters with whole-filter totals (All time by default, so its address keeps its meaning); History
+  gains a carrier filter. One eye control hides every amount across tabs, drawer, dialogs and the calculator (money
+  plots replaced; counts kept; explicit Show amounts before any financial edit; drafts and unresolved writes kept;
+  browser-local per user and agency, read before the first render).
+- **Database (proposed, NOT applied).** `20261021180000_policy_commission_center_insights.sql` (SHA-256
+  `d390cc8e…5b3345`, 34,179 bytes; guarded rollback refuses while goals exist): owner-only `policy_commission_goals`
+  (RLS on the Own toggle; `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for `authenticated`; nothing for
+  `anon`/`service_role`), schema `policy_commission_insights` (6 helpers), reads `get_my_commission_breakdown`,
+  `_policy_list`, `_receipt_list`, `_goal`, and SECURITY INVOKER `set_/clear_my_commission_goal`. Additive; released
+  reads stay for older browsers.
+- **Definitions.** Policies by Sold Date (undated disclosed); Est. commission = saved first-year of ACTIVE estimates (held
+  disclosed; missing "—", never $0; never equated with Expected); carrier = estimate's saved carrier, else visible client,
+  else Unknown (case/spaces only); product = sale type, else visible client type, else Unknown (never the grid category).
+- **Verification.** Disposable PostgreSQL 16.15: guards, drift refusal, inventory (177 existing objects unchanged), new
+  suite (8 sections), released center suite on the final state, rollback/refusal/reapply, PostgREST 12.2.3 (9 new HTTP
+  checks). Frontend: `npx tsc --noEmit` exit 0; app typecheck identical to `main` (84); 48 new tests; full Vitest as in
+  `verification.md`; scoped ESLint, build and `git diff --check` clean; screenshots at 1440/390 px, light and dark;
+  keyboard check. Record: `docs/plans/2026-10-21-commissions-insights/{implementation_plan,verification}.md`.
+- **Records.** Root `implementation_plan.md` entry; AGENT_RULES gains a **proposed** (not live) invariant section.
+- **Open gates.** Gate 2: production apply of `20261021180000` (new table, RLS policy, grants, functions) — separate
+  exact-action approval, hosted-history re-check, advisors before/after. Gate 3: merge and frontend release after Gate 2.
+
+---
+
 ## 2026-10-20 — Commissions center RELEASED: Gate 3, PR #471
 
 Chris approved the separate merge/frontend-release gate by replying "Continue". Reviewed the additional

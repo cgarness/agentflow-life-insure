@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PRODUCT_CATEGORIES, type ProductCategory } from "./centerSchemas";
 
 /**
  * Commissions center filters live in the URL (so tabs, card links, chart drill-downs and browser back/forward agree).
@@ -25,10 +26,13 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => d >= "2000
 const presetSchema = z.enum(PERIOD_PRESETS);
 const dateOrNull = (raw: string | null) => (isoDate.safeParse(raw).success ? raw : null);
 
-/** The Overview has no "All time" (its timeline needs a bounded range); lists do. */
-export function parsePeriod(params: URLSearchParams, allowAll: boolean): CommissionPeriod {
+/**
+ * The Overview has no "All time" (its timeline needs a bounded range); lists do. Policies (by Sold Date) defaults to
+ * All time, so its address without a period keeps listing every policy; the other views default to This month.
+ */
+export function parsePeriod(params: URLSearchParams, allowAll: boolean, fallback: PeriodPreset = "this_month"): CommissionPeriod {
   const parsed = presetSchema.safeParse(params.get("period"));
-  const preset = parsed.success && (allowAll || parsed.data !== "all") ? parsed.data : "this_month";
+  const preset = parsed.success && (allowAll || parsed.data !== "all") ? parsed.data : fallback;
   if (preset !== "custom") return { preset, from: null, to: null };
   return { preset, from: dateOrNull(params.get("from")), to: dateOrNull(params.get("to")) };
 }
@@ -38,11 +42,11 @@ export const periodReady = (p: CommissionPeriod) => p.preset !== "custom" || (!!
 
 export const periodArgs = (p: CommissionPeriod) => ({ p_period: p.preset, p_from: p.preset === "custom" ? p.from : null, p_to: p.preset === "custom" ? p.to : null });
 
-export function writePeriod(params: URLSearchParams, p: CommissionPeriod): URLSearchParams {
+export function writePeriod(params: URLSearchParams, p: CommissionPeriod, fallback: PeriodPreset = "this_month"): URLSearchParams {
   const next = new URLSearchParams(params);
   next.delete("from");
   next.delete("to");
-  if (p.preset === "this_month") next.delete("period");
+  if (p.preset === fallback) next.delete("period");
   else next.set("period", p.preset);
   if (p.preset === "custom") {
     if (p.from) next.set("from", p.from);
@@ -78,8 +82,23 @@ const carrier = (raw: string | null) => (raw && raw.trim() && raw.length <= 120 
 
 export interface ScheduledFilter { period: CommissionPeriod; scope: ScheduledScope; status: ScheduledStatus; kind: PaymentKindFilter | null;
   carrier: string | null; page: number }
-export interface HistoryFilter { period: CommissionPeriod; includeVoided: boolean; page: number }
-export interface PoliciesFilter { setup: SetupFilter; carrier: string | null; page: number }
+/** A carrier filter: one carrier by name (case and surrounding spaces ignored), or the policies with no known carrier. */
+export interface CarrierFilter { carrier: string | null; carrierUnknown: boolean }
+export interface HistoryFilter extends CarrierFilter { period: CommissionPeriod; includeVoided: boolean; page: number }
+export interface PoliciesFilter extends CarrierFilter { setup: SetupFilter; category: ProductCategory | null; period: CommissionPeriod; page: number }
+
+export const CATEGORY_LABELS: Record<ProductCategory, string> = {
+  term: "Term", whole_life: "Whole Life", iul: "IUL", final_expense: "Final Expense", other: "Other type", unknown: "Unknown",
+};
+/** URL form: `carrier=<name>`, or `carrier_unknown=1` (which wins if both are present). */
+export function parseCarrier(params: URLSearchParams): CarrierFilter {
+  const unknown = params.get("carrier_unknown") === "1";
+  return { carrier: unknown ? null : carrier(params.get("carrier")), carrierUnknown: unknown };
+}
+export function writeCarrier(params: URLSearchParams, f: CarrierFilter): URLSearchParams {
+  const next = withParam(params, "carrier", f.carrierUnknown ? null : f.carrier);
+  return withParam(next, "carrier_unknown", f.carrierUnknown ? "1" : null);
+}
 
 /**
  * The filter a Scheduled read actually uses. The period counts only for "Selected period"; "Next 90 days" and "Any
@@ -102,12 +121,15 @@ export function parseScheduled(params: URLSearchParams): ScheduledFilter {
 }
 
 export const parseHistory = (params: URLSearchParams): HistoryFilter => ({
-  period: parsePeriod(params, true), includeVoided: params.get("voided") === "1", page: page.parse(params.get("page") ?? undefined),
+  period: parsePeriod(params, true), includeVoided: params.get("voided") === "1", ...parseCarrier(params),
+  page: page.parse(params.get("page") ?? undefined),
 });
 
 export const parsePolicies = (params: URLSearchParams): PoliciesFilter => ({
   setup: z.enum(SETUP_FILTERS).catch("all").parse(params.get("setup") ?? undefined),
-  carrier: carrier(params.get("carrier")),
+  ...parseCarrier(params),
+  category: z.enum(PRODUCT_CATEGORIES).nullable().catch(null).parse(params.get("type")),
+  period: parsePeriod(params, true, "all"),
   page: page.parse(params.get("page") ?? undefined),
 });
 
@@ -137,6 +159,19 @@ export const scheduledHref = (o: { period?: CommissionPeriod; scope?: ScheduledS
     ...(o.period ? periodEntries(o.period) : {}), dates: o.scope && o.scope !== "period" ? o.scope : null,
     status: o.status && o.status !== "all" ? o.status : null, kind: o.kind ?? null,
   });
-export const historyHref = (period: CommissionPeriod) => href(tabPath("payments"), { view: "history", ...periodEntries(period) });
+export const historyHref = (period: CommissionPeriod, carrier?: CarrierFilter) => href(tabPath("payments"), {
+  view: "history", ...periodEntries(period), carrier: carrier?.carrierUnknown ? null : carrier?.carrier, carrier_unknown: carrier?.carrierUnknown ? "1" : null,
+});
 export const policiesHref = (setup: SetupFilter) => href(tabPath("policies"), { setup: setup === "all" ? null : setup });
 export const customPeriod = (from: string, to: string): CommissionPeriod => ({ preset: "custom", from, to });
+/**
+ * Exactly the policies behind a breakdown bar or slice: policies sold in the period (always written, since Policies
+ * defaults to All time) with that carrier, unknown carrier or product type.
+ */
+export const soldPoliciesHref = (period: CommissionPeriod, o: { carrier?: CarrierFilter; category?: ProductCategory }) =>
+  href(tabPath("policies"), {
+    period: period.preset, from: period.preset === "custom" ? period.from : null, to: period.preset === "custom" ? period.to : null,
+    carrier: o.carrier?.carrierUnknown ? null : o.carrier?.carrier, carrier_unknown: o.carrier?.carrierUnknown ? "1" : null, type: o.category ?? null,
+  });
+/** The next agency month's remaining Months 10–12 payments (the Months 10–12 highlight's list). */
+export const monthsTenToTwelveHref = () => scheduledHref({ period: { preset: "next_month", from: null, to: null }, status: "remaining", kind: "later" });

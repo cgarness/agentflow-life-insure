@@ -4,6 +4,8 @@ import { calculateEstimate, resolveLevel } from "@/lib/commission/calculator";
 import { validateCalculatorForm } from "@/lib/commission/schemas";
 import type { ReadyCalculatorContext } from "@/lib/commission/types";
 import { IconTile } from "@/components/commission/ui/CommissionSurface";
+import { WhenAmountsShown } from "@/components/commission/ui/AmountsVisibility";
+import { HIDDEN_AMOUNT, useAmounts } from "@/components/commission/ui/amountsContext";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import CalculatorInputs from "./CalculatorInputs";
 import CalculatorResults from "./CalculatorResults";
@@ -20,6 +22,7 @@ interface CalculatorWorkspaceProps {
  */
 const CalculatorWorkspace: React.FC<CalculatorWorkspaceProps> = ({ context }) => {
   const level = resolveLevel(context);
+  const { hidden } = useAmounts();
   const inputs = useCalculatorInputs(context);
   const validation = validateCalculatorForm(inputs.values, inputs.terms);
   const result =
@@ -41,7 +44,7 @@ const CalculatorWorkspace: React.FC<CalculatorWorkspaceProps> = ({ context }) =>
           <div className="flex items-center gap-3 border-b border-border/50 px-5 py-4">
             <IconTile icon={BadgeCheck} />
             <p className="text-sm text-muted-foreground">
-              Your level: <span className="font-semibold tabular-nums text-foreground">{shownLevel}</span>
+              Your level: <span className="font-semibold tabular-nums text-foreground">{hidden ? HIDDEN_AMOUNT : shownLevel}</span>
             </p>
           </div>
           <div className="p-5">
@@ -53,7 +56,8 @@ const CalculatorWorkspace: React.FC<CalculatorWorkspaceProps> = ({ context }) =>
             ) : context.products.length === 0 ? (
               <p className="text-sm text-muted-foreground">Your agency&apos;s comp grid has no active products yet. Ask your admin.</p>
             ) : (
-              <CalculatorInputs inputs={inputs} errors={validation.errors ?? {}} />
+              // Inputs (premium included) are entered only with amounts shown; while hidden they stay as typed.
+              <WhenAmountsShown><CalculatorInputs inputs={inputs} errors={validation.errors ?? {}} /></WhenAmountsShown>
             )}
           </div>
         </section>

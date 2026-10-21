@@ -4,6 +4,7 @@ import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
 import { formatCalendarDate, parseStartDateForm, scheduleSummary, type StartChoice } from "@/lib/commission/installments";
 import type { CommissionEstimateRecord } from "@/lib/commission/trackingSchemas";
+import { useAmounts } from "../ui/amountsContext";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -19,6 +20,9 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
   canWrite: boolean;
 }) {
   const id = useId();
+  // Dates are edited only with amounts shown (the drawer offers Show amounts); a draft or unresolved change is kept.
+  const { hidden } = useAmounts();
+  const canEdit = canWrite && !hidden;
   const mutation = useTrackingMutation<{ startOn: string | null }>(`schedule:${estimate.id}`);
   const { restart } = mutation;
   const [editing, setEditing] = useState(false);
@@ -66,14 +70,14 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
     <div className="space-y-1.5 text-[11px]">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <span className={estimate.schedule_start_on ? "text-muted-foreground" : "text-foreground"}>{summary.text}</span>
-        {canWrite && !mutation.unresolved && !editing && (
+        {canEdit && !mutation.unresolved && !editing && (
           <button type="button" disabled={busy} className="font-medium text-primary hover:underline disabled:opacity-50" onClick={edit}>
             Edit dates
           </button>
         )}
       </div>
       {summary.exception && <p className="text-muted-foreground">{summary.exception}</p>}
-      {canWrite && mutation.unresolved && (
+      {canEdit && mutation.unresolved && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground">
             Unconfirmed change: {mutation.pending?.startOn ? `start ${formatCalendarDate(mutation.pending.startOn)}` : "clear the start"}.
@@ -84,28 +88,30 @@ export function ScheduleBasisControl({ estimate, effectiveDate, canWrite }: {
         </div>
       )}
       {canWrite && !mutation.unresolved && editing && (
-        <form className="space-y-2 rounded-md border border-border/60 p-2.5" onSubmit={save}>
-          <fieldset disabled={busy} className="space-y-1.5">
-            <legend className="mb-1 font-medium text-foreground">Payment dates start from</legend>
-            {options.map(([value, label, disabled]) => (
-              <label key={value} className={`flex items-center gap-1.5 text-xs ${disabled ? "text-muted-foreground" : ""}`}>
-                <input type="radio" name={`${id}-start`} checked={choice === value} disabled={disabled} onChange={() => setChoice(value)} />
-                {label}
-              </label>
-            ))}
-            {choice === "manual" && (
-              <div>
-                <label htmlFor={`${id}-date`} className="sr-only">First premium date</label>
-                <input id={`${id}-date`} type="date" className={`${fieldCls} h-8 text-xs sm:w-auto`} value={startOn}
-                  onChange={(event) => setStartOn(event.target.value)} />
-              </div>
-            )}
-          </fieldset>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" size="sm" className="h-8" disabled={mutation.saving || mutation.syncing}>Save</Button>
-            <Button type="button" size="sm" variant="ghost" className="h-8" disabled={mutation.saving} onClick={() => setEditing(false)}>Cancel</Button>
-          </div>
-        </form>
+        <div hidden={!canEdit}>
+          <form className="space-y-2 rounded-md border border-border/60 p-2.5" onSubmit={save}>
+            <fieldset disabled={busy} className="space-y-1.5">
+              <legend className="mb-1 font-medium text-foreground">Payment dates start from</legend>
+              {options.map(([value, label, disabled]) => (
+                <label key={value} className={`flex items-center gap-1.5 text-xs ${disabled ? "text-muted-foreground" : ""}`}>
+                  <input type="radio" name={`${id}-start`} checked={choice === value} disabled={disabled} onChange={() => setChoice(value)} />
+                  {label}
+                </label>
+              ))}
+              {choice === "manual" && (
+                <div>
+                  <label htmlFor={`${id}-date`} className="sr-only">First premium date</label>
+                  <input id={`${id}-date`} type="date" className={`${fieldCls} h-8 text-xs sm:w-auto`} value={startOn}
+                    onChange={(event) => setStartOn(event.target.value)} />
+                </div>
+              )}
+            </fieldset>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" size="sm" className="h-8" disabled={mutation.saving || mutation.syncing}>Save</Button>
+              <Button type="button" size="sm" variant="ghost" className="h-8" disabled={mutation.saving} onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          </form>
+        </div>
       )}
       {(error || mutation.message) && <p role="alert" className="break-words text-destructive">{error ?? mutation.message}</p>}
     </div>

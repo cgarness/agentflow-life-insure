@@ -7,7 +7,7 @@ import { ScheduledView } from "./ScheduledView";
 
 const VIEWS = [["scheduled", "Scheduled"], ["history", "History"]] as const;
 /** Filters that belong to one view only; the period is kept when switching. */
-const VIEW_ONLY = ["dates", "status", "kind", "carrier", "voided", "page"];
+const VIEW_ONLY = ["dates", "status", "kind", "carrier", "carrier_unknown", "voided", "page"];
 
 /** Payments: Scheduled (expected installments) | History (recorded receipts). */
 export function PaymentsTab({ onOpen }: { onOpen: OpenPolicy }) {

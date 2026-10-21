@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { syntheticContext } from "@/lib/commission/__tests__/syntheticGrid";
-import { ORG, USER, drawer, overview, policiesPage, scheduledPage, historyPage } from "@/components/commissions/__tests__/centerFixtures";
+import { ORG, USER, breakdown, drawer, goal, overview, policiesPage, scheduledPage, historyPage } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({
   userId: "", impersonating: false, permitted: true, grid: "ready" as "ready" | "not_configured",
@@ -20,8 +20,9 @@ vi.mock("@/integrations/supabase/client", () => ({
     rpc: (name: string, args: Record<string, unknown>) => {
       h.calls.push([name, args]);
       const data = name === "get_my_commission_overview" ? overview() : name === "get_my_commission_installments" ? scheduledPage()
-        : name === "get_my_commission_receipts" ? historyPage() : name === "get_my_commission_policies" ? policiesPage()
-          : name === "get_my_policy_commission" ? drawer() : null;
+        : name === "get_my_commission_receipt_list" ? historyPage() : name === "get_my_commission_policy_list" ? policiesPage()
+          : name === "get_my_policy_commission" ? drawer() : name === "get_my_commission_breakdown" ? breakdown()
+            : name === "get_my_commission_goal" ? goal() : null;
       const request = Promise.resolve(data ? { data, error: null } : { data: null, error: { message: "unexpected", code: "XX000" } });
       return Object.assign(request, { abortSignal: () => request });
     },
@@ -94,8 +95,8 @@ describe("Commissions page", () => {
 
   it.each([
     ["/commissions/payments", "Payments", "get_my_commission_installments"],
-    ["/commissions/payments?view=history", "Payments", "get_my_commission_receipts"],
-    ["/commissions/policies", "Policies", "get_my_commission_policies"],
+    ["/commissions/payments?view=history", "Payments", "get_my_commission_receipt_list"],
+    ["/commissions/policies", "Policies", "get_my_commission_policy_list"],
   ])("deep link %s", async (url, tab, read) => {
     renderAt(url);
     expect(activeTab()).toBe(tab);
@@ -135,11 +136,44 @@ describe("Commissions page", () => {
     await screen.findByRole("link", { name: "Expected" });
     fireEvent.click(screen.getByRole("link", { name: "Received" }));
     expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month");
-    await waitFor(() => expect(calls("get_my_commission_receipts").at(-1)?.[1]).toMatchObject({ p_period: "last_month", p_include_voided: false }));
+    await waitFor(() => expect(calls("get_my_commission_receipt_list").at(-1)?.[1]).toMatchObject({ p_period: "last_month", p_include_voided: false }));
     act(() => nav(-1));
     await screen.findByRole("link", { name: "Expected" });
     fireEvent.click(screen.getByRole("link", { name: "Next 90 days" }));
     await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_status: "all" }));
+  });
+
+  it("Policies keeps its address: All time, every type and carrier by default", async () => {
+    renderAt("/commissions/policies");
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toEqual({ p_setup: "all", p_carrier: null,
+      p_carrier_unknown: false, p_category: null, p_period: "all", p_from: null, p_to: null, p_limit: 25, p_offset: 0 }));
+  });
+
+  it("each breakdown bar or slice opens exactly its list, composing with the list's own filters", async () => {
+    renderAt("/commissions?period=last_month");
+    const carriers = await screen.findByRole("list", { name: "Carriers by Policies" });
+    fireEvent.click(within(carriers).getByRole("link", { name: /^Harbor Mutual/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/policies?period=last_month&carrier=Harbor+Mutual");
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Harbor Mutual", p_carrier_unknown: false, p_category: null, p_setup: "all" }));
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Harbor Mutual", p_setup: "missing", p_offset: 0 }));
+    act(() => nav(-1));
+    act(() => nav(-1));
+    fireEvent.click(within(await screen.findByRole("list", { name: "Products by policies" })).getByRole("link", { name: /^Unknown/ }));
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_category: "unknown", p_carrier: null }));
+    act(() => nav(-1));
+    fireEvent.click(await screen.findByRole("button", { name: "Received" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "Carriers by Received" })).getByRole("link", { name: /^Synthetic Life/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month&carrier=Synthetic+Life");
+    await waitFor(() => expect(calls("get_my_commission_receipt_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Synthetic Life", p_carrier_unknown: false, p_include_voided: false }));
+    act(() => nav(-1));
+    fireEvent.click(await screen.findByRole("link", { name: "View payments" }));
+    await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject(
+      { p_period: "next_month", p_scope: "range", p_status: "remaining", p_kind: "later" }));
   });
 
   it("reports without a calculator grid; only the Calculator tab needs one", async () => {
@@ -159,12 +193,12 @@ describe("Commissions page", () => {
     fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "85" } });
     const before = h.calls.length;
     fireEvent.click(screen.getByRole("link", { name: "Policies" }));
-    await waitFor(() => expect(calls("get_my_commission_policies")).toHaveLength(1));
+    await waitFor(() => expect(calls("get_my_commission_policy_list")).toHaveLength(1));
     fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
     expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("41");
     expect((screen.getByLabelText("Monthly premium") as HTMLInputElement).value).toBe("85");
     // Only the Policies read happened: the calculator itself requested and wrote nothing.
-    expect(h.calls.slice(before).map(([name]) => name)).toEqual(["get_my_commission_policies"]);
+    expect(h.calls.slice(before).map(([name]) => name)).toEqual(["get_my_commission_policy_list"]);
     h.userId = "00000000-0000-4000-8000-000000000999";
     view.rerenderSame();
     expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("");

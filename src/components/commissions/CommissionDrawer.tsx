@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { AmountsHiddenGate } from "@/components/commission/ui/AmountsVisibility";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { LoadingBlock } from "@/components/commission/ui/CommissionSurface";
 import { CaptureAttentionNotice } from "@/components/commission/policy/CaptureAttentionNotice";
 import { PolicyCommissionDetail } from "@/components/commission/policy/PolicyCommissionDetail";
@@ -57,6 +59,7 @@ function DrawerBody({ data, payment }: { data: CommissionDrawerData; payment?: s
 }
 
 export function CommissionDrawer({ target, onClose }: { target: DrawerTarget | null; onClose: () => void }) {
+  const { hidden } = useAmounts();
   const query = useCommissionPolicy(target?.policyId ?? null);
   const data = query.data;
   // A drawer reopened for another policy never shows the previous one's figures.
@@ -73,7 +76,9 @@ export function CommissionDrawer({ target, onClose }: { target: DrawerTarget | n
             <Link to={`/clients/${shown.contact.client_id}`} className="text-sm font-medium text-primary hover:underline">View policy</Link>
           )}
         </SheetHeader>
-        <div className="mt-4">
+        <div className="mt-4 space-y-4">
+          {/* The page's eye control is behind this sheet, so the explicit reveal is offered here too (never automatic). */}
+          {hidden && <AmountsHiddenGate />}
           {shown ? <DrawerBody key={target?.opened} data={shown} payment={target?.payment} />
             : query.isError ? <CenterError error={query.error} onRetry={() => void query.refetch()} compact />
               : <LoadingBlock label="Loading commission…" rows={4} />}

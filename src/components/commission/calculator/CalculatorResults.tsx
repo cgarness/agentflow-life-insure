@@ -3,6 +3,7 @@ import { AlertTriangle, Calculator, Info } from "lucide-react";
 import type { CalculatorResult } from "@/lib/commission/calculator";
 import { formatRatePercent, formatUsd } from "@/lib/commission/money";
 import { cn } from "@/lib/utils";
+import { HIDDEN_AMOUNT, useAmounts } from "../ui/amountsContext";
 
 interface CalculatorResultsProps {
   /** null while the inputs are incomplete or invalid: nothing stale is ever shown. */
@@ -30,6 +31,9 @@ const Frame: React.FC<{ active: boolean; children: React.ReactNode }> = ({ activ
 );
 
 const CalculatorResults: React.FC<CalculatorResultsProps> = ({ result }) => {
+  // Hidden amounts mask the rate and every figure (display only; the estimate itself is unchanged).
+  const { hidden } = useAmounts();
+  const usd = (value: Parameters<typeof formatUsd>[0]) => (hidden ? HIDDEN_AMOUNT : formatUsd(value));
   if (!result) {
     return (
       <Frame active={false}>
@@ -56,24 +60,24 @@ const CalculatorResults: React.FC<CalculatorResultsProps> = ({ result }) => {
     );
   }
   const { estimate } = result;
-  const month = formatUsd(estimate.monthlyRemainder);
+  const month = usd(estimate.monthlyRemainder);
   return (
     <Frame active>
       <dl aria-label="Estimate" className="space-y-5">
         <div className="flex items-center justify-between gap-3">
           <dt className="text-xs font-medium text-muted-foreground">Rate used</dt>
           <dd className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-primary ring-1 ring-inset ring-primary/20">
-            {formatRatePercent(estimate.ratePercent)}
+            {hidden ? HIDDEN_AMOUNT : formatRatePercent(estimate.ratePercent)}
           </dd>
         </div>
         <div className="rounded-lg bg-primary/[0.06] px-4 py-4 ring-1 ring-inset ring-primary/15">
           <dt className="text-[11px] font-semibold uppercase tracking-wider text-primary/90">Total first-year commission</dt>
           <dd className="mt-1 break-words text-4xl font-semibold tabular-nums tracking-tight text-foreground">
-            {formatUsd(estimate.firstYearCommission)}
+            {usd(estimate.firstYearCommission)}
           </dd>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Tile label="Advance (75%)" value={formatUsd(estimate.advance)} />
+          <Tile label="Advance (75%)" value={usd(estimate.advance)} />
           <Tile label="Month 10" value={month} />
           <Tile label="Month 11" value={month} />
           <Tile label="Month 12" value={month} />

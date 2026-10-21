@@ -1,12 +1,14 @@
 import { useSearchParams } from "react-router-dom";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { LoadingBlock } from "@/components/commission/ui/CommissionSurface";
 import { usePaymentHistory } from "@/hooks/useCommissionsCenter";
-import { formatCalendarDate, formatCents } from "@/lib/commission/installments";
-import { PAGE_SIZE, parseHistory, periodReady, withParam, writePeriod } from "@/lib/commission/centerFilters";
+import { formatCalendarDate } from "@/lib/commission/installments";
+import { PAGE_SIZE, parseHistory, periodReady, withParam, writeCarrier, writePeriod } from "@/lib/commission/centerFilters";
 import type { HistoryRow } from "@/lib/commission/centerSchemas";
 import { CommissionPeriodControl } from "../CommissionPeriodControl";
 import type { OpenPolicy } from "../CommissionDrawer";
 import { Chip, Pager, PolicyIdentity } from "../shared/Bits";
+import { CarrierSelect } from "../shared/CarrierSelect";
 import { CenterEmpty, CenterError } from "../shared/CenterState";
 import { kindLabel } from "../shared/format";
 
@@ -19,8 +21,12 @@ function Correction({ row }: { row: HistoryRow }) {
   return null;
 }
 
-/** History: one row per recorded payment, newest first; voids and corrections stay visible with their reasons. */
+/**
+ * History: one row per recorded payment, newest first; voids and corrections stay visible with their reasons. The
+ * carrier filter (the receipt's own estimate) is what Received by carrier opens.
+ */
 export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
+  const { money } = useAmounts();
   const [params, setParams] = useSearchParams();
   const filter = parseHistory(params);
   const query = usePaymentHistory(filter);
@@ -35,10 +41,12 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
             onChange={(event) => setParams(withParam(params, "voided", event.target.checked ? "1" : null))} />
           Show voided
         </label>
+        <CarrierSelect carriers={data?.carriers} hasUnknown={data?.has_unknown_carrier} value={filter}
+          onChange={(next) => setParams(writeCarrier(params, next))} />
       </div>
       {!periodReady(filter.period) ? null : !data ? (
         query.isError ? <CenterError error={query.error} onRetry={() => void query.refetch()} /> : <LoadingBlock label="Loading payments…" rows={5} />
-      ) : data.rows.length === 0 ? <CenterEmpty title="No payments recorded in this period" /> : (
+      ) : data.rows.length === 0 ? <CenterEmpty title={filter.carrier || filter.carrierUnknown ? "No payments match these filters" : "No payments recorded in this period"} /> : (
         <>
           {query.isError && <CenterError compact error={query.error} onRetry={() => void query.refetch()} />}
           <div role="table" aria-label="Payment history" aria-busy={pending} className={`text-sm ${pending ? "opacity-60" : ""}`}>
@@ -56,7 +64,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
                     </button>
                   </span>
                   <span role="cell" className="text-right text-muted-foreground md:text-left md:text-foreground">{kindLabel(row.kind)}</span>
-                  <span role="cell" className={`tabular-nums md:text-right ${row.voided ? "text-muted-foreground line-through" : ""}`}>{formatCents(row.amount_cents)}</span>
+                  <span role="cell" className={`tabular-nums md:text-right ${row.voided ? "text-muted-foreground line-through" : ""}`}>{money(row.amount_cents)}</span>
                   <span role="cell" className="text-right md:text-left"><Correction row={row} /></span>
                 </div>
               ))}
@@ -64,7 +72,7 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-sm">
             <span className="text-muted-foreground">{data.totals.valid_count} recorded{data.totals.voided_count > 0 ? ` · ${data.totals.voided_count} voided` : ""}</span>
-            <span className="tabular-nums">Received <span className="font-semibold">{formatCents(data.totals.received_cents)}</span></span>
+            <span className="tabular-nums">Received <span className="font-semibold">{money(data.totals.received_cents)}</span></span>
           </div>
           <Pager label="Payment history pages" page={filter.page} pageSize={PAGE_SIZE} total={data.total_count} pending={pending}
             onPage={(page) => setParams(withParam(params, "page", String(page), "1"))} />

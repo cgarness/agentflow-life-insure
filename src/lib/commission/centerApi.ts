@@ -1,8 +1,9 @@
 import type { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  historyPageSchema, overviewSchema, parseDrawer, policiesPageSchema, scheduledPageSchema,
-  type CommissionDrawerData, type CommissionOverview, type HistoryPage, type PoliciesPage, type ScheduledPage,
+  breakdownSchema, goalClearSchema, goalSchema, goalSetSchema, overviewSchema, parseDrawer, policyListSchema, receiptListSchema,
+  scheduledPageSchema, type CommissionBreakdown, type CommissionDrawerData, type CommissionGoal, type CommissionOverview,
+  type PolicyListPage, type ReceiptListPage, type ScheduledPage,
 } from "./centerSchemas";
 import {
   PAGE_SIZE, periodArgs, type CommissionPeriod, type HistoryFilter, type PoliciesFilter, type ScheduledFilter,
@@ -59,6 +60,8 @@ async function read<T extends z.ZodTypeAny>(fn: string, args: Record<string, unk
 }
 
 const offset = (page: number) => (page - 1) * PAGE_SIZE;
+const carrierArgs = (f: { carrier: string | null; carrierUnknown: boolean }) =>
+  ({ p_carrier: f.carrierUnknown ? null : f.carrier, p_carrier_unknown: f.carrierUnknown });
 
 export const commissionCenterApi = {
   overview: (period: CommissionPeriod, signal?: AbortSignal): Promise<CommissionOverview> =>
@@ -68,12 +71,20 @@ export const commissionCenterApi = {
       ...periodArgs(f.period), p_scope: f.scope === "period" ? "range" : f.scope, p_status: f.status, p_kind: f.kind, p_carrier: f.carrier,
       p_limit: PAGE_SIZE, p_offset: offset(f.page),
     }, (raw) => scheduledPageSchema.parse(raw), signal),
-  history: (f: HistoryFilter, signal?: AbortSignal): Promise<HistoryPage> =>
-    read("get_my_commission_receipts", { ...periodArgs(f.period), p_include_voided: f.includeVoided, p_limit: PAGE_SIZE, p_offset: offset(f.page) },
-      (raw) => historyPageSchema.parse(raw), signal),
-  policies: (f: PoliciesFilter, signal?: AbortSignal): Promise<PoliciesPage> =>
-    read("get_my_commission_policies", { p_setup: f.setup, p_carrier: f.carrier, p_limit: PAGE_SIZE, p_offset: offset(f.page) },
-      (raw) => policiesPageSchema.parse(raw), signal),
+  history: (f: HistoryFilter, signal?: AbortSignal): Promise<ReceiptListPage> =>
+    read("get_my_commission_receipt_list", { ...periodArgs(f.period), p_include_voided: f.includeVoided, ...carrierArgs(f),
+      p_limit: PAGE_SIZE, p_offset: offset(f.page) }, (raw) => receiptListSchema.parse(raw), signal),
+  policies: (f: PoliciesFilter, signal?: AbortSignal): Promise<PolicyListPage> =>
+    read("get_my_commission_policy_list", { p_setup: f.setup, ...carrierArgs(f), p_category: f.category, ...periodArgs(f.period),
+      p_limit: PAGE_SIZE, p_offset: offset(f.page) }, (raw) => policyListSchema.parse(raw), signal),
+  breakdown: (period: CommissionPeriod, signal?: AbortSignal): Promise<CommissionBreakdown> =>
+    read("get_my_commission_breakdown", periodArgs(period), (raw) => breakdownSchema.parse(raw), signal),
+  /** The signed-in seller's goal for one calendar month (`month` is its first day); never creates one. */
+  goal: (month: string, signal?: AbortSignal): Promise<CommissionGoal> =>
+    read("get_my_commission_goal", { p_month: month }, (raw) => goalSchema.parse(raw), signal),
+  setGoal: (month: string, targetCents: number) =>
+    read("set_my_commission_goal", { p_month: month, p_target_cents: targetCents }, (raw) => goalSetSchema.parse(raw)),
+  clearGoal: (month: string) => read("clear_my_commission_goal", { p_month: month }, (raw) => goalClearSchema.parse(raw)),
   policy: (policyId: string, signal?: AbortSignal): Promise<CommissionDrawerData> =>
     read("get_my_policy_commission", { p_policy_id: policyId }, parseDrawer, signal),
 };

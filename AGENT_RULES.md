@@ -893,6 +893,54 @@ evidence: `verification.md` beside it.
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
 
+### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; Gate 3 approved, release pending)
+
+Chris separately approved Gate 3 after Gate 2 completion; signed-in read-only preview acceptance passed on
+`a5cd1b0`. PR #474 may be marked ready and merged only after all final-head CI and preview checks pass and Supabase
+Deploy to production is confirmed off. Both Vercel production deployments must then be verified. PR #474 holds the
+final merge/deployment record; focused `verification.md` §10 records acceptance. No application fix, production test
+write, migration replay, direct main push, PR #473 change or earlier-preview-conversion change is authorized.
+
+Gate 2 applied once through the authorized cloud SQL Editor as `postgres` at approximately 05:32 UTC on
+2026-10-21 (October 20 PDT): migration `20261021180000`, SHA-256 `d390cc8e…5b3345`, 34,179 bytes, exact stored
+text verified. Never edit, rename or replay it. Fresh preflight 20/20, read-back 24/24; six-table fingerprints, existing
+catalog and both advisors unchanged. The database contract is applied; the frontend behavior below takes effect
+when the approved Gate 3 release completes. Execution evidence: focused `verification.md` §8. Contract:
+`docs/plans/2026-10-21-commissions-insights/implementation_plan.md`; evidence: `verification.md` beside it.
+
+- **Breakdowns are definitions, not charts.** Policies = distinct eligible `policy_id`s by the sale's `wins.sold_date`
+  (unknown Sold Date never placed in a period; disclosed). Est. commission = saved `first_year_cents` of ACTIVE estimates
+  on those sales (held disclosed, superseded never); never today's grid or premium, and never equated with Expected
+  (payment dates). Received = non-voided receipts by `received_on`, whatever the sale date. A missing estimate is "—",
+  never $0. Averages count only policies with an estimate and are never carrier-verified payout performance.
+- **Grouping.** Carrier = the current estimate's saved carrier, else the client record only when the contact is visible
+  under the caller's RLS, else Unknown; key = `lower(btrim())` (no fuzzy merge). Product = the sale's `wins.policy_type`,
+  else the visible client type, else Unknown; Term · Whole Life · IUL · Final Expense · Other type · Unknown, mutually
+  exclusive; a comp-grid category is never used (Final Expense is never Whole Life). Unknown stays its own group.
+- **Drill-downs match exactly.** Every bar or slice opens a list whose server totals equal it (Policies: Sold period +
+  carrier/unknown/type; History: period + carrier). Other is never a drill-down. New filters compose with existing ones.
+  The released five reads stay for older browsers; new reads have distinct names (no default-argument overloads).
+- **Comparisons** use the server's fair windows (whole months; month-/year-to-date against the same elapsed portion,
+  clamped; equal-length custom ranges; none for future periods). A percentage only from an earlier value above zero;
+  labels name both windows when they differ from the selected range; no good/bad colouring.
+- **Months 10–12** = remaining on active Month 10–12 installments whose saved window starts in the next agency month
+  (equals Scheduled › Next month › Remaining › Months 10–12). First-year, not renewals.
+- **Monthly goals** live only in `public.policy_commission_goals` (organization, owner, first-of-month; 1…100,000,000
+  cents), owner-only RLS gated on the Own toggle, `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for
+  `authenticated`, nothing for `anon`/`service_role`, no admin/Team Leader/Agency Group path. The app writes through
+  SECURITY INVOKER `set_/clear_my_commission_goal` (one month per call); authorized owners also have direct table
+  writes on their own rows, limited by the same owner-only RLS policy, the column grants and the CHECK constraints
+  (never another owner's, organization's or month's row). Reading never creates a goal. Progress = that month's
+  Received (same snapshot as the card), shown only for exactly one whole calendar month; bar capped at 100 %. Never
+  reuse `profiles.monthly_premium_goal`.
+- **Hide amounts** is a browser-local display preference (`localStorage`
+  `agentflow.commissions.hideAmounts.v1:<user>:<org>`), read before the first render, never an authorization boundary
+  and never a financial value. Inside the Commissions Center it masks every amount (text, labels, titles, value text,
+  sr-only tables) with `••••`, replaces money plots with a neutral panel, keeps counts and navigation, and requires an
+  explicit Show amounts before any financial edit. Forms stay mounted while hidden (drafts, request ids and unresolved
+  writes survive); opening a drawer or dialog never reveals amounts. Outside the provider (contact view) nothing
+  changes.
+
 ### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
 
 Migration `20261019015242_uv_profile_save_driven.sql` is applied as hosted `20261019021934`; successful UV rows sleep until a committed relevant save or their next known license-expiration deadline. Never restore unconditional per-minute profile comparisons: the retained UV cron command dispatches only due, unleased, nonexcluded queue work. Profile/presence reads and unchanged saves must not publish; HTTP dispatch failure must retain durable work without blocking the core profile save. Keep tenant transfer/deactivation/deletion withdrawals and revision/lease supersession. Chris's CG Financial A2P profile remains excluded from sync even when AgentFlow renders its navigation-only View link. Deployment evidence lives in `docs/plans/2026-10-19-uv-save-driven/release.md`; local migration files are not proof of application.

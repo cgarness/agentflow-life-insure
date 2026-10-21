@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { formatCents } from "@/lib/commission/installments";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { scheduledHref } from "@/lib/commission/centerFilters";
 import type { ScheduledRow } from "@/lib/commission/centerSchemas";
 import { CenterEmpty } from "../shared/CenterState";
@@ -9,6 +9,7 @@ import type { OpenPolicy } from "../CommissionDrawer";
 
 /** The next expected payments (a preview of Next 90 days), each with a direct action. */
 export function UpcomingList({ rows, total, onOpen }: { rows: ScheduledRow[]; total: number; onOpen: OpenPolicy }) {
+  const { money } = useAmounts();
   if (rows.length === 0) return <CenterEmpty title="No payments expected in the next 90 days" />;
   return (
     <div>
@@ -19,7 +20,7 @@ export function UpcomingList({ rows, total, onOpen }: { rows: ScheduledRow[]; to
               <PolicyIdentity contact={row.contact} detail={`${row.carrier} · ${kindLabel(row.kind)}`} />
             </button>
             <span className="order-3 text-xs text-muted-foreground sm:order-none sm:text-sm">{windowLabel(row)}</span>
-            <span className="text-right text-sm font-medium tabular-nums">{formatCents(row.remaining_cents)}</span>
+            <span className="text-right text-sm font-medium tabular-nums">{money(row.remaining_cents)}</span>
             <button type="button" onClick={() => onOpen(row.policy_id, { payment: row.installment_id })}
               className="order-4 text-right text-sm font-medium text-primary hover:underline sm:order-none">Record payment</button>
           </li>
