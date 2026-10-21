@@ -1,9 +1,10 @@
-# AP-only Leaderboard redesign — implementation plan (AWAITING CHRIS'S APPROVAL; no application file changed)
+# AP-only Leaderboard redesign — implementation plan (APPROVED 2026-10-21, D1–D5 = A; implemented on a draft PR; not merged, not released)
 
-**Status:** plan only. Branch `claude/sweet-cannon-jve7ak` (dedicated feature branch), based on `main` `51b0e56`
-(PR #474). No application, test, SQL or configuration file has been modified. No Supabase command (read or write),
-migration, Edge deploy or Vercel action has been run. Implementation starts only after Chris's explicit approval of
-this plan and the decisions in §8.
+**Status:** approved by Chris on 2026-10-21 ("Approved to proceed", D1 A, D2 A, D3 A, D4 A, D5 A; plus "ensure actual
+tie-break rank changes are reflected correctly in movement indicators"). Implemented on `claude/sweet-cannon-jve7ak`
+from `main` `51b0e56`. A draft PR is open for review. No Supabase command (read or write), migration, Edge deploy,
+Vercel action, merge or release. Evidence and the implementation-time changes are in `verification.md` (§5 lists
+the additions beyond this plan's text). The plan text below is the approved version, kept as written.
 
 ---
 
@@ -327,3 +328,19 @@ No backend command before or during implementation (no `list_migrations` needed:
 migration, RLS, grant, RPC, telemetry, sale-attribution, Twilio or dialer change. No direct push to `main`, no merge,
 no release. After approval: implement on `claude/sweet-cannon-jve7ak`, open a **draft** PR for review, and stop.
 Merging and releasing need Chris's separate approval.
+
+---
+
+## §12. Approval and implementation record (2026-10-21)
+
+- **Approval:** Chris, 2026-10-21: D1 A (AP → Policies → Calls → name → id), D2 A (TV shows AP, Policies, Calls),
+  D3 A (no visible talk-time notes), D4 A (TV extraction), D5 A (side by side at ≥ 1280 px). Additional instruction:
+  tie-break rank changes must show correctly in the movement indicators. Done: the whole sort key drives change
+  detection and the "frozen" test (`verification.md` §5.1).
+- **Files actually touched:** the §7 list, plus these new extractions to stay under 200 lines: `TVBoard.tsx`,
+  `useTvClock.ts` and `LeaderboardApValue.tsx`. Docs: this plan, `verification.md`, `screenshots/`, the root plan,
+  `WORK_LOG.md` and `AGENT_RULES.md`.
+- **Verification:** `verification.md`. It covers the baseline-versus-branch typecheck and full-suite comparison
+  (no new failure), targeted 331/331, lint, build, static checks and screenshots.
+- **Gates still open:** review of the draft PR; a signed-in read-only preview check if wanted; merge and frontend
+  release need Chris's separate approval. No backend gate exists for this change.

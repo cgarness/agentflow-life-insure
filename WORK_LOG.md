@@ -1,3 +1,42 @@
+## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR; NOT merged, NOT released)
+
+Chris approved the plan with D1–D5 = A. Branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. Frontend only:
+no Supabase command (read or write), migration, Edge deploy, Vercel action, merge or release.
+
+- **What changed.** AP is the only ranking metric on the Leaderboard page, TV Mode and the Dashboard preview.
+  One shared comparator orders AP → Policies → Calls → name → id. The metric dropdown, TV metric selector, TV
+  30 s rotation and their stored preferences are gone. The podium shows AP, then Policies and Calls. A new Your
+  Performance card (beside the podium at ≥ 1280 px, stacked below) shows AP, rank of N, real movement, Policies and
+  Calls, or "Your stats aren't on this board" with no figures. Full Rankings lists everyone, the top three included,
+  as Rank · Agent · AP · Policies · Calls with a blue YOU row. TV tables and totals show AP/Policies/Calls only.
+  Appointments, Talk Time and Policies/100 leave every visible Leaderboard surface. The outside-roster note drops
+  appointments, and the talk-time note is removed.
+- **Movement (Chris's instruction).** Change detection and the "frozen" test use the whole sort key, so a
+  Policies- or Calls-decided reorder shows as movement. An unchanged board, a period/view switch and a first load
+  show none. "New #1" still needs AP > 0.
+- **Unchanged:** `get_leaderboard_snapshot` / Recent Wins RPCs and the 1:1 `annualized_premium` mapping (no ×12),
+  RLS, the request gate, polling and realtime, stale/error/maintenance/offline states, Recent Wins and the CSV
+  (every column kept). The set of data reads is identical; timers go from 4 to 3.
+- **Size standard.** `TVMode.tsx` 514 → 191 lines (verbatim extraction: `TVToolbar`, `TVTicker`, `TVBoard`,
+  `useTvDisplaySettings`, `useTvClock`). `Leaderboard.tsx` 251 → 194 (`LeaderboardBoard`). All touched
+  components are under 200.
+- **Fixed on the way:** the pre-existing stacked-podium overlap on phones (confirmed on `main`), with gold first
+  when stacked. All five table columns fit at 390 px. The TV gold trophy clears the totals panel at 1080p.
+- **Verification** (`docs/plans/2026-10-21-ap-leaderboard/verification.md`): baselines were taken on a `main`
+  worktree before any edit. Root tsc exit 0. App tsc has the identical 84-error set. Full Vitest: 6,018 tests with
+  the same single pre-existing failure and the same 10 pre-existing failing files as `main` (5,985); no new failure.
+  Targeted 15 files 331/331. ESLint clean on all touched files, build passes, `git diff --check` clean. Fixture
+  screenshots (scratchpad harness, never committed) at 1440/1280/1024/390 in dark and light, TV at 1920/1280, the
+  Admin options popover, and `main` comparisons. Keyboard pass done.
+- **Records:** focused plan §12, `verification.md`, `screenshots/`, root `implementation_plan.md`, and
+  `AGENT_RULES.md` (#40 notes amendment + new "AP-only Leaderboard" rule, both marked not live until released).
+- **Limitations:** no signed-in hosted check; no reference image was available. Recent Wins is cramped at
+  1024–1279 px; this is pre-existing (identical on `main`, untouched component) and left for a separate change.
+- **Next:** review the draft PR, optionally a signed-in read-only preview check, then Chris's separate merge and
+  frontend-release approval.
+
+---
+
 ## 2026-10-21 — Commissions insights Gate 3 approved; signed-in read-only preview acceptance passed
 
 Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. This authorizes

@@ -1,8 +1,11 @@
-## 2026-10-21 — PLAN, AWAITING APPROVAL: AP-only Leaderboard redesign (frontend only)
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR; not merged, not released): AP-only Leaderboard redesign (frontend only)
 
-**Status:** plan only, on branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. No application file, test,
-migration or hosted state changed; no Supabase or Vercel command run. Implementation waits for Chris's explicit
-approval of the plan and decisions D1–D5.
+**Status:** Chris approved the plan on 2026-10-21 with D1–D5 = A, plus the instruction that tie-break rank changes show
+correctly in the movement indicators. Implemented on `claude/sweet-cannon-jve7ak` from `main` `51b0e56`; draft PR
+open for review. Against the `main` baseline the root typecheck is clean, the app typecheck has the identical 84-error
+set, and the full Vitest run has no new failure. Targeted 331/331, lint and build pass. Fixture screenshots are in the
+plan folder. No Supabase or Vercel command, migration, merge or release. Merge and frontend release need
+Chris's separate approval. Evidence: `docs/plans/2026-10-21-ap-leaderboard/verification.md`.
 
 **Plan, exact file list, decisions and verification:** `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md`.
 
