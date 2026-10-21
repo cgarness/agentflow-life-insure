@@ -1,10 +1,11 @@
-## 2026-10-20 — GATE 2 APPLIED; FRONTEND RELEASE PENDING: Commissions center (Overview · Payments · Policies · Calculator)
+## 2026-10-20 — RELEASED: Commissions center (Overview · Payments · Policies · Calculator)
 
 **Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration
 `20261020212000`, exact approved bytes, through the Supabase SQL Editor. Preflight 15/15, readback 13/13, six-table
 fingerprints unchanged; signed-in read-only preview checks passed for Overview, Payments, Policies and Calculator.
-PR #471 remains draft; merge and frontend release require separate Gate 3 approval. No production test writes,
-cleanup or backfill are authorized. Evidence: focused `verification.md` §15.
+Gate 3 approved by Chris and released 2026-10-20 PDT (2026-10-21 UTC): PR #471 merged as `73a83a2` after all nine
+final-head workflows passed. Both Vercel production deployments are READY; `www.fflagent.com` resolves to that commit.
+No production test writes, cleanup or backfill. Evidence: focused `verification.md` §§15–17.
 
 **Contract, metric definitions, migration contract and exact file list:**
 `docs/plans/2026-10-20-commissions-center/implementation_plan.md`.
