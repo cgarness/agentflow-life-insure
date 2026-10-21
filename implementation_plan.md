@@ -1,3 +1,22 @@
+## 2026-10-21 — PLAN, AWAITING APPROVAL: AP-only Leaderboard redesign (frontend only)
+
+**Status:** plan only, on branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. No application file, test,
+migration or hosted state changed; no Supabase or Vercel command run. Implementation waits for Chris's explicit
+approval of the plan and decisions D1–D5.
+
+**Plan, exact file list, decisions and verification:** `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md`.
+
+**Summary:** Annualized Premium (AP) is the single ranking metric on the Leaderboard page, TV Mode and the Dashboard
+preview (one shared comparator; deterministic ties). The metric dropdown, the TV metric selector, TV auto-rotation and
+their stored preferences are removed. The podium keeps its design and shows AP, then Policies and Calls. A new Your
+Performance card shows the signed-in agent's AP, rank, real movement, Policies and Calls, or an unavailable state
+when they are not on the board. Full Rankings lists every ranked agent (Rank · Agent · AP · Policies · Calls) with a
+YOU row. Appointments leave every visible Leaderboard surface, including the on-screen outside-roster note. Unchanged:
+`get_leaderboard_snapshot` and its 1:1 AP mapping, RLS, the request gate and polling, stale/error/maintenance states,
+Recent Wins and the CSV export.
+
+---
+
 ## 2026-10-21 — PR #474: Gate 3 approved, read-only preview accepted; frontend release pending final checks
 
 Chris approved the separate frontend release by replying "Continue" after Gate 2 completion. Signed-in read-only
