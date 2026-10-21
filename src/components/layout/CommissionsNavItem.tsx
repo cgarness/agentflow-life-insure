@@ -1,6 +1,6 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Wallet } from "lucide-react";
+import { CircleDollarSign } from "lucide-react";
 import { useCommissionsAccess } from "@/hooks/useCommissionsCenter";
 import { MainNavItem } from "./NavItems";
 
@@ -24,7 +24,7 @@ const CommissionsNavItem: React.FC<CommissionsNavItemProps> = ({ collapsed, onCl
   const path = location.pathname.toLowerCase();
   return (
     <MainNavItem
-      icon={Wallet}
+      icon={CircleDollarSign}
       label={COMMISSIONS_NAV_LABEL}
       path={COMMISSIONS_NAV_PATH}
       collapsed={collapsed}
