@@ -1,3 +1,41 @@
+## 2026-10-21 — Lead → Client conversion preserves every meaningful lead field (Gate 1: local build, draft PR; NOT live)
+
+Chris approved Gate 1 (decisions D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR)
+and required mixed-version testing. Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`. Future conversions only:
+no backfill, no change to existing clients. Stopped at Gate 2.
+
+- **Defect.** `convert_lead_to_client_atomic` copied only names, phone, email, notes, owner and the browser's custom
+  fields: `state` (an existing column), DOB, age, best time, spouse, source, status and score were discarded with the
+  deleted lead; custom fields came from possibly stale browser snapshots; a conversion note replaced the lead's notes.
+- **Database (proposed, NOT applied).** `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+  `b1488c4e…8127`, 23,279 bytes; guarded by the four production preimage digests): nullable `clients.date_of_birth`,
+  `age`, `best_time_to_call`, `spouse_info`; protected read-only `clients.lead_conversion` history with trigger
+  `clients_lead_conversion_guard`; the converter reads every preserved field from the locked lead row (only
+  `additional_policies` from the payload) and keeps displaced lead notes; `update_client_with_policy_sale` accepts the
+  four person fields. Wrapper, commission companions, RLS and grants unchanged. Function-only rollback restores both
+  exact preimages and keeps columns, data and trigger.
+- **Frontend.** `Client` type + mappers; the browser sends only the agent's conversion note; client profile shows and
+  edits DOB/age/best time/spouse in the existing grid (Zod on changed fields; legacy DOB as text; structured spouse
+  read-only) and a read-only "Original lead" panel (`ClientLeadHistory`, 50 lines). Layout, policy cards, conversation,
+  activity and follow-ups unchanged.
+- **Production contact.** One read-only `list_migrations` + one SELECT: head `20261021180000`, PostgreSQL 17.6, all four
+  preimage digests equal the reviewed values. No write.
+- **Verification.** `scripts/run_lead_conversion_preservation_tests.sh` on disposable PostgreSQL 16.15: guards,
+  inventory (1,043 other objects unchanged), historical fingerprint, release-boundary and old-browser scenarios,
+  preservation suite P2–P15, pre/post differential (1,713 identical lines), existing commission suites + 44-step
+  sale/performance/Sold Date/repair chain, race and rollback — all PASS; new CI job on `postgres:17.6`. Release
+  preflight 12/12 and read-back 11/11 rehearsed. Frontend: app typecheck 84 = `main` (identical multiset); Vitest
+  5,987 passed, failure set identical to `main` (+39 tests); scoped ESLint 0 errors (warnings identical); build OK.
+- **Remaining transitional risk.** Until agents refresh onto the new frontend, an old tab converting without a typed
+  note whose notes copy is older than the database makes that copy the client's Notes; the current lead notes stay
+  preserved and visible as "Original lead notes". Nothing else in any mixed-version path is lost or replaced.
+- **Docs.** `AGENT_RULES.md` (proposed invariant section), root `implementation_plan.md`, focused plan and
+  `verification.md`, release `preflight.sql` / `readback.sql` and the read-only check JSON.
+- **Next.** Gate 2 (database only, separate approval): fresh hosted-history check and preflight, version-preserving
+  apply, read-back and advisors. Gate 3 (merge + frontend) after that.
+
+---
+
 ## 2026-10-21 — Commissions insights Gate 3 approved; signed-in read-only preview acceptance passed
 
 Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. This authorizes

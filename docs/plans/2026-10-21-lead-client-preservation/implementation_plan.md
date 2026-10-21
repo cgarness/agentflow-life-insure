@@ -1,8 +1,17 @@
 # Lead → Client conversion: preserve every meaningful lead field (future conversions only)
 
-**Status: PLAN ONLY — awaiting Chris's explicit approval (Step 1 stop).** No application code, SQL, migration,
-test or backend command has been written or run for this feature. No Supabase MCP call was made (not even a
-read); production was not contacted. Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56` (PR #474 merged).
+**Status (2026-10-21): Gate 1 COMPLETE — built and verified locally; draft PR; stopped at Gate 2.** Chris approved
+Gate 1 (D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR) and added a mixed-version
+requirement (old browser sessions after the migration). Migration `20261021200000` is NOT applied to production; the
+frontend is NOT merged or released. The only production contact was the approved read-only check (§9.1). Evidence:
+`verification.md` beside this file. Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`.
+
+**Build amendment (no scope change):** replay protection is the preimage-digest guard (a second apply finds the
+post-images and refuses), so the function-only rollback can keep the protection trigger and a forward re-apply still
+works (`CREATE OR REPLACE TRIGGER`). The release scripts are `release/preflight.sql` and `release/readback.sql`
+(rehearsed); the version-preserving apply package for the SQL Editor route is generated at Gate 2.
+
+Original Step 1 status: plan only; no code, SQL, test or backend command before approval.
 
 Scope (from the request): future conversions only. No historical backfill, no data recovery, no change to existing
 client rows, no unrelated features or redesign. No merge, production migration or deployment without separate
@@ -86,8 +95,9 @@ edited.
 - Both functions to be replaced: owner `postgres`, `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`,
   `anon` cannot EXECUTE, `authenticated` can.
 - `public.normalize_us_state(text)` exists.
-- Replay: refuse if the guard trigger already exists. Any of the five new columns that already exists must have the
-  exact type, be nullable and have no default (supports re-apply after the function-only rollback in §8).
+- Replay: a second apply finds the post-image digests and refuses (preimage guard). Any of the five new columns that
+  already exists must have the exact type, be nullable and have no default (supports re-apply after the function-only
+  rollback in §8, which keeps the trigger).
 
 ### 3.2 Columns (all nullable, no default, no backfill)
 

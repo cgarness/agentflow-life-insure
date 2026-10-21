@@ -1,8 +1,10 @@
-## 2026-10-21 — PLAN, AWAITING APPROVAL: Lead → Client conversion preserves every meaningful lead field
+## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
 
-**Status:** Step 1 plan only. No code, SQL, test or backend command written or run; production not contacted.
-Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`. Future conversions only: no backfill, no change to
-existing clients, no merge, migration apply or deployment without separate approval.
+**Status:** Chris approved Gate 1 (D1–D9, file list, local build, tests, commits, pushes, one draft PR) with a
+mixed-version requirement. Built and verified locally on `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`; stopped at
+Gate 2. Migration `20261021200000` NOT applied; frontend NOT merged or released; the only production contact was one
+read-only check. Future conversions only: no backfill, no change to existing clients. Evidence:
+`docs/plans/2026-10-21-lead-client-preservation/verification.md`.
 
 **Contract, migration design, exact files, tests, rollout, rollback and decisions D1–D9:**
 `docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md`.
