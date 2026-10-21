@@ -1,3 +1,27 @@
+## 2026-10-21 — Commissions insights Gate 2 APPLIED and verified; PR #474 draft, Gate 3 pending
+
+Executed at approximately 05:32 UTC (October 20, 10:32 PM PDT) under Chris's exact database-only handoff approval,
+through the supported cloud Supabase SQL Editor, Primary database as `postgres`. Migration `20261021180000` applied
+once; source `0aebd014002341a92e04cba65fd1ffce6a68a1c9`, package source
+`8f368e8ecabbe379f80fbc2744b5b23cbff8430a`. Embedded migration: 34,179 bytes, SHA-256 `d390cc8e…5b3345`;
+generated package: 37,157 bytes, SHA-256 `3cee7e7c…3778`; full editor contents independently matched before Run.
+
+- Fresh history/preflight at 05:31–05:32 UTC: target absent, hosted head `20261020212000`, 20/20 passed. No reliance on
+  the earlier 04:50 snapshot. SQL Editor returned Success. No rows returned; no retry or replay.
+- Read-back 24/24; one exact stored migration text; goals RLS/grants/constraints and all 12 new functions verified;
+  all eight existing preimages unchanged; zero goals. All six commission-table fingerprints/write counters and all
+  16 existing catalog category digests/counts unchanged; only the expected additive objects appeared.
+- Both advisors unchanged: security 253, performance 452; zero added/removed findings, excluding observation times.
+- Files: `AGENT_RULES.md`, root `implementation_plan.md`, focused commissions-insights plan and `verification.md` §8,
+  `release/gate2-execution-evidence.json`, `release/gate2-sql-success.jpg`, and this newest-first entry. PR body status
+  updated separately. No application-code or migration edit; code test reruns are not claimed for documentation only.
+- No production goals, receipts, sales or test policies; no cleanup, backfill, previous-preview-conversion change,
+  Edge Function deployment, main push, merge or frontend release. PR #473 untouched. PR #474 stays draft.
+- Gate 2 complete. Ready for read-only preview acceptance; Gate 3 frontend approval remains separate. No blockers
+  to database completion; signed-in preview acceptance and frontend release are not claimed.
+
+---
+
 ## 2026-10-21 — Commissions insights Gate 2 (database only): approved, rehearsed, production preflight passed — NOT applied (no execution route)
 
 Chris approved Gate 2 only for source `0aebd014002341a92e04cba65fd1ffce6a68a1c9` and migration

@@ -1,4 +1,6 @@
-# Commissions insights — verification (local build and disposable databases only)
+# Commissions insights — verification (Gate 2 applied; frontend pending)
+
+**Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
 
 Approval: local implementation and disposable tests (task prompt, 2026-10-21). No production read beyond the read-only
 hosted migration list, no production write, migration, policy, merge or deployment. Synthetic data only.
@@ -225,3 +227,64 @@ once, unchanged, as one request as `postgres`; (4) run `release/readback.sql` (2
 `n_existing`/digest equal to the table above; additions exactly as rehearsed), the fingerprints (equal to the table
 above unless a real user wrote commission rows in between, which must be explained) and both advisors. Gate 3 stays
 separately gated.
+
+## 8. Gate 2 executed and verified — 2026-10-21 05:31–05:33 UTC (October 20 PDT)
+
+**Outcome: database release complete; frontend not released.** Chris's handoff explicitly authorized the supported
+cloud SQL Editor route for the already-approved package. Secure GitHub sign-in reached AGENTFLOW CRM, production
+project `jncvvsvckxhqgqvkppmj`; the SQL Editor used Primary database, Run as `postgres`.
+
+**Pinned material, regenerated unchanged.** Application/migration source
+`0aebd014002341a92e04cba65fd1ffce6a68a1c9`; release-package source
+`8f368e8ecabbe379f80fbc2744b5b23cbff8430a`. The migration from both commits was byte-identical. Running the pinned
+`release/build_apply.py` produced:
+
+| Material | Bytes | SHA-256 |
+|---|---:|---|
+| Embedded migration | 34,179 | `d390cc8e267a86fdc829da3a514d184b74f6d270d4199af1d57f2c9e465b3345` |
+| Generated apply package | 37,157 | `3cee7e7c047d620e74fe2f09adb8dc17d97e43fbd1557ebd4ac46028880b3778` |
+
+The editor's entire selected/copied contents matched the generated file exactly, including its length and package
+SHA-256, before execution. No SQL was reconstructed, edited, split or substituted.
+
+**Fresh preflight.** The initial history query found no target version. At 05:31:38 UTC, the hosted head was still
+`20261020212000`; all 20 `preflight.sql` checks passed, including all eight reused function preimages and the three
+prerequisite migration hashes. Fresh fingerprints, 16-category catalog and both advisors were captured in that same
+pre-apply round. A final history refresh at 05:32:07 UTC again found head `20261020212000` and zero target rows.
+These are fresh measurements, not the earlier 04:50 UTC snapshot.
+
+**Execution.** Submitted the exact package once as one SQL Editor request at approximately 05:32 UTC. The editor's
+ordinary destructive-query warning was confirmed for this exact approved package; it returned **Success. No rows
+returned**. All version, checksum, preimage, role, lock-timeout (1 s) and statement-timeout (60 s) guards remained.
+There was no retry, replay, timestamp substitution, blanket migration push, history repair, rollback or cleanup.
+
+**Post-apply verification, completed by 05:33:09 UTC.**
+- `readback.sql`: **24/24 passed**. Its three read-only result statements were retrieved separately so the connector
+  could return every result set: the 24 checks, 12 function-definition digests and six-table fingerprints. This did
+  not split or alter the apply package.
+- Exactly one stored history row: `20261021180000 / policy_commission_center_insights`, one statement, 34,179 bytes,
+  SHA-256 exactly as above, MD5 `428020c9b8264e85dc9fcff992c426de`; it is the hosted head. All prerequisite texts unchanged.
+- Goals: exact six columns and four constraints, RLS enabled, one owner-only policy, exact table/column grants,
+  `authenticated` only, no `anon`/`service_role` access, zero goal rows, no publication membership.
+- All 12 new function bodies, owner, SECURITY INVOKER, search path, volatility and EXECUTE grants match; all eight
+  existing preimages match.
+- All six table row counts, complete-row MD5s, write counters and UTC session time zone are identical before/after.
+  No commission business record was created or changed; ordinary activity was not undone.
+- All 16 existing catalog categories match in count and digest. Additions exactly match rehearsal: schemas +1,
+  relations +2, columns +6, constraints +4, indexes +1, functions +12, policies +1, types +2; all others +0.
+- Security advisors: **253 → 253**. Performance: **452 → 452**. Full finding details/metadata compared with
+  observation timestamps excluded: **zero added or removed findings**. Existing findings were not fixed in this
+  release. [Supabase advisor remediation reference](https://supabase.com/docs/guides/database/database-linter).
+
+Machine-readable results, per-category advisor counts and remediation links:
+[`release/gate2-execution-evidence.json`](release/gate2-execution-evidence.json).
+SQL Editor proof: [`release/gate2-sql-success.jpg`](release/gate2-sql-success.jpg).
+
+**Documentation and boundary.** Only release-status documentation/evidence changed: AGENT_RULES, root plan,
+focused plan, this verification record, WORK_LOG and the two evidence files. Existing history is preserved. No
+application or SQL code changed; no code-test rerun is claimed (this is the previously approved package execution).
+PR #474 stays draft on `claude/zen-clarke-wdwrrb`; PR #473 and the earlier preview conversion remain untouched.
+No `main` push, merge, frontend release, manual deployment, production goal, receipt, sale or test-policy write.
+
+**Next:** ready for read-only preview acceptance. Gate 3 requires Chris's separate frontend approval and final-head
+CI review before merge/release. Signed-in preview acceptance has not been performed in this Gate 2 execution.

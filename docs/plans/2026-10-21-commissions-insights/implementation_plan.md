@@ -1,10 +1,12 @@
 # Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
 
-**Status:** local build approved and done (draft PR #474). **Gate 2 (database only) approved 2026-10-21 for source
-`0aebd01` and the exact migration bytes; production preflight passed 20/20 but the migration is NOT applied** — this
-session had no SQL Editor or direct-connection route (§11, `verification.md` §7). Gate 3 (frontend) not approved.
-Branch `claude/zen-clarke-wdwrrb` from `main` `e762454`. No direct `main` push, merge, deployment or production test
-write.
+**Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
+
+**Status:** local build done; Gate 2 database release APPLIED and verified (2026-10-21 ~05:32 UTC, October 20 PDT)
+for source `0aebd01` and the exact migration bytes. Fresh preflight 20/20, read-back 24/24; all six fingerprints,
+existing catalog and both advisors unchanged (§11; `verification.md` §8). Gate 3 frontend release remains unapproved.
+Draft PR #474 stays on `claude/zen-clarke-wdwrrb` from `main` `e762454`. No direct `main` push, merge, frontend
+release or production test write.
 
 Public document: synthetic examples only; no compensation values, carrier products or private grid data (D1).
 

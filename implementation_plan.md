@@ -1,11 +1,12 @@
 ## 2026-10-21 — DRAFT PR #474 (not live): Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
 
-**Status:** local build done (draft PR #474, branch `claude/zen-clarke-wdwrrb` from `main` `e762454`). **Gate 2
-(database only) approved 2026-10-21** for source `0aebd01` and migration `20261021180000` (SHA-256 `d390cc8e…5b3345`,
-34,179 bytes; one owner-only goals table with RLS and grants, six helpers, six public functions): package built and
-rehearsed, production preflight 20/20, **not applied** — the approving session had no SQL Editor or direct-connection
-route (feature plan §11; `verification.md` §7). Gate 3 (frontend release) needs Chris's separate approval after Gate 2.
-No `main` push, merge, deployment or production test write.
+**Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `docs/plans/2026-10-21-commissions-insights/verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
+
+**Status:** Gate 2 database release applied and verified at approximately 05:32 UTC on 2026-10-21 under the exact
+approval for source `0aebd01` and migration `20261021180000` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes). Fresh
+preflight 20/20 and read-back 24/24 passed; fingerprints, existing catalog and both advisors unchanged. Draft PR #474
+stays on `claude/zen-clarke-wdwrrb`; Gate 3 frontend release needs Chris's separate approval. No merge, frontend
+release or production test write. Feature plan §11; `verification.md` §8.
 
 **Contract, metric definitions, migration scope, exact files and tests:**
 `docs/plans/2026-10-21-commissions-insights/implementation_plan.md`.

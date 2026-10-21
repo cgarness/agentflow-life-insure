@@ -893,12 +893,13 @@ evidence: `verification.md` beside it.
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
 
-### Commissions insights, monthly goals and Hide amounts (PROPOSED 2026-10-21 — draft PR #474; Gate 2 approved, preflight passed, migration NOT applied; NOT live)
+### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; draft PR #474; frontend NOT released)
 
-Proposed amendment for review with the draft PR. Not in force in production until migration `20261021180000` is
-applied (Gate 2: approved for the exact bytes, SHA-256 `d390cc8e…5b3345`; production preflight 20/20; not yet run for
-lack of an SQL Editor or direct-connection route in the approving session) and the frontend (Gate 3) is separately
-approved and released. Contract:
+Gate 2 applied once through the authorized cloud SQL Editor as `postgres` at approximately 05:32 UTC on
+2026-10-21 (October 20 PDT): migration `20261021180000`, SHA-256 `d390cc8e…5b3345`, 34,179 bytes, exact stored
+text verified. Never edit, rename or replay it. Fresh preflight 20/20, read-back 24/24; six-table fingerprints, existing
+catalog and both advisors unchanged. The database contract is applied; the frontend behavior below remains proposed
+until Gate 3 is separately approved and released. Execution evidence: focused `verification.md` §8. Contract:
 `docs/plans/2026-10-21-commissions-insights/implementation_plan.md`; evidence: `verification.md` beside it.
 
 - **Breakdowns are definitions, not charts.** Policies = distinct eligible `policy_id`s by the sale's `wins.sold_date`

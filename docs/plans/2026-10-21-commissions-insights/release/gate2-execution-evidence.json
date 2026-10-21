@@ -1,0 +1,838 @@
+{
+  "project": "jncvvsvckxhqgqvkppmj",
+  "approved_source": "0aebd014002341a92e04cba65fd1ffce6a68a1c9",
+  "package_source": "8f368e8ecabbe379f80fbc2744b5b23cbff8430a",
+  "migration_version": "20261021180000",
+  "package_bytes": 37157,
+  "package_sha256": "3cee7e7c047d620e74fe2f09adb8dc17d97e43fbd1557ebd4ac46028880b3778",
+  "before": {
+    "history": [
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261020212000",
+        "name": "policy_commission_center_reads"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261020192723",
+        "name": "uv_personal_brand"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261020040000",
+        "name": "policy_commission_expected_windows"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019170000",
+        "name": "policy_commission_tracking"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019035819",
+        "name": "uv_profile_verification_wizard"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019021934",
+        "name": "uv_profile_save_driven"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019014028",
+        "name": "uv_agency_profile_activation"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019005810",
+        "name": "uv_hosted_pilot_organizations"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261019001339",
+        "name": "uv_profile_exclusions"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261018064601",
+        "name": "uv_profile_sync"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261018060615",
+        "name": "seal_list_unrestricted_users"
+      },
+      {
+        "current_user": "postgres",
+        "captured_at": "2026-10-21 05:31:38.130353+00",
+        "version": "20261017043757",
+        "name": "performance_wins_sold_date_index"
+      }
+    ],
+    "preflight": [
+      {
+        "check_name": "server_version",
+        "value": "17.6",
+        "ok": true
+      },
+      {
+        "check_name": "prerequisites_recorded",
+        "value": "20261019170000, 20261020040000, 20261020212000",
+        "ok": true
+      },
+      {
+        "check_name": "version_free_and_sorts_last",
+        "value": "20261020212000",
+        "ok": true
+      },
+      {
+        "check_name": "applied_20261019170000_unchanged",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "applied_20261020040000_unchanged",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "applied_20261020212000_unchanged",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "prerequisite_objects",
+        "value": "reporting schema, policy_fact, overview read, organizations",
+        "ok": true
+      },
+      {
+        "check_name": "insights_schema_and_goal_table_absent",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "new_functions_absent",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_authz.actor_org()",
+        "value": "29be135fe6edfb5082838eeb22d48790",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_authz.access(uuid)",
+        "value": "a6da4418b7010c609d5be650615ae643",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.viewer()",
+        "value": "b6cfc70bebf0a007f303d486e81748bf",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.period(text,date,date,date,integer)",
+        "value": "bc9273191bc4ea2b519306cfa069c9d3",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.installments(uuid,uuid,date,uuid[])",
+        "value": "b661f4fd5fc186849c0834c47f446605",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.policies(uuid,uuid,uuid)",
+        "value": "58e2a95cb1975631d9e1daaafd1599c5",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.contact_json(policy_commission_reporting.policy_fact)",
+        "value": "d7121baae9f0d8ace15829cd0ad32eab",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.iso_or_null(text)",
+        "value": "4425715c96469e3fc43ff3bdde081045",
+        "ok": true
+      },
+      {
+        "check_name": "rls_on_commission_tables",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "no_publication_for_all_tables",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "no_lock_waits",
+        "value": null,
+        "ok": true
+      }
+    ],
+    "fingerprints": [
+      {
+        "table_name": "policy_commission_captures",
+        "row_count": 1,
+        "content_md5": "348550cceac10ab5a980b367160fca25",
+        "n_tup_ins": 1,
+        "n_tup_upd": 1,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_estimates",
+        "row_count": 9,
+        "content_md5": "c3cddcc4d44342dd156e06f089c42935",
+        "n_tup_ins": 9,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_events",
+        "row_count": 9,
+        "content_md5": "87024261631f70cb26a057a389103b93",
+        "n_tup_ins": 9,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_handoffs",
+        "row_count": 2,
+        "content_md5": "9e38319f812467a0118080826ba5c1e0",
+        "n_tup_ins": 2,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_installments",
+        "row_count": 36,
+        "content_md5": "827c12507ddb415fc128de6bf98e1543",
+        "n_tup_ins": 36,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_receipts",
+        "row_count": 0,
+        "content_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "n_tup_ins": 0,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      }
+    ],
+    "catalog": [
+      {
+        "category": "columns",
+        "n_all": 4474,
+        "n_existing": 4474,
+        "digest_existing": "2d799d008a38b6aa07a6f07b267ffc06"
+      },
+      {
+        "category": "constraints",
+        "n_all": 1019,
+        "n_existing": 1019,
+        "digest_existing": "4be6a5936b7e2612bbba1763e8b21387"
+      },
+      {
+        "category": "default_acls",
+        "n_all": 27,
+        "n_existing": 27,
+        "digest_existing": "6a451785b4d138cfe00b732c8daf282f"
+      },
+      {
+        "category": "event_triggers",
+        "n_all": 6,
+        "n_existing": 6,
+        "digest_existing": "d2c0bfc4161f02490033a5ca422a9175"
+      },
+      {
+        "category": "extensions",
+        "n_all": 10,
+        "n_existing": 10,
+        "digest_existing": "e4ff5635f74a2998aa11b007639272db"
+      },
+      {
+        "category": "functions",
+        "n_all": 3958,
+        "n_existing": 3958,
+        "digest_existing": "b132b91aaa43a0fdb6f609c8a2a1a272"
+      },
+      {
+        "category": "indexes",
+        "n_all": 1029,
+        "n_existing": 1029,
+        "digest_existing": "d56f52788cd6576cde16f199b4cf3cf5"
+      },
+      {
+        "category": "memberships",
+        "n_all": 26,
+        "n_existing": 26,
+        "digest_existing": "9102e3c468663eb2e5303c36c6276064"
+      },
+      {
+        "category": "policies",
+        "n_all": 376,
+        "n_existing": 376,
+        "digest_existing": "e517a5b0d998fedf0c8bb77f1493f306"
+      },
+      {
+        "category": "publication_tables",
+        "n_all": 16,
+        "n_existing": 16,
+        "digest_existing": "96931c8f246c3cf205c2c987d8e1c173"
+      },
+      {
+        "category": "publications",
+        "n_all": 2,
+        "n_existing": 2,
+        "digest_existing": "9584c331d02d244d51005e787507120c"
+      },
+      {
+        "category": "relations",
+        "n_all": 1678,
+        "n_existing": 1678,
+        "digest_existing": "73e1fb9bbc45fcf793981cfef7157812"
+      },
+      {
+        "category": "roles",
+        "n_all": 34,
+        "n_existing": 34,
+        "digest_existing": "ecedfab3a470929e5a00d638426753ba"
+      },
+      {
+        "category": "schemas",
+        "n_all": 20,
+        "n_existing": 20,
+        "digest_existing": "6b7645e8628ad725328311f32248fb11"
+      },
+      {
+        "category": "triggers",
+        "n_all": 150,
+        "n_existing": 150,
+        "digest_existing": "ff5c408e47e40085153b581a053d1fb6"
+      },
+      {
+        "category": "types",
+        "n_all": 1075,
+        "n_existing": 1075,
+        "digest_existing": "d1abad017ca6b72641bb2fb9a576376c"
+      }
+    ]
+  },
+  "after": {
+    "history": [
+      {
+        "checked_at": "2026-10-21 05:33:09.313388+00",
+        "version": "20261021180000",
+        "name": "policy_commission_center_insights",
+        "statement_count": 1,
+        "bytes": 34179,
+        "sha256": "d390cc8e267a86fdc829da3a514d184b74f6d270d4199af1d57f2c9e465b3345"
+      }
+    ],
+    "readback": [
+      {
+        "check_name": "history_row",
+        "value": "20261021180000 / policy_commission_center_insights",
+        "ok": true
+      },
+      {
+        "check_name": "recorded_last",
+        "value": "20261021180000",
+        "ok": true
+      },
+      {
+        "check_name": "prerequisites_unchanged",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "goal_table",
+        "value": "owner postgres; RLS on, not forced",
+        "ok": true
+      },
+      {
+        "check_name": "goal_columns",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "goal_constraints",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "goal_owner_policy_only",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "goal_table_grants",
+        "value": "authenticated:DELETE,authenticated:INSERT,authenticated:SELECT",
+        "ok": true
+      },
+      {
+        "check_name": "goal_column_grants",
+        "value": "target_cents=authenticated:UPDATE,updated_at=authenticated:UPDATE",
+        "ok": true
+      },
+      {
+        "check_name": "no_goal_rows",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "insights_schema",
+        "value": "owner postgres; USAGE authenticated only",
+        "ok": true
+      },
+      {
+        "check_name": "twelve_functions_exact_bodies",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "invoker_owner_search_path_volatility",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "execute_authenticated_only",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_authz.actor_org()",
+        "value": "29be135fe6edfb5082838eeb22d48790",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_authz.access(uuid)",
+        "value": "a6da4418b7010c609d5be650615ae643",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.viewer()",
+        "value": "b6cfc70bebf0a007f303d486e81748bf",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.period(text,date,date,date,integer)",
+        "value": "bc9273191bc4ea2b519306cfa069c9d3",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.installments(uuid,uuid,date,uuid[])",
+        "value": "b661f4fd5fc186849c0834c47f446605",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.policies(uuid,uuid,uuid)",
+        "value": "58e2a95cb1975631d9e1daaafd1599c5",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.contact_json(policy_commission_reporting.policy_fact)",
+        "value": "d7121baae9f0d8ace15829cd0ad32eab",
+        "ok": true
+      },
+      {
+        "check_name": "preimage policy_commission_reporting.iso_or_null(text)",
+        "value": "4425715c96469e3fc43ff3bdde081045",
+        "ok": true
+      },
+      {
+        "check_name": "rls_on_commission_tables",
+        "value": null,
+        "ok": true
+      },
+      {
+        "check_name": "goal_table_not_published",
+        "value": null,
+        "ok": true
+      }
+    ],
+    "functions": [
+      {
+        "function": "clear_my_commission_goal(date)",
+        "definition_md5": "f98bf14a640d07d5ff0c5f1f54cbdaf1"
+      },
+      {
+        "function": "get_my_commission_breakdown(text,date,date)",
+        "definition_md5": "50fa20f32cd5e3b9ae5ee07ec3ed01f6"
+      },
+      {
+        "function": "get_my_commission_goal(date)",
+        "definition_md5": "2847572ea5b6d3403291b56f821604f0"
+      },
+      {
+        "function": "get_my_commission_policy_list(text,text,boolean,text,text,date,date,integer,integer)",
+        "definition_md5": "72ca47f09b30ed85e86b000db0fb4b6c"
+      },
+      {
+        "function": "get_my_commission_receipt_list(text,date,date,boolean,text,boolean,integer,integer)",
+        "definition_md5": "0b86b38252863aaa712c0fe9b8a0a0c4"
+      },
+      {
+        "function": "policy_commission_insights.carrier_key(text)",
+        "definition_md5": "8b9b447dcacc4a258a95dfda79b82a3f"
+      },
+      {
+        "function": "policy_commission_insights.category(text)",
+        "definition_md5": "03a593df96696f05d886a476ad1cd560"
+      },
+      {
+        "function": "policy_commission_insights.comparison(date,date,date)",
+        "definition_md5": "10c94b5dfae4f844b06f80303e369de0"
+      },
+      {
+        "function": "policy_commission_insights.goal_month(date)",
+        "definition_md5": "2468aeec4cb6bfc9456b1a0eb275b0ae"
+      },
+      {
+        "function": "policy_commission_insights.policy_carrier(policy_commission_reporting.policy_fact)",
+        "definition_md5": "5174c5e9ad141f6f52cab428f1d045e5"
+      },
+      {
+        "function": "policy_commission_insights.policy_category(policy_commission_reporting.policy_fact)",
+        "definition_md5": "516b085b9f50ce9593b862107696e84f"
+      },
+      {
+        "function": "set_my_commission_goal(date,bigint)",
+        "definition_md5": "098c8d884fa87dfb19c50003ff8c6130"
+      }
+    ],
+    "fingerprints": [
+      {
+        "table_name": "policy_commission_captures",
+        "row_count": 1,
+        "content_md5": "348550cceac10ab5a980b367160fca25",
+        "n_tup_ins": 1,
+        "n_tup_upd": 1,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_estimates",
+        "row_count": 9,
+        "content_md5": "c3cddcc4d44342dd156e06f089c42935",
+        "n_tup_ins": 9,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_events",
+        "row_count": 9,
+        "content_md5": "87024261631f70cb26a057a389103b93",
+        "n_tup_ins": 9,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_handoffs",
+        "row_count": 2,
+        "content_md5": "9e38319f812467a0118080826ba5c1e0",
+        "n_tup_ins": 2,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_installments",
+        "row_count": 36,
+        "content_md5": "827c12507ddb415fc128de6bf98e1543",
+        "n_tup_ins": 36,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      },
+      {
+        "table_name": "policy_commission_receipts",
+        "row_count": 0,
+        "content_md5": "d41d8cd98f00b204e9800998ecf8427e",
+        "n_tup_ins": 0,
+        "n_tup_upd": 0,
+        "n_tup_del": 0,
+        "session_time_zone": "UTC"
+      }
+    ],
+    "catalog": [
+      {
+        "category": "columns",
+        "n_all": 4480,
+        "n_existing": 4474,
+        "digest_existing": "2d799d008a38b6aa07a6f07b267ffc06"
+      },
+      {
+        "category": "constraints",
+        "n_all": 1023,
+        "n_existing": 1019,
+        "digest_existing": "4be6a5936b7e2612bbba1763e8b21387"
+      },
+      {
+        "category": "default_acls",
+        "n_all": 27,
+        "n_existing": 27,
+        "digest_existing": "6a451785b4d138cfe00b732c8daf282f"
+      },
+      {
+        "category": "event_triggers",
+        "n_all": 6,
+        "n_existing": 6,
+        "digest_existing": "d2c0bfc4161f02490033a5ca422a9175"
+      },
+      {
+        "category": "extensions",
+        "n_all": 10,
+        "n_existing": 10,
+        "digest_existing": "e4ff5635f74a2998aa11b007639272db"
+      },
+      {
+        "category": "functions",
+        "n_all": 3970,
+        "n_existing": 3958,
+        "digest_existing": "b132b91aaa43a0fdb6f609c8a2a1a272"
+      },
+      {
+        "category": "indexes",
+        "n_all": 1030,
+        "n_existing": 1029,
+        "digest_existing": "d56f52788cd6576cde16f199b4cf3cf5"
+      },
+      {
+        "category": "memberships",
+        "n_all": 26,
+        "n_existing": 26,
+        "digest_existing": "9102e3c468663eb2e5303c36c6276064"
+      },
+      {
+        "category": "policies",
+        "n_all": 377,
+        "n_existing": 376,
+        "digest_existing": "e517a5b0d998fedf0c8bb77f1493f306"
+      },
+      {
+        "category": "publication_tables",
+        "n_all": 16,
+        "n_existing": 16,
+        "digest_existing": "96931c8f246c3cf205c2c987d8e1c173"
+      },
+      {
+        "category": "publications",
+        "n_all": 2,
+        "n_existing": 2,
+        "digest_existing": "9584c331d02d244d51005e787507120c"
+      },
+      {
+        "category": "relations",
+        "n_all": 1680,
+        "n_existing": 1678,
+        "digest_existing": "73e1fb9bbc45fcf793981cfef7157812"
+      },
+      {
+        "category": "roles",
+        "n_all": 34,
+        "n_existing": 34,
+        "digest_existing": "ecedfab3a470929e5a00d638426753ba"
+      },
+      {
+        "category": "schemas",
+        "n_all": 21,
+        "n_existing": 20,
+        "digest_existing": "6b7645e8628ad725328311f32248fb11"
+      },
+      {
+        "category": "triggers",
+        "n_all": 150,
+        "n_existing": 150,
+        "digest_existing": "ff5c408e47e40085153b581a053d1fb6"
+      },
+      {
+        "category": "types",
+        "n_all": 1077,
+        "n_existing": 1075,
+        "digest_existing": "d1abad017ca6b72641bb2fb9a576376c"
+      }
+    ]
+  },
+  "advisors": {
+    "security": {
+      "before": [
+        {
+          "name": "rls_enabled_no_policy",
+          "count": 30,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "function_search_path_mutable",
+          "count": 22,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+        },
+        {
+          "name": "rls_disabled_in_public",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public"
+        },
+        {
+          "name": "extension_in_public",
+          "count": 3,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "count": 57,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "count": 138,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ],
+      "after": [
+        {
+          "name": "rls_enabled_no_policy",
+          "count": 30,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "function_search_path_mutable",
+          "count": 22,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+        },
+        {
+          "name": "rls_disabled_in_public",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public"
+        },
+        {
+          "name": "extension_in_public",
+          "count": 3,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "count": 57,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "count": 138,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ],
+      "added_findings": 0,
+      "removed_findings": 0,
+      "comparison": "Full finding detail and metadata compared, excluding observed_at timestamps."
+    },
+    "performance": {
+      "before": [
+        {
+          "name": "unindexed_foreign_keys",
+          "count": 81,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        },
+        {
+          "name": "auth_rls_initplan",
+          "count": 112,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan"
+        },
+        {
+          "name": "unused_index",
+          "count": 141,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index"
+        },
+        {
+          "name": "multiple_permissive_policies",
+          "count": 110,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies"
+        },
+        {
+          "name": "duplicate_index",
+          "count": 6,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index"
+        },
+        {
+          "name": "table_bloat",
+          "count": 1,
+          "remediation": "Consider running vacuum full (WARNING: incurs downtime) and tweaking autovacuum settings to reduce bloat."
+        },
+        {
+          "name": "auth_db_connections_absolute",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/deployment/going-into-prod"
+        }
+      ],
+      "after": [
+        {
+          "name": "unindexed_foreign_keys",
+          "count": 81,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        },
+        {
+          "name": "auth_rls_initplan",
+          "count": 112,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan"
+        },
+        {
+          "name": "unused_index",
+          "count": 141,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index"
+        },
+        {
+          "name": "multiple_permissive_policies",
+          "count": 110,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies"
+        },
+        {
+          "name": "duplicate_index",
+          "count": 6,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index"
+        },
+        {
+          "name": "table_bloat",
+          "count": 1,
+          "remediation": "Consider running vacuum full (WARNING: incurs downtime) and tweaking autovacuum settings to reduce bloat."
+        },
+        {
+          "name": "auth_db_connections_absolute",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/deployment/going-into-prod"
+        }
+      ],
+      "added_findings": 0,
+      "removed_findings": 0,
+      "comparison": "Full finding detail and metadata compared, excluding observed_at timestamps."
+    }
+  }
+}
