@@ -1841,13 +1841,16 @@ export type Database = {
       }
       clients: {
         Row: {
+          age: number | null
           assigned_agent_id: string | null
           beneficiary_name: string | null
           beneficiary_phone: string | null
           beneficiary_relationship: string | null
+          best_time_to_call: string | null
           carrier: string | null
           created_at: string
           custom_fields: Json | null
+          date_of_birth: string | null
           draft_date: string | null
           effective_date: string | null
           email: string
@@ -1856,6 +1859,7 @@ export type Database = {
           id: string
           issue_date: string | null
           last_name: string
+          lead_conversion: Json | null
           lead_id: string | null
           notes: string | null
           organization_id: string | null
@@ -1866,17 +1870,21 @@ export type Database = {
           premium: number | null
           premium_amount: number | null
           sold_date: string | null
+          spouse_info: Json | null
           state: string | null
           updated_at: string
         }
         Insert: {
+          age?: number | null
           assigned_agent_id?: string | null
           beneficiary_name?: string | null
           beneficiary_phone?: string | null
           beneficiary_relationship?: string | null
+          best_time_to_call?: string | null
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          date_of_birth?: string | null
           draft_date?: string | null
           effective_date?: string | null
           email?: string
@@ -1885,6 +1893,7 @@ export type Database = {
           id?: string
           issue_date?: string | null
           last_name?: string
+          lead_conversion?: Json | null
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
@@ -1895,17 +1904,21 @@ export type Database = {
           premium?: number | null
           premium_amount?: number | null
           sold_date?: string | null
+          spouse_info?: Json | null
           state?: string | null
           updated_at?: string
         }
         Update: {
+          age?: number | null
           assigned_agent_id?: string | null
           beneficiary_name?: string | null
           beneficiary_phone?: string | null
           beneficiary_relationship?: string | null
+          best_time_to_call?: string | null
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          date_of_birth?: string | null
           draft_date?: string | null
           effective_date?: string | null
           email?: string
@@ -1914,6 +1927,7 @@ export type Database = {
           id?: string
           issue_date?: string | null
           last_name?: string
+          lead_conversion?: Json | null
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
@@ -1924,6 +1938,7 @@ export type Database = {
           premium?: number | null
           premium_amount?: number | null
           sold_date?: string | null
+          spouse_info?: Json | null
           state?: string | null
           updated_at?: string
         }
