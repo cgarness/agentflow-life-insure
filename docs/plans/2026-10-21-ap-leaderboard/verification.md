@@ -239,3 +239,98 @@ artifact `leaderboard-visual-evidence-39634527078` (32 files) uploaded.
 The documentation commit that adds this section changes only `verification.md` and `WORK_LOG.md`. Its own check
 results on the final head are reported on PR #475 and in the final hand-off, not here, because writing them here
 would change that head again.
+
+---
+
+## §10. Final UI polish — "Annual Premium" labels and two-cell TV totals (plan §14; 2026-10-21)
+
+**Tree:** merge `3161c4b` (`main` `40a298c`, PR #476, merged into the branch) plus commit `8abb0a2`. Frontend and
+test files only; no Supabase, migration, RPC, RLS, telephony, workflow, `entry.tsx` or CSV change.
+
+**What changed on screen.**
+- One shared label "Annual Premium" everywhere "AP" / "Annualized Premium" showed:
+  - On the page: the subtitle "Ranked by Annual Premium", podium cards, Your Performance, and the Full Rankings
+    header (the table's accessible name is "Full rankings by Annual Premium").
+  - In TV Mode: the podium, the ranks 4–10 header and its "Live Ranking · Annual Premium" badge, the ranks 11+
+    header, and the totals strip.
+- The `title` / `aria-label` attributes that only expanded "AP" were removed.
+- TV's Active-Agent Totals shows two equal cells, Annual Premium (highlighted) then Policies; the Calls total is
+  gone. Calls remain on every podium card (page and TV), in Full Rankings and in TV ranks 4–10.
+
+**Static and build checks (final tree).**
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| App check `tsc --noEmit -p tsconfig.app.json` | 84 errors, the identical set to `main` `40a298c` (re-measured in a separate worktree; same count as `51b0e56`) |
+| ESLint on the 13 changed source, test and harness files | exit 0, no errors or warnings |
+| `npm run build` | exit 0 (the usual chunk-size advisory only) |
+| `git diff --check` | clean |
+
+**Tests.**
+- Targeted Vitest on the Leaderboard page, `src/components/leaderboard` and `src/components/dashboard`: 20 files,
+  397 passed, 12 skipped (the existing time-zone-gated `localCalendar` cases).
+- Wider subset (those plus `src/hooks` and `src/lib/__tests__`): 188 files, 3,361 passed, 20 skipped, 1 failed, 6
+  files failing. The same subset on `main` `40a298c` has exactly the same failing files:
+  - `recordingRetentionVoicemail`: its "byte-identical to deployed v29" test.
+  - Five suites that fail at import: `dialerCampaignPresenceHook`, `contactName`, `leadDisposition`, `contactScope`
+    and `userLocalDayBounds`.
+  - The branch's two extra files (+33 tests) are this PR's Leaderboard suites, all passing.
+- New or changed assertions:
+  - The page subtitle, and no "AP" / "Annualized" text anywhere on the page.
+  - The table's accessible name and its five column names.
+  - The podium label order: Annual Premium, then Policies, then Calls.
+  - The Your Performance label above the agent's premium.
+  - On TV: the header, badge and ranks 11+ label; totals of exactly ["Annual Premium", "Policies"] ($7,920.00 and
+    78) with no Calls; and no "AP" / "Annualized" text anywhere.
+
+**Playwright TV visual harness** (`verify.mjs`, fresh Vite on 127.0.0.1:4179 as CI runs it; Playwright 1.56.1,
+Chromium 1194): exit 0, the same 15 PASS lines as §9, 31 evidence files.
+
+New checks:
+- At every TV measurement:
+  - The two totals cells sit side by side on one row with equal widths and together fill the strip's row.
+  - Exactly four labels plus one per podium card read "Annual Premium", and none is clipped. A label counts as
+    clipped if it is wider than its own box, cut off by an ancestor that hides overflow, or pushed sideways behind a
+    scroll container.
+  - No "AP" / "Annualized" text.
+- On the normal view at 1440 and 390 px:
+  - The single "Annual Premium" header is unclipped.
+  - No Full Rankings column is hidden behind the table's sideways scroll.
+  - The accessible name is "Full rankings by Annual Premium".
+
+**Negative controls.** Each mutation was run against a restarted Vite, and the source was restored afterwards. The
+clean rerun passed.
+
+| Mutation | Result |
+|---|---|
+| M1: totals grid back to `grid-cols-3` | fails: "1366x768: totals cells side by side with equal widths" |
+| M2: Calls cell restored | fails: totals never match the expected two values (timeout) |
+| M3: TV podium label squeezed into 40 px | fails: "clipped Annual Premium labels" (121 > 40) |
+| M4: label reverted to "AP" | fails: "Annual Premium labels []" |
+| M5: Full Rankings header forced onto one line | fails: "normal-390: clipped Annual Premium header" |
+
+**Full-page fixture** (session scratch harness rendering the real `Leaderboard` page and `TVMode` with fixture data;
+never committed):
+- Screenshots `screenshots/polish-page-{dark,light}-{1440,1024,390}.png` and `polish-tv-dark-{1920,1280}.png`.
+- Each capture: 0 px horizontal overflow, no clipped label, and no "AP" / "Annualized" text. The Full Rankings
+  header is one line at 1440 px (42 px tall) and two lines at 1024 and 390 px (59 px).
+- TV totals cells measure 543 px each at 1920 and 1280.
+- Width sweep, 320–1920 px in 16 px steps, dark and light (202 page loads): no label clipped at any width.
+  - At 320–368 px the table scrolls sideways by 64 → 16 px. That is the table's existing 21rem minimum: the head
+    before this change (`3161c4b`) measures exactly the same.
+- The first capture's single console 404 is the scratch harness's missing `favicon.ico`.
+- **Found and fixed during verification:** before the fix, the Full Rankings header was clipped at 768, 1024 and
+  1100 px (plan §14 deviation).
+- The earlier `branch-*` screenshots (§4) predate this polish and still show "AP" and three totals cells.
+
+**Unchanged (by diff):**
+- `compareAgentsByAp` / `rankAgents` and the movement fingerprint.
+- `displayedAp` and the "—" / `*` rules.
+- `formatPremiumSold` and the premium values.
+- `leaderboardExport.ts`, so the CSV and its "Annualized Premium USD" header are unchanged.
+- The Dashboard widget.
+- `entry.tsx`, `stubs.ts`, `vite.config.ts`, the workflows and `AGENT_RULES.md`.
+
+**GitHub checks:** on the pushed head, reported on PR #475 and in the hand-off (not written here, for the reason
+given in §9).

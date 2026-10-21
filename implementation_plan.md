@@ -1,13 +1,16 @@
-## 2026-10-21 — PLAN, AWAITING APPROVAL: PR #475 final UI polish ("Annual Premium" labels; TV totals without Calls)
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final UI polish ("Annual Premium" labels; TV totals without Calls)
 
-**Status:** plan only on `claude/sweet-cannon-jve7ak` (`ccddd27`). No application, test or harness file changed; no
-Supabase or Vercel command run. Scope, inventory and exact files are in
-`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §14.
+**Status:** Chris approved the exact plan on 2026-10-21. `main` `40a298c` (PR #476) was merged into
+`claude/sweet-cannon-jve7ak` (`3161c4b`), then commit `8abb0a2` implemented it. No Supabase or Vercel command run.
+Details are in `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §14 and `verification.md` §10.
 
-**Summary:** every visible "AP" label on the Leaderboard and TV Mode becomes "Annual Premium". There is one shared
-label, the subtitle reads "Ranked by Annual Premium", and the Full Rankings header may wrap on phones. TV's
-Active-Agent Totals strip shows only Annual Premium and Policies in two equal columns. Calls stay on the podium cards
-and in both ranking tables. No calculation, ranking, CSV, data, RPC, RLS or telephony change.
+**Summary:** every visible "AP" / "Annualized Premium" label on the Leaderboard and TV Mode now reads "Annual
+Premium". That includes the subtitle "Ranked by Annual Premium". TV's Active-Agent Totals strip shows only Annual
+Premium and Policies in two equal columns. Calls stay on the podium cards and in both ranking tables. No
+calculation, ranking, CSV, data, RPC, RLS or telephony change.
+
+One deviation, for mobile fit: the Full Rankings header wraps wherever its column is narrower than the label (also
+at 768–1100 px), not only below `sm`.
 
 ---
 

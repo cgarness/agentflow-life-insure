@@ -1,3 +1,41 @@
+## 2026-10-21 — PR #475 final UI polish: "Annual Premium" labels; TV totals show Annual Premium and Policies (approved, implemented; NOT merged, NOT released)
+
+Chris approved the exact plan (focused plan §14).
+- Every visible "AP" / "Annualized Premium" label, TV Mode included, now reads "Annual Premium". The subtitle reads
+  "Ranked by Annual Premium".
+- TV's top totals strip drops only Calls and uses a two-column layout.
+- No other UI, navigation or behavior change. Calculations and the CSV export are unchanged.
+
+- **Base:** `main` moved to `40a298c` (PR #476). It was merged in with a merge commit (`3161c4b`); the
+  newest-first `WORK_LOG.md` and root plan insertions conflicted, and every entry from both sides was kept.
+- **Change (`8abb0a2`):**
+  - One shared `ANNUAL_PREMIUM_LABEL`, used at 8 render sites.
+  - The `title` / `aria-label` attributes that only expanded "AP" were dropped. The table's accessible name is
+    "Full rankings by Annual Premium".
+  - The TV totals grid is `grid-cols-2`, with no Calls total.
+  - Calls stay on every podium card, in Full Rankings and in TV ranks 4–10.
+  - 9 app files, 3 test files and `verify.mjs`.
+- **Deviation (mobile fit):** the browser measurement found the Full Rankings header clipped at 768, 1024 and
+  1100 px with the planned "one line from `sm`". It now wraps wherever its column is narrower than the label, and
+  stays on one line at 1440. No widths changed.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 397 passed (12 skipped, time-zone gated).
+  - Wider subset: the same 6 pre-existing failing files as `main`.
+  - ESLint on 13 files: exit 0. Build: exit 0. `git diff --check`: clean.
+  - Playwright harness on a fresh Vite: 15/15 PASS. New checks: two equal side-by-side totals cells that fill
+    the row, and no clipped "Annual Premium" label at any TV viewport or on the 390 px page. Five mutations each
+    fail it.
+  - Full-page fixture sweep, 320–1920 px, dark and light: no clipped label. The 320–368 px table scroll is the
+    existing 21rem minimum, identical before this change.
+  - Evidence: `verification.md` §10 and `screenshots/polish-*.png`.
+- **No** Supabase command, migration, RPC/RLS/telephony change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final review. Merge and frontend release
+  need his separate approval.
+
+---
+
 ## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
 
 Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256

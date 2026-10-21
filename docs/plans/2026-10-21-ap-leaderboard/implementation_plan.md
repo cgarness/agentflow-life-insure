@@ -374,7 +374,7 @@ retired checks; updating it needs Chris's approval (flagged in `verification.md`
 
 ---
 
-## §14. Amendment — final UI polish: "Annual Premium" labels and a two-cell TV totals strip (PLAN, AWAITING CHRIS'S APPROVAL)
+## §14. Amendment — final UI polish: "Annual Premium" labels and a two-cell TV totals strip (APPROVED and IMPLEMENTED 2026-10-21)
 
 **Request (Chris, 2026-10-21):** exactly two changes on PR #475.
 1. Every visible "AP" label on the Leaderboard and TV Mode becomes **"Annual Premium"**. The shared display labels
@@ -443,4 +443,20 @@ ESLint on touched files, `npm run build` and `git diff --check`. Then the real P
 (fresh Vite, as CI runs it), fixture screenshots of the page at 1440/1024/390 (dark and light) and TV at 1920/1280,
 and every PR #475 check green on the final head. No Supabase command, migration, merge or deployment.
 
-**Status:** plan only; no application, test or harness file edited. Waiting for Chris's explicit approval.
+**Approval (Chris, 2026-10-21):** "Approved. Please proceed with the exact plan": visible "AP" and "Annualized
+Premium" labels become "Annual Premium", TV Mode included; annualized-premium calculations and the CSV export are
+unchanged; only the Calls cell leaves TV's top totals strip (Calls stay on the cards and in the tables); the planned
+two-column TV layout; no other UI, navigation or behavior change; the listed verification before the PR update.
+
+**Implementation record.**
+- `main` moved to `40a298c` (PR #476) before implementation. It was merged into the branch first with a merge commit
+  (`3161c4b`); only the newest-first `WORK_LOG.md` and root `implementation_plan.md` entries conflicted, and both
+  sides' entries were kept.
+- Commit `8abb0a2` changes exactly the nine application files, three test files and `verify.mjs` listed above.
+- **One deviation, mobile fit only.** The plan said the Full Rankings header would wrap below `sm` and stay on one
+  line from `sm` up. The browser measurement showed the page's table column is narrower than the one-line label
+  (119 px) at some widths above `sm`: 106 px at 768, 104 px at 1024 and 116 px at 1100, where it was clipped. The header therefore wraps
+  wherever its column is narrower than the label and stays on one line where it fits (42 px tall at 1440, two lines
+  at 1024 and 390). No column, track or cell width changed.
+- Evidence screenshots `screenshots/polish-*.png` were added beside the earlier ones (which still show "AP" and a
+  three-cell totals strip). Verification: `verification.md` §10.
