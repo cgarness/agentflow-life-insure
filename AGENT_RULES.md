@@ -893,13 +893,19 @@ evidence: `verification.md` beside it.
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
 
-### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; draft PR #474; frontend NOT released)
+### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; Gate 3 approved, release pending)
+
+Chris separately approved Gate 3 after Gate 2 completion; signed-in read-only preview acceptance passed on
+`a5cd1b0`. PR #474 may be marked ready and merged only after all final-head CI and preview checks pass and Supabase
+Deploy to production is confirmed off. Both Vercel production deployments must then be verified. PR #474 holds the
+final merge/deployment record; focused `verification.md` §10 records acceptance. No application fix, production test
+write, migration replay, direct main push, PR #473 change or earlier-preview-conversion change is authorized.
 
 Gate 2 applied once through the authorized cloud SQL Editor as `postgres` at approximately 05:32 UTC on
 2026-10-21 (October 20 PDT): migration `20261021180000`, SHA-256 `d390cc8e…5b3345`, 34,179 bytes, exact stored
 text verified. Never edit, rename or replay it. Fresh preflight 20/20, read-back 24/24; six-table fingerprints, existing
-catalog and both advisors unchanged. The database contract is applied; the frontend behavior below remains proposed
-until Gate 3 is separately approved and released. Execution evidence: focused `verification.md` §8. Contract:
+catalog and both advisors unchanged. The database contract is applied; the frontend behavior below takes effect
+when the approved Gate 3 release completes. Execution evidence: focused `verification.md` §8. Contract:
 `docs/plans/2026-10-21-commissions-insights/implementation_plan.md`; evidence: `verification.md` beside it.
 
 - **Breakdowns are definitions, not charts.** Policies = distinct eligible `policy_id`s by the sale's `wins.sold_date`

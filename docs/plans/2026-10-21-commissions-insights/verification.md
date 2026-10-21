@@ -305,3 +305,33 @@ The session that built the package (its own 04:50 UTC baseline, §7) re-ran the 
   relations +2, columns +6, constraints +4, indexes +1, functions +12, policies +1, types +2; every other category +0.
 - **Advisors.** Security 253 and performance 452, and the full finding sets (name, level, metadata, detail) are
   identical to §7's baseline: zero added, zero removed; none names a new object.
+
+## 10. Gate 3 approval and signed-in read-only preview acceptance (2026-10-21, 05:43–05:47 UTC)
+
+Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. Acceptance used
+head `a5cd1b02ac8481532cd88ad75f2022400a8e17c4`; its change after the Gate 2 execution record was documentation only.
+Both Vercel previews were READY: `dpl_5appTFn4AeaJb2wsYWRLpSNPzWuC` (agentflow) and
+`dpl_WWarY97mWFj1y5PMMcZwWwhbUZc7` (agentflow-life-insure). The feature branch alias was verified against this head.
+
+Secure browser sign-in succeeded. Only the signed-in user's existing data was viewed; no values or client details
+are copied into this public record.
+
+- Overview rendered the new carrier/product breakdowns, comparison windows, monthly goal entry, timeline and
+  Months 10–12 state. Carrier and product drill-downs set the correct Sold/Carrier/Type filters and reconciled with
+  the displayed Overview totals. Unknown/future/nonempty receipt cases remain covered by the synthetic suites.
+- Hide amounts masked Overview amounts and monetary charts, Policies totals, all installment amounts in the drawer,
+  and gated the payment dialog and Calculator. No edit was submitted. The local display preference was restored.
+- Set goal opened the correct month's empty editor; Cancel closed it without saving. No goal was created.
+- Payments History loaded the valid-empty message and Carrier control. No receipt was recorded or voided.
+- No visible commission error occurred. Console-log retrieval was restricted by browser credential protection,
+  so a console-error audit is not claimed. No alternate API or credential access was attempted.
+
+At acceptance, six of seven exact-head workflows had succeeded; Reports frontend verification was still running.
+Policy commission tracking's frontend and PostgreSQL 17.6 / PostgREST 12.2.3 jobs both succeeded. This documentation
+commit introduces no application/SQL changes; all workflows and both previews must pass on its final head before
+merge. No failure is waived and no manual production deployment substitutes for the normal merge-triggered release.
+
+At 05:49 UTC the correct project's Settings > Integrations showed Deploy to production OFF, Automatic branching ON,
+Supabase changes only ON and branch limit 3; no setting was changed (AGENT_RULES #30). After merge, verify both Vercel production deployments and the canonical domain
+against the merge SHA. The final release completion record, SHA and deployment IDs will be appended to PR #474.
+No direct main push, migration replay, production test write, cleanup, PR #473 change or earlier conversion change.

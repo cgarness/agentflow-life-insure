@@ -1,3 +1,26 @@
+## 2026-10-21 — Commissions insights Gate 3 approved; signed-in read-only preview acceptance passed
+
+Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. This authorizes
+PR #474's frontend release after read-only preview acceptance and green final-head CI. Application source remains
+`0aebd01`; acceptance ran on `a5cd1b02ac8481532cd88ad75f2022400a8e17c4`, with both Vercel previews READY.
+
+- Signed-in Overview loaded the breakdowns, comparisons, timeline and Months 10–12; carrier and product links
+  selected the expected Sold/Carrier/Type filters and reconciled with the displayed Overview totals.
+- Hide amounts masked Overview, Policies and the commission drawer; the payment dialog and Calculator required
+  Show amounts. The browser-local preference was restored to shown. Goal editor opened and was cancelled empty.
+  History loaded its valid-empty state with the Carrier control. No production goal, receipt, sale or policy was saved.
+- Six exact-head workflows were green at acceptance; Reports frontend verification was still running. The final
+  documentation head must pass all workflows and both Vercel preview statuses before merge. No CI failure is waived.
+- Exact documentation files: this log, `AGENT_RULES.md`, root `implementation_plan.md`, and focused insights
+  `implementation_plan.md` / `verification.md` §10. No application, SQL or test changes.
+- Gate 2 is complete and immutable; no migration replay or additional backend write. PR #473, earlier preview
+  conversion and ordinary agent data remain untouched. No direct main push or branch cleanup.
+- Supabase integration checked at 05:49 UTC: Deploy to production OFF; automatic branching ON; no setting changed.
+  Release remains pending final-head checks.
+  PR #474's release record will hold the final merge SHA and both production deployment confirmations.
+
+---
+
 ## 2026-10-21 — Commissions insights Gate 2: independent post-apply re-check passed
 
 The session that built the Gate 2 package re-checked production read-only after the 05:32 UTC apply, against its own

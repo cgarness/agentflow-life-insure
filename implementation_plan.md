@@ -1,4 +1,9 @@
-## 2026-10-21 — DRAFT PR #474 (not live): Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
+## 2026-10-21 — PR #474: Gate 3 approved, read-only preview accepted; frontend release pending final checks
+
+Chris approved the separate frontend release by replying "Continue" after Gate 2 completion. Signed-in read-only
+preview acceptance passed on `a5cd1b0`; no production test data was written. Merge waits for all final-head workflows,
+both preview deployments and the Supabase automatic-production-deploy safeguard. PR #474 records the eventual merge
+and both production deployments. Focused `verification.md` §10. Earlier status entries below are historical.
 
 **Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `docs/plans/2026-10-21-commissions-insights/verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
 

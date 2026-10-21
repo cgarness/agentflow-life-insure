@@ -1,5 +1,11 @@
 # Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
 
+**Gate 3 update — 2026-10-21:** Chris approved the separate frontend release with "Continue" after Gate 2 completion.
+Signed-in read-only preview acceptance passed on `a5cd1b0` (verification §10). No application change or production
+test write is authorized. Merge/release waits for green final-head CI, both previews and confirmation that Supabase
+Deploy to production remains off. The final merge and production deployment evidence will be recorded in PR #474.
+Earlier Gate 2 approval/status text below is retained as history and does not override this later Gate 3 approval.
+
 **Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
 
 **Status:** local build done; Gate 2 database release APPLIED and verified (2026-10-21 ~05:32 UTC, October 20 PDT)
