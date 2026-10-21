@@ -956,7 +956,9 @@ Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only ma
 
 ### Lead → Client conversion data preservation (built 2026-10-21 on `claude/sweet-fermi-jpsnyn`; migration `20261021200000` NOT applied; frontend NOT released)
 
-Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
+Gate 2 approved 2026-10-21 but NOT applied: this cloud session had no SQL Editor route, so it stopped after a 12/12
+preflight and a rehearsed package (`release/apply_20261021200000.sql`, SHA-256 `fd796409…742a`); never apply it
+through `execute_sql` or `apply_migration`. Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
 before assuming it. Plan and evidence: `docs/plans/2026-10-21-lead-client-preservation/{implementation_plan,verification}.md`.
 Future conversions only: no backfill, and existing clients are never read or changed by the migration.
 

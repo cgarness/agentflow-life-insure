@@ -1,5 +1,9 @@
 # Lead → Client conversion: preserve every meaningful lead field (future conversions only)
 
+**Gate 2 (2026-10-21, 17:55 UTC): APPROVED; preflight 12/12 and package rehearsed; NOT applied** — this cloud session
+has no SQL Editor route. Package `release/apply_20261021200000.sql` (SHA-256 `fd796409…742a`) from `release/build_apply.py`;
+evidence `verification.md` §8. Production unchanged. Gate 3 not approved.
+
 **Status (2026-10-21): Gate 1 COMPLETE — built and verified locally; draft PR; stopped at Gate 2.** Chris approved
 Gate 1 (D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR) and added a mixed-version
 requirement (old browser sessions after the migration). Migration `20261021200000` is NOT applied to production; the

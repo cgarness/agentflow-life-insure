@@ -1,3 +1,31 @@
+## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
+
+Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+`ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`) to `jncvvsvckxhqgqvkppmj` through the
+version-preserving SQL Editor route, with stop-and-report on any discrepancy. No backfill; Gate 3 not approved.
+
+- **Checksum.** SHA-256/MD5 `3b8f527b…`/24,911 bytes identical in the working tree, at PR head `439d0cb` and on the
+  remote branch.
+- **Production, read-only (17:42 UTC).** Hosted head `20261021180000`; `20261021200000` not recorded; `postgres`,
+  PostgreSQL 17.6. `preflight.sql` **12/12** (all four preimages equal). Fingerprints: clients 19 / `eda90062…`, clients
+  policies 1 / `eb563177…`, clients ACL `46875263…`, wins 20 / `3801e71a…`. Advisors: security 253, performance 452
+  (finding-set digests recorded; expected delta none).
+- **Package.** `release/build_apply.py` → `release/apply_20261021200000.sql` (28,862 ASCII bytes, SHA-256
+  `fd796409…742a`, deterministic): one request; text, history and role checks; records the exact text.
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history: refusals for a changed byte, a later
+  version, a missing preflight head, a non-`postgres` caller and a lock (1.17 s); apply 0.058 s; read-back 11/11;
+  fingerprints identical; only the expected catalog additions; replay refused twice; suite PASS; rollback restores both
+  preimages; schema dump equal to a plain `psql -1 -f` apply.
+- **Blocker — NOT applied.** This cloud session has no browser/SQL Editor and no reachable session on Chris's
+  computer. `execute_sql` stayed SELECT-only (AGENT_RULES §11) and `apply_migration` was not used (it stamps its own
+  version). Stopped and reported; nothing was written to production.
+- **Files.** `release/build_apply.py`, `release/apply_20261021200000.sql`, `release/gate2-preflight-evidence.json`,
+  focused `verification.md` §8 and status, focused plan status, root plan entry, AGENT_RULES status line, this entry.
+- **Next.** Apply from an authorized SQL Editor route (Chris, or a session with a signed-in browser): fresh preflight,
+  paste the package unchanged, Run once; then read-back 11/11, fingerprints and advisors. Gate 3 stays separate.
+
+---
+
 ## 2026-10-21 — BUGFIX (within Gate 1, PR #476; NOT live): older-browser notes and unchanged client fields
 
 Chris reported PR #476's seven workflows and both Vercel previews green and asked for two corrections before Gate 2.

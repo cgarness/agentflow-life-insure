@@ -1,11 +1,15 @@
 # Lead → Client conversion preservation — verification record
 
-**Status (2026-10-21):** Gate 1 complete — local build and disposable-database tests only. Migration
-`20261021200000` is **NOT applied** anywhere but disposable localhost clusters; frontend **NOT merged or released**.
-Stopped at Gate 2. Contract: `implementation_plan.md` beside this file (Gate 1 approved by Chris: D1–D9 and the file
-list, plus the mixed-version requirement in §5 below). **Updated for the §14 bugfix** (explicit conversion note;
-unchanged person fields never rewritten): every value below is regenerated for the corrected migration bytes; §7
-records the bugfix proofs.
+**Status (2026-10-21, 17:55 UTC):** Chris approved Gate 2 (database only) for SHA-256
+`ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`. Checksum, hosted history, fresh preflight (12/12),
+fingerprints and advisor baseline all passed, and the version-preserving package is built and rehearsed. **NOT
+applied:** this cloud session has no SQL Editor route (§8). Production is unchanged; frontend NOT merged or released.
+Gate 3 is not approved. Earlier entries below are kept as history.
+
+Gate 1 status (kept): local build and disposable-database tests only. Contract: `implementation_plan.md` beside this
+file (Gate 1 approved by Chris: D1–D9 and the file list, plus the mixed-version requirement in §5 below). **Updated for
+the §14 bugfix** (explicit conversion note; unchanged person fields never rewritten): every value below is regenerated
+for the corrected migration bytes; §7 records the bugfix proofs.
 
 ## 1. Production contact (read-only, Gate 1 §9.1)
 
@@ -156,3 +160,72 @@ rehearsal: preflight 12/12, read-back 11/11, fingerprints identical, replay refu
 5,994 passed with the failure set identical to `main`; scoped ESLint 0 errors (7 pre-existing warnings, identical);
 build passed; `git diff --check` and secret/pattern scans clean. Previous head `c6f17a2`: all seven workflows green
 (both PostgreSQL 17.6 jobs included), Supabase Preview cancelled (the accepted, recorded exception).
+Final head `439d0cb`: every workflow green (12 checks; "Reports frontend verification" included), both Vercel previews
+ready, Supabase Preview skipped (concurrent preview-branch limit; same accepted exception), no merge conflict.
+
+## 8. Gate 2 — approval, package, rehearsal and production preflight; NOT applied (2026-10-21, 17:40–17:55 UTC)
+
+**Approval.** Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` to
+`jncvvsvckxhqgqvkppmj`, SHA-256 `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`, through the
+version-preserving SQL Editor route, with stop-and-report on any discrepancy. No backfill. Gate 3 not approved.
+
+**1. Checksum.** SHA-256 `ce189016…9ae5`, MD5 `3b8f527b3991660d2ae0d03fe42b1af7`, 24,911 bytes — identical in the
+working tree, at PR head `439d0cb`, at `6621d9b` and on `origin/claude/sweet-fermi-jpsnyn`.
+
+**2. Production, read-only (17:42 UTC; `list_migrations`, `execute_sql` SELECTs, `get_advisors`).**
+- History: 341 rows; hosted head `20261021180000 / policy_commission_center_insights`; nothing at or after
+  `20261021200000`. Session `postgres`, PostgreSQL 17.6, TimeZone UTC. History columns `version, statements, name,
+  created_by, idempotency_key, rollback`. Event triggers: the six known pgrst/graphql/cron/net helpers.
+- `release/preflight.sql`: **12/12 `t`** — server 17.6; version free and sorts last; converter `641ba66c…`, update
+  writer `96e8f6e7…`, wrapper `3d974a5c…`, `insert_policy_sale` `3f600b75…`, `normalize_us_state` `c8905751…`; writer
+  owner/definer/`search_path`/ACL unchanged and no `anon` EXECUTE; the five columns and the guard absent; `clients`
+  triggers exactly the four known; no waiting lock on `clients`.
+- Fingerprints: `clients_rows` 19 / `eda90062…`, `clients_policies` 1 / `eb563177…`, `clients_acl` `46875263…`,
+  `wins_rows` 20 / `3801e71a…`. The read-back must reproduce these unless a real user wrote clients or sales in
+  between, which must then be explained.
+- Advisors: security **253** (finding-set MD5 `6aea31d7…`), performance **452** (`e4775516…`); the same totals as the
+  previous Gate 2 record. Expected delta after the apply: none.
+- Machine-readable: `release/gate2-preflight-evidence.json`.
+
+**Package.** `release/build_apply.py` → `release/apply_20261021200000.sql`: 28,862 ASCII bytes, SHA-256
+`fd796409d106b6f84c57ad187982ef794218a451b5d8d5a384ba815ff837742a` (deterministic; two runs identical). Same method as
+the Commissions center and insights releases: one request; the migration's own `lock_timeout 1s` /
+`statement_timeout 60s`; the reviewed text as a dollar-quoted literal with its three non-ASCII characters (— → ─) as
+placeholders expanded server-side; refuses unless the expanded text is 24,911 bytes with the approved MD5 and
+SHA-256, the preflight's hosted head `20261021180000` is recorded, nothing is recorded at or after `20261021200000`,
+and the caller is `postgres`; EXECUTEs the text unchanged (its own preimage, metadata, replay and post-image guards run
+inside); records `(20261021200000, lead_client_conversion_preservation, ARRAY[text])`.
+
+**Rehearsal (disposable PostgreSQL 16.15, loopback).** Pre-migration fixture plus hosted-style history (production's
+columns; `20261020212000` and `20261021180000` recorded), production's default privileges for `postgres` in `public`, a
+stand-in `workflow_client_insert_trigger`, and seeded pre-release history (an old-browser conversion, a manual client
+with a recorded policy, a new-browser note on the old database: 3 clients, 4 sales).
+
+| Step | Result |
+|---|---|
+| Preflight before apply | 12/12 `t` |
+| One changed byte in the sent text | refused ("release text differs…"); nothing created, no history row |
+| A later version recorded | refused ("would not sort last"); the disposable row removed afterwards |
+| Preflight head not recorded | refused ("hosted head observed at preflight is not recorded") |
+| A superuser other than `postgres` | refused ("apply as postgres") |
+| Open `ROW EXCLUSIVE` lock on `clients` | refused after 1.17 s (lock timeout); nothing created |
+| Preflight after the refusals | 12/12 `t` |
+| Apply (one request) | 0.058 s, no output; history `20261021200000 / lead_client_conversion_preservation`, one statement, 24,911 bytes, MD5 `3b8f527b…`, SHA-256 `ce189016…`; it is the head |
+| Read-back | 11/11 `t`; the four fingerprints identical to the preflight's; 13-table full-row fingerprint identical; digests `7109fdab…` / `6313ca0c…` |
+| Catalog | only the two replaced function bodies changed; added exactly the five columns, the guard function and the guard trigger |
+| Replay | refused by the package (version recorded) and by the file's own preimage guard; one history row; preflight then 6/12 as designed (2, 3, 4, 9, 10, 11) |
+| Preservation suite on the package-applied database | PASS |
+| Rollback from the package-applied state | both preimages restored (`641ba66c…` / `96e8f6e7…`) |
+| Reference `psql -1 -f` on a fresh copy of the same seeded state | schema dump identical (9,509 lines; one contact-history fixture function embeds its own install time, normalized) and catalog inventory identical (1,054 objects) |
+
+**3. Apply — NOT performed (blocker).** The approved route is the Supabase SQL Editor as `postgres`. This cloud
+session has no browser or computer-use tool and no reachable Claude session on Chris's computer (`ListAgents`: none),
+so it cannot use that route. `execute_sql` stayed SELECT-only (AGENT_RULES §11) and `apply_migration` was not used (it
+stamps its own version). Per the approval's stop-and-report rule, nothing was written: no history row, column,
+function, trigger or client value. Steps 4–5 (read-back, post-apply fingerprints and advisors) wait for the apply.
+
+**To finish Gate 2** (the approval and bytes are unchanged): immediately before the apply, re-run `preflight.sql`
+(12/12) and the fingerprints read-only; paste `release/apply_20261021200000.sql` (SHA-256 `fd796409…742a`, 28,862 bytes)
+unchanged into the SQL Editor (Primary database, role `postgres`) and Run it once as one request — expect "Success. No
+rows returned"; on any error do not retry. Then `readback.sql` 11/11, history text SHA-256 `ce189016…`, the four
+fingerprints equal to the fresh preflight's, and both advisors compared with the baseline above.

@@ -1,5 +1,11 @@
 ## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
 
+**Gate 2 (database only), 2026-10-21:** Chris approved migration `20261021200000` (SHA-256 `ce189016…9ae5`) via the
+version-preserving SQL Editor route. Checksum verified; hosted head `20261021180000`; fresh preflight 12/12;
+fingerprints and advisors (security 253, performance 452) captured; package `apply_20261021200000.sql` (SHA-256
+`fd796409…742a`) built and rehearsed. **NOT applied**: no SQL Editor route in this cloud session; stopped and reported.
+Production unchanged. Gate 3 not approved. Focused `verification.md` §8.
+
 **Status:** Chris approved Gate 1 (D1–D9, file list, local build, tests, commits, pushes, one draft PR) with a
 mixed-version requirement. Built and verified locally on `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`; stopped at
 Gate 2. Migration `20261021200000` NOT applied; frontend NOT merged or released; the only production contact was one

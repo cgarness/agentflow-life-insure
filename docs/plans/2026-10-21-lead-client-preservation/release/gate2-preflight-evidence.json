@@ -1,0 +1,73 @@
+{
+  "project": "jncvvsvckxhqgqvkppmj",
+  "purpose": "Gate 2 (database only) under Chris's 2026-10-21 approval: checksum, hosted history, fresh read-only preflight, fingerprints and advisor baseline. NOT applied: this cloud session has no SQL Editor route.",
+  "tools": ["git", "Supabase MCP list_migrations", "Supabase MCP execute_sql (SELECT only)", "Supabase MCP get_advisors"],
+  "observed_at_utc": "2026-10-21T17:42:23Z",
+  "migration": {
+    "file": "supabase/migrations/20261021200000_lead_client_conversion_preservation.sql",
+    "approved_sha256": "ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5",
+    "sha256": "ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5",
+    "md5": "3b8f527b3991660d2ae0d03fe42b1af7",
+    "bytes": 24911,
+    "identical_at": ["working tree", "439d0cb (PR #476 head)", "6621d9b", "origin/claude/sweet-fermi-jpsnyn"]
+  },
+  "apply_package": {
+    "file": "docs/plans/2026-10-21-lead-client-preservation/release/apply_20261021200000.sql",
+    "generator": "docs/plans/2026-10-21-lead-client-preservation/release/build_apply.py",
+    "sha256": "fd796409d106b6f84c57ad187982ef794218a451b5d8d5a384ba815ff837742a",
+    "md5": "9eefc02707eca7869a17f48671ff7076",
+    "bytes": 28862,
+    "ascii_only": true,
+    "deterministic": true
+  },
+  "session": {"current_user": "postgres", "server_version": "17.6", "timezone": "UTC"},
+  "history": {
+    "rows": 341,
+    "hosted_head": "20261021180000 / policy_commission_center_insights",
+    "target_recorded": false,
+    "rows_at_or_after_target": 0,
+    "columns": "version text NOT NULL, statements text[], name text, created_by text, idempotency_key text, rollback text[]"
+  },
+  "preflight": {
+    "passed": "12/12",
+    "checks": {
+      "1 server_version": "17.6",
+      "2 version_free_and_sorts_last": "head 20261021180000",
+      "3 converter_preimage": "641ba66c96ca4a76f80c9c85eb9caa42",
+      "4 update_writer_preimage": "96e8f6e7ecc85d0d5385bf8640a144a6",
+      "5 wrapper_unchanged": "3d974a5c893753d5f10cacd9605c565f",
+      "6 insert_policy_sale_unchanged": "3f600b757802c0fa8cc1e17fa5c25575",
+      "7 normalize_us_state_present": "c8905751f7543ef1f6be8e7325d9c666",
+      "8 writer_metadata": true,
+      "9 new_columns_absent": true,
+      "10 guard_absent": true,
+      "11 clients_triggers": "clients_policy_identity,clients_policy_sale_complete,contact_history_capture,workflow_client_insert_trigger",
+      "12 no_waiting_lock_on_clients": true
+    }
+  },
+  "fingerprints": {
+    "clients_rows": {"count": 19, "md5": "eda900620f2a4b3432692f6b005b9a08"},
+    "clients_policies": {"count": 1, "md5": "eb56317784a48539aee785497258dca1"},
+    "clients_acl": {"md5": "46875263bd6598c4534e2df7d1847a5e"},
+    "wins_rows": {"count": 20, "md5": "3801e71a32660dcbb497cc83f7db4fc7"}
+  },
+  "default_privileges_postgres": "public and storage: functions X, tables arwdDxtm, sequences rwU to anon, authenticated, service_role; none in private",
+  "advisors": {
+    "security": {
+      "total": 253,
+      "finding_set_md5": "6aea31d7cb249f25ec7d4f700f497230",
+      "by_lint": {"ERROR rls_disabled_in_public": 2, "INFO rls_enabled_no_policy": 30, "WARN anon_security_definer_function_executable": 57,
+                  "WARN auth_leaked_password_protection": 1, "WARN authenticated_security_definer_function_executable": 138,
+                  "WARN extension_in_public": 3, "WARN function_search_path_mutable": 22}
+    },
+    "performance": {
+      "total": 452,
+      "finding_set_md5": "e4775516b7223df935914cf7f4baad78",
+      "by_lint": {"INFO auth_db_connections_absolute": 1, "INFO table_bloat": 1, "INFO unindexed_foreign_keys": 81, "INFO unused_index": 141,
+                  "WARN auth_rls_initplan": 112, "WARN duplicate_index": 6, "WARN multiple_permissive_policies": 110}
+    },
+    "finding_set_method": "md5 of the sorted JSON {name, level, detail, metadata} of every finding (observation times excluded)",
+    "expected_delta_after_apply": "none (the two replaced functions keep their owner, definer flag, search_path and grants; the guard function is SECURITY INVOKER with a pinned search_path and EXECUTE for postgres only; no table, policy or index is added)"
+  },
+  "result": "Checksum verified; hosted history as expected; preflight 12/12; fingerprints and advisor baseline captured. NOT applied: no SQL Editor (browser) route and no other reachable Claude session in this cloud session. execute_sql stayed SELECT-only (AGENT_RULES section 11) and apply_migration was not used (it stamps its own version). Production unchanged."
+}
