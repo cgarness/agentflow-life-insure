@@ -2,7 +2,7 @@
 
 **Status:** approved by Chris on 2026-10-21 ("Approved to proceed", D1 A, D2 A, D3 A, D4 A, D5 A; plus "ensure actual
 tie-break rank changes are reflected correctly in movement indicators"). Implemented on `claude/sweet-cannon-jve7ak`
-from `main` `51b0e56`. A draft PR is open for review. No Supabase command (read or write), migration, Edge deploy,
+from `main` `51b0e56`. Draft PR #475 is open for review. No Supabase command (read or write), migration, Edge deploy,
 Vercel action, merge or release. Evidence and the implementation-time changes are in `verification.md` (§5 lists
 the additions beyond this plan's text). The plan text below is the approved version, kept as written.
 

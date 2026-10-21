@@ -1,4 +1,4 @@
-## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR; NOT merged, NOT released)
+## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR #475; NOT merged, NOT released)
 
 Chris approved the plan with D1–D5 = A. Branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. Frontend only:
 no Supabase command (read or write), migration, Edge deploy, Vercel action, merge or release.
