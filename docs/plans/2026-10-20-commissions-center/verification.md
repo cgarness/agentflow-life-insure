@@ -1,9 +1,9 @@
-# Commissions center — verification (Gate 2 applied; Gate 3 pending, 2026-10-20)
+# Commissions center — verification (RELEASED 2026-10-20 PDT)
 
 **Current release status:** migration `20261020212000` applied once to production under Chris's explicit database-only
-approval; verification and signed-in read-only preview checks passed (§15; independent re-check §16). PR #471 remains
-draft. Merge and frontend release are not approved. Sections 1–14 retain the earlier local-build and rehearsal evidence;
-their "not applied" statements describe those earlier checkpoints.
+approval; verification and signed-in read-only preview checks passed (§15; independent re-check §16). Gate 3 approved
+by Chris and released through PR #471, merge `73a83a2`; both production deployments and main-site commit verified (§17).
+Earlier sections retain their historical gate states and evidence.
 
 Branch `claude/epic-tesla-fe96b0` from `main` `0312520` (`main` `381bebb` merged in). The migration was proposed as
 `20261020180000` until §14 and renamed byte-identically. Public evidence omits customer details and compensation values.
@@ -470,3 +470,38 @@ This session made no database write; the apply in §15 is the only one.
 - **PostgREST:** this session did not send another reload. §15 records the reload and the loaded cache at 23:05:12 UTC.
 
 **Result:** the independent checks agree with §15 apart from that advisor count. There were no unexpected differences.
+
+## 17. Gate 3 frontend release (2026-10-20 PDT / 2026-10-21 UTC)
+
+**Approval.** Chris replied "Continue" directly to the separate Gate 3 request to merge PR #471 and release the
+frontend, conditional on final-head CI. The latest head was `ff6fe37f8548410bf7b37f9b066cfc90340d1aac`: its only
+change after the previously reviewed `26a4d24` was the independent database re-check documentation in §16 and WORK_LOG.
+No application or migration code changed. Main remained `381bebb8adb46adbd22509127524e43bf4abee6f`.
+
+**Final-head gate.** All nine workflows / 14 jobs passed on `ff6fe37`, including Reports frontend verification
+(run 39514006443), policy commission tracking (39514006492), commission grids (39514006243), reporting integrity
+(39514006420), UV profile sync (39514006215), Dialer DNC (39514006592), onboarding (39514006225), SMS consent
+(39514006247), and A2P (39514006334). Vercel statuses for both projects and Vercel Preview Comments succeeded.
+Supabase Preview was skipped by the integration; it is not claimed as passed. The earlier Reports run on `26a4d24`
+was cancelled when the documentation head superseded it; the final-head run succeeded.
+
+**Merge.** PR #471 was marked ready and merged through GitHub with an expected-head guard for `ff6fe37`.
+GitHub confirmed merge `73a83a2e681986b99121c821ee0a09065961f948` at 2026-10-21 00:14:20 UTC
+(2026-10-20 5:14:20 PM PDT).
+
+| Vercel project | Production deployment | Result / source |
+|---|---|---|
+| `agentflow` | `dpl_B4vikchqcEurk8FQnW24kJ5vxe2L` | READY; main `73a83a2e681986b99121c821ee0a09065961f948`; no alias error |
+| `agentflow-life-insure` | `dpl_5PUaT3utrQRT7Vkquu1CnxbCjfgQ` | READY; main `73a83a2e681986b99121c821ee0a09065961f948`; no alias error |
+
+The authenticated Vercel lookup for `www.fflagent.com` resolved to the primary deployment above, with the exact
+merge SHA and production target. The cloud browser loaded `https://www.fflagent.com/` and rendered the AgentFlow
+landing page; the served entry script was `/assets/index-CzG91kxY.js`. This confirms the public production entry
+and deployed commit. The signed-in four-tab acceptance remains the authorized preview check in §15; no new
+signed-in production walkthrough or production write-path test is claimed.
+
+**Scope and closeout.** No migration was applied or replayed during Gate 3; `20261020212000` stays immutable.
+No application code, financial data, earlier preview conversion, dialer, permission, backfill, secret or unrelated
+deployment was changed. Release reconciliation touches only the five approved documentation files, with this
+evidence and a newest-first WORK_LOG entry. Gates 2 and 3 are complete; the earlier conversion's classification
+remains outside this release.

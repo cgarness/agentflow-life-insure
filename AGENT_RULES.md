@@ -843,7 +843,7 @@ Gate 3, §15 Gate 3b, §16 Gate 4 note).
   carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
   breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
 
-### Commissions center (Gate 2 applied 2026-10-20; migration `20261020212000` immutable; UI NOT released — Gate 3 pending)
+### Commissions center (LIVE 2026-10-20: Gate 2 migration `20261020212000` immutable; Gate 3 frontend PR #471, merge `73a83a2`)
 
 Release ordering: a migration version is chosen against the HOSTED migration history (`list_migrations` /
 `supabase_migrations.schema_migrations`), never against source filenames, and must sort after the hosted head. Never insert

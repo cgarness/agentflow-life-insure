@@ -3,9 +3,10 @@
 **Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval and explicit
 authorization for the supported Supabase SQL Editor browser route. Migration `20261020212000` is applied and immutable.
 Preflight 15/15, readback 13/13 and all six data fingerprints passed; signed-in read-only preview checks passed for
-Overview, Payments, Policies and Calculator. Branch `claude/epic-tesla-fe96b0`, PR #471, stays draft pending separate
-Gate 3 approval for merge and frontend release. No application-code changes, production test writes, cleanup or backfill.
-Earlier sections retain the original local-build authorization; the current release evidence is in `verification.md` §15.
+Overview, Payments, Policies and Calculator. Gate 3 subsequently approved by Chris; PR #471 merged as `73a83a2`
+and both Vercel production deployments are READY, with `www.fflagent.com` resolving to the merge commit.
+Released 2026-10-20 PDT (2026-10-21 UTC). No application-code changes during release, production test writes,
+cleanup or backfill. Earlier sections retain their historical authorization; current evidence: `verification.md` §§15–17.
 
 Public document: synthetic examples only; no compensation values, carrier products or private grid data (D1).
 

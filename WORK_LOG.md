@@ -1,3 +1,24 @@
+## 2026-10-20 — Commissions center RELEASED: Gate 3, PR #471
+
+Chris approved the separate merge/frontend-release gate by replying "Continue". Reviewed the additional
+documentation-only head `ff6fe37`; all nine final-head workflows / 14 jobs passed. PR #471 merged through GitHub,
+guarded by that exact head, as `73a83a2e681986b99121c821ee0a09065961f948` at 5:14:20 PM PDT
+(2026-10-21 00:14:20 UTC).
+
+Both Git-linked Vercel production deployments are READY at the merge SHA:
+`agentflow` `dpl_B4vikchqcEurk8FQnW24kJ5vxe2L` and
+`agentflow-life-insure` `dpl_5PUaT3utrQRT7Vkquu1CnxbCjfgQ`.
+Vercel's `www.fflagent.com` lookup resolves to the primary deployment/merge SHA; the public website renders in the
+cloud browser (entry asset `index-CzG91kxY.js`). Signed-in four-tab acceptance is the prior authorized preview check,
+not a new production write test. Full evidence: commissions-center `verification.md` §17.
+
+Migration `20261020212000` was not replayed. No application-code, financial-data, permission, dialer, cleanup or
+backfill changes; the earlier preview conversion remains untouched. Release-status documentation only:
+`AGENT_RULES.md`, root `implementation_plan.md`, focused plan/verification, and this newest-first entry.
+Gates 2 and 3 complete.
+
+---
+
 ## 2026-10-20 — Commissions center Gate 2: independent post-apply re-check passed
 
 The session that built the release package re-checked production read-only at 23:14–23:16 UTC and made no writes. It
