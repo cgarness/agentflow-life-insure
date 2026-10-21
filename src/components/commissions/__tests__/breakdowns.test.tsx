@@ -56,6 +56,8 @@ describe("By carrier", () => {
     show(<CarrierBreakdown data={data} period={MONTH} />);
     fireEvent.click(screen.getByRole("button", { name: "Est. commission" }));
     expect(screen.getByRole("list", { name: "Carriers by Est. commission" }).textContent).toContain("$2,292.00");
+    // No saved estimate is a dash, never $0.00.
+    expect(screen.getByRole("list", { name: "Carriers by Est. commission" }).textContent).toContain("Unknown—");
     fireEvent.click(screen.getByRole("button", { name: "Received" }));
     expect(href(/^Harbor Mutual/)).toBe("/commissions/payments?view=history&carrier=Harbor+Mutual");
     expect(screen.getByRole("list", { name: "Carriers by Received" }).textContent).toContain("$51.57");
@@ -100,7 +102,8 @@ describe("By product", () => {
     expect(href(/^Final Expense/)).toBe("/commissions/policies?period=this_month&type=final_expense");
     expect(href(/^Whole Life/)).toBe("/commissions/policies?period=this_month&type=whole_life");
     fireEvent.click(screen.getByRole("button", { name: "Est. commission" }));
-    expect(within(screen.getByRole("list", { name: "Products by est. commission" })).getAllByRole("link")[0].textContent).toBe("Term$2,292.0067%");
+    const est = within(screen.getByRole("list", { name: "Products by est. commission" })).getAllByRole("link").map((l) => l.textContent);
+    expect(est).toEqual(["Term$2,292.0067%", "Whole Life$573.0017%", "Final Expense$573.0017%", "Unknown—0%"]);
   });
 
   it("hidden amounts: the Est. commission doughnut is replaced; the Policies doughnut stays", () => {

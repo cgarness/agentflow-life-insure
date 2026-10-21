@@ -49,6 +49,9 @@ export function CarrierBreakdown({ data, period }: { data: CommissionBreakdown; 
   const rows = [...bars.shown, ...(bars.unknown ? [bars.unknown] : [])];
   const max = Math.max(...rows.map((g) => carrierValue(g, metric)), bars.other?.value ?? 0, 0);
   const text = (value: number) => (metric === "policies" ? String(value) : money(value));
+  // A carrier whose sales have no saved estimate shows a dash: a missing estimate is not $0.
+  const groupText = (g: CarrierGroup) => (metric === "estimate" && g.with_estimate_count === 0 ? "—" : text(carrierValue(g, metric)));
+  const otherNamed = carrierBars(data.carriers, metric, true).shown.slice(bars.shown.length);
   const target = (g: CarrierGroup) => {
     const carrier = { carrier: g.carrier, carrierUnknown: g.carrier === null };
     return metric === "received" ? historyHref(period, carrier) : soldPoliciesHref(period, { carrier });
@@ -61,15 +64,16 @@ export function CarrierBreakdown({ data, period }: { data: CommissionBreakdown; 
         : isMoney && hidden ? <AmountsHiddenPanel /> : (
           <ul aria-label={`Carriers by ${METRICS.find(([m]) => m === metric)?.[1]}`} className="-mx-2 space-y-0.5">
             {bars.shown.map((g) => (
-              <Bar key={g.carrier} label={g.carrier ?? ""} value={carrierValue(g, metric)} max={max} text={text(carrierValue(g, metric))}
+              <Bar key={g.carrier} label={g.carrier ?? ""} value={carrierValue(g, metric)} max={max} text={groupText(g)}
                 fill={FILL[metric]} to={target(g)} />
             ))}
             {bars.other && (
-              <Bar label={`Other carriers (${bars.other.count})`} value={bars.other.value} max={max} text={text(bars.other.value)}
+              <Bar label={`Other carriers (${bars.other.count})`} value={bars.other.value} max={max}
+                text={metric === "estimate" && otherNamed.every((g) => g.with_estimate_count === 0) ? "—" : text(bars.other.value)}
                 fill={NEUTRAL} onClick={() => setAll(true)} />
             )}
             {bars.unknown && (
-              <Bar label="Unknown" value={carrierValue(bars.unknown, metric)} max={max} text={text(carrierValue(bars.unknown, metric))}
+              <Bar label="Unknown" value={carrierValue(bars.unknown, metric)} max={max} text={groupText(bars.unknown)}
                 fill={NEUTRAL} to={target(bars.unknown)} />
             )}
           </ul>

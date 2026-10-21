@@ -69,7 +69,7 @@ export function ProductBreakdown({ data, period }: { data: CommissionBreakdown; 
                 className="grid grid-cols-[auto_minmax(0,1fr)_auto_3rem] items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <svg width="10" height="10" aria-hidden className="shrink-0"><rect width="10" height="10" rx="2" fill={COLOR[s.category]} /></svg>
                 <span className="truncate text-foreground">{s.label}</span>
-                <span className="text-right tabular-nums text-foreground">{text(s.value)}</span>
+                <span className="text-right tabular-nums text-foreground">{metric === "estimate" && s.with_estimate_count === 0 ? "—" : text(s.value)}</span>
                 <span className="text-right text-xs tabular-nums text-muted-foreground">{s.share}%</span>
               </Link>
             </li>
