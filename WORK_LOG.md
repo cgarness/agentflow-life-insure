@@ -1,3 +1,37 @@
+## 2026-10-21 — Commissions insights Gate 2 (database only): approved, rehearsed, production preflight passed — NOT applied (no execution route)
+
+Chris approved Gate 2 only for source `0aebd014002341a92e04cba65fd1ffce6a68a1c9` and migration
+`20261021180000_policy_commission_center_insights.sql` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes; recomputed from the
+approved commit and byte-identical in the working tree). PR #474 stays draft; PR #473 untouched; no merge, frontend
+release, backfill, cleanup or production goal/receipt/sale/test-policy write.
+
+- **Blocker.** The established route is the Supabase SQL Editor signed in as `postgres` in a browser, or an authorized
+  direct database connection. This cloud session had neither (no browser on Chris's computer or browser takeover; no
+  credentials). `execute_sql` stayed read-only (AGENT_RULES §11) and `apply_migration` would stamp its own version, so
+  nothing was applied and no route was improvised. Production unchanged.
+- **Prepared.** `docs/plans/2026-10-21-commissions-insights/release/`: `preflight.sql` (20 checks + six-table
+  fingerprints), `catalog.sql` (16-category catalog digests excluding exactly the new objects), `readback.sql`
+  (24 checks: exact history row, goal table/constraints/owner policy/grants, schema, 12 exact function bodies and
+  attributes, EXECUTE `authenticated` only, preimages, RLS, not published) and `build_apply.py` (version-preserving
+  one-request package; output SHA-256 `3cee7e7c…3778`, 37,157 bytes, deterministic).
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history and production's default privileges: refusals
+  for lock contention (1.04 s), a changed byte, a later version and a non-`postgres` caller; apply 0.055 s; read-back
+  24/24; existing catalog identical, additions exactly as expected; fingerprints identical; replay refused twice;
+  rollback and reapply restore exact dumps; equal to a reference `psql -1 -f` apply; insights suite 8/8 on the
+  wrapper-applied copy.
+- **Production read-only (~04:50 UTC).** History head `20261020212000`; preflight 20/20 (all eight preimage
+  fingerprints equal); six-table fingerprints identical to the 2026-10-20 record; catalog baseline captured; advisors:
+  security 253, performance 452 (expected delta after apply: none).
+- **Docs.** Goal-write wording corrected (the app uses the goal functions; authorized owners also have direct table
+  writes limited by RLS, grants and checks) in AGENT_RULES, the feature plan, `verification.md` and the PR body; the
+  approved SQL is unchanged. Feature plan §11 (method, files), `verification.md` §7 (evidence, remaining steps), root
+  plan status.
+- **Next.** Finish Gate 2 from an authorized route (SQL Editor on Chris's computer, e.g. a Claude Desktop or
+  `claude remote-control` session, or Chris running the package): re-run the preflight, regenerate and match the
+  package hash, apply once, then read-back, catalog, fingerprints and advisors. Gate 3 separately.
+
+---
+
 ## 2026-10-21 — Commissions Overview: breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts (local build, draft PR; NOT live)
 
 Chris approved the scoped local implementation and disposable tests only. Branch `claude/zen-clarke-wdwrrb` from `main`

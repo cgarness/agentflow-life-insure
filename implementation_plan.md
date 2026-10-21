@@ -1,9 +1,11 @@
-## 2026-10-21 — LOCAL BUILD (not live): Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
+## 2026-10-21 — DRAFT PR #474 (not live): Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
 
-**Status:** approved by Chris for local implementation and disposable-database tests only. Branch
-`claude/zen-clarke-wdwrrb` from `main` `e762454`. No `main` push, production migration or policy, merge, deployment or
-production test write. Gate 2 (production migration `20261021180000`: one owner-only goals table with RLS, six
-functions) and Gate 3 (frontend release) each need Chris's separate exact-action approval.
+**Status:** local build done (draft PR #474, branch `claude/zen-clarke-wdwrrb` from `main` `e762454`). **Gate 2
+(database only) approved 2026-10-21** for source `0aebd01` and migration `20261021180000` (SHA-256 `d390cc8e…5b3345`,
+34,179 bytes; one owner-only goals table with RLS and grants, six helpers, six public functions): package built and
+rehearsed, production preflight 20/20, **not applied** — the approving session had no SQL Editor or direct-connection
+route (feature plan §11; `verification.md` §7). Gate 3 (frontend release) needs Chris's separate approval after Gate 2.
+No `main` push, merge, deployment or production test write.
 
 **Contract, metric definitions, migration scope, exact files and tests:**
 `docs/plans/2026-10-21-commissions-insights/implementation_plan.md`.

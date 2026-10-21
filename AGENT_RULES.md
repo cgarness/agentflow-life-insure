@@ -893,10 +893,12 @@ evidence: `verification.md` beside it.
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
 
-### Commissions insights, monthly goals and Hide amounts (PROPOSED 2026-10-21 — local build and draft PR only; NOT live)
+### Commissions insights, monthly goals and Hide amounts (PROPOSED 2026-10-21 — draft PR #474; Gate 2 approved, preflight passed, migration NOT applied; NOT live)
 
-Proposed amendment for review with the draft PR. Not in force in production until migration `20261021180000` (Gate 2)
-and the frontend (Gate 3) are each separately approved and released. Contract:
+Proposed amendment for review with the draft PR. Not in force in production until migration `20261021180000` is
+applied (Gate 2: approved for the exact bytes, SHA-256 `d390cc8e…5b3345`; production preflight 20/20; not yet run for
+lack of an SQL Editor or direct-connection route in the approving session) and the frontend (Gate 3) is separately
+approved and released. Contract:
 `docs/plans/2026-10-21-commissions-insights/implementation_plan.md`; evidence: `verification.md` beside it.
 
 - **Breakdowns are definitions, not charts.** Policies = distinct eligible `policy_id`s by the sale's `wins.sold_date`
@@ -918,8 +920,10 @@ and the frontend (Gate 3) are each separately approved and released. Contract:
   (equals Scheduled › Next month › Remaining › Months 10–12). First-year, not renewals.
 - **Monthly goals** live only in `public.policy_commission_goals` (organization, owner, first-of-month; 1…100,000,000
   cents), owner-only RLS gated on the Own toggle, `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for
-  `authenticated`, nothing for `anon`/`service_role`, no admin/Team Leader/Agency Group path. Writes only through
-  SECURITY INVOKER `set_/clear_my_commission_goal` for one month; reading never creates a goal. Progress = that month's
+  `authenticated`, nothing for `anon`/`service_role`, no admin/Team Leader/Agency Group path. The app writes through
+  SECURITY INVOKER `set_/clear_my_commission_goal` (one month per call); authorized owners also have direct table
+  writes on their own rows, limited by the same owner-only RLS policy, the column grants and the CHECK constraints
+  (never another owner's, organization's or month's row). Reading never creates a goal. Progress = that month's
   Received (same snapshot as the card), shown only for exactly one whole calendar month; bar capped at 100 %. Never
   reuse `profiles.monthly_premium_goal`.
 - **Hide amounts** is a browser-local display preference (`localStorage`

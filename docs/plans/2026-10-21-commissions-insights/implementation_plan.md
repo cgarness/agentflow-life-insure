@@ -1,9 +1,10 @@
 # Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
 
-**Status:** approved by Chris for **local implementation and disposable-database tests only** (the task prompt of
-2026-10-21). Branch `claude/zen-clarke-wdwrrb` from `main` `e762454`. No direct `main` push, production migration or
-policy, merge, deployment or production test write under this approval. Stop for separate approval if material scope
-or permissions must expand.
+**Status:** local build approved and done (draft PR #474). **Gate 2 (database only) approved 2026-10-21 for source
+`0aebd01` and the exact migration bytes; production preflight passed 20/20 but the migration is NOT applied** — this
+session had no SQL Editor or direct-connection route (§11, `verification.md` §7). Gate 3 (frontend) not approved.
+Branch `claude/zen-clarke-wdwrrb` from `main` `e762454`. No direct `main` push, merge, deployment or production test
+write.
 
 Public document: synthetic examples only; no compensation values, carrier products or private grid data (D1).
 
@@ -160,8 +161,10 @@ policy, grant or data changes.
   policy_commission_authz.access(auth.uid()) = 'write'` (own toggle). No admin, Team Leader, Agency Group or
   service-role path.
 - Grants: revoke all from `PUBLIC`, `anon`, `authenticated`, `service_role`; grant `SELECT, INSERT, DELETE` and
-  `UPDATE (target_cents, updated_at)` to `authenticated`. A direct table write can do no more than the RPCs (same row,
-  same constraints); the app uses the RPCs.
+  `UPDATE (target_cents, updated_at)` to `authenticated`. The app writes goals through `set_/clear_my_commission_goal`;
+  authorized owners also have direct table writes on their own rows (insert, delete, update of the target), limited by
+  the same owner-only RLS policy, the column grants and the CHECK constraints. A direct write may set its own
+  `created_at` / `updated_at`; it can never reach another owner's, organization's or month's row.
 
 **Schema `policy_commission_insights`** (not exposed; USAGE `authenticated` only) — helpers:
 `carrier_key(text)`, `category(text)`, `policy_category(policy_fact)`, `policy_carrier(policy_fact)` (IMMUTABLE) and
@@ -278,3 +281,75 @@ idempotency, schedule rules, calculator engine and matching, `CommissionsNavItem
   the light-mode contrast warning is relieved by the labelled legend and the details table) with Unknown neutral.
 - **Disposable cluster location:** PostgreSQL refuses to run as root and the session scratchpad is root-only, so the
   loopback test cluster lived in `/tmp/pc_cluster_55432`.
+
+- **Carrier groups after the draft PR (`0aebd01`, found in self-review):** the breakdown check no longer re-derives
+  carrier keys in the browser (JS trimming and case folding differ from the server's `lower(btrim())` for tabs and some
+  non-ASCII letters, which could reject a valid breakdown); it checks that group labels are distinct, which the server
+  guarantees. The carrier filter's matching now trims spaces only, like `btrim`. No SQL change.
+
+## 11. Gate 2 — database-only release (approved by Chris 2026-10-21; source `0aebd01`)
+
+**Approval.** Gate 2 only, for source `0aebd014002341a92e04cba65fd1ffce6a68a1c9` and migration
+`20261021180000_policy_commission_center_insights.sql`, SHA-256
+`d390cc8e267a86fdc829da3a514d184b74f6d270d4199af1d57f2c9e465b3345`, 34,179 bytes: these exact bytes, including the
+owner-only goal table, its RLS policy and grants, and the reviewed functions. Not approved: merge, frontend release,
+backfill, cleanup, production goal/receipt/sale/test-policy writes, any SQL change. PR #474 stays draft; PR #473 is
+untouched. An application fix would need a plan amendment, an exact file list and Chris's explicit approval first.
+
+**Source check.** Recomputed from `git show 0aebd01:<file>`: SHA-256 `d390cc8e…5b3345`, MD5
+`428020c9b8264e85dc9fcff992c426de`, 34,179 bytes; the working-tree file is byte-identical.
+
+**Method** (the Commissions center's Gate 2 method, `docs/plans/2026-10-20-commissions-center/verification.md`
+§13–§15, with this migration's values):
+1. **Read-only preflight** immediately before apply: `list_migrations` (hosted head must be `20261020212000`; nothing
+   recorded at or after `20261021180000`); `release/preflight.sql` (server version; the three applied commission
+   migrations recorded with their stored-text SHA-256; new objects absent; the eight preimage fingerprints the
+   migration requires; prerequisite objects; RLS on the six commission tables; no lock waits); `release/catalog.sql`
+   (count and digest per catalog category for every existing object, excluding exactly what this migration creates, so
+   before and after must be equal); six-table fingerprints (row count, full-row MD5, insert/update/delete counters,
+   session time zone); security and performance advisors.
+2. **Apply package.** `release/build_apply.py` reads the exact file and refuses unless SHA-256, MD5 and length are the
+   approved values; it prints one ASCII-only statement, sent as one request (one implicit transaction): the file's own
+   `lock_timeout 1s` / `statement_timeout 60s`; a DO block holding the file text with its non-ASCII characters expanded
+   server-side; refusal unless the expanded text's MD5, SHA-256 and UTF-8 length equal the approved values, the three
+   prerequisites are recorded, nothing is recorded at or after `20261021180000` and the caller is `postgres`; then
+   `EXECUTE` of the text unchanged (the file's own prerequisite, replay and eight-preimage guards run inside), a role
+   re-check and the history row `('20261021180000', 'policy_commission_center_insights', ARRAY[text])`. Any refusal or
+   error rolls everything back. No timestamp substitution, no blanket push, no replay.
+3. **Rehearsal** before production on a disposable PostgreSQL with the released history: preflight; lock-timeout
+   refusal; changed-byte refusal; later-version refusal; apply; read-back; catalog and fingerprint equality; replay
+   refusal; rollback restore; equality with a reference `psql -1 -f` apply.
+4. **Execution route.** The established route is the project's Supabase SQL Editor, signed in as `postgres` in a
+   browser (secure sign-in by browser takeover, never credentials in chat), or an authorized direct database
+   connection. Supabase MCP `execute_sql` is a read-only audit tool here (AGENT_RULES §11) and `apply_migration`
+   stamps its own version; neither applies this migration. If neither route is available, stop before execution and
+   report that blocker. Apply once; if the outcome is unclear, inspect history and objects before any retry; if
+   another migration is recorded first, stop for review.
+5. **Read-back** (read-only): `release/readback.sql` (exact history row; recorded last; goal table columns,
+   constraints, foreign key, RLS, its single owner policy and exact grants; insights schema owner and USAGE; the 12 new
+   functions' invoker, owner, `search_path`, volatility and EXECUTE `authenticated` only; the eight preimages and RLS
+   on six tables unchanged); `release/catalog.sql` equal to the preflight; six-table fingerprints equal; advisor delta
+   explained. No production goal, receipt, sale or test policy is created.
+6. **Stop conditions:** any not-ok row, hash or length mismatch, a later recorded version, an unexpected catalog or
+   advisor change, or a fingerprint difference: stop, report, no blind retry.
+
+Locks: the goal table's foreign key takes a brief `SHARE ROW EXCLUSIVE` lock on `organizations` (blocks writes to it,
+not reads); on a lock timeout, retry later and never raise the timeouts.
+
+**Documentation files (only; no application code, no SQL migration change):**
+- `docs/plans/2026-10-21-commissions-insights/implementation_plan.md` — this section; goal-write wording (§5); the
+  `0aebd01` record (§10).
+- `docs/plans/2026-10-21-commissions-insights/release/preflight.sql`, `catalog.sql`, `readback.sql`,
+  `build_apply.py` — new: read-only checks and the package builder.
+- `docs/plans/2026-10-21-commissions-insights/verification.md` — Gate 2 record; goal-write wording.
+- `AGENT_RULES.md` — proposed section: goal-write wording and migration status.
+- `implementation_plan.md` (root) — entry status.
+- `WORK_LOG.md` — newest-first Gate 2 entry.
+- PR #474 description — status and goal-write wording.
+
+**Execution result (2026-10-21, ~04:50 UTC): stopped before apply — route unavailable.** Source check, package build
+(SHA-256 `3cee7e7c…3778`, 37,157 bytes), full rehearsal and the production read-only preflight all passed (preflight
+20/20 with the eight preimage fingerprints; history head `20261020212000`; six-table fingerprints identical to the
+2026-10-20 record; catalog and advisor baselines captured). This cloud session has neither a signed-in SQL Editor
+(no browser on Chris's computer, no browser takeover here) nor an authorized direct connection, so nothing was
+applied and no route was improvised. Evidence and the remaining steps: `verification.md` §7.
