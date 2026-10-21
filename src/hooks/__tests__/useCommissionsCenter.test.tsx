@@ -7,7 +7,7 @@ import React from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG, USER, overview, scheduledPage, scheduledRow } from "@/components/commissions/__tests__/centerFixtures";
+import { ORG, USER, breakdown, goal, overview, scheduledPage, scheduledRow } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({
   userId: "", impersonating: false, permitted: true,
@@ -19,7 +19,10 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     rpc: (name: string, args: Record<string, unknown>) => {
       h.calls.push([name, args]);
-      const data = name === "get_my_commission_overview" ? overview() : scheduledPage([scheduledRow(h.calls.length)]);
+      const data = name === "get_my_commission_overview" ? overview() : name === "get_my_commission_breakdown" ? breakdown()
+        : name === "get_my_commission_goal" ? goal(50000, String(args.p_month))
+          : name === "set_my_commission_goal" ? { month: args.p_month, target_cents: args.p_target_cents, updated_at: "2026-10-20T17:00:00Z" }
+            : scheduledPage([scheduledRow(h.calls.length)]);
       const request = h.hold ? new Promise((resolve) => h.pending.push(resolve)) : Promise.resolve({ data, error: null });
       return Object.assign(request, { abortSignal: () => request });
     },
@@ -32,7 +35,9 @@ vi.mock("@/contexts/AuthContext", () => ({
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Agent" }) }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: () => h.permitted, isLoading: false }) }));
 
-import { commissionCenterKeys, useCommissionOverview, useScheduledPayments } from "../useCommissionsCenter";
+import {
+  commissionCenterKeys, useCommissionBreakdown, useCommissionGoal, useCommissionGoalMutation, useCommissionOverview, useScheduledPayments,
+} from "../useCommissionsCenter";
 import { useRefreshPolicyCommissions } from "../useClientPolicyCommissions";
 import { parseScheduled } from "@/lib/commission/centerFilters";
 
@@ -109,5 +114,37 @@ describe("useCommissionsCenter", () => {
     expect(h.calls).toHaveLength(1);
     await act(async () => { await result.current.refresh(); });
     expect(h.calls).toHaveLength(2);
+  });
+
+  it("breakdown and goal: keyed by user, organization and period or month; refreshed by any tracking write", async () => {
+    expect(commissionCenterKeys.breakdown(USER, ORG, MONTH)).toEqual(["policy-commissions", "center", USER, ORG, "breakdown", MONTH]);
+    expect(commissionCenterKeys.goal(USER, ORG, "2026-10-01")).toEqual(["policy-commissions", "center", USER, ORG, "goal", "2026-10-01"]);
+    const { result } = renderHook(() => ({ breakdown: useCommissionBreakdown(MONTH), goal: useCommissionGoal("2026-10-01"),
+      none: useCommissionGoal(null), refresh: useRefreshPolicyCommissions() }), { wrapper });
+    await waitFor(() => expect(result.current.breakdown.isSuccess && result.current.goal.isSuccess).toBe(true));
+    expect(h.calls.map(([n, a]) => [n, a])).toEqual([["get_my_commission_breakdown", { p_period: "this_month", p_from: null, p_to: null }],
+      ["get_my_commission_goal", { p_month: "2026-10-01" }]]);
+    expect(result.current.none.fetchStatus).toBe("idle");
+    await act(async () => { await result.current.refresh(); });
+    expect(h.calls.map(([n]) => n).sort()).toEqual(["get_my_commission_breakdown", "get_my_commission_breakdown", "get_my_commission_goal",
+      "get_my_commission_goal"]);
+  });
+
+  it("nothing is read or written under View As; a goal write refreshes that month's goal only", async () => {
+    h.impersonating = true;
+    const viewAs = renderHook(() => ({ breakdown: useCommissionBreakdown(MONTH), goal: useCommissionGoal("2026-10-01"),
+      write: useCommissionGoalMutation("2026-10-01") }), { wrapper });
+    await act(async () => { await viewAs.result.current.write.mutateAsync(100).catch(() => undefined); });
+    await waitFor(() => expect(viewAs.result.current.write.isError).toBe(true));
+    expect(h.calls).toEqual([]);
+    viewAs.unmount();
+    h.impersonating = false;
+    const { result } = renderHook(() => ({ oct: useCommissionGoal("2026-10-01"), nov: useCommissionGoal("2026-11-01"),
+      write: useCommissionGoalMutation("2026-10-01") }), { wrapper });
+    await waitFor(() => expect(result.current.oct.isSuccess && result.current.nov.isSuccess).toBe(true));
+    h.calls = [];
+    await act(async () => { await result.current.write.mutateAsync(125000); });
+    await waitFor(() => expect(h.calls.map(([n, a]) => [n, a])).toEqual([
+      ["set_my_commission_goal", { p_month: "2026-10-01", p_target_cents: 125000 }], ["get_my_commission_goal", { p_month: "2026-10-01" }]]));
   });
 });

@@ -50,7 +50,7 @@ export function GoalProgress({ month, receivedCents }: { month: string | null; r
   const { percent, bar } = goalProgress(receivedCents, target);
   return (
     <div className="space-y-1">
-      <Progress value={bar} aria-label={`${label} goal progress`} className="h-1.5 bg-emerald-500/15 [&>div]:bg-emerald-500" />
+      <Progress value={bar} aria-valuenow={bar} aria-valuetext={`${percent}%`} aria-label={`${label} goal progress`} className="h-1.5 bg-emerald-500/15 [&>div]:bg-emerald-500" />
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="tabular-nums text-muted-foreground"><span className="font-medium text-foreground">{percent}%</span> of {money(target)} goal</span>
         <button type="button" className={link} onClick={() => { mutation.reset(); setEditing(true); }}>Edit goal</button>

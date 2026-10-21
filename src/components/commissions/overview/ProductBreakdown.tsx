@@ -53,7 +53,7 @@ export function ProductBreakdown({ data, period }: { data: CommissionBreakdown; 
         <div className="mx-auto h-40 w-40" aria-hidden>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={slices.filter((s) => s.value > 0)} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="100%"
+              <Pie data={slices.filter((s) => s.value > 0)} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="100%" startAngle={90} endAngle={-270}
                 stroke="hsl(var(--card))" strokeWidth={2} isAnimationActive={false} cursor="pointer"
                 onClick={(slice: { payload?: Slice }) => slice.payload && navigate(href(slice.payload.category))}>
                 {slices.filter((s) => s.value > 0).map((s) => <Cell key={s.category} fill={COLOR[s.category]} />)}

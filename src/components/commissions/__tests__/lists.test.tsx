@@ -117,6 +117,23 @@ describe("Payments › History", () => {
     fireEvent.click(await screen.findByRole("button", { name: "History" }));
     expect(screen.getByTestId("where").textContent).toBe("?period=last_month&view=history");
   });
+
+  it("carrier filter (what Received by carrier opens): one carrier or Unknown, composed with period and voided", async () => {
+    h.data.get_my_commission_receipt_list = historyPage([historyRow(1)], { carriers: ["Harbor Mutual", "Synthetic Life"], has_unknown_carrier: true });
+    renderAt("/commissions/payments?view=history&period=last_month&carrier=synthetic%20life", <PaymentsTab onOpen={onOpen} />);
+    await screen.findByRole("table", { name: "Payment history" });
+    expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_period: "last_month", p_carrier: "synthetic life", p_carrier_unknown: false });
+    expect((screen.getByLabelText("Carrier") as HTMLSelectElement).value).toBe("Synthetic Life");
+    expect([...(screen.getByLabelText("Carrier") as HTMLSelectElement).options].map((o) => o.text))
+      .toEqual(["All carriers", "Harbor Mutual", "Synthetic Life", "Unknown carrier"]);
+    fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: "__unknown__" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_carrier: null, p_carrier_unknown: true }));
+    expect(screen.getByTestId("where").textContent).toBe("?view=history&period=last_month&carrier_unknown=1");
+    fireEvent.click(screen.getByLabelText("Show voided"));
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_carrier_unknown: true, p_include_voided: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+    expect(screen.getByTestId("where").textContent).toBe("?period=last_month");
+  });
 });
 
 describe("Policies", () => {
@@ -136,5 +153,29 @@ describe("Policies", () => {
     expect(screen.getByText("10 of 12")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
     await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject({ p_setup: "missing", p_offset: 0 }));
+  });
+
+  it("Sold, Type and Unknown carrier compose with Show; totals cover the whole filter (held disclosed, missing not $0)", async () => {
+    h.data.get_my_commission_policy_list = policiesPage([policyRow(1)], { has_unknown_carrier: true,
+      totals: { policies: 4, with_estimate_count: 2, estimate_cents: 114600, on_hold_count: 1, on_hold_cents: 57300, without_estimate_count: 1 } });
+    renderAt("/commissions/policies?period=this_month&type=final_expense&carrier_unknown=1&setup=missing", <PoliciesTab onOpen={onOpen} />);
+    await screen.findByRole("table", { name: "Policies" });
+    expect(lastArgs("get_my_commission_policy_list")).toEqual({ p_setup: "missing", p_carrier: null, p_carrier_unknown: true,
+      p_category: "final_expense", p_period: "this_month", p_from: null, p_to: null, p_limit: 25, p_offset: 0 });
+    expect(screen.getByText("4 policies · 2 with estimate · On hold: 1 not included")).toBeInTheDocument();
+    expect(screen.getByText("$1,146.00")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Sold"), { target: { value: "all" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject({ p_period: "all", p_category: "final_expense" }));
+    expect(screen.getByTestId("where").textContent).toBe("?type=final_expense&carrier_unknown=1&setup=missing");
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "__all__" } });
+    fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: "Synthetic Life" } });
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject(
+      { p_category: null, p_carrier: "Synthetic Life", p_carrier_unknown: false, p_setup: "missing" }));
+  });
+
+  it("an unfinished custom Sold range requests nothing", async () => {
+    renderAt("/commissions/policies?period=custom&from=2026-10-01", <PoliciesTab onOpen={onOpen} />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.calls).toEqual([]);
   });
 });

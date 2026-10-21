@@ -143,6 +143,39 @@ describe("Commissions page", () => {
     await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_status: "all" }));
   });
 
+  it("Policies keeps its address: All time, every type and carrier by default", async () => {
+    renderAt("/commissions/policies");
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toEqual({ p_setup: "all", p_carrier: null,
+      p_carrier_unknown: false, p_category: null, p_period: "all", p_from: null, p_to: null, p_limit: 25, p_offset: 0 }));
+  });
+
+  it("each breakdown bar or slice opens exactly its list, composing with the list's own filters", async () => {
+    renderAt("/commissions?period=last_month");
+    const carriers = await screen.findByRole("list", { name: "Carriers by Policies" });
+    fireEvent.click(within(carriers).getByRole("link", { name: /^Harbor Mutual/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/policies?period=last_month&carrier=Harbor+Mutual");
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Harbor Mutual", p_carrier_unknown: false, p_category: null, p_setup: "all" }));
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Harbor Mutual", p_setup: "missing", p_offset: 0 }));
+    act(() => nav(-1));
+    act(() => nav(-1));
+    fireEvent.click(within(await screen.findByRole("list", { name: "Products by policies" })).getByRole("link", { name: /^Unknown/ }));
+    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_category: "unknown", p_carrier: null }));
+    act(() => nav(-1));
+    fireEvent.click(await screen.findByRole("button", { name: "Received" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "Carriers by Received" })).getByRole("link", { name: /^Synthetic Life/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month&carrier=Synthetic+Life");
+    await waitFor(() => expect(calls("get_my_commission_receipt_list").at(-1)?.[1]).toMatchObject(
+      { p_period: "last_month", p_carrier: "Synthetic Life", p_carrier_unknown: false, p_include_voided: false }));
+    act(() => nav(-1));
+    fireEvent.click(await screen.findByRole("link", { name: "View payments" }));
+    await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject(
+      { p_period: "next_month", p_scope: "range", p_status: "remaining", p_kind: "later" }));
+  });
+
   it("reports without a calculator grid; only the Calculator tab needs one", async () => {
     h.grid = "not_configured";
     renderAt("/commissions");
