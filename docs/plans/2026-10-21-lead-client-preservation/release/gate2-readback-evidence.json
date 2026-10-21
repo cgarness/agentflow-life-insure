@@ -1,0 +1,52 @@
+{
+  "project": "jncvvsvckxhqgqvkppmj",
+  "purpose": "Gate 2 post-apply verification (read-only) for migration 20261021200000. The apply was performed outside the session that prepared it.",
+  "tools": ["Supabase MCP execute_sql (SELECT only)", "Supabase MCP get_advisors", "GitHub (PR #476, main)", "Vercel list_deployments"],
+  "observed_at_utc": "2026-10-21T20:18:17Z",
+  "history": {
+    "rows_before": 341,
+    "rows_after": 342,
+    "head": "20261021200000 / lead_client_conversion_preservation",
+    "previous_head_recorded": "20261021180000",
+    "statements": 1,
+    "statement_bytes": 24911,
+    "statement_md5": "3b8f527b3991660d2ae0d03fe42b1af7",
+    "statement_sha256": "ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5",
+    "created_by": null,
+    "idempotency_key": null,
+    "rollback": null
+  },
+  "readback": {
+    "passed": "11/11",
+    "converter_postimage": "7109fdab661eac16ab6ff4f8d8343c20",
+    "update_writer_postimage": "6313ca0c1fc374a613bfcb7e9e587d4c",
+    "guard_function": "f2558ce56aae6f7db84df1b17f085aa0",
+    "wrapper_unchanged": "3d974a5c893753d5f10cacd9605c565f",
+    "insert_policy_sale_unchanged": "3f600b757802c0fa8cc1e17fa5c25575",
+    "columns": "age:integer,best_time_to_call:text,date_of_birth:text,lead_conversion:jsonb,spouse_info:jsonb",
+    "clients_triggers": "clients_lead_conversion_guard,clients_policy_identity,clients_policy_sale_complete,contact_history_capture,workflow_client_insert_trigger",
+    "existing_clients_untouched": true
+  },
+  "fingerprints": {
+    "equal_to_preflight": true,
+    "clients_rows": {"count": 19, "md5": "eda900620f2a4b3432692f6b005b9a08"},
+    "clients_policies": {"count": 1, "md5": "eb56317784a48539aee785497258dca1"},
+    "clients_acl": {"md5": "46875263bd6598c4534e2df7d1847a5e"},
+    "wins_rows": {"count": 20, "md5": "3801e71a32660dcbb497cc83f7db4fc7"}
+  },
+  "advisors": {
+    "security": {"before": 253, "after": 253, "finding_set_md5": "6aea31d7cb249f25ec7d4f700f497230", "added": 0, "removed": 0},
+    "performance": {"before": 452, "after": 452, "finding_set_md5": "e4775516b7223df935914cf7f4baad78", "added": 0, "removed": 0}
+  },
+  "frontend": {
+    "pr": 476,
+    "merge_commit": "40a298caa54317b60590cf2c1333832b7f5e41d4",
+    "merged_at_utc": "2026-10-21T20:18:05Z",
+    "merged_by": "cgarness",
+    "vercel_production": {
+      "agentflow": {"deployment": "dpl_7usFF2Q1sSz3Ud55j5EoQU7p5ntK", "state": "READY"},
+      "agentflow-life-insure": {"deployment": "dpl_3gtzqNveshj5APDWrFLxgE4pS6nW", "state": "READY"}
+    }
+  },
+  "result": "Gate 2 complete and verified: exact reviewed text recorded once; read-back 11/11; existing clients, sales, RLS policy and grants unchanged; advisors unchanged. Frontend released by merge 40a298c."
+}

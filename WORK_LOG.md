@@ -1,3 +1,26 @@
+## 2026-10-21 — Lead → Client preservation LIVE: Gate 2 applied and verified (read-back 11/11); frontend merged `40a298c`
+
+Migration `20261021200000_lead_client_conversion_preservation.sql` was applied to `jncvvsvckxhqgqvkppmj` once, between
+the 17:42 UTC preflight and the merge, outside the session that prepared it (that session had no SQL Editor route
+and made no write). Chris then squash-merged PR #476 as `40a298c` (20:18:05 UTC).
+
+- **History.** 341 → 342 rows; head `20261021200000 / lead_client_conversion_preservation`; one statement equal to the
+  reviewed file (24,911 bytes, SHA-256 `ce189016…9ae5`); no other row added.
+- **Read-back (20:18–20:21 UTC, read-only):** `readback.sql` 11/11 — converter `7109fdab…`, update writer `6313ca0c…`,
+  guard `f2558ce5…`, wrapper and `insert_policy_sale` unchanged, writer metadata unchanged, five exact columns, trigger
+  exact, no existing client with a new-column value.
+- **Existing data:** clients 19 / `eda90062…`, clients policies 1 / `eb563177…`, clients ACL `46875263…`, wins 20 /
+  `3801e71a…` — identical to the preflight. No backfill; no client, sale, policy or grant changed.
+- **Advisors:** security 253 and performance 452, finding sets identical (zero added or removed).
+- **Frontend:** both Vercel production deployments READY for `40a298c`. Signed-in production conversions not run (they
+  would write production data). Agents should refresh open tabs.
+- **Files (docs only, on `claude/sweet-fermi-jpsnyn` restarted from `main` `40a298c`):** focused `verification.md`
+  status and §9, `release/gate2-readback-evidence.json`, focused and root plan status, AGENT_RULES section heading
+  and status, this entry.
+- **Next.** None required. Optional: a signed-in check of one real conversion by Chris. Never replay the migration.
+
+---
+
 ## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
 
 Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256

@@ -954,12 +954,12 @@ Agent Profile renders only gold UV navigation/copy actions. Publication and cont
 
 Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only managed badges: use slate navigation/outlined copy actions and emerald Verified only after agent confirmation, all six required fields, and acknowledged publication. Verification denotes profile completeness, not independent license currency; expiration is not a gate. Canonical licenses remain `agent_state_licenses`, and the wizard must preserve dates/IDs and reject stale/foreign snapshots atomically. Optional bio belongs to the AF private sync row and is signed to managed UV pages; protected A2P exclusions and contact-only capabilities remain mandatory. No existing profile is auto-confirmed. Settled rows have no expiry wakeup or continuous sender polling after this migration. Older status RPC response remains unchanged for client compatibility. Release record: `docs/plans/2026-10-19-uv-verification/release.md`.
 
-### Lead → Client conversion data preservation (built 2026-10-21 on `claude/sweet-fermi-jpsnyn`; migration `20261021200000` NOT applied; frontend NOT released)
+### Lead → Client conversion data preservation (LIVE 2026-10-21: migration `20261021200000` applied, immutable; frontend PR #476, merge `40a298c`)
 
-Gate 2 approved 2026-10-21 but NOT applied: this cloud session had no SQL Editor route, so it stopped after a 12/12
-preflight and a rehearsed package (`release/apply_20261021200000.sql`, SHA-256 `fd796409…742a`); never apply it
-through `execute_sql` or `apply_migration`. Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
-before assuming it. Plan and evidence: `docs/plans/2026-10-21-lead-client-preservation/{implementation_plan,verification}.md`.
+Migration `20261021200000` (SHA-256 `ce189016…9ae5`, 24,911 bytes) was applied once before the merge; the stored
+history is one statement equal to the reviewed file. Never edit, rename or replay it; read-back 11/11, fingerprints
+and both advisors unchanged (`verification.md` §9). The frontend was released by squash merge `40a298c` (both Vercel
+production deployments READY). Plan and evidence: `docs/plans/2026-10-21-lead-client-preservation/{implementation_plan,verification}.md`.
 Future conversions only: no backfill, and existing clients are never read or changed by the migration.
 
 - **The locked lead row is the source of truth.** `convert_lead_to_client_atomic` copies state (normalized with

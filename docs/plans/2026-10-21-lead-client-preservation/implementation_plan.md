@@ -1,8 +1,9 @@
 # Lead → Client conversion: preserve every meaningful lead field (future conversions only)
 
-**Gate 2 (2026-10-21, 17:55 UTC): APPROVED; preflight 12/12 and package rehearsed; NOT applied** — this cloud session
-has no SQL Editor route. Package `release/apply_20261021200000.sql` (SHA-256 `fd796409…742a`) from `release/build_apply.py`;
-evidence `verification.md` §8. Production unchanged. Gate 3 not approved.
+**LIVE (2026-10-21):** Gate 2 migration `20261021200000` applied once before the merge (not by the session that built
+it; stored text equals the reviewed file) and verified read-only at 20:18–20:21 UTC: read-back 11/11, fingerprints
+identical to the 17:42 preflight, both advisors unchanged (`verification.md` §9). Frontend released by squash merge
+`40a298c` (PR #476); both Vercel production deployments READY. Agents should refresh open tabs.
 
 **Status (2026-10-21): Gate 1 COMPLETE — built and verified locally; draft PR; stopped at Gate 2.** Chris approved
 Gate 1 (D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR) and added a mixed-version

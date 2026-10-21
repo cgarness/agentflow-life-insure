@@ -1,10 +1,9 @@
 # Lead → Client conversion preservation — verification record
 
-**Status (2026-10-21, 17:55 UTC):** Chris approved Gate 2 (database only) for SHA-256
-`ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`. Checksum, hosted history, fresh preflight (12/12),
-fingerprints and advisor baseline all passed, and the version-preserving package is built and rehearsed. **NOT
-applied:** this cloud session has no SQL Editor route (§8). Production is unchanged; frontend NOT merged or released.
-Gate 3 is not approved. Earlier entries below are kept as history.
+**Status (2026-10-21, 20:21 UTC): LIVE.** Migration `20261021200000` was applied once before the merge — not by the
+session that prepared it (§8: no SQL Editor route there) — and verified read-only: read-back 11/11, the four
+fingerprints identical to the 17:42 preflight, both advisor sets unchanged (§9). Frontend released by squash merge
+`40a298c` (PR #476); both Vercel production deployments READY. Earlier entries below are kept as history.
 
 Gate 1 status (kept): local build and disposable-database tests only. Contract: `implementation_plan.md` beside this
 file (Gate 1 approved by Chris: D1–D9 and the file list, plus the mixed-version requirement in §5 below). **Updated for
@@ -229,3 +228,36 @@ function, trigger or client value. Steps 4–5 (read-back, post-apply fingerprin
 unchanged into the SQL Editor (Primary database, role `postgres`) and Run it once as one request — expect "Success. No
 rows returned"; on any error do not retry. Then `readback.sql` 11/11, history text SHA-256 `ce189016…`, the four
 fingerprints equal to the fresh preflight's, and both advisors compared with the baseline above.
+
+## 9. Gate 2 completed — post-apply read-back (2026-10-21, 20:18–20:21 UTC; read-only)
+
+**How it was applied.** Not by this session: §8 stopped before any write. Between the 17:42 preflight and 20:18 the
+migration was applied outside this session (route not observed here); merge commit `40a298c` states it was applied and
+verified before the merge. The stored history row is exactly what the version-preserving package records.
+
+**History.** 342 rows (341 + 1); head `20261021200000 / lead_client_conversion_preservation`; previous head
+`20261021180000` still recorded; no other row added (no baseline replay). The row holds **one** statement: 24,911 bytes,
+MD5 `3b8f527b3991660d2ae0d03fe42b1af7`, SHA-256 `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5` —
+the reviewed file byte for byte; `created_by`, `idempotency_key` and `rollback` NULL.
+
+**`readback.sql`: 11/11 `t`.** History row; stored text is the reviewed file; converter `7109fdab…`; update writer
+`6313ca0c…`; wrapper `3d974a5c…` and `insert_policy_sale` `3f600b75…` unchanged; writer owner, definer flag,
+`search_path` and ACL unchanged, no `anon` EXECUTE; guard `f2558ce5…` (owner `postgres`, invoker, EXECUTE `postgres`
+only); trigger `clients_lead_conversion_guard` enabled with the exact definition; the five columns exact (nullable, no
+default, no column ACL); no existing client has a value in any new column; `clients` triggers exactly the five expected.
+
+**Existing data (fingerprints identical to the 17:42 preflight).** `clients_rows` 19 / `eda900620f2a4b3432692f6b005b9a08`
+(excluding the five new columns, all NULL), `clients_policies` 1 / `eb56317784a48539aee785497258dca1`, `clients_acl`
+`46875263bd6598c4534e2df7d1847a5e`, `wins_rows` 20 / `3801e71a32660dcbb497cc83f7db4fc7`. No client, sale, RLS policy or
+table grant changed, and no conversion had run on the new functions at read-back time.
+
+**Advisors.** Security **253 → 253**, performance **452 → 452**; the full finding sets (name, level, detail,
+metadata; observation times excluded) are identical — zero added, zero removed (set digests `6aea31d7…`,
+`e4775516…`).
+
+**Frontend.** PR #476 squash-merged by Chris as `40a298c` at 20:18:05 UTC; Vercel production deployments READY for
+that commit on both projects (`agentflow` `dpl_7usFF2Q1…`, `agentflow-life-insure` `dpl_3gtzqNve…`). Not performed or
+claimed here: signed-in production conversions (they would write production data). Agents should refresh open tabs;
+until they do, an old tab's differing conversion note is kept in the read-only history instead of Notes (§5).
+
+Machine-readable: `release/gate2-readback-evidence.json`.

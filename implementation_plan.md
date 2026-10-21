@@ -1,10 +1,9 @@
-## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
+## 2026-10-21 — LIVE: Lead → Client conversion preserves every meaningful lead field (migration 20261021200000; PR #476, merge 40a298c)
 
-**Gate 2 (database only), 2026-10-21:** Chris approved migration `20261021200000` (SHA-256 `ce189016…9ae5`) via the
-version-preserving SQL Editor route. Checksum verified; hosted head `20261021180000`; fresh preflight 12/12;
-fingerprints and advisors (security 253, performance 452) captured; package `apply_20261021200000.sql` (SHA-256
-`fd796409…742a`) built and rehearsed. **NOT applied**: no SQL Editor route in this cloud session; stopped and reported.
-Production unchanged. Gate 3 not approved. Focused `verification.md` §8.
+**Release (2026-10-21):** migration `20261021200000` (SHA-256 `ce189016…9ae5`) applied once before the merge and
+verified read-only: read-back 11/11, fingerprints identical to the preflight, advisors unchanged (security 253,
+performance 452). Frontend released by squash merge `40a298c`; both Vercel production deployments READY. Never replay
+the migration. Focused `verification.md` §8–§9.
 
 **Status:** Chris approved Gate 1 (D1–D9, file list, local build, tests, commits, pushes, one draft PR) with a
 mixed-version requirement. Built and verified locally on `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`; stopped at
