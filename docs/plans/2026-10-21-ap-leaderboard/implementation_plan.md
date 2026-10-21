@@ -344,3 +344,30 @@ Merging and releasing need Chris's separate approval.
   (no new failure), targeted 331/331, lint, build, static checks and screenshots.
 - **Gates still open:** review of the draft PR; a signed-in read-only preview check if wanted; merge and frontend
   release need Chris's separate approval. No backend gate exists for this change.
+
+---
+
+## §13. Amendment — test-only correction of the TV visual harness (approved by Chris 2026-10-21)
+
+**Why.** PR #475's "Policy sale transaction verification" workflow (`policy-sale-recording.yml`) fails in its
+`tv-browser` job (run `39626583398`, job `119313300470`). The job runs the real-Chromium harness in
+`scripts/tests/leaderboard-visual/`, which still expects the removed behaviour. The caption text with
+"1 appointments" fails first at `verify.mjs:20`. After it come the four-cell totals with Appts, the
+metric-index sort, the "Viewing metric" select, the auto-rotate switch and the 30 s rotation, and the
+`restAgents` table prop. The failure was reproduced locally with the same assertion and actual/expected text. The
+`postgres` job and every other check pass. This workflow is not part of the Reports-frontend gate, so §9's
+verification did not cover it. That gap is recorded here.
+
+**Approved scope (test-only):**
+
+| File | Change |
+|---|---|
+| `scripts/tests/leaderboard-visual/entry.tsx` | The table uses the new `agents` property with AP-ranked rows and a YOU row. The fixture gains deterministic AP ties (one decided by Policies, one by Calls, both against name order) and a wholly-unknown-premium agent outside the routine variant. It adds live-update hooks for a no-rank-change update, a tie-break reorder and an AP reorder. |
+| `scripts/tests/leaderboard-visual/verify.mjs` | Legacy metric-switching and rotation assertions are replaced by AP-only checks. It validates AP / Policies / Calls on the TV podium, ranks 4–10, ranks 11+ and the totals; deterministic tie-breaks; real movement, and none when ranks hold; no Appointments or removed metrics on TV or the normal table; Agent sees no gear; the Admin ticker editor works; and rankings are unchanged after the former 30 s interval. Geometry, avatar, overlap, scrolling, Sold Date, period, roster and runtime-error checks are kept. |
+| `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` (this §13), `verification.md`, `WORK_LOG.md`, root `implementation_plan.md` | Records. |
+
+**Not touched:** `.github/workflows/policy-sale-recording.yml` (not weakened, skipped or disabled), the harness's
+`stubs.ts`, `vite.config.ts` and `index.html`, all application code under `src/`, `supabase/**` and telephony. The
+Admin role is exercised by having Playwright serve the existing stub module, unchanged except for its role string, to
+a separate browser context. No file outside the table above changes. The harness `README.md` still describes the
+retired checks; updating it needs Chris's approval (flagged in `verification.md`).

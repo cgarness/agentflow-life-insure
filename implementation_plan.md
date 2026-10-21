@@ -7,6 +7,10 @@ set, and the full Vitest run has no new failure. Targeted 331/331, lint and buil
 plan folder. No Supabase or Vercel command, migration, merge or release. Merge and frontend release need
 Chris's separate approval. Evidence: `docs/plans/2026-10-21-ap-leaderboard/verification.md`.
 
+**CI blocker fixed (test-only, plan §13):** the `tv-browser` visual harness (`scripts/tests/leaderboard-visual/`
+`entry.tsx`, `verify.mjs`) is updated for the AP-only board; no application, workflow or backend change.
+`verification.md` §8–§9.
+
 **Plan, exact file list, decisions and verification:** `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md`.
 
 **Summary:** Annualized Premium (AP) is the single ranking metric on the Leaderboard page, TV Mode and the Dashboard

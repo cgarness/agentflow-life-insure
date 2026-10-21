@@ -1,3 +1,31 @@
+## 2026-10-21 — PR #475 CI blocker: TV visual harness updated for the AP-only board (test-only)
+
+Chris found the release blocker: `Policy sale transaction verification` › `tv-browser` failed on `2266cd5`.
+The real-Chromium harness still expected the old caption with "1 appointments", the Appts total, metric
+switching, the auto-rotate switch and rotation, and the removed `restAgents` table prop. The postgres job and all
+other checks passed. The earlier verification missed it: the harness sits outside the Reports gate and every
+tsconfig.
+
+- **Scope (approved, test-only):** `scripts/tests/leaderboard-visual/entry.tsx`, `verify.mjs` and the records (plan
+  §13, `verification.md` §8, this log, root plan). The workflow is not weakened; `stubs.ts`, `vite.config.ts`,
+  `README.md`, `src/` and `supabase/` are unchanged.
+- **Harness now proves:** AP order from an independent comparator, with hard-coded orders as a guard;
+  AP/Policies/Calls on the podium, ranks 4–10, ranks 11+ and the totals; tie-breaks decided against name order
+  (Policies, then Calls); movement only on real rank changes (none for a value change, Gray ↑1 / Harper ↓1 for a
+  tie-break, seven ↓1 for an AP jump); no Appointments or removed metrics; D14 "—*"; Agent sees no gear; the
+  Admin ticker editor works (Admin served the unchanged stub with only its role string changed, in a separate
+  browser context); stored rotation preferences removed; the board unchanged after 30.1 s. All geometry, avatar,
+  overlap, scrolling, Sold Date, period, roster, routine and runtime-error checks are kept.
+- **Local evidence:** the failure reproduced; the new harness fails on `main` and on two mutations (name-only
+  tie-break; AP-only change detection) and passes twice on the branch (77 s / 74 s). Root tsc 0; app tsc
+  identical to `main` (84); targeted Vitest 331/331; ESLint 0 errors (one pre-existing warning); build passes.
+- **No** migration, Supabase command, deployment, merge or release. Flagged: the harness README still
+  describes the retired checks (outside the approved scope).
+- **Next:** all PR #475 checks green on the final head (recorded in `verification.md` §9), then Chris's final
+  review.
+
+---
+
 ## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR #475; NOT merged, NOT released)
 
 Chris approved the plan with D1–D5 = A. Branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. Frontend only:

@@ -151,3 +151,63 @@ from its button, and Escape closes it without leaving TV; a second Escape exits.
   left for a separate change.
 - On narrow table rows the agent name truncates and the YOU label wraps under it; the full name stays in the
   `title`.
+
+---
+
+## §8. CI blocker fix — TV visual harness (test-only; plan §13; 2026-10-21)
+
+**Finding (Chris's review).** `Policy sale transaction verification` › `tv-browser` failed on PR #475 head
+`2266cd5` (run `39626583398`, job `119313300470`) at `verify.mjs:20`. The harness expected the old caption
+"…2 calls, 1 appointments, 0 policies". Further down it also expected the Appts total, the metric-index sort,
+the "Viewing metric" select, the auto-rotate switch and rotation, and `entry.tsx` still passed the removed
+`restAgents` table prop. `postgres` and every other check passed. **Gap in §3:** this workflow is not part of
+the Reports-frontend gate, the harness files are outside every tsconfig, and §3/§4 never ran it, so the earlier
+verification missed it.
+
+**Reproduced locally first** on the same head: the same `AssertionError` at `verify.mjs:20` with identical actual
+and expected text.
+
+**Files changed (exactly the approved scope):** `scripts/tests/leaderboard-visual/entry.tsx`,
+`scripts/tests/leaderboard-visual/verify.mjs`, plus records (plan §13, this §8, `WORK_LOG.md`, root
+`implementation_plan.md`). The workflow, `stubs.ts`, `vite.config.ts`, `index.html`, `README.md`, all of `src/`
+and `supabase/` are unchanged. No check is skipped, disabled or weakened.
+
+**What the harness now proves (real Chromium, Playwright 1.56.1):**
+
+| Requirement | Check |
+|---|---|
+| New table property | `entry.tsx` passes AP-ranked `agents` (plus `userId`) to `LeaderboardRankingsTable`. An ad-hoc typecheck of the pre-fix entry reports TS2322 for `restAgents`; the fixed entry adds no error (the only remaining line is the pre-existing `AuthContext.tsx(245,16)`, one of `main`'s 84). |
+| AP-only ranking | An independent in-page comparator over the fixture rows drives the expected podium, ranks 4–10, ranks 11+ and totals. Hard-coded orders guard the comparator itself. The metric-switch and rotation steps are removed. |
+| AP / Policies / Calls everywhere | Every measured state compares each podium card (AP + "N Policies" + "N Calls"), every ranks 4–10 row (rank, name, AP, Policies, Calls), every ranks 11+ row (rank, name, AP), the totals (AP, Policies, Calls with labels `AP / Policies / Calls`), the five table headers and the "Ranking · Annualized Premium" badge. |
+| Deterministic tie-breaks | Fixture ties decided **against** name order: Harper ties Gray on AP with one more Policy, and Jordan ties Indigo on AP and Policies with more Calls. Expected order Emerson, Finley, Harper, Gray, Jordan, Indigo, Kai. |
+| Real movement | A value change that keeps every rank shows **no** arrows. A Policies tie-break reorder shows exactly Gray "Moved up 1" and Harper "Moved down 1". An AP reorder (Kai to #1) shows "Moved down 1" on all seven table rows and a new podium. |
+| No removed metrics | Every measured state and the normal table at 1440/390 reject `appointment`, `appts`, `talk`, `talk time`, `policies / 100`, `per 100 calls`, `viewing metric`, `auto-rotate`, `cycles metrics` and `1m 21s`. The caption is exactly "Annual premium (2 policies with unknown premium) · Outside active roster: 2 calls, 0 policies", although the fixture excludes 1 appointment. |
+| D14 | Noah's only premium is unknown: "—*", never $0, ranked 14th; Avery's partial "$701.40*". |
+| Kept checks | Podium/totals centerline, no horizontal overflow, no lower-panel overlap, no avatar overlap, table photos unclipped and hit-test visible after scrolling, source ranks unmutated, the Sold Date rows (TV and normal), period switch, rosters 1/2/3/14, exit/re-entry, the `?routine=1` variant, and zero `pageerror`s on both browser contexts. |
+| Admin / Agent | Agent (the fixture's stub role): no "TV display options" button. Admin, in a separate browser context that serves the unchanged stub module with only its role string set to "Admin": the popover holds only the ticker editor (no metric select, no switch, no combobox). Save stays disabled until an edit, Reset restores the saved text, Escape closes the popover without leaving TV, and a second Escape exits. |
+| Former 30 s rotation | Re-entering TV removes the stored `leaderboardTvMetricIndex` / `leaderboardTvAutoRotate`. After 30.1 s of real browser time, the podium, ranks 4–10, ranks 11+ and totals are identical and still match the AP board. |
+
+**Local runs** (fresh Vite from the repository root on port 4179, exactly as the workflow does):
+
+| Run | Code under test | Result |
+|---|---|---|
+| Reproduction | old harness, branch head | **fail** at `verify.mjs:20` (the CI failure) |
+| Negative control | new harness, `main` `51b0e56` components | **fail** at the caption: "…2 calls, 1 appointments, 0 policies" |
+| Mutation A | branch with a name-only tie-break (AP → name → id) | **fail**: the ranks 4–10 diff shows Gray before Harper and Indigo before Jordan |
+| Mutation B | branch with AP-only change detection | **fail**: TimeoutError waiting for the Policies tie-break movement |
+| Final 1 / Final 2 | new harness, branch (unmodified) | **pass**, exit 0, 77 s / 74 s, 15 PASS lines, 31 evidence screenshots |
+
+Mutation A first "passed" on a server whose readiness probe had already pre-transformed the unmutated module.
+Restarting Vite after the mutation (as CI always does) failed it as above. Mutations ran in a throwaway worktree that
+has since been removed.
+
+**Standard checks on the final tree:** `npx tsc --noEmit` exit 0. The app check is the identical 84-error set to
+the `main` baseline. Targeted Vitest 15 files, 331 / 331. ESLint on both harness files: 0 errors and the same
+single pre-existing `react-refresh/only-export-components` warning at `entry.tsx:19` that the pre-fix file has.
+`npm run build` exit 0, `git diff --check` clean. No application code changed, so the earlier full-suite result
+(§3) still describes the application.
+
+**Not changed, flagged for approval:** `scripts/tests/leaderboard-visual/README.md` still describes the retired
+metric-switch/rotation checks and the old caption. Updating it is outside the approved scope.
+
+**GitHub checks on the final head:** recorded in §9 once the run completes.
