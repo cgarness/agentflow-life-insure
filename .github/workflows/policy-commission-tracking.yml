@@ -8,6 +8,8 @@ on:
       - 'supabase/migrations/rollback/*_policy_commission_expected_windows.rollback.sql'
       - 'supabase/migrations/*_policy_commission_center_reads.sql'
       - 'supabase/migrations/rollback/*_policy_commission_center_reads.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_center_insights.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_center_insights.rollback.sql'
       - 'supabase/migrations/*_leaderboard_sale_recording.sql'
       - 'supabase/migrations/*_policy_identity_sale_integrity.sql'
       - 'supabase/migrations/*_commission_grids_*.sql'
@@ -72,7 +74,7 @@ jobs:
           echo "9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c  $RUNNER_TEMP/postgrest.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/postgrest.tar.xz" -C "$RUNNER_TEMP"
           "$RUNNER_TEMP/postgrest" --version
-      - name: Guards, inventory, suites, races, existing suites, commissions center reads, rollback, PostgREST, timings
+      - name: Guards, inventory, suites, races, existing suites, commissions center reads and insights, rollback, PostgREST, timings
         env:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55447
           PGPASSWORD: isolated-test-only

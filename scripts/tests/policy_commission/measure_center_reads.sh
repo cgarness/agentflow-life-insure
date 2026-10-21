@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Commissions center: server-side timing of the five reads for one seller with a large synthetic book, on a DISPOSABLE
 # database prepared by scripts/run_policy_commission_tests.sh (fixture, harness, both applied migrations, the center
-# harness and 20261020212000). Synthetic data only.
+# harness and 20261020212000, plus 20261021180000 when present: its four reads are then timed too). Synthetic data only.
 #   DB_URL=postgres://postgres@127.0.0.1:<port>/pc_test_<...> PC_CENTER_POLICIES=2000 bash scripts/tests/policy_commission/measure_center_reads.sh
 # The book: PC_CENTER_POLICIES sales with estimates (Edit dates spread their first premium dates over about two years
 # around today) and a receipt on every third Advance, plus 50 sales without an estimate. Each read is timed with
@@ -55,6 +55,14 @@ INSERT INTO cc_reads VALUES
   ('policies page', 'SELECT get_my_commission_policies(''all'', NULL, 25, 0)'),
   ('policies (missing)', 'SELECT get_my_commission_policies(''missing'', NULL, 25, 0)'),
   ('drawer', format('SELECT get_my_policy_commission(%L)', (SELECT policy_id FROM policy_commission_estimates LIMIT 1)));
+-- With 20261021180000 applied (the runner's default), the insights reads too.
+INSERT INTO cc_reads SELECT * FROM (VALUES
+  ('breakdown (this month)', 'SELECT get_my_commission_breakdown()'),
+  ('breakdown (two years)', format('SELECT get_my_commission_breakdown(%L, %L, %L)', 'custom', current_date - 365, current_date + 365)),
+  ('policy list (sold this year, one carrier)', 'SELECT get_my_commission_policy_list(''all'', ''Synthetic Life'', false, NULL, ''this_year'', NULL, NULL, 25, 0)'),
+  ('receipt list (one carrier)', 'SELECT get_my_commission_receipt_list(''all'', NULL, NULL, true, ''Synthetic Life'', false, 25, 0)'),
+  ('goal', 'SELECT get_my_commission_goal(date_trunc(''month'', current_date)::date)')) v
+ WHERE to_regprocedure('public.get_my_commission_breakdown(text,date,date)') IS NOT NULL;
 DO $$
 DECLARE r record; k integer; t timestamptz; x jsonb;
 BEGIN

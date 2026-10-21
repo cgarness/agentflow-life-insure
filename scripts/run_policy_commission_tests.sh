@@ -7,7 +7,8 @@
 #           and the commissions center read timing (measure_center_reads.sh; PC_CENTER_POLICIES, default 500).
 # Steps: migration preimage/replay guards · ACL and ownership inventory diff · security, handoff and tracking suites ·
 # expected-windows migration (20261020040000) guards, inventory and suite · commissions center reads (20261020212000)
-# guards, drift refusal, inventory and suite · independent-session races and lock contention · existing
+# guards, drift refusal, inventory and suite · commissions insights and goals (20261021180000) guards, drift refusal,
+# inventory, suite and the released center suite on the final state · independent-session races and lock contention · existing
 # sale/identity/reporting suites with both migrations applied · non-destructive rollbacks, refusal and reapply.
 # Scenarios run with both applied migrations (the production end state) unless marked otherwise.
 set -euo pipefail
@@ -33,6 +34,8 @@ WINDOWS_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020040000_policy_commi
 CENTER="$ROOT/supabase/migrations/20261020212000_policy_commission_center_reads.sql"
 CENTER_ROLLBACK="$ROOT/supabase/migrations/rollback/20261020212000_policy_commission_center_reads.rollback.sql"
 CENTER_HARNESS="$ROOT/supabase/tests/policy_commission_center_harness.sql"
+INSIGHTS="$ROOT/supabase/migrations/20261021180000_policy_commission_center_insights.sql"
+INSIGHTS_ROLLBACK="$ROOT/supabase/migrations/rollback/20261021180000_policy_commission_center_insights.rollback.sql"
 DATABASES=()
 drop_roles() {
   for role in agentflow_policy_commission_writer agentflow_comp_operator; do
@@ -72,6 +75,8 @@ new_db() {
 }
 # center_db NAME: both applied migrations, the center harness and 20261020212000.
 center_db() { new_db "$1"; sql -f "$CENTER_HARNESS" >/dev/null; sql -1 -f "$CENTER" >/dev/null; }
+# insights_db NAME: center_db plus 20261021180000 (the end state of this change).
+insights_db() { center_db "$1"; sql -1 -f "$INSIGHTS" >/dev/null; }
 run_suite() { sql -v defaults="$(cat "$ROOT/supabase/tests/fixtures/policy_commission/permission_defaults.json")" -f "$1" | grep -E '^ *PASS' ; }
 expect_fail() { # expect_fail PATTERN FILE: the file must fail with an error matching PATTERN
   if sql -1 -f "$2" > "$TEMP/out" 2>&1; then echo "FAIL: $2 unexpectedly applied"; exit 1; fi
@@ -237,6 +242,54 @@ ADDED=$(grep -E '^a\|' "$TEMP/commission.added" | cut -d'|' -f2 | LC_ALL=C sort 
 expect_fail 'already applied; refusing replay' "$CENTER"
 echo "PASS commissions center guards and inventory (5 reads, 2 indexes, $(wc -l < "$TEMP/inventory.before") existing objects unchanged)"
 center_db center
+run_suite "$ROOT/supabase/tests/policy_commission_center.sql"
+
+# ── 1d. Commissions insights and goals (20261021180000): guards, drift refusal, existing-object inventory, suites ─
+new_db insights_guards
+sql -f "$CENTER_HARNESS" >/dev/null
+expect_fail 'require 20261020212000' "$INSIGHTS"
+center_db insights_drift
+# A reused reporting definition that drifted from its applied text is refused; nothing is created.
+sql -c "SELECT pg_get_functiondef('policy_commission_reporting.viewer()'::regprocedure)" -tAX > "$TEMP/viewer.sql"
+python3 - "$TEMP/viewer.sql" <<'PY2'
+import sys
+p = sys.argv[1]
+s = open(p).read().rstrip() + ';\n'
+s = s.replace("RAISE EXCEPTION 'Commission access is unavailable'", "RAISE EXCEPTION 'Commission access is  unavailable'", 1)
+open(p, 'w').write(s)
+PY2
+sql -f "$TEMP/viewer.sql" >/dev/null
+expect_fail 'differs from the reviewed preimage' "$INSIGHTS"
+test -z "$(sql -tAX -c "SELECT to_regnamespace('policy_commission_insights')")$(sql -tAX -c "SELECT to_regclass('public.policy_commission_goals')")" \
+  || { echo 'FAIL: insights objects leaked'; exit 1; }
+center_db insights_inventory
+inventory > "$TEMP/inventory.before"
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$INSIGHTS" >/dev/null
+inventory > "$TEMP/inventory.after"
+commission_inventory > "$TEMP/commission.after"
+# Nothing existing changes. Added: six public functions (the general inventory sees the three reads and three goal
+# functions) and, in the commission catalog, the goals table with its columns, constraints and grants.
+test "$(LC_ALL=C comm -23 <(LC_ALL=C sort "$TEMP/inventory.before") <(LC_ALL=C sort "$TEMP/inventory.after") | wc -l)" = 0 \
+  || { echo 'FAIL: the insights migration changed an existing object'; exit 1; }
+test "$(LC_ALL=C comm -23 <(LC_ALL=C sort "$TEMP/commission.before") <(LC_ALL=C sort "$TEMP/commission.after") | wc -l)" = 0 \
+  || { echo 'FAIL: the insights migration changed a commission object'; exit 1; }
+ADDED=$(LC_ALL=C comm -13 <(LC_ALL=C sort "$TEMP/inventory.before") <(LC_ALL=C sort "$TEMP/inventory.after") | cut -d'|' -f2 | LC_ALL=C sort | tr '\n' ' ')
+[ "$ADDED" = 'clear_my_commission_goal(date) get_my_commission_breakdown(text,date,date) get_my_commission_goal(date) get_my_commission_policy_list(text,text,boolean,text,text,date,date,integer,integer) get_my_commission_receipt_list(text,date,date,boolean,text,boolean,integer,integer) set_my_commission_goal(date,bigint) ' ] \
+  || { echo "FAIL: unexpected new objects: $ADDED"; exit 1; }
+LC_ALL=C comm -13 <(LC_ALL=C sort "$TEMP/commission.before") <(LC_ALL=C sort "$TEMP/commission.after") > "$TEMP/commission.added"
+ADDED=$(grep -E '^(f|r)\|' "$TEMP/commission.added" | cut -d'|' -f1-2 | LC_ALL=C sort | tr '\n' ' ')
+[ "$ADDED" = 'f|clear_my_commission_goal(date) f|get_my_commission_breakdown(text,date,date) f|get_my_commission_goal(date) f|get_my_commission_policy_list(text,text,boolean,text,text,date,date,integer,integer) f|get_my_commission_receipt_list(text,date,date,boolean,text,boolean,integer,integer) f|set_my_commission_goal(date,bigint) r|policy_commission_goals r|policy_commission_goals_pkey ' ] \
+  || { echo "FAIL: unexpected new commission objects: $ADDED"; exit 1; }
+ADDED=$(grep -E '^(a|c)\|' "$TEMP/commission.added" | cut -d'|' -f2 | LC_ALL=C sort -u | tr '\n' ' ')
+[ "$ADDED" = 'policy_commission_goals policy_commission_goals_pkey ' ] || { echo "FAIL: unexpected new commission columns: $ADDED"; exit 1; }
+! grep -qvE '^(f|r|a|c)\|' "$TEMP/commission.added" || { echo 'FAIL: unexpected commission catalog lines'; exit 1; }
+expect_fail 'already applied; refusing replay' "$INSIGHTS"
+echo "PASS commissions insights guards and inventory (6 functions, goals table, $(wc -l < "$TEMP/inventory.before") existing objects unchanged)"
+insights_db insights
+run_suite "$ROOT/supabase/tests/policy_commission_insights.sql"
+# The released center suite still passes with this migration applied (its reads and definitions are unchanged).
+insights_db center_with_insights
 run_suite "$ROOT/supabase/tests/policy_commission_center.sql"
 
 # ── 2. Independent sessions: duplicate submissions, receipt vs replacement, first-policy edits, lock contention ──
@@ -413,6 +466,30 @@ sql -1 -f "$CENTER" >/dev/null
 sql -c "SELECT pc_login(11); SET ROLE authenticated;
   SELECT test_assert((get_my_commission_overview()#>>'{setup,with_estimate_count}')::integer = 1, 'reapplied reads see the kept estimate')" >/dev/null
 echo 'PASS commissions center rollback: exact restore, records kept, replay refusal and reapply'
+# Commissions insights rollback: refuses while a goal exists; otherwise restores both inventories exactly and keeps
+# every commission record; refuses replay; reapplies.
+center_db insights_rollback
+inventory > "$TEMP/inventory.before"
+commission_inventory > "$TEMP/commission.before"
+sql -1 -f "$INSIGHTS" >/dev/null
+sql -c "SELECT pc_login(11); SET ROLE authenticated; SELECT create_client_with_sale_handoff(test_id(9701), test_id(1), pc_client('Insight', 11, '50.00'), true,
+  pc_payload(pc_slot('primary', 11, 501, 511, 35, 20, 100, '95.50', '50.00', 57300, 42975)));
+  SELECT set_my_commission_goal(DATE '2026-10-01', 100000);" >/dev/null
+expect_fail 'refusing to discard them' "$INSIGHTS_ROLLBACK"
+sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_goals) = 1, 'refused rollback kept the goal')" >/dev/null
+sql -c "SELECT pc_login(11); SET ROLE authenticated; SELECT clear_my_commission_goal(DATE '2026-10-01');" >/dev/null
+sql -1 -f "$INSIGHTS_ROLLBACK" >/dev/null
+inventory > "$TEMP/inventory.rolledback"
+commission_inventory > "$TEMP/commission.rolledback"
+diff -u "$TEMP/inventory.before" "$TEMP/inventory.rolledback" || { echo 'FAIL: insights rollback did not restore the inventory'; exit 1; }
+diff -u "$TEMP/commission.before" "$TEMP/commission.rolledback" || { echo 'FAIL: insights rollback did not restore the commission catalog'; exit 1; }
+test -z "$(sql -tAX -c "SELECT to_regnamespace('policy_commission_insights')")" || { echo 'FAIL: insights schema remains'; exit 1; }
+sql -c "SELECT test_assert((SELECT count(*) FROM policy_commission_estimates) = 1, 'the insights rollback keeps every commission record')" >/dev/null
+expect_fail 'not installed; refusing replay' "$INSIGHTS_ROLLBACK"
+sql -1 -f "$INSIGHTS" >/dev/null
+sql -c "SELECT pc_login(11); SET ROLE authenticated;
+  SELECT test_assert((get_my_commission_policy_list()->>'total_count')::integer = 1, 'reapplied reads see the kept policy')" >/dev/null
+echo 'PASS commissions insights rollback: goal refusal, exact restore, records kept, replay refusal and reapply'
 
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
@@ -422,11 +499,13 @@ fi
 if [ -n "${POSTGREST_BIN:-}" ]; then
   center_db postgrest_center
   PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/commission_center_postgrest.mjs"
+  insights_db postgrest_insights
+  PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/commission_insights_postgrest.mjs"
 fi
 if [ "${PC_MEASURE:-}" = 1 ]; then
   new_db measure
   DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_save_overhead.sh"
-  center_db measure_center
+  insights_db measure_center
   DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_center_reads.sh"
 fi
 echo 'PASS policy commission tracking database proofs'

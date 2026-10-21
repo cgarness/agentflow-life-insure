@@ -1,3 +1,20 @@
+## 2026-10-21 — LOCAL BUILD (not live): Commissions Overview — breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts
+
+**Status:** approved by Chris for local implementation and disposable-database tests only. Branch
+`claude/zen-clarke-wdwrrb` from `main` `e762454`. No `main` push, production migration or policy, merge, deployment or
+production test write. Gate 2 (production migration `20261021180000`: one owner-only goals table with RLS, six
+functions) and Gate 3 (frontend release) each need Chris's separate exact-action approval.
+
+**Contract, metric definitions, migration scope, exact files and tests:**
+`docs/plans/2026-10-21-commissions-insights/implementation_plan.md`.
+
+**Summary:** By carrier (horizontal bars: Policies · Est. commission · Received) and By product (doughnut: Policies ·
+Est. commission) with exactly matching drill-downs; fair comparisons; a next-month Months 10–12 highlight; an optional
+owner-only monthly commission goal measured by recorded receipts; and a browser-local Hide amounts preference across
+the whole Commissions Center. The released reads, writers and definitions are unchanged.
+
+---
+
 ## 2026-10-20 — RELEASED: Commissions center (Overview · Payments · Policies · Calculator)
 
 **Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration
