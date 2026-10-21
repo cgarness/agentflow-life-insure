@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import type { AgentStats, Win } from "@/components/leaderboard/leaderboardTypes";
 import { STANDINGS_STATUS_OK, type StandingsStatus } from "@/lib/leaderboardStatusCopy";
 
@@ -92,8 +92,6 @@ const baseHookState = () => ({
   setView: vi.fn(),
   period: "Today",
   setPeriod: vi.fn(),
-  metric: "Policies Sold",
-  setMetric: vi.fn(),
   agents: ROSTER,
   wins: [] as Win[],
   initialLoading: false,
@@ -115,6 +113,12 @@ const baseHookState = () => ({
   retry: vi.fn(),
 });
 
+/** A name now shows on the podium or table and, for the signed-in agent, on Your Performance too. */
+const expectShown = (name: RegExp) => expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+const tableRows = () => Array.from(document.querySelectorAll('[role="rowgroup"] [role="row"]')) as HTMLElement[];
+const podiumCards = () =>
+  Array.from(document.querySelectorAll(".rounded-xl.flex-col.items-center")) as HTMLElement[];
+
 beforeEach(() => {
   h.hookState = baseHookState();
   navigateSpy.mockReset();
@@ -134,17 +138,16 @@ describe("board preservation on RPC-fed standings", () => {
     const photos = await screen.findAllByRole("img", { name: "Avery Adams" });
     expect(photos.length).toBeGreaterThan(0);
     expect(photos.every(photo => photo.getAttribute("src") === "https://photos.test/avery.png")).toBe(true);
-    expect(screen.getByText(/Blake/)).toBeInTheDocument();
+    expectShown(/Blake/);
     expect(screen.queryByText("Standings are paused for maintenance.")).not.toBeInTheDocument();
   });
 
-  it("renders the podium (top 3) and the full rankings table (rank 4+)", () => {
+  it("renders the podium (top 3) and Full Rankings with every ranked agent, the top three included", () => {
     render(<Leaderboard />);
-    expect(screen.getByText(/Avery/)).toBeInTheDocument();
-    expect(screen.getByText(/Blake/)).toBeInTheDocument();
-    expect(screen.getByText(/Casey/)).toBeInTheDocument();
-    // Rank 4 appears only in the Full Rankings table.
-    expect(screen.getByText(/Drew/)).toBeInTheDocument();
+    expect(podiumCards().map((c) => within(c).getByRole("heading").textContent)).toEqual(["Blake B.", "Avery A.", "Casey C."]);
+    // The agent cell reads avatar initials, the name, then the YOU label for the signed-in agent.
+    expect(tableRows().map((r) => within(r).getAllByRole("cell")[1].textContent)).toEqual(["AAAvery A.You", "BBBlake B.", "CCCasey C.", "DDDrew D."]);
+    expect(screen.queryByText("All agents shown in podium above")).not.toBeInTheDocument();
     expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
   });
 
@@ -195,7 +198,7 @@ describe("board preservation on RPC-fed standings", () => {
     render(<Leaderboard />);
     expect(screen.queryByText(/first sale takes the lead|No activity|Go to Dialer/i)).not.toBeInTheDocument();
     expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
-    expect(screen.getByText(/Avery/)).toBeInTheDocument();
+    expectShown(/Avery/);
   });
 
   it("shows the Agency Group toggle only when a group exists and routes view changes", () => {
@@ -206,38 +209,112 @@ describe("board preservation on RPC-fed standings", () => {
       agencyGroup: { groupId: "g-1", groupName: "FFL National" },
     };
     render(<Leaderboard />);
+    expect(screen.getByRole("button", { name: "My Agency" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "FFL National" }));
     expect(setView).toHaveBeenCalledWith("group");
     fireEvent.click(screen.getByRole("button", { name: "My Agency" }));
     expect(setView).toHaveBeenCalledWith("org");
   });
+
+  it("keeps Today / This Week / This Month and routes a period change", () => {
+    const setPeriod = vi.fn();
+    h.hookState = { ...baseHookState(), setPeriod };
+    render(<Leaderboard />);
+    expect(screen.getByRole("button", { name: "Today" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "This Week" }));
+    expect(setPeriod).toHaveBeenLastCalledWith("This Week");
+    fireEvent.click(screen.getByRole("button", { name: "This Month" }));
+    expect(setPeriod).toHaveBeenLastCalledWith("This Month");
+  });
 });
 
-describe("V2 simple labels over unchanged metric ids", () => {
-  it("the metric selector shows simple names and still selects the unchanged metric ids", () => {
-    const setMetric = vi.fn();
-    h.hookState = { ...baseHookState(), setMetric };
+describe("AP-only board", () => {
+  it("has no metric selector and says the board ranks by Annualized Premium", () => {
     render(<Leaderboard />);
-    const select = screen.getByRole("combobox", { name: "Metric" }) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => [o.textContent, o.value])).toEqual([
-      ["Policies Sold", "Policies Sold"], ["Calls Made", "Calls Made"], ["Appointments", "Appointments Set"],
-      ["Talk Time", "Talk Time"], ["Policies / 100 Calls", "Policies per 100 Calls"], ["Annual Premium", "Premium Sold"],
-    ]);
-    fireEvent.change(select, { target: { value: "Premium Sold" } });
-    expect(setMetric).toHaveBeenLastCalledWith("Premium Sold");
-    fireEvent.change(select, { target: { value: "Appointments Set" } });
-    expect(setMetric).toHaveBeenLastCalledWith("Appointments Set");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Metric")).not.toBeInTheDocument();
+    expect(screen.getByText("Ranked by Annualized Premium (AP)")).toBeInTheDocument();
   });
 
-  it("names the full-rankings columns and the podium caption with the simple names", () => {
-    h.hookState = { ...baseHookState(), metric: "Premium Sold" };
+  it("Full Rankings has exactly Rank, Agent, AP, Policies and Calls", () => {
     render(<Leaderboard />);
-    for (const name of ["Calls Made", "Policies Sold", "Annual Premium", "Appointments", "Talk Time", "Policies / 100 Calls"]) {
-      expect(screen.getByRole("columnheader", { name })).toBeInTheDocument();
-    }
-    for (const name of ["Calls", "Policies", "Appts"]) expect(screen.queryByRole("columnheader", { name })).not.toBeInTheDocument();
-    expect(screen.getAllByText("annual premium")).toHaveLength(3); // one caption per podium card
-    expect(screen.queryByText(/annualized premium/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((c) => c.getAttribute("aria-label") ?? c.textContent)).toEqual([
+      "Rank", "Agent", "Annualized Premium", "Policies", "Calls",
+    ]);
+    const drew = tableRows()[3];
+    expect(within(drew).getAllByRole("cell").map((c) => c.textContent)).toEqual(["4", "DDDrew D.", "$1,200.00", "1", "10"]);
+  });
+
+  it("each podium card shows AP first, then Policies and Calls", () => {
+    render(<Leaderboard />);
+    const blake = podiumCards()[0];
+    expect(blake).toHaveTextContent("#2 Silver");
+    // AP, its label, then each stat (label first in the DOM for screen readers; the figure sits above it on screen).
+    expect(blake.textContent).toMatch(/\$3,600\.00AP.*Policies3.*Calls30$/);
+  });
+
+  it("shows no Appointments anywhere — podium, card, table, notes — even when appointments were excluded", () => {
+    h.hookState = {
+      ...baseHookState(),
+      agents: ROSTER.map((a) => ({ ...a, appointmentsSet: 7 })),
+      performanceSnapshot: { ...baseHookState().performanceSnapshot, excluded: { calls_made: 1, appointments_set: 5, policies_sold: 0 } },
+    };
+    render(<Leaderboard />);
+    expect(document.body.textContent).not.toMatch(/appointment|appts/i);
+    expect(screen.getByText("Outside active roster: 1 calls, 0 policies")).toBeInTheDocument();
+  });
+
+  it("marks the signed-in agent's row with YOU and a blue tint wherever it ranks", () => {
+    // Avery (the signed-in user) ranked 4th.
+    const reordered = [ROSTER[1], ROSTER[2], ROSTER[3], ROSTER[0]].map((a, i) => ({ ...a, rank: i + 1 }));
+    h.hookState = { ...baseHookState(), agents: reordered };
+    render(<Leaderboard />);
+    const rows = tableRows();
+    const mine = rows.filter((r) => within(r).queryByText("You"));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toBe(rows[3]);
+    expect(mine[0]).toHaveAttribute("aria-current", "true");
+    expect(mine[0].className).toMatch(/bg-primary/);
+    expect(rows.slice(0, 3).every((r) => !r.className.includes("bg-primary"))).toBe(true);
+  });
+
+  it("places Your Performance beside the podium with the signed-in agent's AP, rank, Policies and Calls", () => {
+    render(<Leaderboard />);
+    const card = screen.getByRole("region", { name: "Your Performance" });
+    expect(card).toHaveTextContent("Today · My Agency");
+    expect(card).toHaveTextContent("$4,800.00");
+    expect(within(card).getByText("Rank").nextElementSibling).toHaveTextContent("#1 of 4");
+    expect(within(card).getByText("Policies").nextElementSibling).toHaveTextContent("4");
+    expect(within(card).getByText("Calls").nextElementSibling).toHaveTextContent("40");
+  });
+
+  it("Your Performance shows real movement only, and none on a frozen board", () => {
+    const rankMovements = new Map([["aaaa0000-0000-0000-0000-000000000001", { direction: "up" as const, spots: 2 }]]);
+    h.hookState = { ...baseHookState(), rankMovements };
+    const { unmount } = render(<Leaderboard />);
+    const card = screen.getByRole("region", { name: "Your Performance" });
+    expect(within(card).getByText("Moved up 2 spots since the last leaderboard update")).toBeInTheDocument();
+    unmount();
+
+    h.hookState = { ...baseHookState(), rankMovements, standingsFrozen: true };
+    render(<Leaderboard />);
+    expect(screen.queryByText(/Moved up/)).not.toBeInTheDocument();
+  });
+
+  it("a signed-in agent outside the active roster gets an unavailable card — never zeros", () => {
+    h.hookState = { ...baseHookState(), agents: ROSTER.slice(1).map((a, i) => ({ ...a, rank: i + 1 })) };
+    render(<Leaderboard />);
+    const card = screen.getByRole("region", { name: "Your Performance" });
+    expect(card).toHaveTextContent("Your stats aren't on this board");
+    expect(card).toHaveTextContent("Only active agents in your agency are ranked.");
+    expect(card.textContent).not.toMatch(/\$|#\d|Rank|Policies|Calls/);
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+  });
+
+  it("names the Agency Group in Group view", () => {
+    h.hookState = { ...baseHookState(), view: "group", agencyGroup: { groupId: "g-1", groupName: "FFL National" } };
+    render(<Leaderboard />);
+    expect(screen.getByRole("region", { name: "Your Performance" })).toHaveTextContent("Today · FFL National");
   });
 });
 
@@ -248,8 +325,8 @@ describe("truthful failure states", () => {
     render(<Leaderboard />);
 
     // The board is still the last valid snapshot…
-    expect(screen.getByText(/Avery/)).toBeInTheDocument();
-    expect(screen.getByText(/Drew/)).toBeInTheDocument();
+    expectShown(/Avery/);
+    expectShown(/Drew/);
     // …behind an explicit stale-data banner.
     expect(screen.getByText(/Couldn't refresh standings/i)).toBeInTheDocument();
     expect(screen.queryByText("No agents on the board")).not.toBeInTheDocument();
@@ -413,28 +490,28 @@ describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
     agent({ id: "bbbb0000-0000-0000-0000-000000000006", first_name: "Finley", last_name: "Fox", policiesSold: 0, premiumSold: 0, unknownPremiums: 0, rank: 6 }),
   ];
   const premiumCell = (name: string) =>
-    (screen.getByText(name).closest('[role="row"]') as HTMLElement).querySelectorAll('[role="cell"]')[4] as HTMLElement;
+    (screen.getByText(name).closest('[role="row"]') as HTMLElement).querySelectorAll('[role="cell"]')[2] as HTMLElement;
 
   it("full rankings: all-unknown shows — with its marker; partial keeps the subtotal; genuine and empty zeros stay $0.00", () => {
-    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    h.hookState = { ...baseHookState(), agents: D14_ROSTER };
     render(<Leaderboard />);
     expect(premiumCell("Drew D.").textContent).toBe("—*");
     expect(premiumCell("Drew D.").querySelector("[title]")).toHaveAttribute("title", "2 policies have unknown premium");
     expect(premiumCell("Emery E.").textContent).toBe("$0.00"); // a known $0 premium
     expect(premiumCell("Finley F.").textContent).toBe("$0.00"); // no policies
     const rows = Array.from(document.querySelectorAll('[role="rowgroup"] [role="row"]')).map((r) => r.querySelectorAll('[role="cell"]')[0].textContent);
-    expect(rows).toEqual(["4", "5", "6"]); // order and ranks unchanged
+    expect(rows).toEqual(["1", "2", "3", "4", "5", "6"]); // order and ranks unchanged (top three included)
   });
 
   it("podium: an all-unknown premium reads —, a partial one keeps its amount", () => {
-    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: D14_ROSTER };
+    h.hookState = { ...baseHookState(), agents: D14_ROSTER };
     render(<Leaderboard />);
-    // One podium card per agent: the card root is the rounded flex column that carries the metric caption.
+    // One podium card per agent: the card root is the rounded flex column that carries the AP caption.
     const podiumValue = (first: string) => {
       const cards = [...new Set(screen.getAllByText(new RegExp(`^${first}`))
         .map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
       expect(cards).toHaveLength(1);
-      expect(cards[0]).toHaveTextContent("annual premium");
+      expect(cards[0]).toHaveTextContent("AP");
       return cards[0];
     };
     expect(podiumValue("Casey")).toHaveTextContent("—");
@@ -444,7 +521,7 @@ describe("D14: a wholly unknown premium is never shown as a $0 sale", () => {
 
   it("podium: policies sold with every premium known and totalling $0 keep a genuine $0.00", () => {
     const roster = [D14_ROSTER[0], D14_ROSTER[1], { ...D14_ROSTER[4], rank: 3 }, { ...D14_ROSTER[2], rank: 4 }];
-    h.hookState = { ...baseHookState(), metric: "Premium Sold", agents: roster };
+    h.hookState = { ...baseHookState(), agents: roster };
     render(<Leaderboard />);
     const cards = [...new Set(screen.getAllByText(/^Emery/).map((e) => e.closest(".rounded-xl.flex-col.items-center")).filter(Boolean))] as HTMLElement[];
     expect(cards).toHaveLength(1);
@@ -460,7 +537,7 @@ describe("on-screen notes under the filters (material only)", () => {
 
   it("a routine snapshot renders no caption", () => {
     render(<Leaderboard />);
-    expect(screen.getByText(/Avery/)).toBeInTheDocument();
+    expectShown(/Avery/);
     expect(screen.queryAllByText(NOTES)).toHaveLength(0);
   });
 
@@ -468,14 +545,14 @@ describe("on-screen notes under the filters (material only)", () => {
     h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ excluded: { calls_made: 2, appointments_set: 0, policies_sold: 0 } }) };
     render(<Leaderboard />);
     expect(screen.getAllByText(NOTES)).toHaveLength(1);
-    expect(screen.getByText("Outside active roster: 2 calls, 0 appointments, 0 policies")).toBeInTheDocument();
+    expect(screen.getByText("Outside active roster: 2 calls, 0 policies")).toBeInTheDocument();
   });
 
-  it("unknown premiums and estimated talk time render their notes in one caption", () => {
+  it("unknown premiums render their note; estimated talk time no longer adds one (Talk Time is not on the board)", () => {
     const rows = ROSTER.map((a, i) => (i === 0 ? { ...a, unknownPremiums: 1, estimatedDurationCalls: 2, unknownDurationCalls: 5 } : a));
     h.hookState = { ...baseHookState(), performanceSnapshot: snapshotWith({ rows }) };
     render(<Leaderboard />);
-    expect(screen.getByText("Annual premium (1 policies with unknown premium) · Talk time includes 2 estimated call durations")).toBeInTheDocument();
-    expect(screen.queryByText(/unknown provenance|Stored call duration/)).not.toBeInTheDocument();
+    expect(screen.getByText("Annual premium (1 policies with unknown premium)")).toBeInTheDocument();
+    expect(screen.queryByText(/Talk time includes|unknown provenance|Stored call duration/)).not.toBeInTheDocument();
   });
 });

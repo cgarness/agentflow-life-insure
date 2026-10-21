@@ -247,17 +247,17 @@ describe("org standings source", () => {
     expect(h.fromTables).toEqual(["profiles"]);
   });
 
-  it("orders the top 3 by canonical policies_sold (ties: last name, first name, id) — not by input order, name, calls or premium", async () => {
-    // Every other signal disagrees with the policies_sold order: Aaron Abbott
-    // is first in input order, first alphabetically and top on calls, premium
-    // and recent wins, yet has the fewest policies. The 4–4 tie is listed
-    // out of order, and both its first names and its ids sort the opposite
-    // way to its last names — only the last-name tie-break yields Brooks first.
+  it("orders the top 3 by AP, exactly like the Leaderboard page — not by input order, name, policies or calls", async () => {
+    // Every other signal disagrees with the AP order: Aaron Abbott is first in
+    // input order, first alphabetically and top on policies, calls and recent
+    // wins, yet has the lowest AP. Brooks and Diaz tie on AP, Policies and
+    // Calls; their first names and ids sort the other way, so only the shared
+    // last-name tie-break puts Brooks first.
     h.autoResult = rpcOk([
-      rpcRow({ agent_id: AG1, first_name: "Aaron", last_name: "Abbott", policies_sold: 1, calls_made: 999, annualized_premium: 99999, recent_wins_7d: 9 }),
-      rpcRow({ agent_id: AG2, first_name: "Dana", last_name: "Diaz", policies_sold: 4, calls_made: 3, annualized_premium: 30, recent_wins_7d: 0 }),
-      rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Young", policies_sold: 7, calls_made: 2, annualized_premium: 20, recent_wins_7d: 0 }),
-      rpcRow({ agent_id: AG4, first_name: "Zoe", last_name: "Brooks", policies_sold: 4, calls_made: 1, annualized_premium: 10, recent_wins_7d: 0 }),
+      rpcRow({ agent_id: AG1, first_name: "Aaron", last_name: "Abbott", policies_sold: 9, calls_made: 999, annualized_premium: 100, recent_wins_7d: 9 }),
+      rpcRow({ agent_id: AG2, first_name: "Dana", last_name: "Diaz", policies_sold: 1, calls_made: 3, annualized_premium: 2400, recent_wins_7d: 0 }),
+      rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Young", policies_sold: 2, calls_made: 2, annualized_premium: 9000, recent_wins_7d: 0 }),
+      rpcRow({ agent_id: AG4, first_name: "Zoe", last_name: "Brooks", policies_sold: 1, calls_made: 3, annualized_premium: 2400, recent_wins_7d: 0 }),
     ]);
     render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(rankedRows()).toHaveLength(3));
@@ -267,6 +267,21 @@ describe("org standings source", () => {
     expect(within(rows[0]).getByText("Casey Young")).toBeInTheDocument();
     expect(within(rows[1]).getByText("Zoe Brooks")).toBeInTheDocument();
     expect(within(rows[2]).getByText("Dana Diaz")).toBeInTheDocument();
+    expect(screen.queryByText("Aaron Abbott")).not.toBeInTheDocument();
+  });
+
+  it("a seller whose every premium is unknown follows the AP sellers and precedes agents with no sale", async () => {
+    h.autoResult = rpcOk([
+      rpcRow({ agent_id: AG1, first_name: "Aaron", last_name: "Abbott", policies_sold: 0, calls_made: 80, annualized_premium: 0 }),
+      rpcRow({ agent_id: AG2, first_name: "Dana", last_name: "Diaz", policies_sold: 2, unknown_premiums: 2, calls_made: 1, annualized_premium: 0 }),
+      rpcRow({ agent_id: AG3, first_name: "Casey", last_name: "Young", policies_sold: 1, calls_made: 1, annualized_premium: 1200 }),
+    ]);
+    render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
+    await waitFor(() => expect(rankedRows()).toHaveLength(2));
+    const rows = rankedRows();
+    expect(within(rows[0]).getByText("Casey Young")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Dana Diaz")).toBeInTheDocument();
+    // Ranks 1–2 of the page's AP ranking; the agent with no sale is not dressed up as #3.
     expect(screen.queryByText("Aaron Abbott")).not.toBeInTheDocument();
   });
 });
@@ -511,7 +526,8 @@ describe("on-widget notes (material only)", () => {
     render(<LeaderboardWidget organizationId={ORG} userId={AG1} />);
     await waitFor(() => expect(screen.getByText(NO_SALES_COPY)).toBeInTheDocument());
     expect(screen.getAllByText(/Outside active roster/)).toHaveLength(1);
-    expect(screen.getByText("Outside active roster: 0 calls, 0 appointments, 2 policies")).toBeInTheDocument();
+    expect(screen.getByText("Outside active roster: 0 calls, 2 policies")).toBeInTheDocument();
+    expect(screen.queryByText(/appointment/i)).not.toBeInTheDocument();
     expect(screen.queryAllByText(ROUTINE_NOTES)).toHaveLength(0);
   });
 });

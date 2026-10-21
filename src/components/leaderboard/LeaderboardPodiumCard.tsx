@@ -4,8 +4,9 @@ import { Trophy } from "lucide-react";
 import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAvatar";
 import OdometerValue from "@/components/leaderboard/OdometerValue";
 import { cn } from "@/lib/utils";
-import type { AgentStats, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { metricLabel, formatMetricValue } from "@/components/leaderboard/leaderboardTypes";
+import LeaderboardApValue from "@/components/leaderboard/LeaderboardApValue";
+import type { AgentStats, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
+import { AP_FULL_LABEL, AP_LABEL, formatCount } from "@/components/leaderboard/leaderboardTypes";
 import {
   type RankMotionKind,
   leaderboardGlideTransition,
@@ -27,9 +28,6 @@ export type PodiumMetalConfig = {
 
 interface LeaderboardPodiumCardProps {
   agent: AgentStats;
-  metric: Metric;
-  /** Null shows "—": the agent's premiums are all unknown (D14). */
-  metricNumeric: number | null;
   view: LeaderboardView;
   userId?: string;
   metal: PodiumMetalConfig;
@@ -42,8 +40,6 @@ interface LeaderboardPodiumCardProps {
 
 const LeaderboardPodiumCard: React.FC<LeaderboardPodiumCardProps> = ({
   agent,
-  metric,
-  metricNumeric,
   view,
   userId,
   metal,
@@ -125,17 +121,32 @@ const LeaderboardPodiumCard: React.FC<LeaderboardPodiumCardProps> = ({
         #{agent.rank} {metal.metal}
       </span>
       <div className="mt-auto pt-1 w-full shrink-0">
-        <OdometerValue
-          value={metricNumeric}
-          format={(n) => formatMetricValue(metric, n)}
-          className={cn(
-            "font-extrabold text-foreground tracking-tight leading-none",
-            isGold ? "text-2xl sm:text-3xl" : "text-xl sm:text-2xl",
-          )}
-        />
-        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mt-0.5 truncate pb-0.5">
-          {metricLabel(metric)}
+        <div className="whitespace-nowrap font-extrabold text-foreground">
+          <LeaderboardApValue
+            agent={agent}
+            className={cn(
+              "tracking-tight leading-none",
+              isGold ? "text-2xl sm:text-[1.75rem]" : "text-xl sm:text-[1.4rem]",
+            )}
+          />
+        </div>
+        <p
+          className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mt-0.5 truncate"
+          title={AP_FULL_LABEL}
+        >
+          {AP_LABEL}
         </p>
+        <dl className="mt-1.5 grid grid-cols-2 border-t border-foreground/10 pt-1.5 pb-0.5">
+          {([["Policies", agent.policiesSold], ["Calls", agent.callsMade]] as const).map(([label, value]) => (
+            // Label first for screen readers; the figure sits above it on screen.
+            <div key={label} className="flex min-w-0 flex-col-reverse">
+              <dt className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+              <dd className="text-xs sm:text-sm font-bold text-foreground leading-tight">
+                <OdometerValue value={value} format={formatCount} />
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </motion.div>
   );

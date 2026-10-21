@@ -5,18 +5,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import TVMode from "@/components/leaderboard/TVMode";
 import LeaderboardFilters from "@/components/leaderboard/LeaderboardFilters";
-import LeaderboardPodium from "@/components/leaderboard/LeaderboardPodium";
-import LeaderboardRankingsTable from "@/components/leaderboard/LeaderboardRankingsTable";
+import LeaderboardBoard, { LeaderboardPodiumSkeleton } from "@/components/leaderboard/LeaderboardBoard";
 import LeaderboardErrorBanner from "@/components/leaderboard/LeaderboardErrorBanner";
-import RecentWinsPanel from "@/components/leaderboard/RecentWinsPanel";
 import { useLeaderboardData } from "@/hooks/useLeaderboardData";
 import { useBranding } from "@/contexts/BrandingContext";
 import { OFFLINE_HEADLINE, standingsLive } from "@/lib/leaderboardStatusCopy";
-import {
-  PODIUM_GRID_CLASS,
-  PODIUM_SECTION_CLASS,
-  PODIUM_SKELETON_HEIGHTS,
-} from "@/components/leaderboard/podiumLayout";
+import { PODIUM_SECTION_CLASS } from "@/components/leaderboard/podiumLayout";
 
 const Leaderboard: React.FC = () => {
   const { user } = useAuth();
@@ -27,8 +21,6 @@ const Leaderboard: React.FC = () => {
     setView,
     period,
     setPeriod,
-    metric,
-    setMetric,
     agents,
     wins,
     initialLoading,
@@ -90,7 +82,6 @@ const Leaderboard: React.FC = () => {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, [tvMode]);
 
-  const restAgents = agents.filter((a) => a.rank > 3);
   const hasAgents = agents.length > 0;
   const showBoard = hasAgents;
   // An error string without a status (older callers) still reads as an error.
@@ -108,10 +99,6 @@ const Leaderboard: React.FC = () => {
         period={period}
         onPeriodChange={setPeriod}
         flashingWinId={flashingWinId}
-        rankAnimations={rankAnimations}
-        rankMovements={rankMovements}
-        rankMotions={rankMotions}
-        rankDeltas={rankDeltas}
         spotlightAgentId={spotlightAgentId}
         newLeaderId={newLeaderId}
         onExit={exitTvMode}
@@ -134,11 +121,7 @@ const Leaderboard: React.FC = () => {
           <Skeleton className="h-9 w-64" />
         </div>
         <div className={PODIUM_SECTION_CLASS}>
-          <div className={PODIUM_GRID_CLASS}>
-            {PODIUM_SKELETON_HEIGHTS.map((h, i) => (
-              <Skeleton key={i} className={`${h} rounded-xl self-end`} />
-            ))}
-          </div>
+          <LeaderboardPodiumSkeleton />
         </div>
         <Skeleton className="h-64 rounded-xl" />
       </div>
@@ -152,8 +135,6 @@ const Leaderboard: React.FC = () => {
         setView={setView}
         period={period}
         setPeriod={setPeriod}
-        metric={metric}
-        setMetric={setMetric}
         agencyGroup={agencyGroup}
         // Offline, nothing is in flight: no spinner next to the offline banner.
         filterRefreshing={filterRefreshing && !status.offline}
@@ -173,11 +154,7 @@ const Leaderboard: React.FC = () => {
         // A switch still loading: never "No agents on the board" before a read says so.
         <div role="status" aria-busy="true" className={PODIUM_SECTION_CLASS}>
           <span className="sr-only">Loading standings…</span>
-          <div className={PODIUM_GRID_CLASS}>
-            {PODIUM_SKELETON_HEIGHTS.map((h, i) => (
-              <Skeleton key={i} className={`${h} rounded-xl self-end`} />
-            ))}
-          </div>
+          <LeaderboardPodiumSkeleton />
         </div>
       ) : !showBoard ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -186,63 +163,29 @@ const Leaderboard: React.FC = () => {
           <p className="text-muted-foreground mb-6">Add active agents to your organization to start tracking standings.</p>
         </div>
       ) : (
-        <>
-          {!live && (
-            <LeaderboardErrorBanner
-              message={loadError ?? (status.offline ? OFFLINE_HEADLINE : "Couldn't refresh standings.")}
-              variant="stale"
-              onRetry={retry}
-              status={status}
-              formatTime={formatStatusTime}
-            />
-          )}
-
-          <section className={PODIUM_SECTION_CLASS}>
-            {/* key={metric}: a metric switch commits the re-ranked rows in the
-                same render, so remounting here makes the reorder one coherent
-                swap — no AnimatePresence exit-ghost overlap, no layout glide,
-                no cross-metric odometer roll. Live updates never change the
-                key, so live-data animations are untouched. */}
-            <LeaderboardPodium
-              key={metric}
-              agents={agents}
-              metric={metric}
-              view={view}
-              userId={user?.id}
-              rankAnimations={standingsFrozen ? new Map() : rankAnimations}
-              rankMotions={standingsFrozen ? new Map() : rankMotions}
-              rankDeltas={standingsFrozen ? new Map() : rankDeltas}
-              spotlightAgentId={spotlightAgentId}
-              newLeaderId={standingsFrozen ? null : newLeaderId}
-            />
-          </section>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <LeaderboardRankingsTable
-                key={metric}
-                restAgents={restAgents}
-                view={view}
-                userId={user?.id}
-                rankAnimations={standingsFrozen ? new Map() : rankAnimations}
-                rankMovements={standingsFrozen ? new Map() : rankMovements}
-                rankMotions={standingsFrozen ? new Map() : rankMotions}
-                rankDeltas={standingsFrozen ? new Map() : rankDeltas}
-                spotlightAgentId={spotlightAgentId}
-                newLeaderId={standingsFrozen ? null : newLeaderId}
-                onExportCsv={exportCSV}
-              />
-            </div>
-
-            <RecentWinsPanel
-              wins={wins}
-              agents={agents}
-              flashingWinId={flashingWinId}
-              title={view === "group" ? "🏆 Group Recent Wins" : undefined}
-              status={winsStatus}
-            />
-          </div>
-        </>
+        <LeaderboardBoard
+          agents={agents}
+          wins={wins}
+          view={view}
+          period={period}
+          groupName={agencyGroup?.groupName ?? null}
+          userId={user?.id}
+          live={live}
+          status={status}
+          loadError={loadError}
+          winsStatus={winsStatus}
+          standingsFrozen={standingsFrozen}
+          rankAnimations={rankAnimations}
+          rankMovements={rankMovements}
+          rankMotions={rankMotions}
+          rankDeltas={rankDeltas}
+          flashingWinId={flashingWinId}
+          spotlightAgentId={spotlightAgentId}
+          newLeaderId={newLeaderId}
+          onRetry={retry}
+          onExportCsv={exportCSV}
+          formatStatusTime={formatStatusTime}
+        />
       )}
     </div>
   );

@@ -3,26 +3,26 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Trophy } from "lucide-react";
 import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
+import LeaderboardApValue from "./LeaderboardApValue";
 import { metalConfig } from "./tvPodiumMetal";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type Metric, METRIC_DISPLAY_LABEL, displayedMetricValue, formatMetricValue } from "./leaderboardTypes";
+import { type AgentStats, AP_FULL_LABEL, AP_LABEL, formatCount } from "./leaderboardTypes";
 import { type RankMotionKind, podiumEnterInitial, tvGlideTransition, tvPodiumEnterTransition, tvPodiumExitTransition } from "./leaderboardRankMotion";
 interface Props {
-  agents: AgentStats[]; metric: Metric;
+  agents: AgentStats[];
   tvRankMotions: Map<string, RankMotionKind>;
   tvRankAnimations: Map<string, "up" | "down">;
   spotlightAgentId?: string | null; newLeaderId?: string | null;
 }
-export default function TVPodium({agents, metric, tvRankMotions, tvRankAnimations, spotlightAgentId, newLeaderId}: Props) {
+export default function TVPodium({agents, tvRankMotions, tvRankAnimations, spotlightAgentId, newLeaderId}: Props) {
   return (
-          <div data-testid="tv-podium" className={`mx-auto mt-8 flex h-[280px] w-full max-w-[72rem] shrink-0 items-end justify-center gap-4 pb-4 [@media(min-height:900px)]:h-[320px] md:gap-6`}>
+          <div data-testid="tv-podium" className={`mx-auto mt-8 flex h-[280px] w-full max-w-[72rem] shrink-0 items-end justify-center gap-4 pb-4 [@media(min-height:900px)]:h-[352px] md:gap-6`}>
             {([2, 1, 3] as const).map((slotRank) => {
               const a = agents.find((agent) => agent.rank === slotRank);
               if (!a && agents.length < 3) return <div key={`slot-${slotRank}`} className="flex-1" />;
 
               const mc = metalConfig(slotRank);
               const isFirst = slotRank === 1;
-              const metricNumeric = a ? displayedMetricValue(metric, a) : 0;
               const motionKind = a ? tvRankMotions.get(a.id) ?? "none" : "none";
               const useLayoutGlide = motionKind === "glide";
               const rankGlow = a ? tvRankAnimations.get(a.id) : undefined;
@@ -87,15 +87,20 @@ export default function TVPodium({agents, metric, tvRankMotions, tvRankAnimation
                       </h3>
 
                       <div className="mt-3 flex w-full flex-col items-center justify-center text-center">
-                        <OdometerValue
-                          value={metricNumeric}
-                          format={(n) => formatMetricValue(metric, n)}
-                          tv
-                          className={`font-black tabular-nums text-white drop-shadow-lg leading-none ${isFirst ? "text-4xl [@media(min-height:900px)]:text-5xl" : "text-3xl [@media(min-height:900px)]:text-4xl"}`}
-                        />
-                        <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                          {METRIC_DISPLAY_LABEL[metric]}
+                        <div className="whitespace-nowrap font-black text-white drop-shadow-lg">
+                          <LeaderboardApValue
+                            agent={a}
+                            tv
+                            className={`leading-none ${isFirst ? "text-4xl [@media(min-height:900px)]:text-5xl" : "text-3xl [@media(min-height:900px)]:text-4xl"}`}
+                          />
+                        </div>
+                        <span className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500" title={AP_FULL_LABEL}>
+                          {AP_LABEL}
                         </span>
+                        <div className="mt-2 flex items-center gap-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                          <span><OdometerValue value={a.policiesSold} format={formatCount} tv className="text-base text-blue-300" /> Policies</span>
+                          <span><OdometerValue value={a.callsMade} format={formatCount} tv className="text-base text-slate-200" /> Calls</span>
+                        </div>
                       </div>
                       </div>
                     </div>

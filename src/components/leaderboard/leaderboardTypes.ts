@@ -2,35 +2,9 @@ import { startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } f
 import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 export type Period = "Today" | "This Week" | "This Month";
-export type Metric =
-  | "Policies Sold"
-  | "Calls Made"
-  | "Appointments Set"
-  | "Talk Time"
-  | "Policies per 100 Calls"
-  | "Premium Sold";
-
-export const LEADERBOARD_METRICS: Metric[] = [
-  "Policies Sold",
-  "Calls Made",
-  "Appointments Set",
-  "Talk Time",
-  "Policies per 100 Calls",
-  "Premium Sold",
-];
-
-/**
- * What a viewer reads for each metric. The ids above stay the selected and stored values (selector state, the
- * TV index, column keys); only the visible names change here. CSV headers are separate (leaderboardExport).
- */
-export const METRIC_DISPLAY_LABEL: Record<Metric, string> = {
-  "Policies Sold": "Policies Sold",
-  "Calls Made": "Calls Made",
-  "Appointments Set": "Appointments",
-  "Talk Time": "Talk Time",
-  "Policies per 100 Calls": "Policies / 100 Calls",
-  "Premium Sold": "Annual Premium",
-};
+/** Annualized Premium is the Leaderboard's only ranking metric (page, TV and the Dashboard preview). */
+export const AP_LABEL = "AP";
+export const AP_FULL_LABEL = "Annualized Premium";
 
 export const ANNUAL_PREMIUM_MULTIPLIER = 12;
 export type LeaderboardView = "org" | "group";
@@ -83,23 +57,6 @@ export interface Win {
   entered_at?: string;
 }
 
-export const metricKey = (m: Metric): keyof AgentStats => {
-  switch (m) {
-    case "Policies Sold":
-      return "policiesSold";
-    case "Calls Made":
-      return "callsMade";
-    case "Appointments Set":
-      return "appointmentsSet";
-    case "Talk Time":
-      return "talkTime";
-    case "Policies per 100 Calls":
-      return "conversionRate";
-    case "Premium Sold":
-      return "premiumSold";
-  }
-};
-
 export const monthlyPremiumToAnnual = (monthly: number): number =>
   monthly * ANNUAL_PREMIUM_MULTIPLIER;
 
@@ -112,37 +69,14 @@ export const formatTalkTime = (seconds: number): string => {
   return h ? `${h}h ${m}m ${s}s` : m ? `${m}m ${s}s` : `${s}s`;
 };
 
-export const metricLabel = (m: Metric): string => {
-  switch (m) {
-    case "Policies Sold":
-      return "policies sold";
-    case "Calls Made":
-      return "calls made";
-    case "Appointments Set":
-      return "appointments";
-    case "Talk Time":
-      return "talk time";
-    case "Policies per 100 Calls":
-      return "policies / 100 calls";
-    case "Premium Sold":
-      return "annual premium";
-  }
-};
-
 /**
- * The value a Leaderboard/TV cell shows for one agent: null ("—") when the agent sold policies in the period but
- * every premium is unknown (D14), never a $0 sale. Sorting and ranks keep using the raw row values.
+ * The AP an agent's cell shows: null ("—") when the agent sold policies in the period but every premium is unknown
+ * (D14), never a $0 sale. Ranking keeps using the known subtotal.
  */
-export const displayedMetricValue = (m: Metric, agent: AgentStats): number | null =>
-  m === "Premium Sold" && isPremiumWhollyUnknown(agent.policiesSold, agent.unknownPremiums) ? null : (agent[metricKey(m)] as number);
+export const displayedAp = (agent: Pick<AgentStats, "policiesSold" | "unknownPremiums" | "premiumSold">): number | null =>
+  isPremiumWhollyUnknown(agent.policiesSold, agent.unknownPremiums) ? null : agent.premiumSold;
 
-export const formatMetricValue = (m: Metric, val: number | null): string => {
-  if (val === null) return "—";
-  if (m === "Talk Time") return formatTalkTime(val);
-  if (m === "Policies per 100 Calls") return val.toFixed(1);
-  if (m === "Premium Sold") return formatPremiumSold(val);
-  return String(Math.round(val));
-};
+export const formatCount = (n: number): string => String(Math.round(n));
 
 export const getPeriodRange = (period: Period): { start: Date; end: Date } => {
   const now = new Date();
@@ -187,55 +121,48 @@ export const mapPeriodToRpcParam = (p: Period): string => {
   }
 };
 
-/** Deterministic sort: metric desc, then name, then id. */
-export function compareAgentsByMetric(a: AgentStats, b: AgentStats, metric: Metric): number {
-  const key = metricKey(metric);
-  if (a[key] === null && b[key] !== null) return 1;
-  if (b[key] === null && a[key] !== null) return -1;
-  const diff = (b[key] as number) - (a[key] as number);
-  if (diff !== 0) return diff;
-  const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
-  const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
-  if (nameA !== nameB) return nameA.localeCompare(nameB);
-  return a.id.localeCompare(b.id);
+const nameKey = (a: AgentStats) => `${a.last_name} ${a.first_name}`.toLowerCase();
+
+/** Deterministic AP order: AP desc, then Policies desc, Calls desc, last/first name, profile id. */
+export function compareAgentsByAp(a: AgentStats, b: AgentStats): number {
+  return (
+    b.premiumSold - a.premiumSold ||
+    b.policiesSold - a.policiesSold ||
+    b.callsMade - a.callsMade ||
+    nameKey(a).localeCompare(nameKey(b)) ||
+    a.id.localeCompare(b.id)
+  );
 }
 
-export function rankAgents(agents: AgentStats[], metric: Metric): AgentStats[] {
-  agents.sort((a, b) => compareAgentsByMetric(a, b, metric));
+/** Sorts in place by AP and assigns unique ranks 1…N. */
+export function rankAgents(agents: AgentStats[]): AgentStats[] {
+  agents.sort(compareAgentsByAp);
   agents.forEach((a, i) => {
     a.rank = i + 1;
   });
   return agents;
 }
 
-/** True when at least one agent has activity and scores are not all tied. */
-export function hasMeaningfulStandings(agents: AgentStats[], metric: Metric): boolean {
+/**
+ * Every value the order depends on (AP, Policies, Calls). A reorder decided by a tie-break is a real rank change, so
+ * change detection compares the whole sort key, never AP alone.
+ */
+const rankingFingerprint = (a: AgentStats): string => `${a.premiumSold}|${a.policiesSold}|${a.callsMade}`;
+
+/**
+ * True when agents differ on any part of the sort key. Otherwise (an empty or all-identical board) the order is
+ * alphabetical and cannot move. All-$0 AP with differing Calls is meaningful: the Calls tie-break orders it.
+ */
+export function hasMeaningfulStandings(agents: AgentStats[]): boolean {
   if (agents.length === 0) return false;
-  const key = metricKey(metric);
-  const values = agents.map((a) => a[key] as number);
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  return max > 0 && max !== min;
+  const first = rankingFingerprint(agents[0]);
+  return agents.some((a) => rankingFingerprint(a) !== first);
 }
 
-export function metricValueMapsEqual(
-  agents: AgentStats[],
-  prev: Map<string, number>,
-  metric: Metric,
-): boolean {
-  if (prev.size !== agents.length) return false;
-  const key = metricKey(metric);
-  for (const a of agents) {
-    if (prev.get(a.id) !== (a[key] as number)) return false;
-  }
-  return true;
+export function snapshotRankingValues(agents: AgentStats[]): Map<string, string> {
+  return new Map(agents.map((a) => [a.id, rankingFingerprint(a)]));
 }
 
-export function snapshotMetricValues(agents: AgentStats[], metric: Metric): Map<string, number> {
-  const key = metricKey(metric);
-  const map = new Map<string, number>();
-  for (const a of agents) {
-    map.set(a.id, a[key] as number);
-  }
-  return map;
+export function rankingValuesEqual(agents: AgentStats[], prev: Map<string, string>): boolean {
+  return prev.size === agents.length && agents.every((a) => prev.get(a.id) === rankingFingerprint(a));
 }

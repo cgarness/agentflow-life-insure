@@ -3,6 +3,7 @@ import { loadPerformanceSnapshot, type PerformanceSnapshot } from "@/lib/perform
 import { performancePeriodKey, performancePeriodStart } from "@/lib/performancePeriod";
 import { useAgencyGroup } from "@/hooks/useAgencyGroup";
 import { useLeaderboardAvatars } from "@/hooks/useLeaderboardAvatars";
+import { rankAgents } from "@/components/leaderboard/leaderboardTypes";
 import {
   type LeaderboardEndpoint,
   type LeaderboardRequestGate,
@@ -23,6 +24,7 @@ export interface WidgetRankedAgent {
   firstName: string;
   lastName: string;
   avatarUrl: string | null;
+  /** Policies sold this month (the "has a sale" test); the order itself is AP. */
   wins: number;
   organizationName?: string | null;
 }
@@ -34,10 +36,10 @@ function snapshotTag(scope: string, zone: string | null, now: Date): string {
   return `${scope}|${performancePeriodKey("This Month", zone, now)}`;
 }
 
+/** The Leaderboard page's own AP ranking (shared comparator), so the preview can never contradict it. */
 function widgetRows(snapshot: PerformanceSnapshot): WidgetRankedAgent[] {
-  return snapshot.rows.map(r => ({ id: r.id, firstName: r.first_name, lastName: r.last_name,
-    avatarUrl: null, wins: r.policiesSold, organizationName: r.organizationName }))
-    .sort((a,b) => b.wins-a.wins || `${a.lastName} ${a.firstName}`.toLowerCase().localeCompare(`${b.lastName} ${b.firstName}`.toLowerCase()) || a.id.localeCompare(b.id));
+  return rankAgents(snapshot.rows.map(r => ({ ...r }))).map(r => ({ id: r.id, firstName: r.first_name,
+    lastName: r.last_name, avatarUrl: null, wins: r.policiesSold, organizationName: r.organizationName }));
 }
 
 /**
