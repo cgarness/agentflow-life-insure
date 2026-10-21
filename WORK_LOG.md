@@ -1,3 +1,11 @@
+## 2026-10-20 — Commissions navigation money icon — frontend-only change, PR pending
+
+Chris explicitly approved replacing the Commissions navigation Wallet icon with a money symbol. On branch `codex/commissions-dollar-icon-20261020` from main `e762454`, `src/components/layout/CommissionsNavItem.tsx` changes only the Lucide import and `MainNavItem` icon prop to `CircleDollarSign`. The sidebar and mobile drawer share this component, so sizing, collapsed layout, routes, active state, D3 own-commission permission and View As exclusion remain unchanged.
+
+Files: `src/components/layout/CommissionsNavItem.tsx`, `docs/plans/2026-10-20-commissions-icon/implementation_plan.md`, `WORK_LOG.md`. No migrations, backend commands, Supabase/Vercel configuration, commission math, payments, business data or dialer changes. Verify the source diff and PR CI; separately approve merging to main before release. Next: review PR, await checks and release approval.
+
+---
+
 ## 2026-10-20 — Commissions center RELEASED: Gate 3, PR #471
 
 Chris approved the separate merge/frontend-release gate by replying "Continue". Reviewed the additional
