@@ -1,3 +1,102 @@
+## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
+
+Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+`ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`) to `jncvvsvckxhqgqvkppmj` through the
+version-preserving SQL Editor route, with stop-and-report on any discrepancy. No backfill; Gate 3 not approved.
+
+- **Checksum.** SHA-256/MD5 `3b8f527b…`/24,911 bytes identical in the working tree, at PR head `439d0cb` and on the
+  remote branch.
+- **Production, read-only (17:42 UTC).** Hosted head `20261021180000`; `20261021200000` not recorded; `postgres`,
+  PostgreSQL 17.6. `preflight.sql` **12/12** (all four preimages equal). Fingerprints: clients 19 / `eda90062…`, clients
+  policies 1 / `eb563177…`, clients ACL `46875263…`, wins 20 / `3801e71a…`. Advisors: security 253, performance 452
+  (finding-set digests recorded; expected delta none).
+- **Package.** `release/build_apply.py` → `release/apply_20261021200000.sql` (28,862 ASCII bytes, SHA-256
+  `fd796409…742a`, deterministic): one request; text, history and role checks; records the exact text.
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history: refusals for a changed byte, a later
+  version, a missing preflight head, a non-`postgres` caller and a lock (1.17 s); apply 0.058 s; read-back 11/11;
+  fingerprints identical; only the expected catalog additions; replay refused twice; suite PASS; rollback restores both
+  preimages; schema dump equal to a plain `psql -1 -f` apply.
+- **Blocker — NOT applied.** This cloud session has no browser/SQL Editor and no reachable session on Chris's
+  computer. `execute_sql` stayed SELECT-only (AGENT_RULES §11) and `apply_migration` was not used (it stamps its own
+  version). Stopped and reported; nothing was written to production.
+- **Files.** `release/build_apply.py`, `release/apply_20261021200000.sql`, `release/gate2-preflight-evidence.json`,
+  focused `verification.md` §8 and status, focused plan status, root plan entry, AGENT_RULES status line, this entry.
+- **Next.** Apply from an authorized SQL Editor route (Chris, or a session with a signed-in browser): fresh preflight,
+  paste the package unchanged, Run once; then read-back 11/11, fingerprints and advisors. Gate 3 stays separate.
+
+---
+
+## 2026-10-21 — BUGFIX (within Gate 1, PR #476; NOT live): older-browser notes and unchanged client fields
+
+Chris reported PR #476's seven workflows and both Vercel previews green and asked for two corrections before Gate 2.
+Reviewed AGENT_RULES, VISION and WORK_LOG: `main` still `51b0e56`, no new entries or conflicting work. Stayed inside the
+Gate 1 approval: local build and disposable-database tests only, approved files, PR #476. No production contact,
+migration apply, merge or deployment.
+
+- **Mixed-version notes.** The new browser sends only the agent's note in `notes` with the marker
+  `notes_source: "conversion_note"`. An older browser's unmarked `notes` that differs from the database lead notes
+  (its typed note or a stale lead copy — not classifiable) can no longer become the client's Notes: the current lead
+  notes stay and the text is kept verbatim, read-only, as `lead_conversion.legacy_conversion_notes` ("Conversion
+  notes (older app version)" in the Original lead panel). An unknown marker fails closed (22023, "Refresh AgentFlow
+  and try again."). A marker beside `notes`, not a new key, so a database without the migration still keeps a typed
+  note (a first draft's separate key would have been ignored and lost it; caught before commit).
+- **Unchanged person fields.** The profile now sends only the person fields the agent changed
+  (`omitUnchangedPersonFields`, the same set the Zod check uses) and `clientUpdatePatch` sends text verbatim, so an
+  unrelated edit can never trim, normalize, clear or rewrite a stored DOB, age, best time to call or spouse value.
+- **Migration (still NOT applied).** Converter notes logic only; update writer, guard, columns and every other line
+  unchanged. SHA-256 `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5` (24,911 bytes); converter
+  post-image `7109fdab661eac16ab6ff4f8d8343c20`; rollback `adffa3d3…188e`; rollback guard, runner and `readback.sql`
+  regenerated and re-verified.
+- **Tests.** SQL: P4 now 18 cases (current and older browser), P15 legacy byte-for-byte case, new P16 (unknown/null
+  marker refused); runner release-boundary checks (old tab keeps current Notes, new browser on the old database keeps a
+  typed note). Full runner PASS on PostgreSQL 16.15; release rehearsal preflight 12/12, read-back 11/11, fingerprints
+  identical, rollback exact. Frontend: new omission/verbatim/legacy-notes/end-to-end patch cases. Fail-first: the
+  older-browser matrix fails on the previous migration; 4 view/mapping cases fail on the previous frontend.
+- **Gates.** `npx tsc --noEmit` exit 0; app typecheck 84 = `main` (identical multiset); Vitest 5,994 passed, failure set
+  identical to `main`; scoped ESLint 0 errors; build OK. Final-head CI pending at push.
+- **Docs.** Focused plan §14, `verification.md` (values, §5 matrix, §7), root plan entry, AGENT_RULES proposed section.
+- **Next.** Final-head CI green, then Chris's Gate 2 (database-only) approval.
+
+---
+
+## 2026-10-21 — Lead → Client conversion preserves every meaningful lead field (Gate 1: local build, draft PR; NOT live)
+
+Chris approved Gate 1 (decisions D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR)
+and required mixed-version testing. Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`. Future conversions only:
+no backfill, no change to existing clients. Stopped at Gate 2.
+
+- **Defect.** `convert_lead_to_client_atomic` copied only names, phone, email, notes, owner and the browser's custom
+  fields: `state` (an existing column), DOB, age, best time, spouse, source, status and score were discarded with the
+  deleted lead; custom fields came from possibly stale browser snapshots; a conversion note replaced the lead's notes.
+- **Database (proposed, NOT applied).** `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+  `b1488c4e…8127`, 23,279 bytes; guarded by the four production preimage digests): nullable `clients.date_of_birth`,
+  `age`, `best_time_to_call`, `spouse_info`; protected read-only `clients.lead_conversion` history with trigger
+  `clients_lead_conversion_guard`; the converter reads every preserved field from the locked lead row (only
+  `additional_policies` from the payload) and keeps displaced lead notes; `update_client_with_policy_sale` accepts the
+  four person fields. Wrapper, commission companions, RLS and grants unchanged. Function-only rollback restores both
+  exact preimages and keeps columns, data and trigger.
+- **Frontend.** `Client` type + mappers; the browser sends only the agent's conversion note; client profile shows and
+  edits DOB/age/best time/spouse in the existing grid (Zod on changed fields; legacy DOB as text; structured spouse
+  read-only) and a read-only "Original lead" panel (`ClientLeadHistory`, 50 lines). Layout, policy cards, conversation,
+  activity and follow-ups unchanged.
+- **Production contact.** One read-only `list_migrations` + one SELECT: head `20261021180000`, PostgreSQL 17.6, all four
+  preimage digests equal the reviewed values. No write.
+- **Verification.** `scripts/run_lead_conversion_preservation_tests.sh` on disposable PostgreSQL 16.15: guards,
+  inventory (1,043 other objects unchanged), historical fingerprint, release-boundary and old-browser scenarios,
+  preservation suite P2–P15, pre/post differential (1,713 identical lines), existing commission suites + 44-step
+  sale/performance/Sold Date/repair chain, race and rollback — all PASS; new CI job on `postgres:17.6`. Release
+  preflight 12/12 and read-back 11/11 rehearsed. Frontend: app typecheck 84 = `main` (identical multiset); Vitest
+  5,987 passed, failure set identical to `main` (+39 tests); scoped ESLint 0 errors (warnings identical); build OK.
+- **Remaining transitional risk.** Until agents refresh onto the new frontend, an old tab converting without a typed
+  note whose notes copy is older than the database makes that copy the client's Notes; the current lead notes stay
+  preserved and visible as "Original lead notes". Nothing else in any mixed-version path is lost or replaced.
+- **Docs.** `AGENT_RULES.md` (proposed invariant section), root `implementation_plan.md`, focused plan and
+  `verification.md`, release `preflight.sql` / `readback.sql` and the read-only check JSON.
+- **Next.** Gate 2 (database only, separate approval): fresh hosted-history check and preflight, version-preserving
+  apply, read-back and advisors. Gate 3 (merge + frontend) after that.
+
+---
+
 ## 2026-10-21 — PR #475 CI blocker: TV visual harness updated for the AP-only board (test-only)
 
 Chris found the release blocker: `Policy sale transaction verification` › `tv-browser` failed on `2266cd5`.

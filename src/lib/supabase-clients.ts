@@ -3,6 +3,7 @@ import { Client, PolicyType } from "@/lib/types";
 import { normalizeUsState } from "@/utils/stateUtils";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import { assertCustomFieldsWriteSafe } from "@/lib/reservedCustomFields";
+import { isEditableSpouseInfo, parseLeadConversion } from "@/lib/clientLeadDetails";
 import { notifyRecordedSales, runPreparedSale, saleMonthlyPremium, type ClientSaleOptions, type RecordedSaleResult } from "@/lib/policySaleRecording";
 import type { Json } from "@/integrations/supabase/types";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
@@ -262,8 +263,27 @@ export function clientUpdatePatch(data: Partial<Client>): Record<string, unknown
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
     if (data.customFields !== undefined) updateData.custom_fields = data.customFields;
+    // Person fields preserved from the source lead, sent VERBATIM: non-blank text exactly as given (never trimmed or
+    // re-formatted), blank → NULL, age as given. The profile omits the ones the agent did not change
+    // (omitUnchangedPersonFields), so an unrelated edit never rewrites them. A structured spouse value is read-only and
+    // never sent back. Conversion history (lead_conversion) is never sent.
+    if (data.dateOfBirth !== undefined) updateData.date_of_birth = textOrNull(data.dateOfBirth);
+    if (data.age !== undefined) updateData.age = ageOrNull(data.age);
+    if (data.bestTimeToCall !== undefined) updateData.best_time_to_call = textOrNull(data.bestTimeToCall);
+    if (data.spouseInfo !== undefined && isEditableSpouseInfo(data.spouseInfo)) updateData.spouse_info = textOrNull(data.spouseInfo);
     updateData.updated_at = new Date().toISOString();
     return updateData;
+}
+
+function textOrNull(value: string | null | undefined): string | null {
+    return value == null || value.trim() === "" ? null : value;
+}
+
+function ageOrNull(value: unknown): number | null {
+    if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
+    const n = Number(value);
+    if (!Number.isInteger(n)) throw new Error("Age must be a whole number.");
+    return n;
 }
 
 // ---- VALUE HELPERS (exported for unit tests) ----
@@ -327,6 +347,13 @@ export function rowToClient(row: any): Client { // eslint-disable-line @typescri
         assignedAgentId: row.assigned_agent_id || "",
         userId: row.user_id || "",
         customFields: row.custom_fields ?? undefined,
+        // Preserved from the source lead (20261021200000). NULL stays undefined, so a historical client sends none of
+        // these keys back on an unrelated edit.
+        dateOfBirth: row.date_of_birth ?? undefined,
+        age: row.age ?? undefined,
+        bestTimeToCall: row.best_time_to_call ?? undefined,
+        spouseInfo: row.spouse_info ?? undefined,
+        leadConversion: parseLeadConversion(row.lead_conversion),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };

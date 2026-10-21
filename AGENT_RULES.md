@@ -955,3 +955,46 @@ Agent Profile renders only gold UV navigation/copy actions. Publication and cont
 ### UV profile confirmation wizard (prepared 2026-10-19; not live until approved release)
 
 Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only managed badges: use slate navigation/outlined copy actions and emerald Verified only after agent confirmation, all six required fields, and acknowledged publication. Verification denotes profile completeness, not independent license currency; expiration is not a gate. Canonical licenses remain `agent_state_licenses`, and the wizard must preserve dates/IDs and reject stale/foreign snapshots atomically. Optional bio belongs to the AF private sync row and is signed to managed UV pages; protected A2P exclusions and contact-only capabilities remain mandatory. No existing profile is auto-confirmed. Settled rows have no expiry wakeup or continuous sender polling after this migration. Older status RPC response remains unchanged for client compatibility. Release record: `docs/plans/2026-10-19-uv-verification/release.md`.
+
+### Lead → Client conversion data preservation (built 2026-10-21 on `claude/sweet-fermi-jpsnyn`; migration `20261021200000` NOT applied; frontend NOT released)
+
+Gate 2 approved 2026-10-21 but NOT applied: this cloud session had no SQL Editor route, so it stopped after a 12/12
+preflight and a rehearsed package (`release/apply_20261021200000.sql`, SHA-256 `fd796409…742a`); never apply it
+through `execute_sql` or `apply_migration`. Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
+before assuming it. Plan and evidence: `docs/plans/2026-10-21-lead-client-preservation/{implementation_plan,verification}.md`.
+Future conversions only: no backfill, and existing clients are never read or changed by the migration.
+
+- **The locked lead row is the source of truth.** `convert_lead_to_client_atomic` copies state (normalized with
+  `public.normalize_us_state`, blank → NULL), `date_of_birth` (text, trimmed, never re-formatted), `age`,
+  `best_time_to_call`, `spouse_info` (jsonb verbatim) and every user-defined custom field from the row it holds
+  `FOR UPDATE`. The payload supplies only the agent's conversion inputs; its `custom_fields` contributes ONLY the
+  reserved `additional_policies` array (stored verbatim and in order, because the wrapper records one sale per element
+  by ordinal and `private.insert_policy_sale` reads the stored array by that ordinal). Never take lead data from a
+  browser snapshot again. `mergeCustomFieldsOnConversion` and the reserved key literal are unchanged (#35).
+- **Notes are never silently replaced.** The browser sends only the agent's note in `notes` (blank → NULL) with the
+  marker `notes_source: "conversion_note"`, never its copy of the lead. A marked note that differs from the database
+  lead notes becomes the Notes and the lead notes are kept verbatim in `lead_conversion.lead_notes`. An UNMARKED
+  `notes` (older browsers: the agent's note or a possibly stale lead copy) that differs cannot be classified: the
+  current database notes stay the Notes and the text is kept verbatim as `lead_conversion.legacy_conversion_notes`.
+  Any other marker value fails closed (22023, refresh instruction). Keep the marker beside `notes` (never a separate
+  key): a database without the migration ignores it and still keeps a typed note.
+- **`clients.lead_conversion` is protected, read-only history** (version 1: lead id, converted at/by, lead status,
+  source, score, created/last-contacted timestamps, owner/assignee/importer ids, displaced notes, and any lead custom
+  value that cannot live in the client namespace — the reserved key or a non-object bag — under
+  `preserved_custom_fields`). It is never the client's workflow status. `clients_lead_conversion_guard` allows a
+  non-NULL value only on INSERT by the SECURITY DEFINER converter (`current_user = 'postgres'`, matching `lead_id`)
+  and refuses every later change (23514) for every role; a reviewed repair must disable it explicitly. Lead score is
+  stored there and never displayed or editable.
+- **Client person fields are ordinary editable columns** (`date_of_birth`, `age`, `best_time_to_call`,
+  `spouse_info`, all nullable, no default, no CHECK). `update_client_with_policy_sale` accepts exactly these four
+  beyond its previous allowlist and can never write `lead_conversion`; its messages, authorization and the D7
+  companion's PT409 mapping are unchanged. An unrelated edit must never rewrite them: the profile sends only the person
+  fields the agent changed (`omitUnchangedPersonFields`, the same set the Zod check validates) and `clientUpdatePatch`
+  sends text verbatim (no trimming). It edits a non-ISO DOB as text, keeps legacy options selectable, and never binds a
+  structured spouse value to a text box.
+- **Release order is database first, rollback frontend first.** The new frontend sends the four keys, which the old
+  update writer refuses (22023). The rollback restores both exact preimages and keeps the columns, their data and the
+  trigger; dropping the columns needs its own approval and a proven export (#28, #29).
+- Column names deliberately avoid `status`/`lead_source`: the contact-history capture treats those as value-visible
+  keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
+  must again re-verify the commission companions (Phase 2A rule).

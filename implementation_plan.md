@@ -11,6 +11,38 @@ and in both ranking tables. No calculation, ranking, CSV, data, RPC, RLS or tele
 
 ---
 
+## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
+
+**Gate 2 (database only), 2026-10-21:** Chris approved migration `20261021200000` (SHA-256 `ce189016…9ae5`) via the
+version-preserving SQL Editor route. Checksum verified; hosted head `20261021180000`; fresh preflight 12/12;
+fingerprints and advisors (security 253, performance 452) captured; package `apply_20261021200000.sql` (SHA-256
+`fd796409…742a`) built and rehearsed. **NOT applied**: no SQL Editor route in this cloud session; stopped and reported.
+Production unchanged. Gate 3 not approved. Focused `verification.md` §8.
+
+**Status:** Chris approved Gate 1 (D1–D9, file list, local build, tests, commits, pushes, one draft PR) with a
+mixed-version requirement. Built and verified locally on `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`; stopped at
+Gate 2. Migration `20261021200000` NOT applied; frontend NOT merged or released; the only production contact was one
+read-only check. Future conversions only: no backfill, no change to existing clients. Evidence:
+`docs/plans/2026-10-21-lead-client-preservation/verification.md`.
+
+**§14 bugfix (within Gate 1, 2026-10-21):** older-browser notes can no longer replace the client's Notes (explicit
+`notes_source` marker; unclassifiable legacy text kept separately; unknown markers fail closed) and an unrelated client
+edit can no longer rewrite unchanged DOB/age/best time/spouse values. Migration bytes changed (still NOT applied):
+SHA-256 `ce189016…9ae5`; every digest, guard and release script regenerated. Focused plan §14; `verification.md` §7.
+
+**Contract, migration design, exact files, tests, rollout, rollback and decisions D1–D9:**
+`docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md`.
+
+**Summary:** `convert_lead_to_client_atomic` drops state, DOB, age, best time to call, spouse info, lead source,
+status and score, takes custom fields from the browser snapshot, and lets conversion notes replace the lead's notes.
+One new forward-only migration (`20261021200000`, preimage-guarded) makes the converter read every preserved field
+from the locked lead row, adds four nullable editable client columns and one protected read-only `lead_conversion`
+history column, keeps displaced lead notes verbatim, and lets the client editor save the four person fields. The
+profile shows them in the existing details grid plus a read-only "Original lead" panel. Wrapper, commission
+companions, policy cards, telemetry and authorization unchanged.
+
+---
+
 ## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): AP-only Leaderboard redesign (frontend only)
 
 **Status:** Chris approved the plan on 2026-10-21 with D1–D5 = A, plus the instruction that tie-break rank changes show

@@ -3,6 +3,7 @@ vi.mock("@/integrations/supabase/client",()=>({supabase:{}}));
 import {
   rowToClient,
   clientToRow,
+  clientUpdatePatch,
   formatCurrencyValue,
   parseCurrencyToNumberOrNull,
   normalizeDateOrNull,
@@ -202,5 +203,55 @@ describe("value helpers", () => {
     expect(formatPaymentFrequency("semi_annual")).toBe("Semi-Annual");
     expect(formatPaymentFrequency(null)).toBe("");
     expect(formatPaymentFrequency("weekly")).toBe("");
+  });
+});
+
+describe("lead details preserved at conversion (20261021200000)", () => {
+  const converted = {
+    id: "c9", first_name: "Pat", last_name: "Lee", created_at: "2026-10-21", state: "CA",
+    date_of_birth: "1961-04-12", age: 64, best_time_to_call: "Morning", spouse_info: { name: "Sam", age: 60 },
+    lead_conversion: { version: 1, lead_id: "lead-9", converted_at: "2026-10-21T20:00:00+00:00", converted_by: "agent-1",
+      lead_status: "Interested", lead_source: "Facebook", lead_score: 8, lead_notes: "Original notes" },
+  };
+
+  it("maps the person fields and the parsed history", () => {
+    const c = rowToClient(converted);
+    expect(c.dateOfBirth).toBe("1961-04-12");
+    expect(c.age).toBe(64);
+    expect(c.bestTimeToCall).toBe("Morning");
+    expect(c.spouseInfo).toEqual({ name: "Sam", age: 60 });
+    expect(c.leadConversion?.leadSource).toBe("Facebook");
+    expect(c.leadConversion?.leadNotes).toBe("Original notes");
+  });
+
+  it("a historical client without the new columns renders exactly as before (all undefined)", () => {
+    const c = rowToClient({ id: "c10", first_name: "Old", last_name: "Client", created_at: "2025-01-01" });
+    expect([c.dateOfBirth, c.age, c.bestTimeToCall, c.spouseInfo, c.leadConversion]).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    const nulls = rowToClient({ id: "c11", first_name: "Old", last_name: "Client", created_at: "2025-01-01",
+      date_of_birth: null, age: null, best_time_to_call: null, spouse_info: null, lead_conversion: null });
+    expect([nulls.dateOfBirth, nulls.age, nulls.bestTimeToCall, nulls.spouseInfo, nulls.leadConversion]).toEqual([undefined, undefined, undefined, undefined, undefined]);
+  });
+
+  it("an unrelated edit of a historical client sends none of the new keys (old servers keep accepting it)", () => {
+    const c = rowToClient({ id: "c12", first_name: "Old", last_name: "Client", created_at: "2025-01-01" });
+    const patch = clientUpdatePatch({ ...c, firstName: "Renamed" });
+    for (const key of ["date_of_birth", "age", "best_time_to_call", "spouse_info", "lead_conversion"]) expect(patch).not.toHaveProperty(key);
+  });
+
+  it("sends person fields verbatim: non-blank text never trimmed or re-formatted, blanks as NULL, age as an integer", () => {
+    expect(clientUpdatePatch({ dateOfBirth: " 03/04/1960 ", age: 55, bestTimeToCall: " Anytime ", spouseInfo: " Jamie " })).toMatchObject({
+      date_of_birth: " 03/04/1960 ", age: 55, best_time_to_call: " Anytime ", spouse_info: " Jamie " });
+    expect(clientUpdatePatch({ dateOfBirth: "", age: "" as never, bestTimeToCall: " ", spouseInfo: "" })).toMatchObject({
+      date_of_birth: null, age: null, best_time_to_call: null, spouse_info: null });
+    expect(clientUpdatePatch({ age: "47" as never }).age).toBe(47);
+    expect(() => clientUpdatePatch({ age: 4.5 })).toThrow("Age must be a whole number.");
+  });
+
+  it("never sends a structured spouse value back and never sends conversion history", () => {
+    const c = rowToClient(converted);
+    const patch = clientUpdatePatch({ ...c, notes: "Edited" });
+    expect(patch).not.toHaveProperty("spouse_info");
+    expect(patch).not.toHaveProperty("lead_conversion");
+    expect(patch).toMatchObject({ date_of_birth: "1961-04-12", age: 64, best_time_to_call: "Morning", notes: "Edited" });
   });
 });

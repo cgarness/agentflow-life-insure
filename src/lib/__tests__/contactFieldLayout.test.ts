@@ -70,6 +70,11 @@ describe("getDefaultFieldOrder — system default lead layout", () => {
       "lastName",
       "phone",
       "email",
+      // Preserved from the source lead at conversion (20261021200000).
+      "dateOfBirth",
+      "age",
+      "spouseInfo",
+      "bestTimeToCall",
       "policyType",
       "carrier",
       "state",
