@@ -239,4 +239,3 @@ artifact `leaderboard-visual-evidence-39634527078` (32 files) uploaded.
 The documentation commit that adds this section changes only `verification.md` and `WORK_LOG.md`. Its own check
 results on the final head are reported on PR #475 and in the final hand-off, not here, because writing them here
 would change that head again.
-
