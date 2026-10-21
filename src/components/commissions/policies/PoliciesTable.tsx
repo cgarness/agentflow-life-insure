@@ -1,5 +1,6 @@
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { LoadingBlock } from "@/components/commission/ui/CommissionSurface";
-import { formatCalendarDate, formatCents } from "@/lib/commission/installments";
+import { formatCalendarDate } from "@/lib/commission/installments";
 import type { PolicyRow } from "@/lib/commission/centerSchemas";
 import type { OpenPolicy } from "../CommissionDrawer";
 import { Chip, PolicyIdentity } from "../shared/Bits";
@@ -7,8 +8,6 @@ import { CenterEmpty } from "../shared/CenterState";
 import { kindLabel, ROW_STATUS, SETUP_STATE, windowLabel } from "../shared/format";
 
 const GRID = "md:grid md:grid-cols-[minmax(0,1.6fr)_6.5rem_6.5rem_6.5rem_6.5rem_minmax(0,1.3fr)_8rem] md:items-center md:gap-3";
-/** Missing is shown as a dash, never $0. */
-const money = (cents: number | null) => (cents === null ? "—" : formatCents(cents));
 
 function NextPayment({ row }: { row: PolicyRow }) {
   if (row.setup === "missing" || row.setup === "needs_review") return <span className="text-muted-foreground">—</span>;
@@ -26,6 +25,9 @@ function NextPayment({ row }: { row: PolicyRow }) {
 
 /** One row per policy (stable policy id) credited to the seller. `pending`: the earlier page while the next loads (inert). */
 export function PoliciesTable({ rows, onOpen, pending = false }: { rows: PolicyRow[] | null; onOpen: OpenPolicy; pending?: boolean }) {
+  const { money: amount } = useAmounts();
+  /** Missing is shown as a dash, never $0. */
+  const money = (cents: number | null) => (cents === null ? "—" : amount(cents));
   if (rows === null) return <LoadingBlock label="Loading policies…" rows={5} />;
   if (rows.length === 0) return <CenterEmpty title="No policies match these filters" />;
   return (

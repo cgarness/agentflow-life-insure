@@ -5,6 +5,7 @@ import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
 import { INSTALLMENT_LABELS, parsePaymentDateForm } from "@/lib/commission/installments";
 import type { CommissionInstallment, TimingChoice } from "@/lib/commission/trackingSchemas";
+import { WhenAmountsShown } from "../ui/AmountsVisibility";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -66,35 +67,37 @@ export function InstallmentTimingDialog({ open, onOpenChange, installment, estim
           <DialogTitle>{INSTALLMENT_LABELS[installment.kind]} date</DialogTitle>
           <DialogDescription>Automatic uses the estimated schedule.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <fieldset disabled={locked} className="space-y-3">
-            <div role="radiogroup" aria-label="Expected date" className="flex flex-wrap gap-3">
-              {options.map(([value, label]) => (
-                <label key={value} className="flex items-center gap-1.5 text-sm">
-                  <input type="radio" name={`${id}-precision`} checked={precision === value} onChange={() => setPrecision(value)} />
-                  {label}
-                </label>
-              ))}
-            </div>
-            {precision === "month" && (
-              <div>
-                <label htmlFor={`${id}-month`} className={labelCls}>Month</label>
-                <input id={`${id}-month`} type="month" className={fieldCls} value={month} onChange={(event) => setMonth(event.target.value)} />
+        <WhenAmountsShown>
+          <form onSubmit={submit} className="space-y-3">
+            <fieldset disabled={locked} className="space-y-3">
+              <div role="radiogroup" aria-label="Expected date" className="flex flex-wrap gap-3">
+                {options.map(([value, label]) => (
+                  <label key={value} className="flex items-center gap-1.5 text-sm">
+                    <input type="radio" name={`${id}-precision`} checked={precision === value} onChange={() => setPrecision(value)} />
+                    {label}
+                  </label>
+                ))}
               </div>
-            )}
-            {precision === "date" && (
-              <div>
-                <label htmlFor={`${id}-date`} className={labelCls}>Date</label>
-                <input id={`${id}-date`} type="date" className={fieldCls} value={date} onChange={(event) => setDate(event.target.value)} />
-              </div>
-            )}
-          </fieldset>
-          {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" disabled={mutation.saving || mutation.syncing}>{mutation.saving ? "Saving…" : mutation.locked ? "Retry" : "Save date"}</Button>
-          </DialogFooter>
-        </form>
+              {precision === "month" && (
+                <div>
+                  <label htmlFor={`${id}-month`} className={labelCls}>Month</label>
+                  <input id={`${id}-month`} type="month" className={fieldCls} value={month} onChange={(event) => setMonth(event.target.value)} />
+                </div>
+              )}
+              {precision === "date" && (
+                <div>
+                  <label htmlFor={`${id}-date`} className={labelCls}>Date</label>
+                  <input id={`${id}-date`} type="date" className={fieldCls} value={date} onChange={(event) => setDate(event.target.value)} />
+                </div>
+              )}
+            </fieldset>
+            {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
+              <Button type="submit" disabled={mutation.saving || mutation.syncing}>{mutation.saving ? "Saving…" : mutation.locked ? "Retry" : "Save date"}</Button>
+            </DialogFooter>
+          </form>
+        </WhenAmountsShown>
       </DialogContent>
     </Dialog>
   );

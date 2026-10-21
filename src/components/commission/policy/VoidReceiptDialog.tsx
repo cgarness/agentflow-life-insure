@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
-import { formatCalendarDate, formatCents, INSTALLMENT_LABELS, validateReceipt } from "@/lib/commission/installments";
+import { formatCalendarDate, INSTALLMENT_LABELS, validateReceipt } from "@/lib/commission/installments";
 import type { CommissionInstallment, CommissionReceipt } from "@/lib/commission/trackingSchemas";
 import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
+import { WhenAmountsShown } from "../ui/AmountsVisibility";
+import { useAmounts } from "../ui/amountsContext";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -25,6 +27,7 @@ export function VoidReceiptDialog({ open, onOpenChange, receipt, installments, e
   estimateRevision: number;
 }) {
   const id = useId();
+  const { money } = useAmounts();
   const mutation = useTrackingMutation<VoidForm>(`void:${receipt?.id ?? "none"}`);
   const { restart } = mutation;
   const owner = installments.find((installment) => installment.receipts.some((r) => r.id === receipt?.id)) ?? null;
@@ -83,54 +86,56 @@ export function VoidReceiptDialog({ open, onOpenChange, receipt, installments, e
         <DialogHeader>
           <DialogTitle>Void payment</DialogTitle>
           <DialogDescription>
-            {formatCents(receipt.amount_cents)} received {formatCalendarDate(receipt.received_on)}. The record stays in the history, marked void.
+            {money(receipt.amount_cents)} received {formatCalendarDate(receipt.received_on)}. The record stays in the history, marked void.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <fieldset disabled={locked} className="space-y-3">
-            <div>
-              <label htmlFor={`${id}-reason`} className={labelCls}>Reason</label>
-              <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Entered the wrong amount" />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={replace} onChange={(event) => setReplace(event.target.checked)} />
-              Record a corrected payment in its place
-            </label>
-            {replace && (
-              <div className="space-y-3 rounded-md border border-border p-3">
-                <div>
-                  <label htmlFor={`${id}-installment`} className={labelCls}>Expected payment</label>
-                  <select id={`${id}-installment`} className={fieldCls} value={installmentId} onChange={(event) => setInstallmentId(event.target.value)}>
-                    {installments.map((installment) => (
-                      <option key={installment.id} value={installment.id}>{INSTALLMENT_LABELS[installment.kind]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor={`${id}-amount`} className={labelCls}>Amount received</label>
-                    <input id={`${id}-amount`} className={fieldCls} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
-                  </div>
-                  <div>
-                    <label htmlFor={`${id}-date`} className={labelCls}>Date received</label>
-                    <input id={`${id}-date`} type="date" className={fieldCls} value={receivedOn} max={todayLocalIsoDate()} onChange={(event) => setReceivedOn(event.target.value)} />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor={`${id}-reference`} className={labelCls}>Reference (optional)</label>
-                  <input id={`${id}-reference`} className={fieldCls} maxLength={200} value={reference} onChange={(event) => setReference(event.target.value)} />
-                </div>
+        <WhenAmountsShown>
+          <form onSubmit={submit} className="space-y-3">
+            <fieldset disabled={locked} className="space-y-3">
+              <div>
+                <label htmlFor={`${id}-reason`} className={labelCls}>Reason</label>
+                <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Entered the wrong amount" />
               </div>
-            )}
-          </fieldset>
-          {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" variant="destructive" disabled={mutation.saving || mutation.syncing}>
-              {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : replace ? "Void and replace" : "Void payment"}
-            </Button>
-          </DialogFooter>
-        </form>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={replace} onChange={(event) => setReplace(event.target.checked)} />
+                Record a corrected payment in its place
+              </label>
+              {replace && (
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <div>
+                    <label htmlFor={`${id}-installment`} className={labelCls}>Expected payment</label>
+                    <select id={`${id}-installment`} className={fieldCls} value={installmentId} onChange={(event) => setInstallmentId(event.target.value)}>
+                      {installments.map((installment) => (
+                        <option key={installment.id} value={installment.id}>{INSTALLMENT_LABELS[installment.kind]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor={`${id}-amount`} className={labelCls}>Amount received</label>
+                      <input id={`${id}-amount`} className={fieldCls} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    </div>
+                    <div>
+                      <label htmlFor={`${id}-date`} className={labelCls}>Date received</label>
+                      <input id={`${id}-date`} type="date" className={fieldCls} value={receivedOn} max={todayLocalIsoDate()} onChange={(event) => setReceivedOn(event.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor={`${id}-reference`} className={labelCls}>Reference (optional)</label>
+                    <input id={`${id}-reference`} className={fieldCls} maxLength={200} value={reference} onChange={(event) => setReference(event.target.value)} />
+                  </div>
+                </div>
+              )}
+            </fieldset>
+            {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
+              <Button type="submit" variant="destructive" disabled={mutation.saving || mutation.syncing}>
+                {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : replace ? "Void and replace" : "Void payment"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </WhenAmountsShown>
       </DialogContent>
     </Dialog>
   );

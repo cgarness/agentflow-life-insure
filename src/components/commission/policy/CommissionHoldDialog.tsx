@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
 import type { CommissionEstimateRecord } from "@/lib/commission/trackingSchemas";
+import { WhenAmountsShown } from "../ui/AmountsVisibility";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -56,21 +57,23 @@ export function CommissionHoldDialog({ open, onOpenChange, estimate }: {
             {onHold ? `On hold: ${estimate.status_reason ?? ""}` : "Flags this estimate (for example during a carrier review). The change is audited."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          {!onHold && (
-            <fieldset disabled={mutation.locked || mutation.saving}>
-              <label htmlFor={`${id}-reason`} className={labelCls}>Reason</label>
-              <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} />
-            </fieldset>
-          )}
-          {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" disabled={mutation.saving || mutation.syncing}>
-              {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : onHold ? "Release hold" : "Place on hold"}
-            </Button>
-          </DialogFooter>
-        </form>
+        <WhenAmountsShown>
+          <form onSubmit={submit} className="space-y-3">
+            {!onHold && (
+              <fieldset disabled={mutation.locked || mutation.saving}>
+                <label htmlFor={`${id}-reason`} className={labelCls}>Reason</label>
+                <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} />
+              </fieldset>
+            )}
+            {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
+              <Button type="submit" disabled={mutation.saving || mutation.syncing}>
+                {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : onHold ? "Release hold" : "Place on hold"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </WhenAmountsShown>
       </DialogContent>
     </Dialog>
   );

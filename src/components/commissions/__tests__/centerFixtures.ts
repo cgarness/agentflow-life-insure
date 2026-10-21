@@ -53,7 +53,7 @@ export function historyRow(n: number, extra: Record<string, unknown> = {}) {
 
 export function historyPage(rows = [historyRow(1)], extra: Record<string, unknown> = {}) {
   return { meta: { ...meta, from: "2026-10-01", to: "2026-10-31" }, total_count: rows.length,
-    totals: { received_cents: 5157, valid_count: 1, voided_count: 0 }, rows, ...extra };
+    totals: { received_cents: 5157, valid_count: 1, voided_count: 0 }, carriers: ["Synthetic Life"], has_unknown_carrier: false, rows, ...extra };
 }
 
 export function policyRow(n: number, extra: Record<string, unknown> = {}) {
@@ -62,13 +62,52 @@ export function policyRow(n: number, extra: Record<string, unknown> = {}) {
     carrier: "Synthetic Life", product: "Synthetic Term", effective_date: "2026-11-01", estimate_cents: 57300, received_cents: 20000,
     remaining_cents: 37300, excess_cents: 0, date_needed_count: 0,
     next_payment: { kind: "advance", timing_precision: "date", expected_on: "2026-11-02", expected_until: "2026-11-04", remaining_cents: 22975, status: "upcoming" },
+    category: "term", sold_date: "2026-10-05",
     ...extra,
   };
 }
 
 export function policiesPage(rows = [policyRow(1)], extra: Record<string, unknown> = {}) {
   return { meta, total_count: rows.length, counts: { eligible_count: 12, with_estimate_count: 10, missing_count: 1, needs_review_count: 1, on_hold_count: 1 },
-    carriers: ["Synthetic Life"], rows, ...extra };
+    totals: { policies: rows.length, with_estimate_count: 1, estimate_cents: 57300, on_hold_count: 0, on_hold_cents: 0, without_estimate_count: 0 },
+    carriers: ["Synthetic Life"], has_unknown_carrier: false, rows, ...extra };
+}
+
+const group = (policies: number, withEstimate: number, estimate: number, extra: Record<string, unknown> = {}) => ({
+  policies, with_estimate_count: withEstimate, estimate_cents: estimate, on_hold_count: 0, on_hold_cents: 0,
+  without_estimate_count: policies - withEstimate, ...extra,
+});
+
+/** Breakdown for October 2026: synthetic carriers and categories that add up to the cohort and Received totals. */
+export function breakdown(extra: Record<string, unknown> = {}) {
+  return {
+    meta: { ...meta, period: "this_month", from: "2026-10-01", to: "2026-10-31" },
+    sold: { ...group(9, 6, 343800, { on_hold_count: 1, on_hold_cents: 57300, without_estimate_count: 2 }), needs_review_count: 1, undated_count: 1 },
+    received: { received_cents: 25157, receipt_count: 2 },
+    carriers: [
+      { carrier: "Harbor Mutual", ...group(3, 2, 114600), received_cents: 5157, receipt_count: 1 },
+      { carrier: "Synthetic Life", ...group(5, 4, 229200, { on_hold_count: 1, on_hold_cents: 57300, without_estimate_count: 0 }),
+        received_cents: 20000, receipt_count: 1 },
+      { carrier: null, ...group(1, 0, 0), received_cents: 0, receipt_count: 0 },
+    ],
+    products: [
+      { category: "term", ...group(5, 4, 229200, { on_hold_count: 1, on_hold_cents: 57300, without_estimate_count: 0 }) },
+      { category: "whole_life", ...group(1, 1, 57300) },
+      { category: "final_expense", ...group(2, 1, 57300) },
+      { category: "unknown", ...group(1, 0, 0) },
+    ],
+    comparison: {
+      basis: "months_to_date",
+      current: { from: "2026-10-01", to: "2026-10-20", policies: 9, with_estimate_count: 6, estimate_cents: 343800, received_cents: 25157, receipt_count: 2 },
+      previous: { from: "2026-09-01", to: "2026-09-20", policies: 6, with_estimate_count: 6, estimate_cents: 300000, received_cents: 0, receipt_count: 0 },
+    },
+    months_10_12: { from: "2026-11-01", to: "2026-11-30", remaining_cents: 14325, payment_count: 3, policy_count: 2 },
+    ...extra,
+  };
+}
+
+export function goal(target: number | null = 50000, month = "2026-10-01") {
+  return { month, target_cents: target, updated_at: target === null ? null : "2026-10-19T17:00:00Z", meta };
 }
 
 const installment = (n: number, kind: string, cents: number, receipts: unknown[] = []) => ({

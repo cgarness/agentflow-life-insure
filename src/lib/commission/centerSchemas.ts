@@ -168,3 +168,61 @@ export function parseDrawer(raw: unknown): CommissionDrawerData {
   if (parsed.policy.state === "recorded" && !parsed.policy.estimate) throw new Error("Recorded commission without an estimate");
   return { policy: parsed.policy, contact: parsed.contact };
 }
+
+/**
+ * Commissions insights (migration 20261021180000). The sales cohort is by Sold Date; Est. commission is the saved
+ * first-year figure of ACTIVE estimates (held ones are disclosed separately); Received is receipts by received date.
+ * Groups must add up to their totals, or the response is refused (no partial or inconsistent figure is drawn).
+ */
+export const PRODUCT_CATEGORIES = ["term", "whole_life", "iul", "final_expense", "other", "unknown"] as const;
+export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+const cohort = {
+  policies: count, with_estimate_count: count, estimate_cents: cents, on_hold_count: count, on_hold_cents: cents, without_estimate_count: count,
+};
+const carrierGroupSchema = z.object({ carrier: z.string().min(1).nullable(), ...cohort, received_cents: cents, receipt_count: count });
+const productGroupSchema = z.object({ category: z.enum(PRODUCT_CATEGORIES), ...cohort });
+export type CarrierGroup = z.infer<typeof carrierGroupSchema>;
+export type ProductGroup = z.infer<typeof productGroupSchema>;
+const windowSchema = z.object({ from: isoDate, to: isoDate, policies: count, with_estimate_count: count, estimate_cents: cents,
+  received_cents: cents, receipt_count: count });
+export type ComparisonWindow = z.infer<typeof windowSchema>;
+export const COMPARISON_BASES = ["months", "months_to_date", "days", "days_to_date"] as const;
+const sum = <T>(rows: T[], pick: (row: T) => number) => rows.reduce((total, row) => total + pick(row), 0);
+
+export const breakdownSchema = z.object({
+  meta: rangeMeta.extend({ period: z.string() }),
+  sold: z.object({ ...cohort, needs_review_count: count, undated_count: count }),
+  received: z.object({ received_cents: cents, receipt_count: count }),
+  carriers: z.array(carrierGroupSchema),
+  products: z.array(productGroupSchema),
+  comparison: z.object({ basis: z.enum(COMPARISON_BASES), current: windowSchema, previous: windowSchema }).nullable(),
+  months_10_12: z.object({ from: isoDate, to: isoDate, remaining_cents: cents, payment_count: count, policy_count: count }),
+}).superRefine((b, ctx) => {
+  const ok = sum(b.carriers, (g) => g.policies) === b.sold.policies && sum(b.products, (g) => g.policies) === b.sold.policies
+    && sum(b.carriers, (g) => g.estimate_cents) === b.sold.estimate_cents && sum(b.products, (g) => g.estimate_cents) === b.sold.estimate_cents
+    && sum(b.carriers, (g) => g.received_cents) === b.received.received_cents
+    && new Set(b.products.map((g) => g.category)).size === b.products.length
+    && new Set(b.carriers.map((g) => g.carrier?.trim().toLowerCase() ?? null)).size === b.carriers.length;
+  if (!ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Breakdown groups do not add up" });
+});
+export type CommissionBreakdown = z.infer<typeof breakdownSchema>;
+
+const policyListRowSchema = policyRowSchema.extend({ category: z.enum(PRODUCT_CATEGORIES), sold_date: isoDate.nullable() });
+export type PolicyListRow = z.infer<typeof policyListRowSchema>;
+export const policyListSchema = policiesPageSchema.extend({
+  totals: z.object(cohort),
+  has_unknown_carrier: z.boolean(),
+  rows: z.array(policyListRowSchema),
+});
+export type PolicyListPage = z.infer<typeof policyListSchema>;
+
+export const receiptListSchema = historyPageSchema.extend({ carriers: z.array(z.string()), has_unknown_carrier: z.boolean() });
+export type ReceiptListPage = z.infer<typeof receiptListSchema>;
+
+/** A monthly goal in whole cents ($0.01 to $1,000,000.00, the server's limits); null when none is set. */
+export const GOAL_MAX_CENTS = 100_000_000;
+const goalCents = z.number().int().min(1).max(GOAL_MAX_CENTS);
+export const goalSchema = z.object({ month: isoDate, target_cents: goalCents.nullable(), updated_at: z.string().nullable(), meta: metaSchema });
+export type CommissionGoal = z.infer<typeof goalSchema>;
+export const goalSetSchema = z.object({ month: isoDate, target_cents: goalCents, updated_at: z.string() });
+export const goalClearSchema = z.object({ month: isoDate, cleared: z.boolean() });

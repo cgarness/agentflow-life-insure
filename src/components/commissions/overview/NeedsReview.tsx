@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
-import { formatCents } from "@/lib/commission/installments";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { policiesHref, scheduledHref } from "@/lib/commission/centerFilters";
 import type { CommissionOverview } from "@/lib/commission/centerSchemas";
 import { Progress } from "@/components/ui/progress";
@@ -29,6 +29,7 @@ function Item({ to, label, count, detail }: { to: string; label: string; count: 
 /** Things to look at, whatever the period: past windows without a full receipt, missing dates, unconfirmed estimates
  * and policies without an estimate. Plus how many of the seller's policies have an estimate. */
 export function NeedsReview({ data }: { data: CommissionOverview }) {
+  const { money } = useAmounts();
   const r = data.review;
   const { eligible_count: eligible, with_estimate_count: withEstimate } = data.setup;
   const pct = eligible > 0 ? Math.round((withEstimate / eligible) * 100) : 0;
@@ -36,7 +37,7 @@ export function NeedsReview({ data }: { data: CommissionOverview }) {
     <div className="space-y-3">
       <ul className="-mx-2">
         <Item to={scheduledHref({ scope: "any", status: "check_payment" })} label="Check payment" count={r.check_payment.count}
-          detail={r.check_payment.count > 0 ? formatCents(r.check_payment.remaining_cents) : undefined} />
+          detail={r.check_payment.count > 0 ? money(r.check_payment.remaining_cents) : undefined} />
         <Item to={scheduledHref({ scope: "any", status: "date_needed" })} label="Date needed" count={r.date_needed.count} />
         <Item to={policiesHref("needs_review")} label="Needs review" count={r.needs_review.count} />
         <Item to={policiesHref("missing")} label="Missing commission" count={r.missing_estimate.count} />

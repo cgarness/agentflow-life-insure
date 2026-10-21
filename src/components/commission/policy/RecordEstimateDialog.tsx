@@ -4,9 +4,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import type { CommissionSlotInputs } from "@/lib/commission/capture";
-import { activeReceipts, attentionMessage, formatCents } from "@/lib/commission/installments";
+import { activeReceipts, attentionMessage } from "@/lib/commission/installments";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
 import type { OpenPolicyCommission } from "@/lib/commission/trackingSchemas";
+import { WhenAmountsShown } from "../ui/AmountsVisibility";
+import { useAmounts } from "../ui/amountsContext";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -24,6 +26,7 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
   replace: boolean;
 }) {
   const id = useId();
+  const { money } = useAmounts();
   // One estimate operation per policy (record or replace), so an unresolved one is found from either dialog.
   const mutation = useTrackingMutation<{ inputs: CommissionSlotInputs; reason: string }>(`estimate:${policy.policy_id}`);
   const { restart } = mutation;
@@ -81,40 +84,42 @@ export function RecordEstimateDialog({ open, onOpenChange, policy, replace }: {
         ) : !premium ? (
           <p role="status" className="text-sm text-muted-foreground">This policy has no recorded monthly premium to estimate from.</p>
         ) : (
-          <form onSubmit={submit} className="space-y-3">
-            <fieldset disabled={mutation.locked || mutation.saving} className="space-y-3">
-              {policy.basis.premium_source === "policy_record" && (
-                <p className="text-xs text-muted-foreground">This older sale saved no premium of its own, so the policy's current monthly premium is used.</p>
-              )}
-              {mutation.unresolved && mutation.pending ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Submitted estimate: <span className="tabular-nums text-foreground">{formatCents(mutation.pending.inputs.first_year_cents)}</span> first-year,{" "}
-                  <span className="tabular-nums text-foreground">{formatCents(mutation.pending.inputs.advance_cents)}</span> advance.
-                </p>
-              ) : (
-                <PolicyCommissionEstimate
-                  owner={{ kind: "agent", id: policy.credited_agent_id }}
-                  policyType={policy.basis.policy_type ?? ""}
-                  carrier={policy.basis.carrier ?? ""}
-                  monthlyPremium={premium}
-                  onCaptureChange={(inputs) => { capture.current = inputs; setHasCapture(!!inputs); }}
-                />
-              )}
-              {estimate && (
-                <div>
-                  <label htmlFor={`${id}-reason`} className={labelCls}>Reason for replacing</label>
-                  <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} />
-                </div>
-              )}
-            </fieldset>
-            {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-              <Button type="submit" disabled={mutation.saving || mutation.syncing || (!hasCapture && !mutation.unresolved)}>
-                {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : estimate ? "Replace estimate" : "Record estimate"}
-              </Button>
-            </DialogFooter>
-          </form>
+          <WhenAmountsShown>
+            <form onSubmit={submit} className="space-y-3">
+              <fieldset disabled={mutation.locked || mutation.saving} className="space-y-3">
+                {policy.basis.premium_source === "policy_record" && (
+                  <p className="text-xs text-muted-foreground">This older sale saved no premium of its own, so the policy's current monthly premium is used.</p>
+                )}
+                {mutation.unresolved && mutation.pending ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Submitted estimate: <span className="tabular-nums text-foreground">{money(mutation.pending.inputs.first_year_cents)}</span> first-year,{" "}
+                    <span className="tabular-nums text-foreground">{money(mutation.pending.inputs.advance_cents)}</span> advance.
+                  </p>
+                ) : (
+                  <PolicyCommissionEstimate
+                    owner={{ kind: "agent", id: policy.credited_agent_id }}
+                    policyType={policy.basis.policy_type ?? ""}
+                    carrier={policy.basis.carrier ?? ""}
+                    monthlyPremium={premium}
+                    onCaptureChange={(inputs) => { capture.current = inputs; setHasCapture(!!inputs); }}
+                  />
+                )}
+                {estimate && (
+                  <div>
+                    <label htmlFor={`${id}-reason`} className={labelCls}>Reason for replacing</label>
+                    <input id={`${id}-reason`} className={fieldCls} maxLength={200} value={reason} onChange={(event) => setReason(event.target.value)} />
+                  </div>
+                )}
+              </fieldset>
+              {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
+                <Button type="submit" disabled={mutation.saving || mutation.syncing || (!hasCapture && !mutation.unresolved)}>
+                  {mutation.saving ? "Saving…" : mutation.locked ? "Retry" : estimate ? "Replace estimate" : "Record estimate"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </WhenAmountsShown>
         )}
       </DialogContent>
     </Dialog>

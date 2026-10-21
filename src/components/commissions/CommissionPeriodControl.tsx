@@ -25,13 +25,15 @@ const DatePick = ({ label, value, onChange }: { label: string; value: string | n
  * The period select (existing Reports pattern): presets the server resolves against the agency date, or a custom range
  * of calendar dates. Nothing is requested until a custom range is complete and in order.
  */
-export function CommissionPeriodControl({ value, onChange, allowAll }: { value: CommissionPeriod; onChange: (p: CommissionPeriod) => void; allowAll: boolean }) {
+export function CommissionPeriodControl({ value, onChange, allowAll, label = "Period" }: {
+  value: CommissionPeriod; onChange: (p: CommissionPeriod) => void; allowAll: boolean; label?: string;
+}) {
   const presets = PERIOD_PRESETS.filter((p) => allowAll || p !== "all");
   const choose = (preset: PeriodPreset) => onChange(preset === "custom" ? { preset, from: value.from, to: value.to } : { preset, from: null, to: null });
   const reversed = value.preset === "custom" && value.from && value.to && value.to < value.from;
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <FilterSelect label="Period" value={value.preset} options={presets.map((p) => [p, PERIOD_LABELS[p]] as const)} onChange={choose}
+      <FilterSelect label={label} value={value.preset} options={presets.map((p) => [p, PERIOD_LABELS[p]] as const)} onChange={choose}
         className="w-40" />
       {value.preset === "custom" && (
         <div className="flex flex-wrap items-center gap-2">

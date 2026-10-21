@@ -47,9 +47,9 @@ beforeEach(() => {
       scheduledRow(2, { contact: null, status: "received", remaining_cents: 0, received_cents: 42975 }),
       scheduledRow(3, { kind: "month_10", timing_precision: "unknown", expected_on: null, expected_until: null, window_end: null, status: "date_needed" }),
     ]),
-    get_my_commission_receipts: historyPage([historyRow(1), historyRow(2, { voided: true, void_reason: "Recorded twice" }),
+    get_my_commission_receipt_list: historyPage([historyRow(1), historyRow(2, { voided: true, void_reason: "Recorded twice" }),
       historyRow(3, { replaces_receipt_id: "00000000-0000-4000-8000-000000000501", contact: null })]),
-    get_my_commission_policies: policiesPage([
+    get_my_commission_policy_list: policiesPage([
       policyRow(1),
       policyRow(2, { setup: "missing", estimate_cents: null, received_cents: null, remaining_cents: null, excess_cents: null, next_payment: null,
         product: "Term" }),
@@ -107,9 +107,9 @@ describe("Payments › History", () => {
     expect(rows[1].textContent).toContain("Recorded twice");
     expect(rows[2].textContent).toContain("Correction");
     expect(rows[2].textContent).toContain("Restricted contact");
-    expect(lastArgs("get_my_commission_receipts")).toMatchObject({ p_include_voided: false });
+    expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_include_voided: false });
     fireEvent.click(screen.getByLabelText("Show voided"));
-    await waitFor(() => expect(lastArgs("get_my_commission_receipts")).toMatchObject({ p_include_voided: true }));
+    await waitFor(() => expect(lastArgs("get_my_commission_receipt_list")).toMatchObject({ p_include_voided: true }));
   });
 
   it("switching views keeps the period and drops view-only filters", async () => {
@@ -135,6 +135,6 @@ describe("Policies", () => {
     expect(rows[2].textContent).toContain("Advance · Nov 2 – 4, 2026");
     expect(screen.getByText("10 of 12")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
-    await waitFor(() => expect(lastArgs("get_my_commission_policies")).toMatchObject({ p_setup: "missing", p_offset: 0 }));
+    await waitFor(() => expect(lastArgs("get_my_commission_policy_list")).toMatchObject({ p_setup: "missing", p_offset: 0 }));
   });
 });

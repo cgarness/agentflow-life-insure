@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useScheduledPayments } from "@/hooks/useCommissionsCenter";
-import { formatCents } from "@/lib/commission/installments";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import {
   KIND_LABELS, PAGE_SIZE, PAYMENT_KINDS, SCHEDULED_SCOPES, SCHEDULED_STATUSES, SCOPE_LABELS, STATUS_LABELS, parseScheduled,
   scheduledReady, withParam, writePeriod, type PaymentKindFilter,
@@ -16,6 +16,7 @@ const ALL = "__all__";
 
 /** Scheduled: one row per expected payment, filtered by dates, status, type and carrier; totals cover the whole filter. */
 export function ScheduledView({ onOpen }: { onOpen: OpenPolicy }) {
+  const { money } = useAmounts();
   const [params, setParams] = useSearchParams();
   const filter = parseScheduled(params);
   const query = useScheduledPayments(filter);
@@ -48,10 +49,10 @@ export function ScheduledView({ onOpen }: { onOpen: OpenPolicy }) {
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/60 pt-3 text-sm">
             <span className="text-muted-foreground">{data.total_count} {data.total_count === 1 ? "payment" : "payments"}</span>
             <span className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
-              <span>Expected <span className="font-semibold">{formatCents(data.totals.expected_cents)}</span></span>
-              <span>Received <span className="font-semibold">{formatCents(data.totals.received_cents)}</span></span>
-              <span>Remaining <span className="font-semibold">{formatCents(data.totals.remaining_cents)}</span></span>
-              {data.totals.excess_cents > 0 && <span className="text-amber-800 dark:text-amber-200">{formatCents(data.totals.excess_cents)} above estimate</span>}
+              <span>Expected <span className="font-semibold">{money(data.totals.expected_cents)}</span></span>
+              <span>Received <span className="font-semibold">{money(data.totals.received_cents)}</span></span>
+              <span>Remaining <span className="font-semibold">{money(data.totals.remaining_cents)}</span></span>
+              {data.totals.excess_cents > 0 && <span className="text-amber-800 dark:text-amber-200">{money(data.totals.excess_cents)} above estimate</span>}
             </span>
           </div>
           {data.held_count > 0 && filter.status !== "on_hold" && !pending && (

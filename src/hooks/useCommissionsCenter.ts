@@ -1,4 +1,4 @@
-import { hashKey, useQuery, type Query } from "@tanstack/react-query";
+import { hashKey, useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -34,6 +34,8 @@ export const commissionCenterKeys = {
   history: (u: string | null, o: string | null, f: HistoryFilter) => ["policy-commissions", "center", u, o, "history", f] as const,
   policies: (u: string | null, o: string | null, f: PoliciesFilter) => ["policy-commissions", "center", u, o, "policies", f] as const,
   policy: (u: string | null, o: string | null, id: string | null) => ["policy-commissions", "center", u, o, "policy", id] as const,
+  breakdown: (u: string | null, o: string | null, p: CommissionPeriod) => ["policy-commissions", "center", u, o, "breakdown", p] as const,
+  goal: (u: string | null, o: string | null, month: string | null) => ["policy-commissions", "center", u, o, "goal", month] as const,
 };
 
 const common = { staleTime: 15_000, retry: false } as const;
@@ -93,9 +95,50 @@ export function useCommissionPolicies(filter: PoliciesFilter) {
   return useQuery({
     queryKey,
     queryFn: ({ signal }) => commissionCenterApi.policies(filter, signal),
-    enabled: a.enabled,
+    enabled: a.enabled && periodReady(filter.period),
     placeholderData: previousPageFor(queryKey),
     ...common,
+  });
+}
+
+/** Carrier and product breakdowns, comparison and Months 10–12 for the Overview's period (one server snapshot). */
+export function useCommissionBreakdown(period: CommissionPeriod) {
+  const a = useCommissionsAccess();
+  return useQuery({
+    queryKey: commissionCenterKeys.breakdown(a.userId, a.orgId, period),
+    queryFn: ({ signal }) => commissionCenterApi.breakdown(period, signal),
+    enabled: a.enabled && periodReady(period),
+    ...common,
+  });
+}
+
+/** The seller's goal for one calendar month (`null`: the period is not a single whole month, so no goal is shown). */
+export function useCommissionGoal(month: string | null) {
+  const a = useCommissionsAccess();
+  return useQuery({
+    queryKey: commissionCenterKeys.goal(a.userId, a.orgId, month),
+    queryFn: ({ signal }) => commissionCenterApi.goal(month!, signal),
+    enabled: a.enabled && !!month,
+    ...common,
+  });
+}
+
+/**
+ * Sets (cents) or clears (null) the signed-in seller's goal for exactly that month. Both are idempotent on the server, so
+ * a retry after an unknown outcome is safe; whatever happens, the month's goal is re-read so the screen shows what is
+ * saved. Refused outright when commissions are not available (e.g. under "View As").
+ */
+export function useCommissionGoalMutation(month: string | null) {
+  const a = useCommissionsAccess();
+  const queryClient = useQueryClient();
+  const key = commissionCenterKeys.goal(a.userId, a.orgId, month);
+  return useMutation({
+    mutationFn: async (targetCents: number | null) => {
+      if (!a.enabled || !month) throw new Error("Commissions aren't available.");
+      if (targetCents === null) await commissionCenterApi.clearGoal(month);
+      else await commissionCenterApi.setGoal(month, targetCents);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key, exact: true }),
   });
 }
 

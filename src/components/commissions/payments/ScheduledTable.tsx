@@ -1,4 +1,4 @@
-import { formatCents } from "@/lib/commission/installments";
+import { useAmounts } from "@/components/commission/ui/amountsContext";
 import type { ScheduledRow } from "@/lib/commission/centerSchemas";
 import { LoadingBlock } from "@/components/commission/ui/CommissionSurface";
 import type { OpenPolicy } from "../CommissionDrawer";
@@ -13,6 +13,7 @@ const GRID = "md:grid md:grid-cols-[minmax(0,1.6fr)_6rem_minmax(0,1.1fr)_6.5rem_
  * `pending`: these rows are the earlier page while the requested one loads, so they are dimmed and their actions disabled.
  */
 export function ScheduledTable({ rows, onOpen, pending = false }: { rows: ScheduledRow[] | null; onOpen: OpenPolicy; pending?: boolean }) {
+  const { money } = useAmounts();
   if (rows === null) return <LoadingBlock label="Loading payments…" rows={5} />;
   if (rows.length === 0) return <CenterEmpty title="No payments match these filters" />;
   return (
@@ -35,11 +36,11 @@ export function ScheduledTable({ rows, onOpen, pending = false }: { rows: Schedu
               </span>
               <span role="cell" className="text-muted-foreground md:text-foreground">{kindLabel(row.kind)}</span>
               <span role="cell" className="text-right text-muted-foreground md:text-left md:text-foreground">{windowLabel(row)}</span>
-              <span role="cell" className="tabular-nums md:text-right"><span className="text-xs text-muted-foreground md:hidden">Amount </span>{formatCents(row.expected_cents)}</span>
-              <span role="cell" className="text-right tabular-nums"><span className="text-xs text-muted-foreground md:hidden">Received </span>{formatCents(row.received_cents)}</span>
+              <span role="cell" className="tabular-nums md:text-right"><span className="text-xs text-muted-foreground md:hidden">Amount </span>{money(row.expected_cents)}</span>
+              <span role="cell" className="text-right tabular-nums"><span className="text-xs text-muted-foreground md:hidden">Received </span>{money(row.received_cents)}</span>
               <span role="cell" className="tabular-nums md:text-right">
-                <span className="text-xs text-muted-foreground md:hidden">Remaining </span>{formatCents(row.remaining_cents)}
-                {row.excess_cents > 0 && <span className="block text-xs text-amber-800 dark:text-amber-200">+{formatCents(row.excess_cents)}</span>}
+                <span className="text-xs text-muted-foreground md:hidden">Remaining </span>{money(row.remaining_cents)}
+                {row.excess_cents > 0 && <span className="block text-xs text-amber-800 dark:text-amber-200">+{money(row.excess_cents)}</span>}
               </span>
               <span role="cell" className="text-right md:text-left">{status && <Chip tone={status.tone}>{status.label}</Chip>}</span>
               <span role="cell" className="col-span-2 md:col-span-1 md:text-right">

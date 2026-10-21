@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useTrackingMutation } from "@/hooks/useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
-import { formatCents, INSTALLMENT_LABELS, remainingCents, validateReceipt } from "@/lib/commission/installments";
+import { INSTALLMENT_LABELS, remainingCents, validateReceipt } from "@/lib/commission/installments";
 import type { CommissionInstallment } from "@/lib/commission/trackingSchemas";
 import { todayLocalIsoDate } from "@/lib/policyPaymentFields";
+import { WhenAmountsShown } from "../ui/AmountsVisibility";
+import { useAmounts } from "../ui/amountsContext";
 
 const fieldCls =
   "w-full h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -32,6 +34,7 @@ export function RecordPaymentDialog({ open, onOpenChange, installments, initialI
   initialInstallmentId: string;
 }) {
   const id = useId();
+  const { money } = useAmounts();
   // One key per estimate (its installments share it), so reopening from any installment finds an unresolved payment.
   const mutation = useTrackingMutation<PaymentForm>(`receipt:${installments[0]?.id ?? "none"}`);
   const { restart } = mutation;
@@ -93,43 +96,46 @@ export function RecordPaymentDialog({ open, onOpenChange, installments, initialI
           <DialogTitle>Record payment received</DialogTitle>
           <DialogDescription>Enter a commission payment you received.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <fieldset disabled={locked} className="space-y-3">
-            <div>
-              <label htmlFor={`${id}-installment`} className={labelCls}>Expected payment</label>
-              <select id={`${id}-installment`} className={fieldCls} value={installmentId} onChange={(event) => chooseInstallment(event.target.value)}>
-                {installments.map((installment) => (
-                  <option key={installment.id} value={installment.id}>
-                    {INSTALLMENT_LABELS[installment.kind]} · {formatCents(installment.expected_cents)} expected
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Never a blind payment: while amounts are hidden the form stays mounted (values and recovery kept) but closed. */}
+        <WhenAmountsShown>
+          <form onSubmit={submit} className="space-y-3">
+            <fieldset disabled={locked} className="space-y-3">
               <div>
-                <label htmlFor={`${id}-amount`} className={labelCls}>Amount received</label>
-                <input id={`${id}-amount`} className={fieldCls} inputMode="decimal" value={amount} placeholder="0.00"
-                  onChange={(event) => { setAmount(event.target.value); setAmountEdited(true); setNote(null); }} />
+                <label htmlFor={`${id}-installment`} className={labelCls}>Expected payment</label>
+                <select id={`${id}-installment`} className={fieldCls} value={installmentId} onChange={(event) => chooseInstallment(event.target.value)}>
+                  {installments.map((installment) => (
+                    <option key={installment.id} value={installment.id}>
+                      {INSTALLMENT_LABELS[installment.kind]} · {money(installment.expected_cents)} expected
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor={`${id}-amount`} className={labelCls}>Amount received</label>
+                  <input id={`${id}-amount`} className={fieldCls} inputMode="decimal" value={amount} placeholder="0.00"
+                    onChange={(event) => { setAmount(event.target.value); setAmountEdited(true); setNote(null); }} />
+                </div>
+                <div>
+                  <label htmlFor={`${id}-date`} className={labelCls}>Date received</label>
+                  <input id={`${id}-date`} type="date" className={fieldCls} value={receivedOn} max={todayLocalIsoDate()} onChange={(event) => setReceivedOn(event.target.value)} />
+                </div>
               </div>
               <div>
-                <label htmlFor={`${id}-date`} className={labelCls}>Date received</label>
-                <input id={`${id}-date`} type="date" className={fieldCls} value={receivedOn} max={todayLocalIsoDate()} onChange={(event) => setReceivedOn(event.target.value)} />
+                <label htmlFor={`${id}-reference`} className={labelCls}>Reference (optional)</label>
+                <input id={`${id}-reference`} className={fieldCls} maxLength={200} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Statement or deposit note" />
               </div>
-            </div>
-            <div>
-              <label htmlFor={`${id}-reference`} className={labelCls}>Reference (optional)</label>
-              <input id={`${id}-reference`} className={fieldCls} maxLength={200} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Statement or deposit note" />
-            </div>
-          </fieldset>
-          {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
-          {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
-            <Button type="submit" disabled={mutation.saving || mutation.syncing}>
-              {mutation.saving ? "Saving…" : mutation.syncing ? "Checking payments…" : mutation.locked ? "Retry" : "Record payment"}
-            </Button>
-          </DialogFooter>
-        </form>
+            </fieldset>
+            {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
+            {(error || mutation.message) && <p role="alert" className="break-words text-sm text-destructive">{error ?? mutation.message}</p>}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.saving}>Cancel</Button>
+              <Button type="submit" disabled={mutation.saving || mutation.syncing}>
+                {mutation.saving ? "Saving…" : mutation.syncing ? "Checking payments…" : mutation.locked ? "Retry" : "Record payment"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </WhenAmountsShown>
       </DialogContent>
     </Dialog>
   );
