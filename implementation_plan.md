@@ -1,3 +1,17 @@
+## 2026-10-21 — PLAN, AWAITING APPROVAL: PR #475 final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
+
+**Status:** plan only on `claude/sweet-cannon-jve7ak` (`15e813b`, green and mergeable). No application or test
+file changed; no Supabase or Vercel command run. Details, measurements and decisions:
+`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §15.
+
+**Summary:** the top and bottom rows of the main Leaderboard become one shared column template (2 : 1, two columns
+from 1280 px). The three-card podium fills its column. The podium then shares Full Rankings' left column and Your
+Performance shares Recent Wins' right column, to the pixel at every width. Recommended responsive change (D2-A): from
+1024 to 1279 px, Full Rankings and Recent Wins stack like the top row already does. Two source files and one test;
+no ranking, wording, TV, data or backend change.
+
+---
+
 ## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final UI polish ("Annual Premium" labels; TV totals without Calls)
 
 **Status:** Chris approved the exact plan on 2026-10-21. `main` `40a298c` (PR #476) was merged into

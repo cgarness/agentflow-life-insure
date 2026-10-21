@@ -460,3 +460,106 @@ two-column TV layout; no other UI, navigation or behavior change; the listed ver
   at 1024 and 390). No column, track or cell width changed.
 - Evidence screenshots `screenshots/polish-*.png` were added beside the earlier ones (which still show "AP" and a
   three-cell totals strip). Verification: `verification.md` §10.
+
+---
+
+## §15. Amendment — final layout alignment: top row locked to the Full Rankings / Recent Wins columns (PLAN, AWAITING CHRIS'S APPROVAL)
+
+**Request (Chris, 2026-10-21, after the signed-in preview):**
+- The podium block takes the same left-column width as Full Rankings.
+- Your Performance takes the same right-column width as Recent Wins.
+- The vertical boundaries match.
+- The desktop structure stays: podium left and Your Performance right, then Full Rankings left and Recent Wins right.
+- Responsive behaviour stays unless a small change is needed for clean alignment, explained.
+- Not changed: ranking, the "Annual Premium" wording, TV Mode, Recent Wins content, card order, styling beyond
+  alignment, and backend.
+
+**Checked first:**
+- The branch is clean at `15e813b` and matches the remote. `main` is still `40a298c`.
+- PR #475 is green on `15e813b`, mergeable clean, with no reviews or review threads.
+- The newest Work Log entry is this PR's own, so nothing conflicts.
+
+**Why they do not line up today** (`LeaderboardBoard.tsx`): the two rows are separate grids with different rules.
+
+| Row | Today |
+|---|---|
+| Top: podium + Your Performance | Two columns from `xl` (1280 px): `minmax(0,1fr)` + fixed `20rem` (320 px). The podium inside is capped at `max-w-4xl` (896 px) and centered. Below 1280 the two stack. |
+| Bottom: Full Rankings + Recent Wins | Two columns from `lg` (1024 px): `grid-cols-3`, with Full Rankings spanning 2 of 3. |
+
+Measured in the fixture with the app shell's real widths (240 px sidebar, `lg:p-6`). "Inner edge" is the podium's
+right edge against Full Rankings'; Your Performance and Recent Wins already share their outer right edge.
+
+| Viewport | Podium left edge vs Full Rankings | Inner edge (podium right / Your Performance left) |
+|---|---|---|
+| 1280 | 0 | 5 px off |
+| 1440 | 0 | 48 px off |
+| 1920 | podium starts 196 px further right | 12 px / 208 px off |
+| 2560 | 516 px further right | 95 px / 421 px off |
+| 1024–1279 | top stacked (Your Performance full width) over a two-column bottom | — |
+
+**Approach (prototyped in a scratch copy of `src`; 0 px difference measured at every width 360–2560):**
+1. **One column template for both rows** (`LeaderboardBoard.tsx`).
+   - Two shared class constants, `grid grid-cols-1 gap-6 xl:grid-cols-3` for each row and `min-w-0 xl:col-span-2`
+     for the left column, used by both rows.
+   - The podium is wrapped in that left-column element, as Full Rankings already is.
+   - The top row keeps `xl:items-end` and Your Performance keeps `xl:min-h-[300px]`.
+   - Because both rows use the same template, their edges cannot drift apart.
+2. **The three-card podium fills its column** (`LeaderboardPodium.tsx`, one class: `lg:max-w-none` only when three
+   cards show). Without it, the 896 px cap leaves the podium inset whenever the column is wider. That happens from
+   about 1680 px with two columns, and at about 1188–1279 px when stacked.
+   - A one- or two-agent podium keeps its narrower centered width.
+   - The loading skeletons keep theirs.
+
+**Decisions for Chris (recommendation first):**
+- **D1. Column ratio.**
+  - **A (recommended):** both rows use the bottom row's existing 2 : 1 split. Full Rankings and Recent Wins keep
+    exactly their current widths; the top row adapts. Your Performance changes from a fixed 320 px to the Recent Wins
+    width: 315 px at 1280, 368 at 1440, 528 at 1920.
+  - B: both rows use `1fr` + `20rem`. This narrows Recent Wins to 320 px at every desktop width (from 368 at 1440
+    and 528 at 1920).
+- **D2. Where the rows become two columns.**
+  - **A (recommended): both at `xl` (1280 px).**
+    - From 1024 to 1279 px the whole board stacks: podium, Your Performance, Full Rankings, then Recent Wins, each
+      full width and aligned. The top row already stacks in this range today.
+    - The only responsive change: Full Rankings and Recent Wins also stack there, instead of sitting side by side.
+      This also removes the cramped Recent Wins at 1024–1279 px recorded earlier as a pre-existing limitation.
+  - B: keep the bottom at `lg` (1024). Alignment holds from 1280 up. From 1024 to 1279 the stacked top row stays
+    above a two-column bottom (as today), so the edges cannot match there.
+  - C (not recommended): both at `lg`. At 1024 px the left column is about 475 px, so the three podium cards
+    would be about 150 px each: too cramped.
+- **D3.** The three-card podium fills its column (above). Recommended; required for alignment above about 1680 px
+  and in the 1188–1279 px stacked range.
+
+**Intended files (only these):**
+
+| File | Change |
+|---|---|
+| `src/components/leaderboard/LeaderboardBoard.tsx` | Shared row and left-column classes for both rows; the podium wrapped in the left column; the bottom row moves from `lg` to `xl` (D2-A) |
+| `src/components/leaderboard/LeaderboardPodium.tsx` | `lg:max-w-none` on the three-card podium |
+| `src/pages/__tests__/leaderboardPage.test.tsx` | One structural test: both rows use the same column template, with the podium and Full Rankings in the same left-column element. jsdom has no layout; the pixel check is in the browser. |
+| Docs: this §15, `verification.md` §11, `WORK_LOG.md`, root `implementation_plan.md`, `screenshots/layout-*.png` | Records and evidence |
+
+Not touched:
+- `LeaderboardYourPerformance.tsx`, `LeaderboardRankingsTable.tsx`, `RecentWinsPanel.tsx`, `LeaderboardPodiumCard.tsx`
+  and `podiumLayout.ts`.
+- `Leaderboard.tsx` (its loading skeletons stay as they are).
+- Every TV component.
+- The visual-harness files (`entry.tsx`, `verify.mjs`). Their normal view renders only the table and Recent Wins,
+  not the board.
+- `AGENT_RULES.md`, data, hooks, RPCs, Supabase and telephony.
+
+**Verification plan:**
+- `npx tsc --noEmit`.
+- The app check against the 84-error `main` baseline.
+- Targeted Leaderboard Vitest, including the new structural test.
+- ESLint on touched files, `npm run build` and `git diff --check`.
+- Browser (scratch fixture with the app shell's widths):
+  - Column edges measured at 360–2560 px, which must match to the pixel.
+  - Before/after screenshots at 1920, 1440, 1280, 1240, 1024 and 390 px (dark), plus 1440 light.
+  - Checked as unchanged: the one- and two-agent podiums, the loading skeleton, and phone stacking.
+- The TV harness run locally once (it should be unaffected).
+- Every PR #475 check green on the final head.
+- No Supabase command, migration, merge or deployment.
+
+**Status:** plan only; no application or test file edited. Waiting for Chris's explicit approval and the D1–D3
+choices.
