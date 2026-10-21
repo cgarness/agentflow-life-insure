@@ -12,13 +12,72 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH
 const page=await browser.newPage();
 const errors=[];
 page.on('pageerror',e=>errors.push(e.message));
+// AP is the only ranking metric: appointments, talk time, the ratio, the metric picker and rotation never show.
+const REMOVED=/appointment|\bappts\b|talk time|\btalk\b|policies \/ 100|per 100 calls|viewing metric|auto-rotate|cycles metrics|1m 21s/i;
+const CAPTION='Annual premium (2 policies with unknown premium) · Outside active roster: 2 calls, 0 policies';
+// In-page helpers. The expected board is an independent AP comparator (AP, Policies, Calls, last/first name, id)
+// over the fixture's rows, never the app's own ranking; the hard-coded orders below guard the comparator itself.
+await page.addInitScript(()=>{
+ window.__apExpected=()=>{
+  if(!window.fixtureRows)return null;
+  const rows=window.fixtureRows();const name=r=>`${r.last_name} ${r.first_name}`.toLowerCase();
+  const ranked=[...rows].sort((a,b)=>b.premiumSold-a.premiumSold||b.policiesSold-a.policiesSold||b.callsMade-a.callsMade||name(a).localeCompare(name(b))||a.id.localeCompare(b.id));
+  const usd=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
+  const ap=r=>{const unknown=r.unknownPremiums??0;return (r.policiesSold>0&&unknown>=r.policiesSold?'—':usd(r.premiumSold))+(unknown>0?'*':'');};
+  const sum=k=>rows.reduce((total,row)=>total+(row[k]??0),0);
+  return {ranked:ranked.map((r,i)=>({id:r.id,rank:String(i+1),name:`${r.first_name} ${r.last_name[0]}.`,ap:ap(r),policies:String(r.policiesSold),calls:String(r.callsMade)})),
+   podium:[ranked[1],ranked[0],ranked[2]].filter(Boolean).map(r=>r.id),
+   totals:[sum('policiesSold')>0&&sum('unknownPremiums')>=sum('policiesSold')?'—':usd(sum('premiumSold')),String(sum('policiesSold')),String(sum('callsMade'))]};
+ };
+ window.__tvTable=()=>{
+  const container=document.querySelector('[data-testid="tv-rankings"] .divide-y');
+  return [...(container?.children??[])].filter(row=>row.children.length===5).map(row=>({rank:row.children[0].querySelector('span')?.textContent,
+   movement:row.children[0].querySelector('[title]')?.getAttribute('title')??null,name:row.children[1].lastElementChild?.textContent,
+   ap:row.children[2].textContent,policies:row.children[3].textContent,calls:row.children[4].textContent}));
+ };
+ window.__tvDeep=()=>{
+  const panel=[...document.querySelectorAll('h3')].find(h=>h.textContent.includes('Ranks 11+'))?.parentElement?.parentElement;
+  return {text:panel?.textContent??'',rows:[...(panel?.querySelectorAll('li')??[])].map(li=>({rank:li.children[0].textContent,name:li.querySelector('p')?.textContent,ap:li.lastElementChild.textContent}))};
+ };
+ // Every difference between the TV on screen and the expected AP board; [] when they agree.
+ window.__boardDiff=()=>{
+  const e=window.__apExpected();if(!e)return ['fixture not ready'];const diff=[];
+  const eq=(what,a,b)=>{if(JSON.stringify(a)!==JSON.stringify(b))diff.push(`${what}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`);};
+  const cards=[...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')];
+  eq('podium',cards.map(c=>c.dataset.agentId),e.podium);
+  for(const card of cards){const r=e.ranked.find(x=>x.id===card.dataset.agentId);
+   for(const want of [`${r.ap}AP`,`${r.policies} Policies`,`${r.calls} Calls`])if(!card.textContent.includes(want))diff.push(`podium ${r.name} lacks "${want}"`);}
+  eq('totals',[...document.querySelectorAll('[data-testid="tv-agency-totals"] .tabular-nums')].map(x=>x.textContent),e.totals);
+  eq('total labels',[...document.querySelectorAll('[data-testid="tv-agency-totals"] .grid > div > p')].map(x=>x.textContent),['AP','Policies','Calls']);
+  const header=document.querySelector('[data-testid="tv-rankings"] .divide-y')?.previousElementSibling;
+  eq('table header',[...(header?.children??[])].map(x=>x.textContent),['Rank','Agent','AP','Policies','Calls']);
+  if(!/Ranking · Annualized Premium/.test(document.querySelector('[data-testid="tv-rankings"]')?.textContent??''))diff.push('table badge lacks "Ranking · Annualized Premium"');
+  const tableWant=e.ranked.slice(3,10);
+  eq('ranks 4-10',window.__tvTable().map(({movement,...cells})=>cells),tableWant.map(({id,...cells})=>cells));
+  if(!tableWant.length&&!/ALL AGENTS COMPETING ON THE PODIUM/.test(document.querySelector('[data-testid="tv-rankings"]').textContent))diff.push('empty table message');
+  const deep=window.__tvDeep();
+  eq('ranks 11+',deep.rows,e.ranked.slice(10).map(r=>({rank:r.rank,name:r.name,ap:r.ap})));
+  if(!e.ranked.slice(10).length&&!deep.text.includes('No agents ranked 11+ yet'))diff.push('empty ranks 11+ message');
+  return diff;
+ };
+});
+async function assertBoard(label){
+ await page.waitForFunction(()=>window.__boardDiff().length===0,null,{timeout:8000}).catch(()=>{});
+ assert.deepEqual(await page.evaluate(()=>window.__boardDiff()),[],`${label}: TV board must match the AP ranking`);
+ assert.doesNotMatch(await page.locator('body').innerText(),REMOVED,`${label}: removed metrics on screen`);
+}
+const tvNames=()=>page.evaluate(()=>window.__tvTable().map(r=>r.name));
+const tvMovements=()=>page.evaluate(()=>Object.fromEntries(window.__tvTable().filter(r=>r.movement).map(r=>[r.name,r.movement])));
+const podiumIds=()=>page.getByTestId('tv-podium').locator('[data-agent-id]').evaluateAll(es=>es.map(e=>e.dataset.agentId));
 try {
  await page.goto(url);
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('vite-error-overlay').count(),0);
- // Material-only notes (Part B): the fixture has 1 unknown premium and activity outside the roster, and no routine prefix.
- assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').textContent(),'Annual premium (1 policies with unknown premium) · Outside active roster: 2 calls, 1 appointments, 0 policies');
+ // Material-only notes: 2 unknown premiums and activity outside the roster; excluded appointments never appear.
+ assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').textContent(),CAPTION);
  assert.doesNotMatch(await page.locator('body').innerText(),/Active agents · |As of |Stored call duration|unknown provenance/);
+ // The fixture signs in as an Agent: the options popover holds only the org-wide ticker editor, so no gear.
+ assert.equal(await page.getByRole('button',{name:'TV display options'}).count(),0,'Agent sees no TV settings gear');
  // Recent Wins show the Sold Date distinctly from the entry; a clock time is only ever labelled as the entry.
  async function assertSoldDateRows(where) {
   const text=await page.locator('body').innerText();
@@ -43,19 +102,12 @@ try {
   });
  }
  async function measure(label) {
-  const expected=await page.evaluate(()=>{
-   const rows=window.fixtureRows();const keys=['policiesSold','callsMade','appointmentsSet','talkTime','conversionRate','premiumSold'];
-   const key=keys[Number(localStorage.getItem('leaderboardTvMetricIndex')??0)];
-   const ranked=[...rows].sort((a,b)=>(b[key]??-Infinity)-(a[key]??-Infinity));
-   const sum=k=>rows.reduce((total,row)=>total+row[k],0);
-   return {podium:[ranked[1],ranked[0],ranked[2]].filter(Boolean).map(row=>row.id),
-    totals:[String(sum('callsMade')),String(sum('policiesSold')),new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(sum('premiumSold')),String(sum('appointmentsSet'))]};
-  });
-  await page.waitForFunction(expected=>{
+  await page.waitForFunction(()=>{
+   const expected=window.__apExpected();if(!expected)return false;
    const ids=[...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId);
    const totals=[...document.querySelectorAll('[data-testid="tv-agency-totals"] .tabular-nums')].map(e=>e.textContent);
    return JSON.stringify(ids)===JSON.stringify(expected.podium)&&JSON.stringify(totals)===JSON.stringify(expected.totals);
-  },expected);
+  });
   await page.waitForFunction(()=>{const photos=[...document.querySelectorAll('[data-testid="tv-podium"] img')];return photos.length===document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length&&photos.every(i=>i.complete&&i.naturalWidth>0);});
   await settleLayout();
   const metrics=await page.evaluate(()=>{
@@ -82,6 +134,7 @@ try {
   }
   assert.ok(metrics.tablePhotos.every(p=>p.bottom<=metrics.table.bottom+1),`${label}: table clips photos`);
   assert.ok(metrics.originalRanks.every((r,i)=>r===i+1),`${label}: mutated source ranks`);
+  await assertBoard(label);
   await page.screenshot({path:`${output}/${label}.png`});
   await page.getByTestId('tv-rankings').scrollIntoViewIfNeeded();
   await settleLayout();
@@ -100,14 +153,14 @@ try {
   await page.setViewportSize({width:w,height:h});
   await measure(`${w}x${h}`);
  }
+ // Deterministic AP tie-breaks, both decided against name order: Harper ties Gray on AP with one more Policy;
+ // Jordan ties Indigo on AP and Policies with more Calls. Noah's only premium is unknown: "—*", never $0, ranked last.
  await page.setViewportSize({width:1920,height:1080});
- await page.getByRole('button',{name:'TV display options'}).click();
- await page.getByRole('switch',{name:'Auto-rotate stats'}).click();
- await page.getByLabel('Viewing metric').selectOption('1');
- await page.keyboard.press('Escape');
- await page.waitForFunction(()=>JSON.stringify([...document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]')].map(e=>e.dataset.agentId))===JSON.stringify(['fixture-12','fixture-13','fixture-11']));
- assert.deepEqual(await page.getByTestId('tv-podium').locator('[data-agent-id]').evaluateAll(es=>es.map(e=>e.dataset.agentId)),['fixture-12','fixture-13','fixture-11']);
- await measure('calls-manual-switch');
+ assert.deepEqual(await podiumIds(),['fixture-2','fixture-1','fixture-3'],'podium by AP');
+ assert.deepEqual(await tvNames(),['Emerson T.','Finley T.','Harper T.','Gray T.','Jordan T.','Indigo T.','Kai T.'],'ranks 4-10 by AP with tie-breaks');
+ assert.deepEqual((await page.evaluate(()=>window.__tvDeep().rows)).map(r=>[r.rank,r.name,r.ap]),
+  [['11','Logan T.','$5,571.36'],['12','Morgan T.','$3,714.24'],['13','Avery T.','$701.40*'],['14','Noah T.','—*']],'ranks 11+ by AP');
+ assert.deepEqual(await tvMovements(),{},'no movement without a rank change');
  await page.getByRole('tab',{name:'Month',exact:true}).click();
  await measure('period-switch');
  for(const count of [1,2,3,14]) {
@@ -115,44 +168,101 @@ try {
   await page.waitForFunction(n=>document.querySelectorAll('[data-testid="tv-podium"] [data-agent-id]').length===Math.min(n,3),count);
   await measure(`roster-${count}`);
  }
- await page.getByRole('button',{name:'TV display options'}).click();
- await page.getByLabel('Viewing metric').selectOption('0');
- await page.keyboard.press('Escape');
- await measure('policies-manual-switch');
+ // A new value that keeps every rank: totals change, no movement indicator.
  await page.evaluate(()=>window.fixtureLiveUpdate());
+ await page.waitForFunction(()=>window.__boardDiff().length===0);
+ assert.deepEqual(await tvMovements(),{},'a value change that keeps every rank shows no movement');
  await measure('live-policy-update');
+ // A Policies tie-break reorder (equal AP) is a real rank change and shows as movement.
+ await page.evaluate(()=>window.fixtureTieBreakUpdate());
+ await page.waitForFunction(()=>window.__tvTable().filter(r=>r.movement).length===2,null,{timeout:2500});
+ assert.deepEqual(await tvMovements(),{'Gray T.':'Moved up 1 spot since the last leaderboard update','Harper T.':'Moved down 1 spot since the last leaderboard update'},'tie-break movement');
+ await measure('live-tiebreak-reorder');
+ assert.deepEqual(await tvNames(),['Emerson T.','Finley T.','Gray T.','Harper T.','Jordan T.','Indigo T.','Kai T.'],'Gray overtakes Harper on Policies');
+ // An AP reorder: Kai to #1; everyone it passes moves down one.
+ await page.evaluate(()=>window.fixtureApUpdate());
+ await page.waitForFunction(()=>window.__tvTable().filter(r=>r.movement).length===7,null,{timeout:2500});
+ const down=Object.values(await tvMovements());
+ assert.deepEqual(down,Array(7).fill('Moved down 1 spot since the last leaderboard update'),'AP reorder movement');
+ await measure('live-ap-reorder');
+ assert.deepEqual(await podiumIds(),['fixture-1','fixture-10','fixture-2'],'Kai leads by AP');
+ // The removed metric selector and auto-rotation left stored preferences behind: TV ignores and removes them.
+ await page.evaluate(()=>{localStorage.setItem('leaderboardTvMetricIndex','1');localStorage.setItem('leaderboardTvAutoRotate','1');});
  await page.getByRole('button',{name:'Exit TV mode'}).click();
  await page.getByRole('button',{name:'Enter TV mode'}).click();
  await measure('reentered-tv');
- // Real browser timer handling; no network standings fetch is involved in rotation.
- await page.getByRole('button',{name:'TV display options'}).click();
- await page.getByRole('switch',{name:'Auto-rotate stats'}).click();
- await page.keyboard.press('Escape');
- const prior=await page.getByTestId('tv-podium').innerText();
+ assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('leaderboardTvMetricIndex'),localStorage.getItem('leaderboardTvAutoRotate')]),[null,null],'obsolete TV preferences removed');
+ // Real browser timers: past the former 30-second rotation interval the AP board is unchanged.
+ const board=async()=>({podium:await page.getByTestId('tv-podium').innerText(),table:await tvNames(),deep:await page.evaluate(()=>window.__tvDeep().rows),totals:await page.locator('[data-testid="tv-agency-totals"] .tabular-nums').allTextContents()});
+ const before=await board();
  await page.waitForTimeout(30_100);
- assert.notEqual(await page.getByTestId('tv-podium').innerText(),prior,'automatic metric rotation');
+ assert.deepEqual(await board(),before,'TV rankings unchanged after the former 30-second rotation interval');
+ await assertBoard('after-30s');
  await page.goto(`${url}/?view=normal`);
  await page.setViewportSize({width:1440,height:1000});
  await page.getByText('$701.40',{exact:true}).waitFor();
- await page.getByText('1m 21s',{exact:true}).waitFor();
- assert.match(await page.locator('body').innerText(),/1 policies with unknown premium/);
- assert.match(await page.locator('body').innerText(),/—/);
+ assert.equal(await page.getByText(CAPTION,{exact:true}).count(),1,'normal standings caption');
+ // Full Rankings: every ranked agent in AP order, five columns, the signed-in agent's YOU row.
+ const normal=await page.evaluate(()=>({expected:window.__apExpected().ranked,
+  headers:[...document.querySelectorAll('[role="columnheader"]')].map(h=>h.getAttribute('aria-label')??h.textContent),
+  rows:[...document.querySelectorAll('[role="rowgroup"] [role="row"]')].map(row=>{const c=[...row.querySelectorAll('[role="cell"]')];
+   return {rank:c[0].querySelector('span').textContent,name:c[1].querySelector('span[title]').textContent,ap:c[2].textContent,policies:c[3].textContent,calls:c[4].textContent,
+    you:/You/.test(c[1].textContent),current:row.getAttribute('aria-current')};})}));
+ assert.deepEqual(normal.headers,['Rank','Agent','Annualized Premium','Policies','Calls'],'Full Rankings columns');
+ assert.deepEqual(normal.rows.map(({you,current,...cells})=>cells),normal.expected.map(({id,...cells})=>cells),'Full Rankings AP order and cells');
+ assert.deepEqual(normal.rows.filter(r=>r.you).map(r=>[r.name,r.rank,r.current]),[['Gray T.','7','true']],'one YOU row, mid-table');
+ assert.ok(normal.rows.some(r=>r.ap==='—*'),'all-unknown premium reads —, never $0');
  for(const [width,height] of [[1440,1000],[390,844]]){
   await page.setViewportSize({width,height});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'normal standings horizontal overflow');
+  assert.doesNotMatch(await page.locator('body').innerText(),REMOVED,`normal-${width}: removed metrics on screen`);
   await assertSoldDateRows(`normal-${width}`);
   await page.screenshot({path:`${output}/normal-${width}.png`});
  }
- // Routine snapshot (?routine=1): no caption line in the totals wrapper; the same geometry checks hold. Rotation off for a stable metric.
- await page.evaluate(()=>{localStorage.setItem('leaderboardTvAutoRotate','0');localStorage.setItem('leaderboardTvMetricIndex','0');});
+ // Routine snapshot (?routine=1): no caption line in the totals wrapper; the same geometry and AP checks hold.
  await page.goto(`${url}/?routine=1`);
  await page.setViewportSize({width:1366,height:768});
  await page.getByTestId('tv-podium').waitFor();
  assert.equal(await page.locator('[data-testid="tv-agency-totals"] > p').count(),0,'routine snapshot: no caption line above the totals');
  assert.doesNotMatch(await page.locator('body').innerText(),/policies with unknown premium|Talk time includes|Outside active roster|Active agents · |As of /);
  await measure('routine-1366x768');
+ // Admin: the same stub module served with role "Admin" to a separate browser context (no file or network change).
+ const adminContext=await browser.newContext({viewport:{width:1920,height:1080}});
+ const admin=await adminContext.newPage();
+ admin.on('pageerror',e=>errors.push(`admin: ${e.message}`));
+ let swapped=0;
+ await admin.route(target=>target.pathname.endsWith('/stubs.ts'),async route=>{
+  const response=await route.fetch();
+  const body=(await response.text()).replace(/role:\s*"Agent"/,()=>{swapped++;return 'role: "Admin"';});
+  await route.fulfill({response,body});
+ });
+ await admin.goto(url);
+ await admin.getByTestId('tv-podium').waitFor();
+ assert.equal(swapped,1,'admin context loaded the Admin stub');
+ await admin.getByRole('button',{name:'TV display options'}).click();
+ const editor=admin.getByLabel('Scrolling ticker (org-wide)');
+ await editor.waitFor();
+ assert.equal(await admin.getByLabel('Viewing metric').count(),0,'no metric selector');
+ assert.equal(await admin.getByRole('switch').count(),0,'no auto-rotate switch');
+ assert.equal(await admin.getByRole('combobox').count(),0,'no select');
+ const save=admin.getByRole('button',{name:'Save',exact:true});
+ assert.equal(await save.isDisabled(),true,'Save waits for a change');
+ await editor.fill('Fixture ticker message');
+ assert.equal(await save.isEnabled(),true,'an edited ticker can be saved');
+ await admin.getByRole('button',{name:'Reset',exact:true}).click();
+ assert.equal(await editor.inputValue(),'','Reset restores the saved ticker');
+ assert.equal(await save.isDisabled(),true,'nothing to save after Reset');
+ await editor.fill('Fixture ticker message');
+ await admin.screenshot({path:`${output}/admin-ticker-settings.png`});
+ await admin.keyboard.press('Escape');
+ await admin.getByLabel('Scrolling ticker (org-wide)').waitFor({state:'detached'});
+ assert.equal(await admin.getByTestId('tv-podium').count(),1,'Escape closes the options, not TV');
+ await admin.keyboard.press('Escape');
+ await admin.getByRole('button',{name:'Enter TV mode'}).waitFor();
+ assert.doesNotMatch(await admin.locator('body').innerText(),REMOVED,'admin: removed metrics on screen');
+ await adminContext.close();
  assert.deepEqual(errors,[],'browser console errors');
- console.log('PASS TV layout, metric/period switches, roster sizes, entry/exit, timer and routine-caption checks');
+ console.log('PASS TV layout, AP ranking and tie-breaks, movement, period switch, roster sizes, entry/exit, no rotation, Admin ticker settings, normal standings and routine-caption checks');
 } catch(error) {
  console.error('Browser errors:',JSON.stringify(errors));
  console.error('Visible state:',(await page.locator('body').innerText()).slice(0,4000));
