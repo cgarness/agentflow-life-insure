@@ -1,3 +1,40 @@
+## 2026-10-22 — PR #475 final layout alignment: podium / Your Performance locked to the Full Rankings / Recent Wins columns (approved, implemented; NOT merged, NOT released)
+
+Chris reviewed the signed-in preview and asked for the top row to line up with the lower two-column layout. He
+approved plan §15 with D1 A (the 2 : 1 ratio for both rows), D2 A (both rows two columns from 1280 px) and D3 (the
+three-card podium fills its column), with one- and two-agent podiums kept narrower and centered.
+
+- **Cause:** the two rows were separate grids.
+  - Top row: `1fr` + a fixed 320 px column from 1280 px, with the podium capped at 896 px and centered.
+  - Bottom row: thirds from 1024 px.
+  - The edges were up to 48 px apart at 1440 and 208 px apart at 1920.
+- **Change (`e02f535`):**
+  - `LeaderboardBoard.tsx` uses one shared row template and one left-column class for both rows, with the podium
+    wrapped in the left column.
+  - `LeaderboardPodium.tsx` drops the width caps when three cards show.
+  - The page test pins the structure.
+  - Below 1280 px every panel stacks (previously Full Rankings and Recent Wins sat side by side at 1024–1279).
+- **Deviation:** the cap is removed at every width, not only from `lg`. With the sidebar collapsed, the base
+  768 px cap still inset the podium at 872–1023 px.
+- **Clarification:** one- and two-agent podiums are unchanged. From 1024 px their existing caps were always
+  overridden by the 896 px base cap. They are now centered in the Full Rankings column.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 399 passed (12 skipped). The two new tests fail on the old layout.
+  - ESLint and build: pass. `git diff --check`: clean.
+  - TV harness: 15/15 PASS.
+  - Browser sweep with the app shell's widths:
+    - Edges match within 0.02 px at 1280–2560 px (sidebar open and collapsed) and in the stacked range below
+      1280 px.
+    - One- and two-agent podiums are centered with the same widths as before.
+  - Before/after screenshots: `screenshots/layout-*.png`. Full record: `verification.md` §11.
+- **No** Supabase command, migration, RPC/RLS/telephony change, TV change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final release review. Merge and frontend
+  release need his separate approval.
+
+---
+
 ## 2026-10-21 — PR #475 final UI polish: "Annual Premium" labels; TV totals show Annual Premium and Policies (approved, implemented; NOT merged, NOT released)
 
 Chris approved the exact plan (focused plan §14).

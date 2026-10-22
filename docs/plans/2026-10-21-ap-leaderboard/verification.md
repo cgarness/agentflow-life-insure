@@ -334,3 +334,78 @@ never committed):
 
 **GitHub checks:** on the pushed head, reported on PR #475 and in the hand-off (not written here, for the reason
 given in §9).
+
+---
+
+## §11. Final layout alignment — top row locked to the Full Rankings / Recent Wins columns (plan §15; 2026-10-22)
+
+**Tree:** commit `e02f535` on `a93cb4a` (the base is still `main` `40a298c`).
+- Files: `LeaderboardBoard.tsx`, `LeaderboardPodium.tsx` and the page test.
+- Not touched: TV Mode, data, ranking, wording, Supabase, telephony, workflows and the harness files.
+
+**What changed on screen.**
+- The podium + Your Performance row and the Full Rankings + Recent Wins row share one column template: two columns
+  (2 : 1) from 1280 px, and one stacked column below that.
+- The three-card podium fills its column at every width.
+- From 1024 to 1279 px, Full Rankings and Recent Wins now stack full width (D2-A), like the top row already did.
+- One- and two-agent podiums keep their existing caps, centered in the Full Rankings column.
+
+**Static and build checks.**
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| App check `tsc --noEmit -p tsconfig.app.json` | 84 errors, identical set to `main` `40a298c` |
+| ESLint on the 3 changed files | exit 0, no warnings |
+| `npm run build` | exit 0 |
+| `git diff --check` | clean |
+
+**Tests.**
+- Targeted Vitest on the Leaderboard page, `src/components/leaderboard` and `src/components/dashboard`: 20 files,
+  399 passed, 12 skipped (time-zone gated).
+- Two new page tests:
+  - The top row carries every class of the bottom row's template, including `xl:grid-cols-3`.
+  - The podium's column element has exactly the same classes as Full Rankings', and contains the podium.
+  - Your Performance and Recent Wins are the last cell of their rows.
+  - The three-card podium has no width cap.
+  - The one- and two-agent podiums keep `max-w-2xl` / `max-w-sm` plus `lg:max-w-4xl`.
+- Both new tests fail against the pre-change layout (`a93cb4a` sources) and pass on `e02f535`.
+
+**Browser alignment.**
+- Setup: the scratch fixture renders the real `Leaderboard` page inside a shell with the app's widths (240 px
+  sidebar, or 64 px collapsed; `p-4 lg:p-6`), in Chromium 1194.
+- Edges were measured from the podium cards' outer edges, the Your Performance card, and the Full Rankings and
+  Recent Wins panels:
+
+| Sweep | Widths | Worst edge difference |
+|---|---|---|
+| Two columns, sidebar open: podium = Full Rankings left/right, Your Performance = Recent Wins left/right | 161 widths, 1280–2560 px every 8 px | 0.02 px |
+| Two columns, sidebar collapsed | 161 widths, 1280–2560 px | 0.02 px |
+| Stacked, sidebar open: all four panels share left and right edges | 121 widths, 320–1279 px | 0.02 px |
+| Stacked, sidebar collapsed | 65 widths, 768–1279 px | 0.02 px |
+| Two-agent podium: centered in the Full Rankings column, width = min(column, 896 px); Your Performance = Recent Wins | 1280, 1366, 1440, 1680, 1920, 2560 | 0 px |
+| One-agent podium: same checks | same widths | 0 px |
+
+- Before the change (`a93cb4a`), the inner edge was 48 px off at 1440. At 1920 the podium started 196 px right of
+  Full Rankings' left edge, and Your Performance's left edge was 208 px off.
+- **Found and fixed during verification:** with the sidebar collapsed, the three-card podium was inset by 4–76 px
+  at 872–1023 px (the base 768 px cap). The fix is in plan §15.
+- **One- and two-agent podiums, before vs after:** the same width at every measured width. For example, at 900 px
+  it is 384 px (one agent) or 628 px (two agents), and at 1920 px it is 896 px. After the change both are centered
+  in the Full Rankings column.
+
+**Screenshots** (`screenshots/`). Every capture has 0 px horizontal overflow and no console error other than the
+fixture's missing favicon.
+- `layout-after-dark-{1920,1440,1280,1240,1024,390}.png` and `layout-after-light-1440.png`.
+- `layout-after-dark-1440-{collapsed,two-agents,one-agent}.png`.
+- `layout-before-dark-{1920,1440,1240}.png` for comparison.
+- The 390 px phone layout is unchanged: gold first, then the cards, Your Performance, Full Rankings and Recent Wins.
+
+**TV visual harness** (fresh Vite on 127.0.0.1:4179): exit 0, 15/15 PASS lines. TV is unchanged.
+
+**Unchanged (by diff):**
+- `LeaderboardYourPerformance`, `LeaderboardRankingsTable`, `RecentWinsPanel`, `LeaderboardPodiumCard`,
+  `podiumLayout.ts` and `Leaderboard.tsx`, so the loading skeletons keep their 896 px centered shape.
+- Every TV file, hook, query, RPC, the CSV export and the "Annual Premium" wording.
+
+**GitHub checks:** on the pushed head, reported on PR #475 and in the hand-off.

@@ -1,14 +1,17 @@
-## 2026-10-21 — PLAN, AWAITING APPROVAL: PR #475 final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
 
-**Status:** plan only on `claude/sweet-cannon-jve7ak` (`15e813b`, green and mergeable). No application or test
-file changed; no Supabase or Vercel command run. Details, measurements and decisions:
-`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §15.
+**Status:** Chris approved §15 with D1 A, D2 A and D3 approved. Implemented in commit `e02f535` on
+`claude/sweet-cannon-jve7ak`. No Supabase or Vercel command run. Details are in
+`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §15 and `verification.md` §11.
 
-**Summary:** the top and bottom rows of the main Leaderboard become one shared column template (2 : 1, two columns
-from 1280 px). The three-card podium fills its column. The podium then shares Full Rankings' left column and Your
-Performance shares Recent Wins' right column, to the pixel at every width. Recommended responsive change (D2-A): from
-1024 to 1279 px, Full Rankings and Recent Wins stack like the top row already does. Two source files and one test;
-no ranking, wording, TV, data or backend change.
+**Summary:**
+- Both board rows share one 2 : 1 column template, with two columns from 1280 px.
+- The podium shares Full Rankings' column and Your Performance shares Recent Wins'. Measured in the browser, the
+  edges match to the pixel at 1280–2560 px with the sidebar open or collapsed.
+- Below 1280 px every panel stacks full width.
+- The three-card podium fills its column. One- and two-agent podiums keep their existing caps, centered.
+- One deviation: the three-card podium drops its cap at every width, not only from `lg`, because of the
+  collapsed-sidebar case.
 
 ---
 

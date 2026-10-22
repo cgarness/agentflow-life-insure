@@ -463,7 +463,7 @@ two-column TV layout; no other UI, navigation or behavior change; the listed ver
 
 ---
 
-## §15. Amendment — final layout alignment: top row locked to the Full Rankings / Recent Wins columns (PLAN, AWAITING CHRIS'S APPROVAL)
+## §15. Amendment — final layout alignment: top row locked to the Full Rankings / Recent Wins columns (APPROVED and IMPLEMENTED 2026-10-22)
 
 **Request (Chris, 2026-10-21, after the signed-in preview):**
 - The podium block takes the same left-column width as Full Rankings.
@@ -561,5 +561,20 @@ Not touched:
 - Every PR #475 check green on the final head.
 - No Supabase command, migration, merge or deployment.
 
-**Status:** plan only; no application or test file edited. Waiting for Chris's explicit approval and the D1–D3
-choices.
+**Approval (Chris, 2026-10-22):** "APPROVED — Proceed with §15", with D1 A (the 2 : 1 ratio for both rows), D2 A
+(both rows switch to two columns at 1280 px) and D3 approved (the three-card podium fills its column). Also: exact
+top/bottom alignment across desktop widths; the narrower centered layout kept for one- and two-agent podiums; no
+change outside the layout scope; no Supabase or telephony change; no merge or deployment.
+
+**Implementation record (commit `e02f535`):** exactly the three intended files.
+- **One deviation (D3, how it is written):** the plan said `lg:max-w-none`. The browser sweep found the three-card
+  podium still inset by 4–76 px at 872–1023 px with the sidebar **collapsed**: below `lg` the base `max-w-3xl`
+  (768 px) cap binds once the content is wider than 768 px. So the three-card podium now drops both caps
+  (`max-w-none lg:max-w-none`; class merging keeps one per breakpoint) and fills its column at every width, as D3
+  says. With the sidebar open this changes nothing below `lg`, because the content is never wider than 768 px there.
+- **Clarification on one- and two-agent podiums:** their classes are unchanged.
+  - Below 1024 px they keep `max-w-sm` / `max-w-2xl`.
+  - From 1024 px the base `lg:max-w-4xl` has always overridden those caps, so on desktop they are the column width
+    up to 896 px.
+  - They are now centered in the Full Rankings column. The same rule was measured before and after the change.
+- Verification: `verification.md` §11; screenshots `screenshots/layout-*.png`.
