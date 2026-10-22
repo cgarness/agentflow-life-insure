@@ -243,3 +243,71 @@ become a combobox pick)**
 ## 7. Migrations / deploys
 
 None proposed. If one became necessary, I would stop and propose it separately.
+
+## 9. Review finding on PR #479 (2026-10-22): stale carrier options on reopen — PROPOSED, awaiting Chris's approval
+
+**Reviewed head:** `de1cb12`. `main` is still `1a7ea7a` and PR #479 has no new commits or review threads, so there
+are no conflicts. CI and both Vercel previews are green on `de1cb12`. D1–D3 and the §8 scope are unchanged.
+
+**Finding (confirmed by reading `useOrganizationCarriers.ts`).** A result is valid when its `scope` and `attempt`
+match the current ones.
+- **Reopen.** Closing keeps `loaded`. Reopening for the same user and agency gives the same scope and attempt, so the
+  first reopened render returns the previous open's list as `ready`. The opening effect's `setLoaded(null)` only runs
+  after that render commits. During that render a removed carrier could display, and a submit in that window could be
+  validated against it.
+- **Same root cause, second path.** Agency A loads; the user switches to B and back to A before B's request resolves.
+  `loaded` is still tagged A with the same attempt, so the first render after switching back returns A's old list.
+- The existing "reloads on every reopen" test reads `result.current` only after effects flush, so it misses the
+  intermediate render.
+
+**Proposed correction (hook only).**
+- Give each load its own session id, renewed during render whenever the load key changes. The key is
+  `user|organization|attempt`, or none while disabled.
+  - Closing (key → none), reopening, any agency or user change (including A→B→A) and Retry each start a new session.
+  - The render that detects the change already uses the new id. It returns `loading` even when React discards that
+    render for the state update.
+- A loaded result is tagged with its session id and counts only for the current session. This replaces the
+  scope/attempt tag.
+- The fetch effect keys on the session id.
+- **Kept unchanged:**
+  - the explicit `organization_id` filter and RLS;
+  - user isolation (the user id is in the key);
+  - Retry (the attempt is in the key);
+  - the request-counter guard, so a late response can never overwrite the current session's result;
+  - the stale-response discard.
+- The effect's `setLoaded(null)` becomes redundant and is removed. Validity no longer depends on clearing state in an
+  effect.
+- **Limitation (documented, not a consumer path).** A close and reopen that React batches into a single render never
+  renders the closed state, so it is indistinguishable from staying open. No consumer does this: `AddClientModal`
+  renders closed (`open=false`) and `FloatingDialer` remounts Record Policy by key.
+
+**Tests first (real hook, recording every render).**
+1. **Reopen** (the required test): open and load list A; close; reopen with the same user and agency; hold the new
+   request. Every reopened render must report `loading` with `carriers: null`. Then resolve list B: only B is
+   returned, and A never appears again.
+2. **A→B→A before B resolves:** every render after returning to A reports `loading` until A's new request
+   succeeds.
+3. Both must fail on `de1cb12` before the fix (shown in the record) and pass after it.
+4. **Kept tests:** stale responses in either order, previous-agency render, user switch, retry and superseded retry,
+   organization filter.
+
+**Unchanged:** frozen sale retries, exact historical carrier preservation, unchanged-carrier edits, optional-carrier
+rules, locking, no auto-selection, commission matching and calculations, sale recording, telephony, ConvertLeadModal,
+and the existing floating-dialer/dialog overlap.
+
+**Files to touch.**
+- `src/hooks/useOrganizationCarriers.ts`
+- `src/hooks/__tests__/useOrganizationCarriers.test.tsx`
+- This plan (§9 status), `verification.md` (new section), `WORK_LOG.md` (newest-first entry).
+- **Additional, listed for approval:**
+  - `AGENT_RULES.md`: one wording fix in the carrier invariant. It currently says "cleared on every open or retry";
+    it would say "each load is a session; results count only for the current session".
+  - Root `implementation_plan.md`: a one-line status update on this branch's entry.
+  - Both are optional; I'll skip them if you prefer.
+
+**Verification plan.**
+- New tests: red on `de1cb12`, green after the fix.
+- Rerun the hook, component, modal and commission suites.
+- Root and app `tsc` compared with `main`; scoped ESLint; build; full Vitest compared with `main`.
+- CI and both Vercel previews on the final pushed SHA. Unfinished checks are reported as pending.
+- Push to the existing draft PR only.
