@@ -1,3 +1,26 @@
+## 2026-10-22 — Google Sheets runner: fresh hosted history and reviewed source pinned; local preparation complete
+
+After Chris completed secure sign-in and said "Continue", the coordinator read Supabase project jncvvsvckxhqgqvkppmj in the browser at 2026-10-22T06:25:20.775462Z. This yielded 342 migration-history rows, latest 20261021200000, permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8, and zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names. The coordinator also verified 77 Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent and GitHub deploy-to-production OFF. No secret values were opened, read or changed.
+
+- **Prepared pins.** Updated the runner to VERSION 20261022062539, LATEST 20261021200000, 342 before/applied rows and 343 recorded rows, with the renamed foundation path and matching history predicates. The migration/helper/four-bundle digests are unchanged. The existing VERSION > LATEST guard remains; the recorded history maximum is VERSION. SOURCE and both checkout refs now pin the published reviewed feature commit 88669b7d5add7fd692acb262af294e24655c3cc9, exact tree 92038029ee446a83291986d6e5905c55d673f57f. The renamed migration and rollback bytes and all four bundle digests were reverified from that exact commit.
+- **Synthetic coverage.** The driver now seeds 341 synthetic rows plus the verified latest-version marker on loopback, mirroring the 342-row starting count. It uses the valid current version ordering directly. Nine negative cases cover equal/older versions and the explicitly injected former stale pins across all three mutating stages; every case refuses before external access. YAML/Python parsing, those exact-driver tests, the expected current counts/maxima/path assertions, protected/no-secret CI boundary checks, six exact stage-order refusals and mocked read-only/three correct-stage paths pass locally. Native PostgreSQL 17.6 transaction/history/rollback verification remains required on the final runner head in CI and was not rerun locally.
+- **Frontend and rollback read-backs.** The coordinator verified VITE_GOOGLE_SHEETS_ENABLED absent from project and Shared environment-variable searches. Current Ready/Production/www.fflagent.com deployment dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3 has source 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4 (https://vercel.com/cgarness-projects/agentflow/CnxbpTh4fae7Bi6RWvZvWsGBDxP3). Recapture the rollback candidate before an actual frontend merge; a runner main merge would create a newer deployment.
+- **Publication and access.** The earlier runner create_blob attempt stalled without a result; no create_tree, create_commit, update_ref or PR-body update was invoked by this agent. No runner branch update occurred from that attempt. The coordinator now owns publication of the completed tree. The last protected-environment secret inventory was zero, so owner credential entry is still required. No workflow dispatch, hosted SQL mutation, function deployment, activation, import or scheduling action occurred.
+
+---
+
+## 2026-10-21 PDT / 2026-10-22 UTC — Google Sheets runner: current-main reconciliation prepared locally; release prerequisites still blocked
+
+Chris authorized proceeding with the existing Sheets branch reconciliation and Phase B release preparation. Read AGENT_RULES.md in full, VISION.md, the current and main plan/Work Log context, and the feature release package section 10.3 before edits. Prepared the plan checkpoint before merging main 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4 into runner head 5aab5e06a25a9a25b03a0b6b00f7c5467a26ef18 with --no-commit --no-ff. This checkpoint is local preparation; no commit, push, PR merge, workflow dispatch, hosted SQL, Edge deployment, frontend activation, Google pilot, privacy publication or schedule change occurred.
+
+- **Merge.** WORK_LOG.md was the only conflicted file. Preserved the incoming main history and the runner history in order; implementation_plan.md merged automatically. An ordered-line check confirms every line from both parents survives in both documents. The diff against main contains only the existing two runner workflows, scripts/tests/google_sheets_phase_b_runner.py and these two documentation files. The CI workflow remains byte-identical to the original runner head; the runner and its test have only the authorized ordering correction below.
+- **Ordering correction.** Added a fail-closed gate requiring VERSION > LATEST before any mutating stage reaches source, credentials or external access. The recorded state now expects VERSION as the maximum history version. All production pins, counts, source checkout, SQL bytes and artifact digests remain unchanged, so the current stale package deliberately refuses apply/history/deploy. The read-only check stage remains available. The driver tests equal and older versions through the actual dispatch function, asserting no downstream calls; its native loopback fixture temporarily uses an explicitly synthetic earlier LATEST to keep apply/history/rollback coverage meaningful.
+- **Local safety checks.** Both workflow YAMLs and the embedded/driver Python parse. Dispatch-only/main-only execution, the protected environment, serialized concurrency and pinned actions remain intact; the CI workflow has no protected environment or secret expression. Recomputed the source migration and all four function bundle digests from the pinned Git source and matched every expected value. The new six migration-order refusals, valid-version history maximum, three refusals using the unchanged real pins, read-only check path and existing six invalid-stage cases all pass. Existing wrong-branch/confirmation refusal, command-error redaction, read-only SQL session arguments and TLS accept/refuse checks passed during reconciliation. Changed-line whitespace checks for the ordering patch and documentation pass; existing parent whitespace is retained. Required npx tsc --noEmit passes. Strict app compilation reports 84 diagnostics; the application/config/package tree is byte-identical to main, and the coordinator independently confirmed the same 84 main-baseline diagnostics with zero new errors.
+- **Ordering blocker.** Current main requires migration versions to sort after the hosted head and forbids out-of-order history insertion. Existing Sheets version 20261013120000 already precedes the old runner head pin 20261017043757. Keep the immutable SQL bytes and the new refusal gate. First obtain fresh hosted history/helper/function evidence, then rename the unapplied foundation after that head, update the reviewed source SHA and references, and refresh the exact count/head pins. Existing pins are unchanged because fresh hosted evidence is unavailable.
+- **Access and remaining verification.** The coordinator freshly confirmed cgarness review, main-only access and administrator bypass disabled on google-sheets-production, with zero environment secrets. Owner credential entry and fresh hosted inventory remain prerequisites. PostgreSQL 17.6, psql, the Supabase CLI and Docker are unavailable locally, so the native transaction/history/rollback runner suite was not run here and remains a CI requirement. Separately controlled frontend, pilot, privacy and scheduling gates remain in force.
+
+---
+
 ## 2026-10-22 06:25 UTC — Google Sheets release version re-stamped after fresh hosted read; no production mutation
 
 All 10 GitHub Actions workflows passed on published reconciliation head
@@ -1365,6 +1388,28 @@ A changed owner switches the panel without ever pairing the old owner's figures 
 **Next:** Chris reviews the draft PR and its CI. Merge and deployment only with separate approval.
 ## 2026-10-17 — Google Sheets PR #442: fifth main reconciliation and runner re-pin after the Sold Date release (no production change)
 
+## 2026-10-17 — Sheets Phase B runner (PR #451): re-pinned to production's new migration history (no production change)
+
+Main moved to `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). The Sold Date release added two production migrations: `20261017043142` performance_sold_date_basis and `20261017043757` performance_wins_sold_date_index. Production was re-checked read-only at 07:49 UTC: 329 history rows, latest `20261017043757`, no Sheets objects, and the permission helper is still the reviewed preimage.
+
+**Interaction check:** the two migrations replace reporting functions and add one index on wins. They do not touch `profiles`, `organizations`, `role_permissions`, `_contacts_permission_default` or default privileges. The Sheets migration and its read-backs are unaffected.
+
+**Changed:**
+- Merged main. Only WORK_LOG.md and implementation_plan.md conflicted; both were resolved additively, with main's blocks first, then this branch's.
+- The runner's expected history counts move from 327/327/328 to 329/329/330, and the pinned latest version becomes `20261017043757`. Without this re-pin, every stage would stop at the state check: safe, but it would block the release.
+- The synthetic driver now seeds 328 rows plus that latest version.
+
+**Verified locally:** the full synthetic driver passed against disposable PostgreSQL 17.6 with CLI 2.121.0. It covered:
+- real apply and read-backs;
+- history repair and replay refusal;
+- lock-timeout and watchdog rollbacks;
+- six out-of-order refusals and log redaction;
+- the TLS and read-only session checks.
+
+Exact-head CI is still required before merge.
+
+**Still gated:** Chris's GitHub setup (environment, three secrets, Supabase auto-deploy OFF, Vercel flag absent) and his explicit GO. There is no merge to main, no dispatch and no production change.
+
 The 07:43 UTC check-in found main at `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). #453 added two production migrations, so production now has 329 history rows, latest `20261017043757`. A read-only check at 07:49–07:57 UTC found production still unchanged for Sheets: no Sheets relations, functions, cron jobs, Vault secrets or history rows; the helper preimage unchanged; 76 Edge Functions, none Sheets.
 
 - **Interaction:** #453's migrations replace reporting functions and add one wins index. They touch nothing the Sheets migration uses or checks; only the history counts change.
@@ -1441,6 +1486,31 @@ The 07:43 UTC check-in found main at `95009d15` (#452 callbacks modal, #453 Sold
 **Verification (isolated checkout based on production 91eabff):** Dashboard-focused 14 suites passed (305 tests passed, 12 skipped); npm run build passed with the existing chunk-size warning; ESLint on touched source/tests was clean; npx tsc --noEmit exited 0 (root config checks no application files); strict npx tsc -p tsconfig.app.json --noEmit emitted the exact same 230 diagnostic lines as the unchanged base (byte-identical); git diff --check passed. Exact-head PR CI and production deploy verification are tracked separately; no production change is claimed in this entry.
 
 ---
+
+## 2026-10-17 — Sheets Phase B runner (PR #451): pooler-safe session settings and TLS check (no production change)
+
+Chris asked Claude to finish the Google Sheets release, so Claude resumes driving PR #451 and PR #442. Production was re-checked read-only at 02:40 UTC: unchanged (327 history rows, latest `20261016035626`, no Sheets objects).
+
+**Changed (two production-only paths the synthetic CI could not exercise):**
+- **Session settings:** check sessions now set `default_transaction_read_only` and `statement_timeout` with in-session `SET` instead of libpq startup options (`PGOPTIONS`). Whether the session pooler forwards startup options is unverified, and `SET` works either way. The migration transaction adds `SET LOCAL statement_timeout = '30s'` next to the 5 s lock timeout.
+- **TLS check:** it reads psql's `\conninfo` for the runner's own connection instead of `pg_stat_ssl`, which describes the pooler's upstream hop. `PGSSLMODE=require` still refuses plaintext.
+
+**Verified locally** against disposable PostgreSQL 17.6 with the full synthetic driver and CLI 2.121.0:
+- real apply and read-backs, real history repair and replay refusal;
+- lock-timeout and watchdog rollbacks, six out-of-order refusals and log redaction;
+- new: TLS required on the runner connection; read-only check sessions with a 30 s timeout.
+
+psql 16's `\conninfo` output was confirmed against a TLS-enabled PostgreSQL 17.6.
+
+## 2026-10-16 — Google Sheets Phase B cloud runner prepared (draft; no production change)
+
+Chris asked to finish PR #442 from the cloud with separate production approvals. Current source is `eaf988b`, cleanly mergeable into `main` `9a90552`; all 16 checks pass and Supabase Preview is skipped. Read-only production inspection: 327 migrations, latest `20261016035626`; helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`; zero Sheets relations/functions; 76 Edge functions, none Sheets. `www.fflagent.com` still points to `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`.
+
+**Changed:** a dispatch-only protected Phase B workflow, plus a no-secret PostgreSQL 17.6 PR verification workflow and its synthetic test driver. Root plan records the file list, validation and unchanged approval gates. Only the pinned migration and four named functions can be deployed; no `db push`, unscoped deploy, flag activation, cron or unrelated function changes exist in the workflow. Failed commands never echo raw output to public logs.
+
+**Local checks:** YAML and Python parse; reviewed source and migration/four bundle digest checks; 12 safety-path checks (ordering, replay refusal, read-only checks, flag/host guards, error redaction, partial-deploy stop and SIGINT behavior). `npx tsc --noEmit` passes; strict app check reports the existing 84 errors. The required real PostgreSQL dry run is moved to dedicated PR CI because this runtime cannot start a local server. No claim of real Google-account testing.
+
+**Access / next:** direct production credentials absent, Supabase hosts unreachable from the shell, GitHub cloud browser signed out. Prepare secure GitHub authentication, protected environment and user-entered credentials. Merge and each production stage remain explicitly approval-gated. PR #442 remains draft; Phases B/C/D/E have not been executed by this session.
 
 ## 2026-10-17 — Cloud Phase B runner verified; fourth main reconciliation (no production change)
 
