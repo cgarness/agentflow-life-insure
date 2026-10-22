@@ -1,3 +1,28 @@
+## 2026-10-22 — Google Sheets Phase D/E live-release preparation (draft privacy branch only)
+
+**Intent:** Chris requested completion and production rollout of Google Sheets V1 while retaining the default Agent and Team Leader import permission. The prior Phase C frontend release is live at `069b1ad305fddfe7d7a5f9d5fc80254639d04596`; the Phase B backend is deployed with `GOOGLE_SHEETS_ENABLED` still absent and cron still off. The pilot permission is intentionally NOT restricted, per Chris's instruction.
+
+**Reason for sequencing:** The Phase D backend feature flag is project-wide and normal users remain eligible. Release-package §5.2 says that when the Google OAuth project is In production and the pilot is not role-restricted, the §7 Google Sheets privacy text must publish before activation. Regardless of OAuth publishing status, prepare the privacy change first so the release can be reviewed before any live import. Do not represent this draft as approved or deployed.
+
+**Approved preparation only:** Open a draft, documentation-and-privacy-only PR; stage exact §7 changes and update legal effective date for review. Use no user data, backend commands, database mutation, Vault token, Edge redeployment, Vercel environment change, flag enablement or cron activation in this branch. Keep Gmail/Calendar OAuth, Agency CRM records and current dialer untouched.
+
+**Files to touch (surgical):**
+- `implementation_plan.md` — this pre-implementation plan and gating record.
+- `src/content/legal.ts` — exact Sheets-specific privacy and terms proposal from release-package §7, with no other legal rewrites.
+- `docs/plans/2026-10-09-google-verification/policy-review.md` — proposed addendum; retain the exact October 9 approval/history unchanged.
+- `WORK_LOG.md` — newest-first draft/verification checkpoint.
+
+**Verification:** Compare candidate legal copy line-by-line with `docs/plans/2026-10-13-google-sheets-import/release-package.md` §7. Confirm no other code, secrets, configurations or migrations changed. Run `npx tsc --noEmit` or verify the exact-head CI run (and baseline known strict diagnostics), recheck content rendering. Check Vercel preview when CI passes. Obtain Chris's approval of the exact privacy wording and a separate production merge authorization before publishing.
+
+**Subsequent release gates, outside this PR:**
+1. Verify Google Cloud project G0–G7: dedicated Sheets OAuth client, callback, `drive.file` scopes, Picker API/key restrictions, 3 APIs, publishing status and pilot Google test-user eligibility. Preserve Gmail/Calendar integration.
+2. Phase D: only after prior gates, securely set `GOOGLE_SHEETS_ENABLED=true` in Supabase Edge secrets; set `VITE_GOOGLE_PICKER_API_KEY`, `VITE_GOOGLE_CLOUD_PROJECT_NUMBER=87346168200`, `VITE_GOOGLE_SHEETS_ENABLED=true` in primary Vercel Production and redeploy the same approved frontend SHA. The user opted to leave Agent and Team Leader permissions on; make the project-wide exposure explicit. No cron.
+3. Test the real OAuth/Picker with the two native Sheets pilot fixtures, then manual Sync now with exactly four synthetic new lead rows, tenant assignment, idempotency, pause/resume and disconnect. No new real lead data. Stop on any failed test. Gmail/Calendar must remain healthy.
+4. Phase E: only after the real pilot passes and the separately reviewed legal publication, prepare the pending cron SQL as a NEW ordered migration following the live hosted history; provision the worker token in Vault securely, apply after exact separate approval, verify at most one `google-sheets-sync-every-minute` job (minute ticks; due sources ~5 minutes), log/receipt integrity, advisors, and cleanup. Never apply the stale pending timestamp.
+5. End with WORK_LOG.md newest-first status, exact SHAs, deployment IDs, backend function versions, test counts and outstanding approvals.
+
+---
+
 ## 2026-10-22 17:00 UTC — Google Sheets Phase C: preflight passed; frontend release plan (awaiting "Approve Phase C frontend release")
 
 **Authorization and scope.** Chris assigned ownership of the remaining Sheets release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2` (feature source `88669b7d` merged with main `16aa4ab4`): complete the Phase C preflight, record it, and stop for the exact approval "Approve Phase C frontend release". Nothing is merged, enabled, migrated or deployed before that approval. Phase D (live test, cron OFF) and Phase E (privacy, Vault/cron, normal operation) each need their own later approval.

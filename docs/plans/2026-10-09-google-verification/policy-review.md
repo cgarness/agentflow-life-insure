@@ -1,3 +1,27 @@
+## Approved October 22, 2026 Google Sheets privacy addendum — publication pending
+
+This is a separate candidate for the AgentFlow Sheets import release and does **not** supersede Chris's exact October 9 legal-policy approval or the archived policy text below. Chris requested finishing the build and leaving Agent and Team Leader import permissions enabled. He **approved the exact PR #482 Google Sheets privacy/Terms wording and the October 22, 2026 effective date** by replying “Approved” directly to the request “Approve PR #482 privacy wording and publication” on October 22, 2026. The corresponding `src/content/legal.ts` copy remains identical to the text that was approved; it is not published until the CI-gated PR is merged to production.
+
+**Source:** `docs/plans/2026-10-13-google-sheets-import/release-package.md` §7, which remains the authoritative proposed wording. The candidate adds the full **Google Sheets information** section after Google Calendar and updates the exact five scoped Google/agency/disconnect/terms sentences in §7. It does not alter existing Gmail/Calendar OAuth behavior, their clients, or A2P policy content. The candidate legal effective date is **October 22, 2026**; reverify or revise it if publication occurs later.
+
+### Proposed new Privacy Policy section
+
+**Google Sheets information**
+
+If you connect Google Sheets, AgentFlow requests your Google account identity and email address and access only to the specific spreadsheet files you choose in Google's file picker. AgentFlow reads the spreadsheets you select; it does not change them.
+
+For each spreadsheet tab you enable, AgentFlow checks for new rows in the background about every five minutes, including while you are signed out, until you pause or remove that sheet or disconnect Google Sheets. By default, only rows added after you enable a sheet become leads; the rows already in the sheet at that time are recorded so they are not imported. When you enable a sheet, you can instead choose to also import the rows already in it.
+
+Each imported row becomes a lead in your agency workspace, assigned to you, using the columns you map, such as names, phone numbers, email addresses and other lead details. AgentFlow also keeps the selected file and tab details and a record of which rows it has handled, so that sorting, editing or re-adding a sheet does not import the same row twice. Imported leads are agency records: other authorized users, including agency leadership, may see them under your agency's access rules; your agency's duplicate rules apply; and agency automations such as Lead Created workflows may run for them.
+
+Imported leads remain after you pause or remove a sheet or disconnect Google Sheets, and they are retained and deleted under this policy like other agency records. Removing a sheet from AgentFlow does not delete the spreadsheet.
+
+**Additional exact edits from §7:** Google data/Limited Use includes spreadsheet lead imports; service providers includes Google Sheets; the Sheets disconnect paragraph is added without changing the Gmail paragraph; revocation warns that Gmail, Calendar and Sheets may be affected together; Terms of Service states optional Sheets access creates leads from selected-sheet rows. These updates are included in the draft legal.ts and must be reviewed together.
+
+**Publication gate:** The exact-copy approval above has been received. Merge the same reviewed legal copy only after green exact-head CI, then verify both Vercel projects READY and public Privacy Policy/Terms content. This approval does not authorize Phase D production flag changes, real Google imports, or Phase E Vault/cron: those retain their own prerequisite tests and controlled rollout.
+
+---
+
 # AgentFlow policy review — October 9, 2026
 
 **Approved by Chris for publication on October 9, 2026 at 12:58 PDT. Effective date: October 9, 2026.** This is the exact approved application text. Production release/readback is recorded in verification.md.

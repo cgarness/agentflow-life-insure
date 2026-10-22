@@ -1,3 +1,17 @@
+## 2026-10-22 — Google Sheets D/E rollout preparation: privacy addendum drafted; not deployed
+
+**Request and decision:** Chris asked to finish the Google Sheets build and get the integration live, explicitly choosing to keep Agent and Team Leader import permissions enabled. Their `contacts.leads.import_google_sheets` overrides remain absent and SQL defaults TRUE. The pilot is therefore not role restricted. With a project-wide backend flag and all eligible roles on, release-package §5.2 requires Sheets privacy publication before Phase D if Google OAuth Audience is In production. Prepare the reviewable legal copy first regardless of the Audience status.
+
+**Current production:** Phase C release PR #442 merged to `069b1ad305fddfe7d7a5f9d5fc80254639d04596`, primary `agentflow` Vercel `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm` and secondary `agentflow-life-insure` `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si`, both READY; `www.fflagent.com` HTTP 200. Backend migration `20261022062539` is latest of 343 history rows; four Google Sheets Edge Functions ACTIVE v1 among 81, with no Sheets connections, sources, receipts, sync runs, cron or Vault worker token. Gmail `cgarness.ffl@gmail.com` remains connected, sync healthy. No Google Sheets production flags have been enabled.
+
+**Real Google fixtures:** Created and verified two native Google Sheets in the same pilot account, named **AgentFlow Sheets Pilot A** (`Lead ID` mapping) and **AgentFlow Sheets Pilot B** (row-position mapping), each `Leads` tab with exactly two synthetic baseline rows. The four later synthetic import rows have not yet been added. All eight exact pilot fixture phone numbers 702-555-0101/0102/0103/0104/0111/0112/0113/0114 are unused in the pilot organization. Its active Admin is eligible and it has zero workflows. No live Google OAuth/Picker or lead import performed.
+
+**Changes (draft only):** Prepared an approval-gated legal-policy change on `release/google-sheets-privacy-v1-20261022` from the release package's exact §7 proposal: new Google Sheets privacy section, Google Limited Use/processor/disconnect/revocation updates, Terms change, effective-date candidate, plus October 9 policy-history addendum. The root plan lists scope, validations and separate production gates. No code was merged to main, no backend or Vercel setting changed, no production mutation, and no cron schedule started in this preparation.
+
+**Verification and pending gates:** Compare exact legal text to §7, require CI on the draft head, run root `npx tsc --noEmit` via the source checkout/CI agent, and obtain Chris's exact legal-copy approval before a reviewed merge. Google Cloud G0–G7 readiness (OAuth client/API/Picker/Audience), secure activation flags and real synthetic import remain subsequent Phase D steps. Phase E privacy/cron automation follows test success and separate approval; pending cron migration version must be restamped after current live head. Preserve Twilio, Gmail/Calendar, `organization_id`/RLS, A2P and unrelated records.
+
+---
+
 ## 2026-10-22 17:00 UTC — Google Sheets Phase B complete (backend deployed, disabled); Phase C preflight passed; frontend release awaits approval
 
 Chris assigned ownership of the remaining release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2`. I read AGENT_RULES in full, VISION, this log, the root plan and the release package §5.1–§9 and §10.3 before editing. This entry and the matching plan/release records are documentation only: no merge, flag, migration, Edge deployment or other production change.
