@@ -26,6 +26,7 @@ const EXPECTED_KEYS = [
   "contacts.leads.edit",
   "contacts.leads.delete",
   "contacts.leads.import",
+  "contacts.leads.import_google_sheets",
   "contacts.leads.undo_own_import",
   "contacts.leads.undo_team_import",
   "contacts.leads.assign",
