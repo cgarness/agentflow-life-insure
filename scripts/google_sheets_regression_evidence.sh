@@ -15,6 +15,14 @@ REVIEWED="${1:-8b675e5}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DENO_BIN="${DENO_BIN:-deno}"
 TMP="$(mktemp -d)"; OLD="$TMP/reviewed"
+foundation_file() {
+  # The reviewed historical tree predates the release-only filename re-stamp.
+  case "$1" in
+    "$OLD") printf '%s\n' "$OLD/supabase/migrations/20261013120000_google_sheets_import_foundation.sql" ;;
+    "$ROOT") printf '%s\n' "$ROOT/supabase/migrations/20261022062539_google_sheets_import_foundation.sql" ;;
+    *) return 2 ;;
+  esac
+}
 DBS=()
 cleanup() {
   git -C "$ROOT" worktree remove --force "$OLD" >/dev/null 2>&1 || true
@@ -41,7 +49,7 @@ sql_run() { # $1 db $2 tree
   DBS+=("$1")
   psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $1 WITH (FORCE);" >/dev/null 2>&1; psql "$PGURL/postgres" -qc "CREATE DATABASE $1;"
   psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$2/supabase/tests/google_sheets_harness.sql" >/dev/null 2>&1
-  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$2/supabase/migrations/20261013120000_google_sheets_import_foundation.sql" >/dev/null 2>&1
+  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$(foundation_file "$2")" >/dev/null 2>&1
   (psql "$PGURL/$1" -f "$ROOT/supabase/tests/google_sheets_regressions.sql" 2>&1 || true) | grep -E "(PASS|FAIL) (REGRESSION|CONTROL)" \
     | sed -E 's/^.*NOTICE:  (PASS|FAIL) (REGRESSION|CONTROL) ([^:]*):.*$/\2 SQL \3|\1/'
 }
@@ -52,7 +60,7 @@ race_db() { # $1 db $2 tree
   DBS+=("$1")
   psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $1 WITH (FORCE);" >/dev/null 2>&1; psql "$PGURL/postgres" -qc "CREATE DATABASE $1;"
   psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$2/supabase/tests/google_sheets_harness.sql" >/dev/null 2>&1
-  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$2/supabase/migrations/20261013120000_google_sheets_import_foundation.sql" >/dev/null 2>&1
+  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$(foundation_file "$2")" >/dev/null 2>&1
   psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$ROOT/supabase/tests/google_sheets_finish_fixture.sql" >/dev/null
 }
 finish_sql() { # $1 db $2 result-json → each version's own signature

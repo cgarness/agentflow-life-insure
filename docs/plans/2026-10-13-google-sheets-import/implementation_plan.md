@@ -1,5 +1,48 @@
 # Google Sheets lead import V1 — implementation plan
 
+## Approved migration re-stamp — 2026-10-22 06:25 UTC
+
+Fresh read-only hosted SQL at `2026-10-22T06:25:20.775462Z` returned 342
+migration-history rows, latest `20261021200000`, no Sheets history, relations,
+database functions, cron jobs or Vault secret names, and permission-helper MD5
+`a199d5ddfb9a56070aeb7706d3e9a4b8`. Supabase Deploy to production was observed
+OFF after successful sign-in. All 10 GitHub Actions workflows passed on the
+published reconciliation head `98074fb2e6b9053ad1bc88010c4f3c885d7d06c3`.
+
+The approved next change is a release-version correction only:
+
+1. Rename the unchanged foundation and paired rollback from `20261013120000`
+   to `20261022062539`, chosen from the verified 06:25:39 UTC clock and later
+   than the observed hosted head. Preserve SQL bytes and every Edge bundle.
+2. Update the active paths in `.github/workflows/google-sheets.yml`,
+   `scripts/run_google_sheets_tests.sh`, `scripts/run_google_sheets_cron_check.sh`,
+   and `src/lib/google-sheets/__tests__/googleSheets.test.ts`. Update
+   `scripts/google_sheets_regression_evidence.sh` to use the historical filename
+   for its reviewed tree and the new filename for the current tree.
+3. Update current release/verification references, this plan, the root plan and
+   newest-first work log. Preserve historical evidence and the unchanged pending
+   cron migration, which remains outside Phase B.
+4. Verify the renamed SQL/rollback and Edge hashes, path resolution, shell syntax,
+   and the path-dependent Sheets test. The feature behavior and earlier passing
+   type/lint/build results are unchanged. Require new-head CI after publication.
+5. After review and publication, re-pin PR #451 to that exact source with
+   before/applied history `342 / 20261021200000` and recorded history
+   `343 / 20261022062539`. Recheck hosted state immediately before its protected
+   stages; stop on any drift rather than refreshing pins implicitly.
+
+This checkpoint supersedes the earlier blocked-read status below. Subsequent
+read-only dashboard checks found 77 deployed Edge functions and no Sheets
+function, all six B1 secret names present, and `GOOGLE_SHEETS_ENABLED` absent.
+Secret values were not read, changed or validated. Vercel project and shared
+environment searches both confirmed `VITE_GOOGLE_SHEETS_ENABLED` absent. The
+Ready/Production rollback candidate is `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3` at
+main `1a7ea7a5`, current on `www.fflagent.com`; capture it again after the runner
+merge before Phase C. GitHub credential readiness and the remaining release
+gates are still outstanding. No production mutation, import or schedule is
+authorized by this filename change, and none has been performed.
+
+---
+
 ## Release continuation — 2026-10-22 UTC / October 21 PDT
 
 Chris approved proceeding after the current status review. This authorizes the
@@ -112,7 +155,7 @@ remain blocked. The pending cron migration remains outside Phase B.
 
 ### 0.3 Data model
 
-All new objects are in migration `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`; the version is re-stamped on apply per invariant #35. The cron schedule is in `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql`.
+All new objects are in migration `supabase/migrations/20261022062539_google_sheets_import_foundation.sql`; the version is re-stamped on apply per invariant #35. The cron schedule is in `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql`.
 
 **`public.google_sheets_connections`**
 - Columns:
@@ -284,9 +327,9 @@ The existing triggers do the rest: `user_id` sync, one `lead_created` dispatch p
 ### 0.8 Exact files (this revision)
 
 **New**
-- `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`
+- `supabase/migrations/20261022062539_google_sheets_import_foundation.sql`
 - `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql`
-- `supabase/migrations/rollback/20261013120000_google_sheets_import_foundation.rollback.sql`
+- `supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql`
 - `supabase/tests/google_sheets_harness.sql`, `supabase/tests/google_sheets_import.sql`
 - `scripts/run_google_sheets_tests.sh` (native PostgreSQL plus a PostgREST role-access check)
 - `supabase/functions/google-sheets-oauth-start/index.ts`
@@ -585,7 +628,7 @@ If publishing the workflow file is refused, I report the exact blocker and conti
 
 #### Exact files (this correction)
 **Modified**
-- **Migration:** `supabase/migrations/20261013120000_google_sheets_import_foundation.sql` (unapplied candidate):
+- **Migration:** `supabase/migrations/20261022062539_google_sheets_import_foundation.sql` (unapplied candidate):
   - the `approved` kind; `lock_for_work`, ingest, finish, review; the new `review_state`, `resolve_identity` and `connection_current` (private + public); the ACL blocks pick these up by name.
 - **Edge:**
   - `supabase/functions/_shared/googleSheets/{identity,mapping,engine,db}.ts`

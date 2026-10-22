@@ -7,7 +7,7 @@ import { splitFullName as sheetsSplit, parseDOB as sheetsParseDOB, normalizeFiel
 import { parseDOB } from "@/utils/dobUtils";
 import { normalizeFieldName } from "@/lib/import-field-matching";
 import { CONTACTS_PERMISSIONS } from "@/config/permissionDefaults";
-import migrationSql from "../../../../supabase/migrations/20261013120000_google_sheets_import_foundation.sql?raw";
+import migrationSql from "../../../../supabase/migrations/20261022062539_google_sheets_import_foundation.sql?raw";
 
 const src = (o: Partial<SheetSourceRow>): SheetSourceRow => ({
   id: "s", organization_id: "o", user_id: "u", spreadsheet_id: "x", sheet_id: 0, spreadsheet_name: "", sheet_title: "", display_name: "d",

@@ -1,3 +1,37 @@
+## 2026-10-22 06:25 UTC — Google Sheets migration re-stamp approved from fresh hosted evidence
+
+Read-only hosted SQL at `2026-10-22T06:25:20.775462Z` returned 342 history rows,
+latest `20261021200000`, no Sheets database objects/history/cron/Vault names, and
+the expected permission-helper preimage `a199d5ddfb9a56070aeb7706d3e9a4b8`.
+Supabase Deploy to production is OFF. Subsequent dashboard checks found 77
+deployed Edge functions with none for Sheets, the six B1 secret names present,
+and `GOOGLE_SHEETS_ENABLED` absent. Vercel project and shared searches also
+confirmed `VITE_GOOGLE_SHEETS_ENABLED` absent. No secret values were read,
+changed or validated.
+
+1. Re-stamp the unapplied foundation and paired rollback to `20261022062539`,
+   chosen at 06:25:39 UTC after the hosted head. Keep their bytes and all Edge
+   bundles unchanged. The focused plan was updated before these edits.
+2. Update only active CI/test/release references. The regression script retains
+   the historical filename for its old reviewed tree; pending cron stays inert.
+3. Verify hashes, paths, shell syntax, the path-dependent test and required root
+   TypeScript. All 10 workflows already passed on `98074fb2`; require new-head
+   CI after publication. Earlier behavior/type/lint/build evidence stays valid.
+4. After review/publication, re-pin runner #451 to that exact source, version and
+   observed history: 342/latest `20261021200000` before apply/recording and
+   343/latest `20261022062539` after recording. Repeat preflight and stop on drift.
+5. Finish GitHub credential prerequisites before the protected Phase B stages.
+   Current rollback candidate `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3` is Ready /
+   Production at main `1a7ea7a5`, current on `www.fflagent.com`; capture it again
+   after the runner merge before Phase C. Separate later-phase approvals remain.
+
+Local verification passed: 12/12 path-dependent Sheets tests, root TypeScript,
+active/YAML/regression path checks, three shell syntax checks, and unchanged
+SQL/rollback/Edge/pending-cron bytes. No production migration/deployment, import
+or schedule is part of this re-stamp.
+Evidence and current status: focused Sheets `release-package.md` and
+`verification.md`. Commit/push waits for review of this exact diff.
+
 ## 2026-10-22 — Google Sheets release continuation: branch reconciliation approved; live prerequisites pending
 
 Chris approved proceeding after the current status review. Preserve the existing

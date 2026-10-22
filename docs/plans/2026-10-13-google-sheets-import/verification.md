@@ -1,6 +1,56 @@
 # Google Sheets V1 — verification record (local + CI; no production)
 
-## Current reconciliation — 2026-10-22 UTC
+## Current re-stamp verification — 2026-10-22 06:25 UTC
+
+All 10 GitHub Actions workflows passed on published reconciliation head
+`98074fb2e6b9053ad1bc88010c4f3c885d7d06c3`. This is completed evidence for that
+head; CI for the filename re-stamp must pass after the new head is published.
+
+Fresh read-only SQL at `2026-10-22T06:25:20.775462Z` returned:
+
+| Observation | Result |
+|---|---|
+| Hosted history count / latest | `342 / 20261021200000` |
+| Sheets history / relations / database functions / cron / Vault secret names | `0 / 0 / 0 / 0 / 0` |
+| Permission-helper preimage MD5 | `a199d5ddfb9a56070aeb7706d3e9a4b8` |
+| Supabase Deploy to production | OFF, observed after successful sign-in |
+| Deployed Edge inventory | 77 visible functions, none `google-sheets-*` |
+| Six B1 Edge secret names | Present; no value read/change/validation |
+| Backend `GOOGLE_SHEETS_ENABLED` | Absent |
+| Frontend `VITE_GOOGLE_SHEETS_ENABLED` | Absent in Vercel project and shared searches across all environments/variables |
+| Current frontend rollback candidate | `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3`; Ready / Production / current `www.fflagent.com`; source `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4` |
+
+Sources: [hosted SQL result](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/sql/4ee2c7e3-376e-4e27-b00f-977ab28e0211),
+[Edge functions](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/functions),
+[Edge secret names](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/functions/secrets),
+[Vercel environment search](https://vercel.com/cgarness-projects/agentflow/settings/environment-variables).
+
+At the verified 06:25:39 UTC clock, release version `20261022062539` was chosen
+after the hosted head. Foundation and rollback were renamed without changing
+their contents. Active CI/test paths use the new name; the regression-evidence
+script keeps the original filename for its historical reviewed tree. The pending
+cron file and every Edge bundle are unchanged.
+
+| Re-stamp check | Result |
+|---|---|
+| SQL and rollback bytes against `98074fb2` | PASS; only filenames change |
+| Foundation SHA-256 | `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed` |
+| Rollback SHA-256 | `d9f36c350c2e02f9004ffe20a029762bd078e67c184ec06f71496e93ebaf0e93` |
+| All four Edge bundle digests | Unchanged; exact values in the reconciliation table below |
+| Active path resolution, historical/current regression paths, shell syntax | PASS; YAML path filters and raw import resolve, actual regression selector returns each tree's intended path, historical blob exists, unknown tree refused, all three shell scripts parse |
+| Path-dependent Sheets Vitest and required root TypeScript | PASS; 12/12 tests and `npx tsc --noEmit` exit 0 |
+| New-head CI and runner source/history re-pin | Pending review and publication |
+
+Expected Phase B history is now 342/latest `20261021200000` before apply and
+recording, then 343/latest `20261022062539` after recording, with 81 statements
+in the one Sheets row. These observations must be rechecked before each stage;
+they do not authorize an automatic retry or implicit pin refresh. The
+[rollback candidate](https://vercel.com/cgarness-projects/agentflow/CnxbpTh4fae7Bi6RWvZvWsGBDxP3)
+was captured before the runner merge and must be captured again before Phase C.
+GitHub environment credential readiness remains outstanding. No production mutation,
+import, schedule or real Google-account test was performed.
+
+## Earlier reconciliation — 2026-10-22 UTC
 
 Chris approved proceeding after the status review. The feature branch was merged
 locally with `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`, preserving
@@ -16,7 +66,7 @@ preserved, including `uv-profile-sync-worker` and the four Sheets functions.
 | Focused Sheets ESLint (same selection as Sheets CI) | PASS, exit 0 |
 | `npm run build` | PASS; existing dynamic-import, bundle-size and Browserslist warnings |
 | Strict app diagnostics against exact current-main base | PASS, `base=84, candidate=84, new=0`; existing diagnostics remain |
-| Current-head GitHub Actions | Pending branch publication; older green runs do not satisfy this gate |
+| Reconciliation-head GitHub Actions | PASS, all 10 workflows on published `98074fb2`; the new re-stamp head requires its own CI |
 | Real Google-account import | Not run; local and synthetic evidence does not substitute for it |
 
 Artifact identity against the pinned release source is unchanged:

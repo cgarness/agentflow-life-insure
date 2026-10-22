@@ -33,7 +33,7 @@ echo "   OK (network mode none; interfaces: $IFACES; production host does not re
 
 echo; echo "== 2. harness + foundation migration + synthetic fixtures =="
 SQL < "$ROOT/supabase/tests/google_sheets_harness.sql" >/dev/null 2>&1 || fail "harness"
-SQL -1 < "$ROOT/supabase/migrations/20261013120000_google_sheets_import_foundation.sql" >/dev/null 2>&1 || fail "foundation migration"
+SQL -1 < "$ROOT/supabase/migrations/20261022062539_google_sheets_import_foundation.sql" >/dev/null 2>&1 || fail "foundation migration"
 SQL < "$ROOT/supabase/tests/google_sheets_cron_check.sql" >/dev/null || fail "fixtures"
 echo "   OK ($(SQL -c "select count(*) from pg_proc where proname like 'google\_sheets\_%'") Sheets functions; pg_cron $(SQL -c "select extversion from pg_extension where extname='pg_cron'"), pg_net $(SQL -c "select extversion from pg_extension where extname='pg_net'"), supabase_vault $(SQL -c "select extversion from pg_extension where extname='supabase_vault'"))"
 

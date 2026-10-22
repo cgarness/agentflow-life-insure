@@ -1,3 +1,34 @@
+## 2026-10-22 06:25 UTC — Google Sheets release version re-stamped after fresh hosted read; no production mutation
+
+All 10 GitHub Actions workflows passed on published reconciliation head
+`98074fb2e6b9053ad1bc88010c4f3c885d7d06c3`. Main remains `1a7ea7a5`.
+
+- Fresh read-only SQL at `2026-10-22T06:25:20.775462Z`: 342 migration-history rows,
+  latest `20261021200000`, Sheets history/relations/database functions/cron/Vault
+  secret names all zero, helper preimage `a199d5ddfb9a56070aeb7706d3e9a4b8`.
+- Signed-in dashboard: Supabase Deploy to production OFF; 77 deployed Edge
+  functions, none for Sheets; all six B1 secret names present and backend flag
+  `GOOGLE_SHEETS_ENABLED` absent. Vercel project and shared searches confirmed
+  `VITE_GOOGLE_SHEETS_ENABLED` absent. No values read, changed or validated.
+- Updated the focused plan before implementation. Renamed the unapplied
+  foundation and paired rollback to `20261022062539`, chosen from the verified
+  06:25:39 UTC clock after the hosted head. SQL SHA-256 remains `fc68da86…efed`;
+  rollback remains `d9f36c35…0e93`; Edge bundles and pending cron are unchanged.
+- Updated active CI/test paths and release instructions. Historical regression
+  comparisons still load the original filename from their old reviewed worktree.
+- Local verification: 12/12 Sheets tests, root TypeScript, active/YAML/regression
+  path checks, three shell syntax checks and all immutable hashes pass. Details
+  are recorded in focused `verification.md`.
+  New-head CI and runner source/history re-pin follow review and publication;
+  do not use the prior head's green checks as proof of the new one.
+- Expected history is 342/latest `20261021200000` before apply/recording and
+  343/latest `20261022062539` after recording; repeat preflight and stop on drift.
+  Current rollback candidate `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3` is Ready /
+  Production at main `1a7ea7a5`, current on `www.fflagent.com`; capture it again
+  after the runner merge before Phase C. GitHub credential entry is pending.
+- No commit/push before review of this diff. No production migration/deployment,
+  Google import, activation, privacy publication or cron change.
+
 ## 2026-10-22 — Google Sheets release continuation: reconcile PR #442 with main; production prerequisites blocked
 
 Chris said “Let's proceed” after the current Sheets status review. Carried forward

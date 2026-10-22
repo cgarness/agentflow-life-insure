@@ -1,6 +1,60 @@
 # Google Sheets V1 — production release package
 
-## Current continuation checkpoint — 2026-10-22 UTC
+## Current release-version checkpoint — 2026-10-22 06:25 UTC
+
+The fresh hosted read now permits the approved release-only re-stamp. Foundation
+and rollback filenames use `20261022062539`, later than the observed hosted head
+`20261021200000`. Their contents and all four Edge bundles are unchanged. This
+checkpoint and the updated active instructions supersede earlier versions and
+history counts below; dated evidence remains historical.
+
+| Fresh read-only evidence | Observation |
+|---|---|
+| Hosted SQL time | `2026-10-22T06:25:20.775462Z` |
+| Migration history | 342 rows; latest `20261021200000` |
+| Sheets history / relations / database functions / cron / Vault secret names | 0 / 0 / 0 / 0 / 0 |
+| `_contacts_permission_default(text,text)` MD5 | `a199d5ddfb9a56070aeb7706d3e9a4b8` |
+| Supabase GitHub Deploy to production | OFF, observed after sign-in |
+| Deployed Edge inventory | 77 functions, all visible; no `google-sheets-*` function |
+| Six B1 Edge secret names | Present; values were not read, changed or validated |
+| Backend `GOOGLE_SHEETS_ENABLED` | Absent |
+| Frontend `VITE_GOOGLE_SHEETS_ENABLED` | Absent in Vercel project and shared searches across all environments/variables |
+| Current frontend rollback candidate | `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3`; Ready / Production / current `www.fflagent.com`; source `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4` |
+
+Sources: [hosted SQL result](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/sql/4ee2c7e3-376e-4e27-b00f-977ab28e0211),
+[Edge functions](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/functions),
+[Edge secret names](https://supabase.com/dashboard/project/jncvvsvckxhqgqvkppmj/functions/secrets),
+and [Vercel environment search](https://vercel.com/cgarness-projects/agentflow/settings/environment-variables).
+The new version was selected from the verified 06:25:39 UTC clock. These are
+point-in-time observations: repeat the exact preflight before each protected
+stage and stop if hosted state has changed.
+
+**Reviewed artifacts:**
+
+- Foundation: `supabase/migrations/20261022062539_google_sheets_import_foundation.sql`,
+  SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`.
+- Rollback: `supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql`,
+  SHA-256 `d9f36c350c2e02f9004ffe20a029762bd078e67c184ec06f71496e93ebaf0e93`.
+- Expected history before apply and before recording: `342 / 20261021200000`.
+  After recording: `343 / 20261022062539`, with one Sheets row and 81 statements.
+- The pending cron file is unchanged and inactive. Its later Phase E release
+  needs a new hosted-head ordering check.
+
+All 10 GitHub Actions workflows passed on reconciliation head
+`98074fb2e6b9053ad1bc88010c4f3c885d7d06c3`. That evidence predates this filename
+change. Publish and verify the new head, then re-pin PR #451's source, migration
+path/version and observed history expectations. The immutable `eaf988b` source
+remains the SQL/Edge byte reference; it does not contain the renamed path.
+
+The [current rollback candidate](https://vercel.com/cgarness-projects/agentflow/CnxbpTh4fae7Bi6RWvZvWsGBDxP3)
+is the pre-runner-merge deployment; capture it again before Phase C after the
+runner merge. GitHub environment credential readiness remains outstanding.
+The last GitHub environment observation had no secrets. Secret-name presence in Supabase proves
+neither their values nor GitHub runner credentials. Existing protected-stage and
+later-phase approvals remain in force. No production migration, deployment,
+import or schedule was performed for this re-stamp.
+
+## Earlier continuation checkpoint — 2026-10-22 UTC (superseded above)
 
 Chris approved proceeding after the status review. PR #442 is being reconciled
 with `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`; PR #451 receives
@@ -306,27 +360,27 @@ The existing `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`
 
 ## 3. Phase B — Database migration (exact SQL = the committed file)
 
-**Apply** `supabase/migrations/20261013120000_google_sheets_import_foundation.sql`
+**Apply** `supabase/migrations/20261022062539_google_sheets_import_foundation.sql`
 - **Checksums:** SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`, MD5 `94c7be79a3a95b4a2b971f4b4513838b`, 86,193 bytes. It was amended in place before any application; it has never been applied anywhere.
 - **How (approved 2026-10-15; replaces the earlier single `apply_migration` call, see `verification.md` §14):**
-  - Chris runs the exact committed file from his Mac (§10.1 stage 1), after the checksum, connection-identity and zero-state checks there:
+  - The protected cloud runner (§10.3) runs the exact committed file after checksum, connection-identity and zero-state checks. The earlier Mac procedure in §10.1 is historical:
     ```bash
-    psql "$SUPABASE_DB_URL" -X --set ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/20261013120000_google_sheets_import_foundation.sql
+    psql "$SUPABASE_DB_URL" -X --set ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/20261022062539_google_sheets_import_foundation.sql
     ```
   - The whole file runs as one transaction.
   - If psql exits non-zero: STOP. Do not run `migration repair`. Confirm read-only that nothing committed, and report the exact database error.
   - The SQL is never split, pasted into the Dashboard editor, sent through `execute_sql`, or applied with `supabase db push`.
-- **History, only after every read-back below and the advisor delta pass** (§10.1 stage 3):
+- **History, only after every read-back below and the advisor delta pass** (§10.3 `record-history`):
   ```bash
-  supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"
+  supabase migration repair 20261022062539 --status applied --db-url "$SUPABASE_DB_URL"
   supabase migration list --db-url "$SUPABASE_DB_URL"
   ```
   - `migration repair` records history only. It never substitutes for running or verifying the SQL.
   - `--db-url` writes on the same connection that stage 1 verified and applied with, as the M4 precedent `scripts/apply_m4_only.sh` does.
   - The flags were checked against CLI 2.121.0 (`migration repair [<version...>] --status applied|reverted --db-url …`).
   - No other version is marked applied or reverted. Migration-history tables are never edited directly.
-- **History read-back:** exactly one row with version `20261013120000` and name `google_sheets_import_foundation`; one more row than before stage 3 (328 in total on 2026-10-16; 330 since the 2026-10-17 Sold Date release added two rows).
-- **No restamp.** The recorded version is the authored `20261013120000`, so the filename and every reference already match. A rename is needed only if `migration repair` records a different version, and that is a stop.
+- **History read-back:** exactly one row with version `20261022062539` and name `google_sheets_import_foundation`, with 81 statements; 343 total rows and `max(version) = '20261022062539'` against the freshly verified 342-row baseline. Any baseline drift stops the release.
+- **Release-only re-stamp.** The unapplied foundation was renamed from authored version `20261013120000` after the hosted read on October 22. SQL bytes and digests are unchanged. Record only the reviewed new version; a different recorded version is a stop.
 
 **What it does**
 - **Preflight:** refuses to replay; refuses if the `_contacts_permission_default` MD5 differs from `a199d5dd…`.
@@ -380,7 +434,7 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 - Exactly three policies exist, the own-user SELECT policies on the three public tables. There are none on the private tables.
 - `_contacts_permission_default` returns its previous value for every other key and role, and Team Leader `contacts.leads.import` is still true.
 - There are zero connections, sources, receipts, sync runs, Sheets leads, Sheets cron jobs and `google_sheets%` Vault secrets.
-- No history row exists yet for `20261013120000`, because psql does not write one.
+- No history row exists yet for `20261022062539`, because psql does not write one.
 
 **Advisor comparison.**
 - Run `get_advisors` (security and performance) immediately before B2 and again after it, and compare the two. The §0.A values are the 2026-10-13 reference. `unused_index` and `table_bloat` follow usage statistics and can drift between days without any schema change; a difference between the fresh pre-apply capture and §0.A is reported, not attributed to Sheets.
@@ -393,7 +447,7 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 - It runs every minute, posts only while a source is due, and authenticates with the Vault token.
 - Its guards refuse to run unless the foundation, `pg_cron`, `pg_net` and a Vault token of at least 32 characters exist.
 
-**Rollback file:** `supabase/migrations/rollback/20261013120000_google_sheets_import_foundation.rollback.sql` (SHA-256 `d9f36c350c2e02f9004ffe20a029762bd078e67c184ec06f71496e93ebaf0e93`). It is locally proven to remove every object and restore the exact helper preimage.
+**Rollback file:** `supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql` (SHA-256 `d9f36c350c2e02f9004ffe20a029762bd078e67c184ec06f71496e93ebaf0e93`). It is locally proven to remove every object and restore the exact helper preimage. Its historical header retains the authored filename so the reviewed bytes remain unchanged.
 
 ## 4. Phase B — Edge Functions (four new names; exact bundles; deploy order)
 
@@ -446,7 +500,7 @@ SELECT count(*) FROM cron.job WHERE jobname = 'google-sheets-sync-every-minute';
 
 **Preconditions:**
 - Phase B is complete, with every read-back matching.
-- The history row is `20261013120000`, matching the file name (no rename; §3).
+- The history row is `20261022062539`, matching the re-stamped filename (§3).
 - Sheets CI and the repository workflows are green on the exact head.
 - `main` is merged into the branch if it has moved.
 - GitHub → Supabase "Deploy to production" is **OFF** (owner check).
@@ -938,6 +992,12 @@ On 2026-10-16 Chris asked that Phase B run from Claude Code on his Mac, because 
 
 ### 10.3 Cloud-only execution through protected GitHub Actions (2026-10-17)
 
+**October 22 update:** use the current checkpoint and active §3 paths. The runner
+must be re-pinned to the reviewed source containing the renamed migration,
+version `20261022062539`, 342 history rows/latest `20261021200000` before apply
+and recording, and 343 rows/latest `20261022062539` after recording. The following
+October 17 run is historical evidence; new-head runner CI is required.
+
 This is the current route while Chris has no Mac. It implements the root plan's 2026-10-16 cloud runner proposal. PR [#451](https://github.com/cgarness/agentflow-life-insure/pull/451), head `5aab5e06a25a9a25b03a0b6b00f7c5467a26ef18`, contains `.github/workflows/google-sheets-phase-b.yml`. A separate no-secret CI workflow and synthetic test driver validate its actual embedded program against disposable PostgreSQL 17.6. These two verification files are a refinement of the original single-workflow proposal; they grant no production access. Root plan and work log are the other two changed files. No application, migration or function code changes.
 
 **Verified:** [run 39015204526](https://github.com/cgarness/agentflow-life-insure/actions/runs/39015204526), job `117345788689`, passes on that exact head (earlier heads: run `38993502917` on `c7e1c56e`, run `38996292162` on `394de1a4`). Real SQL apply and all SQL read-backs, real CLI history repair, replay/out-of-order refusal, lock-timeout rollback, watchdog SIGINT rollback and command-error redaction passed. Since `c7e1c56e`, three things changed:
@@ -951,11 +1011,11 @@ Tests for TLS on the runner connection and for read-only check sessions also pas
 
 **Separate consequential approval:** merge #451 only with explicit approval after these controls and CI are verified. A main commit rebuilds Vercel production even though application files are unchanged. Capture the resulting deployment as the subsequent rollback baseline. Do not merge #442 at this stage.
 
-**Dispatch-only stages:** `check`, `apply-migration`, `record-history`, `deploy-functions`; `confirm` must repeat the stage. Main-only, `contents: read`, pinned checkout/actions/CLI, one run at a time, no cancel-in-progress. Source artifacts are pinned to `eaf988bc276a3922ee0ec6c3c6038665be9f1678`; do not substitute a moving branch. The agent may dispatch after Chris's stage-specific approval; Chris remains the protected-environment reviewer.
+**Dispatch-only stages:** `check`, `apply-migration`, `record-history`, `deploy-functions`; `confirm` must repeat the stage. Main-only, `contents: read`, pinned checkout/actions/CLI, one run at a time, no cancel-in-progress. Before dispatch, pin source to the reviewed commit containing the re-stamped path; never substitute a moving branch. Preserve SQL and Edge digests against `eaf988bc276a3922ee0ec6c3c6038665be9f1678`. The agent may dispatch after Chris's stage-specific approval; Chris remains the protected-environment reviewer.
 
 1. `check`: forced read-only connection, exact identity/state/count/helper checks, six B1 secret names present, enable flag and four functions absent. No values printed.
 2. `apply-migration`: fresh independent advisor baseline and preflight first; explicit approval covers only the exact §3 file. One psql transaction, lock timeout 5 seconds, statement timeout 30 seconds, watchdog SIGINT at 120 seconds. Run every SQL read-back and independent advisor comparison before the next approval.
-3. `record-history`: separate approval; exact version `20261013120000`, expected 81 statements and 330 history rows (329 before). Never rerun apply after a history error. Update records and require green exact-head #442 CI before deployment.
+3. `record-history`: separate approval; exact version `20261022062539`, expected 81 statements and 343 history rows (342 before), with that new version as the hosted maximum. Never rerun apply after a history error. Update records and require green exact-head #442 CI before deployment.
 4. `deploy-functions`: separate approval; exactly the four §4 names in order, `verify_jwt=false`, no unrelated function deployment. Check function digest/content, unchanged unrelated inventory, disabled HTTP outcomes, logs and zero operational rows. `GOOGLE_SHEETS_ENABLED` stays absent; no cron/Vault worker token.
 
 Any failure stops. No automatic retry, method switch, rollback or partial-deploy continuation. Production read-backs and advisor output stay out of public logs. Phase C, Phase D, privacy publication and Phase E scheduling retain their existing separate approvals. After Phase B, disable the runner and remove the temporary environment secrets/revoke the release token under the existing cleanup gate.

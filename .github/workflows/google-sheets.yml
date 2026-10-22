@@ -4,9 +4,9 @@ name: Google Sheets
 on:
   pull_request:
     paths:
-      - 'supabase/migrations/20261013120000_google_sheets_import_foundation.sql'
+      - 'supabase/migrations/20261022062539_google_sheets_import_foundation.sql'
       - 'supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql'
-      - 'supabase/migrations/rollback/20261013120000_google_sheets_import_foundation.rollback.sql'
+      - 'supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql'
       - 'supabase/functions/_shared/googleSheets/**'
       - 'supabase/functions/google-sheets-*/**'
       - 'supabase/tests/google_sheets_*.sql'
