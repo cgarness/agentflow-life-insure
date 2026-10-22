@@ -1006,7 +1006,7 @@ Future conversions only: no backfill, and existing clients are never read or cha
   keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
   must again re-verify the commission companions (Phase 2A rule).
 
-## Google Sheets lead import invariant — October 13, 2026 (implemented on a draft PR, integrity corrections included; NOT deployed)
+## Google Sheets lead import invariant — October 13, 2026 (backend deployed disabled on 2026-10-22 as `20261022062539`; frontend release pending)
 
 Settings → Google Sheets uses a **dedicated** Google OAuth client and its own tables, Vault secrets and Edge functions. Never reuse the Gmail/Calendar client, `_shared/google-token.ts` Base64 storage, `user_email_connections` or `calendar_integrations` for it.
 
@@ -1068,4 +1068,10 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 
 **Permissions:** `contacts.leads.import_google_sheets` defaults ON for Agent and Team Leader. SQL and app defaults are pinned equal by `src/lib/google-sheets/__tests__/googleSheets.test.ts`. Settings visibility (`role_permissions.s`) and import permission are separate controls.
 
-**Status.** Draft PR only: the migration is not applied, the functions are not deployed, cron is pending, and the shutdown ops files are NOT RUN. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
+**Status (2026-10-22).** Phase B is complete:
+- migration `20261022062539` is applied and recorded (81 statements; never edit, rename or replay it);
+- the four functions are deployed at v1 with `verify_jwt=false`;
+- both flags are absent, and there is no cron job or Vault worker token;
+- the shutdown ops files are NOT RUN.
+
+The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.

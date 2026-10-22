@@ -1,3 +1,49 @@
+## 2026-10-22 17:00 UTC — Google Sheets Phase C: preflight passed; frontend release plan (awaiting "Approve Phase C frontend release")
+
+**Authorization and scope.** Chris assigned ownership of the remaining Sheets release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2` (feature source `88669b7d` merged with main `16aa4ab4`): complete the Phase C preflight, record it, and stop for the exact approval "Approve Phase C frontend release". Nothing is merged, enabled, migrated or deployed before that approval. Phase D (live test, cron OFF) and Phase E (privacy, Vault/cron, normal operation) each need their own later approval.
+
+**Source of truth.** Read AGENT_RULES.md in full, VISION.md, the newest Work Log entries, this plan, and the focused release package §5.1–§9 and §10.3. Main is still `16aa4ab4` (the #451 runner merge, already in the branch), so no work merged after `db6c5031` conflicts. Draft PR #479 (carrier selection, not approved for merge) overlaps only in AGENT_RULES.md, WORK_LOG.md and this file. If it reaches main first, reconcile those three documents additively and rerun CI before the Phase C merge.
+
+**Phase B outcome (first repository record).** Four protected runs of `.github/workflows/google-sheets-phase-b.yml` on main `16aa4ab4` each passed every gate: `check` run 39807937130 (15:49 UTC), `apply-migration` 39809784709 (16:01), `record-history` 39811684469 (16:11) and `deploy-functions` 39812578512 (16:17). Production has migration `20261022062539 / google_sheets_import_foundation` (343 history rows, 81 statements), 52 routines, six empty RLS tables with three own-read policies, permission-helper postimage `bc6356dde683e628b88b631dd5f6d01e`, and the four Sheets functions ACTIVE v1 with `verify_jwt=false`. `GOOGLE_SHEETS_ENABLED` is absent, with no cron job, Vault worker token, connection or import.
+
+**Preflight results (read-only, 2026-10-22 16:48–16:58 UTC).**
+- **PR #442:** draft; head `db6c5031`, base main `16aa4ab4`, `mergeable_state: clean`. All 19 exact-head checks across the 10 workflows succeeded; Supabase Preview was skipped (preview-branch limit). `supabase/`, `src/` and the package files are byte-identical to the deployed source `88669b7d`.
+- **Hosted database (16:51:20 UTC):** `postgres|f|52|1|bc6356dde683e628b88b631dd5f6d01e|20261022062539|343`; history row `20261022062539|google_sheets_import_foundation|81`. The six Sheets tables, Sheets cron jobs, Sheets Vault names and Google Sheets leads are all 0.
+- **Edge:** 81 functions. The four Sheets functions are ACTIVE v1 with `verify_jwt=false` and ezbr `40eb0ecb…`, `d0a2cca1…`, `dca4e02e…`, `a85b8057…`. The only Sheets traffic is the runner's five disabled-endpoint probes at 16:17:57 UTC (503 / 401 / 503 / 302 / 403).
+- **Backend flag:** `deploy-functions` verified it absent through the Management API at 16:17:57 UTC, and its disabled HTTP probes passed. This container's network policy blocks the functions host, so a fresh probe was not possible.
+- **Supabase GitHub "Deploy to production":** OFF as observed after sign-in at 06:25 UTC today (invariant #30); the setting is not readable from this session. Merging #442 adds no unrecorded top-level migration: its only one, `20261022062539`, is recorded, and `pending/` and `rollback/` sit outside CLI migration discovery.
+- **`VITE_GOOGLE_SHEETS_ENABLED`:** absent in the Vercel project and shared searches at 06:25 UTC today. The connected Vercel tools cannot list environment variables here.
+- **Rollback targets:** `agentflow` `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` (READY production at `16aa4ab4`; www.fflagent.com and fflagent.com) and `agentflow-life-insure` `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb` (READY production at `16aa4ab4`).
+- **TypeScript:** `npx tsc --noEmit` exits 0. `npx tsc -p tsconfig.app.json --noEmit` reports 84 errors in 230 lines, the unchanged main baseline; CI's exact candidate/base comparison also passed.
+- **Health baseline, 15:57–16:57 UTC:**
+  - Edge: 279 requests, 3 at or above 500 (the 2 intentional Sheets probes and one `sms-consent-worker` 503 at 16:33).
+  - Gateway: 4,349 requests, none at or above 500.
+  - Postgres: 3 ERROR lines, dialer disposition refusals ("Outbound admission was not verified", migration `20261003043122`) at 16:32, unrelated to Sheets.
+  - Gmail: Chris's connection is `connected`, `last_sync_at` 16:55:01 UTC, no error.
+
+**Files to touch now (documentation only).**
+- this file;
+- WORK_LOG.md;
+- AGENT_RULES.md (Sheets invariant heading and status only);
+- `docs/plans/2026-10-13-google-sheets-import/{release-package,verification,implementation_plan}.md` (new dated checkpoints; historical text kept).
+
+No application, SQL, Edge, config, package, workflow, permission or test change. Push to `claude/keen-brown-e4u3ht` with a lease on `db6c5031`, then require green exact-head CI on the new head before requesting approval.
+
+**After "Approve Phase C frontend release".**
+1. Re-read main, the PR head and base, mergeability and the exact-head checks. Stop on any drift; if main moved, reconcile it and rerun CI first.
+2. Mark PR #442 ready and squash-merge it with the expected head SHA, the convention of #474–#477 and #451. Verify that the merge commit's tree equals the approved head's tree.
+3. Enable no flag. No migration, Edge deployment, secret, cron or Vault change.
+4. Let Vercel's Git integration deploy main. Verify both projects READY on the merge SHA, with www.fflagent.com on the new `agentflow` deployment.
+5. Read-only health checks (§5.1):
+   - Chris checks: Dashboard; Contacts list and one lead; Dialer campaign load only, with no call; Reports; Settings → Email Setup (Gmail connected); Settings → Calendar; Conversations, opening an existing thread and sending nothing; Settings → Google Sheets shows "Google Sheets is not available yet."
+   - Claude compares Edge and gateway 5xx and Postgres errors with the hour before the merge, and confirms Gmail stays connected with an advancing `last_sync_at` and the Sheets tables, cron and Vault stay empty.
+6. Record the merge SHA and deployment IDs, add a newest-first Work Log entry and run tsc, as a follow-up documentation update on this branch restarted from the new main. Direct pushes to main are not allowed, and the merged PR is not reused.
+7. Stop. Phase D needs its own approval.
+
+**Rollback.** Roll both Vercel projects back to the deployments above. No data changes, and the Phase B backend stays deployed and disabled.
+
+---
+
 ## 2026-10-22 06:25 UTC — Google Sheets runner fresh hosted baseline and ordered source re-pin (approved local preparation)
 
 **Authorization and evidence.** After Chris completed secure sign-in and said "Continue", the coordinator obtained read-only evidence from the Supabase browser for project jncvvsvckxhqgqvkppmj at 2026-10-22T06:25:20.775462Z: 342 migration-history rows; latest version 20261021200000; zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names; permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8. The coordinator separately verified 77 deployed Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent, and GitHub deploy-to-production OFF. No secret values were opened, read or changed. This fresh evidence supersedes the earlier blocked-inventory checkpoint below; it does not authorize a production mutation.

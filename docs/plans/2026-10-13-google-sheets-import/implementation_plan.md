@@ -1,5 +1,11 @@
 # Google Sheets lead import V1 — implementation plan
 
+## Phase B complete; Phase C pending approval — 2026-10-22 17:00 UTC
+
+The re-stamped foundation `20261022062539` was applied, recorded and followed by the four Edge deployments. The four protected runner stages on main `16aa4ab4` all passed (runs 39807937130, 39809784709, 39811684469, 39812578512). Production holds 343 history rows, 52 routines, six empty RLS tables and four ACTIVE v1 functions. Both flags are absent, with no cron job or Vault worker token.
+
+The read-only Phase C preflight passed on PR head `db6c5031`. Current rollback targets are `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` (agentflow) and `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb` (agentflow-life-insure). The next action is the §5.1 frontend release, only after Chris approves it. The release package's top checkpoint and the verification record's top section hold the evidence; the earlier statements below are historical. The pending cron migration remains inactive and needs its own hosted-head re-stamp before Phase E.
+
 ## Approved migration re-stamp — 2026-10-22 06:25 UTC
 
 Fresh read-only hosted SQL at `2026-10-22T06:25:20.775462Z` returned 342

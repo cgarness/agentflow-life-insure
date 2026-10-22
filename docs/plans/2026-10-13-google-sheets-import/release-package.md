@@ -1,6 +1,41 @@
 # Google Sheets V1 — production release package
 
-## Current release-version checkpoint — 2026-10-22 06:25 UTC
+## Current checkpoint — Phase B complete; Phase C preflight passed (2026-10-22, 16:48–16:58 UTC)
+
+**Phase B is complete.** The backend is deployed and disabled. Four protected runs of `.github/workflows/google-sheets-phase-b.yml` on main `16aa4ab4` each passed every gate (evidence: `verification.md`, top section):
+
+| Stage | Run | Time (UTC) |
+|---|---|---|
+| `check` | [39807937130](https://github.com/cgarness/agentflow-life-insure/actions/runs/39807937130) | 15:49 |
+| `apply-migration` | [39809784709](https://github.com/cgarness/agentflow-life-insure/actions/runs/39809784709) | 16:01 |
+| `record-history` | [39811684469](https://github.com/cgarness/agentflow-life-insure/actions/runs/39811684469) | 16:11 |
+| `deploy-functions` | [39812578512](https://github.com/cgarness/agentflow-life-insure/actions/runs/39812578512) | 16:17 |
+
+This checkpoint supersedes every earlier "Phase B in progress / nothing applied" status below. Dated evidence below remains historical.
+
+| Read-only Phase C preflight | Observation |
+|---|---|
+| PR #442 | Draft; head `db6c50317dab715a9f2d44301c31cb3dfda219b2`; base main `16aa4ab4b44f60004f9668fc351cda6e3202af5f`; `mergeable_state: clean`; all 19 exact-head checks green (Supabase Preview skipped) |
+| Main | Unchanged since the #451 runner merge. Draft PR #479 overlaps only in three shared documents. |
+| Source equality | `supabase/`, `src/` and the package files on the PR head are byte-identical to the deployed source `88669b7d` |
+| Hosted database (16:51:20 UTC) | `postgres\|f\|52\|1\|bc6356dde683e628b88b631dd5f6d01e\|20261022062539\|343`; one history row with 81 statements. The six Sheets tables, Sheets cron, Sheets Vault names and Google Sheets leads are all 0. Six RLS tables, three policies. |
+| Edge | 81 functions. The four Sheets functions are ACTIVE v1 with `verify_jwt=false`, ezbr `40eb0ecb…` / `d0a2cca1…` / `dca4e02e…` / `a85b8057…`. The only Sheets traffic is the runner's five disabled-endpoint probes at 16:17:57 UTC (503 / 401 / 503 / 302 / 403). |
+| Backend `GOOGLE_SHEETS_ENABLED` | Absent: `deploy-functions` checked the Management API at 16:17:57 UTC and its disabled probes passed. This container cannot reach the functions host to re-probe. |
+| Supabase GitHub Deploy to production | OFF as observed after sign-in at 06:25 UTC today; not readable from the cloud session. #442 adds no unrecorded top-level migration. |
+| Frontend `VITE_GOOGLE_SHEETS_ENABLED` | Absent at 06:25 UTC today (project and shared searches); the connected Vercel tools cannot list variables |
+| Rollback targets | `agentflow` [`dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt`](https://vercel.com/cgarness-projects/agentflow/23c9bCQ3sSbrSFebWMmPeWaEzYqt): READY production at `16aa4ab4`, serving www.fflagent.com and fflagent.com. `agentflow-life-insure` [`dpl_6CuqHb9RQZikB26AS97i4kDSXCxb`](https://vercel.com/cgarness-projects/agentflow-life-insure/6CuqHb9RQZikB26AS97i4kDSXCxb): READY production at `16aa4ab4`. These replace `dpl_CnxbpTh4…` and every older target below. |
+| TypeScript | Root `npx tsc --noEmit` exits 0. Strict app: 84 errors in 230 lines, the main baseline. |
+| Health baseline, 15:57–16:57 UTC | Edge: 279 requests, 3 × 5xx (2 intentional Sheets probes, 1 `sms-consent-worker`). Gateway: 4,349 requests, 0 × 5xx. Postgres: 3 dialer disposition refusals, not Sheets. Gmail: `connected`, syncing at 16:55 UTC. |
+
+**Phase C (awaiting "Approve Phase C frontend release").** Follow §5.1, with these additions:
+- re-read the heads first;
+- mark #442 ready and squash-merge it with the expected head;
+- prove that main's new tree equals the approved head;
+- verify both Vercel projects READY on the merge commit.
+
+Flags stay unset, and there is no migration, Edge or secret change. Records follow as a documentation update. Phases D and E keep their separate approvals.
+
+## Release-version checkpoint — 2026-10-22 06:25 UTC (superseded above)
 
 The fresh hosted read now permits the approved release-only re-stamp. Foundation
 and rollback filenames use `20261022062539`, later than the observed hosted head

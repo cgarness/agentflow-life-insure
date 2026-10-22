@@ -1,3 +1,32 @@
+## 2026-10-22 17:00 UTC — Google Sheets Phase B complete (backend deployed, disabled); Phase C preflight passed; frontend release awaits approval
+
+Chris assigned ownership of the remaining release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2`. I read AGENT_RULES in full, VISION, this log, the root plan and the release package §5.1–§9 and §10.3 before editing. This entry and the matching plan/release records are documentation only: no merge, flag, migration, Edge deployment or other production change.
+
+- **Phase B, recorded.** Four protected runs of the runner on main `16aa4ab4` each passed every gate:
+
+  | Stage | Run | Time (UTC) |
+  |---|---|---|
+  | `check` | 39807937130 | 15:49 |
+  | `apply-migration` | 39809784709 | 16:01 |
+  | `record-history` | 39811684469 | 16:11 |
+  | `deploy-functions` | 39812578512 | 16:17 |
+
+  The result: migration `20261022062539` (history 343, 81 statements), 52 routines, six empty RLS tables with three policies, helper postimage `bc6356dd…f01e`, and four Sheets functions ACTIVE v1 with `verify_jwt=false`. The backend flag stays absent, with no cron job, Vault worker token or import. Unrelated functions are unchanged.
+- **Preflight (read-only, 16:48–16:58 UTC).**
+  - PR #442: draft, `clean` against main `16aa4ab4`; all 19 exact-head checks green (Supabase Preview skipped).
+  - Main has not moved.
+  - Hosted state matches the post-Phase-B record exactly. Edge inventory is 81 functions; the only Sheets traffic is the runner's five disabled-endpoint probes.
+  - Root tsc exits 0; strict app tsc reports the 84-error main baseline.
+  - Rollback targets: `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` (agentflow, www.fflagent.com) and `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb` (agentflow-life-insure), both READY at `16aa4ab4`.
+  - Health baseline, gateway: no 5xx.
+  - Health baseline, Edge: 3 × 5xx (2 intentional Sheets probes, 1 `sms-consent-worker`).
+  - Health baseline, Postgres: three unrelated dialer disposition refusals.
+  - Health baseline, Gmail: connected and syncing.
+- **Evidence limits.** Supabase "Deploy to production" (OFF) and `VITE_GOOGLE_SHEETS_ENABLED` (absent) rest on the signed-in dashboard observations at 06:25 UTC today; the connected tools cannot read either setting. The backend flag was last verified by `deploy-functions` at 16:17:57 UTC, because this container's network policy blocks the functions host.
+- **Next.** After green CI on this documentation head, the exact approval is "Approve Phase C frontend release". It covers marking #442 ready, an expected-head squash merge, the Vercel production deployment of main, and read-only health checks. Phase D and Phase E stay separately gated.
+
+---
+
 ## 2026-10-22 — Google Sheets runner: fresh hosted history and reviewed source pinned; local preparation complete
 
 After Chris completed secure sign-in and said "Continue", the coordinator read Supabase project jncvvsvckxhqgqvkppmj in the browser at 2026-10-22T06:25:20.775462Z. This yielded 342 migration-history rows, latest 20261021200000, permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8, and zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names. The coordinator also verified 77 Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent and GitHub deploy-to-production OFF. No secret values were opened, read or changed.

@@ -1,6 +1,46 @@
-# Google Sheets V1 — verification record (local + CI; no production)
+# Google Sheets V1 — verification record (local, CI and read-only production evidence)
 
-## Current re-stamp verification — 2026-10-22 06:25 UTC
+## Phase B execution and Phase C preflight — 2026-10-22
+
+### Phase B: four protected runner stages on main `16aa4ab4` (all passed)
+
+Each stage ran `.github/workflows/google-sheets-phase-b.yml` in the protected `google-sheets-production` environment from pinned source `88669b7d`. Each ended with the runner's "STOP HERE" line, and the next stage was dispatched only after connector verification.
+
+| Stage | Run / job | Gates that passed (job log, UTC) |
+|---|---|---|
+| `check` | [39807937130](https://github.com/cgarness/agentflow-life-insure/actions/runs/39807937130) / 119926074711 | 15:49:41–43: four bundle digests; approved session pooler; TLS on the runner connection; connection identity; `postgres` role and database; pinned CLI and reviewed flags; six B1 secret names present; backend flag absent; four new function names absent; recognized state `before`; cron and Sheets Vault secrets absent |
+| `apply-migration` | [39809784709](https://github.com/cgarness/agentflow-life-insure/actions/runs/39809784709) / 119932613143 | 16:01:03–06: stage order and exact state; no long client transaction; migration transaction completed; applied state without history; 52 functions in the expected schemas; function ACLs; wrapper definer and search path; six RLS tables; all 18 table ACL rows; three own-read policies; exact permission-helper postimage; permission defaults; cron and Vault absent; six tables empty; no receipt-linked leads |
+| `record-history` | [39811684469](https://github.com/cgarness/agentflow-life-insure/actions/runs/39811684469) / 119939329907 | 16:11:39–47: every apply read-back again; history state; single history row with 81 statements |
+| `deploy-functions` | [39812578512](https://github.com/cgarness/agentflow-life-insure/actions/runs/39812578512) / 119942487118 | 16:17:44–58: four named deploys; every unrelated function unchanged; four functions ACTIVE with code authorization; six B1 names present; backend flag absent; disabled HTTP outcomes (API `inspect` 503 `disabled`, API `status` 401, OAuth start 503 `disabled`, callback 302 to the safe error URL, worker 403); cron and Vault absent; six tables empty; no receipt-linked leads |
+
+Independent connector checks between stages matched each runner result:
+- state, history row, function ACLs, RLS, policies and row counts;
+- the Edge inventory: 81 functions; the Sheets ezbr hashes `40eb0ecb…`, `d0a2cca1…`, `dca4e02e…`, `a85b8057…`; unrelated code hashes and `updated_at` unchanged;
+- the post-apply advisors: the only Sheets findings are the INFO "RLS enabled, no policy" notices on the three private server-only tables, which is by design.
+
+### Phase C preflight (read-only, 16:48–16:58 UTC)
+
+| Check | Result |
+|---|---|
+| PR #442 | Draft; head `db6c50317dab715a9f2d44301c31cb3dfda219b2`; base main `16aa4ab4b44f60004f9668fc351cda6e3202af5f`; `mergeable_state: clean` |
+| Exact-head CI on `db6c5031` | 19/19 checks succeeded across all 10 workflow runs: Google Sheets (all five jobs) 39813762994, Reports frontend verification 39813763244, Commission grids 39813763209, Reporting integrity 39813763008, Dialer DNC integrity 39813763254, SMS consent integration 39813762945, A2P registration 39813762792, Onboarding emails 39813762860, Twilio account balance 39813763219, UV profile sync verification 39813762991. Supabase Preview skipped (preview-branch limit). |
+| Main | `16aa4ab4` at 16:48:56 UTC; no newer merge. Draft PR #479 (carrier selection) overlaps only in AGENT_RULES.md, WORK_LOG.md and the root plan. |
+| Deployed source equality | `git diff 88669b7d db6c5031 -- supabase src package.json package-lock.json deno.lock` is empty |
+| PR scope | 88 files: Sheets code, tests, CI and docs, plus the reviewed integration points (`SettingsRenderer.tsx`, `settingsConfig.ts`, `permissionDefaults.ts`, three tests, four `config.toml` function blocks). No telephony file. Migrations added: `20261022062539` (recorded), `pending/` cron file, `rollback/` file. |
+| Hosted state (16:51:20 UTC) | `postgres\|f\|52\|1\|bc6356dde683e628b88b631dd5f6d01e\|20261022062539\|343`; history row `20261022062539\|google_sheets_import_foundation\|81`; newest versions `20261022062539`, `20261021200000`, `20261021180000` |
+| Sheets data and activation objects | Connections, sources, sync runs, OAuth states, source rows and receipts all 0. Sheets cron jobs 0, Sheets Vault names 0, `lead_source = 'Google Sheets'` leads 0. Six RLS tables, three policies. |
+| Edge inventory | 81 functions; the four Sheets functions are ACTIVE v1 with `verify_jwt=false` and unchanged ezbr hashes. Function logs since 15:30 UTC show only the five runner probes at 16:17:57 (503 / 401 / 503 / 302 / 403). |
+| Backend flag | Last verified absent by `deploy-functions` at 16:17:57 UTC. A fresh unauthenticated probe from this container was refused by its network policy (proxy CONNECT 403); no workaround was attempted. |
+| Supabase Deploy to production | OFF at the signed-in 06:25 UTC observation; not readable here. Main already carries 12 top-level migration files whose versions are not in hosted history. #442 adds none: `20261022062539` is recorded, and `pending/` and `rollback/` are not discovered by the CLI. |
+| `VITE_GOOGLE_SHEETS_ENABLED` | Absent at the 06:25 UTC Vercel searches. `get_project` returns no environment list, and the earlier `filter_project_envs` call was refused (403). The frontend reads it as `=== "true"`, so the absent flag renders "Google Sheets is not available yet." |
+| Vercel rollback targets | `agentflow` `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt`: READY, production, `16aa4ab4`, built 15:44:33–15:45:13 UTC, aliases www.fflagent.com and fflagent.com (redirect), no alias error. `agentflow-life-insure` `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb`: READY, production, `16aa4ab4`. |
+| TypeScript on `db6c5031` | `npx tsc --noEmit` exit 0; `npx tsc -p tsconfig.app.json --noEmit` 84 errors in 230 lines, the unchanged main baseline (main `1a7ea7a5`→`16aa4ab4` changed only runner files and docs) |
+| Health baseline, 15:57–16:57 UTC | **Edge:** 279 requests; 5xx were the two intentional Sheets disabled probes and one `sms-consent-worker` 503 (16:33:12). **Gateway:** 4,349 requests, 0 × 5xx. **Postgres:** 737 LOG, 3 ERROR, all "Outbound admission was not verified; no attempt to disposition" (16:32, dialer disposition guard from `20261003043122`; the Sheets migration has no dialer reference). Earlier hours since 05:00 UTC: no 5xx, one Postgres error. |
+| Gmail (pilot account owner) | `user_email_connections`: `google`, `connected`, `last_sync_at` 16:55:01 UTC, no error (no token column selected) |
+
+No production write was made by this preflight.
+
+## Re-stamp verification — 2026-10-22 06:25 UTC
 
 All 10 GitHub Actions workflows passed on published reconciliation head
 `98074fb2e6b9053ad1bc88010c4f3c885d7d06c3`. This is completed evidence for that
