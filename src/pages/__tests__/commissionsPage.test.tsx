@@ -12,7 +12,7 @@ import { syntheticContext } from "@/lib/commission/__tests__/syntheticGrid";
 import { ORG, USER, breakdown, drawer, goal, overview, policiesPage, scheduledPage, historyPage } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({
-  userId: "", impersonating: false, permitted: true, grid: "ready" as "ready" | "not_configured",
+  userId: "", impersonating: false, permitted: true, loading: false, role: "Agent", superAdmin: false, grid: "ready" as "ready" | "not_configured",
   calls: [] as Array<[string, Record<string, unknown>]>, contextEnabled: [] as boolean[],
 }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -30,10 +30,11 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ user: { id: h.userId }, isImpersonating: h.impersonating,
-    profile: { id: h.impersonating ? "00000000-0000-4000-8000-0000000000ff" : h.userId, role: "Agent", organization_id: ORG } }),
+    profile: { id: h.impersonating ? "00000000-0000-4000-8000-0000000000ff" : h.userId, role: h.role, is_super_admin: h.superAdmin,
+      organization_id: ORG } }),
 }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Agent" }) }));
-vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: () => h.permitted, isLoading: false }) }));
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: () => h.permitted, isLoading: h.loading }) }));
 vi.mock("@/hooks/useCommissionCalculator", () => ({
   CALCULATOR_PERMISSION: "View Own Commission Percentage",
   useCommissionCalculatorAccess: () => ({ permitted: h.permitted, permissionsLoading: false, isImpersonating: h.impersonating }),
@@ -52,7 +53,8 @@ beforeAll(() => {
   globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 });
 beforeEach(() => {
-  h.userId = USER; h.impersonating = false; h.permitted = true; h.grid = "ready"; h.calls = []; h.contextEnabled = [];
+  h.userId = USER; h.impersonating = false; h.permitted = true; h.loading = false; h.role = "Agent"; h.superAdmin = false;
+  h.grid = "ready"; h.calls = []; h.contextEnabled = [];
 });
 afterEach(cleanup);
 
@@ -239,5 +241,33 @@ describe("Commissions page", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(h.calls).toEqual([]);
     expect(h.contextEnabled.every((enabled) => !enabled)).toBe(true);
+  });
+
+  it("uses CircleDollarSign for the header and the loading state, and reads nothing while an Agent's access loads", async () => {
+    // An Agent or Team Leader whose permissions are still loading: canSeeCommission has nothing to grant yet.
+    h.loading = true;
+    h.permitted = false;
+    renderAt("/commissions");
+    const header = screen.getByRole("heading", { level: 1 }).parentElement!;
+    expect(header.querySelector("svg.lucide-circle-dollar-sign")).not.toBeNull();
+    const loading = screen.getByText("Loading…").closest("[role=status]")!;
+    expect(loading.querySelector("svg.lucide-circle-dollar-sign")).not.toBeNull();
+    expect(document.querySelector("svg.lucide-wallet")).toBeNull();
+    expect(screen.queryByText("Commissions aren't available")).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.calls).toEqual([]);
+  });
+
+  it.each([
+    ["an Admin", "Admin", false],
+    ["a Super Admin", "Agent", true],
+  ])("opens directly for %s while role permissions are still loading", async (_label, role, superAdmin) => {
+    h.loading = true;
+    h.role = role;
+    h.superAdmin = superAdmin;
+    renderAt("/commissions");
+    expect(screen.queryByText("Loading…")).toBeNull();
+    await screen.findByRole("link", { name: "Expected" });
+    expect(calls("get_my_commission_overview")).toHaveLength(1);
   });
 });
