@@ -1,4 +1,11 @@
-## 2026-10-22 — APPROVED and IMPLEMENTED (branch only; NOT merged or deployed): Commissions sidebar entry — CircleDollarSign icon, no access delay
+## 2026-10-22 — RELEASED (PR #477, merge `1a7ea7a`): Commissions sidebar entry — CircleDollarSign icon, no access delay
+
+**Release, 2026-10-22:** Chris approved the merge and production frontend release. PR #477 was squash-merged as
+`1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`, whose tree is identical to the verified head `038bca4`. Both Vercel
+production deployments are READY on that commit: `agentflow` `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3` (serving
+`www.fflagent.com`) and `agentflow-life-insure` `dpl_Da2fRLmbFE2em4Ltt1PT5t52A9FQ`. The served bundle contains the
+change. PR #473 was closed as superseded. No Supabase or database change. Evidence: the newest WORK_LOG entry. The
+status below is the historical implementation record.
 
 **Status:** Chris approved implementation on 2026-10-22 with one change: use `CircleDollarSign` for the sidebar item,
 the page header and the page's loading state (not `DollarSign`), and add `CommissionsPage.tsx` to the plan. Built on

@@ -1,3 +1,41 @@
+## 2026-10-22 — Commissions navigation fix RELEASED: PR #477, merge `1a7ea7a`
+
+Chris approved merging PR #477 and the production frontend release. Frontend only: no Supabase command, migration,
+Edge Function or database change, and commission calculations are untouched. Supabase was not touched: no
+`supabase/` path changed, and its GitHub integration ignored the PR.
+
+- **Pre-merge gate.** Re-checked immediately before merging:
+  - Head `038bca4` unchanged; `main` still at `c3f4a27`.
+  - All 11 PR checks green (Supabase Preview skipped because nothing under `supabase/` changed).
+  - Mergeable state `clean`, no reviews pending.
+  - Only the nine reviewed files differed from `main`.
+- **Merge.** Squash-merged, pinned to head `038bca4`, as `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4` (parent
+  `c3f4a27`). Its tree `4410afe9…` is identical to the verified head's, so every pre-merge check applies to `main`.
+- **Production deployments.** Both are READY on `1a7ea7a`, with no alias error:
+  - `agentflow`: `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3`, aliased to `www.fflagent.com` and `fflagent.com`.
+  - `agentflow-life-insure`: `dpl_Da2fRLmbFE2em4Ltt1PT5t52A9FQ`, aliased to `agentflow-life-insure.vercel.app`.
+  - Previous production (`c3f4a27`): `dpl_BYBh8Nfs3pgiN4gfm5ttL7aV8vbv` and `dpl_HdR6oBtjkVuu4xTbdJrRpdE4Tu1K`.
+- **`www.fflagent.com` serves the merged commit.**
+  - Its entry script changed from `index-B8SZixFP.js` (previous production) to `index-CXoOQlTL.js`, with the same
+    ETag as the new deployment's own URL.
+  - The served bundle embeds `VITE_VERCEL_GIT_COMMIT_SHA` `1a7ea7a…`.
+  - Read through the Vercel MCP fetch tool, because this environment's proxy blocks direct requests to the domain.
+- **Commissions behavior in the served bundle.**
+  - `CircleDollarSign` is defined once and used by exactly three call sites: the sidebar item, the page's "Loading…"
+    panel and the page header.
+  - The inert `aria-hidden` slot (`px-3 py-2.5` around `h-5`) is present.
+  - The access rule ships as `(is_super_admin === true || role === "Admin" || !isLoading) && canSeeCommission(...)`,
+    and reads still require no impersonation (View As).
+- **Not verified.** No signed-in production walkthrough was done (this session has no credentials). Per-role behavior
+  rests on the automated tests and the bundle inspection above.
+- **PR #473** was closed as superseded, with a comment; its branch was not modified.
+- **Files.** This entry, the root `implementation_plan.md` release status and the AGENT_RULES Commissions center
+  bullet status. Recorded through a documentation PR from `claude/zen-bardeen-phqecr`, restarted from `main`
+  `1a7ea7a`; no direct push to `main`.
+- **Next.** Chris may optionally spot-check the sidebar signed in: the icon and no shift while the page loads.
+
+---
+
 ## 2026-10-22 — Commissions sidebar entry: CircleDollarSign icon, no access delay, no layout jump (branch only; NOT merged or deployed)
 
 Chris approved the plan with one change: use `CircleDollarSign` for the sidebar item, the page header and the page's
