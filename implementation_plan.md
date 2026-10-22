@@ -1,3 +1,49 @@
+## 2026-10-22 17:00 UTC — Google Sheets Phase C: preflight passed; frontend release plan (awaiting "Approve Phase C frontend release")
+
+**Authorization and scope.** Chris assigned ownership of the remaining Sheets release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2` (feature source `88669b7d` merged with main `16aa4ab4`): complete the Phase C preflight, record it, and stop for the exact approval "Approve Phase C frontend release". Nothing is merged, enabled, migrated or deployed before that approval. Phase D (live test, cron OFF) and Phase E (privacy, Vault/cron, normal operation) each need their own later approval.
+
+**Source of truth.** Read AGENT_RULES.md in full, VISION.md, the newest Work Log entries, this plan, and the focused release package §5.1–§9 and §10.3. Main is still `16aa4ab4` (the #451 runner merge, already in the branch), so no work merged after `db6c5031` conflicts. Draft PR #479 (carrier selection, not approved for merge) overlaps only in AGENT_RULES.md, WORK_LOG.md and this file. If it reaches main first, reconcile those three documents additively and rerun CI before the Phase C merge.
+
+**Phase B outcome (first repository record).** Four protected runs of `.github/workflows/google-sheets-phase-b.yml` on main `16aa4ab4` each passed every gate: `check` run 39807937130 (15:49 UTC), `apply-migration` 39809784709 (16:01), `record-history` 39811684469 (16:11) and `deploy-functions` 39812578512 (16:17). Production has migration `20261022062539 / google_sheets_import_foundation` (343 history rows, 81 statements), 52 routines, six empty RLS tables with three own-read policies, permission-helper postimage `bc6356dde683e628b88b631dd5f6d01e`, and the four Sheets functions ACTIVE v1 with `verify_jwt=false`. `GOOGLE_SHEETS_ENABLED` is absent, with no cron job, Vault worker token, connection or import.
+
+**Preflight results (read-only, 2026-10-22 16:48–16:58 UTC).**
+- **PR #442:** draft; head `db6c5031`, base main `16aa4ab4`, `mergeable_state: clean`. All 19 exact-head checks across the 10 workflows succeeded; Supabase Preview was skipped (preview-branch limit). `supabase/`, `src/` and the package files are byte-identical to the deployed source `88669b7d`.
+- **Hosted database (16:51:20 UTC):** `postgres|f|52|1|bc6356dde683e628b88b631dd5f6d01e|20261022062539|343`; history row `20261022062539|google_sheets_import_foundation|81`. The six Sheets tables, Sheets cron jobs, Sheets Vault names and Google Sheets leads are all 0.
+- **Edge:** 81 functions. The four Sheets functions are ACTIVE v1 with `verify_jwt=false` and ezbr `40eb0ecb…`, `d0a2cca1…`, `dca4e02e…`, `a85b8057…`. The only Sheets traffic is the runner's five disabled-endpoint probes at 16:17:57 UTC (503 / 401 / 503 / 302 / 403).
+- **Backend flag:** `deploy-functions` verified it absent through the Management API at 16:17:57 UTC, and its disabled HTTP probes passed. This container's network policy blocks the functions host, so a fresh probe was not possible.
+- **Supabase GitHub "Deploy to production":** OFF as observed after sign-in at 06:25 UTC today (invariant #30); the setting is not readable from this session. Merging #442 adds no unrecorded top-level migration: its only one, `20261022062539`, is recorded, and `pending/` and `rollback/` sit outside CLI migration discovery.
+- **`VITE_GOOGLE_SHEETS_ENABLED`:** absent in the Vercel project and shared searches at 06:25 UTC today. The connected Vercel tools cannot list environment variables here.
+- **Rollback targets:** `agentflow` `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` (READY production at `16aa4ab4`; www.fflagent.com and fflagent.com) and `agentflow-life-insure` `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb` (READY production at `16aa4ab4`).
+- **TypeScript:** `npx tsc --noEmit` exits 0. `npx tsc -p tsconfig.app.json --noEmit` reports 84 errors in 230 lines, the unchanged main baseline; CI's exact candidate/base comparison also passed.
+- **Health baseline, 15:57–16:57 UTC:**
+  - Edge: 279 requests, 3 at or above 500 (the 2 intentional Sheets probes and one `sms-consent-worker` 503 at 16:33).
+  - Gateway: 4,349 requests, none at or above 500.
+  - Postgres: 3 ERROR lines, dialer disposition refusals ("Outbound admission was not verified", migration `20261003043122`) at 16:32, unrelated to Sheets.
+  - Gmail: Chris's connection is `connected`, `last_sync_at` 16:55:01 UTC, no error.
+
+**Files to touch now (documentation only).**
+- this file;
+- WORK_LOG.md;
+- AGENT_RULES.md (Sheets invariant heading and status only);
+- `docs/plans/2026-10-13-google-sheets-import/{release-package,verification,implementation_plan}.md` (new dated checkpoints; historical text kept).
+
+No application, SQL, Edge, config, package, workflow, permission or test change. Push to `claude/keen-brown-e4u3ht` with a lease on `db6c5031`, then require green exact-head CI on the new head before requesting approval.
+
+**After "Approve Phase C frontend release".**
+1. Re-read main, the PR head and base, mergeability and the exact-head checks. Stop on any drift; if main moved, reconcile it and rerun CI first.
+2. Mark PR #442 ready and squash-merge it with the expected head SHA, the convention of #474–#477 and #451. Verify that the merge commit's tree equals the approved head's tree.
+3. Enable no flag. No migration, Edge deployment, secret, cron or Vault change.
+4. Let Vercel's Git integration deploy main. Verify both projects READY on the merge SHA, with www.fflagent.com on the new `agentflow` deployment.
+5. Read-only health checks (§5.1):
+   - Chris checks: Dashboard; Contacts list and one lead; Dialer campaign load only, with no call; Reports; Settings → Email Setup (Gmail connected); Settings → Calendar; Conversations, opening an existing thread and sending nothing; Settings → Google Sheets shows "Google Sheets is not available yet."
+   - Claude compares Edge and gateway 5xx and Postgres errors with the hour before the merge, and confirms Gmail stays connected with an advancing `last_sync_at` and the Sheets tables, cron and Vault stay empty.
+6. Record the merge SHA and deployment IDs, add a newest-first Work Log entry and run tsc, as a follow-up documentation update on this branch restarted from the new main. Direct pushes to main are not allowed, and the merged PR is not reused.
+7. Stop. Phase D needs its own approval.
+
+**Rollback.** Roll both Vercel projects back to the deployments above. No data changes, and the Phase B backend stays deployed and disabled.
+
+---
+
 ## 2026-10-22 06:25 UTC — Google Sheets runner fresh hosted baseline and ordered source re-pin (approved local preparation)
 
 **Authorization and evidence.** After Chris completed secure sign-in and said "Continue", the coordinator obtained read-only evidence from the Supabase browser for project jncvvsvckxhqgqvkppmj at 2026-10-22T06:25:20.775462Z: 342 migration-history rows; latest version 20261021200000; zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names; permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8. The coordinator separately verified 77 deployed Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent, and GitHub deploy-to-production OFF. No secret values were opened, read or changed. This fresh evidence supersedes the earlier blocked-inventory checkpoint below; it does not authorize a production mutation.
@@ -37,6 +83,68 @@
 **Blocked release prerequisite.** The current main rule forbids inserting an out-of-order migration history row. The existing unapplied Sheets version, 20261013120000, precedes the runner's old hosted-head pin, 20261017043757. Mutating stages must remain blocked. A fresh authoritative hosted read must establish the actual migration count, latest version, helper preimage and function inventory. Then rename the unapplied foundation to a version after that hosted head while preserving its SQL bytes, update the reviewed source commit and path references together, and refresh the exact history pins. Those follow-up edits remain pending that evidence; no guessed baseline or weakened guard is accepted. Missing protected-environment credentials and the native PostgreSQL 17.6 verification gate also remain blockers.
 
 ---
+
+## 2026-10-22 06:25 UTC — Google Sheets migration re-stamp approved from fresh hosted evidence
+
+Read-only hosted SQL at `2026-10-22T06:25:20.775462Z` returned 342 history rows,
+latest `20261021200000`, no Sheets database objects/history/cron/Vault names, and
+the expected permission-helper preimage `a199d5ddfb9a56070aeb7706d3e9a4b8`.
+Supabase Deploy to production is OFF. Subsequent dashboard checks found 77
+deployed Edge functions with none for Sheets, the six B1 secret names present,
+and `GOOGLE_SHEETS_ENABLED` absent. Vercel project and shared searches also
+confirmed `VITE_GOOGLE_SHEETS_ENABLED` absent. No secret values were read,
+changed or validated.
+
+1. Re-stamp the unapplied foundation and paired rollback to `20261022062539`,
+   chosen at 06:25:39 UTC after the hosted head. Keep their bytes and all Edge
+   bundles unchanged. The focused plan was updated before these edits.
+2. Update only active CI/test/release references. The regression script retains
+   the historical filename for its old reviewed tree; pending cron stays inert.
+3. Verify hashes, paths, shell syntax, the path-dependent test and required root
+   TypeScript. All 10 workflows already passed on `98074fb2`; require new-head
+   CI after publication. Earlier behavior/type/lint/build evidence stays valid.
+4. After review/publication, re-pin runner #451 to that exact source, version and
+   observed history: 342/latest `20261021200000` before apply/recording and
+   343/latest `20261022062539` after recording. Repeat preflight and stop on drift.
+5. Finish GitHub credential prerequisites before the protected Phase B stages.
+   Current rollback candidate `dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3` is Ready /
+   Production at main `1a7ea7a5`, current on `www.fflagent.com`; capture it again
+   after the runner merge before Phase C. Separate later-phase approvals remain.
+
+Local verification passed: 12/12 path-dependent Sheets tests, root TypeScript,
+active/YAML/regression path checks, three shell syntax checks, and unchanged
+SQL/rollback/Edge/pending-cron bytes. No production migration/deployment, import
+or schedule is part of this re-stamp.
+Evidence and current status: focused Sheets `release-package.md` and
+`verification.md`. Commit/push waits for review of this exact diff.
+
+## 2026-10-22 — Google Sheets release continuation: branch reconciliation approved; live prerequisites pending
+
+Chris approved proceeding after the current status review. Preserve the existing
+Phase B approval and the separately required production merge, protected-stage,
+activation, privacy and scheduling gates.
+
+1. Reconcile feature PR #442 with `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`
+   by merge, preserving both histories. Keep reviewed Sheets SQL/Edge bytes and
+   feature behavior unchanged; retain every current-main function setting.
+2. Verify root TypeScript, focused Sheets/shared-contract tests, lint, build and
+   strict app diagnostic delta; require current-head CI after branch publication.
+3. Reconcile runner PR #451 separately. Enforce VERSION > hosted LATEST and expect
+   VERSION as latest after history recording. Keep old pins blocked until fresh
+   production evidence allows a byte-identical migration rename and source re-pin.
+4. Finish the protected release prerequisites: owner enters the three documented
+   GitHub environment secrets; secure Supabase sign-in permits current history,
+   helper/inventory, deployment-control and disabled-flag checks. Do not derive
+   hosted count/latest from repository files or reuse October 17 observations.
+5. Continue the existing staged Phase B procedure only once those concrete
+   prerequisites are satisfied. Later phases retain their original approvals.
+
+Local reconciliation preserves all settings and approved hashes. Focused tests
+(80), root TypeScript, lint and build pass; strict app diagnostics are 84 on both
+main and candidate, with zero new. Remaining verification is recorded in
+`docs/plans/2026-10-13-google-sheets-import/verification.md`. GitHub protection
+controls are correct, but the environment has zero secrets. Supabase live reads
+returned no result and its dashboard requires sign-in. No production mutation.
 
 ## 2026-10-22 — APPROVED and IMPLEMENTED (branch only; NOT merged or deployed): Commissions sidebar entry — CircleDollarSign icon, no access delay
 
@@ -774,6 +882,14 @@ Screenshots are inspected, not committed.
 - a configurable advance percent;
 - any dialer change;
 - merge, deploy, or production writes and test writes.
+## 2026-10-17 — Google Sheets: fifth main reconciliation and runner re-pin (no production change)
+
+Main moved to `95009d15` (#452, #453, #454). #453 added two production migrations, so production has 329 history rows (latest `20261017043757`). Nothing the Sheets migration uses changed (`docs/plans/2026-10-13-google-sheets-import/verification.md` §20).
+
+- **Runner PR #451** is re-pinned to the new history: 329 rows before `record-history` and 330 after (`5aab5e06`, `verify-runner` green).
+- **PR #442** merges the same main. Release artifacts remain byte-identical to `eaf988b`.
+- **Phase C rollback target:** re-captured as `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB`. Capture it again after #451 merges.
+- **Otherwise unchanged:** Chris's GitHub setup and GO come first. Then merge #451 and run `check`, `apply-migration`, `record-history` and `deploy-functions` as separately approved stages (release package §10.3).
 
 ---
 
@@ -1027,6 +1143,16 @@ Chris authorized taking ownership of PR #442 and completing the cloud build, wit
 
 **Validation:** local YAML/Python parsing; pinned source and all five artifact checksums; twelve safety-path unit checks; `npx tsc --noEmit` passes on the source; strict app config has the documented 84 existing diagnostics. Real PostgreSQL verification is performed by this PR's dedicated CI, not claimed as local. The final verification status belongs in the PR and Work Log.
 
+## 2026-10-17 — Cloud Phase B runner verified; fourth main reconciliation (no production change)
+
+Chris authorized ownership of PR #442 from the cloud, branch updates and testing, retaining explicit approval before each production phase or consequential action. Reviewed AGENT_RULES.md, VISION.md, the recent work log and Sheets release package. Direct production credentials are unavailable in this runtime; use the planned GitHub Actions route, not another large MCP apply.
+
+- Runner draft PR #451: `codex/google-sheets-phase-b-runner`, exact head `c7e1c56e94ae8cbde7cc42567c4e642ceb2b38de`, reconciled with main `91eabff1896e9410a53a40afea6144336902b86d` (#450 client policy display). Its no-secret PostgreSQL 17.6 verification passed: run `38993502917`, job `117280799328`. Real apply/read-backs/history repair, replay refusal, lock-timeout rollback, watchdog SIGINT rollback, six out-of-order/replay refusals and error redaction all pass. No production connection was made by the test.
+- PR #442 reconciles the same main by merge, preserving both documentation histories. Only WORK_LOG.md and root implementation_plan.md conflicted; the main-only prefix was prepended to the entire prior branch file. No release artifact changes. The runner remains pinned to `eaf988bc276a3922ee0ec6c3c6038665be9f1678`, whose migration/four function bundles are byte-identical here. New-head CI must pass before release.
+- Read-only production check at about 02:03 UTC: 327 history rows, latest `20261016035626`, helper MD5 `a199d5ddfb9a56070aeb7706d3e9a4b8`, zero Sheets relations/functions; 76 Edge Functions, none Sheets. Current frontend is `dpl_BPvvQ9KWdNtcnpHTuSzHpWMkabdZ` at main `91eabff`; capture again immediately before any merge.
+- Access gate: GitHub connector can edit branches/PRs but cannot configure protected environments or enter secrets. Cloud browser is signed out. Secure browser authentication and owner-entered environment secrets are required; never enter them in chat. No Mac or local commands are required.
+- Next: verify Supabase GitHub Deploy to production is OFF; prepare protected `google-sheets-production` environment and secure secret entry; request approval to merge #451 (it rebuilds Vercel production). Then read-only `check`, followed by separate approved migration, history and four-function stages. No merge, migration, deployment, activation, cron, privacy publication or dialer modification has occurred in this work.
+
 ## 2026-10-16 — Approved client multi-policy display fix
 
 Chris approved the display-only fix on October 16 at 16:09 PDT: policy count in Clients and expandable details for each policy. Base: `9a905523`. Reviewed AGENT_RULES.md, VISION.md and newest WORK_LOG entries; no AGENTS.md exists. Concurrent Sheets and commission work stays outside this change.
@@ -1044,6 +1170,296 @@ No migration, backend command, RLS, Edge Function, dialer, policy writer, sales 
 **Implementation verification:** 97 focused tests pass; root TypeScript passes; strict-app diagnostics are unchanged (84); lint has no errors; production build passes. Synthetic Chromium checks passed at 1440px and 390px, including keyboard expansion and unclipped detail values. GitHub PR/CI and separately approved production release are next.
 
 ---
+
+## 2026-10-16 — CLOUD-ONLY PHASE B THROUGH A GITHUB ACTIONS RUNNER (plan; awaiting Chris's approval; production unchanged): PR #442
+
+**Request (Chris, 2026-10-16, about 17:05 UTC).** Chris has no access to his Mac. He asked to finish Google Sheets V1 with no local computer, terminal, psql or Supabase CLI. The method is a temporary, manually triggered GitHub Actions workflow on GitHub-hosted runners:
+- a protected production environment;
+- credentials only in encrypted environment secrets, which Chris enters in GitHub, never in chat;
+- explicit approval gates between production stages;
+- the reviewed commit and migration checksum pinned;
+- no automatic deploys, and no unrelated functions or migrations.
+
+He asked for the plan, security controls, phone setup steps and the exact approval request first, with no production mutation yet. This section supersedes the local-session route below while the Mac is unavailable; release package §10.2 stays as an alternative.
+
+**Checks (read-only, 17:05–17:20 UTC).**
+- **Code:**
+  - `main` = `9a90552`, unchanged;
+  - the branch head is `02b6440`, and every check on it passed (16 of 16, plus the usual Supabase Preview skip);
+  - PR #442 is a draft, mergeable and clean;
+  - `384f3cc..02b6440` changes only `WORK_LOG.md`, `implementation_plan.md` and `release-package.md`, so the migration, functions, `config.toml`, tests and packages are byte-identical.
+- **Production (17:13 UTC):**
+  - the stage 1 preflight still returns `postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261016035626`;
+  - 327 history rows;
+  - zero Sheets relations, functions, cron jobs, Vault secrets and new-key `role_permissions` rows;
+  - no idle-in-transaction session and no client transaction older than 30 s;
+  - project `AGENTFLOW CRM`, region `us-east-1`, ACTIVE_HEALTHY, Postgres 17.6.1.063.
+- **Repository:**
+  - public, so environment protection rules are available, and workflow logs are readable by anyone;
+  - no existing workflow uses secrets or environments;
+  - `actions/checkout` is pinned to `11bd71901bbe5b1630ceea73d27597364c9af683` everywhere;
+  - `contact-history-backend.yml` installs psql with `apt-get install postgresql-client`;
+  - `vercel.json` has no ignored-build step, so any commit to `main` redeploys both Vercel projects to production.
+- **Local probes (disposable containers):**
+  - Ubuntu 24.04's psql 16 against a PostgreSQL 17.6 server prints exactly one identity line, with no version warning;
+  - `--single-transaction -c "SET LOCAL lock_timeout = '…'" --file …` rolls the whole transaction back on a lock wait (exit 3, nothing committed, session default unchanged) and commits normally without one;
+  - the four bundle digests recompute exactly with the §4 method.
+
+**Design.**
+- **One new file on `main`:** `.github/workflows/google-sheets-phase-b.yml`.
+  - `workflow_dispatch` must be on the default branch, so the file reaches `main` through a small separate PR from a new branch. Nothing else is in that PR.
+  - The workflow runs only from `main`. It checks out the pinned Sheets commit `02b644007138cb9e6e3a9519608ffed3d66d03ed` by SHA for the migration, the functions and `config.toml`.
+- **Triggers and permissions:**
+  - **Trigger:** `workflow_dispatch` only, with two inputs. `stage` is one of `check`, `apply-migration`, `record-history` or `deploy-functions`; `confirm` must repeat the stage name.
+  - **Permissions:** `contents: read`. The checkout uses `persist-credentials: false`.
+  - **Concurrency:** one run at a time (group `google-sheets-production`, never cancel-in-progress).
+  - **Guard:** `if: github.ref == 'refs/heads/main'`.
+- **Environment `google-sheets-production`:**
+  - required reviewer Chris, so every run waits for his approval before it starts or sees a secret;
+  - deployment branches limited to `main`;
+  - admin bypass off.
+- **Secrets (environment secrets only):**
+  - `SUPABASE_DB_PASSWORD`: the raw password. The workflow encodes it, so nothing is percent-encoded by hand on a phone.
+  - `SUPABASE_POOLER_HOST`: the session-pooler host. It is stored as a secret so it is masked in the public logs.
+  - `SUPABASE_ACCESS_TOKEN`: a token Chris creates for this release, scoped to this project if his account offers scoped tokens.
+  - User `postgres.jncvvsvckxhqgqvkppmj`, port 5432 and database `postgres` are fixed in the workflow. GitHub runners have no IPv6, so the session pooler is the route.
+- **Pinned values in the workflow:**
+  - project ref `jncvvsvckxhqgqvkppmj`;
+  - the Sheets SHA;
+  - migration SHA-256 `fc68da86…6efed`;
+  - the four §4 bundle digests;
+  - the expected state strings and read-back values;
+  - Supabase CLI `2.121.0`, the version used in the dry run, through `supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf`, the pin Supabase's own documentation uses.
+- **Every stage runs these gates first** and stops at the first failure:
+  1. checkout HEAD equals the pinned SHA;
+  2. migration checksum and bundle digests;
+  3. connection identity: host must be `aws-<n>-us-east-1.pooler.supabase.com`, port 5432, database `postgres`, user `postgres.jncvvsvckxhqgqvkppmj`. Only `identity: OK` is printed.
+  4. TLS is required.
+  5. The exact state string for that stage.
+- **Expected state strings:**
+
+  | Stage | Required state |
+  |---|---|
+  | `check` | read-only; reports which of the three states holds |
+  | `apply-migration` | `postgres\|t\|0\|0\|a199d5dd…\|20261016035626` and 327 rows |
+  | `record-history` | `postgres\|f\|52\|0\|bc6356dd…\|20261016035626` |
+  | `deploy-functions` | `postgres\|f\|52\|1\|bc6356dd…\|20261016035626`, 328 rows, the four functions absent and `GOOGLE_SHEETS_ENABLED` absent |
+
+  A stage run out of order fails closed.
+- **`check` (read-only):**
+  - tool versions and the identity check;
+  - which state holds;
+  - through the Management API, names only: the four functions are absent, the six B1 secret names are present and `GOOGLE_SHEETS_ENABLED` is absent.
+  - This proves the secrets and the approval flow before any change.
+- **`apply-migration` (production change 1 of 3):**
+  - the §10.1 stage 1 apply of the exact file: `psql -X --set ON_ERROR_STOP=1 --single-transaction -c "SET LOCAL lock_timeout = '5s'" --file <migration>`, with `application_name=agentflow-sheets-phase-b`;
+  - psql runs in the background with a 120 s watchdog that sends SIGINT to psql's own PID. SIGINT to psql was tested today to cancel and roll back; the watchdog itself is tested in the dry run.
+  - the runner's cancellation signals are trapped and forwarded to psql as SIGINT;
+  - then the in-job §3 read-backs, the additional read-backs and the table-privilege query, each printed as PASS or FAIL.
+- **`record-history` (production change 2 of 3):**
+  - `supabase migration repair 20261013120000 --status applied --db-url <URL built in-job and masked>`;
+  - then an SQL read-back: exactly one row `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows.
+- **`deploy-functions` (production change 3 of 3):**
+  - an inventory through the Management API: the four absent, plus a hash of every other function's `slug@version`;
+  - then four named deploys in §4 order: `supabase functions deploy <name> --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api`;
+  - then the inventory again: four ACTIVE with `verify_jwt=false`, and the other functions' hash unchanged;
+  - then the §4 disabled-state checks with `curl` from the runner. These need no credential and write nothing.
+- **Claude's independent read-only checks between stages** use the Supabase connector, as in §10.1:
+  - the full §3 read-backs;
+  - the advisor delta against a baseline taken just before the apply, kept out of the public logs;
+  - the Edge inventory and per-file read-backs;
+  - zero operational rows, and the function logs.
+  - Claude also reads the run logs through GitHub and answers GO or STOP in chat.
+- **Chris's role:**
+  - he dispatches each stage himself, after Claude's GO in chat, and then approves the environment deployment;
+  - between `record-history` and `deploy-functions`, Claude pushes the records commit to `claude/keen-brown-e4u3ht` and waits for green exact-head CI.
+- **Public-log hygiene:**
+  - no `set -x`;
+  - secrets only in step-level `env`;
+  - the in-job URL and encoded password masked with `::add-mask::`;
+  - output limited to PASS/FAIL, counts and Sheets object names;
+  - no advisor output, no other function names and no secret values or digests.
+- **STOP rules (unchanged from §10.1):**
+  - any gate or read-back failure stops that stage;
+  - there is no retry, no method switch and no automatic rollback;
+  - psql failing means no repair, and a failed repair means the apply is never re-run;
+  - a partial deploy stops for Chris's decision.
+- **After Phase B:**
+  - Chris disables the workflow in the Actions tab;
+  - he deletes the three environment secrets and revokes the Supabase token;
+  - the workflow file is removed from `main` in a later PR, or extended for Phase E under its own approval.
+
+**Effects to accept:**
+- **Merging the workflow PR adds a commit to `main`.** Vercel then redeploys both projects to production from that commit. The application code is unchanged, so the redeploy is functionally a no-op. The Phase C rollback target becomes that new deployment.
+- **Precondition for that merge:** the Supabase GitHub integration's "Deploy to production" must be OFF (invariant #30). Chris confirms it in the dashboard first.
+- **Lock window:** the apply's lock window on `profiles` and `organizations` is still about 81 round trips. It is now bounded by the 5 s lock timeout. Run it at a quiet moment.
+
+**Files.**
+- **Now, planning records only:** `implementation_plan.md` (this section) and `WORK_LOG.md` (a short entry), on `claude/keen-brown-e4u3ht`.
+- **After approval A1:**
+  - `.github/workflows/google-sheets-phase-b.yml` (new) on a new branch `claude/google-sheets-phase-b-runner` from `main`, in a draft PR to `main`;
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md`: a new §10.3 for the cloud runner, and the status lines;
+  - `WORK_LOG.md` and `implementation_plan.md`.
+- **During Phase B (records):**
+  - `verification.md`: the Phase B execution evidence;
+  - `AGENT_RULES.md`: only the Sheets heading (line 752) and its Status line (line 814);
+  - `WORK_LOG.md`, `implementation_plan.md` and the PR body.
+- **Not touched:** application code, migrations, tests, `supabase/config.toml`, package files and the existing workflows. Supabase, GitHub and Vercel settings are changed by Chris in their own UIs.
+- **Validation before the workflow PR is opened:**
+  - a YAML parse;
+  - each stage's script extracted and dry-run against a disposable PostgreSQL 17.6 with only the production constants swapped (as in `verification.md` §16), including a refusal on re-run and a lock-timeout rollback;
+  - `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json --noEmit` and `git diff --check`.
+
+**Approvals.**
+- **A1 (now):**
+  - the cloud design above, including the added controls: `SET LOCAL lock_timeout = '5s'`, the SIGINT watchdog, required TLS, `application_name` and separate password and host secrets;
+  - creating `claude/google-sheets-phase-b-runner` and its draft PR to `main` containing only the workflow;
+  - the records updates.
+- **A2:** merging the workflow PR. Preconditions:
+  - its CI is green;
+  - "Deploy to production" is confirmed OFF;
+  - the environment and secrets are set up;
+  - the Vercel redeploy is accepted.
+- **A3, A4, A5 (one GO each, given in chat after Claude's checks):** `apply-migration`, then `record-history`, then `deploy-functions`. Chris dispatches each stage and approves its environment deployment himself.
+- **`check`** is read-only and runs under A2.
+
+**Phases C, D and E (prepared; each needs its own approval; none starts automatically):**
+- **C (production UI release, flag off):**
+  - **Preconditions:**
+    - "Deploy to production" is OFF;
+    - `VITE_GOOGLE_SHEETS_ENABLED` is absent in Vercel Production (Chris checks in the Vercel dashboard);
+    - `main` is merged into the branch, and the branch has green exact-head CI and is mergeable.
+  - **Action:** mark PR #442 ready and merge it from the GitHub app.
+  - **Checks:** the §5.1 health checks. Some, such as the dialer, may need a desktop browser.
+  - **Rollback:** Vercel promotes the deployment that was current just before the merge.
+- **D (live test, cron OFF):**
+  - optionally, the import permission is first set OFF for Agent and Team Leader;
+  - the Edge secret `GOOGLE_SHEETS_ENABLED=true` (Supabase dashboard);
+  - in Vercel Production, `VITE_GOOGLE_PICKER_API_KEY`, `VITE_GOOGLE_CLOUD_PROJECT_NUMBER=87346168200` and `VITE_GOOGLE_SHEETS_ENABLED=true`, then a redeploy;
+  - the §6 test with synthetic rows and Sync now. The Google Picker is a desktop-oriented component, so plan §6 on any desktop browser.
+- **E (privacy and automatic sync):**
+  - the §7 privacy text in a small PR;
+  - restore role access if it was limited;
+  - the Vault secret `google_sheets_worker_token`, equal to the B1 worker token;
+  - the cron migration through the same runner, as a new pinned stage in a separate PR. The pending file moves into `supabase/migrations/` with the same name and bytes, so `migration repair` can record its name and statements.
+  - Read back exactly one `google-sheets-sync-every-minute` job, then the §8 verification, then remove the workflow and its secrets.
+
+## 2026-10-16 — FINISH GOOGLE SHEETS V1: PHASE B MOVES TO A LOCAL CLAUDE CODE SESSION ON CHRIS'S MAC (this cloud session has no production connectivity): PR #442
+
+**Request (Chris, 2026-10-16, about 15:45 UTC).** Take ownership of finishing Google Sheets V1 from the last verified checkpoint, `384f3cc`.
+- Phase B goes through the reviewed psql / Supabase CLI fallback (release package §10.1), with Chris's explicit GO before each production-changing command. The failed large MCP migration is never retried.
+- After Phase B, request the exact approvals for Phases C, D and E.
+- Chris's instruction for this case: "If this is a remote session without working authenticated production database connectivity, stop and guide Chris to run Claude Code locally on his Mac."
+
+**Checks in this cloud session (read-only, about 15:45–16:00 UTC).**
+- **Production connectivity: none.**
+  - No database credential is configured.
+  - HTTPS to `jncvvsvckxhqgqvkppmj.supabase.co` and `api.supabase.com` fails under the environment's network policy, and the direct database host does not resolve.
+  - So this session stops before any production step. Stages 0–6 move to a local Claude Code session on Chris's Mac.
+- **Code:**
+  - `main` = `9a90552`, unchanged since the third reconciliation;
+  - PR #442 is a draft at `384f3cc`; the merge is clean; every check passed on `384f3cc`.
+- **Production:**
+  - 327 history rows, latest `20261016035626`;
+  - stage 1 preflight `postgres|t|0|0|a199d5ddfb9a56070aeb7706d3e9a4b8|20261016035626`;
+  - zero Sheets relations, functions, history rows, cron jobs, `google_sheets%` Vault secrets, Sheets leads and `role_permissions` entries with the new key;
+  - 76 Edge Functions, none `google-sheets-*`, and none changed after 2026-10-15 19:00 UTC;
+  - frontend `dpl_7C68MvwQxhH43ExdVNLWprGvEKTf`, READY at `9a90552`;
+  - advisor baseline (14:00 UTC): security 233, performance 437.
+- **Feature flags:**
+  - `GOOGLE_SHEETS_ENABLED` is an Edge secret, and its presence cannot be read from here. The local session checks names only, with `supabase secrets list --project-ref jncvvsvckxhqgqvkppmj`.
+  - The Vercel connector was refused (403) when listing environment variables, so `VITE_GOOGLE_SHEETS_ENABLED` being absent in Production stays Chris's owner check before Phase C.
+
+**Rules review (`AGENT_RULES.md` read in full, 814 lines; `VISION.md`).** No rule conflicts with the procedure below. Six points are folded into it:
+- **§9 (doc updates in the same commit):** once production changes, two lines in the Sheets section become false: its heading (line 752, "NOT deployed") and its Status line (line 814). The local session updates both in each Phase B records commit.
+- **§8 type check:** `npx tsc --noEmit` checks nothing here, because the root `tsconfig.json` lists no files (§4 note). The local session runs it as asked, and also `npx tsc -p tsconfig.app.json --noEmit`, which reports 84 diagnostics on both `main` `9a90552` and this branch.
+- **Invariant #4 (read the live function before deploying):** the four functions are new. The check is that none of the four names exists in production before stage 5.
+- **Invariant #28 (production is read-only by default; no production write to complete verification):** the disabled-state checks are plain `curl` requests from the Mac and write nothing. The release package sends them through `pg_net` only because this cloud environment cannot reach the functions host.
+- **Invariant #30 ("the deliberate MCP path, never a git merge"):** Chris approved the psql / CLI route on 2026-10-15 instead of further large MCP requests. It is still deliberate and still not a git merge. The recorded version is the authored `20261013120000`, so no restamp or rename is needed.
+- **The Sheets rule "verify access through PostgREST":** CI proves this at exact head (33 PostgREST checks). In production the native privilege read-backs are the check, so no API key is handled.
+
+**Work log review (the 2026-10-15 and 2026-10-16 entries read in full; older history by keyword scans and targeted reads).**
+- **No pending production change from other work conflicts.** The commission release is complete. The inactive onboarding migration in `pending/` would trip the stage 1 preflight gate if it were applied first.
+- **Production traps from earlier releases, checked against the Sheets migration:**
+  - it sets no custom parameter (the cause of the commission release's `42501`);
+  - it revokes the hosted default privileges explicitly, and the harness mirrors those defaults;
+  - every `RETURNS TABLE` function declares `#variable_conflict use_column`.
+- **Table privileges were missing from the production read-backs, so release package §3 gains one read-only query.** Its expected 18 lines were reproduced locally.
+
+**Local session procedure.** Each production step runs only after Chris's GO in that session. Release package §10.2 holds the Mac setup and the session rules:
+- stage 1 runs in the background and is stopped only with SIGINT, which is tested to roll back;
+- a SIGTERM or a tool timeout leaves the server waiting on its locks;
+- no process listing that would show the URL.
+1. **Read-only checks.**
+   - The branch head equals origin, `main` is unchanged, the PR is mergeable, and exact-head CI is green.
+   - The §10.1 stage 1 preflight query returns the value above. If a newer non-Sheets migration has landed: STOP, report it with an interaction check against the Sheets migration, and use the new preflight value only after Chris's GO.
+   - `supabase secrets list` shows the six B1 names and no `GOOGLE_SHEETS_ENABLED`.
+   - None of the four `google-sheets-*` names exists in the Edge inventory (invariant #4).
+   - A fresh advisor capture is taken.
+2. **Stage 1 (B2):** §10.1 stage 1 exactly, with `<HEAD>` = the verified head, at a quiet moment (no agents dialing).
+3. **Stage 2:** every §3 read-back and the additional read-backs (now including the table-privilege query), via read-only psql, plus the advisor delta. Any difference: STOP, with no repair and no rollback.
+4. **Stage 3:** after GO, `supabase migration repair 20261013120000 --status applied --db-url "$SUPABASE_DB_URL"` and `migration list`.
+   - Then an SQL read-back: exactly one row, `20261013120000` / `google_sheets_import_foundation` with 81 statements, and 328 rows in total.
+   - Inside Claude Code the CLI prints JSON instead of a table, because `CLAUDECODE` is set (`verification.md` §16). So the SQL read-back is the check.
+   - If the repair fails: STOP. Stage 1 is never re-run, and its preflight gate would refuse anyway.
+5. **Stage 4:**
+   - The records commit, including the two `AGENT_RULES.md` status lines.
+   - `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit` (84), plus the Sheets checks.
+   - A push to `claude/keen-brown-e4u3ht` only, and green exact-head CI. The PR stays draft.
+6. **Stage 5 (B3):** after GO, four named deploys, one at a time: `supabase functions deploy <name> --project-ref jncvvsvckxhqgqvkppmj --no-verify-jwt --use-api` for `google-sheets-sync-worker`, `google-sheets-api`, `google-sheets-oauth-callback` and `google-sheets-oauth-start`. Never unnamed, never `--prune`.
+7. **Stage 6:** the §4 read-backs, the disabled-state checks (`curl` from the Mac), zero operational rows, and a log scan for secret output.
+8. **Final records (the `AGENT_RULES.md` status lines included), the PR body, then the exact Phase C/D/E approval requests** (drafts below). C, D and E are not started.
+
+`GOOGLE_SHEETS_ENABLED` and `VITE_GOOGLE_SHEETS_ENABLED` stay unset throughout, with no cron, Vault worker token, import or OAuth connection.
+
+**Files.**
+- **This cloud session:**
+  - `implementation_plan.md` (this section);
+  - `WORK_LOG.md` (a short entry);
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md` (the §3 table-privilege read-back, and §10.2: Mac setup and session rules for running §10.1 from local Claude Code).
+
+  No application, migration, test or config change.
+- **The local session (records only, unless a check fails):**
+  - `docs/plans/2026-10-13-google-sheets-import/verification.md`: a new section with the Phase B execution evidence;
+  - `docs/plans/2026-10-13-google-sheets-import/release-package.md`: Phase B status and the Phase C request;
+  - `WORK_LOG.md`: the newest-first entry;
+  - `implementation_plan.md`: the outcome;
+  - `AGENT_RULES.md`: only the Sheets section heading (line 752) and its Status line (line 814).
+
+  No application code, migration, test, `supabase/config.toml` or package file.
+
+**Approval requests after Phase B (drafts; issued only once stage 6 passes).**
+- **Phase C (production UI release, still disabled):**
+  - Preconditions:
+    - GitHub → Supabase "Deploy to production" is OFF, and `VITE_GOOGLE_SHEETS_ENABLED` is absent in Vercel Production (owner checks);
+    - the final head has green exact-head CI and is mergeable (merge `main` in first if it has moved).
+  - Actions: mark PR #442 ready for review and merge it into `main`, so Vercel deploys `www.fflagent.com`. Then the release package §5.1 health checks.
+  - Rollback: Vercel rollback to the deployment current immediately before the merge (`dpl_7C68MvwQxhH43ExdVNLWprGvEKTf` today).
+  - Not included: flags, environment variables, cron, Vault, OAuth connections, imports or privacy.
+- **Phase D (live Google test, cron OFF):**
+  - First, optionally, Chris sets "Import from own Google Sheets" OFF for Agent and Team Leader.
+  - Then the Edge secret `GOOGLE_SHEETS_ENABLED=true`. In Vercel Production, `VITE_GOOGLE_PICKER_API_KEY` (entered by Chris), `VITE_GOOGLE_CLOUD_PROJECT_NUMBER=87346168200` and `VITE_GOOGLE_SHEETS_ENABLED=true`, then a redeploy of the same commit.
+  - Then the §6 manual test with synthetic data and Sync now only.
+  - No cron or Vault token. The stop procedure is in §5.2.
+- **Phase E (privacy and automatic sync):**
+  - Approve, then publish, the §7 privacy text through a small separate PR.
+  - Restore role access if it was limited.
+  - Chris creates the Vault secret `google_sheets_worker_token`.
+  - Apply `supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql` (2,561 bytes; SHA-256 `6116f414…`) through the same psql / `migration repair` route as B2, so no rename is needed. Read back exactly one `google-sheets-sync-every-minute` job.
+  - Then the §8 production verification.
+
+## 2026-10-16 — RECONCILE WITH MAIN `9a90552` (#447, #449), THEN CONTINUE PHASE B (approved fallback): Google Sheets PR #442
+
+**Request (Chris, 2026-10-16): "OK to reconcile".** `main` moved to `9a90552`, which carries the Commission Calculator release (#447) and its UI refresh (#449), and PR #442 conflicted. Chris's rule requires a mergeable PR with green exact-head CI before any Phase B production step, so the branch is reconciled first. Phase B itself stays as approved on 2026-10-15 (release package §10, §10.1).
+
+**Steps.**
+1. Merge `main` `9a90552` into the branch with a merge commit. Resolve the five conflicts additively and prove each side recoverable byte for byte. Done locally: `2f8b543`.
+2. Re-run the verification list against a fresh `9a90552` worktree. Done: every check passed. Full Vitest went 5,564 → 5,587 with the same pre-existing failures; the SQL, cron, Deno and browser checks all pass (`verification.md` §18.3).
+3. Records commit: this section, WORK_LOG, `verification.md` §15.4 and §16–§18, and release package §0.D, §3, §5.1, §9, §10 and §10.1.
+4. Push. Require exact-head CI green and `mergeable_state: clean`. The PR stays draft.
+5. A fresh read-only preflight and advisor baseline, then GO for Chris's §10.1 stage 0/1, with the new pinned commit and the preflight value `…|20261016035626`.
+
+**Unchanged.** The migration and the four Edge bundles, and every Phase B stop condition. Claude makes no production change. No Phase C, D or E.
 
 ## 2026-10-16 — IMPLEMENTED: Commission UI pre-PR corrections (approved by Chris; branch `refactor/commission-ui-polish`, draft PR)
 
@@ -1296,6 +1712,329 @@ They are therefore corrected in place (rule #25), and their new checksums replac
 - **D4:** the CSV is still required; the private import, reconciliation and source-backed acceptance are BLOCKED, and the feature is not release-ready. **Update 2026-10-15:** the CSV was supplied, and those checks passed locally.
 
 **Design proof first (C1):** authorization and locking proven in a disposable loopback PostgreSQL 16 database with real non-bypass roles before building on them (plan §4.5).
+
+---
+
+## 2026-10-15 — RECONCILE WITH MAIN `b5976e0`, THEN PHASE B THROUGH THE DOCUMENTED psql / CLI FALLBACK (approved): Google Sheets PR #442
+
+**Request (Chris, 2026-10-15, after Phase B attempt 1).** Chris approved:
+1. merging current `main` `b5976e0` into `claude/keen-brown-e4u3ht`;
+2. re-running the required verification against that `main`;
+3. completing Phase B through the documented recovery path:
+   - B2: the exact migration file through `psql --single-transaction`;
+   - verify production;
+   - only then record version `20261013120000` with `supabase migration repair`;
+   - B3: deploy only the four named Google Sheets functions, one at a time, with the Supabase CLI.
+
+This replaces further large requests through the Supabase MCP connector.
+
+**Not approved / never used:**
+- another MCP `apply_migration`;
+- splitting the migration across `execute_sql` calls;
+- the Dashboard SQL editor;
+- `supabase db push`;
+- an unscoped `supabase functions deploy`, or `--prune`;
+- direct edits to migration-history tables;
+- partial bundles.
+
+Also not approved: Phase C, D and E, merging PR #442, Vercel or flag changes, cron, the Vault worker token, a Google connection, imports and test leads. Any checksum mismatch, unexpected production state or out-of-scope need is a stop.
+
+**Outcome so far (2026-10-15): reconciliation DONE and verified; Phase B stopped before any production change. This environment cannot reach production, so the production stages go to Chris.**
+- **Merge:** `bf6b644`, with parents `fffd67f` (this plan) and `b5976e0`.
+  - `WORK_LOG.md` resolved byte-exactly: #448's entry plus the previous branch file.
+  - `AGENT_RULES.md` gains #448's bullet (+1 line).
+  - All 11 Sheets checksums are unchanged, and the PR is still 88 files against `main`.
+- **Verification:** every check is green against a fresh `b5976e0` worktree (`verification.md` §15.3):
+  - type checks: root tsc passes; app tsc 84 = 84;
+  - Vitest: full suite with no new failure (5,443 against 5,420 passed, plus 23); focused 127/127;
+  - Deno: Sheets 78/78 plus `deno check`; all 340 = 262 + 78;
+  - SQL/PostgREST suite and real pg_cron check: ALL PASSED;
+  - regression evidence: OK;
+  - ESLint: 29 files clean. Build: passes. Browser flow: 48/48.
+- **Records:**
+  - `verification.md` §14 (attempt 1) and §15;
+  - the release package: status, §0.C, §3/§4 "How", the additional read-backs, the rollback target, §10 APPROVED and the §10.1 staged commands;
+  - `WORK_LOG.md`.
+- **Direct access:** unavailable from Claude's environment, because there is no database credential, the egress policy blocks the Supabase hosts, and the Supabase CLI is not installed. So the production-changing stages (B2 psql, `migration repair`, B3 deploys) are handed to Chris (release package §10.1). Claude runs every read-only verification between them.
+- **Next:** exact-head CI green and the PR mergeable, then a fresh read-only preflight and Claude's GO for stage 1.
+
+**Phase B attempt 1 (2026-10-15, 17:45–18:25 UTC): stopped at B2; production unchanged.**
+- Two identical MCP `apply_migration` calls timed out at the 60 s tool limit.
+- Neither reached Postgres: no `statement:` line under `log_statement = ddl`, no error, no lock wait.
+- Read-only probes of the same SQL as a literal also stalled at 86, 68 and 30 KB, while small queries returned instantly.
+- Advisors at 18:23 UTC were identical to the pre-B2 baseline.
+- Evidence will go in `verification.md` §14.
+
+**Starting points.**
+- Branch head: `40ac439258be595f8206766fc034a2bcb7fa39f8` (clean, equal to origin).
+- `origin/main`: `b5976e0c141206e8b0f567984437358af4b1098b`.
+- Merge base: `03ef0cb` (the previous reconciliation).
+- One new `main` commit: `b5976e0` (#448), a squash merge with parent `03ef0cb`.
+
+**#448, HOTFIX: Team Leaders can invite Agent users (full diff checked).**
+- Files: `invite-user` and `send-invite-email` Edge functions, `InviteUserModal.tsx`, `UserManagement.tsx`, two new tests, its plan, one `AGENT_RULES.md` bullet (under invariant #20) and a WORK_LOG entry.
+- No migration, `config.toml`, permission default, shared Edge module, `package*.json` or build-config change.
+- No Sheets file imports anything it changed.
+- Production already runs its functions: `invite-user` v232 and `send-invite-email` v236 (deployed 17:29–17:30 UTC), and frontend `dpl_6LM8RRL2guFmeMzxjA7bhEVDv44B` at `b5976e0`.
+
+| File | Git result (preview) | Resolution |
+|---|---|---|
+| `WORK_LOG.md` | Conflict: both sides prepend at the top. | Newest first: #448's 2026-10-15 entry first. `main`'s and the branch's other 2026-10-15 entries are already in time order. Every entry stays byte-identical to its side, and none is dropped or duplicated. |
+| `AGENT_RULES.md` | Auto-merges. #448 adds one bullet under #20; the Sheets section is at the end. | Accept. Check that the bullet and the Sheets section each appear exactly once. |
+
+**Semantic review.**
+- **Settings.** #448 changes only User Management's invite flow. The Sheets Settings entry, `settingsConfig.ts`, `SettingsRenderer.tsx` and `permissionDefaults.ts` are untouched by it.
+- **Edge.** The invitation functions share no module with the Sheets bundles, so the four Sheets bundles cannot change.
+- **Migrations.** None added, so the Sheets migration's bytes and version order are unaffected.
+
+**Steps.**
+1. Commit this plan, then `git merge --no-ff origin/main`. No rebase, amend or force-push.
+2. Confirm unchanged: migration SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`, the pending/rollback/ops files, and the four bundles; `git diff origin/main` must list only this PR's files.
+3. Verify the merged head, against a fresh `b5976e0` worktree wherever a baseline is needed:
+   - `npx tsc --noEmit`, and `npx tsc -p tsconfig.app.json --noEmit` compared with `main`;
+   - Sheets Vitest, Sheets Deno tests and type checks;
+   - the SQL/PostgREST suite and regression evidence;
+   - ESLint, `npm run build` and the browser Sheets flow.
+4. Update `verification.md` (§14), `release-package.md`, `WORK_LOG.md` and this file. Push only this branch and keep PR #442 in draft. Exact-head CI must be green and the PR mergeable before any production change.
+5. Run a fresh read-only Phase B preflight immediately before B2:
+   - zero Sheets objects and rows;
+   - helper MD5 `a199d5dd…`;
+   - migration checksum;
+   - advisor baselines;
+   - frontend deployment and Edge inventory, including the #448 versions, which are never touched.
+6. **Direct access.** Check `psql`, the Supabase CLI and a database connection held in an environment variable, never printed.
+   - If this environment cannot reach production, stop before any change.
+   - Then give Chris exact commands for his Mac, in gated stages, with Claude doing every read-only verification between them.
+   - The sequence is B2 `psql`, then read-backs and the advisor delta, then `migration repair` and `migration list`, then records and green CI, then B3 one function at a time with explicit names, then read-back and disabled-state smoke tests.
+7. Because the CLI records the authored version, there is no restamp unless `migration repair` records a different version.
+
+**Current production release state (read-only, 2026-10-15 ~18:10–18:25 UTC).**
+- Migration history: 324 rows, latest `20261010172702`.
+- Sheets: zero objects, zero Sheets Edge functions, helper MD5 `a199d5dd…`.
+- Frontend: `dpl_6LM8RRL2…` at `b5976e0`.
+- `GOOGLE_SHEETS_ENABLED`: absent, per Chris; this environment cannot list secret names.
+
+**Stop if:**
+- a conflict needs an approved behaviour to change;
+- the migration bytes or a Sheets bundle change;
+- a new diagnostic or test failure appears;
+- CI is red or the PR is not mergeable;
+- any production preflight value differs;
+- direct access is unavailable from here, in which case stop before mutation and hand over the commands.
+---
+
+## 2026-10-15 — RECONCILIATION WITH CURRENT MAIN BEFORE PHASE B (approved; branch only; no production mutation): Google Sheets PR #442
+
+**Request (Chris, 2026-10-15).** Google Cloud owner setup (Phase A) is complete. Before any Phase B deployment, merge current `main` into `claude/keen-brown-e4u3ht`, keeping both sides' approved work, then re-verify the exact reconciled head.
+- **Approved:** the merge and its conflict resolution.
+- **Not approved:** every Phase B action (secrets, migration, Edge deploys, Vault, Vercel env, flags, cron), merging PR #442, and test leads.
+
+**Outcome (2026-10-15): DONE on the branch. No stop condition was hit.**
+- **Merge:** `94e9bc18dde7b662939e6807cbb2dddca6537f29`, with parents `18e5395` (this plan) and `03ef0cb`.
+- **Conflicts:** only `WORK_LOG.md` and `supabase/config.toml`, resolved as planned below. `AGENT_RULES.md` auto-merged.
+- **Application code:** no change. Every file is byte-identical to its side.
+- **Artifacts:** the migration (SHA-256 `fc68da86…6efed`) and the four Edge bundles are unchanged.
+- **Verification:** every step-4 check passed against a fresh `03ef0cb` baseline: zero new TypeScript diagnostics (84 = 84), no new test failure, Deno 340 = 262 + 78, SQL, cron, regression evidence, ESLint, build and browser 48/48. Evidence is in `docs/plans/2026-10-13-google-sheets-import/verification.md` §13.
+- **Records:** the release package was updated (reconciled head, §0.B, the Phase C rollback target, the Conversations health check, a fresh advisor capture before B2), along with `WORK_LOG.md`.
+- **Production:** unchanged, checked read-only.
+- **Exact-head CI:** all green on `a624eba`, recorded in `verification.md` §13.7. PR #442 is mergeable (`clean`) on base `03ef0cb` and stays in draft.
+- **Next:** Chris's Phase B approval (release package §10).
+
+**Starting points.**
+- Branch head: `52a91087c1baaa3012665462d5fa5341704a5c6b` (clean, equal to origin).
+- `origin/main`: `03ef0cbaecb1074655d568eb5a5a6a3d94d08866`.
+- Merge base: `f91e4ba62e0d4eeeb9baec5e296c3ec5d6beb325`.
+- Since the base: 19 commits on `main`, 18 on the branch.
+
+**`main` since the base: three merges, 19 commits.**
+- **`dacd921` (#443), ClearPath saved-lead SMS alerts.** A new Edge function `clearpath-lead-alert`, `[functions.clearpath-lead-alert] verify_jwt = false` in `supabase/config.toml`, a plan and a WORK_LOG entry.
+- **`26f9bc1` (#445; `488d4fc` … `6a2a3b2`), instant manual SMS, frontend only:**
+  - new: `src/lib/sms-send/*`, `usePendingSms`, `PendingSmsStatus`, and `PendingSmsAuthorityBridge`, mounted in `src/App.tsx`;
+  - changed: Conversations and contact-record SMS code, and its tests;
+  - CI: new `sms-consent.yml` paths and a responsiveness-fixture step;
+  - docs: the manual-SMS amendment and the View As SMS wording in `AGENT_RULES.md`, WORK_LOG entries, the plan and its evidence.
+- **`03ef0cb` (#446; `4b91c5e`), docs only.** The PR #445 production release record.
+
+**File sets.** `main` changed 69 files and the PR 88; three overlap:
+
+| File | Git result | Resolution |
+|---|---|---|
+| `AGENT_RULES.md` | Auto-merges. `main` edits the View As and send-result rules (about lines 379 and 391); the Sheets section is appended at the end. | Accept the auto-merge. Check that `main`'s two amendments and the Sheets section each appear exactly once and that nothing else moved. |
+| `WORK_LOG.md` | Conflict: both sides prepend at the top. | Newest first by date: `main`'s four 2026-10-15 entries and two 2026-10-14 entries, then the four Sheets entries (all dated and committed 2026-10-13 UTC), then the shared history from 2026-10-12. Every entry stays byte-identical to its side. |
+| `supabase/config.toml` | Conflict: both sides append after `email-unsubscribe`. | Keep `main`'s `clearpath-lead-alert` block where `main` put it, followed by the Sheets comment and the four Sheets blocks. No other function's block changes. |
+
+The root `implementation_plan.md` changed only on the branch, so it does not conflict.
+
+**Semantic review (checked even where Git reports no textual conflict).**
+- **Settings and permissions.** `main` changed nothing under `src/components/settings/`, `src/config/` or `src/pages/Settings*`, nor `src/hooks/usePermissions.ts`, and added no `role_permissions` SQL. The Sheets wiring in `settingsConfig.ts`, `SettingsRenderer.tsx` and `permissionDefaults.ts` applies unchanged. Two tests from the `main` side read PR files, and both re-run on the merged head:
+  - `reportsContracts.test.ts` pins `permissionDefaults.ts`. `main` did not touch the test, so the PR's updated pin applies.
+  - The onboarding `catalog.test.ts` requires its CTA routes in `App.tsx` and its section slugs in `settingsConfig.ts`. The PR only adds a section, and `main` only adds the bridge to `App.tsx`.
+- **Supabase client and auth.** `src/integrations/supabase/*` and `AuthContext` are unchanged. `main`'s `PendingSmsAuthorityBridge`, mounted above the router, only binds the memory-only SMS store to `useAuth()` and `onAuthStateChange`. The Sheets OAuth return is a full-page load of `/settings?section=google-sheets`, which the bridge does not touch.
+- **Contacts and lead creation.** `main`'s contact changes are SMS display only, and `main` added no migration, trigger or lead-insert hook. `clearpath-lead-alert` runs only on signed external requests, with a fixed organization, sender and recipient, and never reads `leads`, so a lead created by Sheets cannot fire it. Sheets creates leads only in the backend.
+- **Workflows and CI.**
+  - `sms-consent.yml` gained paths and a fixture step. It already ran on this PR through `src/components/settings/**`, so it will now run `main`'s new steps.
+  - `google-sheets.yml` is unchanged.
+  - `onboarding-emails` and `twilio-account-balance` (through `supabase/config.toml`) and `a2p-registration` (through `settingsConfig.ts`) also trigger on this PR.
+- **Build and runtime.** `main` changed none of these: `package*.json`, the Vite, TypeScript, ESLint or Vitest config, `deno.*`, `index.html`, `vercel.json`, `supabase/functions/_shared/**`. So the Sheets Edge bundles cannot change. `main` added no migration, so neither the Sheets migration's version order nor its bytes are affected.
+
+**Steps.**
+1. Commit this plan.
+2. Run `git merge --no-ff origin/main`: a merge commit, with no rebase, amend or force-push. Resolve the two conflicts as above, then check `AGENT_RULES.md`.
+3. Confirm unchanged:
+   - the migration (SHA-256 `fc68da86…6efed`, 86,193 bytes);
+   - the pending cron, rollback and ops checksums;
+   - the four bundle digests;
+   - no added cron objects or `cron.schedule` calls.
+
+   Also confirm that `git diff origin/main` lists only Sheets files.
+4. Verify the merged head, against a fresh `03ef0cb` worktree wherever a baseline is needed:
+   - `npx tsc --noEmit`, and app `tsc` against `03ef0cb` (`scripts/verify-a2p-types.mjs`);
+   - Sheets Vitest, and the full Vitest suite against `03ef0cb` (TZ=UTC, dummy Supabase env);
+   - Sheets Deno tests, plus every repository Deno test against `03ef0cb`;
+   - the SQL/PostgREST suite and the cron check;
+   - regression evidence against `8b675e5`;
+   - ESLint on changed files, `npm run build`, and the browser Sheets flow.
+5. Update the release package, which still names `main` `f91e4ba`, production deployment `dpl_E7C5…` and head `b66c44f`. Also update `verification.md` §13, `WORK_LOG.md` and this file.
+6. Push only `claude/keen-brown-e4u3ht` and keep PR #442 in draft. Confirm it is mergeable on base `03ef0cb`; if `main` has moved, repeat. Wait for all exact-head CI.
+7. Check read-only that production is unchanged.
+
+**Stop if:**
+- a conflict needs an approved behaviour to change;
+- the migration bytes or any Edge bundle change;
+- a new TypeScript diagnostic or a new unrelated test failure cannot be fixed without changing either side's approved behaviour.
+---
+
+## 2026-10-13 — PILOT SWITCHED TO LIVE-PRODUCTION TESTING (documentation only; code `b66c44f` unchanged; nothing deployed, applied, merged or enabled): Google Sheets PR #442
+
+**Decision (Chris, 2026-10-13):** run the controlled test directly in live production at `https://www.fflagent.com`, not on the protected Vercel preview.
+
+**Release sequence** (each phase separately approved; details in `docs/plans/2026-10-13-google-sheets-import/release-package.md`):
+1. **A — Google owner setup:** owner checklist §1, G0–G7.
+2. **B — Backend deployed, disabled:** Edge secrets, foundation migration, four Edge Functions. `GOOGLE_SHEETS_ENABLED` unset, cron absent, no imports.
+3. **C — Production code release, still disabled:** merge PR #442 with `VITE_GOOGLE_SHEETS_ENABLED` unset, then health checks.
+4. **D — Live test activation:** both flags on and a frontend redeploy. Cron OFF; the manual real Google test with Sync now, on synthetic data.
+5. **E — Normal operation, only after the real test passes:** privacy publication, Vault token and cron migration, the roughly five-minute checks, final verification.
+
+**Production-only origins:**
+- Picker referrers: `https://www.fflagent.com/*`, `https://fflagent.com/*`, `https://docs.google.com/*`.
+- Return origins: `https://www.fflagent.com,https://fflagent.com`.
+- No preview domain and no `*.vercel.app` wildcard.
+- The callback is unchanged unless G2 finds an active Supabase custom domain.
+
+**Found while re-checking Phase C; documented, no code change:**
+- Merged with the flag off, the "Google Sheets" Settings entry is visible to all roles, because new sections default to visible.
+- Its page shows "Google Sheets is not available yet." It still makes two read-only requests while open: `status`, which answers `enabled: false`, and the user's own (empty) sources, refreshed every 60 s.
+- Settings → Permissions lists "Import from own Google Sheets".
+- The release package no longer says the UI flag "hides" the page.
+
+**Recommended for Phase D (Chris's decision):** switch that permission OFF for Agent and Team Leader before enabling. A stored denial wins, and Admin stays eligible. Without it, all 8 active users could use the feature during the test, subject to Google test users while the project is in Testing.
+
+**Docs touched:** `release-package.md`, `verification.md` (environment note only), this file, `WORK_LOG.md`.
+
+**Not approved or performed:** no production mutation, deploy, merge, Vercel change, flag change or Google authorization. PR #442 stays draft.
+
+**Next:**
+1. Chris completes §1 G0–G7 and reports only non-secret results.
+2. Then comes the Phase B approval request (release package §10).
+---
+
+## 2026-10-13 — PILOT PREPARED; GOOGLE SETUP LEFT TO THE OWNER (no authenticated Google access); disabled-backend deployment awaiting approval: Google Sheets PR #442 (setup gate; code `b66c44f` unchanged; nothing deployed or applied)
+
+**Outcome:**
+- **Google Cloud setup:** not performed. This session has no authenticated Google access (gcloud UNAUTHENTICATED, no connector, no browser). The exact owner checklist is release package §1 (G0–G7).
+- **Callback:** live Supabase traffic shows only `jncvvsvckxhqgqvkppmj.supabase.co`. The specified callback stands; Chris confirms the Custom Domains page (G2).
+- **Pilot:**
+  - **Account:** Chris (`ecf2bb91…`, Admin), on the protected branch preview.
+  - **Data:** two synthetic sheets, with exactly 4 leads allowed.
+  - **Exposure:** limited, not private. The 8 active users of the only active org could call the API once the backend flag is set.
+  - **Workflows:** none exist in production.
+- **Next approval:** release package §10, disabled-backend deployment (secrets, migration, four functions, flags off, cron absent).
+- **Evidence:** `verification.md` §12.
+
+**Approved by Chris on 2026-10-13:**
+- the read-only release preflight;
+- the listed Google Cloud setup actions (A–H);
+- updating release documentation and status on `claude/keen-brown-e4u3ht`.
+
+**Not approved in this gate:**
+- production database writes or migration application;
+- Supabase or Vercel secrets and environment variables;
+- Edge Function deploys, and frontend merge or deploy;
+- cron, live imports or workflow execution, and privacy publication;
+- Google publishing status, branding, or the existing Gmail/Calendar clients;
+- deleting preview branches or buying capacity.
+
+PR #442 stays draft.
+
+**Preflight (read-only, 2026-10-13):**
+- `main` is still `f91e4ba`; the PR head is `b66c44f`. Every check on that head passed (Supabase Preview skipped: preview-branch limit reached). No new overlapping PR.
+- **Production `jncvvsvckxhqgqvkppmj`:**
+  - latest migration `20261010172702`;
+  - no Sheets migration, relation, function, cron job, Vault secret or Edge function;
+  - permission helper MD5 still `a199d5dd…b8`.
+- Security-advisor baseline recorded: 224 findings, none Sheets-related.
+
+**Documentation this gate will touch:**
+- this file;
+- `docs/plans/2026-10-13-google-sheets-import/release-package.md`: Google setup results or owner checklist, callback evidence, pilot plan, real Google test, privacy copy, and the disabled-backend deployment request;
+- `docs/plans/2026-10-13-google-sheets-import/verification.md`: a separate release-preflight evidence section;
+- `WORK_LOG.md`: a newest-first entry.
+
+**Not planned:** any change to application code, migrations, tests, workflows or `AGENT_RULES.md`. Any implementation change found necessary needs an updated file list and Chris's approval first.
+---
+
+## 2026-10-13 — CORRECTIONS IMPLEMENTED on draft PR #442, verified locally and in exact-head CI (not deployed, not applied, not released): Google Sheets pre-release integrity fixes
+
+**Outcome:**
+- The three findings and amendments A–C are implemented on `claude/keen-brown-e4u3ht`, PR #442 (still draft).
+- **Evidence:** 26 regressions fail on the reviewed `8b675e5` and pass here; 5 controls pass on both. Every Sheets CI job passed on `3e45be6`.
+- **Where to look:** the detailed plan §0.9 ("Implementation status"), `verification.md`, `release-package.md` and the newest WORK_LOG entry.
+- **Still gated:** the real Google-account test and every production step.
+
+**Status:** Chris approved the §0.9 correction plan on 2026-10-13, including decisions 1–4, with amendments:
+- **A:** end-to-end exclusion and recovery; ambiguous identity → Review with explicit per-row decisions and snapshot-bound apply.
+- **B:** generation-safe finalization, review and Picker, with real-time lease checks and engine outcome handling.
+- **C:** shutdown documentation that matches execution, with a tested admission gate.
+
+The amended design and exact file list are in the detailed plan §0.9 (updated before any implementation edit). PR #442 stays draft.
+
+**Approved:** implementation, isolated local testing, Sheets CI, branch pushes and the draft PR update.
+**Still gated:** merge, deploy, production migrations, Google Cloud, production secrets/settings, production cron, privacy publication and live imports.
+
+**Checked (read-only):**
+- `main` is still `f91e4ba`, and no PR overlaps.
+- The candidate migration is unapplied in production (`jncvvsvckxhqgqvkppmj`) and in PR #378's preview branch.
+- PR #294's preview branch is inactive and predates the feature. No branch exists for PR #442.
+---
+
+## 2026-10-13 — IMPLEMENTED on draft PR #442, locally verified (not deployed, not applied, not released): Google Sheets lead import V1
+
+**Status:** Chris approved implementation (D1–D11; "new row → create lead"; new rows by default) on 2026-10-13. The plan was revised first (§0 of the detailed plan).
+- **Done:** the foundation migration (one narrowly scoped permission-helper row), four new Edge functions, the Settings UI, and SQL/PostgREST, Deno, Vitest and browser verification.
+- **Not done:** no production change.
+
+**Detailed plan:** `docs/plans/2026-10-13-google-sheets-import/implementation_plan.md` (§0 authoritative). **Release package:** `release-package.md`. **Evidence:** `verification.md` and the newest WORK_LOG entry.
+
+**Awaiting:**
+- review of the draft PR and the release package;
+- the real Google-account test;
+- a fresh check of Google publishing status;
+- privacy copy approval;
+- separately approved production steps.
+
+*The Phase 1 plan-only status line below is kept as written.*
+
+## 2026-10-13 — PLAN ONLY, awaiting Chris's approval: Google Sheets lead import V1
+
+**Status:** Phase 1 review and plan only. No implementation file, migration, Edge function, secret, cron job, Google Cloud setting or production row was changed. Production was read-only.
+
+**Full plan:** `docs/plans/2026-10-13-google-sheets-import/implementation_plan.md`. It contains the files to touch (§10), the new tables and functions (§5), the four new Edge functions (§7), pg_cron with a Vault worker token (§6.1), the Google Cloud requirements (§4.1) and the release sequence (§14).
+
+**Approval needed:** decisions D1–D11 (§12).
+
+**Separate gates:**
+- Google publishing status: Testing grants expire after 7 days.
+- Privacy copy for Sheets: proposed in §11.
 
 ---
 
