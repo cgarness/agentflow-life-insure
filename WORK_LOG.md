@@ -1,3 +1,39 @@
+## 2026-10-22 — BUGFIX (PR #479 review): carrier list never returns a previous open's result on reopen (approved, implemented; draft PR; NOT merged, NOT released)
+
+Chris approved the correction and both documentation updates. D1–D3 and the scope are unchanged. Re-read AGENT_RULES,
+VISION and WORK_LOG. `main` was still `1a7ea7a`; PR #479 had no new commits or review threads, and its checks and
+both Vercel previews were green on `de1cb12`.
+
+- **Finding:** `useOrganizationCarriers` kept `loaded` while disabled. Reopening for the same user and agency matched
+  the old scope and attempt tags, so the first reopened render returned the previous open's list as `ready`. The
+  opening effect's `setLoaded(null)` only ran after that render. The earlier reopen test read results only after
+  effects flushed, so it missed this.
+- **Fix (`f3de39d`):**
+  - Each load is a session, kept in React state and renewed while rendering whenever the user, agency or attempt
+    changes or the hook is disabled.
+  - The render that detects the change already uses the new id. A result counts only for its own session.
+  - No ref is written during render; the request counter, mutated only in effects, still discards superseded
+    responses.
+  - The effect-only clearing was removed.
+- **Tests first** (real hook, every render recorded):
+  - **Reopen:** fails on the unchanged hook (first reopened render `ready` with `["List A"]`), passes after the fix.
+  - **A→B→A before B resolves:** passes on the unchanged hook. My plan's prediction that this path was affected was
+    wrong: B's committed render cleared A's result. The test is kept as a guard.
+  - Both assert no React warning.
+  - Mutations caught: the same-render handoff, the request guard, the session check.
+- **Verification:**
+  - Focused suites: 12 files, 122/122.
+  - Full Vitest: 6,091 passed / 1 failed / 36 skipped. The failing set (10 files, 1 test) is identical to `main`.
+  - Root tsc: exit 0. App tsc: 84 errors, identical to `main`.
+  - ESLint: exit 0. Build: exit 0. Browser harness: 30/30.
+  - Evidence: focused `verification.md` §4.
+- **Docs:** AGENT_RULES carrier isolation wording; focused plan §9 (outcome, with the A→B→A correction); root plan
+  status line.
+- **No** Supabase command, migration, Vercel action, merge or release.
+- **Next:** Chris's review of draft PR #479. Merge and frontend release need separate approval.
+
+---
+
 ## 2026-10-22 — BUGFIX: Record Policy and Add/Edit Client pick carriers from Settings → Carriers (approved, implemented; draft PR; NOT merged, NOT released)
 
 Chris approved branch-only implementation with D1 (ConvertLeadModal unchanged), D2 (the exact stored carrier is kept

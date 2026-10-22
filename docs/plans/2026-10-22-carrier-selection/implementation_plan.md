@@ -244,7 +244,19 @@ become a combobox pick)**
 
 None proposed. If one became necessary, I would stop and propose it separately.
 
-## 9. Review finding on PR #479 (2026-10-22): stale carrier options on reopen — PROPOSED, awaiting Chris's approval
+## 9. Review finding on PR #479 (2026-10-22): stale carrier options on reopen — APPROVED and IMPLEMENTED (`f3de39d`)
+
+**Outcome.** Chris approved the correction and both documentation updates. Implemented in `f3de39d` as proposed,
+with one correction to the finding below.
+- **Reopen:** reproduced. On `de1cb12` the first reopened render returned `{ status: "ready", carriers: ["List A"] }`.
+  The new test failed there and passes after the fix.
+- **A→B→A:** NOT reproduced; the hypothesis below was wrong. On `de1cb12` the switch to B commits a render, and that
+  render's effect cleared A's result before the switch back. A switch to B that never commits is equivalent to never
+  switching. The test passed on `de1cb12` and is kept as a guard.
+- **No ref write during render:** the session is React state adjusted while rendering. The request counter is still
+  mutated only in effects.
+- Evidence: `verification.md` §4.
+
 
 **Reviewed head:** `de1cb12`. `main` is still `1a7ea7a` and PR #479 has no new commits or review threads, so there
 are no conflicts. CI and both Vercel previews are green on `de1cb12`. D1–D3 and the §8 scope are unchanged.

@@ -3,7 +3,9 @@
 **Status:** Chris approved the plan with D1–D3 and four added requirements: frozen-retry safety, scope isolation,
 locking and form semantics. The branch `claude/carrier-selection-standardize-emoz7q` was refreshed against `main`
 `1a7ea7a`. Implemented in `2bd6404`; evidence in the focused `verification.md`. No Supabase or Vercel command. Merge
-and release need separate approval. Full plan and exact file list:
+and release need separate approval.
+**PR #479 review fix (approved, `f3de39d`):** the carrier list no longer returns a previous open's result on reopen.
+Each load is a render-time session. Focused plan §9; verification §4. Full plan and exact file list:
 `docs/plans/2026-10-22-carrier-selection/implementation_plan.md` §8.
 
 **Summary:** the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` become a shared searchable

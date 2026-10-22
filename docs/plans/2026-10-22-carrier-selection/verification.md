@@ -138,3 +138,56 @@ both.
   `carriers_select` RLS is unchanged.
 - The real `FloatingDialer` in a live call (simulated layer only, above).
 - Any production read or write.
+
+## 4. PR #479 review fix — stale carrier list on reopen (`f3de39d`; plan §9)
+
+**Base.** Reviewed head `de1cb12`. `main` was still `1a7ea7a`; there were no intervening commits and no review
+threads. On `de1cb12` CI was green and both Vercel previews were ready.
+
+### 4.1 Failing first
+
+Both tests use the real hook and record every render, including renders before effects run. Each was run on the
+unchanged hook first.
+
+| Test | Unchanged hook (`de1cb12` code) | After `f3de39d` |
+|---|---|---|
+| Same-scope reopen: load A → close → reopen with the request held → resolve B | **FAIL.** The first reopened render returned `{ status: "ready", carriers: ["List A"] }`. | PASS. Every reopened render is `loading` with `carriers: null`, then only B. |
+| A→B→A before B resolves | **PASS (not reproduced).** B's committed render ran its effect, which cleared A's result before the switch back. | PASS. Kept as a guard. |
+
+Both tests also assert that `console.error` was never called, so the render-time session update triggers no React
+warning.
+
+### 4.2 Mutation checks on the fix
+
+All three were caught:
+- dropping the same-render session-id handoff (calling only `setSession`);
+- dropping the request-counter guard;
+- dropping the session check.
+
+### 4.3 Regression
+
+| Check | Result |
+|---|---|
+| Focused suites (12 files: carrier helpers, hook, combobox, both modals, both commission suites, ConvertLead, client sale handoff, dialog descriptions, two contact-view suites) | 122/122 pass |
+| Full Vitest | 6,091 passed / 1 failed / 36 skipped. The failing set (10 files, 1 test) is identical to `main` `1a7ea7a`. |
+| Root `npx tsc --noEmit` | exit 0 |
+| App typecheck | 84 errors, identical lines to `main` |
+| ESLint on the 13 carrier files | exit 0 |
+| `npm run build` | exit 0 |
+| `git diff --check` | clean |
+| Browser harness (synthetic fixtures, §2) | 30/30 PASS |
+
+**Unchanged:**
+- explicit `organization_id` filtering and RLS;
+- user isolation and Retry;
+- frozen-sale replay;
+- exact historical preservation;
+- optional-carrier rules, locking and no auto-selection;
+- commission matching and calculations;
+- sale recording;
+- telephony;
+- ConvertLeadModal.
+
+**Limitation.** A close and reopen that React batches into a single render never renders the closed state, so it is
+indistinguishable from staying open. No consumer does this: `AddClientModal` renders closed with `open=false`, and
+`FloatingDialer` remounts Record Policy by key.
