@@ -1,6 +1,6 @@
-## Proposed October 22, 2026 Google Sheets privacy addendum — NOT APPROVED OR PUBLISHED
+## Approved October 22, 2026 Google Sheets privacy addendum — publication pending
 
-This is a separate candidate for the AgentFlow Sheets import release and does **not** supersede Chris's exact October 9 legal-policy approval or the archived policy text below. Chris requested finishing the build and leaving Agent and Team Leader import permissions enabled; he has **not yet approved the exact legal text**. The corresponding `src/content/legal.ts` change is staged only in draft GitHub PR. It must not merge to production until the exact copy and effective date are explicitly approved.
+This is a separate candidate for the AgentFlow Sheets import release and does **not** supersede Chris's exact October 9 legal-policy approval or the archived policy text below. Chris requested finishing the build and leaving Agent and Team Leader import permissions enabled. He **approved the exact PR #482 Google Sheets privacy/Terms wording and the October 22, 2026 effective date** by replying “Approved” directly to the request “Approve PR #482 privacy wording and publication” on October 22, 2026. The corresponding `src/content/legal.ts` copy remains identical to the text that was approved; it is not published until the CI-gated PR is merged to production.
 
 **Source:** `docs/plans/2026-10-13-google-sheets-import/release-package.md` §7, which remains the authoritative proposed wording. The candidate adds the full **Google Sheets information** section after Google Calendar and updates the exact five scoped Google/agency/disconnect/terms sentences in §7. It does not alter existing Gmail/Calendar OAuth behavior, their clients, or A2P policy content. The candidate legal effective date is **October 22, 2026**; reverify or revise it if publication occurs later.
 
@@ -18,7 +18,7 @@ Imported leads remain after you pause or remove a sheet or disconnect Google She
 
 **Additional exact edits from §7:** Google data/Limited Use includes spreadsheet lead imports; service providers includes Google Sheets; the Sheets disconnect paragraph is added without changing the Gmail paragraph; revocation warns that Gmail, Calendar and Sheets may be affected together; Terms of Service states optional Sheets access creates leads from selected-sheet rows. These updates are included in the draft legal.ts and must be reviewed together.
 
-**Publication gate:** Require Chris to approve the full proposed copy and effective date, then merge only the reviewed PR and verify both Vercel projects READY and published privacy/terms content before project-wide Phase D activation. Subsequent Phase D Google flags and Phase E Vault/cron require their own prerequisite tests/authorizations.
+**Publication gate:** The exact-copy approval above has been received. Merge the same reviewed legal copy only after green exact-head CI, then verify both Vercel projects READY and public Privacy Policy/Terms content. This approval does not authorize Phase D production flag changes, real Google imports, or Phase E Vault/cron: those retain their own prerequisite tests and controlled rollout.
 
 ---
 
