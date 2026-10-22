@@ -36,6 +36,7 @@ const h = vi.hoisted(() => ({
   saleGate: null as Promise<void> | null,
 }));
 
+import { installComboboxDomStubs, pickCarrier } from "@/test/carrierComboboxTestUtils";
 vi.mock("@/integrations/supabase/client", () => {
   const SALES = new Set(["convert_lead_to_client_with_sales", "create_client_with_sale", "record_client_policy", "update_client_with_policy_sale"]);
   // Phase 2A: the modals save through the commission companions, which return the writer's result.
@@ -145,6 +146,7 @@ const commissionSlots = (name: string) => salesTo(name).map((args) => ((args as 
 const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
 beforeEach(() => {
+  installComboboxDomStubs();
   Object.assign(h, { role: "Agent", impersonating: false, leadOwner: A, clientOwner: A, team: [], saleFailures: 0, saleGate: null, profilesById: null });
   h.perms = new Set([OWN]);
   h.profileRow = { id: B, first_name: "Synthetic", last_name: "B", email: "b@example.test", commission_level: "120" };
@@ -343,7 +345,7 @@ async function newClientSale(touchPreview: boolean, failures = 0) {
   fill("Last Name *", "Lee");
   fireEvent.change(screen.getByLabelText("Phone"), { target: { value: "5551234567" } });
   fill("Policy Type", "Final Expense");
-  fill("Carrier", NORTH);
+  await pickCarrier(NORTH);
   fill("Monthly Premium", "$100.00");
   fireEvent.change(screen.getAllByTestId("date")[0], { target: { value: "2026-10-03" } });
   if (touchPreview) {
@@ -365,7 +367,7 @@ describe("AddClientModal", () => {
   it("shows the panel only when this save would record a new policy (P4)", async () => {
     openAddClient();
     expect(regions()).toHaveLength(0);
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     await waitFor(() => expect(regions()).toHaveLength(1));
     cleanup();
     openAddClient({ id: CLIENT_ID, firstName: "Pat", lastName: "Lee", phone: "5551234567", policyType: "Whole Life", carrier: NORTH, premiumAmount: "$100.00", assignedAgentId: A });
@@ -375,7 +377,7 @@ describe("AddClientModal", () => {
     cleanup();
     openAddClient({ id: CLIENT_ID, firstName: "Pat", lastName: "Lee", phone: "5551234567", assignedAgentId: A });
     expect(regions()).toHaveLength(0);
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     await waitFor(() => expect(regions()).toHaveLength(1));
     expect(h.readCalls).toContain("clients");
   });
@@ -398,7 +400,7 @@ describe("AddClientModal", () => {
       const initial = { id: CLIENT_ID, firstName: "Pat", lastName: "Lee", phone: "5551234567", email: "", state: "", assignedAgentId: A };
       const view = openAddClient(initial);
       fill("Policy Type", "Final Expense");
-      fill("Carrier", NORTH);
+      await pickCarrier(NORTH);
       fill("Monthly Premium", "100");
       fireEvent.change(screen.getAllByTestId("date")[0], { target: { value: "2026-10-03" } });
       if (touchPreview) {
@@ -421,12 +423,12 @@ describe("AddClientModal", () => {
 });
 
 // ── RecordPolicyModal ────────────────────────────────────────────────────────────────────────────────
-function openRecord(client?: QueryClient) {
+async function openRecord(client?: QueryClient) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
   mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={onClose} onSaved={onSaved} />, client);
   fireEvent.change(screen.getByLabelText("Policy type"), { target: { value: "Final Expense" } });
-  fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: NORTH } });
+  await pickCarrier(NORTH);
   fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
   fireEvent.change(screen.getByLabelText("Sold Date"), { target: { value: "2026-10-03" } });
   return { onClose, onSaved, submit: () => fireEvent.click(screen.getByRole("button", { name: "Record Policy" })) };
@@ -436,14 +438,14 @@ describe("RecordPolicyModal", () => {
   it("credits the client's stored owner for a Team Leader in scope, with an unchanged payload and retry", async () => {
     Object.assign(h, { role: "Team Leader", clientOwner: B, team: [A, B] });
     h.perms = new Set([OTHERS]);
-    const control = openRecord();
+    const control = await openRecord();
     control.submit();
     await waitFor(() => expect(control.onSaved).toHaveBeenCalledTimes(1));
     const [baseline] = saleArgs("record_client_policy_handoff");
     cleanup();
     h.rpcCalls = [];
     h.saleFailures = 1;
-    const view = openRecord();
+    const view = await openRecord();
     await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic B")).toBeTruthy());
     choose(regions()[0], "Product", IDS.finalPlan);
     choose(regions()[0], "Insured age", "60");
@@ -467,11 +469,11 @@ describe("RecordPolicyModal", () => {
       [h.ids.c]: { id: h.ids.c, first_name: "Synthetic", last_name: "C", email: "c@example.test", commission_level: "130" },
     };
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    openRecord(client);
+    await openRecord(client);
     await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic B")).toBeTruthy());
     cleanup();
     h.clientOwner = h.ids.c;
-    openRecord(client);
+    await openRecord(client);
     expect(screen.queryByText("For Synthetic B")).toBeNull();
     await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic C")).toBeTruthy());
     expect(screen.queryByText("For Synthetic B")).toBeNull();
@@ -480,11 +482,29 @@ describe("RecordPolicyModal", () => {
   it("shows nothing for a Team Leader outside the credited agent's scope", async () => {
     Object.assign(h, { role: "Team Leader", clientOwner: B, team: [A] });
     h.perms = new Set([OWN, OTHERS]);
-    openRecord();
+    await openRecord();
     await waitFor(() => expect(h.rpcCalls.some(([n]) => n === "get_contact_scope_agents")).toBe(true));
     await flush();
     expect(regions()).toHaveLength(0);
     expect(h.readCalls).not.toContain("profiles");
+  });
+
+  it("recalculates the estimate when the picked carrier changes and saves the new carrier", async () => {
+    h.perms = new Set([OWN]);
+    const view = await openRecord();
+    await waitFor(() => expect(regions()).toHaveLength(1));
+    const productNames = () => Array.from(within(regions()[0]).getByLabelText("Product").querySelectorAll("option")).map((o) => o.textContent);
+    expect(productNames()).toContain("North Final Plan");
+    choose(regions()[0], "Product", IDS.finalPlan);
+    choose(regions()[0], "Insured age", "60");
+    expect(lines(regions()[0])).toHaveLength(2);
+    await pickCarrier(SOUTH);
+    await waitFor(() => expect(productNames()).toContain("South Zero Plan"));
+    expect(productNames()).not.toContain("North Final Plan");
+    expect(lines(regions()[0])).toHaveLength(0);
+    view.submit();
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledTimes(1));
+    expect(saleArgs("record_client_policy_handoff")[0]).toMatchObject({ p_policy: expect.objectContaining({ carrier: SOUTH }) });
   });
 });
 
@@ -496,9 +516,9 @@ describe("View As", () => {
     await fillPolicy(0, "Final Expense", "100");
     cleanup();
     openAddClient();
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     cleanup();
-    openRecord();
+    await openRecord();
     await flush();
     expect(regions()).toHaveLength(0);
     expect(h.rpcCalls.map(([n]) => n)).not.toContain("get_commission_calculator_context");

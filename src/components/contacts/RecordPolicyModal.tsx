@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/li
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
+import { useOrganizationCarriers } from "@/hooks/useOrganizationCarriers";
+import { carrierSelectionError } from "@/lib/carrierSelection";
+import { CarrierCombobox } from "@/components/shared/CarrierCombobox";
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
 
@@ -30,6 +33,8 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
   const [error, setError] = useState<string | null>(null);
   const submission = usePolicySaleSubmission();
   const { reset } = submission;
+  const carriers = useOrganizationCarriers(open);
+  const carrierId = useId();
   const requestId = useRef("");
   const capture = useRef<CommissionSlotInputs | null>(null);
   const scope = [user?.id, organizationId, clientId, open].join("|");
@@ -48,6 +53,9 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
     if (!user?.id || !organizationId) return;
     const parsed = policySchema.safeParse(form);
     if (!parsed.success) { setError(parsed.error.issues[0].message); return; }
+    // A frozen retry replays the exact submission that already passed this check; the carrier list is not consulted.
+    const carrierError = submission.frozen ? null : carrierSelectionError(carriers.carriers, parsed.data.carrier);
+    if (carrierError) { setError(carrierError); return; }
     setError(null);
     const commission = commissionPayload([{ slot: PRIMARY_SLOT, inputs: capture.current }]);
     const outcome = await submission.submit((attempt) => recordClientPolicyHandoff(attempt, requestId.current, clientId, {
@@ -71,10 +79,14 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
               {["Term", "Whole Life", "Final Expense", "IUL"].map(value => <option key={value}>{value}</option>)}
             </select>
           </label>
-          {(["carrier", "policy_number", "premium", "sold_date"] as const).map(key => <label key={key} className="block text-sm">
-            {{ carrier: "Carrier", policy_number: "Policy number", premium: "Monthly premium", sold_date: "Sold Date" }[key]}
+          <div className="text-sm"><label htmlFor={carrierId} className="mb-1 block">Carrier</label>
+            <CarrierCombobox id={carrierId} value={form.carrier} onChange={carrier => setForm(f => ({ ...f, carrier }))}
+              list={carriers} disabled={submission.locked} className="rounded bg-background hover:bg-background" />
+          </div>
+          {(["policy_number", "premium", "sold_date"] as const).map(key => <label key={key} className="block text-sm">
+            {{ policy_number: "Policy number", premium: "Monthly premium", sold_date: "Sold Date" }[key]}
             <input className="mt-1 w-full rounded border bg-background p-2" type={key === "sold_date" ? "date" : "text"}
-              required={key === "carrier" || key === "sold_date"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
+              required={key === "sold_date"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
           </label>)}
           <PolicyCommissionEstimate owner={{ kind: "client", id: clientId }} policyType={form.policy_type}
             carrier={form.carrier} monthlyPremium={form.premium} onCaptureChange={inputs => { capture.current = inputs; }} />
