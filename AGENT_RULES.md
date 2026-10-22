@@ -1006,7 +1006,7 @@ Future conversions only: no backfill, and existing clients are never read or cha
   keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
   must again re-verify the commission companions (Phase 2A rule).
 
-## Google Sheets lead import invariant — October 13, 2026 (backend deployed disabled on 2026-10-22 as `20261022062539`; frontend release pending)
+## Google Sheets lead import invariant — October 13, 2026 (backend and frontend released disabled on 2026-10-22; activation pending)
 
 Settings → Google Sheets uses a **dedicated** Google OAuth client and its own tables, Vault secrets and Edge functions. Never reuse the Gmail/Calendar client, `_shared/google-token.ts` Base64 storage, `user_email_connections` or `calendar_integrations` for it.
 
@@ -1074,4 +1074,9 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 - both flags are absent, and there is no cron job or Vault worker token;
 - the shutdown ops files are NOT RUN.
 
-The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
+Phase C was released on 2026-10-22:
+- PR #442 was squash-merged as `069b1ad3`, deployed as `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm` (agentflow, www.fflagent.com) and `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si` (agentflow-life-insure);
+- the Settings page shows only "Google Sheets is not available yet.";
+- the served bundle has no `VITE_GOOGLE_SHEETS_ENABLED`.
+
+Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.

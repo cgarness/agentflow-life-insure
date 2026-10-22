@@ -1,5 +1,15 @@
 ## 2026-10-22 17:00 UTC — Google Sheets Phase C: preflight passed; frontend release plan (awaiting "Approve Phase C frontend release")
 
+**Outcome (18:05 UTC).** Approved and released.
+- **Merge:** PR #442 was squash-merged by the `cgarness` account at 17:59:17 UTC as `069b1ad3`. Its tree equals the approved head `10e69863`.
+- **Vercel:** `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm` (agentflow, www.fflagent.com) and `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si` (agentflow-life-insure) are READY.
+- **Why this session didn't merge:** it could not read either pre-merge setting, so it stopped. The post-merge evidence shows the served bundle has no `VITE_GOOGLE_SHEETS_ENABLED` and the merge triggered no Supabase deployment.
+- **Health:** 0 Edge 5xx, 0 gateway 5xx and 0 Postgres errors; Gmail syncing.
+- **TypeScript:** unchanged.
+- **Remaining:** Chris's signed-in §5.1 checklist. Phase D is not started.
+
+Evidence: focused `verification.md`, top section.
+
 **Authorization and scope.** Chris assigned ownership of the remaining Sheets release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2` (feature source `88669b7d` merged with main `16aa4ab4`): complete the Phase C preflight, record it, and stop for the exact approval "Approve Phase C frontend release". Nothing is merged, enabled, migrated or deployed before that approval. Phase D (live test, cron OFF) and Phase E (privacy, Vault/cron, normal operation) each need their own later approval.
 
 **Source of truth.** Read AGENT_RULES.md in full, VISION.md, the newest Work Log entries, this plan, and the focused release package §5.1–§9 and §10.3. Main is still `16aa4ab4` (the #451 runner merge, already in the branch), so no work merged after `db6c5031` conflicts. Draft PR #479 (carrier selection, not approved for merge) overlaps only in AGENT_RULES.md, WORK_LOG.md and this file. If it reaches main first, reconcile those three documents additively and rerun CI before the Phase C merge.

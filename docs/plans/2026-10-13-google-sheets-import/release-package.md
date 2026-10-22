@@ -1,6 +1,23 @@
 # Google Sheets V1 — production release package
 
-## Current checkpoint — Phase B complete; Phase C preflight passed (2026-10-22, 16:48–16:58 UTC)
+## Current checkpoint — Phase C released, Sheets still disabled (2026-10-22, 18:05 UTC)
+
+| Item | Result |
+|---|---|
+| Approval | Chris: "Approve Phase C frontend release" (PR checkpoint at 17:40 UTC). It does not cover Phase D, flags, secrets, cron, migrations or Edge deployments. |
+| Merge | PR #442 squash-merged at 17:59:17 UTC by the `cgarness` account as `069b1ad305fddfe7d7a5f9d5fc80254639d04596` (parent `16aa4ab4`). The tree `1183204d71c5dc5ae5cc46b4dea7c4ab469e1d41` is byte-identical to the approved head `10e69863`. |
+| Vercel `agentflow` | `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm`: READY at 18:00:33 UTC on `069b1ad3`, serving www.fflagent.com and fflagent.com, no alias error |
+| Vercel `agentflow-life-insure` | `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si`: READY at 17:59:53 UTC on `069b1ad3` |
+| Rollback targets | `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` and `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb`, both at `16aa4ab4` |
+| Frontend flag | The served bundle `index-7W7w0Bj7.js` inlines the build's Production environment with no `VITE_GOOGLE_SHEETS_ENABLED` key (no `VITE_GOOGLE_*` key). `GoogleSheetsSettings` compiled to the disabled notice only. |
+| Supabase after merge | No production deployment: history 343 / `20261022062539`; all 81 Edge Functions unchanged (versions and `updated_at`); production branch record unchanged since 2026-08-25. Sheets tables, cron, Vault and Google Sheets leads all 0. |
+| Health, 16:57–18:04 UTC | 0 Edge 5xx, 0 gateway 5xx, 0 Postgres errors; Gmail `connected`, synced at 18:00:03 UTC |
+| TypeScript on `069b1ad3` | Root exit 0. Strict app: 84 errors in 230 lines, byte-identical to the pre-merge output. |
+| Pending | Chris's signed-in §5.1 checklist (step 2). Phase D needs its own approval. |
+
+**Pre-merge gates, as observed by this session:** neither setting could be read from the cloud session, so this session stopped and did not perform the merge. The post-merge evidence in the table above covers both.
+
+## Earlier checkpoint — Phase B complete; Phase C preflight passed (2026-10-22, 16:48–16:58 UTC; superseded above)
 
 **Phase B is complete.** The backend is deployed and disabled. Four protected runs of `.github/workflows/google-sheets-phase-b.yml` on main `16aa4ab4` each passed every gate (evidence: `verification.md`, top section):
 

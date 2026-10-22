@@ -1,5 +1,18 @@
 # Google Sheets V1 — verification record (local, CI and read-only production evidence)
 
+## Phase C release verification — 2026-10-22, 17:59–18:08 UTC (read-only)
+
+| Check | Result |
+|---|---|
+| Merge commit | `069b1ad305fddfe7d7a5f9d5fc80254639d04596`, parent `16aa4ab4`, committed 17:59:17 UTC by GitHub for `cgarness`. `git rev-parse 069b1ad3^{tree}` equals `10e69863^{tree}`, both `1183204d71c5dc5ae5cc46b4dea7c4ab469e1d41`. |
+| Vercel | `agentflow` `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm`: READY, production, `069b1ad3`, built 17:59:54–18:00:33 UTC; aliases www.fflagent.com, fflagent.com, agentflow-eta.vercel.app and two project aliases; `aliasError` null. `agentflow-life-insure` `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si`: READY, production, `069b1ad3`, 17:59:22–17:59:53 UTC. |
+| Served frontend | `https://www.fflagent.com/` returns 200 with entry `/assets/index-7W7w0Bj7.js` (4.65 MB). Its inlined environment object has 27 keys: `BASE_URL`, `DEV`, `MODE`, `PROD`, `SSR`, `VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_URL`, `VITE_UV_PROFILE_ENABLED` and the Vercel system variables. There is no `VITE_GOOGLE_SHEETS_ENABLED` or other `VITE_GOOGLE_*` key; the only occurrence of that string is in the commit-message value. The Settings component compiled to `e ? <View As notice> : <"Google Sheets is not available yet.">`, with the connection, Picker and source UI removed as dead code. |
+| Supabase GitHub deployment | None from the merge. `list_branches`: the production branch record (`main`, `git_branch` empty, `MIGRATIONS_FAILED`) is still last updated `2026-08-25T19:24:20Z`. History is 343 / `20261022062539`. All 81 Edge Functions keep their versions, `updated_at` and ezbr hashes; the four Sheets functions are v1. |
+| Sheets state | `postgres\|f\|52\|1\|bc6356dde683e628b88b631dd5f6d01e\|20261022062539\|343`. Sheets rows 0, cron 0, Vault names 0, Google Sheets leads 0. No `google-sheets-*` invocation from 17:58 to 18:08 UTC. |
+| Health | 15-minute slots from 16:45 to 18:04 UTC: Edge 5xx 0, gateway 5xx 0, Postgres errors 0. Gateway traffic was 2,044–2,499 per slot before the merge and 938 in the first four minutes after. Gmail `connected`, `last_sync_at` 18:00:03 UTC (was 16:55:01), no error. |
+| TypeScript on `069b1ad3` | `npx tsc --noEmit` exit 0. `npx tsc -p tsconfig.app.json --noEmit`: 84 errors in 230 lines; `diff` against the pre-merge output is empty. |
+| Not observed here | Chris's signed-in §5.1 page checks. The second project's bundle was not fetched. |
+
 ## Phase B execution and Phase C preflight — 2026-10-22
 
 ### Phase B: four protected runner stages on main `16aa4ab4` (all passed)

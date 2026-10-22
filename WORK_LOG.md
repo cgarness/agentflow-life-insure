@@ -1,3 +1,33 @@
+## 2026-10-22 18:05 UTC — Google Sheets Phase C RELEASED: frontend live, Sheets still disabled
+
+Chris approved "Approve Phase C frontend release" (PR #442 checkpoint at 17:40 UTC). The approval was relayed to this session at about 17:45 UTC, with an instruction to stop unless Supabase "Deploy to production" (OFF) and Vercel `VITE_GOOGLE_SHEETS_ENABLED` (absent) were first freshly verified. Neither setting is readable from this session: the Vercel environment list returns 403, and no Supabase tool exposes the toggle. This session therefore stopped before merging.
+
+- **Merge (not performed by this session).** At 17:59:17 UTC the `cgarness` account marked #442 ready and squash-merged it as `069b1ad305fddfe7d7a5f9d5fc80254639d04596` (parent `16aa4ab4`). Its tree, `1183204d71c5dc5ae5cc46b4dea7c4ab469e1d41`, is byte-identical to the approved head `10e69863`.
+- **Vercel.**
+  - `agentflow` `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm`: READY at 18:00:33 UTC on `069b1ad3`, aliased to www.fflagent.com and fflagent.com with no alias error.
+  - `agentflow-life-insure` `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si`: READY at 17:59:53 UTC.
+  - Rollback targets are unchanged: `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt` and `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb`, both at `16aa4ab4`.
+- **Post-merge configuration evidence (read-only).**
+  - Frontend flag: the served www.fflagent.com entry bundle `index-7W7w0Bj7.js` inlines the build's Production environment with no `VITE_GOOGLE_SHEETS_ENABLED` key (no `VITE_GOOGLE_*` key at all). `GoogleSheetsSettings` compiled down to the disabled notice only.
+  - No Supabase production deployment from the merge: migration history is unchanged at 343 / `20261022062539`. All 81 Edge Functions keep their versions and `updated_at`, and the four Sheets functions are still v1. The production branch record is unchanged since 2026-08-25.
+  - Sheets tables, cron, Vault names and Google Sheets leads are all still 0.
+- **Health (read-only).**
+  - 16:57–18:04 UTC, spanning the merge and deploy: 0 Edge 5xx, 0 gateway 5xx, 0 Postgres errors. Traffic stayed normal after the deploy.
+  - Gmail: `connected`, `last_sync_at` 18:00:03 UTC, no error.
+- **Pending.** Chris's signed-in §5.1 checklist:
+  - Dashboard;
+  - Contacts list and one lead;
+  - Dialer campaign load only, with no call;
+  - Reports;
+  - Settings → Email Setup (Gmail connected);
+  - Settings → Calendar;
+  - Conversations, opening an existing thread and sending nothing;
+  - Settings → Google Sheets shows "Google Sheets is not available yet."
+
+  Phase D is not started: both flags stay unset, with no cron, Vault or Edge change.
+
+---
+
 ## 2026-10-22 17:00 UTC — Google Sheets Phase B complete (backend deployed, disabled); Phase C preflight passed; frontend release awaits approval
 
 Chris assigned ownership of the remaining release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2`. I read AGENT_RULES in full, VISION, this log, the root plan and the release package §5.1–§9 and §10.3 before editing. This entry and the matching plan/release records are documentation only: no merge, flag, migration, Edge deployment or other production change.
