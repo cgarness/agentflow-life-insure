@@ -1,11 +1,11 @@
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
-// Chris approved this exact copy and publication on October 9, 2026.
+// Chris approved the October 9 baseline. The later Google Sheets addendum requires a separate release approval.
 // A public policy is not evidence of Google verification or completed security work.
 export const legalPublication = {
   approved: true,
-  effectiveDate: "October 9, 2026" as string | null,
-  reviewedOn: "October 9, 2026",
+  effectiveDate: "October 22, 2026" as string | null,
+  reviewedOn: "October 22, 2026",
   operator: "Christopher Garness",
   supportEmail: "cgarness.ffl@gmail.com",
 };
@@ -47,10 +47,20 @@ export const privacySections: LegalSection[] = [
     ],
   },
   {
+    id: "sheets",
+    title: "Google Sheets information",
+    paragraphs: [
+      "If you connect Google Sheets, AgentFlow requests your Google account identity and email address and access only to the specific spreadsheet files you choose in Google's file picker. AgentFlow reads the spreadsheets you select; it does not change them.",
+      "For each spreadsheet tab you enable, AgentFlow checks for new rows in the background about every five minutes, including while you are signed out, until you pause or remove that sheet or disconnect Google Sheets. By default, only rows added after you enable a sheet become leads; the rows already in the sheet at that time are recorded so they are not imported. When you enable a sheet, you can instead choose to also import the rows already in it.",
+      "Each imported row becomes a lead in your agency workspace, assigned to you, using the columns you map, such as names, phone numbers, email addresses and other lead details. AgentFlow also keeps the selected file and tab details and a record of which rows it has handled, so that sorting, editing or re-adding a sheet does not import the same row twice. Imported leads are agency records: other authorized users, including agency leadership, may see them under your agency's access rules; your agency's duplicate rules apply; and agency automations such as Lead Created workflows may run for them.",
+      "Imported leads remain after you pause or remove a sheet or disconnect Google Sheets, and they are retained and deleted under this policy like other agency records. Removing a sheet from AgentFlow does not delete the spreadsheet.",
+    ],
+  },
+  {
     id: "limited-use",
     title: "Google data and Limited Use",
     paragraphs: [
-      "AgentFlow uses Google information to provide the email, communication-history and calendar features that users choose. AgentFlow's use and transfer of information received from Google APIs will adhere to the Google API Services User Data Policy, including its Limited Use requirements.",
+      "AgentFlow uses Google information to provide the email, communication-history, calendar and spreadsheet lead-import features that users choose. AgentFlow's use and transfer of information received from Google APIs will adhere to the Google API Services User Data Policy, including its Limited Use requirements.",
       "We do not sell Google information or use it for advertising, advertising audiences, creditworthiness or lending decisions, or training generalized artificial-intelligence or machine-learning models. These restrictions also apply to information derived from Google data.",
       "Google information is shared only as needed for the user-facing features you authorize, security, applicable legal obligations, or a business transfer with your prior consent as required by Google's policy. AgentFlow personnel may access specific Google information with your affirmative permission, when necessary for security or legal obligations, or in the other limited circumstances permitted by that policy.",
     ],
@@ -60,7 +70,7 @@ export const privacySections: LegalSection[] = [
     title: "Agency visibility and service providers",
     paragraphs: [
       "Imported communications become agency workspace records. Other authorized users, including agency leadership where the applicable access rules allow it, may see those records and related activity or notification previews. Connecting a mailbox is not intended as private storage accessible only to the mailbox owner.",
-      "Supabase supplies application databases and backend processing; Vercel hosts the application; Google processes Gmail and Calendar requests. Twilio supports calling and text messaging, and Resend supports AgentFlow system email. These providers process information needed for the relevant services. Connecting Gmail does not itself authorize transferring Gmail content into an unrelated service or feature.",
+      "Supabase supplies application databases and backend processing; Vercel hosts the application; Google processes Gmail, Calendar and Google Sheets requests. Twilio supports calling and text messaging, and Resend supports AgentFlow system email. These providers process information needed for the relevant services. Connecting Gmail does not itself authorize transferring Gmail content into an unrelated service or feature.",
       "We may disclose information where required by law or where necessary to investigate abuse and protect users or the service. Google information remains subject to the Limited Use restrictions above.",
     ],
   },
@@ -77,7 +87,8 @@ export const privacySections: LegalSection[] = [
     title: "Disconnecting and revoking Google access",
     paragraphs: [
       "You can disconnect Gmail in AgentFlow's Email Setup settings. The disconnect operation marks the connection disconnected and clears its saved access and refresh tokens. Previously imported emails and related CRM history remain unless deleted separately. Disconnecting is not a request to delete your Google mailbox or a guarantee that work already in progress has been cancelled.",
-      "To revoke Google's authorization, remove AgentFlow through your Google Account's third-party connections page. Revocation can affect both Gmail and Calendar when they share a Google authorization. Google account controls and AgentFlow's local disconnect control perform different actions.",
+      "You can disconnect Google Sheets in AgentFlow's Google Sheets settings. Disconnecting deletes AgentFlow's saved Google Sheets authorization and stops checking all of your sheets; it does not revoke Google's authorization and does not disconnect Gmail or Calendar. Imported leads remain.",
+      "To revoke Google's authorization, remove AgentFlow through your Google Account's third-party connections page. Revocation can affect Gmail, Calendar and Google Sheets together, because they may share AgentFlow's Google authorization. Google account controls and AgentFlow's local disconnect control perform different actions.",
     ],
   },
   {
@@ -131,7 +142,7 @@ export const termsSections: LegalSection[] = [
     id: "integrations",
     title: "Google and other integrations",
     paragraphs: [
-      "Connect only third-party accounts you are authorized to use. Gmail access supports user-initiated email and imported conversation history; optional Calendar access supports appointment synchronization. The Google consent screen and Privacy Policy explain the relevant permissions and data use.",
+      "Connect only third-party accounts you are authorized to use. Gmail access supports user-initiated email and imported conversation history; optional Calendar access supports appointment synchronization. Optional Google Sheets access supports creating leads from new rows in spreadsheets you select. The Google consent screen and Privacy Policy explain the relevant permissions and data use.",
       "Imported messages may include unmatched or personal email and may be visible within your agency under its access rules. Disconnecting does not automatically delete imported history. You may revoke Google access through your Google Account and request local data deletion through AgentFlow support.",
       "Third-party providers may impose their own terms, account restrictions, limits and outages. Check actual communication and synchronization results rather than assuming a request was delivered or completed.",
     ],
