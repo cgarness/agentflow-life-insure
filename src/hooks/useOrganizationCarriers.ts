@@ -14,16 +14,16 @@ export interface OrganizationCarriers {
 }
 
 interface Loaded {
-  scope: string;
-  attempt: number;
+  session: number;
   carriers: string[] | null;
 }
 
 /**
  * The signed-in user's agency carriers from Settings → Carriers (`public.carriers`, organization-scoped; RLS applies).
- * Each result is tagged with the user/agency scope and attempt it was requested for: a result for any other scope
- * reads as loading, so a previous user's or agency's list can never display or validate a save, and a late
- * response from a superseded request is discarded.
+ * Every load is a session: a new session starts whenever the user, agency or retry attempt changes or the hook is
+ * disabled (modal closed), and a result counts only for the session that requested it. So a previous open's,
+ * user's or agency's list can never display or validate a save, not even for one render, and a late response
+ * from a superseded request is discarded.
  */
 export function useOrganizationCarriers(enabled: boolean): OrganizationCarriers {
   const { user } = useAuth();
@@ -34,10 +34,20 @@ export function useOrganizationCarriers(enabled: boolean): OrganizationCarriers 
   const request = useRef(0);
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
+  // Adjust state while rendering (React's pattern for state derived from changing inputs): a changed key starts the
+  // next session in this same render, so even a render React discards for this update never returns an older result.
+  const key = scope ? `${scope}|${attempt}` : null;
+  const [session, setSession] = useState({ key, id: 0 });
+  let current = session;
+  if (session.key !== key) {
+    current = { key, id: session.id + 1 };
+    setSession(current);
+  }
+  const sessionId = current.id;
+
   useEffect(() => {
     if (!scope || !organizationId) return;
     const mine = ++request.current;
-    setLoaded(null); // every open, retry or scope change reloads; an earlier result never stands in for it
     (async () => {
       let carriers: string[] | null = null;
       try {
@@ -51,12 +61,13 @@ export function useOrganizationCarriers(enabled: boolean): OrganizationCarriers 
       } catch (e) {
         console.error("Error loading carriers:", e instanceof Error ? e.message : e);
       }
-      if (request.current === mine) setLoaded({ scope, attempt, carriers });
+      // The request counter keeps a superseded request from overwriting the current session's result.
+      if (request.current === mine) setLoaded({ session: sessionId, carriers });
     })();
     return () => { request.current += 1; };
-  }, [scope, organizationId, attempt]);
+  }, [sessionId, scope, organizationId]);
 
   if (!scope) return { status: "idle", carriers: null, retry };
-  if (!loaded || loaded.scope !== scope || loaded.attempt !== attempt) return { status: "loading", carriers: null, retry };
+  if (!loaded || loaded.session !== sessionId) return { status: "loading", carriers: null, retry };
   return loaded.carriers ? { status: "ready", carriers: loaded.carriers, retry } : { status: "error", carriers: null, retry };
 }

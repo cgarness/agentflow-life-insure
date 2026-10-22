@@ -103,6 +103,54 @@ describe("useOrganizationCarriers", () => {
     expect(seen.some((s) => s.org === "org-a" && s.carriers?.[0] === "Org A Carrier")).toBe(true);
   });
 
+  // Records EVERY render's result, including renders before effects run (PR #479 review finding).
+  type Seen = { phase: string; status: string; carriers: string[] | null };
+  function recordRenders(initialOn = true) {
+    const seen: Seen[] = [];
+    let phase = "first-open";
+    const view = renderHook(({ on }) => {
+      const r = useOrganizationCarriers(on);
+      seen.push({ phase, status: r.status, carriers: r.carriers });
+      return r;
+    }, { initialProps: { on: initialOn } });
+    return { seen, view, setPhase: (next: string) => { phase = next; } };
+  }
+
+  it("every render after a same-scope reopen is loading until the new request succeeds", async () => {
+    const { seen, view, setPhase } = recordRenders();
+    await act(async () => h.queries[0].resolve(names("List A")));
+    expect(view.result.current.carriers).toEqual(["List A"]);
+    setPhase("closed"); view.rerender({ on: false });
+    setPhase("reopened"); view.rerender({ on: true });
+    await act(async () => {});
+    expect(h.queries).toHaveLength(2);
+    const reopened = seen.filter((s) => s.phase === "reopened");
+    expect(reopened.length).toBeGreaterThan(0);
+    expect(reopened).toEqual(reopened.map(() => ({ phase: "reopened", status: "loading", carriers: null })));
+    setPhase("resolved");
+    await act(async () => h.queries[1].resolve(names("List B")));
+    expect(view.result.current).toMatchObject({ status: "ready", carriers: ["List B"] });
+    expect(seen.filter((s) => s.phase === "resolved").every((s) => s.carriers === null || s.carriers[0] === "List B")).toBe(true);
+    expect(seen.filter((s) => s.phase !== "first-open").some((s) => s.carriers?.includes("List A"))).toBe(false);    expect(console.error).not.toHaveBeenCalled(); // no React warning about the render-time session update
+  });
+
+  it("A→B→A before B resolves: every render back on A is loading until A's new request succeeds", async () => {
+    const { seen, view, setPhase } = recordRenders();
+    await act(async () => h.queries[0].resolve(names("Org A Old")));
+    setPhase("on-b"); h.org = "org-b"; view.rerender({ on: true });
+    setPhase("back-on-a"); h.org = "org-a"; view.rerender({ on: true });
+    await act(async () => {});
+    expect(h.queries.map((q) => q.org)).toEqual(["org-a", "org-b", "org-a"]);
+    await act(async () => h.queries[1].resolve(names("Org B Late")));
+    const back = seen.filter((s) => s.phase === "back-on-a");
+    expect(back.length).toBeGreaterThan(0);
+    expect(back.every((s) => s.status === "loading" && s.carriers === null)).toBe(true);
+    setPhase("a-resolved");
+    await act(async () => h.queries[2].resolve(names("Org A New")));
+    expect(view.result.current).toMatchObject({ status: "ready", carriers: ["Org A New"] });
+    expect(seen.filter((s) => s.phase !== "first-open").some((s) => s.carriers?.includes("Org A Old") || s.carriers?.includes("Org B Late"))).toBe(false);    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("treats a different signed-in user as a new scope", async () => {
     const { result, rerender } = renderHook(() => useOrganizationCarriers(true));
     await act(async () => h.queries[0].resolve(names("Aetna")));
