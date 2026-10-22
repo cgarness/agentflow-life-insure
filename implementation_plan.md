@@ -1,3 +1,17 @@
+## 2026-10-22 — PLAN (awaiting Chris's approval): standardize carrier selection in Record Policy and Add/Edit Client
+
+**Status:** plan only, on `claude/carrier-selection-standardize-emoz7q` from `main` `c3f4a27`. No app file edited, no
+Supabase or Vercel command run. Full plan: `docs/plans/2026-10-22-carrier-selection/implementation_plan.md`.
+
+**Summary:** replace the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` with a shared searchable
+`CarrierCombobox`. It is fed by a new `useOrganizationCarriers` hook that reads `public.carriers` scoped to the
+organization, under RLS, and sorts alphabetically. It never auto-selects and offers no free entry; Zod allows only
+configured names. A stored carrier that is no longer in Settings is kept exactly as stored and labelled "(not in
+Settings)". The control has loading, empty (with a Settings → Carriers link) and error-with-Retry states.
+Commission, sale-recording, reporting and grid-matching code are unchanged. No migration. Decisions D1–D3 are open.
+
+---
+
 ## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
 
 **Status:** Chris approved §15 with D1 A, D2 A and D3 approved. Implemented in commit `e02f535` on
