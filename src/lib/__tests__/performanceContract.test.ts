@@ -24,12 +24,13 @@ describe('performance contract',()=>{
  it('captions the annual premium in simple wording while the CSV headers keep their contract',async()=>{
   io.data.rows[0].unknown_premiums=3;
   const {data}=await load();const caption=performanceCaption(data!);
-  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 appointments, 0 policies');
-  expect(caption).toContain('Outside active roster: 1 calls, 0 appointments, 0 policies');
-  expect(caption).not.toMatch(/annualized|bookings/i);
+  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 policies');
+  expect(caption).not.toMatch(/annualized|bookings|appointment/i);
   expect(caption).not.toMatch(ROUTINE_COPY);
+  // The CSV is unchanged by the AP-only board: Appointments Set and Talk Time stay in the export.
   const csv=leaderboardCsv(data!.rows,data!);
-  expect(csv).toContain('"Policies Sold","Annualized Premium USD","Unknown Premium Policies","Appointments Set"');
+  expect(csv).toContain('"Policies Sold","Annualized Premium USD","Unknown Premium Policies","Appointments Set","Talk Time Seconds","Policies per 100 Calls"');
+  expect(csv).toContain('"8","9373.92","3","2","81"');
  });
  it('exports the agency Sold Date window and the undated count with every row',async()=>{
   io.data.undated_policies=2;
@@ -77,8 +78,11 @@ describe('performance contract',()=>{
    io.data=[bad];const r=await loadPerformanceWins(null,new AbortController().signal);expect(r.data).toBeNull();expect(r.error).toBeTruthy();
   }
  });
- it('sorts undefined ratios last while retaining meaningful >100 ratios',async()=>{
-  const {data}=await load(),a=data!.rows[0];const ranked=rankAgents([a,{...a,id:org,callsMade:2,conversionRate:400}],'Policies per 100 Calls');expect(ranked.map(a=>a.conversionRate)).toEqual([400,null]);
+ it('ranks by the RPC AP as delivered (never re-annualized), then Policies, Calls, name and id',async()=>{
+  const {data}=await load(),a=data!.rows[0];
+  const ranked=rankAgents([{...a,id:'b',premiumSold:780},a,{...a,id:'c',premiumSold:9373.92,policiesSold:9},{...a,id:'d',premiumSold:780,callsMade:4}]);
+  expect(ranked.map(r=>[r.id,r.rank])).toEqual([['c',1],[agent,2],['d',3],['b',4]]);
+  expect(ranked[1].premiumSold).toBe(9373.92);
  });
 });
 describe('on-screen performance notes (material only)',()=>{
@@ -89,33 +93,33 @@ describe('on-screen performance notes (material only)',()=>{
   expect(await captionOf(d=>{noExcluded(d);Object.assign(d.rows[0],{calls_made:5,unknown_duration_calls:5});})).toBe('');
  });
  it.each([
-  ['estimated only, singular',{estimated_duration_calls:1},'Talk time includes 1 estimated call duration'],
-  ['estimated only, plural',{estimated_duration_calls:2},'Talk time includes 2 estimated call durations'],
-  ['conflicting only, singular',{conflicting_duration_calls:1},'Talk time includes 1 conflicting call duration'],
-  ['conflicting only, plural',{conflicting_duration_calls:3},'Talk time includes 3 conflicting call durations'],
-  ['both',{estimated_duration_calls:1,conflicting_duration_calls:1},'Talk time includes 1 estimated and 1 conflicting call durations'],
-  ['both, with legacy unknown alongside',{estimated_duration_calls:2,unknown_duration_calls:3,conflicting_duration_calls:1},'Talk time includes 2 estimated and 1 conflicting call durations'],
- ] as const)('talk time note: %s',async(_label,counts,want)=>{
+  ['estimated only, singular',{estimated_duration_calls:1}],
+  ['estimated only, plural',{estimated_duration_calls:2}],
+  ['conflicting only, singular',{conflicting_duration_calls:1}],
+  ['conflicting only, plural',{conflicting_duration_calls:3}],
+  ['both',{estimated_duration_calls:1,conflicting_duration_calls:1}],
+  ['both, with legacy unknown alongside',{estimated_duration_calls:2,unknown_duration_calls:3,conflicting_duration_calls:1}],
+ ] as const)('duration counts still validate but add no on-screen note (Talk Time is not on the AP board): %s',async(_label,counts)=>{
   const caption=await captionOf(d=>{noExcluded(d);Object.assign(d.rows[0],{calls_made:10},counts);});
-  expect(caption).toBe(want);
-  expect(caption).not.toMatch(ROUTINE_COPY);
+  expect(caption).toBe('');
  });
- it('sums estimated and conflicting durations across rows',async()=>{
+ it('durations across rows add no note either',async()=>{
   const caption=await captionOf(d=>{noExcluded(d);Object.assign(d.rows[0],{calls_made:4,estimated_duration_calls:1});
    d.rows.push({...row,agent_id:'33333333-3333-4333-8333-333333333333',calls_made:4,conflicting_duration_calls:2});});
-  expect(caption).toBe('Talk time includes 1 estimated and 2 conflicting call durations');
+  expect(caption).toBe('');
  });
- it('joins every material note in order: premium, talk time, outside roster',async()=>{
+ it('joins every material note in order: premium, outside roster',async()=>{
   const caption=await captionOf(d=>Object.assign(d.rows[0],{calls_made:6,unknown_premiums:3,estimated_duration_calls:1,unknown_duration_calls:4}));
-  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Talk time includes 1 estimated call duration · Outside active roster: 1 calls, 0 appointments, 0 policies');
+  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 policies');
   expect(caption).not.toMatch(ROUTINE_COPY);
  });
  it.each([
   [{calls_made:0,appointments_set:0,policies_sold:0},''],
-  [{calls_made:1,appointments_set:0,policies_sold:0},'Outside active roster: 1 calls, 0 appointments, 0 policies'],
-  [{calls_made:0,appointments_set:3,policies_sold:0},'Outside active roster: 0 calls, 3 appointments, 0 policies'],
-  [{calls_made:0,appointments_set:0,policies_sold:2},'Outside active roster: 0 calls, 0 appointments, 2 policies'],
-  [{calls_made:4,appointments_set:5,policies_sold:6},'Outside active roster: 4 calls, 5 appointments, 6 policies'],
+  [{calls_made:1,appointments_set:0,policies_sold:0},'Outside active roster: 1 calls, 0 policies'],
+  // Appointments are not shown on any Leaderboard surface: excluded bookings alone produce no note.
+  [{calls_made:0,appointments_set:3,policies_sold:0},''],
+  [{calls_made:0,appointments_set:0,policies_sold:2},'Outside active roster: 0 calls, 2 policies'],
+  [{calls_made:4,appointments_set:5,policies_sold:6},'Outside active roster: 4 calls, 6 policies'],
  ])('outsideRosterNote(%o)',async(excluded,want)=>{
   io.data.excluded=excluded;const {data}=await load();expect(outsideRosterNote(data!)).toBe(want);
  });
@@ -123,7 +127,7 @@ describe('on-screen performance notes (material only)',()=>{
   noExcluded(io.data);Object.assign(io.data.rows[0],{calls_made:6,unknown_premiums:3,estimated_duration_calls:1,conflicting_duration_calls:1});
   const {data}=await load();
   expect(outsideRosterNote(data!)).toBe('');
-  expect(performanceCaption(data!)).toBe('Annual premium (3 policies with unknown premium) · Talk time includes 1 estimated and 1 conflicting call durations');
+  expect(performanceCaption(data!)).toBe('Annual premium (3 policies with unknown premium)');
  });
 });
 describe('undated Sold Date disclosure',()=>{
@@ -132,7 +136,7 @@ describe('undated Sold Date disclosure',()=>{
  });
  it('appends the undated note after every other material note',async()=>{
   const caption=await captionOf(d=>{d.undated_policies=2;d.rows[0].unknown_premiums=3;});
-  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 appointments, 0 policies · 2 policies without a Sold Date not counted');
+  expect(caption).toBe('Annual premium (3 policies with unknown premium) · Outside active roster: 1 calls, 0 policies · 2 policies without a Sold Date not counted');
   expect(caption).not.toMatch(ROUTINE_COPY);
  });
 });

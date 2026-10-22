@@ -183,13 +183,13 @@ describe("TV on-screen notes (material only)", () => {
     expect(screen.queryByText(/Active agents ·|As of |Stored call duration|unknown provenance|Outside active roster/)).not.toBeInTheDocument();
   });
 
-  it("unknown premiums, conflicting talk time and activity outside the roster show as one note", () => {
+  it("unknown premiums and activity outside the roster show as one note — no talk-time or appointments wording", () => {
     const rows = ROSTER.map((a, i) => (i === 0 ? { ...a, unknownPremiums: 1, conflictingDurationCalls: 1, unknownDurationCalls: 4 } : a));
     renderTv({ performanceSnapshot: snapshot({ rows, excluded: { calls_made: 2, appointments_set: 1, policies_sold: 0 } }) });
     const lines = captionLines();
     expect(lines).toHaveLength(1);
     expect(lines[0].textContent).toBe(
-      "Annual premium (1 policies with unknown premium) · Talk time includes 1 conflicting call duration · Outside active roster: 2 calls, 1 appointments, 0 policies",
+      "Annual premium (1 policies with unknown premium) · Outside active roster: 2 calls, 0 policies",
     );
   });
 });

@@ -50,6 +50,14 @@ No migration, backend command, production contact, merge or deploy.
     unrelated. The +18 are the new tests.
   - ESLint on the 6 changed source and test files: 0 problems.
   - `vite build`: OK (existing chunk-size warning only).
+- **Merged `main` `c3f4a27` (#475, leaderboard) into this branch.** Only `WORK_LOG.md` and `implementation_plan.md`
+  conflicted (both branches added a top entry); both entries were kept, this one first, and no code overlapped.
+  Re-verified on the merged tree:
+  - Root tsc: exit 0.
+  - Strict app typecheck: 84 errors, the same set.
+  - Full Vitest: 6,047 passed, 1 failed, 36 skipped (+35 are #475's tests); failure set identical to the baseline.
+  - ESLint on the changed files: 0 problems.
+  - `vite build`: OK.
 - **Files.** `src/components/layout/CommissionsNavItem.tsx`, `src/pages/CommissionsPage.tsx`,
   `src/hooks/useCommissionsCenter.ts`, `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`,
   `src/pages/__tests__/commissionsPage.test.tsx`, NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`, root
@@ -57,6 +65,81 @@ No migration, backend command, production contact, merge or deploy.
 - **Next.** Chris's review. A PR, merge and production deploy each need separate approval. If this merges, close
   PR #473 (same line, superseded). Optional follow-up: decide whether `usePermissions` should treat the legacy
   `'Super Admin'` role string as full access (pinned file; its own approval).
+
+---
+
+## 2026-10-22 — PR #475 final layout alignment: podium / Your Performance locked to the Full Rankings / Recent Wins columns (approved, implemented; NOT merged, NOT released)
+
+Chris reviewed the signed-in preview and asked for the top row to line up with the lower two-column layout. He
+approved plan §15 with D1 A (the 2 : 1 ratio for both rows), D2 A (both rows two columns from 1280 px) and D3 (the
+three-card podium fills its column), with one- and two-agent podiums kept narrower and centered.
+
+- **Cause:** the two rows were separate grids.
+  - Top row: `1fr` + a fixed 320 px column from 1280 px, with the podium capped at 896 px and centered.
+  - Bottom row: thirds from 1024 px.
+  - The edges were up to 48 px apart at 1440 and 208 px apart at 1920.
+- **Change (`e02f535`):**
+  - `LeaderboardBoard.tsx` uses one shared row template and one left-column class for both rows, with the podium
+    wrapped in the left column.
+  - `LeaderboardPodium.tsx` drops the width caps when three cards show.
+  - The page test pins the structure.
+  - Below 1280 px every panel stacks (previously Full Rankings and Recent Wins sat side by side at 1024–1279).
+- **Deviation:** the cap is removed at every width, not only from `lg`. With the sidebar collapsed, the base
+  768 px cap still inset the podium at 872–1023 px.
+- **Clarification:** one- and two-agent podiums are unchanged. From 1024 px their existing caps were always
+  overridden by the 896 px base cap. They are now centered in the Full Rankings column.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 399 passed (12 skipped). The two new tests fail on the old layout.
+  - ESLint and build: pass. `git diff --check`: clean.
+  - TV harness: 15/15 PASS.
+  - Browser sweep with the app shell's widths:
+    - Edges match within 0.02 px at 1280–2560 px (sidebar open and collapsed) and in the stacked range below
+      1280 px.
+    - One- and two-agent podiums are centered with the same widths as before.
+  - Before/after screenshots: `screenshots/layout-*.png`. Full record: `verification.md` §11.
+- **No** Supabase command, migration, RPC/RLS/telephony change, TV change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final release review. Merge and frontend
+  release need his separate approval.
+
+---
+
+## 2026-10-21 — PR #475 final UI polish: "Annual Premium" labels; TV totals show Annual Premium and Policies (approved, implemented; NOT merged, NOT released)
+
+Chris approved the exact plan (focused plan §14).
+- Every visible "AP" / "Annualized Premium" label, TV Mode included, now reads "Annual Premium". The subtitle reads
+  "Ranked by Annual Premium".
+- TV's top totals strip drops only Calls and uses a two-column layout.
+- No other UI, navigation or behavior change. Calculations and the CSV export are unchanged.
+
+- **Base:** `main` moved to `40a298c` (PR #476). It was merged in with a merge commit (`3161c4b`); the
+  newest-first `WORK_LOG.md` and root plan insertions conflicted, and every entry from both sides was kept.
+- **Change (`8abb0a2`):**
+  - One shared `ANNUAL_PREMIUM_LABEL`, used at 8 render sites.
+  - The `title` / `aria-label` attributes that only expanded "AP" were dropped. The table's accessible name is
+    "Full rankings by Annual Premium".
+  - The TV totals grid is `grid-cols-2`, with no Calls total.
+  - Calls stay on every podium card, in Full Rankings and in TV ranks 4–10.
+  - 9 app files, 3 test files and `verify.mjs`.
+- **Deviation (mobile fit):** the browser measurement found the Full Rankings header clipped at 768, 1024 and
+  1100 px with the planned "one line from `sm`". It now wraps wherever its column is narrower than the label, and
+  stays on one line at 1440. No widths changed.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 397 passed (12 skipped, time-zone gated).
+  - Wider subset: the same 6 pre-existing failing files as `main`.
+  - ESLint on 13 files: exit 0. Build: exit 0. `git diff --check`: clean.
+  - Playwright harness on a fresh Vite: 15/15 PASS. New checks: two equal side-by-side totals cells that fill
+    the row, and no clipped "Annual Premium" label at any TV viewport or on the 390 px page. Five mutations each
+    fail it.
+  - Full-page fixture sweep, 320–1920 px, dark and light: no clipped label. The 320–368 px table scroll is the
+    existing 21rem minimum, identical before this change.
+  - Evidence: `verification.md` §10 and `screenshots/polish-*.png`.
+- **No** Supabase command, migration, RPC/RLS/telephony change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final review. Merge and frontend release
+  need his separate approval.
 
 ---
 
@@ -156,6 +239,74 @@ no backfill, no change to existing clients. Stopped at Gate 2.
   `verification.md`, release `preflight.sql` / `readback.sql` and the read-only check JSON.
 - **Next.** Gate 2 (database only, separate approval): fresh hosted-history check and preflight, version-preserving
   apply, read-back and advisors. Gate 3 (merge + frontend) after that.
+
+---
+
+## 2026-10-21 — PR #475 CI blocker: TV visual harness updated for the AP-only board (test-only)
+
+Chris found the release blocker: `Policy sale transaction verification` › `tv-browser` failed on `2266cd5`.
+The real-Chromium harness still expected the old caption with "1 appointments", the Appts total, metric
+switching, the auto-rotate switch and rotation, and the removed `restAgents` table prop. The postgres job and all
+other checks passed. The earlier verification missed it: the harness sits outside the Reports gate and every
+tsconfig.
+
+- **Scope (approved, test-only):** `scripts/tests/leaderboard-visual/entry.tsx`, `verify.mjs` and the records (plan
+  §13, `verification.md` §8, this log, root plan). The workflow is not weakened; `stubs.ts`, `vite.config.ts`,
+  `README.md`, `src/` and `supabase/` are unchanged.
+- **Harness now proves:** AP order from an independent comparator, with hard-coded orders as a guard;
+  AP/Policies/Calls on the podium, ranks 4–10, ranks 11+ and the totals; tie-breaks decided against name order
+  (Policies, then Calls); movement only on real rank changes (none for a value change, Gray ↑1 / Harper ↓1 for a
+  tie-break, seven ↓1 for an AP jump); no Appointments or removed metrics; D14 "—*"; Agent sees no gear; the
+  Admin ticker editor works (Admin served the unchanged stub with only its role string changed, in a separate
+  browser context); stored rotation preferences removed; the board unchanged after 30.1 s. All geometry, avatar,
+  overlap, scrolling, Sold Date, period, roster, routine and runtime-error checks are kept.
+- **Local evidence:** the failure reproduced; the new harness fails on `main` and on two mutations (name-only
+  tie-break; AP-only change detection) and passes twice on the branch (77 s / 74 s). Root tsc 0; app tsc
+  identical to `main` (84); targeted Vitest 331/331; ESLint 0 errors (one pre-existing warning); build passes.
+- **No** migration, Supabase command, deployment, merge or release. Flagged: the harness README still
+  describes the retired checks (outside the approved scope).
+- **CI:** on `fd0220c` every check passed: `tv-browser` 15/15 PASS lines, postgres ×2, both frontend jobs, browser,
+  native, paired-native and both Vercel previews; Supabase Preview skipped as before (`verification.md` §9).
+- **Next:** Chris's final review of PR #475 (still draft). Merge and release need his separate approval.
+
+---
+
+## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR #475; NOT merged, NOT released)
+
+Chris approved the plan with D1–D5 = A. Branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. Frontend only:
+no Supabase command (read or write), migration, Edge deploy, Vercel action, merge or release.
+
+- **What changed.** AP is the only ranking metric on the Leaderboard page, TV Mode and the Dashboard preview.
+  One shared comparator orders AP → Policies → Calls → name → id. The metric dropdown, TV metric selector, TV
+  30 s rotation and their stored preferences are gone. The podium shows AP, then Policies and Calls. A new Your
+  Performance card (beside the podium at ≥ 1280 px, stacked below) shows AP, rank of N, real movement, Policies and
+  Calls, or "Your stats aren't on this board" with no figures. Full Rankings lists everyone, the top three included,
+  as Rank · Agent · AP · Policies · Calls with a blue YOU row. TV tables and totals show AP/Policies/Calls only.
+  Appointments, Talk Time and Policies/100 leave every visible Leaderboard surface. The outside-roster note drops
+  appointments, and the talk-time note is removed.
+- **Movement (Chris's instruction).** Change detection and the "frozen" test use the whole sort key, so a
+  Policies- or Calls-decided reorder shows as movement. An unchanged board, a period/view switch and a first load
+  show none. "New #1" still needs AP > 0.
+- **Unchanged:** `get_leaderboard_snapshot` / Recent Wins RPCs and the 1:1 `annualized_premium` mapping (no ×12),
+  RLS, the request gate, polling and realtime, stale/error/maintenance/offline states, Recent Wins and the CSV
+  (every column kept). The set of data reads is identical; timers go from 4 to 3.
+- **Size standard.** `TVMode.tsx` 514 → 191 lines (verbatim extraction: `TVToolbar`, `TVTicker`, `TVBoard`,
+  `useTvDisplaySettings`, `useTvClock`). `Leaderboard.tsx` 251 → 194 (`LeaderboardBoard`). All touched
+  components are under 200.
+- **Fixed on the way:** the pre-existing stacked-podium overlap on phones (confirmed on `main`), with gold first
+  when stacked. All five table columns fit at 390 px. The TV gold trophy clears the totals panel at 1080p.
+- **Verification** (`docs/plans/2026-10-21-ap-leaderboard/verification.md`): baselines were taken on a `main`
+  worktree before any edit. Root tsc exit 0. App tsc has the identical 84-error set. Full Vitest: 6,018 tests with
+  the same single pre-existing failure and the same 10 pre-existing failing files as `main` (5,985); no new failure.
+  Targeted 15 files 331/331. ESLint clean on all touched files, build passes, `git diff --check` clean. Fixture
+  screenshots (scratchpad harness, never committed) at 1440/1280/1024/390 in dark and light, TV at 1920/1280, the
+  Admin options popover, and `main` comparisons. Keyboard pass done.
+- **Records:** focused plan §12, `verification.md`, `screenshots/`, root `implementation_plan.md`, and
+  `AGENT_RULES.md` (#40 notes amendment + new "AP-only Leaderboard" rule, both marked not live until released).
+- **Limitations:** no signed-in hosted check; no reference image was available. Recent Wins is cramped at
+  1024–1279 px; this is pre-existing (identical on `main`, untouched component) and left for a separate change.
+- **Next:** review the draft PR, optionally a signed-in read-only preview check, then Chris's separate merge and
+  frontend-release approval.
 
 ---
 
