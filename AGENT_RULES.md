@@ -894,7 +894,7 @@ evidence: `verification.md` beside it.
 - **Labels.** Estimates are AgentFlow projections and receipts are manual records; neither is carrier-verified, earned,
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
-- **Access resolves without a needless wait (2026-10-22; branch `claude/zen-bardeen-phqecr`, NOT merged).**
+- **Access resolves without a needless wait (LIVE 2026-10-22: PR #477, merge `1a7ea7a`).**
   `useCommissionsAccess` permits Admin and Super Admin (`is_super_admin === true || role === "Admin"`, the same rule
   as `usePermissions` and the server's `p_full`) without waiting for `role_permissions`. Every other role fails closed
   until its permissions load, then the Own toggle decides. While that is unresolved the sidebar holds an inert
