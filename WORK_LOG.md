@@ -1,3 +1,21 @@
+## 2026-10-22 — RELEASED: Google Sheets V1 Phase C disabled frontend (PR #442; production verified)
+
+**Approval and scope:** Chris explicitly approved Phase C and personally verified three prerequisite dashboard settings: Supabase GitHub "Deploy to production" OFF; Vercel Production `VITE_GOOGLE_SHEETS_ENABLED` absent from both `agentflow` and `agentflow-life-insure` projects, including applicable shared variables. Scope was the disabled frontend only. No Phase D/E activation, secrets, worker scheduling, Vault token, imports, or database/Edge deployment was authorized.
+
+**Release:** PR #442 at head `10e698631240eeb3a9610aebc2b1b3790e6ddd2c` passed 19 exact-head CI checks (Supabase Preview skipped), merged cleanly into pre-release main `16aa4ab4b44f60004f9668fc351cda6e3202af5f`, and was squash-merged with the expected-head guard. New main `069b1ad305fddfe7d7a5f9d5fc80254639d04596` has identical Git tree `1183204d71c5dc5ae5cc46b4dea7c4ab469e1d41` to the approved PR source.
+
+**Vercel release and rollback:** Primary `agentflow` deployment `dpl_3pa3kxTWsrQHpXpJ6ENZLh9mXmkm` READY and serving `www.fflagent.com` and its aliases; secondary `agentflow-life-insure` deployment `dpl_6fMdWvzMtjuuUATZpBj7PK8Jc6si` READY. Both are on exact main SHA `069b1ad3` with no alias errors; both public homepages returned HTTP 200. Captured pre-merge rollback baselines: primary `dpl_23c9bCQ3sSbrSFebWMmPeWaEzYqt`, secondary `dpl_6CuqHb9RQZikB26AS97i4kDSXCxb`, both READY at `16aa4ab4`.
+
+**Post-release read-only checks:** Migration history remains 343 rows, latest `20261022062539`; no migration during Phase C. Four Sheets Edge Functions remain ACTIVE v1 among 81 total; no redeploy. All six Sheets operational tables empty; no Google Sheets cron or Vault worker entry. Since 17:58 UTC, API gateway and Edge Function HTTP 5xx and Postgres ERROR/FATAL/PANIC counts were zero. Both Vercel projects had no runtime errors in the preceding hour. Pilot Google email connection remains `connected` with `last_sync_at=2026-10-22T18:00:03Z` and no stored error.
+
+**Verification limits:** Authenticated dashboard/contacts/dialer/reports/Gmail/Calendar/Conversations/disabled Sheets screen checks still require the signed-in user. Public HTTP 200 and backend tests do not substitute for those UI checks.
+
+**Files/deploys:** Reviewed PR #442 app/Docs tree shipped as-is; no new migration, Edge deploy, secret, activation flag, cron or data mutation. This newest-first log entry is posted through a documentation-only follow-up PR instead of editing `main` directly.
+
+**Next:** Complete authenticated smoke checks, then seek separate Phase D synthetic Google OAuth + manual Sync now pilot approval. Phase E privacy publication and scheduled sync remain separately gated.
+
+---
+
 ## 2026-10-22 17:00 UTC — Google Sheets Phase B complete (backend deployed, disabled); Phase C preflight passed; frontend release awaits approval
 
 Chris assigned ownership of the remaining release from PR #442 head `db6c50317dab715a9f2d44301c31cb3dfda219b2`. I read AGENT_RULES in full, VISION, this log, the root plan and the release package §5.1–§9 and §10.3 before editing. This entry and the matching plan/release records are documentation only: no merge, flag, migration, Edge deployment or other production change.
