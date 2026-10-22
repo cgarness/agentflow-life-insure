@@ -2,80 +2,101 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStats } from "../leaderboardTypes";
-const h=vi.hoisted(() => ({ reads:vi.fn() }));
-vi.mock("@/contexts/AuthContext",()=>({useAuth:()=>({profile:{organization_id:"org",role:"Agent"}})}));
+const h=vi.hoisted(() => ({ reads:vi.fn(), role:"Agent" }));
+vi.mock("@/contexts/AuthContext",()=>({useAuth:()=>({profile:{organization_id:"org",role:h.role}})}));
 vi.mock("@/contexts/BrandingContext",()=>({useBranding:()=>({branding:{timezone:"UTC",companyName:"Test Agency"},formatDate:String,formatTime:String})}));
 vi.mock("@/integrations/supabase/client",()=>({supabase:{from:()=>{
  h.reads(); const q={select:()=>q,eq:()=>q,maybeSingle:()=>Promise.resolve({data:null,error:null})};return q;
 }}}));
 import TVMode from "../TVMode";
+// AP rises with the index, so AP order (agent-11 first) is the reverse of the incoming rank field and of Policies.
 const agents=():AgentStats[]=>Array.from({length:12},(_,i)=>({id:`agent-${i}`,first_name:`Agent${i}`,last_name:"Test",rank:i+1,
- callsMade:i*10,policiesSold:12-i,appointmentsSet:i,talkTime:i*30,conversionRate:i,premiumSold:(12-i)*120,recentWins7d:0}));
+ callsMade:i*10,policiesSold:12-i,appointmentsSet:i,talkTime:i*30,conversionRate:i,premiumSold:i*120,recentWins7d:0}));
 const view=(a:AgentStats[],period:"Today"|"This Week"="Today")=><TVMode agents={a} wins={[]} period={period} onPeriodChange={vi.fn()} onExit={vi.fn()}/>;
-beforeEach(()=>{localStorage.clear();h.reads.mockClear();vi.useFakeTimers();});
+const podiumIds=()=>Array.from(screen.getByTestId("tv-podium").querySelectorAll("[data-agent-id]")).map(e=>e.getAttribute("data-agent-id"));
+beforeEach(()=>{localStorage.clear();h.reads.mockClear();h.role="Agent";vi.useFakeTimers();});
 afterEach(()=>{cleanup();vi.useRealTimers();});
-describe("TV metric isolation",()=>{
- it("closes settings with Escape without also exiting TV mode",async()=>{
+describe("TV ranks by AP only",()=>{
+ it("an Admin's options hold only the ticker editor (no metric selector, no auto-rotate), and Escape closes them without exiting",async()=>{
+  h.role="Admin";
   const onExit=vi.fn();
   render(<TVMode agents={agents()} wins={[]} period="Today" onPeriodChange={vi.fn()} onExit={onExit}/>);
   await act(async()=>{});
   fireEvent.click(screen.getByRole("button",{name:"TV display options"}));
-  fireEvent.keyDown(screen.getByLabelText("Viewing metric"),{key:"Escape"});
+  const editor=screen.getByLabelText("Scrolling ticker (org-wide)");
+  expect(screen.queryByLabelText("Viewing metric")).toBeNull();
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByRole("switch")).toBeNull();
+  expect(screen.queryByText(/Auto-rotate|Cycles metrics/)).toBeNull();
+  fireEvent.keyDown(editor,{key:"Escape"});
   expect(onExit).not.toHaveBeenCalled();
   expect(screen.getByRole("button",{name:"TV display options"}).getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByTestId("tv-podium")).toBeTruthy();
   fireEvent.keyDown(document,{key:"Escape"});
   expect(onExit).toHaveBeenCalledOnce();
  });
- it("switches podium cards as one metric selection without mutating the parent ranks or fetching standings",async()=>{
-  localStorage.setItem("leaderboardTvAutoRotate","0");
-  const rows=agents();const original=structuredClone(rows);render(view(rows));await act(async()=>{});
-  const podium=screen.getByTestId("tv-podium");const readCount=h.reads.mock.calls.length;
-  fireEvent.click(screen.getByRole("button",{name:"TV display options"}));
-  fireEvent.change(screen.getByLabelText("Viewing metric"),{target:{value:"1"}});
-  expect(screen.getByTestId("tv-podium")).not.toBe(podium);
-  const cards=screen.getByTestId("tv-podium").querySelectorAll("[data-agent-id]");
-  expect(Array.from(cards).map(e=>e.getAttribute("data-agent-id"))).toEqual(["agent-10","agent-11","agent-9"]);
-  expect(rows).toEqual(original);expect(h.reads).toHaveBeenCalledTimes(readCount);
+ it("an Agent has nothing to configure: no options button; the clock, title and exit stay",async()=>{
+  render(view(agents()));await act(async()=>{});
+  expect(screen.queryByRole("button",{name:"TV display options"})).toBeNull();
+  expect(screen.getByRole("button",{name:"Exit TV mode"})).toBeTruthy();
+  expect(screen.getByRole("heading",{name:"Test Agency"})).toBeTruthy();
+  expect(screen.getByText(/\d{1,2}:\d{2}:\d{2} [AP]M/)).toBeTruthy();
  });
- it("rotates after 30 seconds and resets podium identity when the period changes",async()=>{
+ it("ranks podium, ranks 4–10 and 11+ by AP without mutating the parent rows or fetching standings",async()=>{
+  const rows=agents();const original=structuredClone(rows);render(view(rows));await act(async()=>{});
+  expect(podiumIds()).toEqual(["agent-10","agent-11","agent-9"]); // slots 2 / 1 / 3
+  const table=within(screen.getByTestId("tv-rankings"));
+  expect(table.getAllByText(/^Agent\d+ T\.$/).map(e=>e.textContent)).toEqual(["Agent8 T.","Agent7 T.","Agent6 T.","Agent5 T.","Agent4 T.","Agent3 T.","Agent2 T."]);
+  const deep=within(screen.getByText("Ranks 11+").closest("div")!.parentElement as HTMLElement);
+  expect(deep.getAllByText(/^Agent\d+ T\.$/).map(e=>e.textContent)).toEqual(["Agent1 T.","Agent0 T."]);
+  expect(rows).toEqual(original);
+  expect(h.reads).toHaveBeenCalledTimes(2); // the TV name and banner reads only — never standings
+ });
+ it("never rotates: the podium keeps its identity and AP order past 30, 60 and 90 seconds",async()=>{
+  render(view(agents()));await act(async()=>{});
+  const podium=screen.getByTestId("tv-podium");
+  for(const _ of [1,2,3]) await act(async()=>{vi.advanceTimersByTime(30_000);});
+  expect(screen.getByTestId("tv-podium")).toBe(podium);
+  expect(podiumIds()).toEqual(["agent-10","agent-11","agent-9"]);
+  expect(screen.getByText("Live Ranking · Annual Premium")).toBeTruthy();
+ });
+ it("ignores and removes the obsolete metric and auto-rotate preferences",async()=>{
+  localStorage.setItem("leaderboardTvMetricIndex","1");localStorage.setItem("leaderboardTvAutoRotate","1");
+  render(view(agents()));await act(async()=>{});
+  expect(podiumIds()).toEqual(["agent-10","agent-11","agent-9"]);
+  expect(localStorage.getItem("leaderboardTvMetricIndex")).toBeNull();
+  expect(localStorage.getItem("leaderboardTvAutoRotate")).toBeNull();
+ });
+ it("resets podium identity when the period changes",async()=>{
   const rows=agents();const page=render(view(rows));await act(async()=>{});
-  const old=screen.getByTestId("tv-podium");
-  await act(async()=>{vi.advanceTimersByTime(30_000);});
-  expect(screen.getByTestId("tv-podium")).not.toBe(old);
   const current=screen.getByTestId("tv-podium");page.rerender(view(rows,"This Week"));
   expect(screen.getByTestId("tv-podium")).not.toBe(current);
-  expect(within(screen.getByTestId("tv-podium")).queryAllByText("Calls Made").length).toBe(3);
+ });
+ it("podium and tables show Annual Premium, Policies and Calls; totals show Annual Premium and Policies — no Appointments, Talk Time or Policies / 100 Calls",async()=>{
+  render(view(agents()));await act(async()=>{});
+  const header=screen.getByText("Rank").parentElement as HTMLElement;
+  expect(Array.from(header.children).map(e=>e.textContent)).toEqual(["Rank","Agent","Annual Premium","Policies","Calls"]);
+  expect(screen.getByText("Ranks 11+").parentElement).toHaveTextContent("Annual Premium");
+  const totals=screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement;
+  expect(Array.from(totals.querySelectorAll("p")).map(e=>e.textContent)).toEqual(["Annual Premium","Policies"]);
+  expect(within(totals).getByText("Annual Premium").parentElement).toHaveTextContent("$7,920.00");
+  expect(within(totals).getByText("Policies").parentElement).toHaveTextContent("78");
+  expect(totals.textContent).not.toMatch(/calls/i);
+  const gold=screen.getByTestId("tv-podium").querySelector('[data-agent-id="agent-11"]') as HTMLElement;
+  expect(gold.textContent).toMatch(/\$1,320\.00Annual Premium.*1 Policies.*110 Calls/);
+  expect(document.body.textContent).not.toMatch(/appointment|appts|talk|per 100|\/ 100/i);
+  expect(document.body.textContent).not.toMatch(/\bAP\b|Annualized/);
  });
  it.each([1,2,3,12])("renders %i agents without inventing or duplicating podium agents",async n=>{
   render(view(agents().slice(0,n)));await act(async()=>{});
   expect(screen.getByTestId("tv-podium").querySelectorAll("[data-agent-id]")).toHaveLength(Math.min(3,n));
  });
 });
-describe("TV simple labels over unchanged metric ids",()=>{
- it("shows simple names while the stored index keeps selecting the same metric",async()=>{
-  localStorage.setItem("leaderboardTvAutoRotate","0");
-  localStorage.setItem("leaderboardTvMetricIndex","5"); // index 5 is the "Premium Sold" id
-  render(view(agents()));await act(async()=>{});
-  fireEvent.click(screen.getByRole("button",{name:"TV display options"}));
-  const select=screen.getByLabelText("Viewing metric") as HTMLSelectElement;
-  expect(Array.from(select.options).map(o=>[o.textContent,o.value])).toEqual([
-   ["Policies Sold","0"],["Calls Made","1"],["Appointments","2"],["Talk Time","3"],["Policies / 100 Calls","4"],["Annual Premium","5"]]);
-  expect(select.value).toBe("5");
-  expect(within(screen.getByTestId("tv-podium")).getAllByText("Annual Premium")).toHaveLength(3);
-  expect(screen.getByText(/Ranking: Annual Premium/)).toBeTruthy();
-  fireEvent.change(select,{target:{value:"2"}});
-  expect(localStorage.getItem("leaderboardTvMetricIndex")).toBe("2");
-  expect(within(screen.getByTestId("tv-podium")).getAllByText("Appointments")).toHaveLength(3);
-  expect(screen.queryByText(/Premium Sold|Appointments Set/)).toBeNull();
- });
-});
 describe("D14 on TV: a wholly unknown premium is never shown as a $0 sale",()=>{
- // callsMade 37 never collides with a rank number; ties order by name (compareAgentsByMetric).
+ // callsMade 37 never collides with a rank number; equal AP, Policies and Calls order by name (compareAgentsByAp).
  const agentRow=(i:number,over:Partial<AgentStats>):AgentStats=>({id:`d14-${i}`,first_name:`Name${String.fromCharCode(65+i)}`,last_name:"Test",rank:i+1,
   callsMade:37,policiesSold:1,appointmentsSet:0,talkTime:0,conversionRate:0,premiumSold:0,unknownPremiums:0,recentWins7d:0,...over});
  const premiumView=async(rows:AgentStats[])=>{
-  localStorage.setItem("leaderboardTvAutoRotate","0");localStorage.setItem("leaderboardTvMetricIndex","5"); // the "Premium Sold" id
   render(view(rows));await act(async()=>{});
  };
  const totalsPremium=()=>within(screen.getByText("Active-Agent Totals").closest("div.rounded-2xl") as HTMLElement).getByText("Annual Premium").parentElement as HTMLElement;
@@ -103,7 +124,8 @@ describe("D14 on TV: a wholly unknown premium is never shown as a $0 sale",()=>{
   expect(totalsPremium()).not.toHaveTextContent("—");
  });
  it("ranking table and ranks 11+: all-unknown rows read — (the table keeps its marker); genuine $0 rows read $0.00; ranks follow the unchanged order",async()=>{
-  const rows=Array.from({length:12},(_,i)=>i<8?agentRow(i,{premiumSold:(8-i)*100}):i===9||i===10?agentRow(i,{policiesSold:2,unknownPremiums:2}):agentRow(i,{}));
+  // Every $0 row has one policy, so the name tie-break keeps ranks 9–12 in name order.
+  const rows=Array.from({length:12},(_,i)=>i<8?agentRow(i,{premiumSold:(8-i)*100}):i===9||i===10?agentRow(i,{policiesSold:1,unknownPremiums:1}):agentRow(i,{}));
   await premiumView(rows);
   expect(tableRow("NameI T.").firstElementChild).toHaveTextContent(/^9/);
   expect(tableRow("NameI T.")).toHaveTextContent("$0.00");

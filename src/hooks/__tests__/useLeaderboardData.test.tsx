@@ -247,7 +247,6 @@ describe("organization photos stay outside metric snapshots", () => {
     expect(hookResult.rankMotions).toBe(rankMotions);
     expect(hookResult.rankMovements).toBe(movements);
     expect(hookResult.standingsStatus.lastUpdatedAt).toBe(updatedAt);
-    act(() => hookResult.setMetric("Calls Made"));
     await flush();
     expect(h.fromTables.filter(table => table === "profiles")).toHaveLength(1);
     expect(h.rpcCalls).toHaveLength(1);
@@ -320,7 +319,7 @@ describe("org view standings source", () => {
     expect(b.conversionRate).toBeNull(); // zero calls ⇒ 0, never NaN/Infinity
   });
 
-  it("ranks tied standings deterministically by last name, first name, then id", async () => {
+  it("ranks fully tied standings deterministically by last name, first name, then id", async () => {
     const tied = { calls_made: 0, appointments_set: 0, policies_sold: 0, annualized_premium: 0, talk_time_seconds: 0, recent_wins_7d: 0 };
     h.autoResult = rpcOk([
       rpcRow({ ...tied, agent_id: AGENT_C, first_name: "Zoe", last_name: "Zimmer" }),
@@ -335,159 +334,64 @@ describe("org view standings source", () => {
   });
 });
 
-// Distinct per-metric leaders: Policies → A, Calls → B, Talk Time → C, Premium → A.
-const METRIC_ROSTER = [
+// Policies lead → A, Calls lead → C, AP lead → B: only AP decides the order.
+const AP_ROSTER = [
   rpcRow({
     agent_id: AGENT_A, first_name: "Avery", last_name: "Adams",
-    policies_sold: 5, calls_made: 10, talk_time_seconds: 100,
-    annualized_premium: 6000, appointments_set: 4, recent_wins_7d: 2,
+    policies_sold: 5, calls_made: 10, talk_time_seconds: 900,
+    annualized_premium: 1200, appointments_set: 9, recent_wins_7d: 2,
   }),
   rpcRow({
     agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks",
     policies_sold: 2, calls_made: 50, talk_time_seconds: 200,
-    annualized_premium: 1200, appointments_set: 1, recent_wins_7d: 1,
+    annualized_premium: 6000, appointments_set: 1, recent_wins_7d: 1,
   }),
   rpcRow({
     agent_id: AGENT_C, first_name: "Casey", last_name: "Cole",
-    policies_sold: 1, calls_made: 20, talk_time_seconds: 900,
+    policies_sold: 1, calls_made: 90, talk_time_seconds: 100,
     annualized_premium: 300, appointments_set: 0, recent_wins_7d: 0,
   }),
 ];
+const AGENT_D = "aaaa0000-0000-0000-0000-000000000004";
 
-describe("metric switching — synchronous re-rank of cached standings", () => {
-  it("re-ranks immediately on switch with ZERO new RPC calls and no loading state", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
+/** Loads the first snapshot, then answers each later fetch with `next`. */
+const loadThenRefresh = async (first: unknown[], next: unknown[]) => {
+  h.autoResult = rpcOk(first);
+  render(<Probe />);
+  await waitFor(() => expect(hookResult.agents).toHaveLength(first.length));
+  h.autoResult = rpcOk(next);
+  await act(async () => {
+    await hookResult.fetchData({ silent: true });
+  });
+  await flush();
+};
+
+describe("AP is the only ranking metric", () => {
+  it("ranks by AP — not Policies, Calls, Talk Time or Appointments — and exposes no metric API", async () => {
+    h.autoResult = rpcOk(AP_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-    // Default metric is Policies Sold → Agent A leads.
-    expect(hookResult.agents[0].id).toBe(AGENT_A);
-
-    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length;
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-    });
-
-    // Synchronous, same-commit outcome: no awaits, no flushes.
-    expect(hookResult.metric).toBe("Calls Made");
-    expect(hookResult.agents[0].id).toBe(AGENT_B);
-    expect(hookResult.agents[0].rank).toBe(1);
-    expect(
-      h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length,
-    ).toBe(rpcCountBefore);
-    expect(hookResult.filterRefreshing).toBe(false);
-    expect(hookResult.initialLoading).toBe(false);
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A, AGENT_C]);
+    expect(hookResult.agents.map((a) => a.rank)).toEqual([1, 2, 3]);
+    expect(hookResult.agents.map((a) => a.premiumSold)).toEqual([6000, 1200, 300]); // never × 12 again
+    expect("metric" in hookResult).toBe(false);
+    expect("setMetric" in hookResult).toBe(false);
   });
 
-  it("keeps every agent's identity and metric values attached through the switch", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
+  it("breaks AP ties by Policies, then Calls, then last name, first name and id", async () => {
+    h.autoResult = rpcOk([
+      rpcRow({ agent_id: AGENT_D, first_name: "Zed", last_name: "Zane", annualized_premium: 900, policies_sold: 2, calls_made: 99 }),
+      rpcRow({ agent_id: AGENT_C, first_name: "Avery", last_name: "Adams", annualized_premium: 900, policies_sold: 3, calls_made: 1 }),
+      rpcRow({ agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks", annualized_premium: 900, policies_sold: 3, calls_made: 7 }),
+      rpcRow({ agent_id: AGENT_A, first_name: "Blake", last_name: "Brooks", annualized_premium: 900, policies_sold: 3, calls_made: 7 }),
+    ]);
     render(<Probe />);
-    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-    });
-
-    const blake = hookResult.agents.find((a) => a.id === AGENT_B)!;
-    expect(blake.first_name).toBe("Blake");
-    expect(blake.last_name).toBe("Brooks");
-    expect(blake.callsMade).toBe(50);
-    expect(blake.policiesSold).toBe(2);
-    expect(blake.rank).toBe(1);
-
-    const avery = hookResult.agents.find((a) => a.id === AGENT_A)!;
-    expect(avery.first_name).toBe("Avery");
-    expect(avery.callsMade).toBe(10);
-    expect(avery.policiesSold).toBe(5);
-    expect(avery.premiumSold).toBe(6000);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(4));
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_A, AGENT_B, AGENT_C, AGENT_D]);
   });
 
-  it("settles rapid metric switches on the final metric's ordering with zero RPC calls", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
-    render(<Probe />);
-    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-    const rpcCountBefore = h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length;
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-      hookResult.setMetric("Talk Time");
-      hookResult.setMetric("Premium Sold");
-      hookResult.setMetric("Calls Made");
-    });
-
-    expect(hookResult.metric).toBe("Calls Made");
-    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
-    expect(
-      h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot").length,
-    ).toBe(rpcCountBefore);
-    expect(hookResult.filterRefreshing).toBe(false);
-  });
-
-  it("ranks a poll that resolves AFTER a metric switch by the latest metric, and issues no fetch for the switch itself", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
-    render(<Probe />);
-    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-
-    h.mode = "manual";
-    act(() => {
-      void hookResult.fetchData({ silent: true });
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(1));
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-    });
-    // The switch itself must not have queued another fetch.
-    expect(h.pending).toHaveLength(1);
-
-    // The pre-switch poll resolves with refreshed numbers (Blake now 60 calls).
-    const refreshed = METRIC_ROSTER.map((r) =>
-      r.agent_id === AGENT_B ? { ...r, calls_made: 60 } : { ...r },
-    );
-    act(() => {
-      h.pending[0]({ data: refreshed, error: null });
-    });
-    await flush();
-
-    expect(hookResult.agents[0].id).toBe(AGENT_B);
-    expect(hookResult.agents[0].callsMade).toBe(60);
-    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
-  });
-
-  it("a superseded stale response can never restore the previous metric's ordering", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
-    render(<Probe />);
-    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
-
-    // Two refreshes of the same standings JOIN one request (never two RPCs);
-    // only the newest caller may commit, ranked by the metric chosen meanwhile.
-    h.mode = "manual";
-    const before = h.rpcCalls.length;
-    act(() => {
-      void hookResult.fetchData({ silent: true }); // gen N (will become stale)
-    });
-    act(() => {
-      void hookResult.fetchData({ silent: true }); // gen N+1 (newest) — joins gen N's request
-    });
-    await waitFor(() => expect(h.pending).toHaveLength(1));
-    expect(h.rpcCalls.length - before).toBe(1);
-
-    act(() => {
-      hookResult.setMetric("Calls Made");
-    });
-
-    act(() => {
-      h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
-    });
-    await flush();
-    await waitFor(() => expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]));
-    // The Policies ordering never returns.
-    await flush();
-    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_C, AGENT_A]);
-  });
-
-  it("a period change still fetches with the visible refresh lifecycle", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
+  it("a period change fetches with the visible refresh lifecycle and never shows movement across periods", async () => {
+    h.autoResult = rpcOk(AP_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
 
@@ -497,42 +401,125 @@ describe("metric switching — synchronous re-rank of cached standings", () => {
     });
     await waitFor(() => expect(h.pending).toHaveLength(1));
     expect(hookResult.filterRefreshing).toBe(true);
+    expect(h.rpcCalls.at(-1)?.args).toEqual({ p_period: "week", p_group_id: null });
 
+    // Last week's leader differs; that is a different board, not a rank change.
     act(() => {
-      h.pending[0]({ data: METRIC_ROSTER.map((r) => ({ ...r })), error: null });
+      h.pending[0]({ data: AP_ROSTER.map((r) => (r.agent_id === AGENT_C ? { ...r, annualized_premium: 9000 } : { ...r })), error: null });
     });
     await flush();
     expect(hookResult.filterRefreshing).toBe(false);
-    expect(hookResult.agents).toHaveLength(3);
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_C, AGENT_B, AGENT_A]);
+    expect(hookResult.rankMovements.size).toBe(0);
+    expect(hookResult.rankMotions.size).toBe(0);
+    expect(hookResult.newLeaderId).toBeNull();
   });
 
-  it("clears live rank/leader animation state synchronously on a metric switch", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
+  it("Group view loads the group snapshot once, ranks it by AP, and shows no movement across the switch", async () => {
+    h.agencyGroup = { groupId: "bbbb0000-0000-0000-0000-000000000001", groupName: "Summit", role: "member" };
+    h.autoResult = rpcOk(AP_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
 
-    // A refresh with a new Policies leader populates the live animation maps.
-    h.autoResult = rpcOk(
-      METRIC_ROSTER.map((r) =>
-        r.agent_id === AGENT_B ? { ...r, policies_sold: 9 } : { ...r },
-      ),
-    );
-    await act(async () => {
-      await hookResult.fetchData();
-    });
-    await waitFor(() => expect(hookResult.agents[0].id).toBe(AGENT_B));
+    h.autoResult = rpcOk(AP_ROSTER.map((r) => (r.agent_id === AGENT_A ? { ...r, annualized_premium: 7000 } : { ...r })));
+    act(() => hookResult.setView("group"));
+    await waitFor(() => expect(hookResult.agents[0]?.id).toBe(AGENT_A));
+    const groupCalls = h.rpcCalls.filter((c) => c.args.p_group_id === "bbbb0000-0000-0000-0000-000000000001");
+    expect(groupCalls).toHaveLength(1);
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_A, AGENT_B, AGENT_C]);
+    expect(hookResult.rankMovements.size).toBe(0);
+  });
+});
+
+describe("movement follows real rank changes, tie-breaks included", () => {
+  it("an AP change that reorders the board shows up/down movement and a new leader", async () => {
+    await loadThenRefresh(AP_ROSTER, AP_ROSTER.map((r) => (r.agent_id === AGENT_C ? { ...r, annualized_premium: 8000 } : { ...r })));
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_C, AGENT_B, AGENT_A]);
+    expect(hookResult.rankMovements.get(AGENT_C)).toEqual({ direction: "up", spots: 2 });
+    expect(hookResult.rankMovements.get(AGENT_B)).toEqual({ direction: "down", spots: 1 });
+    expect(hookResult.rankMovements.get(AGENT_A)).toEqual({ direction: "down", spots: 1 });
+    expect(hookResult.newLeaderId).toBe(AGENT_C);
+  });
+
+  it("equal AP: a Policies tie-break that changes the order is shown as movement", async () => {
+    const tied = [
+      rpcRow({ agent_id: AGENT_A, first_name: "Avery", last_name: "Adams", annualized_premium: 2400, policies_sold: 2, calls_made: 10 }),
+      rpcRow({ agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks", annualized_premium: 2400, policies_sold: 1, calls_made: 10 }),
+      rpcRow({ agent_id: AGENT_C, first_name: "Casey", last_name: "Cole", annualized_premium: 100, policies_sold: 1, calls_made: 10 }),
+    ];
+    // Blake records a known $0 policy: AP still ties, Policies now 3 vs 2.
+    await loadThenRefresh(tied, tied.map((r) => (r.agent_id === AGENT_B ? { ...r, policies_sold: 3 } : { ...r })));
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A, AGENT_C]);
+    expect(hookResult.rankMovements.get(AGENT_B)).toEqual({ direction: "up", spots: 1 });
+    expect(hookResult.rankMovements.get(AGENT_A)).toEqual({ direction: "down", spots: 1 });
+    expect(hookResult.rankMovements.has(AGENT_C)).toBe(false);
     expect(hookResult.rankMotions.size).toBeGreaterThan(0);
+    expect(hookResult.newLeaderId).toBe(AGENT_B);
+  });
 
-    act(() => {
-      hookResult.setMetric("Talk Time");
-    });
+  it("equal AP and Policies: a Calls tie-break that changes the order is shown as movement", async () => {
+    const tied = [
+      rpcRow({ agent_id: AGENT_A, first_name: "Avery", last_name: "Adams", annualized_premium: 1200, policies_sold: 1, calls_made: 10 }),
+      rpcRow({ agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks", annualized_premium: 1200, policies_sold: 1, calls_made: 5 }),
+      rpcRow({ agent_id: AGENT_C, first_name: "Casey", last_name: "Cole", annualized_premium: 0, policies_sold: 0, calls_made: 1 }),
+    ];
+    await loadThenRefresh(tied, tied.map((r) => (r.agent_id === AGENT_B ? { ...r, calls_made: 12 } : { ...r })));
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A, AGENT_C]);
+    expect(hookResult.rankMovements.get(AGENT_B)).toEqual({ direction: "up", spots: 1 });
+    expect(hookResult.rankMovements.get(AGENT_A)).toEqual({ direction: "down", spots: 1 });
+  });
 
-    expect(hookResult.rankAnimations.size).toBe(0);
+  it("an all-$0 AP board is still ordered (and moves) by its Calls tie-break — never frozen", async () => {
+    const zeros = [
+      rpcRow({ agent_id: AGENT_A, first_name: "Avery", last_name: "Adams", annualized_premium: 0, policies_sold: 0, calls_made: 10 }),
+      rpcRow({ agent_id: AGENT_B, first_name: "Blake", last_name: "Brooks", annualized_premium: 0, policies_sold: 0, calls_made: 5 }),
+    ];
+    await loadThenRefresh(zeros, zeros.map((r) => (r.agent_id === AGENT_B ? { ...r, calls_made: 11 } : { ...r })));
+    expect(hookResult.standingsFrozen).toBe(false);
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A]);
+    expect(hookResult.rankMovements.get(AGENT_B)).toEqual({ direction: "up", spots: 1 });
+    // A $0 leader decided by a tie-break moves, without the "New #1" celebration.
+    expect(hookResult.newLeaderId).toBeNull();
+  });
+
+  it("a value change that keeps every rank shows no movement", async () => {
+    await loadThenRefresh(AP_ROSTER, AP_ROSTER.map((r) => (r.agent_id === AGENT_C ? { ...r, calls_made: 120 } : { ...r })));
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A, AGENT_C]);
     expect(hookResult.rankMovements.size).toBe(0);
     expect(hookResult.rankMotions.size).toBe(0);
-    expect(hookResult.rankDeltas.size).toBe(0);
-    expect(hookResult.newLeaderId).toBeNull();
-    expect(hookResult.spotlightAgentId).toBeNull();
+  });
+
+  it("an identical board (every sort value equal) is frozen and shows no movement", async () => {
+    const same = { annualized_premium: 0, policies_sold: 0, calls_made: 0 };
+    await loadThenRefresh(
+      [rpcRow({ ...same, agent_id: AGENT_A }), rpcRow({ ...same, agent_id: AGENT_B, last_name: "Brooks" })],
+      [rpcRow({ ...same, agent_id: AGENT_A }), rpcRow({ ...same, agent_id: AGENT_B, last_name: "Brooks" })],
+    );
+    expect(hookResult.standingsFrozen).toBe(true);
+    expect(hookResult.rankMovements.size).toBe(0);
+  });
+
+  it("two refreshes of the same standings join one request; only the newest commits, in AP order", async () => {
+    h.autoResult = rpcOk(AP_ROSTER);
+    render(<Probe />);
+    await waitFor(() => expect(hookResult.agents).toHaveLength(3));
+
+    h.mode = "manual";
+    const before = h.rpcCalls.length;
+    act(() => {
+      void hookResult.fetchData({ silent: true });
+    });
+    act(() => {
+      void hookResult.fetchData({ silent: true });
+    });
+    await waitFor(() => expect(h.pending).toHaveLength(1));
+    expect(h.rpcCalls.length - before).toBe(1);
+
+    act(() => {
+      h.pending[0]({ data: AP_ROSTER.map((r) => ({ ...r })), error: null });
+    });
+    await flush();
+    expect(hookResult.agents.map((a) => a.id)).toEqual([AGENT_B, AGENT_A, AGENT_C]);
   });
 });
 
@@ -809,8 +796,8 @@ describe("request discipline", () => {
     expect(h.rpcCalls.filter((c) => c.fn === "get_leaderboard_snapshot")).toHaveLength(1);
   });
 
-  it("binds realtime to wins INSERTs only, once; tab switches, failures and metric switches never re-subscribe", async () => {
-    h.autoResult = rpcOk(METRIC_ROSTER);
+  it("binds realtime to wins INSERTs only, once; tab switches, failures and period switches never re-subscribe", async () => {
+    h.autoResult = rpcOk(AP_ROSTER);
     render(<Probe />);
     await waitFor(() => expect(hookResult.agents).toHaveLength(3));
     expect(h.channelBindings).toEqual([{ table: "wins", event: "INSERT" }]);
@@ -823,7 +810,7 @@ describe("request discipline", () => {
       await hookResult.fetchData({ silent: true });
     });
     act(() => {
-      hookResult.setMetric("Calls Made");
+      hookResult.setPeriod("This Month");
     });
     await flush();
     expect(h.subscribeCount).toBe(1);

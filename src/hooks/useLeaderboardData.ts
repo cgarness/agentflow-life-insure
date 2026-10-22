@@ -10,14 +10,12 @@ import {
   type AgentStats,
   type Win,
   type Period,
-  type Metric,
   type LeaderboardView,
   type RankMovement,
-  metricKey,
   rankAgents,
   hasMeaningfulStandings,
-  metricValueMapsEqual,
-  snapshotMetricValues,
+  rankingValuesEqual,
+  snapshotRankingValues,
 } from "@/components/leaderboard/leaderboardTypes";
 import {
   type LeaderboardEndpoint,
@@ -74,7 +72,6 @@ export function useLeaderboardData() {
   const [performanceSnapshot, setPerformanceSnapshot] = useState<PerformanceSnapshot | null>(null);
   const [view, setView] = useState<LeaderboardView>("org");
   const [period, setPeriod] = useState<Period>("Today");
-  const [metric, setMetric] = useState<Metric>("Policies Sold");
   const [agents, setAgents] = useState<AgentStats[]>([]);
   const [wins, setWins] = useState<Win[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -94,7 +91,7 @@ export function useLeaderboardData() {
   );
 
   const previousDisplayedRanksRef = useRef<Map<string, number>>(new Map());
-  const previousMetricValuesRef = useRef<Map<string, number>>(new Map());
+  const previousRankingValuesRef = useRef<Map<string, string>>(new Map());
   const latestWinIdRef = useRef<string | null>(null);
   const hasLoadedOnceRef = useRef(false);
   const agentsRef = useRef<AgentStats[]>([]);
@@ -106,15 +103,8 @@ export function useLeaderboardData() {
   /** Monotonic fetch generation: only the newest in-flight fetch may commit state. */
   const fetchGenerationRef = useRef(0);
   const winsGenerationRef = useRef(0);
-  /**
-   * Synchronously-current metric. Fetch completions rank with THIS (never the
-   * closure's metric), so a poll resolving after a metric switch ranks by the
-   * latest selection — and the fetch callbacks need no `metric` dependency.
-   */
-  const metricRef = useRef<Metric>(metric);
-
   // Request-gate bookkeeping. Scheduler timers live apart from the win/rank
-  // sequence timers, so a metric or period switch never cancels a scheduled check.
+  // sequence timers, so a period or view switch never cancels a scheduled check.
   const ownerRef = useRef<object>({});
   const gateRef = useRef<LeaderboardRequestGate | null>(null);
   const identityRef = useRef<string | null>(identityKey);
@@ -169,7 +159,8 @@ export function useLeaderboardData() {
     [],
   );
 
-  const movementFilterKey = `${view}:${period}:${metric}:${orgId ?? ""}`;
+  /** Movement only compares snapshots of the same view, group and period (AP is the only ranking). */
+  const movementFilterKey = `${view}:${period}:${orgId ?? ""}`;
 
   const clearWinSequenceTimers = useCallback(() => {
     if (winFlashClearTimerRef.current != null) {
@@ -245,7 +236,7 @@ export function useLeaderboardData() {
     winsSnapshotScopeRef.current = null;
     lastUpdatedAtRef.current = null;
     previousDisplayedRanksRef.current = new Map();
-    previousMetricValuesRef.current = new Map();
+    previousRankingValuesRef.current = new Map();
     dirtyRef.current = false;
     clearSchedulerTimers();
     clearAllSequenceTimers();
@@ -286,29 +277,29 @@ export function useLeaderboardData() {
 
   useEffect(() => {
     previousDisplayedRanksRef.current = new Map();
-    previousMetricValuesRef.current = new Map();
+    previousRankingValuesRef.current = new Map();
     setRankMovements(new Map());
     clearAllSequenceTimers();
     setFlashingWinId(null);
     setSpotlightAgentId(null);
   }, [movementFilterKey, clearAllSequenceTimers]);
 
-  const commitRankSnapshot = useCallback((sortedAgents: AgentStats[], activeMetric: Metric) => {
+  const commitRankSnapshot = useCallback((sortedAgents: AgentStats[]) => {
     sortedAgents.forEach((a) => previousDisplayedRanksRef.current.set(a.id, a.rank));
-    previousMetricValuesRef.current = snapshotMetricValues(sortedAgents, activeMetric);
+    previousRankingValuesRef.current = snapshotRankingValues(sortedAgents);
   }, []);
 
-  const applyRankAnimations = useCallback((sortedAgents: AgentStats[], activeMetric: Metric) => {
-    const frozen = !hasMeaningfulStandings(sortedAgents, activeMetric);
-    const valuesUnchanged = metricValueMapsEqual(
-      sortedAgents,
-      previousMetricValuesRef.current,
-      activeMetric,
-    );
+  /**
+   * Movement between two snapshots of the same selection. The comparison covers the whole AP sort key (AP,
+   * Policies, Calls), so a reorder decided by a tie-break shows as the real rank change it is.
+   */
+  const applyRankAnimations = useCallback((sortedAgents: AgentStats[]) => {
+    const frozen = !hasMeaningfulStandings(sortedAgents);
+    const valuesUnchanged = rankingValuesEqual(sortedAgents, previousRankingValuesRef.current);
 
     if (frozen || valuesUnchanged) {
       setRankMovements(new Map());
-      commitRankSnapshot(sortedAgents, activeMetric);
+      commitRankSnapshot(sortedAgents);
       return;
     }
 
@@ -329,7 +320,8 @@ export function useLeaderboardData() {
 
     const prevLeaderId = [...previousDisplayedRanksRef.current.entries()].find(([, r]) => r === 1)?.[0];
     const nextLeader = sortedAgents.find((a) => a.rank === 1);
-    const leaderScore = nextLeader ? (nextLeader[metricKey(activeMetric)] as number) : 0;
+    // The "New #1" celebration needs AP; a $0 leader decided by a tie-break still moves, without the banner.
+    const leaderScore = nextLeader ? nextLeader.premiumSold : 0;
     if (
       prevLeaderId &&
       nextLeader &&
@@ -354,7 +346,7 @@ export function useLeaderboardData() {
       }
     }
 
-    commitRankSnapshot(sortedAgents, activeMetric);
+    commitRankSnapshot(sortedAgents);
 
     if (motions.size > 0) {
       setRankMotions(motions);
@@ -418,32 +410,6 @@ export function useLeaderboardData() {
       setInitialLoading(false);
     }
     setFilterRefreshing(false);
-  }, []);
-
-  /**
-   * Controlled metric change. The aggregate RPC already returned every metric,
-   * so switching the selected metric is a pure re-rank of the cached rows:
-   * ZERO fetches, no loading state, and one batched commit in which the new
-   * metric can never render against the previous metric's rankings. Cached
-   * rows are cloned before ranking — existing state objects are not mutated —
-   * and live-data animation state is cleared so a filter-driven reorder never
-   * reuses rank glow, movement, spotlight, or new-leader effects.
-   */
-  const changeMetric = useCallback((next: Metric) => {
-    if (next === metricRef.current) return;
-    metricRef.current = next;
-    const reRanked = rankAgents(
-      agentsRef.current.map((a) => ({ ...a })),
-      next,
-    );
-    setRankAnimations(new Map());
-    setRankMovements(new Map());
-    setRankMotions(new Map());
-    setRankDeltas(new Map());
-    setNewLeaderId(null);
-    setSpotlightAgentId(null);
-    setMetric(next);
-    setAgents(reRanked);
   }, []);
 
   /**
@@ -531,11 +497,8 @@ export function useLeaderboardData() {
         }
         timeZoneRef.current = snapshot.time_zone;
         setPerformanceSnapshot(snapshot);
-        const currentStats = rankAgents(
-          result.data.rows.map((a) => ({ ...a })),
-          metricRef.current,
-        );
-        applyRankAnimations(currentStats, metricRef.current);
+        const currentStats = rankAgents(result.data.rows.map((a) => ({ ...a })));
+        applyRankAnimations(currentStats);
         const updatedAt = Date.now();
         agentsRef.current = currentStats;
         snapshotScopeRef.current = `${scope}|${performancePeriodKey(period, snapshot.time_zone)}`;
@@ -911,7 +874,7 @@ export function useLeaderboardData() {
     };
   }, [orgId, identityKey, gateFor, clearAllSequenceTimers]);
 
-  const standingsFrozen = !hasMeaningfulStandings(agents, metric);
+  const standingsFrozen = !hasMeaningfulStandings(agents);
   const reportedStandingsStatus = useMemo(
     () => (standingsStatus.offline === offline ? standingsStatus : { ...standingsStatus, offline }),
     [standingsStatus, offline],
@@ -936,8 +899,6 @@ export function useLeaderboardData() {
     setView,
     period,
     setPeriod,
-    metric,
-    setMetric: changeMetric,
     agents: presentedAgents,
     wins,
     initialLoading,

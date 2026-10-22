@@ -94,9 +94,10 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
     );
   }
 
-  // Presentation-only safeguard: zero-sale agents only tie, and the canonical
-  // tie-break is alphabetical — never dress that up as a #1/#2/#3. They always
-  // sort after every agent with a sale, so the ranks shown stay canonical.
+  // Presentation-only safeguard: agents with no sale are never dressed up as a
+  // #1/#2/#3. In the shared AP order (AP, then Policies, Calls, name) they always
+  // sort after every agent with a sale, so the rows shown are exactly the top of
+  // the Leaderboard page's This Month ranking for the same view.
   const top3 = ranked.filter((a) => a.wins > 0).slice(0, 3);
   const noSalesYet = top3.length === 0;
   const asOf = status.lastUpdatedAt !== null ? formatStatusTime(status.lastUpdatedAt) : null;

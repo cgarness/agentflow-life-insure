@@ -1,3 +1,36 @@
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
+
+**Status:** Chris approved §15 with D1 A, D2 A and D3 approved. Implemented in commit `e02f535` on
+`claude/sweet-cannon-jve7ak`. No Supabase or Vercel command run. Details are in
+`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §15 and `verification.md` §11.
+
+**Summary:**
+- Both board rows share one 2 : 1 column template, with two columns from 1280 px.
+- The podium shares Full Rankings' column and Your Performance shares Recent Wins'. Measured in the browser, the
+  edges match to the pixel at 1280–2560 px with the sidebar open or collapsed.
+- Below 1280 px every panel stacks full width.
+- The three-card podium fills its column. One- and two-agent podiums keep their existing caps, centered.
+- One deviation: the three-card podium drops its cap at every width, not only from `lg`, because of the
+  collapsed-sidebar case.
+
+---
+
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final UI polish ("Annual Premium" labels; TV totals without Calls)
+
+**Status:** Chris approved the exact plan on 2026-10-21. `main` `40a298c` (PR #476) was merged into
+`claude/sweet-cannon-jve7ak` (`3161c4b`), then commit `8abb0a2` implemented it. No Supabase or Vercel command run.
+Details are in `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §14 and `verification.md` §10.
+
+**Summary:** every visible "AP" / "Annualized Premium" label on the Leaderboard and TV Mode now reads "Annual
+Premium". That includes the subtitle "Ranked by Annual Premium". TV's Active-Agent Totals strip shows only Annual
+Premium and Policies in two equal columns. Calls stay on the podium cards and in both ranking tables. No
+calculation, ranking, CSV, data, RPC, RLS or telephony change.
+
+One deviation, for mobile fit: the Full Rankings header wraps wherever its column is narrower than the label (also
+at 768–1100 px), not only below `sm`.
+
+---
+
 ## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
 
 **Gate 2 (database only), 2026-10-21:** Chris approved migration `20261021200000` (SHA-256 `ce189016…9ae5`) via the
@@ -27,6 +60,32 @@ from the locked lead row, adds four nullable editable client columns and one pro
 history column, keeps displaced lead notes verbatim, and lets the client editor save the four person fields. The
 profile shows them in the existing details grid plus a read-only "Original lead" panel. Wrapper, commission
 companions, policy cards, telemetry and authorization unchanged.
+
+---
+
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): AP-only Leaderboard redesign (frontend only)
+
+**Status:** Chris approved the plan on 2026-10-21 with D1–D5 = A, plus the instruction that tie-break rank changes show
+correctly in the movement indicators. Implemented on `claude/sweet-cannon-jve7ak` from `main` `51b0e56`; draft PR
+#475 open for review. Against the `main` baseline the root typecheck is clean, the app typecheck has the identical 84-error
+set, and the full Vitest run has no new failure. Targeted 331/331, lint and build pass. Fixture screenshots are in the
+plan folder. No Supabase or Vercel command, migration, merge or release. Merge and frontend release need
+Chris's separate approval. Evidence: `docs/plans/2026-10-21-ap-leaderboard/verification.md`.
+
+**CI blocker fixed (test-only, plan §13):** the `tv-browser` visual harness (`scripts/tests/leaderboard-visual/`
+`entry.tsx`, `verify.mjs`) is updated for the AP-only board; no application, workflow or backend change.
+`verification.md` §8–§9.
+
+**Plan, exact file list, decisions and verification:** `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md`.
+
+**Summary:** Annualized Premium (AP) is the single ranking metric on the Leaderboard page, TV Mode and the Dashboard
+preview (one shared comparator; deterministic ties). The metric dropdown, the TV metric selector, TV auto-rotation and
+their stored preferences are removed. The podium keeps its design and shows AP, then Policies and Calls. A new Your
+Performance card shows the signed-in agent's AP, rank, real movement, Policies and Calls, or an unavailable state
+when they are not on the board. Full Rankings lists every ranked agent (Rank · Agent · AP · Policies · Calls) with a
+YOU row. Appointments leave every visible Leaderboard surface, including the on-screen outside-roster note. Unchanged:
+`get_leaderboard_snapshot` and its 1:1 AP mapping, RLS, the request gate and polling, stale/error/maintenance states,
+Recent Wins and the CSV export.
 
 ---
 
