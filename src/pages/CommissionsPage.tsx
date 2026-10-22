@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { Lock, Wallet } from "lucide-react";
+import { CircleDollarSign, Lock } from "lucide-react";
 import { AmountsToggle, AmountsVisibilityProvider } from "@/components/commission/ui/AmountsVisibility";
 import { IconTile, StatePanel } from "@/components/commission/ui/CommissionSurface";
 import CalculatorTab from "@/components/commissions/CalculatorTab";
@@ -31,7 +31,7 @@ const CommissionsPage: React.FC = () => {
     body = <StatePanel icon={Lock} title="Commissions aren't available" role="status"
       body={access.isImpersonating ? "Commissions aren't available while viewing as another user." : "Your role doesn't include viewing your own commission."} />;
   } else if (!access.enabled) {
-    body = <StatePanel icon={Wallet} title="Loading…" role="status" />;
+    body = <StatePanel icon={CircleDollarSign} title="Loading…" role="status" />;
   } else {
     body = <Center key={`${access.userId}:${access.orgId}`} tab={tab} />;
   }
@@ -40,7 +40,7 @@ const CommissionsPage: React.FC = () => {
     <AmountsVisibilityProvider key={identity} userId={access.enabled ? access.userId : null} organizationId={access.enabled ? access.orgId : null}>
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex items-center gap-3">
-          <IconTile icon={Wallet} className="h-9 w-9 rounded-xl bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400" />
+          <IconTile icon={CircleDollarSign} className="h-9 w-9 rounded-xl bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400" />
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Commissions</h1>
           <InfoTip label="About these figures">
             AgentFlow estimates and payments you recorded. Not carrier-verified. Expected dates assume payment 1–3 business days after each

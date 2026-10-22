@@ -1,3 +1,65 @@
+## 2026-10-22 — Commissions sidebar entry: CircleDollarSign icon, no access delay, no layout jump (branch only; NOT merged or deployed)
+
+Chris approved the plan with one change: use `CircleDollarSign` for the sidebar item, the page header and the page's
+loading state, and add `CommissionsPage.tsx`. Built on `claude/zen-bardeen-phqecr` from `main` `40a298c`. Reviewed
+AGENT_RULES, VISION and WORK_LOG. This supersedes draft PR #473's icon-only change; PR #473 was not modified or merged.
+No migration, backend command, production contact, merge or deploy.
+
+- **Defect.** `useCommissionsAccess` waited for the `role_permissions` read before permitting anyone, although Admin
+  and Super Admin hold the Own toggle without it (`usePermissions` full access; the server's
+  `policy_commission_toggle` `p_full`). The sidebar renders its core menu while permissions load, but Commissions was
+  inserted only afterwards, pushing Custom links, Settings and the Super Admin entries down a row. A Super Admin whose
+  stored role is the legacy `'Super Admin'` string (no role key in `usePermissions`) never finished loading, so for
+  them the item never appeared and the page stayed on "Loading…".
+- **Fix.**
+  - **Access:** `permitted = (fullAccess || !permissionsLoading) && canSeeCommission(...)`, with
+    `fullAccess = is_super_admin === true || role === "Admin"` computed in `useCommissionsAccess`. Final answers are
+    unchanged for every role; Admin and Super Admin no longer wait.
+  - **Agents / Team Leaders:** still fail closed until their permissions load, then the "View Own Commission
+    Percentage" toggle decides.
+  - **View As:** unchanged. The item renders nothing and no read is enabled.
+  - **No layout jump:** while an Agent's or Team Leader's access is unresolved, the nav item holds an inert
+    `aria-hidden` slot with a nav row's box (`px-3 py-2.5` around `h-5`), with no link, label, icon or focus stop. When
+    access is granted the link fills it in place; when it is denied the slot goes, like other permission-hidden items.
+  - **Icon:** `CircleDollarSign` replaces `Wallet` in the nav item, page header and loading panel.
+  - **Unchanged:** ordering, styling, active state, collapsed and mobile behavior, `Sidebar.tsx`, `NavItems.tsx`, the
+    page guard, reads, calculations, RLS and the database.
+- **Plan amendment during implementation.** The plan exposed `fullAccess` from `usePermissions`, but
+  `reportsContracts.test.ts` pins that file's exact bytes (Dialer / Leaderboard boundary) and failed. `usePermissions.ts`
+  was restored byte-identical (blob `6789cc0e…1ea5`) and the same rule is computed in `useCommissionsAccess`.
+- **Known limitation (existing, not widened).** A `'Super Admin'`-role profile without `is_super_admin` never finishes
+  loading permissions (the core menu already stays fully open for it). The server denies it Commissions, and it now
+  sees the empty reserved slot instead of nothing.
+- **Tests.**
+  - NEW `useCommissionsAccess.test.tsx` (8 cases, real `usePermissions`, held `role_permissions` read): Admin, Super
+    Admin and legacy-role Super Admin permitted while pending; exactly one organization-scoped read for mapped roles
+    (none for the legacy role); an Admin with the stored toggle off still permitted; Agent and Team Leader fail closed,
+    then the toggle decides; nothing enabled under View As.
+  - `viewAsSidebarNav.test.tsx` (+7): icon; slot directly below Resources and inert; same box expanded and collapsed;
+    filled in place with Settings' position and the row count unchanged; removed when denied; nothing under View As.
+  - `commissionsPage.test.tsx` (+3): header and loading icons, and no read while an Agent's access loads; Admin and
+    Super Admin open without the loading panel.
+  - **Fail-first:** with the three source files at `HEAD`, 9 of the 48 tests in these files fail; the 39 guard tests
+    pass.
+- **Gates.**
+  - Root `npx tsc --noEmit`: exit 0.
+  - Strict app typecheck: 84 errors, the identical set to the baseline.
+  - Focused and related Vitest (55 files): all pass (796 passed, 3 skipped), `reportsContracts` included.
+  - Full Vitest: 6,012 passed, 1 failed, 36 skipped (baseline on unmodified code: 5,994 / 1 / 36). The
+    failure set is identical to the baseline: 9 suite-load errors and one deployed-Edge-Function byte pin, all
+    unrelated. The +18 are the new tests.
+  - ESLint on the 6 changed source and test files: 0 problems.
+  - `vite build`: OK (existing chunk-size warning only).
+- **Files.** `src/components/layout/CommissionsNavItem.tsx`, `src/pages/CommissionsPage.tsx`,
+  `src/hooks/useCommissionsCenter.ts`, `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`,
+  `src/pages/__tests__/commissionsPage.test.tsx`, NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`, root
+  `implementation_plan.md` entry, `AGENT_RULES.md` (one Commissions center bullet), this entry.
+- **Next.** Chris's review. A PR, merge and production deploy each need separate approval. If this merges, close
+  PR #473 (same line, superseded). Optional follow-up: decide whether `usePermissions` should treat the legacy
+  `'Super Admin'` role string as full access (pinned file; its own approval).
+
+---
+
 ## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
 
 Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256

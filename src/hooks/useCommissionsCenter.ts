@@ -15,14 +15,20 @@ import {
  * (useTrackingMutation → useRefreshPolicyCommissions) refreshes the center, the drawer and the contact view together.
  * They include the signed-in user, organization and every effective filter, so an earlier identity's or filter's result
  * is never shown for a newer one.
+ *
+ * Admin and Super Admin hold the toggle without the role_permissions read, so their access is known as soon as their
+ * profile is. `fullAccess` repeats usePermissions' own definition (that file is byte-pinned by reportsContracts.test.ts),
+ * which the server's policy_commission_toggle also uses for p_full. Every other role fails closed until its permissions
+ * load; `permitted` stays false and `permissionsLoading` true meanwhile.
  */
 export function useCommissionsAccess() {
-  const { user, isImpersonating } = useAuth();
+  const { user, profile, isImpersonating } = useAuth();
   const { viewer } = useEffectiveViewer();
   const { canSeeCommission, isLoading: permissionsLoading } = usePermissions();
   const userId = user?.id ?? null;
   const orgId = viewer?.organizationId ?? null;
-  const permitted = !permissionsLoading && canSeeCommission(CALCULATOR_PERMISSION);
+  const fullAccess = profile?.is_super_admin === true || profile?.role === "Admin";
+  const permitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION);
   const enabled = permitted && !isImpersonating && !viewer?.isImpersonating && !!userId && !!orgId && viewer?.viewerId === userId;
   return { userId, orgId, permitted, permissionsLoading, isImpersonating, enabled };
 }

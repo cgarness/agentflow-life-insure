@@ -1,77 +1,92 @@
-## 2026-10-21 — PROPOSED (awaiting Chris's approval): Commissions sidebar entry — DollarSign icon, no access delay
+## 2026-10-21 — APPROVED and IMPLEMENTED (branch only; NOT merged or deployed): Commissions sidebar entry — CircleDollarSign icon, no access delay
 
-**Status:** Plan only. No source file edited and no backend command run. Base `main` `40a298c`; branch
-`claude/zen-bardeen-phqecr`. Reviewed AGENT_RULES.md (§3, §7, §8, Commissions center), VISION.md and the newest
-WORK_LOG entries.
+**Status:** Chris approved implementation on 2026-10-22 with one change: use `CircleDollarSign` for the sidebar item,
+the page header and the page's loading state (not `DollarSign`), and add `CommissionsPage.tsx` to the plan. Built on
+`claude/zen-bardeen-phqecr` from `main` `40a298c`. This implementation supersedes draft PR #473's icon-only change;
+PR #473 is neither modified nor merged. No merge to `main`, production deploy or database change without separate
+approval. Reviewed AGENT_RULES.md (§3, §7, §8, Commissions center), VISION.md and the newest WORK_LOG entries.
 
 **Conflict check.**
 - Draft PR #473 (`codex/commissions-dollar-icon-20261020`) changes the same line of `CommissionsNavItem.tsx` to
-  `CircleDollarSign`. This task asks for `DollarSign` and supersedes it. If both merge they will conflict. PR #473 is
-  not touched here (AGENT_RULES forbids PR #473 changes in the insights release record). Closing it is Chris's call.
+  `CircleDollarSign`. This implementation makes the same icon choice and also covers the page header and loading
+  state, so it supersedes #473. If both merge they will conflict on that line. Closing #473 is Chris's call.
 - No other open PR or WORK_LOG entry touches the sidebar, `usePermissions` or `useCommissionsAccess`.
 - Unrelated observation: the PR #476 merge message says migration `20261021200000` was applied, but the newest
-  WORK_LOG entry still reads "NOT applied" and has no apply record. Not in scope here and left unchanged.
+  WORK_LOG entry before this one still read "NOT applied" and has no apply record. Not in scope here and left unchanged.
 
 **Root cause.**
-1. `CommissionsNavItem` renders the `Wallet` icon.
-2. `useCommissionsAccess` computes `permitted = !permissionsLoading && canSeeCommission(...)`. Admin and Super Admin
-   therefore wait for the `role_permissions` round-trip, even though `canSeeCommission` already returns true for them
-   without that read. The server agrees: `private.policy_commission_toggle` returns true for `p_full`
-   (Admin / Super Admin) without reading `role_permissions`.
-3. While permissions load, `Sidebar` renders the core menu (fail-open) but Commissions renders nothing. When access
-   resolves, the item is inserted and Custom links, Settings and the Super Admin entries shift down one row.
+1. `CommissionsNavItem`, the Commissions page header and its "Loading…" panel render the `Wallet` icon.
+2. `useCommissionsAccess` computed `permitted = !permissionsLoading && canSeeCommission(...)`. Admin and Super Admin
+   therefore waited for the `role_permissions` round-trip, even though `canSeeCommission` already returns true for
+   them without that read. The server agrees: `private.policy_commission_toggle` returns true for `p_full`
+   (Admin / Super Admin) without reading `role_permissions`. A Super Admin whose stored role is the legacy
+   `'Super Admin'` string (allowed by `profiles_role_check`, but with no role key in `usePermissions`) never finished
+   loading, so for them the nav item never appeared and the page stayed on "Loading…".
+3. While permissions load, `Sidebar` renders the core menu (fail-open) but Commissions rendered nothing. When access
+   resolved, the item was inserted and Custom links, Settings and the Super Admin entries shifted down one row.
 
-**Design.**
-- **D1 Icon.** Lucide `DollarSign` replaces `Wallet` in `CommissionsNavItem` only. The Commissions page header keeps
-  its icon (out of scope).
-- **D2 Access resolution.** Change `useCommissionsAccess`, which is shared by the nav item, the page and every read, to
-  `permitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION)`. `fullAccess` is the
-  existing `usePermissions` value (`is_super_admin || role === "Admin"`), now exposed as an additive return field.
-  The final answer is unchanged for every role. Only Admin and Super Admin stop waiting.
+**Design (as built).**
+- **D1 Icon (amended at approval).** Lucide `CircleDollarSign` replaces `Wallet` in `CommissionsNavItem`, the
+  `CommissionsPage` header tile and the page's "Loading…" panel. The page's lock icon for "not available" stays.
+- **D2 Access resolution.** `useCommissionsAccess` is shared by the nav item, the page and every read. It now computes
+  `permitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION)`, where
+  `fullAccess = profile?.is_super_admin === true || profile?.role === "Admin"`.
+  - **Where `fullAccess` comes from (amended during implementation).** It is computed inside `useCommissionsAccess`,
+    repeating `usePermissions`' own definition. The plan was to expose it from `usePermissions`, but
+    `src/lib/__tests__/reportsContracts.test.ts` pins that file's exact bytes (Dialer / Leaderboard boundary), so
+    `usePermissions.ts` stays byte-identical (blob `6789cc0e…1ea5`). The server's `p_full` uses the same definition.
+  - **Final answers are unchanged for every role.** Only the wait is removed, for Admin and Super Admin.
   - **Agent / Team Leader:** not permitted until their role's permissions load (fail-closed). The stored
     "View Own Commission Percentage" toggle still decides.
-  - **View As:** unchanged. The nav returns nothing whenever `isImpersonating`, and reads still require no
+  - **View As:** unchanged. The nav item returns nothing whenever `isImpersonating`, and reads still require no
     impersonation and `viewerId === userId`.
   - **Returned values:** `permissionsLoading` is returned unchanged.
   - **Page side effect:** for Admin and Super Admin the Commissions page skips its "Loading…" panel. It makes the same
     reads with the same keys, just without the delay. No new request.
-- **D3 Reserved slot (Agent / Team Leader still loading, not View As).** The nav item renders an empty `aria-hidden`
-  element with the same box as `MainNavItem` (`px-3 py-2.5` with an `h-5` inner = 40 px). It has no link, label,
-  icon, tooltip, focus stop or route, so nothing about access is revealed.
+- **D3 Reserved slot (Agent / Team Leader still loading, not View As).** The nav item renders
+  `<div aria-hidden="true" className="px-3 py-2.5"><div className="h-5" /></div>`, the same 40 px box as a
+  `MainNavItem` row. It has no link, label, icon, tooltip, focus stop or route, so nothing about access is revealed.
   - **Resolved, permitted:** the real link fills the same slot and nothing below it moves.
   - **Resolved, denied:** the slot is removed, the same way permission-hidden core items are removed once permissions
     load. Both roles default to the toggle on, so a typical agent sees no movement.
 - **D4 Unchanged.**
   - Layout: position directly below Resources, `MainNavItem` styling and active state, collapsed and mobile behavior
     (one shared `sidebarContent`).
-  - Untouched files: `Sidebar.tsx`, `NavItems.tsx`.
+  - Untouched files: `Sidebar.tsx`, `NavItems.tsx`, `usePermissions.ts`, `useCommissionCalculator.ts`.
   - Behavior: the page's direct-entry guard, calculations, reads, RLS, database.
   - No migration and no new query.
 
-**Files to modify.**
+**Known limitation (existing behavior, not widened here).** A profile whose stored role is `'Super Admin'` without
+`is_super_admin` has no role key in `usePermissions`, so its loading never ends. The core menu already stays fully
+open for such a profile. The server denies it Commissions, and the nav now shows the empty reserved slot for it
+instead of nothing. Fixing `usePermissions`' unmapped-role behavior is a separate, pinned change.
+
+**Files changed.**
 1. `src/components/layout/CommissionsNavItem.tsx`: icon and reserved slot.
-2. `src/hooks/useCommissionsCenter.ts`: `useCommissionsAccess` and its doc comment only.
-3. `src/hooks/usePermissions.ts`: expose `fullAccess` (additive; existing mocks without it keep today's behavior).
-4. `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`: icon, slot position and stability, denied, View As,
-   collapsed.
-5. NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`: real `usePermissions` + `useCommissionsAccess` with a held
+2. `src/pages/CommissionsPage.tsx`: header and loading icons only.
+3. `src/hooks/useCommissionsCenter.ts`: `useCommissionsAccess` and its doc comment only.
+4. `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`: icon; reserved slot position, box (expanded and
+   collapsed) and stability when access resolves; denied; View As.
+5. `src/pages/__tests__/commissionsPage.test.tsx`: header and loading icons; Admin / Super Admin open without the
+   loading panel while permissions load; an Agent whose access is loading reads nothing.
+6. NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`: real `usePermissions` + `useCommissionsAccess` with a held
    `role_permissions` read. Cases:
-   - Admin / Super Admin permitted while the read is pending, with exactly one read.
-   - Agent / Team Leader fail closed while pending; the toggle decides after the read resolves.
+   - Admin / Super Admin permitted while the read is pending, with exactly one organization-scoped read.
+   - Legacy `'Super Admin'` role with `is_super_admin` permitted, with no read.
    - An Admin whose stored toggle is off is still permitted (matches the server).
-   - Nothing is enabled under View As.
-6. `implementation_plan.md` (this entry), `WORK_LOG.md` (newest-first entry), `AGENT_RULES.md` (one bullet under
+   - Agent / Team Leader fail closed while pending; the toggle decides after the read resolves.
+   - Nothing is enabled under View As (viewing as an Admin or an Agent).
+7. `implementation_plan.md` (this entry), `WORK_LOG.md` (newest-first entry), `AGENT_RULES.md` (one bullet under
    Commissions center recording the nav access rule).
 
-Not modified: `Sidebar.tsx`, `NavItems.tsx`, `CommissionsPage.tsx`, `useCommissionCalculator.ts`, any SQL or Edge
-Function.
+Not modified: `Sidebar.tsx`, `NavItems.tsx`, `usePermissions.ts`, `useCommissionCalculator.ts`,
+`reportsContracts.test.ts`, any SQL or Edge Function, PR #473.
 
-**Verification.**
-- **Dependencies:** `npm ci` (local only; package files unchanged).
-- **Fail-first:** the new tests run against current code first and must fail for the Wallet icon, the Admin wait and
-  the missing slot.
-- **Checks:** `npx tsc --noEmit`, focused Vitest, full Vitest compared with `main`'s failure set, scoped ESLint and
-  `vite build`.
+**Verification.** See the newest WORK_LOG entry for the full results.
+- **Fail-first:** with the three source files at `HEAD`, 9 of the 48 tests in the three test files fail (the Wallet
+  icons, the Admin / Super Admin wait and the missing slot); the 39 guard tests pass.
+- **Checks:** root `npx tsc --noEmit`, strict app typecheck compared with the baseline, focused and related Vitest,
+  full Vitest compared with the baseline failure set, ESLint on changed files, and `vite build`.
 - **Delivery:** commit and push to `claude/zen-bardeen-phqecr` only. No PR, merge or `main` push without approval.
 
 ---

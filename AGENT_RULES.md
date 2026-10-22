@@ -892,6 +892,13 @@ evidence: `verification.md` beside it.
 - **Labels.** Estimates are AgentFlow projections and receipts are manual records; neither is carrier-verified, earned,
   paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
   reporting tabs; definitions live in one ⓘ control.
+- **Access resolves without a needless wait (2026-10-22; branch `claude/zen-bardeen-phqecr`, NOT merged).**
+  `useCommissionsAccess` permits Admin and Super Admin (`is_super_admin === true || role === "Admin"`, the same rule
+  as `usePermissions` and the server's `p_full`) without waiting for `role_permissions`. Every other role fails closed
+  until its permissions load, then the Own toggle decides. While that is unresolved the sidebar holds an inert
+  `aria-hidden` slot with a nav row's box (no link, label, icon or focus stop), so the entries below never move; under
+  View As it renders nothing. Icon: `CircleDollarSign` (sidebar, page header, loading panel). `usePermissions.ts` is
+  byte-pinned by `reportsContracts.test.ts`: never edit it just to expose this rule.
 
 ### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; Gate 3 approved, release pending)
 
