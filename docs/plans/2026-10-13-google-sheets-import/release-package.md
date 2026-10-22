@@ -1,5 +1,57 @@
 # Google Sheets V1 — production release package
 
+## Current continuation checkpoint — 2026-10-22 UTC
+
+Chris approved proceeding after the status review. PR #442 is being reconciled
+with `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`; PR #451 receives
+the corresponding runner reconciliation. The existing Phase B approval remains
+in force, along with the separately required merge, stage-review, activation,
+privacy and scheduling gates. This checkpoint supersedes older operational
+instructions below where they conflict. Dated historical evidence is retained.
+
+**Do not run the old October 17 release pins.** Current `AGENT_RULES.md` requires
+an unapplied migration version to sort after the freshly observed hosted head.
+The foundation's authored `20261013120000` filename must therefore be renamed,
+with its paired rollback and active references, after live history is verified.
+The plan already permits version re-stamping (§0.3). Preserve the SQL bytes and
+SHA-256 `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed`.
+Do not reuse the earlier instruction to insert an out-of-order history row.
+
+Before Phase B can resume:
+
+1. Obtain fresh hosted migration count/latest, helper preimage, Sheets
+   schema/history/function/cron inventory, deployment-control state, and disabled
+   flags. Repository filenames are not a substitute for hosted history.
+2. Choose a version later than that hosted head, rename the unchanged foundation
+   and rollback, update active CI/test references, and publish the reviewed source
+   commit. Keep historical regression comparisons pointed at the historical name.
+3. Refresh runner SOURCE, VERSION, path and before/after history expectations from
+   that evidence. After recording history, `max(version)` must equal the new
+   VERSION. Require the version-order guard and the runner's synthetic suite.
+4. Reconfirm current-head CI and the existing §10.3 prerequisites before any
+   protected stage. The pending cron migration remains a later Phase E action and
+   needs its own hosted-head check before activation.
+
+**Access evidence from this continuation:** the GitHub environment
+`google-sheets-production` requires `cgarness`, permits only `main`, and has
+administrator bypass disabled. Its secrets list is empty: the owner still needs
+to save `SUPABASE_DB_PASSWORD`, `SUPABASE_POOLER_HOST`, and
+`SUPABASE_ACCESS_TOKEN` through GitHub's secret-entry UI. No secret values were
+read or saved. The Supabase dashboard is at its ordinary sign-in page. The
+read-only Supabase connector calls returned no result, so the October 17 count,
+latest version and helper hash are historical pins, not current observations.
+The production auto-deploy setting, Vercel disabled flag and current rollback
+deployment are also unverified in this continuation.
+
+The local merge preserves every current-main function setting and all four
+Sheets settings. Approved SQL and all four Edge bundle digests match the release
+source; frontend and backend feature behavior is unchanged. Local focused tests,
+lint and build pass; the complete results and CI status are recorded in
+`verification.md`. No production migration, deployment, import or schedule has
+been performed in this continuation.
+
+---
+
 **Current execution route (2026-10-17): cloud GitHub Actions, §10.3.** The Mac procedures below are historical alternatives. Runner PR #451 (head `5aab5e06`) is prepared and its real PostgreSQL verification passed. Production remains unchanged for Sheets. PR #442 now reconciles main `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs); release artifacts remain pinned to and byte-identical with `eaf988b`. Production now has 329 history rows (latest `20261017043757`), so `record-history` takes it to 330. The current observed frontend is `dpl_FQifs5hMooAKyRiGDZcjwj7FUEGB` at `95009d15`; capture the rollback target again before each approved merge.
 
 **Status: Phase B APPROVED (2026-10-15) and IN PROGRESS through the documented psql / CLI fallback (§10, §10.1). Nothing has been applied or deployed yet.** Every later phase needs Chris's approval of its exact actions.

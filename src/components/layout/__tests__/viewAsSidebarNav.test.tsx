@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   isImpersonating: false,
   permsLoading: false,
   isSuperAdmin: true,
+  collapsed: false,
   sectionAccess: (_slug: string): boolean => true,
 }));
 
@@ -42,7 +43,7 @@ vi.mock("@/hooks/usePermissions", () => ({
   }),
 }));
 vi.mock("@/contexts/SidebarContext", () => ({
-  useSidebarContext: () => ({ collapsed: false, toggle: () => {}, mobileOpen: false, setMobileOpen: () => {} }),
+  useSidebarContext: () => ({ collapsed: state.collapsed, toggle: () => {}, mobileOpen: false, setMobileOpen: () => {} }),
 }));
 const customLinksState = vi.hoisted(() => ({ lastOptions: undefined as undefined | { enabled?: boolean } }));
 vi.mock("@/hooks/useCustomMenuLinks", () => ({
@@ -54,17 +55,16 @@ vi.mock("@/hooks/useCustomMenuLinks", () => ({
   },
 }));
 vi.mock("@/components/shared/Logo", () => ({ default: () => null }));
-const calculatorState = vi.hoisted(() => ({
-  ready: true,
-  lastOptions: undefined as undefined | { enabled?: boolean },
-}));
-vi.mock("@/hooks/useCommissionCalculator", () => ({
-  // Records the Sidebar's query-level gate for the calculator status read (as for custom links), and
-  // mirrors the real hook: visible only when enabled AND the agency has a ready grid.
-  useCommissionCalculatorAccess: (options?: { enabled?: boolean }) => {
-    calculatorState.lastOptions = options;
-    return { visible: options?.enabled !== false && calculatorState.ready };
-  },
+const commissionsState = vi.hoisted(() => ({ permitted: true, permissionsLoading: false }));
+vi.mock("@/hooks/useCommissionsCenter", () => ({
+  // Mirrors the real access hook: the Own toggle decides, impersonation comes from the session. The navigation
+  // requests nothing (reporting needs no calculator grid). The hook's own resolution (Admin / Super Admin at once,
+  // other roles fail closed while loading) is covered by useCommissionsAccess.test.tsx.
+  useCommissionsAccess: () => ({
+    permitted: commissionsState.permitted,
+    permissionsLoading: commissionsState.permissionsLoading,
+    isImpersonating: state.isImpersonating,
+  }),
 }));
 
 import Sidebar from "../Sidebar";
@@ -81,7 +81,7 @@ const SETTINGS_SECTION_LABELS = SETTINGS_CONFIG.flatMap((c) => c.sections.map((s
 const SUPPORTED = ["Contacts", "Conversations"];
 const UNSUPPORTED = [
   "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
-  "AI Agents", "Training", "Resources", "Commission Calculator", "Settings",
+  "AI Agents", "Training", "Resources", "Commissions", "Settings",
 ];
 const SUPER_ADMIN_ONLY = ["AI Testing", "Agencies", "Control Center"];
 
@@ -89,10 +89,11 @@ beforeEach(() => {
   state.isImpersonating = false;
   state.permsLoading = false;
   state.isSuperAdmin = true;
+  state.collapsed = false;
   state.sectionAccess = () => true;
   customLinksState.lastOptions = undefined;
-  calculatorState.ready = true;
-  calculatorState.lastOptions = undefined;
+  commissionsState.permitted = true;
+  commissionsState.permissionsLoading = false;
 });
 afterEach(cleanup);
 
@@ -238,28 +239,118 @@ describe("on a BLOCKED Settings URL while impersonating", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-describe("Commission Calculator navigation", () => {
-  it("sits directly below Resources for an ordinary session with a ready grid", () => {
+describe("Commissions navigation", () => {
+  it("replaces Commission Calculator in its place, directly below Resources", () => {
     renderSidebar();
     const labels = screen.getAllByRole("link").map((link) => link.textContent?.trim());
-    expect(labels.indexOf("Commission Calculator")).toBe(labels.indexOf("Resources") + 1);
-  });
-
-  it("is hidden when the agency has no ready grid or the role may not view its own commission", () => {
-    calculatorState.ready = false;
-    renderSidebar();
+    expect(labels.indexOf("Commissions")).toBe(labels.indexOf("Resources") + 1);
     expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
+    expect(screen.getByRole("link", { name: "Commissions" }).getAttribute("href")).toBe("/commissions");
   });
 
-  it("is not even QUERIED under View As (enabled: false), and is queried for an ordinary session", () => {
+  it("is shown without a calculator grid, and hidden when the role may not view its own commission", () => {
+    renderSidebar();
+    expect(screen.getAllByText("Commissions").length).toBe(1);
+    cleanup();
+    commissionsState.permitted = false;
+    renderSidebar();
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+  });
+
+  it("is hidden under View As", () => {
     state.isImpersonating = true;
     renderSidebar();
-    expect(calculatorState.lastOptions).toEqual({ enabled: false });
-    expect(screen.queryAllByText("Commission Calculator")).toEqual([]);
-    cleanup();
-    state.isImpersonating = false;
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+  });
+
+  it("stays active on every tab", () => {
+    for (const url of ["/commissions", "/commissions/payments?view=history", "/commissions/calculator"]) {
+      renderSidebarAt(url);
+      expect(screen.getByRole("link", { name: "Commissions" }).className).toContain("bg-primary");
+      cleanup();
+    }
+  });
+
+  it("uses the CircleDollarSign icon", () => {
     renderSidebar();
-    expect(calculatorState.lastOptions).toEqual({ enabled: true });
+    const link = screen.getByRole("link", { name: "Commissions" });
+    expect(link.querySelector("svg.lucide-circle-dollar-sign")).not.toBeNull();
+    expect(link.querySelector("svg.lucide-wallet")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe("Commissions navigation while access is unresolved", () => {
+  /**
+   * The core menu renders while permissions load, but Commissions used to render nothing until they resolved and was
+   * then inserted, pushing Custom links, Settings and the Super Admin entries down a row. Admin and Super Admin now
+   * resolve at once (useCommissionsAccess.test.tsx). An Agent or Team Leader whose permissions are still loading gets
+   * an inert slot with a nav row's box instead: no link, label, icon, focus stop or route, so nothing is revealed.
+   */
+  const unresolved = () => { commissionsState.permitted = false; commissionsState.permissionsLoading = true; };
+  const rows = () => Array.from(screen.getByRole("navigation").children) as HTMLElement[];
+  const rowIndex = (href: string) => rows().findIndex((row) => row.getAttribute("href") === href);
+  const slotBelowResources = () => rows()[rowIndex("/resources") + 1];
+  const tree = () => <MemoryRouter><Sidebar /></MemoryRouter>;
+
+  it("reserves an inert slot directly below Resources, with no Commissions link or label", () => {
+    unresolved();
+    renderSidebar();
+    const slot = slotBelowResources();
+    expect(slot.tagName).toBe("DIV");
+    expect(slot.getAttribute("aria-hidden")).toBe("true");
+    expect(slot.textContent).toBe("");
+    expect(slot.querySelector("a, button, svg, [tabindex]")).toBeNull();
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+    expect(screen.queryByRole("link", { name: "Commissions" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it.each([false, true])("gives the slot a nav row's box (collapsed: %s)", (collapsed) => {
+    state.collapsed = collapsed;
+    unresolved();
+    const { rerender } = renderSidebar();
+    const slot = slotBelowResources();
+    for (const token of ["px-3", "py-2.5"]) expect(slot.classList).toContain(token);
+    expect(slot.firstElementChild?.classList).toContain("h-5");
+    commissionsState.permitted = true;
+    commissionsState.permissionsLoading = false;
+    rerender(tree());
+    const link = rows()[rowIndex("/commissions")];
+    for (const token of ["px-3", "py-2.5"]) expect(link.className).toContain(token);
+    expect(link.querySelector("svg")?.classList).toContain("h-5");
+  });
+
+  it("fills the same slot once access resolves, so nothing below it moves", () => {
+    unresolved();
+    const { rerender } = renderSidebar();
+    const slotIndex = rowIndex("/resources") + 1;
+    const settingsIndex = rowIndex("/settings");
+    const rowCount = rows().length;
+    commissionsState.permitted = true;
+    commissionsState.permissionsLoading = false;
+    rerender(tree());
+    expect(rowIndex("/commissions")).toBe(slotIndex);
+    expect(rowIndex("/settings")).toBe(settingsIndex);
+    expect(rows()).toHaveLength(rowCount);
+  });
+
+  it("removes the slot when the resolved role may not view its own commission", () => {
+    unresolved();
+    const { rerender } = renderSidebar();
+    commissionsState.permissionsLoading = false;
+    rerender(tree());
+    expect(rowIndex("/settings")).toBe(rowIndex("/resources") + 2); // Resources, Custom Link, Settings
+    expect(rows().some((row) => row.getAttribute("aria-hidden") === "true")).toBe(false);
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
+  });
+
+  it("reserves nothing under View As", () => {
+    unresolved();
+    state.isImpersonating = true;
+    renderSidebar();
+    expect(rows().some((row) => row.getAttribute("aria-hidden") === "true")).toBe(false);
+    expect(screen.queryAllByText("Commissions")).toEqual([]);
   });
 });
 

@@ -1,5 +1,53 @@
 # Google Sheets lead import V1 — implementation plan
 
+## Release continuation — 2026-10-22 UTC / October 21 PDT
+
+Chris approved proceeding after the current status review. This authorizes the
+release-branch reconciliation and preparation described below; the existing
+separate production gates remain in force. Phase B's earlier approval is retained.
+
+1. Merge current `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4` into the
+   feature branch, preserving both histories without rebasing or force-pushing.
+2. Resolve overlapping `AGENT_RULES.md`, `WORK_LOG.md`, `implementation_plan.md`
+   and `supabase/config.toml` additively. Retain every existing function setting
+   and the four Sheets function blocks. Preserve the reviewed Sheets SQL and
+   Edge bundles byte-for-byte against the pinned release source.
+3. Update this focused plan, `release-package.md`, `verification.md`, the root
+   plan and the newest-first work log with the verified reconciliation and
+   current access checkpoint. The separate runner PR #451 receives its own
+   reconciliation and refreshed production-state pins only from live evidence.
+4. Run the required TypeScript check, compare app diagnostics against current
+   main, run focused Sheets tests/lint/build, and require the relevant exact-head
+   CI checks before any release. Do not claim a real Google-account test from
+   mocked or synthetic verification.
+5. Verify the protected GitHub environment, deployment credentials, Supabase
+   production auto-deploy setting and disabled frontend flag. Continue the
+   documented Phase B stages only when their prerequisites and approvals hold.
+
+Fresh browser check: `google-sheets-production` still requires `cgarness`, allows
+only `main`, and disallows administrator bypass. It currently has no environment
+secrets. Credential entry is therefore still required before the runner can
+execute. No production command, migration, deployment, import or schedule has
+been performed in this continuation.
+
+**Release-order correction:** current `AGENT_RULES.md` requires every unapplied
+migration to sort after the hosted head. This plan's §0.3 permits re-stamping.
+After fresh hosted history is available, rename the unchanged foundation and
+paired rollback, update active references, and re-pin the reviewed runner source.
+The old October 17 count/latest and authored version must not be reused as
+current release evidence. The runner must reject VERSION <= LATEST and expect
+the new VERSION as the latest history entry after recording. Keep the approved
+SQL and Edge digests unchanged. See the current checkpoint at the top of
+`release-package.md`; it supersedes conflicting older operational instructions.
+
+The connector has returned no fresh production result and the Supabase dashboard
+requires sign-in. Hosted history, helper preimage, Sheets inventory, auto-deploy,
+disabled flags and the current frontend rollback target remain unverified.
+Branch reconciliation and local verification can finish while these live gates
+remain blocked. The pending cron migration remains outside Phase B.
+
+---
+
 **Status (2026-10-13): APPROVED FOR IMPLEMENTATION, revised in §0.** Chris approved implementation with decisions D1–D11, the trigger/action model ("a new row in a connected tab → create a lead for the connected agent"), and new-rows-by-default activation.
 
 §0 is authoritative: where it differs from §1–§14 (the original Phase 1 plan, kept below for history), §0 wins.

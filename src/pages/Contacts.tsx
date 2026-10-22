@@ -1,4 +1,5 @@
 import type { ClientSaleOptions } from "@/lib/policySaleRecording";
+import { notSentError } from "@/lib/policySaleOutcome";
 import { ClientPolicyCount } from "@/components/contacts/ClientPolicies";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -1963,18 +1964,22 @@ const Contacts: React.FC = () => {
 
   // ===== Client CRUD =====
   const handleAddClient = async (data: Partial<Client>, sale?: ClientSaleOptions) => {
+    // Refusals here happen before anything is sent, so the modal stays editable (Phase 2A `notSentError`).
     if (!viewerId || !organizationId) {
-      throw new Error("Could not determine your user or organization. Please sign in again.");
+      throw notSentError("Could not determine your user or organization. Please sign in again.");
     }
     // The EFFECTIVE viewer owns the record. Stamping `user.id` would attribute a contact created
     // "as" another agent to the real Super Admin.
     const ownerId = viewerId;
-    const okToSave = await enforceContactPreSave({
-      contactType: "client",
-      entity: { ...data, assignedAgentId: ownerId },
-      assignedAgentId: ownerId,
-    });
-    if (!okToSave) throw new Error("Client was not saved. Complete the required contact fields.");
+    // A frozen retry replays the exact submission that already passed these checks; it is never re-checked or rebuilt.
+    if (!sale?.attempt?.frozen) {
+      const okToSave = await enforceContactPreSave({
+        contactType: "client",
+        entity: { ...data, assignedAgentId: ownerId },
+        assignedAgentId: ownerId,
+      });
+      if (!okToSave) throw notSentError("Client was not saved. Complete the required contact fields.");
+    }
     const saved = await clientsSupabaseApi.create(
       { ...data, assignedAgentId: ownerId } as unknown as Omit<Client, "id" | "createdAt" | "updatedAt">,
       organizationId,
@@ -3263,16 +3268,20 @@ const Contacts: React.FC = () => {
         viewerIsSuperAdmin={viewerIsSuperAdmin}
         assignableAgents={assignableAgentsForAddLead}
       />
-      <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d) => {
+      <AddClientModal open={!!editClient} onClose={() => setEditClient(null)} onSave={async (d, sale) => {
         if (!editClient) return;
-        const ok = await enforceContactPreSave({
-          contactType: "client",
-          entity: { ...editClient, ...d },
-          excludeId: editClient.id,
-          assignedAgentId: d.assignedAgentId ?? editClient.assignedAgentId,
-        });
-        if (!ok) return;
-        await clientsSupabaseApi.update(editClient.id, d);
+        if (!sale?.attempt?.frozen) {
+          const ok = await enforceContactPreSave({
+            contactType: "client",
+            entity: { ...editClient, ...d },
+            excludeId: editClient.id,
+            assignedAgentId: d.assignedAgentId ?? editClient.assignedAgentId,
+          });
+          if (!ok) return;
+        }
+        // An edit that adds the first policy records its sale through the receipt-bearing companion (D7).
+        if (sale?.attempt) await clientsSupabaseApi.updateWithPolicySaleHandoff(sale.attempt, editClient.id, d, sale.requestId, sale.commission);
+        else await clientsSupabaseApi.update(editClient.id, d);
         setEditClient(null);
         toast.success("Client updated");
         fetchData();

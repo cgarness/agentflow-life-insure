@@ -1,0 +1,4 @@
+{
+  "View Own Commission Percentage": { "agent": true, "teamLeader": true },
+  "View Others' Commission Percentage": { "agent": false, "teamLeader": false }
+}

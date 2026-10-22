@@ -2,14 +2,12 @@ import React from "react";
 import { LayoutGroup, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import LeaderboardPodiumCard from "@/components/leaderboard/LeaderboardPodiumCard";
-import type { AgentStats, Metric, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
-import { displayedMetricValue } from "@/components/leaderboard/leaderboardTypes";
+import type { AgentStats, LeaderboardView } from "@/components/leaderboard/leaderboardTypes";
 import type { RankMotionKind } from "@/components/leaderboard/leaderboardRankMotion";
-import { PODIUM_GRID_CLASS, PODIUM_SLOT_RANKS } from "@/components/leaderboard/podiumLayout";
+import { PODIUM_GRID_CLASS, PODIUM_SLOT_HEIGHT, PODIUM_SLOT_RANKS } from "@/components/leaderboard/podiumLayout";
 
 interface LeaderboardPodiumProps {
   agents: AgentStats[];
-  metric: Metric;
   view: LeaderboardView;
   userId?: string;
   rankAnimations: Map<string, "up" | "down">;
@@ -52,7 +50,6 @@ const metalConfig = (rank: number) => {
 
 const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
   agents,
-  metric,
   view,
   userId,
   rankAnimations,
@@ -71,6 +68,8 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
       <div
         className={cn(
           PODIUM_GRID_CLASS,
+          // Three across, the podium spans its whole board column at every width, edge to edge with Full Rankings below.
+          showThreeColumns && "max-w-none lg:max-w-none",
           !showThreeColumns && topAgents.length === 2 && "sm:grid-cols-2 max-w-2xl",
           !showThreeColumns && topAgents.length === 1 && "sm:grid-cols-1 max-w-sm",
         )}
@@ -87,7 +86,10 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
             <div
               key={`slot-${slotRank}`}
               className={cn(
-                "relative h-full w-full min-w-0",
+                "relative w-full min-w-0",
+                PODIUM_SLOT_HEIGHT[slotRank],
+                // Stacked on phones, gold leads; side by side the 2 / 1 / 3 podium order stays.
+                slotRank === 1 && "order-first sm:order-none",
                 slotRank === 1 && showThreeColumns && "md:z-[1]",
               )}
             >
@@ -96,8 +98,6 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
                   <LeaderboardPodiumCard
                     key={agent.id}
                     agent={agent}
-                    metric={metric}
-                    metricNumeric={displayedMetricValue(metric, agent)}
                     view={view}
                     userId={userId}
                     metal={mc}

@@ -1,5 +1,52 @@
 # Google Sheets V1 — verification record (local + CI; no production)
 
+## Current reconciliation — 2026-10-22 UTC
+
+Chris approved proceeding after the status review. The feature branch was merged
+locally with `main` `1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4`, preserving
+both histories. The four overlapping files (`AGENT_RULES.md`, `WORK_LOG.md`,
+root `implementation_plan.md`, and `supabase/config.toml`) retain both sides.
+Config was parsed and checked against both parents: every function setting is
+preserved, including `uv-profile-sync-worker` and the four Sheets functions.
+
+| Check on the reconciled tree | Result |
+|---|---|
+| Root `npx tsc --noEmit` | PASS, exit 0 |
+| Focused Sheets tests plus contacts permission, reports contract and Settings heading tests | PASS, 5 files / 80 tests |
+| Focused Sheets ESLint (same selection as Sheets CI) | PASS, exit 0 |
+| `npm run build` | PASS; existing dynamic-import, bundle-size and Browserslist warnings |
+| Strict app diagnostics against exact current-main base | PASS, `base=84, candidate=84, new=0`; existing diagnostics remain |
+| Current-head GitHub Actions | Pending branch publication; older green runs do not satisfy this gate |
+| Real Google-account import | Not run; local and synthetic evidence does not substitute for it |
+
+Artifact identity against the pinned release source is unchanged:
+
+| Artifact | SHA-256 |
+|---|---|
+| Foundation SQL, 86,193 bytes | `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed` |
+| `google-sheets-sync-worker` bundle | `3097c65fdd8106407f3bcddbc12386eb88e20b593c23045a5d3fa8a2c0f3c3d0` |
+| `google-sheets-api` bundle | `6ab61569c8d53c7347a737214330768db04a4bdb5ae0c550004c53332d8b6308` |
+| `google-sheets-oauth-callback` bundle | `0fe3970b9896952fe2d940ff5387daa5b868a83689e4a41acf2d6fa492848a60` |
+| `google-sheets-oauth-start` bundle | `7105438ef4d2d33f0cc62a45eb208c0338a618758b9aa2212569d67950a91591` |
+
+Independent source review found no changes since the previous main baseline to
+the reviewed permission helper, lead schema/insert triggers, workflow dispatch,
+contact history, role permissions or shared CSV import contract. No feature
+behavior adjustment is needed. Release ordering does need correction: after a
+fresh hosted history read, rename the unapplied migration with bytes unchanged
+and refresh the runner pins. Do not infer production counts from the 13 new
+repository migrations. The current release checkpoint supersedes old
+out-of-order history instructions.
+
+GitHub environment controls were observed through the signed-in UI: required
+reviewer `cgarness`, `main` only, administrator bypass off, no environment secrets.
+Supabase read-only calls returned no result; the browser dashboard requires
+sign-in. Current hosted counts/latest, helper MD5, Sheets inventory, auto-deploy,
+Vercel flag and rollback target are therefore **unverified**. No production
+mutation, credential entry, import or schedule was performed.
+
+---
+
 **Context**
 - Date: 2026-10-13. Branch `claude/keen-brown-e4u3ht`, base `main` `f91e4ba`.
 - Original implementation head: `25f0ee9`. Reviewed head: `8b675e5`.

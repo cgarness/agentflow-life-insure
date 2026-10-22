@@ -31,7 +31,7 @@ import Training from "./pages/Training";
 import Resources from "./pages/Resources";
 import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
-import CommissionCalculatorPage from "./pages/CommissionCalculatorPage";
+import CommissionsPage from "./pages/CommissionsPage";
 import AgentProfile from "./pages/AgentProfile";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -153,7 +153,9 @@ const App = () => (
                           <Route path="/ai-agents/new" element={<PageGuard pageName="AI Agents"><AIAgentCreate /></PageGuard>} />
                           <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />
                           <Route path="/resources" element={<PageGuard pageName="Resources"><Resources /></PageGuard>} />
-                          <Route path="/commission-calculator" element={<CommissionCalculatorPage />} />
+                          <Route path="/commissions/:tab?" element={<CommissionsPage />} />
+                          {/* The former Commission Calculator address opens the Calculator tab, so saved links keep working. */}
+                          <Route path="/commission-calculator" element={<Navigate to="/commissions/calculator" replace />} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />

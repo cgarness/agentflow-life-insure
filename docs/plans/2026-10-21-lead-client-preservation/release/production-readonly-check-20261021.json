@@ -1,0 +1,20 @@
+{
+  "project": "jncvvsvckxhqgqvkppmj",
+  "purpose": "Gate 1 read-only preflight before writing SQL (plan section 9.1). SELECT-only; no writes.",
+  "tools": ["Supabase MCP list_migrations", "Supabase MCP execute_sql (single SELECT)"],
+  "hosted_migration_head": "20261021180000 / policy_commission_center_insights",
+  "server_version": "17.6",
+  "functions": {
+    "public.convert_lead_to_client_atomic(uuid,jsonb)": {"md5": "641ba66c96ca4a76f80c9c85eb9caa42", "owner": "postgres", "security_definer": true, "search_path": "pg_catalog, pg_temp", "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}", "anon_execute": false},
+    "public.update_client_with_policy_sale(uuid,jsonb)": {"md5": "96e8f6e7ecc85d0d5385bf8640a144a6", "owner": "postgres", "security_definer": true, "search_path": "pg_catalog, pg_temp", "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}", "anon_execute": false},
+    "public.convert_lead_to_client_with_sales(uuid,uuid,jsonb,uuid)": {"md5": "3d974a5c893753d5f10cacd9605c565f", "owner": "postgres", "security_definer": true, "anon_execute": false},
+    "private.insert_policy_sale(uuid,jsonb,text,uuid)": {"md5": "3f600b757802c0fa8cc1e17fa5c25575", "owner": "postgres", "security_definer": false, "acl": "{postgres=X/postgres}"},
+    "public.convert_lead_to_client_with_sales_handoff(uuid,uuid,uuid,jsonb,uuid,jsonb)": {"md5": "f331226b398134ea485d5543472d5ccf", "owner": "postgres", "acl": "{postgres=X/postgres,authenticated=X/postgres}"},
+    "public.update_client_with_policy_sale_handoff(uuid,uuid,jsonb,jsonb)": {"md5": "1f9279701aa30d9d6daa7659fe89e33d", "owner": "postgres", "acl": "{postgres=X/postgres,authenticated=X/postgres}"},
+    "public.normalize_us_state(text)": {"md5": "c8905751f7543ef1f6be8e7325d9c666", "owner": "postgres", "security_definer": false}
+  },
+  "clients_columns": "id,first_name,last_name,phone,email,policy_type,carrier,policy_number,premium,beneficiary_name,beneficiary_relationship,beneficiary_phone,notes,assigned_agent_id,created_at,updated_at,face_amount,issue_date,effective_date,custom_fields,lead_id,premium_amount,organization_id,state,sold_date,draft_date,payment_frequency,primary_policy_id",
+  "new_columns_present": false,
+  "clients_triggers": ["clients_policy_identity", "clients_policy_sale_complete", "contact_history_capture", "workflow_client_insert_trigger"],
+  "result": "All four guarded preimage digests equal the reviewed values; no drift. Version 20261021200000 sorts after the hosted head."
+}

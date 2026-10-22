@@ -1,0 +1,153 @@
+name: UV profile sync verification
+on:
+  pull_request:
+    paths: ['src/**', 'supabase/**', 'scripts/tests/uv-profile/**', '.github/workflows/uv-profile-sync.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uv-profile-sync-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_synthetic_test_only
+      VITE_UV_PROFILE_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - name: Reject additional app typecheck errors against exact base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881' }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          root=Path.cwd(); baseline=Path(os.environ['RUNNER_TEMP'])/'uv-base'
+          subprocess.run(['git','worktree','add','--detach',str(baseline),os.environ['BASE_SHA']],check=True)
+          (baseline/'node_modules').symlink_to(root/'node_modules',target_is_directory=True)
+          outputs=[]
+          for folder in (baseline,root):
+              result=subprocess.run(['node',str(root/'node_modules/typescript/bin/tsc'),'--noEmit','-p','tsconfig.app.json'],cwd=folder,text=True,capture_output=True)
+              assert result.returncode in (0,2), result.stdout+result.stderr
+              outputs.append((result.returncode,sorted(result.stdout.splitlines()),result.stderr))
+          assert outputs[0]==outputs[1], 'New app typecheck diagnostics: '+str(outputs[1])
+          print('APP_TYPECHECK_BASELINE_MATCH=true')
+          PY
+      - run: npx vitest run src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile src/components/settings/profile/__tests__/myProfileSurface.test.tsx src/lib/__tests__/profileSetupWizardRemoval.test.ts
+      - run: npx eslint src/lib/uv-profile src/hooks/useUnderwriterVerifiedProfile.ts src/components/underwriter-verified src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile/AgentProfileTab.tsx src/components/settings/MyProfile.tsx supabase/functions/_shared/uv-profile supabase/functions/uv-profile-sync-worker
+      - run: npm run build
+      - name: Preserve exact credential-free source
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,subprocess,tarfile
+          from pathlib import Path
+          with tarfile.open(Path(os.environ['RUNNER_TEMP'])/'af-profile-source.tar.gz','w:gz') as archive:
+              for name in subprocess.check_output(['git','ls-files','-z']).decode().split('\0'):
+                  if name and not any(p.startswith('.env') or p=='.git' for p in Path(name).parts) and Path(name).is_file():
+                      archive.add(name,arcname=name,recursive=False)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: af-profile-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/af-profile-source.tar.gz
+          retention-days: 7
+  paired-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-test-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: cgarness/underwriter-verified
+          ref: abfeca823dcfc15c95ba451dfa3ccc64ade8db2d
+          path: .uv-peer
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - name: Paired real handlers and native PostgreSQL concurrency
+        env:
+          UV_PROFILE_PEER: ${{ github.workspace }}/.uv-peer
+          UV_PROFILE_NATIVE_DB_URL: postgres://postgres:synthetic-test-only@127.0.0.1:5432/postgres
+        run: node scripts/tests/uv-profile/paired.mjs
+      - name: Save-driven delivery and idle queue checks
+        env:
+          UV_PROFILE_NATIVE_DB_URL: postgres://postgres:synthetic-test-only@127.0.0.1:5432/postgres
+        run: |
+          node scripts/tests/uv-profile/save-driven.mjs
+          node scripts/tests/uv-profile/verification.mjs
+      - name: Native Deno typecheck of both complete Edge entrypoints
+        run: npx --yes deno@2.5.4 check supabase/functions/uv-profile-sync-worker/index.ts .uv-peer/supabase/functions/agentflow-profile-sync/index.ts
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: cgarness/underwriter-verified
+          ref: abfeca823dcfc15c95ba451dfa3ccc64ade8db2d
+          path: .uv-peer
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund && npm ci --prefix .uv-peer --no-audit --no-fund
+      - name: Install isolated browser runner
+        run: |
+          npm install --prefix "$RUNNER_TEMP/uv-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/uv-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Real desktop and mobile components with synthetic transport
+        env:
+          UV_PROFILE_PEER: ${{ github.workspace }}/.uv-peer
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/uv-browser/node_modules/playwright
+          UV_BROWSER_OUTPUT: ${{ runner.temp }}/uv-browser-evidence
+        run: |
+          mkdir -p "$UV_BROWSER_OUTPUT"
+          npx vite --config scripts/tests/uv-profile/browser/vite.config.mts > "$UV_BROWSER_OUTPUT/af-server.log" 2>&1 &
+          AF_PID=$!
+          UV_BROWSER_TARGET=uv npx vite --config scripts/tests/uv-profile/browser/vite.config.mts > "$UV_BROWSER_OUTPUT/uv-server.log" 2>&1 &
+          UV_PID=$!
+          trap 'kill "$AF_PID" "$UV_PID" 2>/dev/null || true' EXIT
+          for port in 4187 4188; do
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent "http://127.0.0.1:$port" >/dev/null; then break; fi
+              sleep 1
+            done
+            curl --fail --silent "http://127.0.0.1:$port" >/dev/null
+          done
+          node scripts/tests/uv-profile/browser/verify.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: uv-profile-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/uv-browser-evidence
+          retention-days: 7

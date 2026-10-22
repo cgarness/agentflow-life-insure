@@ -46,7 +46,6 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
-
 interface AuthContextType {
   user: SupabaseUser | null;
   profile: Profile | null; // This will return impersonated profile if active
@@ -62,6 +61,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<void>;
+  refreshProfile: () => Promise<void>;
   /**
    * Activate a "View As" for one target profile.
    *
@@ -807,6 +807,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isImpersonating: !!impersonatedUser,
       session, isAuthenticated: !!session, isLoading, isBuildingOrganization,
       login, signup, logout, resetPassword, updateProfile,
+      refreshProfile: async () => { if (user?.id) await fetchProfile(user.id); },
       startImpersonation, stopImpersonation
     }}>
       {children}

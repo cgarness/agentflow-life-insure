@@ -4,7 +4,10 @@ const h = vi.hoisted(() => ({ save: vi.fn(), user: "agent", org: "org" }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: vi.fn() } }));
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: h.user } }) }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: h.org }) }));
-vi.mock("@/lib/policySaleRecording", async importOriginal => ({ ...(await importOriginal<object>()), recordClientPolicy: h.save }));
+// Phase 2A: the modal saves through the commission companion; arguments are (attempt, requestId, clientId, policy, primary, commission).
+vi.mock("@/lib/policySaleRecording", async importOriginal => ({ ...(await importOriginal<object>()), recordClientPolicyHandoff: h.save }));
+// The commission preview needs a QueryClient this harness does not mount; policyCommissionPreviewModals covers it.
+vi.mock("@/components/commission/preview/PolicyCommissionEstimate", () => ({ PolicyCommissionEstimate: () => null }));
 import RecordPolicyModal from "../RecordPolicyModal";
 afterEach(cleanup);
 beforeEach(() => { h.save.mockReset(); h.user="agent"; h.org="org"; });
@@ -22,15 +25,15 @@ describe("record policy transaction", () => {
     await screen.findByText("Connection lost");
     expect(s.close).not.toHaveBeenCalled(); s.submit();
     await waitFor(()=>expect(s.saved).toHaveBeenCalledTimes(1));
-    expect(h.save.mock.calls[0][0]).toBe(h.save.mock.calls[1][0]);
-    expect(h.save.mock.calls[0][2]).toMatchObject({premium:null,sale_mode:"new"});
+    expect(h.save.mock.calls[0][1]).toBe(h.save.mock.calls[1][1]);
+    expect(h.save.mock.calls[0][3]).toMatchObject({premium:null,sale_mode:"new"});
   });
   it("preserves cents and explicit historical intent", async () => {
     h.save.mockResolvedValue({}); const s=setup();
     fireEvent.change(screen.getByLabelText("Monthly premium"), {target:{value:"$58.45"}});
     fireEvent.click(screen.getByRole("checkbox")); s.submit();
     await waitFor(()=>expect(s.saved).toHaveBeenCalled());
-    expect(h.save.mock.calls[0][2]).toMatchObject({premium:58.45,sale_mode:"historical",sold_date:"2026-09-28"});
+    expect(h.save.mock.calls[0][3]).toMatchObject({premium:58.45,sale_mode:"historical",sold_date:"2026-09-28"});
   });
   it("rejects malformed premium without persistence", async () => {
     const s=setup(); fireEvent.change(screen.getByLabelText("Monthly premium"),{target:{value:"$50 garbage"}});s.submit();

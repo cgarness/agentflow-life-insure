@@ -135,8 +135,37 @@ export interface Client {
   assignedAgentId: string;
   userId: string;
   customFields?: Record<string, unknown>;
+  /** Person fields preserved from the source lead (20261021200000); editable. Undefined when unknown. */
+  dateOfBirth?: string;
+  age?: number;
+  bestTimeToCall?: string;
+  /** Stored JSON as-is: text is editable, a structured value is shown read-only and never sent back. */
+  spouseInfo?: unknown;
+  /** Read-only history of the source lead at conversion; undefined for manual, historical or unreadable rows. */
+  leadConversion?: LeadConversionHistory;
   createdAt: string;
   updatedAt: string;
+}
+
+/** clients.lead_conversion (version 1), written only by the conversion function and never by the browser. */
+export interface LeadConversionHistory {
+  version: 1;
+  leadId: string;
+  convertedAt: string | null;
+  convertedBy: string | null;
+  leadStatus: string | null;
+  leadSource: string | null;
+  leadCreatedAt: string | null;
+  leadLastContactedAt: string | null;
+  /** The lead's notes, kept only when a conversion note replaced them. */
+  leadNotes: string | null;
+  /**
+   * Notes text an older app version sent at conversion that differed from the lead notes: either the agent's note or
+   * that tab's older copy of the lead notes, so it could not become the client's Notes. Kept verbatim, read-only.
+   */
+  legacyConversionNotes: string | null;
+  /** True when lead custom data that could not live on the client was set aside in history. */
+  hasPreservedCustomFields: boolean;
 }
 
 export interface Recruit {
