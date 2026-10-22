@@ -1,0 +1,234 @@
+{
+  "authorization": "Chris approved dashboard setup and live activation 2026-10-18; acceptance testing deferred by owner until live.",
+  "before": [
+    [
+      {
+        "snapshot": {
+          "cron": "193c4700b5056e9bd4ca61d654b93118",
+          "sync": 0,
+          "sources": 0,
+          "org_rows": "e6be029e3e1d5a3d7640568a06df25a7",
+          "exclusions": [
+            {
+              "profile_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+              "organization_id": "a0000000-0000-0000-0000-000000000001"
+            }
+          ],
+          "provision_config": "bbc17b61d0a710908fbfb118bafd0dc2",
+          "protected_profile": "fe940abc4db80684593861e2f06942f7"
+        }
+      }
+    ],
+    [
+      {
+        "snapshot": {
+          "links": 0,
+          "nonces": 0,
+          "intakes": "d1b9761c275843148f0538f65c867ab1",
+          "sources": 0,
+          "disclosures": "51aa3ffdb9064356bf9f4fef17cbb2ce",
+          "sender_links": "237daca3c4c289dc4c8dc9efa8c1f015",
+          "suppressions": "2a02eda02bc94dd9226ed66ed144210d",
+          "consent_events": "fdb02dbfa207065920d55362301c2bc3",
+          "protected_agent": "518f8a8b78ca758b2fc9de5895b544a0"
+        }
+      }
+    ],
+    [
+      {
+        "id": 45267,
+        "status_code": 200,
+        "content": "{\"enabled\":false}"
+      }
+    ],
+    [
+      {
+        "preflight": {
+          "guards": 1,
+          "sources": [],
+          "triggers": 0,
+          "slug_conflicts": 0
+        }
+      }
+    ]
+  ],
+  "after": [
+    [
+      {
+        "activation": {
+          "job": {
+            "jobid": 14,
+            "active": true,
+            "command": "\n    SELECT net.http_post(\n      url := 'https://jncvvsvckxhqgqvkppmj.supabase.co/functions/v1/uv-profile-sync-worker',\n      body := '{}'::jsonb,\n      headers := jsonb_build_object('Content-Type','application/json',\n        'Authorization','Bearer ' || decrypted_secret),\n      timeout_milliseconds := 55000\n    ) AS request_id\n    FROM vault.decrypted_secrets\n    WHERE name='uv_profile_worker_token' AND length(decrypted_secret)>=32;\n  ",
+            "jobname": "uv-profile-sync-every-minute",
+            "database": "postgres",
+            "nodename": "localhost",
+            "nodeport": 5432,
+            "schedule": "* * * * *",
+            "username": "postgres"
+          },
+          "source": {
+            "enabled": true,
+            "agency_name": "Family First Life - Chris Garness",
+            "agency_slug": "ffl-chris-garness",
+            "organization_id": "a0000000-0000-0000-0000-000000000001"
+          },
+          "migration": {
+            "sql_md5": "4ae04fed85aea0f47bad1d370cba6dd2",
+            "version": "20261019014028"
+          },
+          "eligible_profiles": 6
+        }
+      }
+    ],
+    [
+      {
+        "snapshot": {
+          "links": 0,
+          "nonces": 0,
+          "intakes": "d1b9761c275843148f0538f65c867ab1",
+          "sources": 1,
+          "disclosures": "51aa3ffdb9064356bf9f4fef17cbb2ce",
+          "sender_links": "237daca3c4c289dc4c8dc9efa8c1f015",
+          "suppressions": "2a02eda02bc94dd9226ed66ed144210d",
+          "consent_events": "fdb02dbfa207065920d55362301c2bc3",
+          "protected_agent": "518f8a8b78ca758b2fc9de5895b544a0"
+        }
+      }
+    ],
+    [
+      {
+        "snapshot": {
+          "cron": "193c4700b5056e9bd4ca61d654b93118",
+          "sync": 0,
+          "sources": 1,
+          "org_rows": "e6be029e3e1d5a3d7640568a06df25a7",
+          "exclusions": [
+            {
+              "profile_id": "ecf2bb91-0350-4542-85ec-14d914311e99",
+              "organization_id": "a0000000-0000-0000-0000-000000000001"
+            }
+          ],
+          "provision_config": "bbc17b61d0a710908fbfb118bafd0dc2",
+          "protected_profile": "fe940abc4db80684593861e2f06942f7"
+        }
+      }
+    ]
+  ],
+  "scheduled": [
+    {
+      "scheduled_verification": {
+        "runs": [
+          {
+            "runid": 191865,
+            "status": "succeeded",
+            "end_time": "2026-10-19T01:41:00.199064+00:00",
+            "start_time": "2026-10-19T01:41:00.179382+00:00",
+            "return_message": "1 row"
+          }
+        ],
+        "worker_responses": [
+          {
+            "id": 45278,
+            "content": "{\"synced\":0,\"unchanged\":0,\"failed\":0,\"superseded\":0}",
+            "created": "2026-10-19T01:41:00.191609+00:00",
+            "status_code": 200
+          }
+        ]
+      }
+    }
+  ],
+  "security": {
+    "af": {
+      "unchanged": true,
+      "findings": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "count": 30,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "function_search_path_mutable",
+          "level": "WARN",
+          "count": 22,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable"
+        },
+        {
+          "name": "rls_disabled_in_public",
+          "level": "ERROR",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public"
+        },
+        {
+          "name": "extension_in_public",
+          "level": "WARN",
+          "count": 3,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "level": "WARN",
+          "count": 57,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "count": 122,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ]
+    },
+    "uv": {
+      "unchanged": true,
+      "findings": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "count": 11,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "extension_in_public",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public"
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "count": 2,
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "level": "WARN",
+          "count": 1,
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"
+        }
+      ]
+    }
+  },
+  "credential": {
+    "matching": true,
+    "min32": true,
+    "secret_values_recorded": false
+  },
+  "manual_disabled_request": 45267,
+  "manual_enabled_request": 45276,
+  "root_typescript": "npx --offline tsc --noEmit unavailable (ENOTCACHED); no frontend or Edge source edits",
+  "hosted_acceptance": "Owner to test; no real agent opted in by assistant"
+}

@@ -1841,13 +1841,16 @@ export type Database = {
       }
       clients: {
         Row: {
+          age: number | null
           assigned_agent_id: string | null
           beneficiary_name: string | null
           beneficiary_phone: string | null
           beneficiary_relationship: string | null
+          best_time_to_call: string | null
           carrier: string | null
           created_at: string
           custom_fields: Json | null
+          date_of_birth: string | null
           draft_date: string | null
           effective_date: string | null
           email: string
@@ -1856,6 +1859,7 @@ export type Database = {
           id: string
           issue_date: string | null
           last_name: string
+          lead_conversion: Json | null
           lead_id: string | null
           notes: string | null
           organization_id: string | null
@@ -1866,17 +1870,21 @@ export type Database = {
           premium: number | null
           premium_amount: number | null
           sold_date: string | null
+          spouse_info: Json | null
           state: string | null
           updated_at: string
         }
         Insert: {
+          age?: number | null
           assigned_agent_id?: string | null
           beneficiary_name?: string | null
           beneficiary_phone?: string | null
           beneficiary_relationship?: string | null
+          best_time_to_call?: string | null
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          date_of_birth?: string | null
           draft_date?: string | null
           effective_date?: string | null
           email?: string
@@ -1885,6 +1893,7 @@ export type Database = {
           id?: string
           issue_date?: string | null
           last_name?: string
+          lead_conversion?: Json | null
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
@@ -1895,17 +1904,21 @@ export type Database = {
           premium?: number | null
           premium_amount?: number | null
           sold_date?: string | null
+          spouse_info?: Json | null
           state?: string | null
           updated_at?: string
         }
         Update: {
+          age?: number | null
           assigned_agent_id?: string | null
           beneficiary_name?: string | null
           beneficiary_phone?: string | null
           beneficiary_relationship?: string | null
+          best_time_to_call?: string | null
           carrier?: string | null
           created_at?: string
           custom_fields?: Json | null
+          date_of_birth?: string | null
           draft_date?: string | null
           effective_date?: string | null
           email?: string
@@ -1914,6 +1927,7 @@ export type Database = {
           id?: string
           issue_date?: string | null
           last_name?: string
+          lead_conversion?: Json | null
           lead_id?: string | null
           notes?: string | null
           organization_id?: string | null
@@ -1924,6 +1938,7 @@ export type Database = {
           premium?: number | null
           premium_amount?: number | null
           sold_date?: string | null
+          spouse_info?: Json | null
           state?: string | null
           updated_at?: string
         }
@@ -6206,6 +6221,214 @@ export type Database = {
       }
       convert_lead_to_client_with_sales: {
         Args: { p_lead_id: string; p_expected_org: string; p_client: Json; p_campaign_id?: string | null }
+        Returns: Json
+      }
+      // Phase 2A policy commission tracking (unapplied; local build only).
+      record_client_policy_handoff: {
+        Args: {
+          p_client_id: string
+          p_commission?: Json
+          p_policy: Json
+          p_primary?: boolean
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      create_client_with_sale_handoff: {
+        Args: {
+          p_client: Json
+          p_commission?: Json
+          p_expected_org: string
+          p_record_sale: boolean
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      convert_lead_to_client_with_sales_handoff: {
+        Args: {
+          p_campaign_id?: string
+          p_client: Json
+          p_commission?: Json
+          p_expected_org: string
+          p_lead_id: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      update_client_with_policy_sale_handoff: {
+        Args: {
+          p_client_id: string
+          p_commission?: Json
+          p_patch: Json
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      get_policy_sale_operation_status: {
+        Args: {
+          p_kind: string
+          p_lead_id?: string
+          p_request_id: string
+          p_sale_args?: Json
+        }
+        Returns: Json
+      }
+      get_client_policy_commissions: {
+        Args: { p_client_id: string }
+        Returns: Json
+      }
+      confirm_policy_commission_capture: {
+        Args: { p_capture_id: string; p_request_id: string }
+        Returns: Json
+      }
+      dismiss_policy_commission_capture: {
+        Args: { p_capture_id: string; p_reason: string; p_request_id: string }
+        Returns: Json
+      }
+      record_policy_commission_estimate_later: {
+        Args: {
+          p_expected_revision?: number
+          p_inputs: Json
+          p_policy_id: string
+          p_reason?: string
+          p_replace_estimate_id?: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      set_policy_commission_schedule_basis: {
+        Args: {
+          p_estimate_id: string
+          p_expected_revision: number
+          p_request_id: string
+          p_source: string
+          p_start_on: string
+        }
+        Returns: Json
+      }
+      set_policy_commission_installment_timing: {
+        Args: {
+          p_expected_on: string
+          p_expected_revision: number
+          p_installment_id: string
+          p_precision: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      set_policy_commission_hold: {
+        Args: {
+          p_estimate_id: string
+          p_expected_revision: number
+          p_on_hold: boolean
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      record_policy_commission_receipt: {
+        Args: {
+          p_amount_cents: number
+          p_installment_id: string
+          p_received_on: string
+          p_reference?: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      void_policy_commission_receipt: {
+        Args: {
+          p_expected_revision: number
+          p_reason: string
+          p_receipt_id: string
+          p_replacement?: Json
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      get_my_commission_overview: {
+        Args: { p_from?: string; p_period?: string; p_to?: string }
+        Returns: Json
+      }
+      get_my_commission_installments: {
+        Args: {
+          p_carrier?: string
+          p_from?: string
+          p_kind?: string
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_scope?: string
+          p_status?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_receipts: {
+        Args: {
+          p_from?: string
+          p_include_voided?: boolean
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_policies: {
+        Args: {
+          p_carrier?: string
+          p_limit?: number
+          p_offset?: number
+          p_setup?: string
+        }
+        Returns: Json
+      }
+      get_my_policy_commission: {
+        Args: { p_policy_id: string }
+        Returns: Json
+      }
+      get_my_commission_breakdown: {
+        Args: { p_from?: string; p_period?: string; p_to?: string }
+        Returns: Json
+      }
+      get_my_commission_policy_list: {
+        Args: {
+          p_carrier?: string
+          p_carrier_unknown?: boolean
+          p_category?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_setup?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_receipt_list: {
+        Args: {
+          p_carrier?: string
+          p_carrier_unknown?: boolean
+          p_from?: string
+          p_include_voided?: boolean
+          p_limit?: number
+          p_offset?: number
+          p_period?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_my_commission_goal: {
+        Args: { p_month: string }
+        Returns: Json
+      }
+      set_my_commission_goal: {
+        Args: { p_month: string; p_target_cents: number }
+        Returns: Json
+      }
+      clear_my_commission_goal: {
+        Args: { p_month: string }
         Returns: Json
       }
       convert_lead_to_client_atomic: {

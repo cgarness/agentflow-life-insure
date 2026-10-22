@@ -1,3 +1,4 @@
+import { UnderwriterVerifiedProfile } from "@/components/underwriter-verified/UnderwriterVerifiedProfile";
 /**
  * AgentProfileTab — "my career and my book of business".
  *
@@ -82,6 +83,7 @@ export const AgentProfileTab: React.FC<AgentProfileTabProps> = ({
         readinessPercent={readiness?.percent ?? null}
         isFullyReady={readiness?.isFullyReady ?? false}
         isLoading={authLoading || !profile}
+        actions={<UnderwriterVerifiedProfile />}
       />
 
       <BusinessSnapshot

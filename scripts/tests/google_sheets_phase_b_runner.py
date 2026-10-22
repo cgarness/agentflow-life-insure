@@ -16,6 +16,34 @@ import time
 from unittest.mock import patch
 import yaml
 
+def check_migration_order(m):
+    # Exercise the dispatch path, not just the comparator: invalid versions must stop
+    # before source/credential access and before any apply/history/deployment call.
+    for version, latest in ((m.VERSION, m.VERSION), (m.VERSION, '99991231235959'),
+                            ('20261013120000', '20261017043757')):
+        for stage in ('apply-migration', 'record-history', 'deploy-functions'):
+            with contextlib.ExitStack() as checks:
+                checks.enter_context(patch.object(m, 'VERSION', version))
+                checks.enter_context(patch.object(m, 'LATEST', latest))
+                checks.enter_context(patch.dict(os.environ, {
+                    'GITHUB_REF': 'refs/heads/main', 'STAGE': stage, 'CONFIRM': stage}))
+                untouched = [checks.enter_context(patch.object(m, name)) for name in (
+                    'files_gate', 'connection_env', 'identity', 'command',
+                    'apply', 'repair', 'deploy')]
+                try:
+                    m.main()
+                except m.Stop as error:
+                    assert str(error) == 'migration version follows hosted head'
+                else:
+                    raise AssertionError('equal/older migration version accepted')
+                for call in untouched:
+                    call.assert_not_called()
+    m.migration_order_gate()
+    assert m.expected('before').split('|')[-2] == m.LATEST
+    assert m.expected('applied').split('|')[-2] == m.LATEST
+    assert m.expected('recorded').split('|')[-2] == m.VERSION
+    print('PASS: nine migration-order refusals including old pins; current ordered history maximum')
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'sheets-source'
 workflow = yaml.safe_load((ROOT / '.github/workflows/google-sheets-phase-b.yml').read_text())
@@ -35,8 +63,10 @@ with tempfile.TemporaryDirectory() as folder:
     module_path=Path(folder)/'runner.py'; module_path.write_text(code)
     spec=importlib.util.spec_from_file_location('runner',module_path)
     m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+    check_migration_order(m)
     m.files_gate()
-    # Production code remains unmodified. The only connection is fixed loopback synthetic data.
+    # The current release pins have valid ordering. The fixture mirrors only their
+    # history count/head; its only connection remains fixed loopback synthetic data.
     local = {k:v for k,v in os.environ.items() if not k.startswith(('PG','SUPABASE_'))} | {
         'PGHOST':'127.0.0.1','PGPORT':'55435','PGUSER':'postgres','PGDATABASE':'postgres',
         'PGPASSWORD':'synthetic-runner-only','PGSSLMODE':'disable', 'PGCONNECT_TIMEOUT':'5',
@@ -51,11 +81,11 @@ with tempfile.TemporaryDirectory() as folder:
             run(f'CREATE DATABASE {db}')
             env=local | {'PGDATABASE':db}
             m.command(['psql','-X','-q','-v','ON_ERROR_STOP=1','-f','supabase/tests/google_sheets_harness.sql'],env)
-            run("""CREATE SCHEMA supabase_migrations;
+            run(f"""CREATE SCHEMA supabase_migrations;
               CREATE TABLE supabase_migrations.schema_migrations(version text primary key, statements text[], name text);
               INSERT INTO supabase_migrations.schema_migrations(version,name)
-                SELECT (20000101000000 + n)::text,'synthetic' FROM generate_series(1,328) n;
-              INSERT INTO supabase_migrations.schema_migrations VALUES ('20261017043757','{}','synthetic_latest');
+                SELECT (20000101000000 + n)::text,'synthetic' FROM generate_series(1,341) n;
+              INSERT INTO supabase_migrations.schema_migrations VALUES ('{m.LATEST}','{{}}','synthetic_latest');
               CREATE SCHEMA cron; CREATE TABLE cron.job(jobname text);""",env)
             # Harness is synthetic and includes pre-existing leads. The feature ledger starts empty.
             return env
@@ -67,7 +97,7 @@ with tempfile.TemporaryDirectory() as folder:
         url=f"postgresql://postgres:synthetic-runner-only@127.0.0.1:55435/{dbs[0]}?sslmode=disable"
         m.command(['supabase','migration','repair',m.VERSION,'--status','applied','--db-url',url],local,timeout=120)
         assert m.state(good)==local_expected('recorded',dbs[0])
-        assert m.sql("select name || '|' || cardinality(statements)::text from supabase_migrations.schema_migrations where version='20261013120000'",good)=='google_sheets_import_foundation|81'
+        assert m.sql("select name || '|' || cardinality(statements)::text from supabase_migrations.schema_migrations where version='20261022062539'",good)=='google_sheets_import_foundation|81'
         try:m.apply(good)
         except m.Stop:pass
         else:raise AssertionError('migration replay was not refused')
@@ -109,7 +139,7 @@ with tempfile.TemporaryDirectory() as folder:
             for current in states:
                 with patch.dict(os.environ,{'GITHUB_REF':'refs/heads/main','STAGE':stage,'CONFIRM':stage}),patch.object(m,'files_gate'),patch.object(m,'connection_env',return_value=good),patch.object(m,'identity'),patch.object(m,'command',side_effect=['2.121.0','--db-url','--project-ref --no-verify-jwt --use-api']),patch.object(m,'secrets_gate'),patch.object(m,'inventory',return_value={}),patch.object(m,'state',return_value=m.expected(current)),patch.object(m,'empty_operations'),patch.object(m,'apply') as apply,patch.object(m,'repair') as repair,patch.object(m,'deploy') as deploy:
                     try:m.main()
-                    except m.Stop:pass
+                    except m.Stop as error:assert str(error)=='stage order and exact production state'
                     else:raise AssertionError('out-of-order stage accepted')
                     apply.assert_not_called();repair.assert_not_called();deploy.assert_not_called()
         print('PASS: six replay/out-of-order stage refusals')

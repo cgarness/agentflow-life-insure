@@ -2,16 +2,15 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Hash } from "lucide-react";
 import LeaderboardAgentAvatar from "@/components/leaderboard/LeaderboardAgentAvatar";
-import OdometerValue from "@/components/leaderboard/OdometerValue";
+import LeaderboardApValue from "@/components/leaderboard/LeaderboardApValue";
 import { agentHighlightClass } from "@/components/leaderboard/leaderboardHighlight";
 import { tvTableRowLayoutTransition } from "@/components/leaderboard/leaderboardRankMotion";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "@/components/leaderboard/tvPanelLayout";
-import type { AgentStats, Metric } from "@/components/leaderboard/leaderboardTypes";
-import { METRIC_DISPLAY_LABEL, displayedMetricValue, formatMetricValue } from "@/components/leaderboard/leaderboardTypes";
+import type { AgentStats } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL } from "@/components/leaderboard/leaderboardTypes";
 
 interface TVDeepRankPanelProps {
   agents: AgentStats[];
-  metric: Metric;
   rankDeltas?: Map<string, number>;
   spotlightAgentId?: string | null;
   newLeaderId?: string | null;
@@ -19,7 +18,6 @@ interface TVDeepRankPanelProps {
 
 const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
   agents,
-  metric,
   rankDeltas = new Map(),
   spotlightAgentId,
   newLeaderId,
@@ -32,7 +30,7 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
             <Hash className="h-4 w-4 text-slate-400" />
             Ranks 11+
           </h3>
-          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{METRIC_DISPLAY_LABEL[metric]}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500">{ANNUAL_PREMIUM_LABEL}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 py-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
@@ -41,7 +39,6 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
         ) : (
           <motion.ul layout className="space-y-1">
             {agents.map((a) => {
-              const metricNumeric = displayedMetricValue(metric, a);
               const rankDelta = rankDeltas.get(a.id) ?? 0;
 
               return (
@@ -70,12 +67,9 @@ const TVDeepRankPanel: React.FC<TVDeepRankPanelProps> = ({
                       {a.first_name} {a.last_name?.[0]}.
                     </p>
                   </div>
-                  <OdometerValue
-                    value={metricNumeric}
-                    format={(n) => formatMetricValue(metric, n)}
-                    tv
-                    className="shrink-0 text-sm font-bold tabular-nums text-blue-300"
-                  />
+                  <span className="shrink-0 whitespace-nowrap text-sm font-bold text-blue-300">
+                    <LeaderboardApValue agent={a} tv />
+                  </span>
                 </motion.li>
               );
             })}

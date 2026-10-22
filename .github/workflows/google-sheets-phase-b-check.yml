@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: eaf988bc276a3922ee0ec6c3c6038665be9f1678
+          ref: 88669b7d5add7fd692acb262af294e24655c3cc9
           path: sheets-source
           persist-credentials: false
       - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf

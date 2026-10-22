@@ -31,7 +31,7 @@ const PrivateGridsCard: React.FC<PrivateGridsCardProps> = ({ grids, calculatorGr
       title: `Delete ${grid.name}?`,
       description:
         (grid.id === calculatorGridId
-          ? "Your calculator uses this grid, so agents won't see the Commission Calculator until you choose another grid. "
+          ? "Your calculator uses this grid, so the Calculator stays off until you choose another grid; saved commission history stays available. "
           : "") + `Its ${grid.productCount} product${grid.productCount === 1 ? "" : "s"} and every rate are deleted. This can't be undone.`,
       confirmLabel: "Delete grid",
       destructive: true,

@@ -1,3 +1,1331 @@
+## 2026-10-22 — Google Sheets runner: fresh hosted history and reviewed source pinned; local preparation complete
+
+After Chris completed secure sign-in and said "Continue", the coordinator read Supabase project jncvvsvckxhqgqvkppmj in the browser at 2026-10-22T06:25:20.775462Z. This yielded 342 migration-history rows, latest 20261021200000, permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8, and zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names. The coordinator also verified 77 Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent and GitHub deploy-to-production OFF. No secret values were opened, read or changed.
+
+- **Prepared pins.** Updated the runner to VERSION 20261022062539, LATEST 20261021200000, 342 before/applied rows and 343 recorded rows, with the renamed foundation path and matching history predicates. The migration/helper/four-bundle digests are unchanged. The existing VERSION > LATEST guard remains; the recorded history maximum is VERSION. SOURCE and both checkout refs now pin the published reviewed feature commit 88669b7d5add7fd692acb262af294e24655c3cc9, exact tree 92038029ee446a83291986d6e5905c55d673f57f. The renamed migration and rollback bytes and all four bundle digests were reverified from that exact commit.
+- **Synthetic coverage.** The driver now seeds 341 synthetic rows plus the verified latest-version marker on loopback, mirroring the 342-row starting count. It uses the valid current version ordering directly. Nine negative cases cover equal/older versions and the explicitly injected former stale pins across all three mutating stages; every case refuses before external access. YAML/Python parsing, those exact-driver tests, the expected current counts/maxima/path assertions, protected/no-secret CI boundary checks, six exact stage-order refusals and mocked read-only/three correct-stage paths pass locally. Native PostgreSQL 17.6 transaction/history/rollback verification remains required on the final runner head in CI and was not rerun locally.
+- **Frontend and rollback read-backs.** The coordinator verified VITE_GOOGLE_SHEETS_ENABLED absent from project and Shared environment-variable searches. Current Ready/Production/www.fflagent.com deployment dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3 has source 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4 (https://vercel.com/cgarness-projects/agentflow/CnxbpTh4fae7Bi6RWvZvWsGBDxP3). Recapture the rollback candidate before an actual frontend merge; a runner main merge would create a newer deployment.
+- **Publication and access.** The earlier runner create_blob attempt stalled without a result; no create_tree, create_commit, update_ref or PR-body update was invoked by this agent. No runner branch update occurred from that attempt. The coordinator now owns publication of the completed tree. The last protected-environment secret inventory was zero, so owner credential entry is still required. No workflow dispatch, hosted SQL mutation, function deployment, activation, import or scheduling action occurred.
+
+---
+
+## 2026-10-21 PDT / 2026-10-22 UTC — Google Sheets runner: current-main reconciliation prepared locally; release prerequisites still blocked
+
+Chris authorized proceeding with the existing Sheets branch reconciliation and Phase B release preparation. Read AGENT_RULES.md in full, VISION.md, the current and main plan/Work Log context, and the feature release package section 10.3 before edits. Prepared the plan checkpoint before merging main 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4 into runner head 5aab5e06a25a9a25b03a0b6b00f7c5467a26ef18 with --no-commit --no-ff. This checkpoint is local preparation; no commit, push, PR merge, workflow dispatch, hosted SQL, Edge deployment, frontend activation, Google pilot, privacy publication or schedule change occurred.
+
+- **Merge.** WORK_LOG.md was the only conflicted file. Preserved the incoming main history and the runner history in order; implementation_plan.md merged automatically. An ordered-line check confirms every line from both parents survives in both documents. The diff against main contains only the existing two runner workflows, scripts/tests/google_sheets_phase_b_runner.py and these two documentation files. The CI workflow remains byte-identical to the original runner head; the runner and its test have only the authorized ordering correction below.
+- **Ordering correction.** Added a fail-closed gate requiring VERSION > LATEST before any mutating stage reaches source, credentials or external access. The recorded state now expects VERSION as the maximum history version. All production pins, counts, source checkout, SQL bytes and artifact digests remain unchanged, so the current stale package deliberately refuses apply/history/deploy. The read-only check stage remains available. The driver tests equal and older versions through the actual dispatch function, asserting no downstream calls; its native loopback fixture temporarily uses an explicitly synthetic earlier LATEST to keep apply/history/rollback coverage meaningful.
+- **Local safety checks.** Both workflow YAMLs and the embedded/driver Python parse. Dispatch-only/main-only execution, the protected environment, serialized concurrency and pinned actions remain intact; the CI workflow has no protected environment or secret expression. Recomputed the source migration and all four function bundle digests from the pinned Git source and matched every expected value. The new six migration-order refusals, valid-version history maximum, three refusals using the unchanged real pins, read-only check path and existing six invalid-stage cases all pass. Existing wrong-branch/confirmation refusal, command-error redaction, read-only SQL session arguments and TLS accept/refuse checks passed during reconciliation. Changed-line whitespace checks for the ordering patch and documentation pass; existing parent whitespace is retained. Required npx tsc --noEmit passes. Strict app compilation reports 84 diagnostics; the application/config/package tree is byte-identical to main, and the coordinator independently confirmed the same 84 main-baseline diagnostics with zero new errors.
+- **Ordering blocker.** Current main requires migration versions to sort after the hosted head and forbids out-of-order history insertion. Existing Sheets version 20261013120000 already precedes the old runner head pin 20261017043757. Keep the immutable SQL bytes and the new refusal gate. First obtain fresh hosted history/helper/function evidence, then rename the unapplied foundation after that head, update the reviewed source SHA and references, and refresh the exact count/head pins. Existing pins are unchanged because fresh hosted evidence is unavailable.
+- **Access and remaining verification.** The coordinator freshly confirmed cgarness review, main-only access and administrator bypass disabled on google-sheets-production, with zero environment secrets. Owner credential entry and fresh hosted inventory remain prerequisites. PostgreSQL 17.6, psql, the Supabase CLI and Docker are unavailable locally, so the native transaction/history/rollback runner suite was not run here and remains a CI requirement. Separately controlled frontend, pilot, privacy and scheduling gates remain in force.
+
+---
+
+## 2026-10-22 — Commissions sidebar entry: CircleDollarSign icon, no access delay, no layout jump (branch only; NOT merged or deployed)
+
+Chris approved the plan with one change: use `CircleDollarSign` for the sidebar item, the page header and the page's
+loading state, and add `CommissionsPage.tsx`. Built on `claude/zen-bardeen-phqecr` from `main` `40a298c`. Reviewed
+AGENT_RULES, VISION and WORK_LOG. This supersedes draft PR #473's icon-only change; PR #473 was not modified or merged.
+No migration, backend command, production contact, merge or deploy.
+
+- **Defect.** `useCommissionsAccess` waited for the `role_permissions` read before permitting anyone, although Admin
+  and Super Admin hold the Own toggle without it (`usePermissions` full access; the server's
+  `policy_commission_toggle` `p_full`). The sidebar renders its core menu while permissions load, but Commissions was
+  inserted only afterwards, pushing Custom links, Settings and the Super Admin entries down a row. A Super Admin whose
+  stored role is the legacy `'Super Admin'` string (no role key in `usePermissions`) never finished loading, so for
+  them the item never appeared and the page stayed on "Loading…".
+- **Fix.**
+  - **Access:** `permitted = (fullAccess || !permissionsLoading) && canSeeCommission(...)`, with
+    `fullAccess = is_super_admin === true || role === "Admin"` computed in `useCommissionsAccess`. Final answers are
+    unchanged for every role; Admin and Super Admin no longer wait.
+  - **Agents / Team Leaders:** still fail closed until their permissions load, then the "View Own Commission
+    Percentage" toggle decides.
+  - **View As:** unchanged. The item renders nothing and no read is enabled.
+  - **No layout jump:** while an Agent's or Team Leader's access is unresolved, the nav item holds an inert
+    `aria-hidden` slot with a nav row's box (`px-3 py-2.5` around `h-5`), with no link, label, icon or focus stop. When
+    access is granted the link fills it in place; when it is denied the slot goes, like other permission-hidden items.
+  - **Icon:** `CircleDollarSign` replaces `Wallet` in the nav item, page header and loading panel.
+  - **Unchanged:** ordering, styling, active state, collapsed and mobile behavior, `Sidebar.tsx`, `NavItems.tsx`, the
+    page guard, reads, calculations, RLS and the database.
+- **Plan amendment during implementation.** The plan exposed `fullAccess` from `usePermissions`, but
+  `reportsContracts.test.ts` pins that file's exact bytes (Dialer / Leaderboard boundary) and failed. `usePermissions.ts`
+  was restored byte-identical (blob `6789cc0e…1ea5`) and the same rule is computed in `useCommissionsAccess`.
+- **Known limitation (existing, not widened).** A `'Super Admin'`-role profile without `is_super_admin` never finishes
+  loading permissions (the core menu already stays fully open for it). The server denies it Commissions, and it now
+  sees the empty reserved slot instead of nothing.
+- **Tests.**
+  - NEW `useCommissionsAccess.test.tsx` (8 cases, real `usePermissions`, held `role_permissions` read): Admin, Super
+    Admin and legacy-role Super Admin permitted while pending; exactly one organization-scoped read for mapped roles
+    (none for the legacy role); an Admin with the stored toggle off still permitted; Agent and Team Leader fail closed,
+    then the toggle decides; nothing enabled under View As.
+  - `viewAsSidebarNav.test.tsx` (+7): icon; slot directly below Resources and inert; same box expanded and collapsed;
+    filled in place with Settings' position and the row count unchanged; removed when denied; nothing under View As.
+  - `commissionsPage.test.tsx` (+3): header and loading icons, and no read while an Agent's access loads; Admin and
+    Super Admin open without the loading panel.
+  - **Fail-first:** with the three source files at `HEAD`, 9 of the 48 tests in these files fail; the 39 guard tests
+    pass.
+- **Gates.**
+  - Root `npx tsc --noEmit`: exit 0.
+  - Strict app typecheck: 84 errors, the identical set to the baseline.
+  - Focused and related Vitest (55 files): all pass (796 passed, 3 skipped), `reportsContracts` included.
+  - Full Vitest: 6,012 passed, 1 failed, 36 skipped (baseline on unmodified code: 5,994 / 1 / 36). The
+    failure set is identical to the baseline: 9 suite-load errors and one deployed-Edge-Function byte pin, all
+    unrelated. The +18 are the new tests.
+  - ESLint on the 6 changed source and test files: 0 problems.
+  - `vite build`: OK (existing chunk-size warning only).
+- **Merged `main` `c3f4a27` (#475, leaderboard) into this branch.** Only `WORK_LOG.md` and `implementation_plan.md`
+  conflicted (both branches added a top entry); both entries were kept, this one first, and no code overlapped.
+  Re-verified on the merged tree:
+  - Root tsc: exit 0.
+  - Strict app typecheck: 84 errors, the same set.
+  - Full Vitest: 6,047 passed, 1 failed, 36 skipped (+35 are #475's tests); failure set identical to the baseline.
+  - ESLint on the changed files: 0 problems.
+  - `vite build`: OK.
+- **Files.** `src/components/layout/CommissionsNavItem.tsx`, `src/pages/CommissionsPage.tsx`,
+  `src/hooks/useCommissionsCenter.ts`, `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`,
+  `src/pages/__tests__/commissionsPage.test.tsx`, NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`, root
+  `implementation_plan.md` entry, `AGENT_RULES.md` (one Commissions center bullet), this entry.
+- **Next.** Chris's review. A PR, merge and production deploy each need separate approval. If this merges, close
+  PR #473 (same line, superseded). Optional follow-up: decide whether `usePermissions` should treat the legacy
+  `'Super Admin'` role string as full access (pinned file; its own approval).
+
+---
+
+## 2026-10-22 — PR #475 final layout alignment: podium / Your Performance locked to the Full Rankings / Recent Wins columns (approved, implemented; NOT merged, NOT released)
+
+Chris reviewed the signed-in preview and asked for the top row to line up with the lower two-column layout. He
+approved plan §15 with D1 A (the 2 : 1 ratio for both rows), D2 A (both rows two columns from 1280 px) and D3 (the
+three-card podium fills its column), with one- and two-agent podiums kept narrower and centered.
+
+- **Cause:** the two rows were separate grids.
+  - Top row: `1fr` + a fixed 320 px column from 1280 px, with the podium capped at 896 px and centered.
+  - Bottom row: thirds from 1024 px.
+  - The edges were up to 48 px apart at 1440 and 208 px apart at 1920.
+- **Change (`e02f535`):**
+  - `LeaderboardBoard.tsx` uses one shared row template and one left-column class for both rows, with the podium
+    wrapped in the left column.
+  - `LeaderboardPodium.tsx` drops the width caps when three cards show.
+  - The page test pins the structure.
+  - Below 1280 px every panel stacks (previously Full Rankings and Recent Wins sat side by side at 1024–1279).
+- **Deviation:** the cap is removed at every width, not only from `lg`. With the sidebar collapsed, the base
+  768 px cap still inset the podium at 872–1023 px.
+- **Clarification:** one- and two-agent podiums are unchanged. From 1024 px their existing caps were always
+  overridden by the 896 px base cap. They are now centered in the Full Rankings column.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 399 passed (12 skipped). The two new tests fail on the old layout.
+  - ESLint and build: pass. `git diff --check`: clean.
+  - TV harness: 15/15 PASS.
+  - Browser sweep with the app shell's widths:
+    - Edges match within 0.02 px at 1280–2560 px (sidebar open and collapsed) and in the stacked range below
+      1280 px.
+    - One- and two-agent podiums are centered with the same widths as before.
+  - Before/after screenshots: `screenshots/layout-*.png`. Full record: `verification.md` §11.
+- **No** Supabase command, migration, RPC/RLS/telephony change, TV change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final release review. Merge and frontend
+  release need his separate approval.
+
+---
+
+## 2026-10-21 — PR #475 final UI polish: "Annual Premium" labels; TV totals show Annual Premium and Policies (approved, implemented; NOT merged, NOT released)
+
+Chris approved the exact plan (focused plan §14).
+- Every visible "AP" / "Annualized Premium" label, TV Mode included, now reads "Annual Premium". The subtitle reads
+  "Ranked by Annual Premium".
+- TV's top totals strip drops only Calls and uses a two-column layout.
+- No other UI, navigation or behavior change. Calculations and the CSV export are unchanged.
+
+- **Base:** `main` moved to `40a298c` (PR #476). It was merged in with a merge commit (`3161c4b`); the
+  newest-first `WORK_LOG.md` and root plan insertions conflicted, and every entry from both sides was kept.
+- **Change (`8abb0a2`):**
+  - One shared `ANNUAL_PREMIUM_LABEL`, used at 8 render sites.
+  - The `title` / `aria-label` attributes that only expanded "AP" were dropped. The table's accessible name is
+    "Full rankings by Annual Premium".
+  - The TV totals grid is `grid-cols-2`, with no Calls total.
+  - Calls stay on every podium card, in Full Rankings and in TV ranks 4–10.
+  - 9 app files, 3 test files and `verify.mjs`.
+- **Deviation (mobile fit):** the browser measurement found the Full Rankings header clipped at 768, 1024 and
+  1100 px with the planned "one line from `sm`". It now wraps wherever its column is narrower than the label, and
+  stays on one line at 1440. No widths changed.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical to `main` `40a298c`.
+  - Targeted Vitest: 20 files, 397 passed (12 skipped, time-zone gated).
+  - Wider subset: the same 6 pre-existing failing files as `main`.
+  - ESLint on 13 files: exit 0. Build: exit 0. `git diff --check`: clean.
+  - Playwright harness on a fresh Vite: 15/15 PASS. New checks: two equal side-by-side totals cells that fill
+    the row, and no clipped "Annual Premium" label at any TV viewport or on the 390 px page. Five mutations each
+    fail it.
+  - Full-page fixture sweep, 320–1920 px, dark and light: no clipped label. The 320–368 px table scroll is the
+    existing 21rem minimum, identical before this change.
+  - Evidence: `verification.md` §10 and `screenshots/polish-*.png`.
+- **No** Supabase command, migration, RPC/RLS/telephony change, deployment, merge or release.
+- **Next:** confirm every PR #475 check on the pushed head, then Chris's final review. Merge and frontend release
+  need his separate approval.
+
+---
+
+## 2026-10-21 — Lead → Client preservation Gate 2 (database only): approved, preflight 12/12, package rehearsed — NOT applied (no SQL Editor route)
+
+Chris approved the database-only release of `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+`ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5`) to `jncvvsvckxhqgqvkppmj` through the
+version-preserving SQL Editor route, with stop-and-report on any discrepancy. No backfill; Gate 3 not approved.
+
+- **Checksum.** SHA-256/MD5 `3b8f527b…`/24,911 bytes identical in the working tree, at PR head `439d0cb` and on the
+  remote branch.
+- **Production, read-only (17:42 UTC).** Hosted head `20261021180000`; `20261021200000` not recorded; `postgres`,
+  PostgreSQL 17.6. `preflight.sql` **12/12** (all four preimages equal). Fingerprints: clients 19 / `eda90062…`, clients
+  policies 1 / `eb563177…`, clients ACL `46875263…`, wins 20 / `3801e71a…`. Advisors: security 253, performance 452
+  (finding-set digests recorded; expected delta none).
+- **Package.** `release/build_apply.py` → `release/apply_20261021200000.sql` (28,862 ASCII bytes, SHA-256
+  `fd796409…742a`, deterministic): one request; text, history and role checks; records the exact text.
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history: refusals for a changed byte, a later
+  version, a missing preflight head, a non-`postgres` caller and a lock (1.17 s); apply 0.058 s; read-back 11/11;
+  fingerprints identical; only the expected catalog additions; replay refused twice; suite PASS; rollback restores both
+  preimages; schema dump equal to a plain `psql -1 -f` apply.
+- **Blocker — NOT applied.** This cloud session has no browser/SQL Editor and no reachable session on Chris's
+  computer. `execute_sql` stayed SELECT-only (AGENT_RULES §11) and `apply_migration` was not used (it stamps its own
+  version). Stopped and reported; nothing was written to production.
+- **Files.** `release/build_apply.py`, `release/apply_20261021200000.sql`, `release/gate2-preflight-evidence.json`,
+  focused `verification.md` §8 and status, focused plan status, root plan entry, AGENT_RULES status line, this entry.
+- **Next.** Apply from an authorized SQL Editor route (Chris, or a session with a signed-in browser): fresh preflight,
+  paste the package unchanged, Run once; then read-back 11/11, fingerprints and advisors. Gate 3 stays separate.
+
+---
+
+## 2026-10-21 — BUGFIX (within Gate 1, PR #476; NOT live): older-browser notes and unchanged client fields
+
+Chris reported PR #476's seven workflows and both Vercel previews green and asked for two corrections before Gate 2.
+Reviewed AGENT_RULES, VISION and WORK_LOG: `main` still `51b0e56`, no new entries or conflicting work. Stayed inside the
+Gate 1 approval: local build and disposable-database tests only, approved files, PR #476. No production contact,
+migration apply, merge or deployment.
+
+- **Mixed-version notes.** The new browser sends only the agent's note in `notes` with the marker
+  `notes_source: "conversion_note"`. An older browser's unmarked `notes` that differs from the database lead notes
+  (its typed note or a stale lead copy — not classifiable) can no longer become the client's Notes: the current lead
+  notes stay and the text is kept verbatim, read-only, as `lead_conversion.legacy_conversion_notes` ("Conversion
+  notes (older app version)" in the Original lead panel). An unknown marker fails closed (22023, "Refresh AgentFlow
+  and try again."). A marker beside `notes`, not a new key, so a database without the migration still keeps a typed
+  note (a first draft's separate key would have been ignored and lost it; caught before commit).
+- **Unchanged person fields.** The profile now sends only the person fields the agent changed
+  (`omitUnchangedPersonFields`, the same set the Zod check uses) and `clientUpdatePatch` sends text verbatim, so an
+  unrelated edit can never trim, normalize, clear or rewrite a stored DOB, age, best time to call or spouse value.
+- **Migration (still NOT applied).** Converter notes logic only; update writer, guard, columns and every other line
+  unchanged. SHA-256 `ce189016d2ca39af780c9f61909f74dd65c13b867a6238d8498cb9ce23729ae5` (24,911 bytes); converter
+  post-image `7109fdab661eac16ab6ff4f8d8343c20`; rollback `adffa3d3…188e`; rollback guard, runner and `readback.sql`
+  regenerated and re-verified.
+- **Tests.** SQL: P4 now 18 cases (current and older browser), P15 legacy byte-for-byte case, new P16 (unknown/null
+  marker refused); runner release-boundary checks (old tab keeps current Notes, new browser on the old database keeps a
+  typed note). Full runner PASS on PostgreSQL 16.15; release rehearsal preflight 12/12, read-back 11/11, fingerprints
+  identical, rollback exact. Frontend: new omission/verbatim/legacy-notes/end-to-end patch cases. Fail-first: the
+  older-browser matrix fails on the previous migration; 4 view/mapping cases fail on the previous frontend.
+- **Gates.** `npx tsc --noEmit` exit 0; app typecheck 84 = `main` (identical multiset); Vitest 5,994 passed, failure set
+  identical to `main`; scoped ESLint 0 errors; build OK. Final-head CI pending at push.
+- **Docs.** Focused plan §14, `verification.md` (values, §5 matrix, §7), root plan entry, AGENT_RULES proposed section.
+- **Next.** Final-head CI green, then Chris's Gate 2 (database-only) approval.
+
+---
+
+## 2026-10-21 — Lead → Client conversion preserves every meaningful lead field (Gate 1: local build, draft PR; NOT live)
+
+Chris approved Gate 1 (decisions D1–D9, the file list, local implementation, tests, commits, pushes and one draft PR)
+and required mixed-version testing. Branch `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`. Future conversions only:
+no backfill, no change to existing clients. Stopped at Gate 2.
+
+- **Defect.** `convert_lead_to_client_atomic` copied only names, phone, email, notes, owner and the browser's custom
+  fields: `state` (an existing column), DOB, age, best time, spouse, source, status and score were discarded with the
+  deleted lead; custom fields came from possibly stale browser snapshots; a conversion note replaced the lead's notes.
+- **Database (proposed, NOT applied).** `20261021200000_lead_client_conversion_preservation.sql` (SHA-256
+  `b1488c4e…8127`, 23,279 bytes; guarded by the four production preimage digests): nullable `clients.date_of_birth`,
+  `age`, `best_time_to_call`, `spouse_info`; protected read-only `clients.lead_conversion` history with trigger
+  `clients_lead_conversion_guard`; the converter reads every preserved field from the locked lead row (only
+  `additional_policies` from the payload) and keeps displaced lead notes; `update_client_with_policy_sale` accepts the
+  four person fields. Wrapper, commission companions, RLS and grants unchanged. Function-only rollback restores both
+  exact preimages and keeps columns, data and trigger.
+- **Frontend.** `Client` type + mappers; the browser sends only the agent's conversion note; client profile shows and
+  edits DOB/age/best time/spouse in the existing grid (Zod on changed fields; legacy DOB as text; structured spouse
+  read-only) and a read-only "Original lead" panel (`ClientLeadHistory`, 50 lines). Layout, policy cards, conversation,
+  activity and follow-ups unchanged.
+- **Production contact.** One read-only `list_migrations` + one SELECT: head `20261021180000`, PostgreSQL 17.6, all four
+  preimage digests equal the reviewed values. No write.
+- **Verification.** `scripts/run_lead_conversion_preservation_tests.sh` on disposable PostgreSQL 16.15: guards,
+  inventory (1,043 other objects unchanged), historical fingerprint, release-boundary and old-browser scenarios,
+  preservation suite P2–P15, pre/post differential (1,713 identical lines), existing commission suites + 44-step
+  sale/performance/Sold Date/repair chain, race and rollback — all PASS; new CI job on `postgres:17.6`. Release
+  preflight 12/12 and read-back 11/11 rehearsed. Frontend: app typecheck 84 = `main` (identical multiset); Vitest
+  5,987 passed, failure set identical to `main` (+39 tests); scoped ESLint 0 errors (warnings identical); build OK.
+- **Remaining transitional risk.** Until agents refresh onto the new frontend, an old tab converting without a typed
+  note whose notes copy is older than the database makes that copy the client's Notes; the current lead notes stay
+  preserved and visible as "Original lead notes". Nothing else in any mixed-version path is lost or replaced.
+- **Docs.** `AGENT_RULES.md` (proposed invariant section), root `implementation_plan.md`, focused plan and
+  `verification.md`, release `preflight.sql` / `readback.sql` and the read-only check JSON.
+- **Next.** Gate 2 (database only, separate approval): fresh hosted-history check and preflight, version-preserving
+  apply, read-back and advisors. Gate 3 (merge + frontend) after that.
+
+---
+
+## 2026-10-21 — PR #475 CI blocker: TV visual harness updated for the AP-only board (test-only)
+
+Chris found the release blocker: `Policy sale transaction verification` › `tv-browser` failed on `2266cd5`.
+The real-Chromium harness still expected the old caption with "1 appointments", the Appts total, metric
+switching, the auto-rotate switch and rotation, and the removed `restAgents` table prop. The postgres job and all
+other checks passed. The earlier verification missed it: the harness sits outside the Reports gate and every
+tsconfig.
+
+- **Scope (approved, test-only):** `scripts/tests/leaderboard-visual/entry.tsx`, `verify.mjs` and the records (plan
+  §13, `verification.md` §8, this log, root plan). The workflow is not weakened; `stubs.ts`, `vite.config.ts`,
+  `README.md`, `src/` and `supabase/` are unchanged.
+- **Harness now proves:** AP order from an independent comparator, with hard-coded orders as a guard;
+  AP/Policies/Calls on the podium, ranks 4–10, ranks 11+ and the totals; tie-breaks decided against name order
+  (Policies, then Calls); movement only on real rank changes (none for a value change, Gray ↑1 / Harper ↓1 for a
+  tie-break, seven ↓1 for an AP jump); no Appointments or removed metrics; D14 "—*"; Agent sees no gear; the
+  Admin ticker editor works (Admin served the unchanged stub with only its role string changed, in a separate
+  browser context); stored rotation preferences removed; the board unchanged after 30.1 s. All geometry, avatar,
+  overlap, scrolling, Sold Date, period, roster, routine and runtime-error checks are kept.
+- **Local evidence:** the failure reproduced; the new harness fails on `main` and on two mutations (name-only
+  tie-break; AP-only change detection) and passes twice on the branch (77 s / 74 s). Root tsc 0; app tsc
+  identical to `main` (84); targeted Vitest 331/331; ESLint 0 errors (one pre-existing warning); build passes.
+- **No** migration, Supabase command, deployment, merge or release. Flagged: the harness README still
+  describes the retired checks (outside the approved scope).
+- **CI:** on `fd0220c` every check passed: `tv-browser` 15/15 PASS lines, postgres ×2, both frontend jobs, browser,
+  native, paired-native and both Vercel previews; Supabase Preview skipped as before (`verification.md` §9).
+- **Next:** Chris's final review of PR #475 (still draft). Merge and release need his separate approval.
+
+---
+
+## 2026-10-21 — AP-only Leaderboard redesign: approved and implemented (draft PR #475; NOT merged, NOT released)
+
+Chris approved the plan with D1–D5 = A. Branch `claude/sweet-cannon-jve7ak` from `main` `51b0e56`. Frontend only:
+no Supabase command (read or write), migration, Edge deploy, Vercel action, merge or release.
+
+- **What changed.** AP is the only ranking metric on the Leaderboard page, TV Mode and the Dashboard preview.
+  One shared comparator orders AP → Policies → Calls → name → id. The metric dropdown, TV metric selector, TV
+  30 s rotation and their stored preferences are gone. The podium shows AP, then Policies and Calls. A new Your
+  Performance card (beside the podium at ≥ 1280 px, stacked below) shows AP, rank of N, real movement, Policies and
+  Calls, or "Your stats aren't on this board" with no figures. Full Rankings lists everyone, the top three included,
+  as Rank · Agent · AP · Policies · Calls with a blue YOU row. TV tables and totals show AP/Policies/Calls only.
+  Appointments, Talk Time and Policies/100 leave every visible Leaderboard surface. The outside-roster note drops
+  appointments, and the talk-time note is removed.
+- **Movement (Chris's instruction).** Change detection and the "frozen" test use the whole sort key, so a
+  Policies- or Calls-decided reorder shows as movement. An unchanged board, a period/view switch and a first load
+  show none. "New #1" still needs AP > 0.
+- **Unchanged:** `get_leaderboard_snapshot` / Recent Wins RPCs and the 1:1 `annualized_premium` mapping (no ×12),
+  RLS, the request gate, polling and realtime, stale/error/maintenance/offline states, Recent Wins and the CSV
+  (every column kept). The set of data reads is identical; timers go from 4 to 3.
+- **Size standard.** `TVMode.tsx` 514 → 191 lines (verbatim extraction: `TVToolbar`, `TVTicker`, `TVBoard`,
+  `useTvDisplaySettings`, `useTvClock`). `Leaderboard.tsx` 251 → 194 (`LeaderboardBoard`). All touched
+  components are under 200.
+- **Fixed on the way:** the pre-existing stacked-podium overlap on phones (confirmed on `main`), with gold first
+  when stacked. All five table columns fit at 390 px. The TV gold trophy clears the totals panel at 1080p.
+- **Verification** (`docs/plans/2026-10-21-ap-leaderboard/verification.md`): baselines were taken on a `main`
+  worktree before any edit. Root tsc exit 0. App tsc has the identical 84-error set. Full Vitest: 6,018 tests with
+  the same single pre-existing failure and the same 10 pre-existing failing files as `main` (5,985); no new failure.
+  Targeted 15 files 331/331. ESLint clean on all touched files, build passes, `git diff --check` clean. Fixture
+  screenshots (scratchpad harness, never committed) at 1440/1280/1024/390 in dark and light, TV at 1920/1280, the
+  Admin options popover, and `main` comparisons. Keyboard pass done.
+- **Records:** focused plan §12, `verification.md`, `screenshots/`, root `implementation_plan.md`, and
+  `AGENT_RULES.md` (#40 notes amendment + new "AP-only Leaderboard" rule, both marked not live until released).
+- **Limitations:** no signed-in hosted check; no reference image was available. Recent Wins is cramped at
+  1024–1279 px; this is pre-existing (identical on `main`, untouched component) and left for a separate change.
+- **Next:** review the draft PR, optionally a signed-in read-only preview check, then Chris's separate merge and
+  frontend-release approval.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 3 approved; signed-in read-only preview acceptance passed
+
+Chris replied "Continue" to the separate Gate 3 frontend approval request after Gate 2 completed. This authorizes
+PR #474's frontend release after read-only preview acceptance and green final-head CI. Application source remains
+`0aebd01`; acceptance ran on `a5cd1b02ac8481532cd88ad75f2022400a8e17c4`, with both Vercel previews READY.
+
+- Signed-in Overview loaded the breakdowns, comparisons, timeline and Months 10–12; carrier and product links
+  selected the expected Sold/Carrier/Type filters and reconciled with the displayed Overview totals.
+- Hide amounts masked Overview, Policies and the commission drawer; the payment dialog and Calculator required
+  Show amounts. The browser-local preference was restored to shown. Goal editor opened and was cancelled empty.
+  History loaded its valid-empty state with the Carrier control. No production goal, receipt, sale or policy was saved.
+- Six exact-head workflows were green at acceptance; Reports frontend verification was still running. The final
+  documentation head must pass all workflows and both Vercel preview statuses before merge. No CI failure is waived.
+- Exact documentation files: this log, `AGENT_RULES.md`, root `implementation_plan.md`, and focused insights
+  `implementation_plan.md` / `verification.md` §10. No application, SQL or test changes.
+- Gate 2 is complete and immutable; no migration replay or additional backend write. PR #473, earlier preview
+  conversion and ordinary agent data remain untouched. No direct main push or branch cleanup.
+- Supabase integration checked at 05:49 UTC: Deploy to production OFF; automatic branching ON; no setting changed.
+  Release remains pending final-head checks.
+  PR #474's release record will hold the final merge SHA and both production deployment confirmations.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2: independent post-apply re-check passed
+
+The session that built the Gate 2 package re-checked production read-only after the 05:32 UTC apply, against its own
+04:50 UTC baseline (no database write): history head `20261021180000` (one row, exact text); `readback.sql` 24/24;
+six-table fingerprints and all 16 existing catalog categories unchanged, additions exactly as rehearsed; advisors
+security 253 / performance 452 with identical finding sets. Record: `verification.md` §9. Gate 3 remains unapproved;
+PR #474 stays draft.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2 APPLIED and verified; PR #474 draft, Gate 3 pending
+
+Executed at approximately 05:32 UTC (October 20, 10:32 PM PDT) under Chris's exact database-only handoff approval,
+through the supported cloud Supabase SQL Editor, Primary database as `postgres`. Migration `20261021180000` applied
+once; source `0aebd014002341a92e04cba65fd1ffce6a68a1c9`, package source
+`8f368e8ecabbe379f80fbc2744b5b23cbff8430a`. Embedded migration: 34,179 bytes, SHA-256 `d390cc8e…5b3345`;
+generated package: 37,157 bytes, SHA-256 `3cee7e7c…3778`; full editor contents independently matched before Run.
+
+- Fresh history/preflight at 05:31–05:32 UTC: target absent, hosted head `20261020212000`, 20/20 passed. No reliance on
+  the earlier 04:50 snapshot. SQL Editor returned Success. No rows returned; no retry or replay.
+- Read-back 24/24; one exact stored migration text; goals RLS/grants/constraints and all 12 new functions verified;
+  all eight existing preimages unchanged; zero goals. All six commission-table fingerprints/write counters and all
+  16 existing catalog category digests/counts unchanged; only the expected additive objects appeared.
+- Both advisors unchanged: security 253, performance 452; zero added/removed findings, excluding observation times.
+- Files: `AGENT_RULES.md`, root `implementation_plan.md`, focused commissions-insights plan and `verification.md` §8,
+  `release/gate2-execution-evidence.json`, `release/gate2-sql-success.jpg`, and this newest-first entry. PR body status
+  updated separately. No application-code or migration edit; code test reruns are not claimed for documentation only.
+- No production goals, receipts, sales or test policies; no cleanup, backfill, previous-preview-conversion change,
+  Edge Function deployment, main push, merge or frontend release. PR #473 untouched. PR #474 stays draft.
+- Gate 2 complete. Ready for read-only preview acceptance; Gate 3 frontend approval remains separate. No blockers
+  to database completion; signed-in preview acceptance and frontend release are not claimed.
+
+---
+
+## 2026-10-21 — Commissions insights Gate 2 (database only): approved, rehearsed, production preflight passed — NOT applied (no execution route)
+
+Chris approved Gate 2 only for source `0aebd014002341a92e04cba65fd1ffce6a68a1c9` and migration
+`20261021180000_policy_commission_center_insights.sql` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes; recomputed from the
+approved commit and byte-identical in the working tree). PR #474 stays draft; PR #473 untouched; no merge, frontend
+release, backfill, cleanup or production goal/receipt/sale/test-policy write.
+
+- **Blocker.** The established route is the Supabase SQL Editor signed in as `postgres` in a browser, or an authorized
+  direct database connection. This cloud session had neither (no browser on Chris's computer or browser takeover; no
+  credentials). `execute_sql` stayed read-only (AGENT_RULES §11) and `apply_migration` would stamp its own version, so
+  nothing was applied and no route was improvised. Production unchanged.
+- **Prepared.** `docs/plans/2026-10-21-commissions-insights/release/`: `preflight.sql` (20 checks + six-table
+  fingerprints), `catalog.sql` (16-category catalog digests excluding exactly the new objects), `readback.sql`
+  (24 checks: exact history row, goal table/constraints/owner policy/grants, schema, 12 exact function bodies and
+  attributes, EXECUTE `authenticated` only, preimages, RLS, not published) and `build_apply.py` (version-preserving
+  one-request package; output SHA-256 `3cee7e7c…3778`, 37,157 bytes, deterministic).
+- **Rehearsed** on disposable PostgreSQL 16.15 with hosted-style history and production's default privileges: refusals
+  for lock contention (1.04 s), a changed byte, a later version and a non-`postgres` caller; apply 0.055 s; read-back
+  24/24; existing catalog identical, additions exactly as expected; fingerprints identical; replay refused twice;
+  rollback and reapply restore exact dumps; equal to a reference `psql -1 -f` apply; insights suite 8/8 on the
+  wrapper-applied copy.
+- **Production read-only (~04:50 UTC).** History head `20261020212000`; preflight 20/20 (all eight preimage
+  fingerprints equal); six-table fingerprints identical to the 2026-10-20 record; catalog baseline captured; advisors:
+  security 253, performance 452 (expected delta after apply: none).
+- **Docs.** Goal-write wording corrected (the app uses the goal functions; authorized owners also have direct table
+  writes limited by RLS, grants and checks) in AGENT_RULES, the feature plan, `verification.md` and the PR body; the
+  approved SQL is unchanged. Feature plan §11 (method, files), `verification.md` §7 (evidence, remaining steps), root
+  plan status.
+- **Next.** Finish Gate 2 from an authorized route (SQL Editor on Chris's computer, e.g. a Claude Desktop or
+  `claude remote-control` session, or Chris running the package): re-run the preflight, regenerate and match the
+  package hash, apply once, then read-back, catalog, fingerprints and advisors. Gate 3 separately.
+
+---
+
+## 2026-10-21 — Commissions Overview: breakdowns, comparisons, Months 10–12, monthly goal and Hide amounts (local build, draft PR; NOT live)
+
+Chris approved the scoped local implementation and disposable tests only. Branch `claude/zen-clarke-wdwrrb` from `main`
+`e762454`. No production write, migration, policy, merge or deployment; the only hosted contact was a read-only
+`list_migrations` (head `20261020212000`). Applied migrations `20261019170000`, `20261020040000` and `20261020212000`
+are byte-identical to `main`. PR #473 (navigation icon) is untouched: `CommissionsNavItem.tsx` is not changed.
+
+- **What changed.** Overview gains By carrier (horizontal bars: Policies · Est. commission · Received) and By product
+  (doughnut: Policies · Est. commission), each bar or slice opening exactly matching lists; compact comparisons over
+  server-resolved fair windows; the next agency month's remaining Months 10–12; an optional owner-only monthly goal
+  under Received (one whole month only; Received by `received_on`; bar capped, figure not). Policies gains Sold, Type
+  and Unknown-carrier filters with whole-filter totals (All time by default, so its address keeps its meaning); History
+  gains a carrier filter. One eye control hides every amount across tabs, drawer, dialogs and the calculator (money
+  plots replaced; counts kept; explicit Show amounts before any financial edit; drafts and unresolved writes kept;
+  browser-local per user and agency, read before the first render).
+- **Database (proposed, NOT applied).** `20261021180000_policy_commission_center_insights.sql` (SHA-256
+  `d390cc8e…5b3345`, 34,179 bytes; guarded rollback refuses while goals exist): owner-only `policy_commission_goals`
+  (RLS on the Own toggle; `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for `authenticated`; nothing for
+  `anon`/`service_role`), schema `policy_commission_insights` (6 helpers), reads `get_my_commission_breakdown`,
+  `_policy_list`, `_receipt_list`, `_goal`, and SECURITY INVOKER `set_/clear_my_commission_goal`. Additive; released
+  reads stay for older browsers.
+- **Definitions.** Policies by Sold Date (undated disclosed); Est. commission = saved first-year of ACTIVE estimates (held
+  disclosed; missing "—", never $0; never equated with Expected); carrier = estimate's saved carrier, else visible client,
+  else Unknown (case/spaces only); product = sale type, else visible client type, else Unknown (never the grid category).
+- **Verification.** Disposable PostgreSQL 16.15: guards, drift refusal, inventory (177 existing objects unchanged), new
+  suite (8 sections), released center suite on the final state, rollback/refusal/reapply, PostgREST 12.2.3 (9 new HTTP
+  checks). Frontend: `npx tsc --noEmit` exit 0; app typecheck identical to `main` (84); 48 new tests; full Vitest as in
+  `verification.md`; scoped ESLint, build and `git diff --check` clean; screenshots at 1440/390 px, light and dark;
+  keyboard check. Record: `docs/plans/2026-10-21-commissions-insights/{implementation_plan,verification}.md`.
+- **Records.** Root `implementation_plan.md` entry; AGENT_RULES gains a **proposed** (not live) invariant section.
+- **Open gates.** Gate 2: production apply of `20261021180000` (new table, RLS policy, grants, functions) — separate
+  exact-action approval, hosted-history re-check, advisors before/after. Gate 3: merge and frontend release after Gate 2.
+
+---
+
+## 2026-10-20 — Commissions center RELEASED: Gate 3, PR #471
+
+Chris approved the separate merge/frontend-release gate by replying "Continue". Reviewed the additional
+documentation-only head `ff6fe37`; all nine final-head workflows / 14 jobs passed. PR #471 merged through GitHub,
+guarded by that exact head, as `73a83a2e681986b99121c821ee0a09065961f948` at 5:14:20 PM PDT
+(2026-10-21 00:14:20 UTC).
+
+Both Git-linked Vercel production deployments are READY at the merge SHA:
+`agentflow` `dpl_B4vikchqcEurk8FQnW24kJ5vxe2L` and
+`agentflow-life-insure` `dpl_5PUaT3utrQRT7Vkquu1CnxbCjfgQ`.
+Vercel's `www.fflagent.com` lookup resolves to the primary deployment/merge SHA; the public website renders in the
+cloud browser (entry asset `index-CzG91kxY.js`). Signed-in four-tab acceptance is the prior authorized preview check,
+not a new production write test. Full evidence: commissions-center `verification.md` §17.
+
+Migration `20261020212000` was not replayed. No application-code, financial-data, permission, dialer, cleanup or
+backfill changes; the earlier preview conversion remains untouched. Release-status documentation only:
+`AGENT_RULES.md`, root `implementation_plan.md`, focused plan/verification, and this newest-first entry.
+Gates 2 and 3 complete.
+
+---
+
+## 2026-10-20 — Commissions center Gate 2: independent post-apply re-check passed
+
+The session that built the release package re-checked production read-only at 23:14–23:16 UTC and made no writes. It
+compared the results with its own 22:28 UTC pre-apply baseline:
+- one history row for `20261020212000`, with the exact SHA-256 and 40,850 bytes;
+- readback 13/13;
+- all six commission-table fingerprints identical;
+- all 14 catalog categories identical in count and digest, with the new objects excluded;
+- security advisors unchanged at 253.
+
+Performance advisors read 452, not the 453 recorded at 23:05. The `policy_commission_receipts_agent_received`
+unused-index notice cleared once the index was used: 6 scans, the last at 23:10:01 UTC, during the preview check. Only
+the `policy_commission_captures_agent_open` notice remains. There were no unexpected differences. Evidence:
+`verification.md` §16. Documentation only; PR #471 stays draft and Gate 3 is still pending.
+
+---
+
+## 2026-10-20 — Commissions center Gate 2 applied; signed-in preview passed; Gate 3 pending
+
+Chris authorized the exact reviewed database package through the supported Supabase SQL Editor browser route.
+Applied `20261020212000 / policy_commission_center_reads` once as `postgres` at 23:05 UTC to
+`jncvvsvckxhqgqvkppmj`; no timestamp substitution or replay. Attached wrapper matched approved generator output;
+embedded migration remained 40,850 bytes, SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`.
+
+Fresh preflight 15/15; readback 13/13; all six full-row fingerprints and write counters identical. No existing catalog
+object, permission, function or RLS policy changed. Security advisors unchanged (253); performance +2 expected
+unused-index notices only (451 → 453). PostgREST reload confirmed. Signed-in read-only primary preview acceptance
+passed Overview, Payments (Scheduled/History), Policies and Calculator on `63267f6`; both Vercel previews READY.
+No test sale/payment, cleanup, backfill, application-code edit or earlier preview-conversion change.
+
+Documentation only, exact announced list: focused `verification.md` (§15 evidence) and `implementation_plan.md`,
+root `implementation_plan.md`, `AGENT_RULES.md` center heading, this newest-first entry. PR #471 remains draft;
+`main` observed at `381bebb`. Separate Gate 3 merge/frontend-release approval is still required, followed by final-head
+CI, PR merge, both production deployments and main-site deployed-commit verification. No frontend release claimed.
+
+---
+
+## 2026-10-20 — Commissions center: release migration ordering corrected (`20261020180000` → `20261020212000`; NOT applied)
+
+A read-only production check (Chris, 21:11 UTC; re-checked read-only with `list_migrations` at 21:17 UTC) found the hosted
+head `20261020192723 / uv_personal_brand` (PR #470's source file `20261020171244` was recorded under the version stamped
+at apply). The proposed, never-applied `20261020180000_policy_commission_center_reads.sql` therefore sorted before the
+hosted head, and the preflight's `version_free_and_sorts_last` check correctly refused it. **`20261020180000` is
+superseded and was never recorded anywhere; earlier entries and evidence that name it are kept as recorded.**
+
+- **Correction.** Renamed to `20261020212000` (sorts after the hosted head and every repository migration) with its bytes
+  unchanged: SHA-256 `5bc2eb14b52bf72c2516d6d134c0dac52bea052504aff8bb9e723d08fdbd3e08`, MD5 `a3a67aba…2b4b`, 40,850
+  bytes. The rollback changed only its first-line comment (now SHA-256 `7ada5b7d…e728b`). Runner paths and comments,
+  release SQL, plans and AGENT_RULES updated; the workflow's path globs needed no change. Applied migrations, history
+  rows, reporting SQL, permissions, definitions, UI, writers and the UV release unchanged; the ordering guard stays.
+- **Release package.** Preflight and read-back now fingerprint all six commission tables (counts, row-content digests,
+  write counters; handoffs included). New `release/build_apply.py` builds the exact version-preserving apply statement and
+  refuses on any hash or length mismatch.
+- **Rehearsal (disposable, history including hosted `20261020192723`).** Preflight 15/15; lock contention refused after
+  1.05 s with nothing applied; one changed byte refused; a later recorded version refused; apply recorded
+  `20261020212000` with the exact text; read-back 13/13 with all six fingerprints identical; replay refused twice;
+  rollback restored the exact schema; reapply passed; wrapper and `psql -1 -f` schema dumps identical; advisors `+2
+  unused_index` only. Full regression runner passed. Record: `docs/plans/2026-10-20-commissions-center/verification.md`
+  §13–§14.
+- **Open gates.** Gate 2 (production apply of `20261020212000`) and Gate 3 (merge and frontend release) each still need
+  Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is untouched.
+
+## 2026-10-20 — Commissions center: final copy and filter corrections (PR #471, still draft; NOT live)
+
+Chris approved local corrections on reviewed head `fbe50a8`. No production read, write, migration, merge or deployment.
+No database change: migration `20261020180000` is unchanged (SHA-256 `5bc2eb14…bd3e08`, 40,850 bytes); the applied
+migrations are untouched.
+
+- **Calculator copy.** "Your level: …"; the grid disclaimer paragraph became "Estimate only" with one ⓘ holding the
+  75% advance and timing explanation; no grid name or revision. Engine, inputs, matching, notices and validation
+  unchanged (same figures in the unit and page tests; inputs and the estimate kept across tabs).
+- **Settings wording.** Calculator grid, AgentFlow grids and private grids now say the Calculator needs a selected grid
+  and saved commission history stays available (true: estimates keep their own grid snapshot). Deletion consequences,
+  private-copy text and confirmations unchanged.
+- **Filter/result consistency (failing first: 12 of 23 tests failed before the fix, 23 pass after).** Earlier results
+  are kept only while paging within the same effective filter and identity, marked "Updating…" with row actions
+  disabled; a changed filter shows loading; failed and out-of-order requests never show another filter's rows; same for
+  Scheduled, History and Policies. Carrier options stay stable while a list loads.
+- **Date scope.** Next 90 days and Any date no longer wait for or send a hidden unfinished custom range (direct URLs and
+  switching both covered); Selected period still requires a complete range.
+- **Verification.** Full Vitest inert: 388 files / 6,026 tests, only `recordingRetentionVoicemail` failing as on `main`.
+  Typecheck, scoped ESLint, build and diff check in `docs/plans/2026-10-20-commissions-center/verification.md` §12.
+  Screenshots (Calculator, Settings, Payments updating and Next 90 days) at 1440 and 390 px, light and dark.
+- **Release package.** Read-only Gate 2 `release/preflight.sql` and `release/readback.sql`, validated on a disposable
+  database (15/15 and 12/12 checks; preflight refuses after an apply); steps in verification §13. Gate 2 (database) and
+  Gate 3 (frontend) each still need Chris's separate approval. The preview conversion `2325bc9d` / `7e2c476a` is
+  untouched.
+
+## 2026-10-20 — Commissions center (Overview · Payments · Policies · Calculator) — local build and draft PR; NOT live
+
+Chris approved the local implementation and disposable-database tests. Branch `claude/epic-tesla-fe96b0` from `main`
+`0312520`. No production read, write, migration, RLS/grant change, merge or deployment; the applied migrations
+`20261019170000` and `20261020040000` are byte-identical to `main`.
+
+- **What changed.** The sidebar's "Commission Calculator" is now **Commissions** (`/commissions/:tab?`; the old
+  `/commission-calculator` redirects to the Calculator tab; View As and the own-commission permission gate the nav
+  item and page). Overview (Expected, Received, Remaining, Next 90 days; Timeline; Upcoming; Needs review), Payments
+  (Scheduled | History), Policies and the reused, hypothetical Calculator. Rows open a drawer that reuses the Phase 2A
+  tracking controls (Record payment, Edit dates, Record estimate) and their unresolved-write recovery; no new writer.
+- **Database.** New migration `20261020180000_policy_commission_center_reads.sql` (SHA-256 `5bc2eb14…bd3e08`, 40,850
+  bytes; guarded rollback): five SECURITY INVOKER STABLE reads (`get_my_commission_overview` / `_installments` /
+  `_receipts` / `_policies`, `get_my_policy_commission`) over shared helpers in the non-exposed schema
+  `policy_commission_reporting`, EXECUTE `authenticated` only, plus two indexes. My commissions only (credited seller,
+  caller's organization, existing RLS); agency time zone (fails closed); exact cents; receipts aggregated before joins;
+  superseded excluded; held separate; month-crossing windows counted once by start; unknown dates go to review.
+- **Verification.** PostgreSQL 16.15: guards, inventory (5 reads, 2 indexes, 173 existing objects unchanged), the new
+  suite (cards = independent recomputation; every drill-down walked across pagination equals its card; statuses;
+  reassignment; same-org, cross-org and Agency Group peer isolation; 42501 / 55000 / 22023; reads write nothing),
+  rollback/reapply, PostgREST 12.2.3 (13 + 9 checks); all Phase 2A suites still pass. Frontend: full Vitest
+  identical to `main` apart from the new tests (inert env 6,010 tests with only `recordingRetentionVoicemail` failing,
+  as on `main`; no env the same 10 files as on `main`), app typecheck diagnostics identical to `main`, `npx tsc
+  --noEmit`, scoped ESLint, build and `git diff --check` clean. Screenshots at 1440 and 390 px, light and dark, in
+  `docs/plans/2026-10-20-commissions-center/screenshots/`. Record: that folder's `verification.md`.
+- **Records reconciled.** Phase 2A Gate 4 (PR #469, merge `0312520`) is now recorded as released in AGENT_RULES, the
+  root plan, the Phase 2A plan and `verification.md` §16; AGENT_RULES gains the Commissions center invariant.
+- **Open gates.** Gate 2: production apply of `20261020180000` (separate approval; steps in `verification.md` §10).
+  Gate 3: merge and frontend release, only after Gate 2. For Chris: the reused Calculator still shows the contract
+  level and grid disclaimer. Unchanged: the preview conversion `2325bc9d` / `7e2c476a` awaits classification.
+
+## 2026-10-20 — Personal agency display branding
+
+Chris requested independent agency branding for individual agents. Optional Agency / Brand Name is saved per agent in the UV setup flow, with blank restoring the registered agency name. Existing agency membership, shared names, slugs/URLs, credentials, permissions, A2P and protected/consent-linked profiles stay unchanged. The sender uses the personal name as display text; the receiver still requires the registered organization and exact agency slug. Old clients preserve saved branding when omitting the optional field.
+
+Validation: 44 focused frontend tests; 11 isolated real-migration SQL scenarios; 25 paired SQL/signed-handler scenarios passed on PGlite. Root TypeScript and scoped lint pass. Production/CI evidence is recorded on the paired PRs; this entry alone is not deployment evidence. No RLS or Edge Function changes. Plan: docs/plans/2026-10-20-uv-personal-brand/implementation_plan.md.
+
+## 2026-10-20 05:36 UTC — LIVE (database only): Phase 2A expected-windows migration `20261020040000`
+
+Chris approved Gate 3b only for PR #469 (source `cb0cdfc9ac4d55018c0c7517e538dafda1f41a88`). Applied
+`supabase/migrations/20261020040000_policy_commission_expected_windows.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it
+as **`20261020040000 / policy_commission_expected_windows`**: the stored statement's SHA-256
+`10897ad6123dc052e5cbe5340a821e3ce8595f99f1448e74832e18fb2d0a5ea8`, MD5 `44f590529c0a8bb574f253cc392eb78f` and 45,440
+bytes equal the file. Committed 05:36:31.86 UTC. No merge, deployment, preview-access change, backfill or production test
+write. Do not edit, rename or replay it (or `20261019170000`).
+
+- **Preflight (read-only):** base migration unchanged; 15/15 prerequisite fingerprints; new version, columns and helpers
+  absent; the one estimate satisfied the new checks; writer SET/membership and the two event triggers checked; no
+  concurrent session, lock or schema release; fingerprints, catalog, row digests and advisors (253 / 451) saved.
+- **Method:** the Gate 3 version-preserving wrapper (MD5/SHA-256/length gate, version and base checks, `EXECUTE` of the
+  unchanged text, back-to-`postgres` check, history row), rehearsed locally with replica event triggers: identical
+  dumps, triggers ran as the writer, replay / one byte / held lock each refused.
+- **Read-back:** exactly the intended change (8 bodies replaced with owners and ACLs unchanged, 4 writer-only helpers, 4
+  columns with writer-only UPDATE, rebuilt timing check, new schedule check, RLS and policies unchanged, writer has no
+  CREATE); digests equal the local reference; 7/7 sale writers unchanged; all other objects identical; every commission
+  row preserved, new columns at defaults, no writes; estimate `7e2c476a` and client `2325bc9d` untouched (still "Date
+  needed"); helpers give the reviewed dates on 17.6. Advisor delta: none added or removed.
+- **Correction:** the `cb0cdfc` 100-policy benchmark recorded a median of **99.5/100** estimates, not 100/100; the rest
+  are `budget_exhausted` captures, recoverable by confirmation (handoff suite "Aggregate budget").
+- **Repeated approval (14:57 UTC):** the same Gate 3b approval arrived again; not reapplied (version and objects already
+  present). A read-only re-check matched the post-apply read-back exactly (catalog, fingerprints, data, no writes,
+  advisors 253 / 451 with no delta).
+- **Open gates:** Agent own-client read on the updated preview (read-only; no share link until authorized); Gate 4;
+  classification of `2325bc9d` / `7e2c476a`. Record: `verification.md` §15.
+
+## 2026-10-20 — Phase 2A §13.7: simpler commission copy and expected date windows (local only; NOT live)
+
+Chris approved local implementation of plan §13 with the date-basis safeguard (§13.7) on draft PR #469. Production
+migration, merge, deployment, production-data cleanup and production test writes are not approved. Nothing hosted was
+queried or changed; migration `20261019170000` is untouched (SHA-256 `b3e4d53f…011f1f`).
+
+- **Dates.** New migration `20261020040000_policy_commission_expected_windows.sql` (SHA-256 `10897ad6…0a5ea8`, 45,440
+  bytes; guarded rollback). When an estimate is saved the server assumes the start from that policy's own Effective
+  Date — never Draft Date (the next scheduled draft) or another policy's dates — and saves windows of the 1st–3rd
+  Federal Reserve business day after each premium date (Advance; Months 10–12 at +9/+10/+11 months, clamped).
+  Non-monthly premiums get only the Advance window. Edit dates confirms the effective date, sets a first premium date
+  or clears it; manual payment dates (including "Date needed") always win; `automatic` returns a payment to the
+  schedule. Reads never write; no backfill; replacement carries the saved schedule. Same RPC signatures, so generated
+  types are unchanged.
+- **Copy.** Estimated commission · Received · Remaining; Advance / Month 10–12; "Expected Oct 5 – 7, 2026" or "Date
+  needed"; Record payment, Edit date, Edit dates; one ⓘ note. Pay-grid breakdown (`CommissionBasis.tsx`) and repeated
+  explanations removed; saved calculation provenance unchanged. Responses from before the migration still parse.
+- **Verification.** Disposable PostgreSQL 16.15: guards, inventory (8 bodies replaced, 4 writer-only helpers, 173
+  other objects unchanged), new suite (calendar 2000–2100, anchors, Draft Date ignored, frequencies, Edit dates,
+  overrides, carry, receipts, reads assign no transaction id, constraints, ACLs), existing suites, races, rollback
+  refusal/exact restore/reapply, PostgREST 12.2.3 (13 checks), advisors 93 → 93. Frontend: `npx tsc --noEmit` passes,
+  app typecheck identical to `main`, ESLint, build and `git diff --check` clean, CI set 523 passed, full Vitest 5,930
+  passed with the one failure that also fails on `main` (`recordingRetentionVoicemail` v29). Screenshots in
+  `docs/plans/2026-10-19-policy-commission-phase-2a/screenshots/s13-*`. Record: `verification.md` §14.
+- **Open gates.** Gate 3b (production apply of `20261020040000`, before Gate 4); Agent own-client read on the updated
+  preview (read-only; no share link until authorized); Gate 4 (merge and frontend release). The 02:10 UTC preview
+  conversion (client `2325bc9d`, estimate `7e2c476a`) still awaits Chris's classification and was not touched.
+
+## 2026-10-19 22:08 UTC — LIVE (database only): Phase 2A commission tracking migration `20261019170000`
+
+Chris approved Gate 3 only for PR #469 (source `fc05082b11573fbb88c50c429fd5c1867b8cfb98`). Applied
+`supabase/migrations/20261019170000_policy_commission_tracking.sql` once to `jncvvsvckxhqgqvkppmj` and recorded it as
+**`20261019170000 / policy_commission_tracking`**: the stored statement's SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`, MD5 `689a0a41d3d3c124cb97e9640305831a` and 119,951
+bytes equal the file. Do not edit, rename or replay it. No merge, deployment, Vercel change or production test write.
+
+Preflight (read-only): AGENT_RULES/VISION/WORK_LOG re-read, no conflict; `main` unchanged at `84ba4f6`; seven preimage
+md5s matched; no new object existed; version free, latest was `20261019035819`; no lock waits, other sessions or
+pending schema release; existing-object fingerprints and advisor baselines (240 security / 432 performance) saved.
+Because `apply_migration` stamps its own version, the hosted SQL endpoint ran one transaction: the file's own
+`lock_timeout 1s` / `statement_timeout 60s`, then a block that refused unless the text's MD5, SHA-256 and length equal
+the reviewed file, refused if the version existed, executed the text unchanged and inserted the history row. Rehearsed
+on disposable PostgreSQL 16.15 first (schema identical to applying the file directly; replay, tampering and a held lock
+all refused with nothing left behind). It succeeded first time between 22:02:32 and 22:08:47 UTC.
+
+Read-back: every existing-object fingerprint is unchanged except the intended writer USAGE on `public`/`private`; the
+seven writer definitions are unchanged; the new objects equal a locally migrated reference (36 functions, 6 tables,
+88 constraints, 33 indexes including a valid `wins_commission_link_key`, 22 policies, 13 triggers, RLS on all six);
+tables grant only `authenticated` SELECT and the writer SELECT/INSERT plus 24 named UPDATE columns; no anon,
+service_role or PUBLIC access; the writer is NOLOGIN/NOBYPASSRLS with `postgres` its only member and no grant on any
+existing object. All six tables have 0 rows and no writes. Advisors: +13 intended authenticated SECURITY DEFINER
+WARNs, +13 unused-index INFOs on the new tables, and +12 `multiple_permissive_policies` WARNs naming the writer on
+eight existing `{public}`-policy tables, reviewed: the same 12 already exist for every other role, the writer has no
+privilege on those tables, and no policy changed. Nothing removed.
+
+PR #469 stays draft; its notes carry the final-head (`fc05082`, job `118281521488`) save measurements with the earlier
+`b599c96` run labelled. The deployed frontend still uses the legacy writers, so nothing writes the new tables yet.
+Outstanding, each needing separate approval: signed-in acceptance; Gate 4 (merge, frontend release, types regenerated
+from production). Do not test sales or commissions through any preview connected to production. Record:
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md` §13.
+
+---
+
+## 2026-10-19 — Phase 2A correction pass on draft PR #469 (NOT live)
+
+Chris approved a draft PR plus scoped corrections (reviewed checkpoint `d262d9a`; plan §12). Draft PR #469 targets
+`main` `84ba4f6`; it stays draft. No production migration, RLS/grant change, production read or write, merge or
+deployment happened.
+
+Corrections: (1) a tracking write whose outcome is unknown (payment, void, timing, hold, schedule, estimate, confirm,
+dismiss) now survives dialog dismissal and remount in an in-memory registry scoped to the signed-in user and
+organization; restart refuses, Retry resends the exact call and request id, permission/sign-in/transport errors keep it
+unresolved, stale responses after an identity change are ignored, and opening a dialog re-reads the commission data
+(regression: a committed payment whose response was lost is never recorded twice). (2) The payment amount follows the
+selected installment while untouched and an edited amount is cleared on a switch. (3) Recording an estimate later while
+the sale-time capture is open marks it `superseded` with `resolved_by_estimate_id` (never confirmed); confirm and
+record-later serialize per policy (both race orders tested). (4) Wording: 25 policies is a benchmark; 250 ms is a soft
+calculation-start budget; 100 stays the defensive slot cap. (5) The 14 new RPC types equal postgres-meta output from the
+disposable migrated schema. (6) ConvertLeadModal layout restored one existing type diagnostic to its base position for
+`uv-profile-sync.yml`.
+
+Migration SHA-256 now b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f (rollback gains one statement).
+PostgreSQL 17.6 CI: all database proofs and 12 PostgREST checks pass; save overhead p50 +2.43 ms (1 policy), +5.83 (5),
++24.72 (25), +112.91 (100, total 124.75 p50 / 139.86 max, 100/100 recorded); empty payload +0.54; commission tables
+locked 103.33 (sale saved without commission); grid row locked 6.95 (not blocked). Local: full Vitest without env equals
+the baseline failures, inert env only the pre-existing failure, app typecheck output identical to base, ESLint 0
+errors, build passes, 22/22 in-browser payment checks. Authenticated end-to-end acceptance remains outstanding.
+Evidence: `docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`.
+
+---
+
+## 2026-10-19 — Phase 2A saved policy commissions (built and verified locally; NOT live)
+
+Chris approved local implementation and disposable-database testing of the companion-function architecture on
+2026-10-19 (branch `claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; commits `a949cf8` plan, `edf1938` database,
+`efd0592` frontend, `89765b0` fixes, then the docs commit). No production migration, RLS/grant change, production read
+or write, merge or deployment happened. Contract: `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`;
+evidence: `verification.md` and `screenshots/` beside it.
+
+Built: migration `20261019170000_policy_commission_tracking.sql` (SHA-256
+a5cf9c7dc15ac6bdee12fa83cff9676b8fd70009d32f96af44af826f1fea67c5) with a guarded rollback. Four postgres-owned
+companions delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the
+commission inputs shown at sale (bounded savepoint, soft 250 ms calculation-start budget, 100-slot cap; commission problems
+never fail a sale). Six RLS tables hold evidence, captures, immutable estimates, the four expected installments
+(Advance 75%, Month 10, 11, 12), manual receipts and audit events; eight tracking RPCs owned by the NOLOGIN/NOBYPASSRLS
+`agentflow_policy_commission_writer` are the only write path, with Own/Others permissions enforced on the server.
+Record Policy, Add/Edit Client and Convert Lead now save through the companions (an explicit empty payload when no
+estimate was shown); unknown outcomes freeze the exact submission in memory and Retry replays it; conflicts are
+closeable, never editable. The contact view shows a compact Commission section per policy with payments, voids and
+replacements, timing, schedule start, holds and estimate replacement. Estimates are illustrative and receipts are
+manual records; neither is carrier-verified (new AGENT_RULES invariant).
+
+Validation: full database runner on PostgreSQL 16.15 passes (guards, 173-object inventory, security/handoff/tracking
+suites, independent-session races and lock contention, existing sale/identity suites, rollback/reapply) plus 12 real
+PostgREST 12.2.3 + supabase-js checks. Server overhead p50: +4.6 ms (1 policy), +14.6 ms (5), +61.6 ms (25, benchmark
+— corrected from "supported boundary" on 2026-10-19); HTTP +4.9/+12.2/+53.4 ms; at the 100-slot cap saves reach about 0.4 s worst case (only the calculation is
+budgeted; no timeout raised). Local advisor lints add only the 13 by-design SECURITY DEFINER warnings and fresh-index
+notices. Frontend: full Vitest without Supabase env matches the baseline exactly (same 10 files/1 test, +81 passing);
+inert-env run fails only the pre-existing `recordingRetentionVoicemail`; app tsc diagnostics identical (84); root tsc,
+ESLint (0 errors), build and diff check pass; desktop/mobile light/dark screenshots captured. Not yet run: the
+PostgreSQL 17.6 CI workflow (needs a PR) and an authenticated end-to-end browser session. TwilioContext and dialer
+code reviewed, unchanged.
+
+---
+
+## 2026-10-19 — Agent profile header actions
+
+Chris requested that UV actions move into the right-hand profile header row and that the duplicate Profile settings action be removed. ProfileHero now accepts an optional action slot; AgentProfileTab places the existing UV component there once. View Agent Page, Copy Link and Edit profile share a wrapping action row and 44px height. The verified badge and all existing UV access/navigation behavior remain unchanged. The browser fixture now renders the real profile hero for desktop/mobile inspection.
+
+Validation: 44 existing focused tests, root TypeScript, scoped ESLint and whitespace checks passed. React review: composed slot, no new effects or requests, accessible existing controls, unchanged data guards. Exact-head preview/browser and production evidence will be recorded on the PR. No backend, data, A2P or other feature changes. Plan: docs/plans/2026-10-19-uv-action-row/implementation_plan.md.
+
+## 2026-10-19 — Clear agent page navigation label
+
+Chris approved View Agent Page at 22:00 PDT October 18. Updated only the shared navigation label (including disabled state) and existing test/browser selectors. Underwriter Verified remains the section/group identity; Copy Link, soft emerald styling, URLs, verification and copy behavior remain unchanged.
+
+Validation: 44 existing focused tests, root TypeScript, scoped lint and whitespace checks passed. Preview and live served-label evidence are recorded on the PR. No new tests, backend, data or A2P changes. Plan: docs/plans/2026-10-19-uv-agent-page-label/implementation_plan.md.
+
+---
+
+## 2026-10-19 — Soft emerald UV navigation actions
+
+Chris selected option 1 from the displayed light/dark button comparison at 21:30 PDT October 18. The shared actions now use a soft emerald View UV Page button and an outlined Copy Link button, with 44px targets, rounded corners and matching dark-mode colors. Canonical URLs, copy feedback, disabled states and verified status are unchanged. This applies to Agent Profile, Settings and wizard completion. No backend, sync, A2P, profile data or unrelated button changes.
+
+Validation: 44 existing profile/wizard tests pass; root TypeScript, scoped ESLint and diff whitespace checks pass. Existing browser fixtures use the new labels and capture desktop/mobile light/dark action states. Exact-head CI, screenshots and production deployment evidence are recorded on the release PR. Plan: docs/plans/2026-10-19-uv-emerald-actions/implementation_plan.md.
+
+---
+
+## 2026-10-19 — UV profile verification wizard (prepared; NOT live)
+
+Chris requested an expiration-free profile confirmation wizard, optional bio, green completion badges and new buttons at 20:19 PDT October 18. Scoped implementation is on `codex/uv-verification-wizard-20261019`; production migration/Edge/frontend release remains gated.
+
+AF now prefills a three-step Settings wizard, validates photo/full name/phone/email/NPN/canonical numbered state license, atomically saves confirmation and bio, and shows success only after the matching published acknowledgment. Profile navigation uses dark slate and outlined copy actions with emerald status. Missing required fields remove the derived badge on subsequent saved changes. Dates remain stored but do not gate profile confirmation or schedule expiry work. Badge means agent-confirmed profile completeness, not independent license verification. Account/tenant changes fail closed; optimistic snapshots reject stale overwrites. Existing status RPC stays compatible for old clients.
+
+UV accepts optional signed bio/profile_verified fields, displays the explicit server-owned managed badge, and protects managed bio/verification from client writes. Managed pages retain contact-only capabilities. Protected CG Financial/A2P identity, intake, consent, ownership, source activation, RLS, messaging and dialer are unchanged.
+
+Initial validation: AF 120 focused frontend tests; UV 125 full-suite tests; 25 paired SQL/real-handler scenarios and 10 new wizard SQL scenarios on isolated PGlite; builds pass. Exact-head native/browser CI remains required before release. See `docs/plans/2026-10-19-uv-verification/implementation_plan.md` and `release.md`. No production writes or secrets accessed.
+
+---
+
+## 2026-10-19 — Gold UV profile actions and Settings-only preferences
+
+Chris requested gold UV buttons, no publishing/settings control on Agent Profile, and a public layout matching his existing page. Agent Profile now renders only gold Underwriter Verified (open page) and Copy link actions. Unpublished pages show disabled actions without invented links. Publication/contact controls remain in Settings > My Profile. The protected own-account page receives both navigation actions without enrollment or any sync RPC. Existing authorization, source guards, publication choices and save-driven synchronization are unchanged.
+
+Validation: 42 focused tests pass; root TypeScript, scoped lint and production build pass. Browser fixture now switches between Settings and Agent Profile and asserts no settings controls on Agent Profile. Both paired jobs pin UV 34261179f3f64dd110396a31f9845568cb2d79e1 (shared layout companion PR #22). Exact-base app TypeScript and full required checks run in CI. No backend, credentials, profile data, RLS, A2P, SMS or dialer changes. Scoped plan: docs/plans/2026-10-19-uv-presentation/implementation_plan.md.
+
+## 2026-10-19 02:21 UTC — LIVE: save-driven UV sync and protected page access
+
+Chris approved publication, exact migration application and frontend release on October 18 at 19:02 PDT, reaffirmed at 19:03. PR #462 merged as c79a1280a6f8f7b3342bfc597b68b96f83d450fc from verified head 92bd4c189c6ac687fbef56940bb2396a2be49f37. Vercel production dpl_AznU7guUBZTPih9WnKw1qGMn8PkJ is READY and assigned to www.fflagent.com. Git CLI had no push credentials, so the connected GitHub account published blobs with exact SHA checks and a tree identical to the local candidate. No approval bypass.
+
+Applied source migration 20261019015242_uv_profile_save_driven.sql as hosted **20261019021934_uv_profile_save_driven**. SHA-256 remains 4b2dd7a14a1d8a18586d61e7cd7dbbbd692f79d90efb5d055bdd37ff8ae1accd; stored SQL MD5 76ff22597fefad9b04b6ba98b217507b matches. All seven expected function bodies match, all nine new triggers are enabled, new private helpers have no anon/authenticated/service_role EXECUTE access, and the existing finish RPC ACL is unchanged. Job 14 retains its identity/schedule/owner but now executes only `SELECT private.dispatch_uv_profile_sync();`. Successful queue rows stop until a new event or stored license-expiration deadline; failed work keeps backoff. New private placeholders stay dormant.
+
+Actual scheduled runs 192074 at02:20 and 192081 at02:21 succeeded with an empty queue and **zero new UV worker responses** after request45405. This verifies idle scheduling without empty Edge calls, not a signed live-agent publication. All existing RLS policies, unrelated cron jobs, protected AF profile and both exclusion registries retain their fingerprints. Protected UV agent fingerprint c5f500770807d42caacb6136ce5b17b1 unchanged. Security advisors remain 7 with no new findings. No A2P, SMS, Twilio, consent, credentials or UV receiver code/data changed.
+
+All five workflows passed on the final head: UV39188508143 (109 frontend tests, 25 native paired scenarios including concurrent claims, 15 new save-driven SQL scenarios, complete Edge Deno typechecks and desktop/mobile browser fixture); Reporting39188508141; Dialer DNC39188508147; SMS consent39188508129; Reports frontend39188508132. Both Vercel previews passed. Supabase Preview alone skipped because the existing preview-branch limit was reached. Initial native test adapter mistakes (Result-array prototype comparison and JSON serialization) were corrected without changing runtime code or the approved migration.
+
+The protected own-account UI now links to the existing CG Financial page under Underwriter Verified → View, without enrollment or publishing controls. Other agents retain explicit opt-in/contact choice; shared data updates are queued after committed saves. Settled status polling is off, with only a bounded pending window and manual Refresh. Chris will perform live-agent acceptance after release; no authenticated production save/publish test is claimed. Detailed evidence is in production-evidence.json. This completed release supersedes earlier pending/approval-hold notes below.
+
+## 2026-10-19 — Prepared save-driven UV sync and protected owner View button
+
+Chris approved replacing constant profile checks with updates after Profile Information saves and asked for his missing UV button. Prepared branch `codex/uv-save-driven-20261019` atop fd076ee. No remote publication, backend apply, merge or deploy in this task. The current live minute worker is unchanged until cutover.
+
+Candidate migration `20261019015242_uv_profile_save_driven.sql` (SHA-256 4b2dd7a14a1d8a18586d61e7cd7dbbbd692f79d90efb5d055bdd37ff8ae1accd) queues relevant committed profile/photo/license/preference changes, dispatches asynchronously, and stops successful rows until a new event or known license deadline. Idle cron only checks the due index, with no empty Edge invocation. Lifecycle withdrawals, leases, retries, tenant isolation, existing ACLs and exclusions remain. Core saves never wait for network delivery. New private placeholders do not cause duplicate first-save dispatches.
+
+Chris's exact protected own-account scope receives a navigation-only View link to the existing CG Financial evidence page; no sync settings/RPC/enrollment. Settled UI polling stops, pending refresh is capped at 30 seconds. No A2P, Twilio, consent, UV receiver or protected page modification.
+
+Verification: 109 frontend tests, 15 new-migration PGlite scenarios, 24 existing paired PGlite scenarios, root TypeScript, exact-base app diagnostic comparison (no new errors), scoped lint, Vite build and diff check passed. Native SQL and production/browser acceptance not claimed; new tests added to existing native CI. Prior automatic approval review blocked repository pushes; no bypass/retry in this task. Exact release package, changed-file scope and remaining publication/production authorization are in `docs/plans/2026-10-19-uv-save-driven/`.
+
+## 2026-10-19 01:41 UTC — LIVE: agency UV profile connection and one-minute worker
+
+Chris explicitly approved dashboard setup and live activation, and moved acceptance testing to after launch. Production activation is complete for organization a0000000-0000-0000-0000-000000000001 (Family First Life - Chris Garness), public agency slug ffl-chris-garness. AF source enabled; UV source enabled with allow_provisioning=true for ownerless contact cards. Six Active, nonexcluded profiles are eligible to opt in themselves. No publication/contact preference or profile mapping was seeded.
+
+Applied only UV source migration hosted20261019013920_agentflow_agency_profile_activation (source20261019013821; MD5 b1473a5cc095c4f5725a35142142a00c) and AF source/schedule migration hosted20261019014028_uv_agency_profile_activation (source20261019013824; MD5 4ae04fed85aea0f47bad1d370cba6dd2). Stored SQL matches source. No RLS/function/schema definition changes, Edge deploy, frontend deploy, or consumer intake submission. UV_PROFILE_SYNC_ENABLED=true saved in AF dashboard. Owner securely rotated dedicated worker credential and saved matching Vault uv_profile_worker_token, confirmed >=32 characters. Signing secret unchanged. Secret values were never read or logged. An unused lowercase uv_profile_worker_token Edge secret was added by owner during setup and left untouched.
+
+Verification: authenticated disabled probe45267 HTTP200 enabled:false; enabled probe45276 HTTP200 {synced:0,unchanged:0,failed:0,superseded:0}. Cron job14 uv-profile-sync-every-minute is active, schedule * * * * *, postgres-owned, references Vault dynamically with a fixed AF worker URL. Automatic run191865 at01:41:00 UTC succeeded; HTTP response45278 returned200 and all counters0. Queue was empty: this proves worker authentication, activation and scheduler execution, NOT signed profile delivery or end-user acceptance. Source counts1 each; mappings/nonces/sync rows0. Existing 12 cron jobs remain byte-identical.
+
+Fresh before/after hashes match for protected AF profile, pre-existing organizations, Twilio provisioning config, protected UV agent, consent events, suppressions, sender links, disclosures and intakes. Both protected exclusions preserved. Security advisor findings are unchanged excluding observation timestamps. No A2P/SMS settings were modified. Prior isolated organization setup remains intact (hosted20261019005810; provisioning trigger enabled and notifications skipped).
+
+UI: Public profile beneath Agent Profile header and beneath personal info in Settings > My Profile. Only the signed-in agent's own account can operate it; View As is intentionally hidden. Chris's protected account remains excluded and will not display this control. New cards need at least one chosen public contact channel; agents choose publication and contact visibility. Edits should sync on later worker cycles; five profiles per run, retries can delay updates. No automatic identity/license verification is implied.
+
+Files: new activation migration per repo; feature-scoped plan/release/verification and WORK_LOG; AF live-activation-evidence.json. Existing runtime and shared protocol unchanged. git diff --check passes. Requested root TypeScript command attempted but unavailable offline (ENOTCACHED, dependencies absent); no frontend/Edge source was changed. Existing feature CI evidence is historical, not rerun here. No signed-in hosted publish/edit/withdraw, tenant-isolation acceptance, or photo/contact removal test claimed; Chris will perform live tests.
+
+Recovery: disable new source publication if needed but keep worker running to deliver necessary withdrawals; never erase mappings, versions, durable retries or consent data. Disabling the frontend alone does not withdraw public data. No further release approval required for this completed activation. Wider agency enrollment is outside scope.
+
+## 2026-10-19 00:13 UTC — AF backend guards applied and verified; synchronization OFF
+
+Chris explicitly approved `APPROVE_RLS_CHANGE — AF backend guards` at 17:12 PDT on October 18. Applied only AF project `jncvvsvckxhqgqvkppmj` source `supabase/migrations/20261018170007_uv_profile_exclusions.sql`, SHA-256 `b3ce50dd666064acaf0ccfae43dbef9491b47ef9ace7bee40143c380fe562108`, reviewed at PR #460 head `ee539da635db13043e08718462f84cd504408ab2`. Hosted version: **`20261019001339_uv_profile_exclusions`**. Stored migration SQL is byte-identical. Do not replay, rename or edit the applied file.
+
+Fresh preflight matched all five live profile-sync function bodies to the original reviewed migration. Post-apply get_my_uv_profile, set_my_uv_profile, claim_uv_profile_sync and prepare_uv_profile_sync bodies match the guard candidate; finish_uv_profile_sync is unchanged. All five existing EXECUTE ACLs and empty search_paths are unchanged: self get/set remain authenticated-only; worker claim/prepare/finish remain service_role-only. New private.uv_profile_exclusions has RLS, zero policies, postgres-only direct ACLs and zero rows. SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER are denied to anon, authenticated and service_role. A read-only authenticated-role transaction without an identity confirmed get_my_uv_profile raises 42501/profile_scope_unavailable; rolled back without writes.
+
+All pre-existing public/private RLS policies, triggers, table grants/RLS flags and other function definitions/ACLs retain identical catalog fingerprints. All 12 cron jobs are unchanged (hash e0d72147a13744eefc4ac695e81484b1); feature schedules remain zero. Protected AF profile ecf2bb91-0350-4542-85ec-14d914311e99 remains in organization a0000000-0000-0000-0000-000000000001 with unchanged fingerprint fe940abc4db80684593861e2f06942f7. AF sources/profiles/exclusions remain zero. UV sources/links/exclusions remain zero; protected CG Financial row fingerprint remains 518f8a8b78ca758b2fc9de5895b544a0. No A2P settings, sender mapping, contact/legal content, consent or STOP records were changed.
+
+Advisor diff is exactly one intentional private RLS/no-policy INFO (29 to 30); no findings removed and no new WARN/ERROR. Existing 2 public-RLS-disabled errors, 22 mutable-search-path, 3 public-extension, 57 anon/122 authenticated definer and 1 password-protection warnings remain unrelated. All performance findings are unchanged. [Private RLS/no-policy advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+
+Both backend guard migrations are now installed: AF 20261019001339 and UV 20261018225009. No Edge deployment, credential, source registration, mapping, exclusion seed, frontend merge/release, scheduler or activation occurred. Worker remains last configured false; provisioning remains off. Original v1 worker/receiver and authentication are retained. Last verified canonical frontend deployments remain AF dpl_CECKGd473WSMVC2Bij2gwyJPzq11 at d8ee8431326f1f6a8559f840b3f4ac21bb481e47 and UV dpl_EdXVAX2B2ZQBhpsSj7xYNmQE8DA6 at f0ed74b2f3bba5e65d1f524857e1b608f91b2bf8.
+
+Reviewed code CI: AF ee539da635db13043e08718462f84cd504408ab2 profile39174184178, Reporting39174184316, Dialer39174184242 and SMS39174184342 all passed; UV93a98c3fba77b8140b178bd30dbf313a7d1f2dda run39174182190 passed. Coverage retains 98 AF tests, 123 UV tests, 25 native paired scenarios/concurrency, complete Deno checks and desktop/mobile fixtures. Broader local Reports comparison retains 5,717 passes on both sides, one inherited failure across ten files, 84 inherited app diagnostics and zero unhandled errors. This evidence update changes only scoped plan/release/verification and newest-first WORK_LOG in both repositories; subsequent documentation-head CI is recorded on the PRs without another evidence commit. Runtime, SQL, shared files, workflow/peer pin, root plan and AGENT_RULES are unchanged.
+
+Next separate approval: **protected-profile exclusion seed in both projects**. Insert only organization_id a0000000-0000-0000-0000-000000000001 / profile_id ecf2bb91-0350-4542-85ec-14d914311e99 into AF private.uv_profile_exclusions and UV private.agentflow_profile_exclusions with ON CONFLICT DO NOTHING, then read back. This blocks profile synchronization and does not link, publish, withdraw or edit the existing UV page. Exact frontend releases, synthetic hosted pilot, source/activation/scheduler and wider enrollment remain separate gates. Signed hosted publication/edit/withdrawal is still unverified; the complete production workflow is not live.
+
+Rollback: none needed. Keep additive guards and worker off; preserve durable mappings, versions, withdrawals and consent/STOP records. Any SQL-function reversal requires a reviewed exact preimage and separate approval.
+
+
+## 2026-10-18 22:50 UTC — UV backend guards applied and verified; synchronization OFF
+
+Chris explicitly approved `#APPROVE_RLS_CHANGE — UV backend guards`. Applied only UV project `jzdzeevjpootbeuniygx` migration `supabase/migrations/20261018170007_agentflow_contact_cards.sql`, SHA-256 `19c6185a54afc28cbb9f25d0dee1da82e29716626f98f78e5a6f61cde31a0382`, reviewed at PR #20 head `629f6580601387a4f0126d163e2614fe6ccde57c`. Supabase recorded it as **`20261018225009_agentflow_contact_cards`**. Hosted stored SQL is byte-identical to the approved file; preserve this source/hosted mapping and never replay or edit the applied file.
+
+Fresh preflight matched the live receiver to the original migration and proved the intake replacement changes only its managed-page guard and FOR SHARE row lock. Post-apply function bodies match the candidate exactly; both existing EXECUTE ACLs and search_paths are unchanged. Receiver remains service_role-only. Intake remains anon/authenticated-callable, with owned/unmanaged behavior preserved. The new private exclusion table has RLS, zero policies, postgres-only direct ACLs and no anon/authenticated/service_role SELECT/INSERT/UPDATE/DELETE grants. Its row count is zero. Generated contact_card_only equals managed_by_agentflow AND user_id IS NULL; the canonical CG Financial page evaluates false.
+
+All existing agents (2), consent links (1), consent events (4), STOP/suppression records (1), disclosure versions (2) and intake requests (2) retain identical aggregate fingerprints. Protected agent e7c2f35a-e215-4e9e-9492-176a344384eb retains fingerprint `518f8a8b78ca758b2fc9de5895b544a0` when excluding the new generated column; ownership, publication, contact/legal content and consent linkage are unchanged. Browser readback at https://www.underwriterverified.com/cg-financial/christopher-garness loads its existing profile, photo element, biography, reviews, legal links and two unchecked consent boxes. No consumer form was submitted and no SMS was sent.
+
+Security advisors: intentional private-table RLS/no-policy INFO increases 10 to 11; all five existing warnings are unchanged (extension 1, anon definer 1, authenticated definers 2, leaked-password protection 1), with no new WARN/ERROR. Performance advisor counts are unchanged: unindexed FK INFO 2, auth RLS init-plan WARN 6, unused index INFO 3, multiple permissive policies WARN 1. [Private RLS/no-policy advisor reference](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy). No unrelated advisor remediation was attempted.
+
+UV sources/links/nonces/exclusions remain 0. AF readback confirms sources/profiles/feature schedules 0, its exclusion table absent and follow-up migration unapplied. Worker activation remains last configured false; no credentials, Edge deployments, mappings, enrollment, exclusion seed, frontend release or schedule were changed. Canonical production deployments freshly remain READY: AF `dpl_CECKGd473WSMVC2Bij2gwyJPzq11` at `d8ee8431326f1f6a8559f840b3f4ac21bb481e47`; UV `dpl_EdXVAX2B2ZQBhpsSj7xYNmQE8DA6` at `f0ed74b2f3bba5e65d1f524857e1b608f91b2bf8`. Original worker/receiver v1 and authentication configuration are retained.
+
+Verification retained: AF `0e4becdd79a59ea2769fc864e174031e852fe747` profile run 39172671916 passed 98 frontend tests, 25 native PostgreSQL scenarios/concurrency, complete Deno checks, TypeScript, lint/build and desktop/mobile acceptance (artifact 12153540096). UV `629f6580601387a4f0126d163e2614fe6ccde57c` run 39172376042 passed 123 tests, all TypeScript projects, lint/build. Full Reports local comparison retained 5,717 passes on both sides, one inherited failure across ten files, 84 inherited app diagnostics and zero unhandled errors; no regression. This record changes documentation only; subsequent documentation-head CI status is recorded on PR #460/#20 without another evidence commit. The paired workflow retains the exact tested UV runtime pin; documentation changes do not change either SQL/shared/runtime tree.
+
+Next exact gate: **`#APPROVE_RLS_CHANGE — AF backend guards`**, project `jncvvsvckxhqgqvkppmj`, file `20261018170007_uv_profile_exclusions.sql`, SHA-256 `b3ce50dd666064acaf0ccfae43dbef9491b47ef9ace7bee40143c380fe562108`. Only add its private RLS/revoked-access exclusion table and replace get_my_uv_profile, set_my_uv_profile, claim_uv_profile_sync and prepare_uv_profile_sync while preserving their ACLs. No Edge deployment or credentials. The exact protected-profile exclusion seed, new frontend releases, bounded synthetic hosted pilot, activation/scheduler and wider enrollment remain separately unapproved. Keep provisioning off. Signed hosted publish/edit/withdraw and full production workflow are still unverified.
+
+Rollback: no rollback needed; retain additive guards, stable mappings/versions, withdrawal and consent/STOP records. Keep worker off and do not publish new pages. Any SQL-function reversal needs its own reviewed exact preimage and approval. Files updated in both repositories: scoped implementation_plan.md, release.md, verification.md and newest-first WORK_LOG.md; PR descriptions. No runtime, applied SQL, workflow, peer pin, unrelated root plan or AGENT_RULES changes.
+
+## Follow-up validation record — 2026-10-18 22:27 UTC
+Code candidates: AF 64114d0c876884fcef9a3535b010c6e2fda0fe3f (PR #460), paired UV f4dc34842d35259b5fd1a701849aeb8bef9f20cc (PR #20). AF workflow 39172134249 passed: 98 frontend tests, exact-base app TypeScript comparison, root TypeScript, scoped lint/build, 24 native PostgreSQL scenarios including concurrency, both complete Deno entrypoints, and browser acceptance at 1440/390 px. Browser artifact 12153106643 was downloaded and screenshots visually inspected; no overflow or misleading verification claim on contact cards. UV workflow 39148104476 passed: 123 tests, all TypeScript projects, changed-TypeScript lint and build. AF Reporting integrity 39172134189 and Dialer DNC 39172134370 passed. Broader Reports full-suite comparison and remaining integration status are recorded separately in PR descriptions when complete; do not infer they passed from these feature results.
+
+Live read-only checks: both projects reachable; no new migration/exclusion table, no source registration/enrollment/mapping/schedule. All five existing profile-sync function bodies match the reviewed baseline. UV intake replacement matches freshly retrieved live SQL except its specified guard/lock. Canonical A2P page remains published/unmanaged/consent-linked. Production deployments remain AF dpl_CECKGd473WSMVC2Bij2gwyJPzq11 and UV dpl_EdXVAX2B2ZQBhpsSj7xYNmQE8DA6. No production change occurred in this follow-up. The exact backend/exclusion-seed package is in scoped release.md; new production approvals remain necessary. Subsequent documentation/peer-pin commits preserve these tested runtime files and must receive final-head CI.
+
+## Safe rollout follow-up — 2026-10-18; isolated implementation approved
+Chris approved the scoped exclusion/contact-card plan at 16:58:56 UTC. This authorizes isolated implementation and synthetic tests only.
+
+Implemented: private exact organization/profile exclusions in get/set/claim/prepare; exclusions cannot create a withdrawal or alter protected remote pages. Paired tests now load both follow-up migrations and real intake SQL, exercise both exclusion registries, consent-linked publication/withdrawal/duplicate refusal, contact removal, ownerless intake refusal and unchanged owned synthetic intake. Browser fixtures cover real ownerless contact cards and direct booking/legal-route refusal. Fixtures explicitly use UTC to match production license-expiry semantics.
+
+Candidate migration: 20261018170007_uv_profile_exclusions.sql, SHA-256 b3ce50dd666064acaf0ccfae43dbef9491b47ef9ace7bee40143c380fe562108. Not applied. No real exclusion entries, source registrations, profiles, credentials, worker activation, schedule or production deployment changed.
+
+Validation: 98 AF focused tests, root TypeScript and build pass; UV 123 tests, root/app/node TypeScript, changed-TypeScript lint and build pass. Paired PGlite: 23 scenarios pass. Shared protocol/payload remain byte-identical. Native concurrency, full Deno, desktop/mobile browser and Reports comparison remain final-head CI gates. Local PostgreSQL installation is blocked by container permissions; browser archive is truncated/invalid; Deno dependency host unreachable. Do not label these checks passed.
+
+Next: final paired CI, separately approved exact migration/RLS/function package and protected UUID registry seed, new frontend release, then bounded synthetic pilot. Worker stays off and provisioning false. The canonical CG Financial A2P page stays excluded; no licensing reconciliation or real profile edit is required. Existing deployed Gate C heads remain unchanged. Rollback retains mapping IDs, versions and withdrawal records; keep exclusion guards and stop new publication without losing required withdrawals.
+
+Proposed repository invariant (not an AGENT_RULES edit): excluded identities must be unavailable in self-profile UI and rejected by direct enrollment/worker paths; exclusion is never automatic withdrawal.
+
+## Gate C released — 2026-10-18
+Chris approved “Approve Gate C frontend release” at 15:50:32 UTC (08:50:32 PDT). Both approved PRs merged using their expected head SHAs, UV first. Production is READY on both canonical domains:
+- UV PR #18: approved f604f3e46edd07976cf3b1d3e71b4fa1f67ae581; merge f0ed74b2f3bba5e65d1f524857e1b608f91b2bf8; tree 72b73aa3e19779198f34fcc1657ec0da6afe3663 equals the approved head; deployment dpl_EdXVAX2B2ZQBhpsSj7xYNmQE8DA6, project underwriterverified/prj_8B75x0g4FBYsP2uzSIEeCYHhMJSw.
+- AF PR #456: approved 1ab91fcdea16ac246e7b4a5eaffda1a745ca5c42; merge d8ee8431326f1f6a8559f840b3f4ac21bb481e47; tree 6fbd218a84236616f5b047c3dc81fb080333bc1e equals the approved head; deployment dpl_CECKGd473WSMVC2Bij2gwyJPzq11, project agentflow/prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc.
+- Both projects use team_iPboOWpwdIQRwdxmA5GJp5Rq. Only AF Production Config VITE_UV_PROFILE_ENABLED=true was added through the explicitly approved dashboard fallback and read back. The served AF bundle contains that true value and get_my_uv_profile. No Preview/Development/shared variable or unrelated project was changed.
+
+Verification: canonical HTTP200 documents reference AF index-B3oyhWos.js and UV index-CmjJJt6y.js, both assets HTTP200; UV asset contains is_published. Browser checks passed AF landing/login and UV canonical profile with loaded 400x341 photo, preserved contact/NPN/five licenses/biography/reviews/legal links and unchecked consent boxes. Public surname search Garness returns the canonical profile. Existing limitation: single-space full-name search fails because the live name is “Christopher  Garness” (two ASCII spaces); read-only SQL confirms it, and the only search-code delta from base is is_published=true. No identity/data correction was made. Profile URL: https://www.underwriterverified.com/cg-financial/christopher-garness ; search: https://www.underwriterverified.com/search ; AF: https://www.fflagent.com/login . Open Graph title/canonical/photo metadata remain present, response no-store. Per-deployment error/fatal runtime logs returned no entries in the 15-minute release window; this is a bounded observation.
+
+Premerge CI reconfirmed: AF profile39132624537, Reports39132624552/job117690716421/artifact12139410709 and all six integrations passed; UV39132628709 passed. Reports baseline retained5696/5718 passing tests, unchanged1 failed test across10 failed files,84 inherited app diagnostics,0 unhandled errors. Synthetic desktop/mobile and paired/native concurrency gates passed before release. Supabase Preview was skipped for quota. Authenticated production profile controls and signed hosted publish/edit/withdraw remain unverified; no AgentFlow browser session was available.
+
+No migration, function, credential, backend activation, enrollment, mapping, provisioning or scheduler change in Gate C. Previously installed hosted AF migration20261018064601_uv_profile_sync / worker v1 and UV migration20261018060903_agentflow_profile_sync / receiver v1 remain the backend foundation. Credentials-only setup remains as previously verified; UV_PROFILE_SYNC_ENABLED=false. Read-only post-release AF sources/profiles/feature schedules are all0; UV sources/links/nonces all0. Existing canonical profile remains published and unmanaged.
+
+Rollback candidates: AF dpl_4kzLvraub2uMSbwgq4eJQtDphRSw, UV dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2. No rollback needed. Retain schema, IDs, versions, withdrawal and consent/STOP records. Frontend rollback does not unpublish data. Gate D still needs exact identity/public-field reconciliation, pilot mapping and separately approved activation/scheduler; allow_provisioning=false until owner/intake/legal acceptance. This frontend release is complete; the full synchronized production user workflow is not complete.
+
+## 2026-10-18 — UV profile credentials configured and disabled; production workflow still gated
+- Chris explicitly approved credentials-only setup at13:18:23 UTC and performed secure dashboard saves. Final “Both saved” at13:39:01 UTC resolved prior mismatches. Fresh metadata confirms identical AF/UV signing digests, distinct unchanged AF worker credential, false activation, and unchanged original/SMS secret rows. No values read or recorded.
+- Changes: documentation only in this entry and feature-scoped implementation_plan.md/release.md/verification.md; PR descriptions updated with approval, mismatch history and final evidence. No runtime/shared module/workflow/peer/root-plan/rules changes. No new migration or function deployment; Gate A/B recorded hosted versions and bytes preserved.
+- Verification: unsigned AF POST401/GET405, UV POST401 after configuration. AF6fc194c5 all eight workflows pass; Reports39130732793/job117685174478/artifact12138148252 compares d0d4fd8 exactly:5696/5718 passes, unchanged1 failed test/10 failed files,84 app errors,0 unhandled errors. UV0dbfb3a run39105401301 remains successful with tree-equivalent merge proof. New documentation-head CI will be recorded in PR descriptions without another commit.
+- Scope/live state: credentials saved by Chris, activation false; no enrollment, mapping, schedule, provisioning, frontend release or publication. No independent secret entropy/length check or signed hosted synchronization proof. Existing identity/license/contact/legal differences and new-page owner/intake acceptance remain blocked; allow_provisioning=false.
+- Next: exact frontend release approval after candidate checks, then separately reviewed mapping/public fields and bounded pilot. Rollback retains disabled foundation, mappings/versions/withdrawals and consent/STOP; no destructive reversal.
+
+## 2026-10-18 07:19 UTC — UV sync: preserve concurrent D0 closeout on main
+
+Imported main d0d4fd88916761ba41a038648523c94c6b221677 (external PR #458) into this isolated feature branch. Resolved only the overlapping WORK_LOG additions by preserving both complete histories; all seven other upstream files are byte-identical to main, including root plan/rules, security release record, identical-SQL filename renames and runner/workflow references. No feature runtime, applied migration bytes, shared modules, UV peer pin or verification workflow changes. The other PR's pre-merge prose is historical; its merge and production deployment are independently verified. This task did not merge/deploy that PR.
+
+Gate B remains verified: AF hosted20261018064601/worker v1; Gate A UV hosted20261018060903/receiver v1. No credentials, enrollment, mapping, schedule, activation or feature frontend release. AF current external production dpl_4kzLvraub2uMSbwgq4eJQtDphRSw at d0d4fd8; UV dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2 at2501713; canonical UV page HTTP200. Prior exact AF55fb03a checks passed profile39105404379 and Reports39105404360 (5696/5718, unchanged1 failure/84 app diagnostics), plus six integrations; UV0dbfb3a run39105401301 passed117 tests and its generated-merge tree equivalence was verified. Fresh comparison against d0d4fd8 and final branch SHA/status go on both PRs without another evidence commit.
+
+Files edited for this reconciliation: WORK_LOG and feature-scoped plan/release/verification; upstream files only inherited unchanged. Next approval remains credential-only setup via secure dashboard access/user entry; provisioning off and pilot data decisions unresolved. Rollback retains disabled durable schema and consent/STOP state.
+
+## 2026-10-18 — RELEASED: D0 seal of `public.list_unrestricted_users()`, production closeout (supersedes the local-only entry below)
+
+**Supersedes:** the entry below records the local build stage and is kept as written. Its status ("not committed, not
+pushed, NOT applied to production") no longer holds: D0 is merged (PR #457) and applied to production.
+
+**Authorization trail (Chris, 2026-10-18; each one separate):**
+1. Local build and test.
+2. Release preflight.
+3. Commit, push and draft PR #457, with up to one automatic D0 preview allowed.
+4. Merge at exact head `5744ee0c94c43e5515e93f29354ed69635a1663e`.
+5. Exactly one production `apply_migration`.
+6. This repository-only closeout.
+
+No `#APPROVE_RLS_CHANGE` was needed or used. Supabase "Deploy to production" is configured OFF (Chris; AGENT_RULES
+#30) and was not changed. The setting was not read back by machine, but no D0 history row appeared after the merge
+before the apply gate.
+
+**Merge and deploys:**
+- PR #457 merged as `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f`; its tree is identical to the tested head.
+- CI at `5744ee0`, all success:
+  - "Seal list_unrestricted_users verification" run `39097581989` on plain `postgres:17.6`;
+  - Dialer DNC integrity run `39097581976`;
+  - Reporting integrity run `39097581884`;
+  - SMS consent integration run `39097582042`.
+- **Supabase Preview: CANCELLED (branch limit full). Accepted exception, NOT PASSED.**
+- Vercel production READY at the merge: `agentflow` `dpl_d5gDLzBMwvLHaGqnKxa79GHZ1daP` and `agentflow-life-insure`
+  `dpl_9zpHHrYyo8Lc82cV8KgN7ayFH3eK`. No application code changed.
+
+**Production apply (`jncvvsvckxhqgqvkppmj`):**
+- **Recorded `20261018060615 / seal_list_unrestricted_users`** (authored as `20261018023911`).
+- The read-only gate at 06:05:49 UTC matched every expected preimage value.
+- Submitted once: 3606 bytes, sha256 `b5e89fd8fee33edae2f078fa13a185a8b66b1c2010719e2295d8882a9730c9f3`. Response
+  `{"success":true}`; no retry.
+- Stored as one statement: 3606 bytes, md5 `34d371d5174889f790c555991254d3b9`, final newline kept. History 329 → 330.
+
+**Verification (read-only, 06:06–06:08 UTC; database-role evidence only):**
+- ACL exactly `{postgres=X/postgres,service_role=X/postgres}`. EXECUTE: anon false, authenticated false,
+  service_role true.
+- Definition md5 `41b9e7d5…` unchanged.
+- The anon and authenticated probes each got `42501 permission denied for function list_unrestricted_users`. The
+  service_role probe returned only `true`.
+- Advisors: 0028 and 0029 no longer list the function; 0011 remains (out of scope); nothing else changed between the
+  05:30 and 06:07 captures.
+- Logs from 06:05:00 to about 06:07:33, all sources, filtered to lines naming the function: only the two probe denials.
+
+Full record, with log windows, checksum provenance and limits: `docs/security/2026-10-18-d0-release.md`.
+
+**This closeout (repository only; branch `claude/d0-repository-closeout` from `f3d9b0c`; draft PR):**
+- **Renamed, byte-for-byte (R100; same sha256, md5 and git blob before and after):**
+  - `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `20261018060615_seal_list_unrestricted_users.sql`
+    (3606 bytes, sha256 `b5e89fd8…c9f3`);
+  - the rollback `rollback/20261018023911_…` → `rollback/20261018060615_seal_list_unrestricted_users.rollback.sql`
+    (3409 bytes, sha256 `051c79ea…707a`).
+- **Updated:**
+  - the runner's `MIG`/`ROLLBACK` paths and status header (mode 100755 kept);
+  - the workflow's header comment (triggers unchanged; their globs already match);
+  - the AGENT_RULES #20 note, now marked applied, keeping the never-re-grant rule. It adds that a search_path fix should
+    use `ALTER FUNCTION`, and that any DROP and re-CREATE must re-assert the seal;
+  - superseded pointers on the earlier D0 entries;
+  - the new record `docs/security/2026-10-18-d0-release.md`.
+- **Unchanged:** `supabase/tests/seal_list_unrestricted_users.sql`, which has no filename or status reference.
+
+**Closeout verification:**
+- **D0 suite:**
+  - against the renamed files on a throwaway PostgreSQL 16.15 loopback cluster with synthetic data:
+    `ALL D0 PROOFS PASSED: S0–S14, N1, N2`, exit 0;
+  - the fixture reproduced md5 `41b9e7d5…` and the production ACL;
+  - S13 lock timeout after 1121 ms;
+  - all 20 test databases dropped, then the cluster removed.
+- **TypeScript** (no TypeScript file changed):
+  - `npx tsc --noEmit` exits 0, which is vacuous here (AGENT_RULES #35 note);
+  - `npx tsc -p tsconfig.app.json --noEmit` exits 2 with 84 errors, identical to base `f3d9b0c` (0 new, 0 removed).
+    These failures already exist.
+- **References:** no executable reference (runner path, workflow glob, test, script) names `20261018023911`. It remains
+  only in historical prose and in mapping notes, including the runner's header comment.
+
+**Migrations/deploys in this closeout:** none. No production call was made.
+
+**Decisions:**
+- The old authoring version is kept only to explain the mapping `20261018023911` → `20261018060615`.
+- Historical entries are annotated, not rewritten.
+- The sanitized evidence export and checksum manifest go with the PR handoff and are not committed. No raw session
+  log, credential, profile data or unrelated security detail is committed.
+
+**Remaining limitations:**
+- **No HTTP-level proof:** PostgREST/API, GraphQL and browser behaviour were not tested.
+- **Caller inventory incomplete:** deployed Edge Function sources, scheduled jobs and direct-connection roles were not
+  inventoried.
+- **Access before the seal not assessed:** only 24 h of logs was reviewed.
+- **Baseline replay still untested:** accepted exception, NOT PASSED.
+- **Other mismatches unresolved:** this rename does not resolve the other migration-version mismatches (#30);
+  Deploy to production stays OFF.
+
+**Next (each separately gated):**
+- Chris's final merge approval for the closeout PR.
+- Report the closeout PR's automatic Supabase preview attempt exactly as observed. Usage is capped at the unused
+  one-D0-preview authorization; the 3-branch limit was still full at 06:53:56 UTC. A pass would not convert the PR #457
+  exception.
+- The optional API check.
+- Assess access before the seal.
+- The caller inventory.
+- A preview or baseline replay.
+- 0011.
+- Retiring or wrapping the function.
+## 2026-10-18 06:49 UTC — Gate B AF backend installed and verified; sync OFF
+
+Chris replied “Approved” at06:45:08UTC to the exact Gate B backend-only package. Applied only AF source migration20261018002956_uv_profile_sync.sql (SHA-256 b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa), hosted as20261018064601_uv_profile_sync; recorded SQL matches exactly. Deployed uv-profile-sync-worker v1, IDb57445fe-57d5-41d1-b6ca-9ec279f7e3e0, dedicated Bearer auth/verify_jwt=false. All four deployed files match approved bytes; all76 existing functions unchanged.
+
+Verified two private RLS tables and five exact RPC ACLs/empty search_paths, missing-identity denial, empty source/sync tables/defaults off, hosted unsignedPOST401/GET405, unchanged core policies/triggers/dependency functions and all12 cron jobs. UV source/link/nonce tables remain empty. Advisor additions are expected:2 private RLS INFO,2 authenticated self-profile definer WARN,1 unused delivery-index INFO; no other finding changes. Inherited2 public-RLS-disabled errors remain outside this feature.
+
+Files updated: scoped implementation_plan/release/verification and newest-first WORK_LOG in both repositories, plus PR descriptions. No runtime/migration/workflow/peer/root-plan/rules changes. Approved-candidate CI all passed: AFc582606 profile39103348509/Reports39103348512 (5696/5718, unchanged1 failure/84 app diagnostics); UVca23e9a tree-equivalent39103348172 (117 tests). Documentation follow-up heads/status recorded on PRs.
+
+No credential, source enrollment, mapping, scheduler, activation or frontend release. Next: separately approve credential setup, with secure dashboard sign-in/user entry because connector secrets-management and terminal CLI auth are unavailable. Never send secrets in chat. Pilot NPN/license/contact/legal differences and new-page owner/intake acceptance remain unresolved; provisioning off. Rollback: retain disabled foundation and durable preference/version/withdrawal/consent/STOP records.
+
+## 2026-10-18 06:15 UTC — UV Gate A production foundation applied; synchronization OFF
+
+**Status/approval:** Chris explicitly approved Gate A with `APPROVE_RLS_CHANGE` at06:07:44UTC. Only UV backend migration/RLS and new receiver applied; user workflow not yet live. Both Supabase connections work.
+**Deployment:** UV project jzdzeevjpootbeuniygx source migration20261017222810 (SHA256027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd) recorded as hosted20261018060903; SQL bytes identical. Receiver agentflow-profile-sync v1 ACTIVE, ID569992e7-4011-4523-b5db-3ec5540a32a4, verify_jwt=false plus dedicated HMAC. Complete four-file readback equals approved source. Existing functions untouched.
+**Verification:** policies/grants/RLS/trigger/RPC ACLs correct; all new tables empty/defaults off. Original agent rows and consent/intake/STOP aggregate fingerprints unchanged; anon reads and canonical page200 preserved. Hosted unsigned POST503 not_configured proves fail-closed runtime. Advisors add only3 private-table RLS INFO,1 unused-index INFO and1 expected multiple-SELECT-policy performance WARN; no new security WARN/ERROR.
+**Files:** scoped implementation_plan.md, release.md, verification.md and this newest-first Work Log; PR descriptions. Documentation only, no new source/migration/workflow/peer/rules/root-plan changes. Reviewed runtime CI: AF8d752a4 profile39101784252 and Reports39101784323 pass (5696/5718 tests, unchanged1 failure/84 app diagnostics); UV4d65109 tree-equivalent39100875987 passes117tests. New docs heads/check status recorded on PRs.
+**Concurrent work:** AF external seal_list_unrestricted_users migration20261018060615 is now live; not applied by this task. Fresh AF advisor baseline recorded; UV-sync objects/worker/schedule still absent.
+**Blockers/next:** Gate B exact AF migration/worker approval; credentials, frontends, identity-checked linking, exact contact/NPN/license/legal decisions and pilot/scheduler/wider publication remain separate. New-page owner/intake remedies unapproved; allow_provisioning=false. No profile published/linked, secret set, source enrolled, schedule activated or frontend merged/deployed. Rollback position: retain disabled durable foundation; preserve mapping/version/withdrawal/consent/STOP state.
+
+## 2026-10-18 — UV sync: reconcile concurrent main without production changes
+
+PR #457 merged to AF main as f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f during the preceding preflight, superseding the earlier main/deployment snapshot. Its preserved security Work Log and root plan describe an earlier local-only stage; those statements are historical, not evidence that the PR is still unmerged. This feature branch merges the new main and retains both independent WORK_LOG additions. The other seven upstream files (including AGENT_RULES.md, the unrelated root implementation_plan.md, security migration/rollback, tests, runner and CI) remain byte-identical to main. No feature runtime, migration, worker, receiver, peer-pin or workflow changes.
+
+Live AF migration history is still through 20261017043757; neither the security migration nor this feature migration is recorded applied. Fresh security advisor counts still match 27/22/2/3/58/121/1. Gate B must re-baseline immediately before any later approved write. No new main change grants authority to apply unrelated SQL. Full profile/Reports/integration checks run against base f3d9b0c; results and exact new head are recorded on PR #456. UV documentation head 4d65109581315d107bd33222753c55d5ae1252df passes run 39100875987.
+
+Files changed by this reconciliation: WORK_LOG.md plus the existing feature-scoped plan/verification/release evidence. Gate A remains the exact unchanged UV backend package awaiting #APPROVE_RLS_CHANGE; all other release and pilot data approvals remain separate. No production migration, function, credentials, linking, activation or release performed by this task.
+
+---
+
+## 2026-10-18 — ChatGPT takeover: UV live preflight complete; Gate A ready for approval, NOT live
+
+**Status/authority:** Chris requested this workspace finish the build because Claude cannot use both Supabase accounts. Both named connections now work here. No production approval or mutation: migrations, RLS, functions, secrets, mappings, publication flags, schedules and production deployments unchanged.
+
+**Changes/files:** evidence-only update to this WORK_LOG.md and the feature-scoped implementation_plan.md, verification.md and release.md in both repositories; PR descriptions updated with final head/check evidence. No source, migration, workflow, peer-pin, root plan or AGENT_RULES.md changes. The next Gate A package identifies exact migration/function hashes, RLS/grants, verification and rollback; no new implementation scope was silently added.
+
+**Verified:** existing heads AF 0b49541 / UV c37686c have passing CI; root TypeScript passes again locally; runtime sources remain AF bf536191 / UV 397dbb91. UV exact-project catalog/policies/grants/triggers/indexes and consent-link dependencies match the migration; receiver absent by both list and get; 9 migrations through 20261014155312. Canonical UV UUID/owner and active consent identity confirmed, photo equals AF, preserved UV-content hashes captured. Security/performance advisor baseline recorded. AF migration 20261017043757 remains latest; feature objects and schedule absent. Canonical production deployments unchanged and UV page HTTP 200 with existing metadata. Subsequent documentation-head CI is recorded on the PRs without another evidence commit.
+
+**Blockers/next:** request explicit #APPROVE_RLS_CHANGE Gate A for the exact inactive UV backend foundation. Pilot still requires resolution of differing NPN/NV license number, 5-to-1 license projection and changed/blank contact/legal fields; never repair or publish these silently. New provisioning remains false pending scoped owner/intake/legal/claims remedies. Gate B, credentials, frontends, mapping/activation/scheduler and wider publication remain separate approvals. Hosted end-to-end and new-page workflow acceptance are unverified. No production rollback needed; future rollback retains durable identity/version/withdrawal/consent state.
+
+---
+
+## 2026-10-18 — SECURITY: seal `public.list_unrestricted_users()` (D0), built and tested locally only (not committed, not pushed, NOT applied to production)
+
+> **Superseded status (2026-10-18 closeout):** kept as written. D0 was later merged (PR #457, `f3d9b0c`) and applied
+> to production as `20261018060615 / seal_list_unrestricted_users`; the files were renamed from `20261018023911`. See
+> the entry above.
+
+**Authorization and scope:** Chris approved only D0's isolated local build and test on 2026-10-18. This excludes any commit, push, PR, merge, remote deployment, Supabase branch and production change. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. No `#APPROVE_RLS_CHANGE` was granted or used. D6, C1/C2, the contact guard, F8, P5, D16, D17 and the hierarchy repair are outside this work. Plan: root `implementation_plan.md`, top entry.
+
+**Why:** `public.list_unrestricted_users()` is `SECURITY DEFINER` (owner `postgres`) and returns `SELECT * FROM public.profiles;`. `PUBLIC`, `anon` and `authenticated` can execute it, so the public anon key can read every agency's profiles. It has no callers: zero `pg_depend` dependents, no repository `.rpc(...)` call, and no logged request in the 24 hours inspected.
+
+**Change (authored, not applied):**
+- `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql`: one top-level `DO`.
+  - Guard: refuses unless the function has the exact production md5 (`41b9e7d5…`, computed under the pinned search_path), owner, `SECURITY DEFINER` and ACL. Also refuses if anything depends on it (invariant #37).
+  - Revokes EXECUTE from `PUBLIC`, `anon` and `authenticated` only. `postgres` and `service_role` keep it.
+  - Asserts the exact sealed ACL `{postgres=X/postgres,service_role=X/postgres}` and the effective privileges.
+  - Restores the caller's settings, then `NOTIFY pgrst`.
+- The rollback **re-asserts only and is not an inverse.** It never re-grants EXECUTE to `PUBLIC`, `anon` or `authenticated`, never revokes from `postgres` or `service_role`, and refuses instead of breaking system access or a dependent.
+- Fixture and assertions: `supabase/tests/seal_list_unrestricted_users.sql`.
+- Runner: `scripts/run_seal_list_unrestricted_users_tests.sh`.
+- CI file `.github/workflows/seal-list-unrestricted-users.yml`: path-filtered `pull_request` with `postgres:17.6` through the host-network `docker run` pattern. Authored only.
+
+**Verification (synthetic data, throwaway local cluster; database-role evidence only):**
+- **Server:** PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), run as the `postgres` OS user on 127.0.0.1:55448, with the psql 16.15 client.
+- **Fixture fidelity:** the template reproduces the production preimage exactly: md5 `41b9e7d550c0d013c9306db9dd2b7b27` and the production ACL in production's element order. Nothing about the preimage was changed.
+- **Runner result:** `ALL D0 PROOFS PASSED: S0–S14, N1, N2`, exit 0. Each scenario started from a fresh template clone, and all 20 databases it created were dropped. The scenarios are listed in the plan. Highlights:
+  - anon and authenticated read 4 rows across 2 agencies before the seal, and get `42501 permission denied for function list_unrestricted_users` after it;
+  - `service_role` and `postgres` still read;
+  - the complete command-tag output of the migration is exactly `DO`;
+  - replay and drift are refused;
+  - the rollback keeps the seal, and refuses with a dependent present;
+  - a forced failure at the REVOKE leaves the preimage (S8, in autocommit and `--single-transaction`);
+  - S9 rejects split, internal-COMMIT, hidden-COMMIT, CALL, upper-case-tag, trailing-statement and metacommand variants;
+  - the dependency refusal (S10) leaves the ACL and definition untouched;
+  - the postconditions refuse a re-grant injected after the REVOKE (S11);
+  - a hostile session search_path still seals (S12);
+  - the lock timeout refused after 1182 ms (S13);
+  - `NOTIFY pgrst` only on success (S14);
+  - N1 shows S1/S2 detect `PUBLIC` inheritance;
+  - N2's standalone REVOKE committed under `psql -X -v ON_ERROR_STOP=1 -f` in autocommit even though statement 2 failed, and statement 3 never ran.
+- **Mutation checks:** on scratch copies, all 11 deliberate mutants were caught, each by its intended scenario:
+  - no `PUBLIC` in the REVOKE;
+  - no postcondition;
+  - no dependency guard;
+  - no rollback dependency guard;
+  - no rollback postcondition;
+  - a rollback that grants anon;
+  - no search_path pin;
+  - no lock_timeout;
+  - no NOTIFY;
+  - a split migration;
+  - a loosened md5 guard.
+- **Runner safety:** before any connection it refuses multi-host, scheme-less, database-path, query-string, non-loopback, percent-encoded and IPv6 URLs, and a set `PGHOSTADDR`. A failed first connection withholds libpq's message; a test password never appeared in the output.
+- **Review:** four independent read-only reviewers attacked the files. One CI blocker and four major findings were fixed before this entry:
+  - CI: a published-port service container fails the runner's loopback proof;
+  - S9 static-check bypasses;
+  - S8 overstating what it proves;
+  - PGURL bypasses.
+- **TypeScript:** no TypeScript file changed.
+  - `npx tsc --noEmit` exits 0, but it is vacuous here (AGENT_RULES invariant #35 note).
+  - `npx tsc -p tsconfig.app.json --noEmit` exits 2 with 84 errors, identical to the unchanged base `e2ddef2`: 0 new, 0 removed. The command fails on both trees.
+- **Not proven:** PostgreSQL 17.6 compatibility (needs CI, which needs a PR), PostgREST or browser behaviour, and the preview-branch replay ACL.
+
+**Migrations/deploys:** none. The migration is authored and locally tested only and is NOT applied to production. Production was not read or written during the build.
+
+**Decisions:**
+- The rollback stays re-assert only, with no inverse.
+- The CI file keeps the existing `pull_request` path-filter convention, with no push-trigger exception.
+- The runner's loopback-server proof is kept strict, which is why CI uses host networking.
+
+**Blockers:** none for the local gate.
+
+**Next (each separately gated):**
+- Chris reviews the local diff.
+- Commit and push: first verify automatic preview behaviour and cost.
+- PR, so the 17.6 CI can run.
+- Merge: first confirm automatic production deployment is still OFF.
+- Production apply through `apply_migration`, after a fresh preimage capture.
+- Rename the files to the recorded version with identical bytes.
+- `list_migrations`, targeted security advisors (0028 and 0029 for this function), and a context snapshot.
+
+---
+
+## 2026-10-18 — UV profile sync: Claude Code access check, AF Gate B preflight and pilot diff (read-only; NOT live)
+
+**Status:** No production change. Candidate source unchanged at bf536191cab043bca2089d02dee8a6955ededc28 (UV 397dbb91e42aebc83043d9f5605824ff2ba87211); this entry's commit is docs-only. Draft PRs #456 / UV #18 remain open.
+
+**Access:** GitHub and AF Supabase work. UV Supabase `jzdzeevjpootbeuniygx` denies every management read for this connector, which is scoped only to org `kuzfuinlgtbfkdhlztxn`; UV is in org `bmuykmwtwicpltmpenqm`. Vercel env listing is 403; container egress denies the UV website and UV Supabase hosts. Gate A live preflight therefore remains blocked.
+
+**Verified:** heads/bases/checks unchanged and green; all candidate hashes recomputed and matching; AF feature objects/worker/secrets/cron absent; dependencies and normalize_us_state match the fixture baseline; AF advisors equal baseline (expected Gate B delta +2 INFO, +2 authenticated definer WARN); both production deployments and served bundles unchanged.
+
+**Found:** pilot is not ready — Chris's AF licensing data would publish NV only (live page shows five states); contact choices default off while the live A2P privacy/terms pages interpolate the profile phone/email; AF email differs from UV's canonical default; name stays consent-pinned with a review warning. Provisioning remains off: `submit_public_intake` has no published/owner check, ownerless pages cannot read requests, and Verified/licensed wording is unconditional. Smallest remedy R1–R4 proposed in release.md, not built.
+
+**Proposed AGENT_RULES invariants (not applied):** (1) A consent/A2P-linked UV page must not be synchronized with a blank or changed public phone/email without explicit review, because its legal pages render those values. (2) The UV license projection publishes only AF licenses with a number and current expiration date; fix incomplete AF licensing data rather than relaxing the filter. (3) New-page provisioning requires owner access, intake routing, consent-safe legal contacts and truthful public wording; sync success never implies credential verification.
+
+**Files:** scoped plan (inventory first), verification.md, release.md, this entry; UV equivalents. No source, migration, workflow, pin or AGENT_RULES change.
+
+**Next:** authorize the Supabase connector for the UV organization, then Gate A preflight and exact `#APPROVE_RLS_CHANGE` package. Gate B package is preflighted and separately approvable.
+
+---
+
+## 2026-10-18 — corrected build and isolated browser evidence; production blocked
+
+AF f9fdf29a0a56fdbc1571d49604d7f8663dd00c88 profile run [39095262986](https://github.com/cgarness/agentflow-life-insure/actions/runs/39095262986) passed all three jobs: 98 frontend tests, 21 native PostgreSQL paired cases including concurrent workers, both complete Deno entrypoints, root TypeScript, unchanged 84-diagnostic app baseline, changed-TypeScript lint and build. Browser job 117580270476 passed at 1440px and 390px with real AF/UV components and isolated synthetic transport/auth. Artifact 12124042522 contains screenshots and summary. Coverage includes publication/contact choices, Syncing/Published, canonical View/Copy, public content/photo/NPN/licenses, search, withdrawal, and sign-out/View As isolation. No production network writes or consumer submissions. Initial captures preceded entrance-animation completion; the AF test-only follow-up scrolls sections and waits for animations for reviewable screenshots. The final exact-head runs and artifact IDs are recorded on the paired PRs after this documentation commit.
+
+UV runtime/source 8d4b817d9bd03db3fc4bec634dbe18b4277c6595 run [39092826730](https://github.com/cgarness/underwriter-verified/actions/runs/39092826730) passed 117 tests, root/app/node TypeScript, changed-TypeScript lint and build. AF runtime-code candidate 881565656bb4634b691906e3d21389cee47e7c07 Reports run [39092893708](https://github.com/cgarness/agentflow-life-insure/actions/runs/39092893708) passed the whole comparison: 5696 base / 5718 candidate passes; the same 1 inherited failure and 84 app diagnostics; zero unhandled errors; lint/build pass. This supersedes FAILED historical Reports run 39086300919. Later test/document-only heads are independently rechecked; prior runs are not mislabeled as final-head evidence.
+
+Limits: synthetic browser acknowledgements are simulated; actual handlers/SQL are tested separately. This is not hosted sync, preview metadata, or production pilot proof. Server metadata/photo visibility and cache behavior have automated coverage; hosted previews remain unverified. Direct public navigation tested https://www.underwriterverified.com/cg-financial/christopher-garness read-only. Synthetic browser URL is /synthetic-agency/test-agent on isolated loopback; no synthetic page was published.
+
+Production remains unchanged: no migration, function, RLS, credentials, mapping, flags, scheduler, frontend merge or release. Exact UV project jzdzeevjpootbeuniygx management reads deny permission; AF reads work and feature schema/worker are absent. Next action is authorize that UV project in the Supabase connection, then inspect live schema/policies/function preimages/advisors before Gate A exact #APPROVE_RLS_CHANGE approval. Frontends, credentials, linking, activation and wider publication retain separate gates. No production rollback is needed. Any later rollback retains mappings/versions/withdrawals/consent and permits needed withdrawal acknowledgements before stopping the worker.
+
+New provisioning remains OFF: no owner assignment/inbox access exists for provisioned rows; request routing/legal contact acceptance is incomplete. Existing UV components also show unconditional Verified/licensed assertions; synchronization does not substantiate these. Review their exact public/legal effect before any new-page pilot and seek approval for the smallest necessary remedy. Do not alter the live consent/A2P page or silently add SSO/imports.
+
+Files/actions: scoped plan/release/verification and this newest-first Work Log; AF test-only browser capture and pinned-peer workflow. Both shared payload/protocol files remain identical. Candidate migration hashes remain AF b4807643e6ec4106d102f0c30db3a4b8fdad4479a7d80d5da42fc77c3ea4d2aa and UV 027ac014a3ce5d982990925bfb864e76e2d34b7025fddcdea41616ccc547f8cd. No root plan, unrelated release or production mutation.
+
+---
+
+## 2026-10-18 — UV profile browser acceptance gate added (isolated only)
+Exact corrected candidate 881565656bb4634b691906e3d21389cee47e7c07 passed profile run 39092893678 (98 frontend tests, 21 native PostgreSQL scenarios including contention, complete Deno checks), Reports run 39092893708, and all other triggered regressions. UV 8d4b817d9bd03db3fc4bec634dbe18b4277c6595 passed run 39092826730 with 117 tests. Reports: 5696 base / 5718 candidate passes, the same 1 inherited test failure and 84 app diagnostics, no unhandled runtime errors; changed lint and build passed.
+Added scripts/tests/uv-profile/browser fixtures and a read-only browser job in uv-profile-sync.yml for desktop/mobile real components with synthetic transport/auth only. The fixture intercepts all backend requests and refuses external traffic. It never submits a consumer form. Browser job result is still pending on this new head; hosted/pilot proof remains unclaimed. Local Deno could not fetch esm.sh, while the full native Deno CI gate passed.
+No migration, secrets, scheduler, profile mapping, frontend merge or production deployment. UV management permission remains the release blocker. Scoped plan amended before test-file edits; root plan and production paths unchanged.
+---
+## 2026-10-18 — validator and release-document corrections (NOT live)
+
+GitHub heads and mains match the handoff. Direct git and terminal access work. The canonical Vercel team is team_iPboOWpwdIQRwdxmA5GJp5Rq. AF project prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc serves www.fflagent.com from production dpl_8PzuVCmhxzo7bszbMYvgC7p4S7uk at e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881. UV project prj_8B75x0g4FBYsP2uzSIEeCYHhMJSw serves www.underwriterverified.com from production dpl_5YuTWhQn1Y2aAh9LoWFWa4MYgDX2 at 2501713d368aa1ad0cea6acc1792fb51f3cb1c8c. Preview success is not production release.
+
+Fresh exact-project UV get_project and list_migrations calls both returned permission denial. AF read-only inspection found no sync tables/migration/worker; latest hosted migration is 20261017043757. UV schema, advisors and receiver preimage remain unverified. No production action performed.
+
+Public browser navigation succeeded for https://www.underwriterverified.com/cg-financial/christopher-garness; no form or message submitted. This workspace's browser cannot reach its separate terminal localhost (ERR_CONNECTION_REFUSED), not the old workspace's administrator-denial error. Desktop/mobile synthetic feature acceptance and hosted end-to-end acceptance remain unverified.
+
+Both payload validators now use explicit C0/DEL character-code checks, preserving Unicode and length limits, with exhaustive negative tests. This also rejects a terminal newline on a license string that JavaScript's dollar-anchor previously let through; accepted payloads are not broadened. No lint suppression or protocol/authentication change; protocol.ts stays unchanged and paired bytes remain identical. CI lint now covers changed Edge/shared TypeScript as well as frontend code. UV release names now match executable code: VITE_UV_PROFILE_ENABLED, UV_PROFILE_SYNC_ENABLED, UV_PROFILE_WORKER_SECRET (distinct from UV_PROFILE_SYNC_SECRET); RECEIVER_URL is a code constant, not a runtime environment variable.
+
+Reports run 39086300919 is FAILED, not pending: final assertion follows eslint exit 1 and build exit 0. New exact-candidate workflow results must supersede it. Local root/project TypeScript, focused frontend tests, changed-TypeScript lint and builds passed; AF's 84 inherited app diagnostics must remain exact-base matched. Final paired/native/Deno and broader regression runs remain gates.
+
+New provisioning remains blocked: generated rows have user_id null and owner-only inbox access. No UV-owner SSO or consumer import is implemented. Keep allow_provisioning=false pending separately approved owner-access/intake/legal acceptance. No profile mapping, credentials, activation, cron, migration, frontend merge or production deployment; retain all mapping/version/withdrawal/consent records during any future rollback.
+
+Files: paired payload.ts, UV protocol tests, profile CI workflows, scoped implementation/release/verification documents and WORK_LOG.md. AF additionally corrects its unapplied migration and paired fixture to normalize canonical state names; release hash must be recomputed. No unrelated release or root plan changed.
+
+---
+
+## 2026-10-17 — AgentFlow → Underwriter Verified profile sync reconstructed (approved isolated build; NOT released)
+
+**Status:** Recovered after interruption. UV receiver remains in draft PR #18. The AF transfer stopped at 77347a0f; the uncommitted candidate was unavailable and was rebuilt rather than treated as recovered. Source is now paired with UV 869d95e. Original scoped plan retained; recovery details at docs/plans/2026-10-17-uv-profile-sync/recovery.md.
+
+**Changes:** Opt-in public profile controls on Agent Profile/My Profile; separate public phone/email choices; own-profile/organization/revision checks; durable leased/versioned worker and receiver contract; canonical fresh license/profile reads; retries and privacy tombstones. Normal profile/license saves and telephony unchanged. Existing UV identity/URLs/ownership/consent and UV-owned content preserved. Both activation gates default off.
+
+**Files:** scoped plan package; src/lib/uv-profile/api.ts; useUnderwriterVerifiedProfile.ts; two underwriter-verified components; two profile composition insertions; src/test/uvProfile.test.tsx; shared UV protocol/payload and worker index/handler; only the new config block; migration candidate 20261018002956_uv_profile_sync.sql; paired.mjs; read-only UV CI. Removed interrupted transfer payload/writer.
+
+**Verification:** 98 frontend/profile tests; 19 paired synthetic SQL/handler cases in isolated PGlite databases; root TypeScript, changed-file lint and Vite build pass. App typecheck retains 84 pre-existing diagnostics; exact-baseline comparison, native PostgreSQL concurrency and native Deno checks are CI gates. Inspect final-head CI before release. Earlier AF test totals did not verify the recovered candidate.
+
+**Migrations/deploys:** NONE to production. No secrets, cron, ownership mapping, SMS, lead import, RLS application, frontend release or main push.
+
+**Blockers/next:** final-head CI and browser acceptance; UV live management/schema preflight; exact separately approved UV backend/mapping, AF backend/credentials, frontend and pilot gates. New-profile intake/legal/owner access acceptance before provisioning. Actual verification is not part of this feature. Withdrawals are asynchronous and must be acknowledged before shutting down the worker. Deactivation/transfer revokes publication intent; reactivation requires a new opt-in.
+
+---
+
+
+## 2026-10-17 — PR #455 correction: the credited owner is re-verified, never served from cache (draft; not merged, not deployed)
+
+**Why:** Chris asked to verify the owner-cache edge case before merge approval. It was a real defect. The owner read used a 60-second shared cache with no re-check, so after a lead or client was reassigned:
+- a modal reopened within that minute showed the previous owner's estimate at once (or the operator's own, after the record moved away from them);
+- a modal left open kept showing it until the next stale-and-focus refetch.
+
+The sale was never affected, because the server credits the stored owner at save time. But the preview could display the wrong agent's commission.
+
+**Fix (approved preview files only):** in `usePolicyCommissionPreview.ts`, the owner query now:
+- refetches on every mount and ignores any owner cached before this panel mounted (hidden until the fresh read returns);
+- re-checks on window focus and every 15 seconds while the panel is mounted (`OWNER_RECHECK_MS`);
+- hides the figures if a re-check fails.
+
+A changed owner switches the panel without ever pairing the old owner's figures with the new state: profile reads are keyed per agent and identity-checked. The grid, Team-scope and profile reads keep their shared cache.
+
+**Bound:** while a modal stays open, a reassignment made elsewhere is reflected within about 15 seconds plus one round trip (sooner on window focus). Removing that window entirely would need a server push (Realtime), which is outside this approved frontend scope.
+
+**Tests:**
+- Hook: 5 new tests — quick reopen (to another agent, and away from the operator), the re-check while open, the re-check on focus, and fail-closed on a failed re-check.
+- Real modal: 1 new test (RecordPolicyModal reopened on a shared cache after reassignment).
+- All 6 failed on the previous code and pass now.
+- Negative controls: trusting a pre-mount cached owner, dropping the interval re-check, and restoring the 60-second cache each fail (3, 2 and 8 tests).
+- No other file changed: no dialer, backend or Supabase change.
+
+**Next:** re-run the CI-equivalent comparison, then confirm the PR #455 checks on the new head before asking for approval. No merge or deploy.
+
+---
+
+## 2026-10-17 — Policy commission preview, Phase 1 (approved; draft PR #455; not merged, not deployed)
+
+**Authorization and scope:** Chris approved the amended plan at `cc8a2b4` (decisions P1–P4). It is frontend-only and preview-only: no migrations, backend changes, production writes or deployment. Base `main` `95009d1`. Plan and as-built notes: root `implementation_plan.md`, top entry.
+
+**Change:**
+- **Where it shows:** a compact emerald estimate — "Estimated first-year commission" and "Estimated advance (75%)" — below each policy's details.
+  - ConvertLeadModal: every policy row, each independent, never summed.
+  - AddClientModal: only when the save would record a new policy, i.e. creation or an existing client's first policy (P4).
+  - RecordPolicyModal: always.
+- **Engine:** the existing calculator grid query and `calculateEstimate` / exact rationals, unchanged, with `formatUsd` applied to the Rational values.
+- **Credited agent:** the STORED owner the sale writers credit (`leads` / `clients.assigned_agent_id`, an org-scoped `.maybeSingle()` read). The Dialer's `lead.assignedAgentId` comes from `claimed_by` first and is never trusted.
+- **Permissions (P1):** "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently.
+  - Another agent's estimate also needs Admin or a non-impersonating Super Admin in the same organization, or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains that agent. An Agent never sees another agent's estimate.
+  - The level shown is that agent's raw `profiles.commission_level`, through the strict level parse.
+- **Fail closed:** no request and no cached data under View As. Any unresolved viewer, permission, owner, scope, profile or grid read shows no figures; a stored zero rate shows a genuine $0.00.
+- **Final Expense (P2):** lists only the matched carrier's whole-life products (exact match after trimming and ignoring case), never auto-selected.
+- **Preview-only inputs:** product, term and insured age. ConvertLeadModal prefills a valid age only: from the lead's date of birth on the Sold Date, else a stored age from 0 to 100. These inputs are never required, persisted or added to a sale payload.
+- **Isolation:** a local error boundary means a preview failure cannot unmount a modal or block a save.
+- **Deferred (P3):** snapshots (plan §8) are deferred and NOT approved.
+
+**Files:**
+- New:
+  - `src/lib/commission/{policyPreview,previewApi}.ts`
+  - `src/hooks/usePolicyCommissionPreview.ts`
+  - `src/components/commission/preview/{PolicyCommissionEstimate,PolicyCommissionInputs}.tsx`
+  - tests: `policyPreview.test.ts`, `usePolicyCommissionPreview.test.tsx`, `PolicyCommissionEstimate.test.tsx`, `policyCommissionPreviewModals.test.tsx`
+- Modified, +16 lines in total: `ConvertLeadModal.tsx`, `AddClientModal.tsx`, `RecordPolicyModal.tsx`.
+- Harness-only one-line mock, no assertion changes: `recordPolicyModal.test.tsx`, `addClientSale.test.tsx`, `convertLeadModalPolicyFields.test.tsx`.
+- Docs: `implementation_plan.md`, `AGENT_RULES.md`, this log.
+- Unchanged: DialerPage, FloatingDialer, TwilioContext, sale modules and RPCs, the calculator engine, `supabase/**`.
+
+**Verification (synthetic data only):**
+- **Fresh baseline on `95009d1`:**
+  - 5,655 tests: 5,618 passed, 36 skipped, 1 failed.
+  - 10 failing files, all pre-existing: 9 fail to load under CI's inert Supabase environment ("supabaseUrl is required"), and `recordingRetentionVoicemail` needs git history this shallow clone lacks.
+  - Strict app typecheck: 84 diagnostics. Root `tsc`: exit 0.
+- **New tests:** 70 (21 pure, 21 hook including the org-scoped reads, 14 panel, 14 real-modal integration).
+  - The integration tests run the real modals, panel, hook, preview reads and sale modules.
+  - They prove deep-equal arguments to all four sale RPCs with and without preview interaction, one RPC call per save, identical retries after a failed save, `onSuccess(clientId)` before `onClose()`, Cancel, the close guard while saving, the stored-owner credit, View As with no requests, and no request while typing.
+  - They also prove no request while a dialer keeps ConvertLeadModal closed or clears its lead (FloatingDialer gating).
+- **Negative controls:** 9 deliberate mutations, each caught by at least one test:
+  - View As allowed;
+  - the operator's level used for another agent;
+  - the others' permission granting the own estimate;
+  - the Team scope skipped;
+  - a single product auto-selected;
+  - Final Expense pulling in non-whole-life products;
+  - fuzzy carrier matching;
+  - a mismatched profile accepted;
+  - the modal's owner hint trusted.
+- **Dialer:** CI's selection (39 files, 500 tests) and all 45 dialer, conversion and sale-recording suites (544 tests) are identical on branch and base. The only failing file is the same pre-existing environment failure.
+- **CI comparison:** `scripts/verify_reports_frontend.py` (the script the Reports frontend workflow runs) against a fresh `95009d1` worktree passed (exit 0) at head `0403533`.
+  - 5,688 passing tests on the branch against 5,618 on base; the +70 are the new tests.
+  - The same single pre-existing failed test and the same 10 pre-existing failing files on both.
+  - Strict app typecheck: 84 diagnostics on both, none new. Root `tsc` exits 0.
+  - The Reports tests, ESLint on changed TypeScript and `npm run build` pass, with 0 unhandled runtime errors.
+- **ESLint on touched files:** 0 errors. New files are clean; the one warning is pre-existing (an unused disable directive, identical on base).
+- **Browser:** a throwaway local harness in Chromium (Playwright 1.56.1) at 1440×900 and 390×844, light and dark, with no page or console errors and no horizontal overflow. Screenshots were inspected and not committed. Covered:
+  - real native-select interaction (product and term);
+  - typing;
+  - a two-policy conversion;
+  - the other-agent line;
+  - the unavailable state.
+
+  It found that wrapping labels put option text into the selects' accessible names; fixed with explicit `htmlFor`/`id` pairs.
+- **D1:** a read-only, value-free check of the private grid. No test names match it, and the new tests' expected amounts use only synthetic values absent from it.
+- **No authenticated production walkthrough** has been performed.
+
+**Migrations/deploys:** none.
+
+**Follow-ups:**
+- 🚨 **HIGH PRIORITY, separate task:** the Team Leader hierarchy predicate. `is_ancestor_of` holds for only 3 of 11 upline links in production, and it governs the sale writers' Team Leader branch and the Contacts Team scope (`AGENT_RULES.md` › Known Tech Debt). Nothing was changed here.
+- Snapshots (§8) remain deferred.
+- `profiles.commission_level` self-edit (calculator plan §11) remains open.
+
+**Next:** Chris reviews the draft PR and its CI. Merge and deployment only with separate approval.
+
 ## 2026-10-17 — Sheets Phase B runner (PR #451): re-pinned to production's new migration history (no production change)
 
 Main moved to `95009d15` (#452 callbacks modal, #453 Sold Date reporting, #454 docs). The Sold Date release added two production migrations: `20261017043142` performance_sold_date_basis and `20261017043757` performance_wins_sold_date_index. Production was re-checked read-only at 07:49 UTC: 329 history rows, latest `20261017043757`, no Sheets objects, and the permission helper is still the reviewed preimage.

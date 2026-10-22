@@ -1,16 +1,16 @@
-import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 import React from "react";
 import { motion, LayoutGroup } from "framer-motion";
 import { ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
 import LeaderboardAgentAvatar from "./LeaderboardAgentAvatar";
 import OdometerValue from "./OdometerValue";
+import LeaderboardApValue from "./LeaderboardApValue";
 import { TV_PANEL_CLASS, TV_PANEL_HEADER_CLASS } from "./tvPanelLayout";
 import { cn } from "@/lib/utils";
-import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 import { agentHighlightClass } from "./leaderboardHighlight";
-import { type AgentStats, type Metric, type RankMovement, METRIC_DISPLAY_LABEL, formatPremiumSold } from "./leaderboardTypes";
+import { type AgentStats, type RankMovement, ANNUAL_PREMIUM_LABEL, formatCount } from "./leaderboardTypes";
 import { type RankMotionKind, tvTableRowLayoutTransition } from "./leaderboardRankMotion";
-const TV_TABLE_ROW = "grid w-full grid-cols-[2.5rem_minmax(6rem,1.4fr)_repeat(6,minmax(2.5rem,1fr))] items-center gap-x-1 px-3";
+/** Rank · Agent · AP · Policies · Calls — the same columns as the page's Full Rankings. */
+const TV_TABLE_ROW = "grid w-full grid-cols-[3rem_minmax(7rem,1.6fr)_minmax(6.5rem,1.2fr)_minmax(3.5rem,0.7fr)_minmax(3.5rem,0.7fr)] items-center gap-x-2 px-3";
 const rankMovementDisplay = (movement: RankMovement | undefined) => {
   if (!movement) return null;
   if (movement.direction === "up") {
@@ -36,19 +36,19 @@ const rankMovementDisplay = (movement: RankMovement | undefined) => {
 };
 
 interface Props {
- tableAgents: AgentStats[]; metric: Metric; live: boolean;
+ tableAgents: AgentStats[]; live: boolean;
  tvRankMotions: Map<string, RankMotionKind>; tvRankAnimations: Map<string, "up" | "down">;
  tvRankDeltas: Map<string, number>; tvRankMovements: Map<string, RankMovement>;
  spotlightAgentId?: string | null; newLeaderId?: string | null;
 }
-export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotions, tvRankAnimations, tvRankDeltas, tvRankMovements, spotlightAgentId, newLeaderId }: Props) {
+export default function TVRankingsTable({ tableAgents, live, tvRankMotions, tvRankAnimations, tvRankDeltas, tvRankMovements, spotlightAgentId, newLeaderId }: Props) {
  return (
           <div className="order-1 xl:order-none min-w-0 flex min-h-max flex-col xl:col-start-2" data-testid="tv-rankings">
           <div className={cn(TV_PANEL_CLASS, "h-auto min-h-max flex-1")}>
             <div className={`${TV_PANEL_HEADER_CLASS} justify-center`}>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-blue-400">
                 <TrendingUp className="h-4 w-4" />
-                {live ? "Live Ranking" : "Ranking"}: {METRIC_DISPLAY_LABEL[metric]}
+                {live ? "Live Ranking" : "Ranking"} · {ANNUAL_PREMIUM_LABEL}
               </div>
             </div>
 
@@ -58,12 +58,9 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
               >
                 <span className="text-left">Rank</span>
                 <span className="text-center">Agent</span>
-                <span className="text-center">Calls</span>
+                <span className="text-center text-amber-300/80">{ANNUAL_PREMIUM_LABEL}</span>
                 <span className="text-center">Policies</span>
-                <span className="text-center">Annual Premium</span>
-                <span className="text-center">Appts</span>
-                <span className="text-center">Talk</span>
-                <span className="text-center">Policies / 100 Calls</span>
+                <span className="text-center">Calls</span>
               </div>
 
               <LayoutGroup id="tv-table">
@@ -104,23 +101,14 @@ export default function TVRankingsTable({ tableAgents, metric, live, tvRankMotio
                               {a.first_name} {a.last_name?.[0]}.
                             </span>
                           </div>
-                          <div className="text-center text-sm tabular-nums font-medium text-slate-300">
-                            <OdometerValue value={a.callsMade} format={(n) => String(Math.round(n))} tv />
+                          <div className="text-center text-base whitespace-nowrap tabular-nums font-black text-amber-300">
+                            <LeaderboardApValue agent={a} tv />
                           </div>
                           <div className="text-center text-sm tabular-nums font-bold text-blue-400">
-                            <OdometerValue value={a.policiesSold} format={(n) => String(Math.round(n))} tv />
+                            <OdometerValue value={a.policiesSold} format={formatCount} tv />
                           </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-amber-300">
-                            <OdometerValue value={isPremiumWhollyUnknown(a.policiesSold, a.unknownPremiums) ? null : a.premiumSold} format={formatPremiumSold} tv />{Boolean(a.unknownPremiums) && <span title={`${a.unknownPremiums} policies have unknown premium`}>*</span>}
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-emerald-400">
-                            <OdometerValue value={a.appointmentsSet} format={(n) => String(Math.round(n))} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums text-slate-400">
-                            <OdometerValue value={a.talkTime} format={formatTalkTime} tv />
-                          </div>
-                          <div className="text-center text-sm tabular-nums font-bold text-orange-400">
-                            <OdometerValue value={a.conversionRate} format={(n) => n.toFixed(1)} tv />
+                          <div className="text-center text-sm tabular-nums font-medium text-slate-300">
+                            <OdometerValue value={a.callsMade} format={formatCount} tv />
                           </div>
                         </motion.div>
                       );

@@ -1,0 +1,213 @@
+{
+  "before": {
+    "job": {
+      "id": 14,
+      "name": "uv-profile-sync-every-minute",
+      "active": true,
+      "schedule": "* * * * *",
+      "command_md5": "00cc7e5adf58d661d709c2df08a07196"
+    },
+    "enrolled": 0,
+    "finish_acl": "{postgres=X/postgres,service_role=X/postgres}",
+    "finish_md5": "9f1f6e670dc5d07ef2d042458e1fdd73",
+    "observed_at": "2026-10-19T02:05:43.813261+00:00",
+    "policies_md5": "6f3daf33758400eb662d2e7013e56a7a",
+    "exclusions_md5": "0985cbc8c4a94376288ab14bad623b5c",
+    "other_jobs_md5": "193c4700b5056e9bd4ca61d654b93118",
+    "worker_responses": 26,
+    "protected_profile_md5": "fe940abc4db80684593861e2f06942f7",
+    "latest_worker_response": 45357
+  },
+  "after": {
+    "job": {
+      "id": 14,
+      "name": "uv-profile-sync-every-minute",
+      "active": true,
+      "schedule": "* * * * *",
+      "command_md5": "a9d330b262624d7668d71aeb30d1254f"
+    },
+    "enrolled": 0,
+    "finish_acl": "{postgres=X/postgres,service_role=X/postgres}",
+    "finish_md5": "d0334d97bd9b9f724605eca597802299",
+    "observed_at": "2026-10-19T02:19:53.724316+00:00",
+    "policies_md5": "6f3daf33758400eb662d2e7013e56a7a",
+    "exclusions_md5": "0985cbc8c4a94376288ab14bad623b5c",
+    "other_jobs_md5": "193c4700b5056e9bd4ca61d654b93118",
+    "worker_responses": 40,
+    "protected_profile_md5": "fe940abc4db80684593861e2f06942f7",
+    "latest_worker_response": 45405
+  },
+  "verification": {
+    "triggers": [
+      {
+        "name": "uv_agency_deleted",
+        "table": "organizations",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_agency_status_changed",
+        "table": "organizations",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_license_created_deleted",
+        "table": "agent_state_licenses",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_license_saved",
+        "table": "agent_state_licenses",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_profile_deleted",
+        "table": "profiles",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_profile_queue_wake",
+        "table": "private.uv_profile_sync",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_profile_saved",
+        "table": "profiles",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_source_changed",
+        "table": "private.uv_profile_sources",
+        "enabled": "O"
+      },
+      {
+        "name": "uv_source_deleted",
+        "table": "private.uv_profile_sources",
+        "enabled": "O"
+      }
+    ],
+    "functions": {
+      "private.on_uv_license_saved": "62ccc70777326c2d75ad3534420debb5",
+      "private.on_uv_profile_saved": "cb44178c3fe58c5f1cedba7689c70597",
+      "private.on_uv_agency_changed": "b300ce34012a05a7acf1d5a8b13e2576",
+      "private.wake_uv_profile_queue": "0763f18e614115b530054ec1d4816203",
+      "public.finish_uv_profile_sync": "d0334d97bd9b9f724605eca597802299",
+      "private.queue_uv_profile_change": "dcb1b74dca25d59f0c5fd7f8a95bd53b",
+      "private.dispatch_uv_profile_sync": "6832d8b13caef480450afee79e35a4f0"
+    },
+    "migration": {
+      "md5": "76ff22597fefad9b04b6ba98b217507b",
+      "name": "uv_profile_save_driven",
+      "version": "20261019021934"
+    },
+    "cron_command": "SELECT private.dispatch_uv_profile_sync();",
+    "queue_default": "'infinity'::timestamp with time zone",
+    "private_helper_grants": 0
+  },
+  "advisors": {
+    "before": 7,
+    "after": 7,
+    "newLints": []
+  },
+  "head": "92bd4c189c6ac687fbef56940bb2396a2be49f37",
+  "tree": "8b2997cecdeb83ed2b813024ef5d14d6e674d38d",
+  "idle": {
+    "observed_at": "2026-10-19 02:21:35.948421+00",
+    "new_worker_responses": 0,
+    "latest_runs": [
+      {
+        "runid": 192081,
+        "status": "succeeded",
+        "end_time": "2026-10-19T02:21:00.125371+00:00",
+        "start_time": "2026-10-19T02:21:00.123551+00:00"
+      },
+      {
+        "runid": 192074,
+        "status": "succeeded",
+        "end_time": "2026-10-19T02:20:00.469192+00:00",
+        "start_time": "2026-10-19T02:20:00.435649+00:00"
+      }
+    ],
+    "enrolled": 0
+  },
+  "uvProtectedAfter": {
+    "protected_agent_md5": "c5f500770807d42caacb6136ce5b17b1",
+    "exclusions_md5": "0985cbc8c4a94376288ab14bad623b5c"
+  },
+  "merge": {
+    "sha": "c79a1280a6f8f7b3342bfc597b68b96f83d450fc",
+    "merged": true,
+    "message": "Pull Request successfully merged"
+  },
+  "deployment": {
+    "id": "dpl_AznU7guUBZTPih9WnKw1qGMn8PkJ",
+    "name": "agentflow",
+    "url": "agentflow-kyfjjnm03-cgarness-projects.vercel.app",
+    "type": "LAMBDAS",
+    "state": "READY",
+    "createdAt": 1792376411302,
+    "creator": {
+      "uid": "B7CgJADiZNh6moCZg6TMPBCc",
+      "username": "cgarness"
+    },
+    "project": {
+      "id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+      "name": "agentflow",
+      "framework": "vite"
+    },
+    "meta": {
+      "githubCommitRef": "main",
+      "githubCommitSha": "c79a1280a6f8f7b3342bfc597b68b96f83d450fc",
+      "githubCommitMessage": "Merge pull request #462 from cgarness/codex/uv-save-driven-20261019\n\nSync UV profiles after saves and restore protected page access",
+      "githubRepo": "agentflow-life-insure",
+      "githubOrg": "cgarness"
+    },
+    "alias": [
+      "www.fflagent.com",
+      "agentflow-eta.vercel.app",
+      "fflagent.com",
+      "agentflow-cgarness-projects.vercel.app",
+      "agentflow-git-main-cgarness-projects.vercel.app"
+    ],
+    "target": "production",
+    "regions": [
+      "iad1"
+    ],
+    "buildingAt": 1792376412970,
+    "ready": 1792376450369,
+    "readyState": "READY",
+    "source": "git",
+    "aliasError": null
+  },
+  "workflow_runs": [
+    {
+      "id": 39188508143,
+      "name": "UV profile sync verification",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 39188508141,
+      "name": "Reporting integrity",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 39188508147,
+      "name": "Dialer DNC integrity",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 39188508129,
+      "name": "SMS consent integration",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 39188508132,
+      "name": "Reports frontend verification",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ]
+}

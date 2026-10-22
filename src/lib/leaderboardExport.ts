@@ -22,20 +22,14 @@ export function leaderboardCsv(agents: AgentStats[], snapshot: PerformanceSnapsh
   return [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
 }
 
-/** The excluded inactive/unattributed activity disclosure, or "" when there is none. */
+/**
+ * The excluded inactive/unattributed activity disclosure for what the Leaderboard surfaces show (calls and
+ * policies), or "" when there is none. Appointments are not shown on any Leaderboard surface; the CSV keeps them.
+ */
 export function outsideRosterNote(snapshot: PerformanceSnapshot): string {
   const excluded = snapshot.excluded;
-  return excluded.calls_made || excluded.appointments_set || excluded.policies_sold
-    ? `Outside active roster: ${excluded.calls_made} calls, ${excluded.appointments_set} appointments, ${excluded.policies_sold} policies` : "";
-}
-
-/** Estimated or conflicting stored durations only; the legacy_unknown default never triggers a note. */
-function talkTimeNote(snapshot: PerformanceSnapshot): string {
-  const estimated = snapshot.rows.reduce((n,a) => n+(a.estimatedDurationCalls ?? 0),0);
-  const conflicts = snapshot.rows.reduce((n,a) => n+(a.conflictingDurationCalls ?? 0),0);
-  if (estimated + conflicts === 0) return "";
-  return "Talk time includes " + [estimated ? `${estimated} estimated` : null, conflicts ? `${conflicts} conflicting` : null].filter(Boolean).join(" and ")
-    + " call duration" + (estimated + conflicts === 1 ? "" : "s");
+  return excluded.calls_made || excluded.policies_sold
+    ? `Outside active roster: ${excluded.calls_made} calls, ${excluded.policies_sold} policies` : "";
 }
 
 /** Sales without a Sold Date are never placed in a period; disclosed only when there are any. */
@@ -44,9 +38,12 @@ function undatedNote(snapshot: PerformanceSnapshot): string {
   return n > 0 ? `${n} ${n === 1 ? "policy" : "policies"} without a Sold Date not counted` : "";
 }
 
-/** On-screen notes, only when material, joined by " · "; "" when none applies. */
+/**
+ * On-screen notes, only when material, joined by " · "; "" when none applies. No talk-time note: Talk Time is not
+ * shown on the AP Leaderboard (the snapshot still validates every duration count, and the CSV carries Talk Time).
+ */
 export function performanceCaption(snapshot: PerformanceSnapshot): string {
   const unknown = snapshot.rows.reduce((n,a) => n + (a.unknownPremiums ?? 0), 0);
-  return [unknown > 0 ? `Annual premium (${unknown} policies with unknown premium)` : "", talkTimeNote(snapshot), outsideRosterNote(snapshot), undatedNote(snapshot)]
+  return [unknown > 0 ? `Annual premium (${unknown} policies with unknown premium)` : "", outsideRosterNote(snapshot), undatedNote(snapshot)]
     .filter(Boolean).join(" · ");
 }

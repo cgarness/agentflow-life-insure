@@ -43,12 +43,15 @@ vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ profile: { first_name: "Dana", last_name: "Agent" }, user: { id: "u-1" } }),
 }));
 vi.mock("@/lib/activityLogger", () => ({ logActivity: vi.fn(async () => undefined) }));
+// The commission preview needs a QueryClient this harness does not mount; policyCommissionPreviewModals covers it.
+vi.mock("@/components/commission/preview/PolicyCommissionEstimate", () => ({ PolicyCommissionEstimate: () => null }));
 
+// Phase 2A: the modal converts through the commission companion.
 vi.mock("@/lib/supabase-conversion", () => ({
   conversionSupabaseApi: {
-    convertLeadToClient: vi.fn(async (lead: unknown, payload: Record<string, unknown>, organizationId: unknown, campaignId: unknown) => {
+    convertLeadToClientHandoff: vi.fn(async (_attempt: unknown, lead: unknown, payload: Record<string, unknown>, organizationId: unknown, campaignId: unknown) => {
       h.convertCalls.push({ lead, payload, organizationId, campaignId });
-      return "client-123";
+      return { clientId: "client-123", winIds: [], idempotent: false, client: null, commission: { status: "evidence_recorded", slots: [] } };
     }),
   },
 }));

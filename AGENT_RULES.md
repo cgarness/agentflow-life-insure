@@ -1,5 +1,5 @@
 # AgentFlow | AI System Instructions & Protocols (v5.0.0)
-**Owner:** Chris Garness | **Last Updated:** October 10, 2026 (Reports refresh and R-3 overlap-seconds correction shipped; evidence in invariant #41 and the Reports personal layout invariant)
+**Owner:** Chris Garness | **Last Updated:** October 20, 2026 (Phase 2A saved policy commissions released; Commissions center approved for local build — see the Phase 2A and Commissions center sections)
 
 ---
 
@@ -172,6 +172,7 @@ Non-negotiables from production:
 - **Tracked separately, not fixed:** (1) `create-organization` (live v55, `verify_jwt=false`) has **no authorization check** and inserts an organization directly; no frontend calls it. (2) The legacy `accept-invite` `action:"accept"` path (live v45) still creates users from an invitation, outside `create-user`'s trust model; no frontend calls it. Both need their own approved hardening. Since the platform-admin notification triggers (#21), any use of either produces an admin email.
 - **Team Leader invitations (2026-10-15):** Team Leaders may invite Agent accounts only, in their stored organization and with themselves as server-derived `upline_id`. Email and copied-link creation use the same authenticated `invite-user` path. Resend is limited to their own pending/unexpired Agent invitations in that direct downline. Do not widen shared `isOrgAdmin` / `canManageOrganization`, trust browser tenancy/role/upline values, or redeploy `create-user` as part of this permission fix.
 - **Invitations:** clients may not rewrite invitation fields. `authenticated` holds only a column-scoped `UPDATE(status)` under a `Pending → Revoked` policy; acceptance is service-role only. Never reintroduce a policy with `USING (true)`.
+- **`public.list_unrestricted_users()` seal (D0, 2026-10-18) — APPLIED to production `jncvvsvckxhqgqvkppmj` on 2026-10-18 and recorded as `20261018060615 / seal_list_unrestricted_users`** (authored as `20261018023911`; PR #457, merge `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f`; the forward and rollback files were renamed to the recorded version with identical bytes, forward sha256 `b5e89fd8fee33edae2f078fa13a185a8b66b1c2010719e2295d8882a9730c9f3`). This `SECURITY DEFINER` function (owner `postgres`) returns `SELECT * FROM public.profiles`; before the seal, `PUBLIC`, `anon` and `authenticated` could execute it, so the public anon key could read every agency's profiles. Migration `20261018060615_seal_list_unrestricted_users.sql` revoked EXECUTE from `PUBLIC`, `anon` and `authenticated` only; `postgres` and `service_role` keep it (read back as `{postgres=X/postgres,service_role=X/postgres}`, definition unchanged). Never grant EXECUTE on it to `PUBLIC`, `anon` or `authenticated` again: no rollback, inverse, emergency or recovery script may do so (its rollback only re-asserts the seal, and running it needs Chris's separate approval), and a client need goes through an authorized, organization-scoped wrapper. To fix its mutable search_path (advisor 0011), prefer `ALTER FUNCTION … SET search_path`, which keeps the ACL; any DROP and re-CREATE resets the ACL to the defaults and must re-assert the seal in the same migration. Evidence is database-role only (no PostgREST or browser proof). The Supabase Preview baseline replay was CANCELLED and remains an accepted exception, NOT PASSED. Release record: `docs/security/2026-10-18-d0-release.md`.
 21. **All AgentFlow-owned transactional email renders through the shared system renderer (System Email Unification, 2026-07-30)** —
 - **`supabase/functions/_shared/systemEmail.ts` is the ONE renderer** for every AgentFlow-owned system email: signup confirmation (`create-user`), team invitation **initial** (`invite-user`) **and resent** (`send-invite-email`), welcome (`send-welcome-email`), Agency Group invitation (`invite-to-agency-group`), and previews (`send-email-previews`). Copy lives in `_shared/systemEmailTemplates.ts`; every function calls a `render*Email()` helper and must never hand-roll email HTML. The canonical shell is light (`#F1F5F9` page, 560px white card, 4px `#2563EB` accent, image logo, system font stack, solid `#2563EB` CTA), **table-based with inline CSS**, and always ships a hidden preheader, a **plain-text alternative**, a dynamic `new Date().getFullYear()`, and a visible fallback link for security/invitation actions. Forbidden in system email: glassmorphism, `backdrop-filter`, `background-clip` gradient text, `<head><style>` class-based layout, emoji as primary icons, hardcoded years, and any `lovable` / `*.vercel.app` / `agentflow.app` fallback domain.
 - **Agency-authored and user-authored mail is EXCLUDED and must never be wrapped:** `workflow-executor`'s `send_email` action passes tenant-authored HTML through verbatim (its own `WORKFLOW_EMAIL_FROM` / `noreply@fflagent.com` sender), and `email-send-contact-message` sends through the user's own Gmail. Wrapping either in the AgentFlow shell would misattribute agency content to the platform.
@@ -518,6 +519,8 @@ Non-negotiables from production:
 - This extends invariant #35: conversion and the explicit Record Policy path both author additional policies. Preserve server-assigned IDs and the complete reserved array on edits; never expose it in generic field editors. Database identity/shape guards reject new invalid writes while preserving unchanged malformed legacy material where the server path can do so. Do not silently clean up legacy data.
 - Leaderboard, TV, widget, Recent Wins and shared performance summaries use secured server facts, agency IANA calendar bounds and frozen as-of metadata. Rank active profiles of every role; disclose excluded inactive/unattributed activity. Calls are outbound by creation; bookings credit `COALESCE(created_by,user_id)` by creation regardless of later cancellation; policies count events and original seller. Display exact seconds/cents, unknown coverage, and **Policies per 100 Calls**, with a zero-call denominator shown as —. Keep request gates, PT429/PT503 handling, stale scope checks and no raw peer-client fan-out. The feed is latest 20 across periods, with secured legacy primary-premium fallback; additional-policy unknowns never borrow primary premium.
 - **On-screen performance notes (UI copy cleanup V2 Part B, approved by Chris 2026-10-11; display only).** `performanceCaption` (`src/lib/leaderboardExport.ts`) returns only material notes, in this order, joined by " · ", and "" when none applies: "Annual premium (N policies with unknown premium)" when the rows' unknown-premium count is above zero (Part A wording); "Talk time includes {e} estimated[ and {c} conflicting] call duration(s)" when the rows' estimated or conflicting stored-duration counts are above zero (a zero part is omitted; "duration" when the total is 1); and `outsideRosterNote()` "Outside active roster: N calls, N appointments, N policies" when any excluded count is above zero. The `legacy_unknown` (unknown-provenance) count never triggers or appears in a note. The Leaderboard page and TV render the caption only when it is non-empty; the Dashboard Leaderboard widget, which shows no Talk Time, renders only the outside-roster note and only when it is non-zero. The routine "Active agents · {timezone} · As of {time} · Annual premium" text is removed in every state: the period controls show the period, not-live status strips show the last successful update, and the TV "Active-Agent Totals" header shows the roster. The Dashboard stat-card and drill-down lines likewise no longer show a time zone or as-of time (the server scope shows in the Team perspective and the conditional unknown-premium count stays). The snapshot contract and its validation (all three duration counts), calculations and the CSV export are unchanged. For on-screen display this supersedes `docs/plans/2026-10-04-leaderboard-accuracy/implementation_plan.md:139` ("Display period/timezone/scope/last successful update consistently") and the on-screen time-zone label in `:46`; the Group window still uses the viewing agency's time zone and the CSV still labels it.
+- **AMENDED 2026-10-21 by the AP-only Leaderboard (frontend only; draft PR #475 from `claude/sweet-cannon-jve7ak`, not live until merged and released):** `performanceCaption` no longer includes the talk-time note (Talk Time is not shown on any Leaderboard surface; the snapshot still validates every duration count), and `outsideRosterNote()` reads "Outside active roster: N calls, N policies", triggered only by excluded calls or policies. Excluded appointments neither trigger nor appear in any visible note. The unknown-premium and undated-Sold-Date notes, their wording and order, and the CSV are unchanged.
+- **AP-only Leaderboard (approved by Chris 2026-10-21, D1–D5 = A; same draft PR #475; not live until merged and released).** Annualized Premium is the **only** ranking metric on the Leaderboard page, TV Mode and the Dashboard Leaderboard preview. All three use the one shared comparator `compareAgentsByAp` / `rankAgents` (`src/components/leaderboard/leaderboardTypes.ts`): AP desc → Policies desc → Calls desc → last name, first name → profile id, with unique ranks 1…N. AP is the snapshot's `annualized_premium` as delivered; never multiply it again. Do not reintroduce a metric selector, TV metric rotation or a second ranking path (the TV `leaderboardTvMetricIndex` / `leaderboardTvAutoRotate` keys are obsolete and removed on TV mount). **Movement is real rank change only:** change detection and the "frozen" test use the whole sort key (AP, Policies, Calls), so a tie-break reorder shows as movement and an unchanged or all-identical board shows none; the "New #1" celebration still requires AP > 0. Appointments, Talk Time and Policies per 100 Calls are not shown on any Leaderboard surface; `AgentStats` keeps those fields, and `leaderboardCsv` keeps every column. The Dashboard preview stays a prefix of the page's This Month ranking (it shows only agents with a sale, who always sort first). "Your Performance" reads the signed-in agent's row from the board already on screen (no request of its own); an agent who is not on the board gets an unavailable state, never zeros. Snapshot RPCs, RLS, the request gate, polling and stale/error/maintenance behaviour are unchanged. Plan and evidence: `docs/plans/2026-10-21-ap-leaderboard/`.
 - Dashboard/goal/selected-user readers enforce actual-profile own/Admin/downline authority server-side. Appointment workload remains separately assigned/scheduled. Reports `get_report_*` and profile book metrics retain their separately approved sold-date/current-owner/current-policy contracts; do not silently turn them into event reporting. Trusted Dialer retains campaign/agent-local day semantics and unavailable states.
 - New booking requests, canonical disposition and required schedule records commit/replay together. The original DNC/queue body remains intact. A previously committed disposition must still ensure a missing booking exactly once. Await saves, retain failed drafts and request IDs, and guard late results across contact/user/org changes. Provider booking uniqueness must not guess a canonical row among legacy collisions.
 - One deliberate call attempt has a stable UUID reused after ambiguous persistence; true redial gets a new UUID. `twilio-voice-status` remains the sole canonical duration authority. Signed same-leg/provider evidence may replace an elapsed estimate even when smaller; estimates/late failure cannot overwrite provider truth. Conflicting final provider/account/leg observations are preserved and flagged. Legacy values are not silently rewritten. Preserve every Voice/DNC reentrancy/admission/status/retry guard and the actual deployed Edge bundle's dependencies.
@@ -659,6 +662,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 ## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
 - Split **`DialerPage.tsx`** into subcomponents.
+- 🚨 **HIGH PRIORITY — Team Leader hierarchy predicate is unreliable (found 2026-10-17, commission preview Phase 1; NOT fixed there).** `public.is_ancestor_of` depends on `profiles.hierarchy_path`, whose production values are largely self-labels (the `compute_hierarchy_path` defect already noted in `supabase-users.ts`). A read-only production count on 2026-10-17 found `is_ancestor_of(upline_id, id)` true for only **3 of 11** profiles that have an `upline_id`. The Team Leader branch of every sale writer (`create_client_with_sale`, `convert_lead_to_client_with_sales`, `record_client_policy`, `update_client_with_policy_sale`), `get_contact_scope_agents` (Contacts Team scope) and the clients hierarchical RLS all use this predicate, while `usersApi.getAgentScopeIds` walks `upline_id` instead. Consequences: Team Leaders can be refused or under-scoped for their real downline, and the commission preview (which deliberately uses the same narrower predicate) hides estimates for those agents. Needs its own approved plan (diagnosis, data repair and/or trigger fix through a reviewed migration, and a decision on one canonical resolver). Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
 
 
@@ -756,7 +760,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - A durable private location for the source and artifact must be named before release.
 
 **Calculator and settings surfaces.**
-- The calculator nav item and route respect the existing "View Own Commission Percentage" permission (D3). This is screen-level, not a database secrecy claim.
+- The Commissions nav item (where "Commission Calculator" was) and the `/commissions` route, including its Calculator tab (`/commissions/calculator`; the old `/commission-calculator` address redirects there), respect the existing "View Own Commission Percentage" permission (D3). The nav item no longer needs a ready grid: only the Calculator tab does. This is screen-level for the calculator, not a database secrecy claim.
 - Neither surface is a View As surface: no query is issued under View As.
 - Contract levels are parsed strictly and never defaulted, nearest-matched or written back.
 - Settings › Commission Grids is admin-only through `ADMIN_ONLY_SETTINGS_SECTIONS`. Never add it to `SETTINGS_CONFIG`: every section there inherits Agent / Team Leader access by default.
@@ -765,3 +769,239 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 **Verification.**
 - Run `scripts/run_commission_grids_tests.sh` on a disposable loopback cluster only (invariant #28).
 - Do not call PostgreSQL 17.6 CI verified until `.github/workflows/commission-grids.yml` has actually run.
+
+**Policy commission preview (Phase 1, 2026-10-17; LIVE in `main` since PR #455, merge `e2ddef2`).** ConvertLeadModal (every policy row), AddClientModal (only when the save would record a new policy: creation, or the first policy of an existing client) and RecordPolicyModal show a compact estimate — "Estimated first-year commission" and "Estimated advance (75%)" — from the agency's selected grid through the unchanged calculator engine (`calculateEstimate`, exact rationals, `formatUsd` on the Rational). It is an estimate only: never saved, earned, booked or paid commission. The credited agent is the STORED owner the sale writers credit (`leads.assigned_agent_id` / `clients.assigned_agent_id`, read org-scoped with `.maybeSingle()`; the signed-in user for a new manual client), never a modal prop: the Dialer maps `lead.assignedAgentId` from `claimed_by` first. "View Own Commission Percentage" and "View Others' Commission Percentage" are evaluated independently; another agent's estimate also requires Admin / non-impersonating Super Admin (`isOrganizationWideViewer`, same organization) or a Team Leader whose existing Contacts Team scope (`get_contact_scope_agents`) contains the agent — never an Agent. Another agent's level is the raw `profiles.commission_level` (never `rowToUser`, which maps a missing level to `"0%"`) through the strict level parse; the operator's own level is never used for someone else. The credited owner is never served from cache: it is re-read on every open (an owner cached by an earlier open is ignored) and re-checked on window focus and every 15 s while open, and a failed re-check hides the figures. No commission request and no cached commission data under View As; any unresolved viewer, permission, owner, scope, profile or grid read shows no figures. Final Expense lists only the matched carrier's whole-life products (exact trimmed, case-insensitive carrier match) and never auto-selects. Product, term and insured age are preview-only inputs: never required, persisted or added to the four sale payloads (receipt hashes, request ids, transactions and callbacks are unchanged). The Phase 1 §8 snapshot design is superseded by Phase 2A below; in production today nothing from the preview is persisted. Screen-level permission model only, not database secrecy (as D3).
+
+
+### Saved policy commissions — Phase 2A (LIVE: database `20261019170000` on 2026-10-19 and `20261020040000` on 2026-10-20; frontend released 2026-10-20 by PR #469, merge `0312520`)
+
+Gate 3 (database only) is applied: production `jncvvsvckxhqgqvkppmj` records `20261019170000 /
+policy_commission_tracking`, and the stored statement is byte-identical to the repository file (SHA-256
+`b3e4d53fcced800be3c8b09567ef66c2faebb21937634e3f17aa2d6228011f1f`). Never edit, rename or replay that file. Gate 4
+(merge and frontend release) happened on 2026-10-20: PR #469 merged as `0312520` after Chris approved the updated
+preview, so the upgraded modals save through the companions; its PR body is the Gate 4 record (no migration applied or
+replayed, no production business-data write). A named-Agent own-client browser check was not independently observed
+during that release. No preview connected to production may be used for sale or commission tests. Contract:
+`docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`; evidence: `verification.md` beside it (§13
+Gate 3, §15 Gate 3b, §16 Gate 4 note).
+
+- **Meaning (the invariant).** A saved estimate (`policy_commission_estimates` and its four
+  `policy_commission_installments`: Advance 75%, Month 10, Month 11, Month 12) is an illustrative projection from the
+  agency's comp-grid assumptions when it was recorded. A receipt (`policy_commission_receipts`) is the agent's or an
+  admin's manual record of money they say they received. Neither is carrier-verified, guaranteed, earned, paid,
+  payroll, booked commission or a carrier reconciliation. Never label, aggregate, report, export or reconcile them as
+  any of those, and never treat a received amount as confirming an estimate. The approved Commissions center (section
+  below) is the one reporting surface over these tables; Reports-page changes, team or agency reporting, exports,
+  reminders, cron and calendar integration remain out of scope until separately approved.
+- **History is append-only.** Estimates are immutable: replacing one needs a reason and no active receipts (void them
+  first), and the old estimate is kept as superseded. Receipts are never edited or deleted: a correction is a void
+  with a reason, optionally with a replacement. Estimate, schedule, hold and receipt changes write
+  `policy_commission_events`; a capture's confirmation or dismissal is recorded on the capture (actor, reason). The
+  rollback refuses while any of the six tables has rows and never deletes `client-edit:` sale receipts.
+- **Open capture = `awaiting_confirmation` or `needs_attention`, nothing else.** `recorded`, `dismissed` and
+  `superseded` are final. Recording an estimate later while the policy's capture is open marks it `superseded` with
+  `resolved_by_estimate_id`, keeping its original inputs; it was never confirmed and must never be counted or shown
+  as confirmed. Confirm and record-later serialize per policy (request lock, policy advisory lock, then the capture
+  row), so the UI, recovery reads and any future report agree.
+- **Unresolved tracking writes.** A payment, void, timing, hold, schedule, estimate, confirm or dismiss whose outcome
+  is unknown stays unresolved across dialog dismissal and remount (in memory only, scoped to the signed-in user and
+  organization; never browser storage). Never reset it with a new request id: retry resends the exact call and id.
+  Only a success, or a stale/invalid/not-found refusal of that same request (every tracking function returns the
+  request's stored result first under a request lock), resolves it; permission, sign-in and transport errors prove
+  nothing. Closing a dialog never means a change was cancelled.
+- **Saves.** Upgraded modals call only the four `*_handoff` companions (postgres-owned SECURITY DEFINER), which
+  delegate to the unchanged sale writers and, in the same transaction, bind the committed operation to the submitted
+  commission inputs. All commission work runs in a savepoint with `lock_timeout` 100 ms, a **soft 250 ms
+  calculation-start budget** (a slot's calculation only starts before 250 ms have elapsed; the work around it is not
+  cut off, so it is not an end-to-end guarantee; later slots wait as `budget_exhausted`) and a **100-slot defensive
+  cap** (an over-cap payload fails the commission step as a whole with a visible notice; policy entry itself is not
+  limited). Commission problems never fail or alter a sale (cancellation 57014 still aborts the whole request). 25
+  policies is a measured benchmark, not a limit; measured maxima are observations, never guarantees. When no
+  estimate was shown, the modal still sends `{"v":"policy-commission-v1","slots":[]}`. Legacy callers keep the old
+  writers. The migration refuses unless the seven reviewed writer/helper definitions match their md5 preimages; any
+  later change to a sale writer must re-verify the companions' conflict-message → PT409 mapping and sale hashes.
+- **Unknown outcomes.** A sale whose outcome is unknown freezes the exact submission in memory only (never logged,
+  toasted, persisted or sent anywhere but its companion). Retry replays it byte for byte; only a confirmed success or a
+  PT409 conflict leaves that state. Classification is an allowlist of codes that prove nothing committed; anything
+  else is unknown.
+- **Authority.** Commission writes go only through the eight tracking RPCs owned by `agentflow_policy_commission_writer`
+  (NOLOGIN, NOBYPASSRLS, owns no table, only `postgres` is a member), so RLS applies to every write; `authenticated`
+  has no table write grants. `policy_commission_authz.access` mirrors "View Own/Others' Commission Percentage"
+  (pinned with `usePermissions` by `supabase/tests/fixtures/policy_commission/permission_defaults.json`): the
+  credited agent (Own toggle) and same-organization Admins/Super Admins (Others toggle) write; Team Leaders with the
+  Others toggle read agents below them by `is_ancestor_of` (see the hierarchy debt above); no Agency Group peer
+  access; nothing is requested under View As. Never add an application-controlled authority token or a
+  postgres-owned fallback writer.
+- **Errors.** PT409 conflict (HTTP 409), PT404 not found (never P0002, which PostgREST maps to HTTP 500), 42501
+  denied, 22023 invalid input with a human message.
+- **Automatic estimated payment dates (database APPLIED 2026-10-20 as `20261020040000`, byte-identical, SHA-256
+  `10897ad6…0a5ea8`; never edit or replay it; UI live since Gate 4 on 2026-10-20).** When an estimate is saved, the server sets an *assumed* start date only from that policy's
+  own Effective Date — never Draft Date (the next scheduled draft) and never another policy's dates — and saves each
+  payment's expected window as the 1st–3rd Federal Reserve business day after its premium date (Advance: the start;
+  Months 10–12: start + 9/10/11 calendar months from the original anchor, clamped to month end). Explicit non-monthly
+  schedules get only the Advance window. A first premium date other than the effective date comes only from a person in
+  Edit dates and is saved as confirmed; manual payment dates (including "Date needed") always win. Saved schedules are
+  never recalculated when policy details change, and reads never write. Expected dates are AgentFlow's estimate, not a
+  carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
+  breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
+
+### Commissions center (LIVE 2026-10-20: Gate 2 migration `20261020212000` immutable; Gate 3 frontend PR #471, merge `73a83a2`)
+
+Release ordering: a migration version is chosen against the HOSTED migration history (`list_migrations` /
+`supabase_migrations.schema_migrations`), never against source filenames, and must sort after the hosted head. Never insert
+an out-of-order history row or relax the ordering guard; an unapplied migration that would sort earlier is renamed with its
+bytes unchanged (the center reads were proposed as `20261020180000` and renamed to `20261020212000` on 2026-10-20 after
+the hosted head became `20261020192723 / uv_personal_brand`).
+
+`/commissions` — Overview · Payments (Scheduled | History) · Policies · Calculator — replaces the Commission Calculator
+nav entry. Contract and metric definitions: `docs/plans/2026-10-20-commissions-center/implementation_plan.md` §4;
+evidence: `verification.md` beside it.
+
+- **My commissions only.** Every role sees only rows credited to the signed-in seller (`credited_agent_id` =
+  `auth.uid()`, the sale's `wins.agent_id`, never the client's assignee) in the caller's own organization, behind the
+  existing Own toggle. No agent id or organization is accepted from the browser. Team, agency, leaderboard or
+  Agency Group views need separate approval, and so does any new permission or setting.
+- **Reads only.** Five SECURITY INVOKER, STABLE reads (`get_my_commission_overview` / `_installments` / `_receipts` /
+  `_policies`, `get_my_policy_commission`) over shared definitions in the non-exposed schema
+  `policy_commission_reporting` (EXECUTE `authenticated` only). Existing RLS on the commission tables, `wins`,
+  `clients` and `company_settings` applies to every row; wins are filtered to the caller's organization explicitly
+  (`wins_select` also admits Agency Group peers). They never write, backfill, change dates or acknowledge payments.
+  Never add a privileged fallback, an application-controlled authority input or a second calculation engine.
+- **Definitions are server-side and shared.** Saved cents only (never today's grid or a current premium); receipts
+  aggregated per installment before joins; remaining = max(expected − all valid receipts, 0) and excess shown
+  separately (an Advance overpayment never settles Months 10–12); current estimates only (superseded never count);
+  held amounts separate; open captures are not amounts; a stored 0 is a real zero; an installment is counted once in
+  the period of its window's first day; month timing is not past until the month ends; "Check payment", never
+  "Overdue"; unknown dates go to review, not forecasts; today is the agency date (unset zone fails closed, `55000`).
+  Cards, timeline buckets and paginated list totals must reconcile (the suite proves it).
+- **Contact access stays separate from financial access.** Client names, links and client-record policy fields come
+  only from `clients` under the caller's own RLS; otherwise the row reads "Restricted contact" with the estimate's own
+  carrier/product. Never use `wins.contact_name` for display.
+- **Writes reuse Phase 2A.** The drawer reuses the existing tracking dialogs, request ids and unresolved-write
+  registry; no new writer, paid checkbox or bulk action. Query keys sit under `["policy-commissions", "center", user,
+  org, …]` so every tracking write refreshes the center and the contact view together; nothing is requested under View
+  As.
+- **Results always match the filters on screen.** Keys and RPC arguments use the effective filter (Scheduled's period
+  counts only for "Selected period"; Next 90 days and Any date never send or wait for a hidden custom range). Earlier
+  rows are kept only while paging within the same effective filter, user and organization, marked "Updating…"
+  (`aria-busy`) with row actions disabled; a changed filter shows loading and a failed request shows the error, never
+  another filter's rows.
+- **Calculator stays hypothetical.** The Calculator tab reuses `CalculatorWorkspace`'s engine, inputs and matching
+  (monthly premium basis); it shows "Your level: …" and "Estimate only" with one ⓘ, never a grid name, revision or rate
+  breakdown; it never writes or affects reporting; its inputs persist across tab switches only within one signed-in
+  user and organization. Settings copy says the Calculator needs a selected grid and saved commission history stays
+  available (estimates keep their own grid snapshot).
+- **Labels.** Estimates are AgentFlow projections and receipts are manual records; neither is carrier-verified, earned,
+  paid, payroll or booked commission. Keep copy simple: no pay-grid name, revision, contract level or rate in the
+  reporting tabs; definitions live in one ⓘ control.
+- **Access resolves without a needless wait (2026-10-22; branch `claude/zen-bardeen-phqecr`, NOT merged).**
+  `useCommissionsAccess` permits Admin and Super Admin (`is_super_admin === true || role === "Admin"`, the same rule
+  as `usePermissions` and the server's `p_full`) without waiting for `role_permissions`. Every other role fails closed
+  until its permissions load, then the Own toggle decides. While that is unresolved the sidebar holds an inert
+  `aria-hidden` slot with a nav row's box (no link, label, icon or focus stop), so the entries below never move; under
+  View As it renders nothing. Icon: `CircleDollarSign` (sidebar, page header, loading panel). `usePermissions.ts` is
+  byte-pinned by `reportsContracts.test.ts`: never edit it just to expose this rule.
+
+### Commissions insights, monthly goals and Hide amounts (database APPLIED 2026-10-21 UTC; Gate 3 approved, release pending)
+
+Chris separately approved Gate 3 after Gate 2 completion; signed-in read-only preview acceptance passed on
+`a5cd1b0`. PR #474 may be marked ready and merged only after all final-head CI and preview checks pass and Supabase
+Deploy to production is confirmed off. Both Vercel production deployments must then be verified. PR #474 holds the
+final merge/deployment record; focused `verification.md` §10 records acceptance. No application fix, production test
+write, migration replay, direct main push, PR #473 change or earlier-preview-conversion change is authorized.
+
+Gate 2 applied once through the authorized cloud SQL Editor as `postgres` at approximately 05:32 UTC on
+2026-10-21 (October 20 PDT): migration `20261021180000`, SHA-256 `d390cc8e…5b3345`, 34,179 bytes, exact stored
+text verified. Never edit, rename or replay it. Fresh preflight 20/20, read-back 24/24; six-table fingerprints, existing
+catalog and both advisors unchanged. The database contract is applied; the frontend behavior below takes effect
+when the approved Gate 3 release completes. Execution evidence: focused `verification.md` §8. Contract:
+`docs/plans/2026-10-21-commissions-insights/implementation_plan.md`; evidence: `verification.md` beside it.
+
+- **Breakdowns are definitions, not charts.** Policies = distinct eligible `policy_id`s by the sale's `wins.sold_date`
+  (unknown Sold Date never placed in a period; disclosed). Est. commission = saved `first_year_cents` of ACTIVE estimates
+  on those sales (held disclosed, superseded never); never today's grid or premium, and never equated with Expected
+  (payment dates). Received = non-voided receipts by `received_on`, whatever the sale date. A missing estimate is "—",
+  never $0. Averages count only policies with an estimate and are never carrier-verified payout performance.
+- **Grouping.** Carrier = the current estimate's saved carrier, else the client record only when the contact is visible
+  under the caller's RLS, else Unknown; key = `lower(btrim())` (no fuzzy merge). Product = the sale's `wins.policy_type`,
+  else the visible client type, else Unknown; Term · Whole Life · IUL · Final Expense · Other type · Unknown, mutually
+  exclusive; a comp-grid category is never used (Final Expense is never Whole Life). Unknown stays its own group.
+- **Drill-downs match exactly.** Every bar or slice opens a list whose server totals equal it (Policies: Sold period +
+  carrier/unknown/type; History: period + carrier). Other is never a drill-down. New filters compose with existing ones.
+  The released five reads stay for older browsers; new reads have distinct names (no default-argument overloads).
+- **Comparisons** use the server's fair windows (whole months; month-/year-to-date against the same elapsed portion,
+  clamped; equal-length custom ranges; none for future periods). A percentage only from an earlier value above zero;
+  labels name both windows when they differ from the selected range; no good/bad colouring.
+- **Months 10–12** = remaining on active Month 10–12 installments whose saved window starts in the next agency month
+  (equals Scheduled › Next month › Remaining › Months 10–12). First-year, not renewals.
+- **Monthly goals** live only in `public.policy_commission_goals` (organization, owner, first-of-month; 1…100,000,000
+  cents), owner-only RLS gated on the Own toggle, `SELECT/INSERT/DELETE` + `UPDATE (target_cents, updated_at)` for
+  `authenticated`, nothing for `anon`/`service_role`, no admin/Team Leader/Agency Group path. The app writes through
+  SECURITY INVOKER `set_/clear_my_commission_goal` (one month per call); authorized owners also have direct table
+  writes on their own rows, limited by the same owner-only RLS policy, the column grants and the CHECK constraints
+  (never another owner's, organization's or month's row). Reading never creates a goal. Progress = that month's
+  Received (same snapshot as the card), shown only for exactly one whole calendar month; bar capped at 100 %. Never
+  reuse `profiles.monthly_premium_goal`.
+- **Hide amounts** is a browser-local display preference (`localStorage`
+  `agentflow.commissions.hideAmounts.v1:<user>:<org>`), read before the first render, never an authorization boundary
+  and never a financial value. Inside the Commissions Center it masks every amount (text, labels, titles, value text,
+  sr-only tables) with `••••`, replaces money plots with a neutral panel, keeps counts and navigation, and requires an
+  explicit Show amounts before any financial edit. Forms stay mounted while hidden (drafts, request ids and unresolved
+  writes survive); opening a drawer or dialog never reveals amounts. Outside the provider (contact view) nothing
+  changes.
+
+### UV save-driven profile sync (LIVE 2026-10-19; PR #462, hosted migration 20261019021934)
+
+Migration `20261019015242_uv_profile_save_driven.sql` is applied as hosted `20261019021934`; successful UV rows sleep until a committed relevant save or their next known license-expiration deadline. Never restore unconditional per-minute profile comparisons: the retained UV cron command dispatches only due, unleased, nonexcluded queue work. Profile/presence reads and unchanged saves must not publish; HTTP dispatch failure must retain durable work without blocking the core profile save. Keep tenant transfer/deactivation/deletion withdrawals and revision/lease supersession. Chris's CG Financial A2P profile remains excluded from sync even when AgentFlow renders its navigation-only View link. Deployment evidence lives in `docs/plans/2026-10-19-uv-save-driven/release.md`; local migration files are not proof of application.
+
+### UV profile presentation separation
+
+Agent Profile renders only gold UV navigation/copy actions. Publication and contact visibility preferences belong in Settings > My Profile. Never publish implicitly to enable a button or fabricate a URL for private/pending profiles. The protected CG Financial owner link remains navigation-only with no sync RPC. Managed UV pages share the full visual template but retain contact-only capabilities; shared styling does not authorize intake, SMS enrollment, verified claims or copied agent content.
+
+
+### UV profile confirmation wizard (prepared 2026-10-19; not live until approved release)
+
+Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only managed badges: use slate navigation/outlined copy actions and emerald Verified only after agent confirmation, all six required fields, and acknowledged publication. Verification denotes profile completeness, not independent license currency; expiration is not a gate. Canonical licenses remain `agent_state_licenses`, and the wizard must preserve dates/IDs and reject stale/foreign snapshots atomically. Optional bio belongs to the AF private sync row and is signed to managed UV pages; protected A2P exclusions and contact-only capabilities remain mandatory. No existing profile is auto-confirmed. Settled rows have no expiry wakeup or continuous sender polling after this migration. Older status RPC response remains unchanged for client compatibility. Release record: `docs/plans/2026-10-19-uv-verification/release.md`.
+
+### Lead → Client conversion data preservation (built 2026-10-21 on `claude/sweet-fermi-jpsnyn`; migration `20261021200000` NOT applied; frontend NOT released)
+
+Gate 2 approved 2026-10-21 but NOT applied: this cloud session had no SQL Editor route, so it stopped after a 12/12
+preflight and a rehearsed package (`release/apply_20261021200000.sql`, SHA-256 `fd796409…742a`); never apply it
+through `execute_sql` or `apply_migration`. Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
+before assuming it. Plan and evidence: `docs/plans/2026-10-21-lead-client-preservation/{implementation_plan,verification}.md`.
+Future conversions only: no backfill, and existing clients are never read or changed by the migration.
+
+- **The locked lead row is the source of truth.** `convert_lead_to_client_atomic` copies state (normalized with
+  `public.normalize_us_state`, blank → NULL), `date_of_birth` (text, trimmed, never re-formatted), `age`,
+  `best_time_to_call`, `spouse_info` (jsonb verbatim) and every user-defined custom field from the row it holds
+  `FOR UPDATE`. The payload supplies only the agent's conversion inputs; its `custom_fields` contributes ONLY the
+  reserved `additional_policies` array (stored verbatim and in order, because the wrapper records one sale per element
+  by ordinal and `private.insert_policy_sale` reads the stored array by that ordinal). Never take lead data from a
+  browser snapshot again. `mergeCustomFieldsOnConversion` and the reserved key literal are unchanged (#35).
+- **Notes are never silently replaced.** The browser sends only the agent's note in `notes` (blank → NULL) with the
+  marker `notes_source: "conversion_note"`, never its copy of the lead. A marked note that differs from the database
+  lead notes becomes the Notes and the lead notes are kept verbatim in `lead_conversion.lead_notes`. An UNMARKED
+  `notes` (older browsers: the agent's note or a possibly stale lead copy) that differs cannot be classified: the
+  current database notes stay the Notes and the text is kept verbatim as `lead_conversion.legacy_conversion_notes`.
+  Any other marker value fails closed (22023, refresh instruction). Keep the marker beside `notes` (never a separate
+  key): a database without the migration ignores it and still keeps a typed note.
+- **`clients.lead_conversion` is protected, read-only history** (version 1: lead id, converted at/by, lead status,
+  source, score, created/last-contacted timestamps, owner/assignee/importer ids, displaced notes, and any lead custom
+  value that cannot live in the client namespace — the reserved key or a non-object bag — under
+  `preserved_custom_fields`). It is never the client's workflow status. `clients_lead_conversion_guard` allows a
+  non-NULL value only on INSERT by the SECURITY DEFINER converter (`current_user = 'postgres'`, matching `lead_id`)
+  and refuses every later change (23514) for every role; a reviewed repair must disable it explicitly. Lead score is
+  stored there and never displayed or editable.
+- **Client person fields are ordinary editable columns** (`date_of_birth`, `age`, `best_time_to_call`,
+  `spouse_info`, all nullable, no default, no CHECK). `update_client_with_policy_sale` accepts exactly these four
+  beyond its previous allowlist and can never write `lead_conversion`; its messages, authorization and the D7
+  companion's PT409 mapping are unchanged. An unrelated edit must never rewrite them: the profile sends only the person
+  fields the agent changed (`omitUnchangedPersonFields`, the same set the Zod check validates) and `clientUpdatePatch`
+  sends text verbatim (no trimming). It edits a non-ISO DOB as text, keeps legacy options selectable, and never binds a
+  structured spouse value to a text box.
+- **Release order is database first, rollback frontend first.** The new frontend sends the four keys, which the old
+  update writer refuses (22023). The rollback restores both exact preimages and keeps the columns, their data and the
+  trigger; dropping the columns needs its own approval and a proven export (#28, #29).
+- Column names deliberately avoid `status`/`lead_source`: the contact-history capture treats those as value-visible
+  keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
+  must again re-verify the commission companions (Phase 2A rule).

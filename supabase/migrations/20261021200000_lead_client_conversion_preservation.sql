@@ -1,0 +1,405 @@
+-- =====================================================================================================
+-- Lead → Client conversion: preserve every meaningful lead field (future conversions only)
+-- =====================================================================================================
+-- Contract: docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md
+-- Approved for LOCAL build and disposable-database testing only (Gate 1). Production application
+-- requires Chris's separate Gate 2 approval. No backfill: existing clients are not read or changed.
+--
+--   * clients gains four nullable person columns (date_of_birth, age, best_time_to_call, spouse_info)
+--     and one protected, read-only history column (lead_conversion). No defaults, no CHECKs, no RLS,
+--     grant or index change; existing rows read NULL.
+--   * convert_lead_to_client_atomic reads every preserved value from the locked lead row: state,
+--     the four person fields, every user-defined custom field, and the history. Only the agent's
+--     conversion inputs (policy fields, beneficiary, conversion notes, additional_policies) come from
+--     the payload. Lead notes are never silently replaced, and an older browser's unclassifiable notes
+--     text can never become the client's Notes (it is kept separately in the history).
+--   * update_client_with_policy_sale accepts exactly the four person fields in addition to its
+--     existing allowlist, so the client profile can edit them. It can never write lead_conversion.
+--   * A trigger keeps lead_conversion immutable and writable only by the conversion function.
+--
+-- Unchanged: convert_lead_to_client_with_sales, every *_handoff companion, create_client_with_sale,
+-- record_client_policy, private.insert_policy_sale, all RLS policies and grants.
+SET LOCAL lock_timeout = '1s';
+SET LOCAL statement_timeout = '60s';
+
+-- ── 0. Preimage and replay guards ─────────────────────────────────────────────────────────────────────────────────
+CREATE TEMP TABLE lead_conversion_preservation_preimage ON COMMIT DROP AS
+  SELECT p.oid, p.proowner, p.prosecdef, p.proconfig, p.proacl::text AS acl
+  FROM pg_catalog.pg_proc p
+  WHERE p.oid IN ('public.convert_lead_to_client_atomic(uuid,jsonb)'::regprocedure,
+                  'public.update_client_with_policy_sale(uuid,jsonb)'::regprocedure);
+
+DO $guard$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      -- Replaced below (a replay finds the post-images and refuses here).
+      ('public.convert_lead_to_client_atomic(uuid,jsonb)', '641ba66c96ca4a76f80c9c85eb9caa42'),
+      ('public.update_client_with_policy_sale(uuid,jsonb)', '96e8f6e7ecc85d0d5385bf8640a144a6'),
+      -- Unchanged, but relied on: the wrapper records one sale per payload additional_policies element by
+      -- ordinal, and insert_policy_sale reads the STORED array by that ordinal.
+      ('public.convert_lead_to_client_with_sales(uuid,uuid,jsonb,uuid)', '3d974a5c893753d5f10cacd9605c565f'),
+      ('private.insert_policy_sale(uuid,jsonb,text,uuid)', '3f600b757802c0fa8cc1e17fa5c25575')) v(fn, digest)
+  LOOP
+    IF to_regprocedure(r.fn) IS NULL OR md5(pg_get_functiondef(to_regprocedure(r.fn))) <> r.digest THEN
+      RAISE EXCEPTION 'lead conversion preservation: % differs from the reviewed preimage; refusing', r.fn;
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_proc p
+             WHERE p.oid IN ('public.convert_lead_to_client_atomic(uuid,jsonb)'::regprocedure,
+                             'public.update_client_with_policy_sale(uuid,jsonb)'::regprocedure)
+               AND (p.proowner <> 'postgres'::regrole OR NOT p.prosecdef
+                    OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']
+                    OR has_function_privilege('anon', p.oid, 'EXECUTE')
+                    OR NOT has_function_privilege('authenticated', p.oid, 'EXECUTE'))) THEN
+    RAISE EXCEPTION 'lead conversion preservation: writer authorization metadata changed; refusing';
+  END IF;
+  IF to_regprocedure('public.normalize_us_state(text)') IS NULL THEN
+    RAISE EXCEPTION 'lead conversion preservation: public.normalize_us_state(text) is required';
+  END IF;
+  -- A column that already exists (re-apply after the function-only rollback) must be exactly the reviewed shape.
+  FOR r IN SELECT * FROM (VALUES ('date_of_birth', 'text'), ('age', 'integer'), ('best_time_to_call', 'text'),
+                                 ('spouse_info', 'jsonb'), ('lead_conversion', 'jsonb')) v(col, typ)
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_attribute a
+               WHERE a.attrelid = 'public.clients'::regclass AND a.attname = r.col AND NOT a.attisdropped
+                 AND (format_type(a.atttypid, a.atttypmod) <> r.typ OR a.attnotnull OR a.atthasdef)) THEN
+      RAISE EXCEPTION 'lead conversion preservation: clients.% exists with an unexpected shape; refusing', r.col;
+    END IF;
+  END LOOP;
+END $guard$;
+
+-- ── 1. Columns (nullable, no default, no backfill) ───────────────────────────────────────────────────────────────
+ALTER TABLE public.clients
+  ADD COLUMN IF NOT EXISTS date_of_birth text,
+  ADD COLUMN IF NOT EXISTS age integer,
+  ADD COLUMN IF NOT EXISTS best_time_to_call text,
+  ADD COLUMN IF NOT EXISTS spouse_info jsonb,
+  ADD COLUMN IF NOT EXISTS lead_conversion jsonb;
+
+COMMENT ON COLUMN public.clients.date_of_birth IS
+  'Date of birth as recorded on the source lead (text, same as leads.date_of_birth); editable. NULL when unknown — never derived.';
+COMMENT ON COLUMN public.clients.age IS
+  'Age as recorded on the source lead; editable. NULL when unknown — never derived.';
+COMMENT ON COLUMN public.clients.best_time_to_call IS
+  'Best time to call as recorded on the source lead; editable. NULL when unknown.';
+COMMENT ON COLUMN public.clients.spouse_info IS
+  'Spouse information copied verbatim from leads.spouse_info; editable only when it is text. NULL when unknown.';
+COMMENT ON COLUMN public.clients.lead_conversion IS
+  'Protected, read-only history of the source lead at conversion (status, source, score, timestamps, ids, displaced notes, set-aside custom data). Written only by convert_lead_to_client_atomic; never the client''s current workflow state.';
+
+-- ── 2. Protection: lead_conversion is written once, by the conversion function, and never changed ──────────────
+CREATE OR REPLACE FUNCTION private.guard_client_lead_conversion() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- current_user is postgres only inside the SECURITY DEFINER converter; PostgREST writes run as
+    -- authenticated and the import Edge Function as service_role.
+    IF NEW.lead_conversion IS NOT NULL AND NOT (current_user = 'postgres' AND NEW.lead_id IS NOT NULL
+         AND NEW.lead_conversion->>'lead_id' IS NOT DISTINCT FROM NEW.lead_id::text) THEN
+      RAISE EXCEPTION 'Conversion history is recorded only by lead conversion' USING ERRCODE = '42501';
+    END IF;
+  ELSIF NEW.lead_conversion IS DISTINCT FROM OLD.lead_conversion THEN
+    RAISE EXCEPTION 'Conversion history is read-only' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION private.guard_client_lead_conversion() FROM PUBLIC, anon, authenticated, service_role;
+CREATE OR REPLACE TRIGGER clients_lead_conversion_guard BEFORE INSERT OR UPDATE OF lead_conversion ON public.clients
+FOR EACH ROW EXECUTE FUNCTION private.guard_client_lead_conversion();
+
+-- ── 3. convert_lead_to_client_atomic ─────────────────────────────────────────────────────────────────────────────
+-- Body restated verbatim from 20260812042319 with EXACTLY these changes:
+--   * DECLARE gains v_lead_cf, v_policies, v_set_aside, v_conv_notes, v_client_notes, v_history, v_explicit_note,
+--     v_legacy_notes.
+--   * custom_fields: every key from the locked lead row; only additional_policies from the payload. A lead value
+--     that cannot live in the client namespace (the reserved key, or a non-object bag) is set aside verbatim in
+--     the history instead of being dropped or turned into policies.
+--   * notes: the database lead notes unless the agent entered a different conversion note (marked explicitly with
+--     notes_source = 'conversion_note'); displaced lead notes are kept verbatim in the history. An older browser's
+--     differing notes text cannot be classified, so the database notes stay and that text is kept in the history.
+--   * INSERT gains state, date_of_birth, age, best_time_to_call, spouse_info and lead_conversion, all from v_lead.
+-- Everything else (auth, org guard, authorization, double idempotency, payment frequency, policy columns,
+-- contact-graph transfer, lead delete, return shape) is unchanged. CREATE OR REPLACE preserves owner + grants.
+CREATE OR REPLACE FUNCTION "public"."convert_lead_to_client_atomic"("p_lead_id" "uuid", "p_client" "jsonb") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid    uuid := auth.uid();
+  v_org    uuid := public.get_org_id();
+  v_lead   public.leads%ROWTYPE;
+  v_prof   RECORD;
+  v_existing uuid;
+  v_client uuid;
+  v_authorized boolean;
+  v_cf jsonb;
+  v_freq text;
+  v_notes int := 0; v_acts int := 0; v_appts int := 0; v_tasks int := 0;
+  v_calls int := 0; v_msgs int := 0; v_msgs2 int := 0; v_emails int := 0; v_wf int := 0;
+  v_campaign_rows int := 0;
+  v_lead_cf jsonb;
+  v_policies jsonb;
+  v_set_aside jsonb;
+  v_conv_notes text;
+  v_client_notes text;
+  v_history jsonb;
+  v_explicit_note boolean;
+  v_legacy_notes text;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '28000'; END IF;
+  IF v_org IS NULL THEN RAISE EXCEPTION 'no_org' USING ERRCODE = '28000'; END IF;
+
+  SELECT id INTO v_existing FROM public.clients
+   WHERE lead_id = p_lead_id AND organization_id = v_org LIMIT 1;
+  IF v_existing IS NOT NULL THEN
+    RETURN jsonb_build_object('client_id', v_existing, 'idempotent', true);
+  END IF;
+
+  SELECT * INTO v_lead FROM public.leads WHERE id = p_lead_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'lead_not_found' USING ERRCODE = 'P0002'; END IF;
+  IF v_lead.organization_id IS DISTINCT FROM v_org THEN
+    RAISE EXCEPTION 'cross_org' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT p.role, p.organization_id, p.is_super_admin
+    INTO v_prof FROM public.profiles p WHERE p.id = v_uid;
+  IF NOT FOUND OR v_prof.organization_id IS DISTINCT FROM v_org THEN
+    RAISE EXCEPTION 'not_authorized' USING ERRCODE = '42501';
+  END IF;
+
+  v_authorized :=
+       (v_lead.user_id = v_uid)
+    OR (v_lead.assigned_agent_id = v_uid)
+    OR (v_lead.user_id IS NULL AND v_lead.assigned_agent_id IS NULL)
+    OR (v_prof.role = 'Admin')
+    OR (COALESCE(v_prof.is_super_admin, false) AND v_prof.organization_id = v_org)
+    OR (v_prof.role IN ('Team Leader','Team Lead') AND (
+          public.is_ancestor_of(v_uid, v_lead.user_id)
+       OR public.is_ancestor_of(v_uid, v_lead.assigned_agent_id)));
+  IF NOT v_authorized THEN RAISE EXCEPTION 'not_authorized' USING ERRCODE = '42501'; END IF;
+
+  SELECT id INTO v_existing FROM public.clients
+   WHERE lead_id = p_lead_id AND organization_id = v_org LIMIT 1;
+  IF v_existing IS NOT NULL THEN
+    RETURN jsonb_build_object('client_id', v_existing, 'idempotent', true);
+  END IF;
+
+  -- Custom fields: the locked lead row is authoritative for every user-defined key; the payload supplies only the
+  -- reserved additional_policies array (the agent's conversion input). A stale browser bag cannot overwrite a field.
+  v_lead_cf := CASE WHEN jsonb_typeof(v_lead.custom_fields) = 'object' THEN v_lead.custom_fields END;
+  v_set_aside := CASE
+    WHEN jsonb_typeof(v_lead.custom_fields) NOT IN ('object', 'null')
+      THEN jsonb_build_object('_value', v_lead.custom_fields)
+    WHEN v_lead_cf ? 'additional_policies'
+      THEN jsonb_build_object('additional_policies', v_lead_cf->'additional_policies')
+  END;
+  v_policies := CASE WHEN jsonb_typeof(p_client->'custom_fields') = 'object' AND (p_client->'custom_fields') ? 'additional_policies'
+                     THEN p_client->'custom_fields'->'additional_policies' END;
+  v_cf := CASE WHEN v_lead_cf IS NULL AND v_policies IS NULL THEN NULL
+               ELSE COALESCE(v_lead_cf - 'additional_policies', '{}'::jsonb)
+                 || CASE WHEN v_policies IS NULL THEN '{}'::jsonb
+                         ELSE jsonb_build_object('additional_policies', v_policies) END
+          END;
+
+  -- Notes. The current browser marks `notes` as the agent's conversion note with notes_source = 'conversion_note'. An
+  -- older browser sends `notes` unmarked: either the agent's note or that tab's (possibly stale) copy of the lead notes.
+  -- A stale copy must never become the client's Notes, and neither the current lead notes nor an agent's note may be lost:
+  --   blank, or equal to the database lead notes        -> the database lead notes;
+  --   marked conversion note that differs                -> the client's Notes; displaced lead notes kept in history;
+  --   unmarked text that differs (unclassifiable)        -> the database lead notes stay; the text is kept verbatim
+  --                                                        in history as legacy_conversion_notes.
+  -- Any other notes_source value is a format this database does not know and is refused (fail closed).
+  v_explicit_note := p_client ? 'notes_source';
+  IF v_explicit_note AND (p_client->>'notes_source') IS DISTINCT FROM 'conversion_note' THEN
+    RAISE EXCEPTION 'Conversion notes were sent in an unrecognized format. Refresh AgentFlow and try again.' USING ERRCODE = '22023';
+  END IF;
+  v_conv_notes := NULLIF(btrim(COALESCE(p_client->>'notes', '')), '');
+  IF v_conv_notes IS NULL OR v_conv_notes = btrim(COALESCE(v_lead.notes, '')) THEN
+    v_client_notes := v_lead.notes;
+  ELSIF v_explicit_note THEN
+    v_client_notes := p_client->>'notes';
+  ELSE
+    v_client_notes := v_lead.notes;
+    v_legacy_notes := p_client->>'notes';
+  END IF;
+
+  -- Historical-only metadata: protected and read-only (clients_lead_conversion_guard). Blank text → JSON null.
+  v_history := jsonb_build_object(
+    'version', 1,
+    'lead_id', p_lead_id,
+    'converted_at', now(),
+    'converted_by', v_uid,
+    'lead_status', NULLIF(btrim(v_lead.status), ''),
+    'lead_source', NULLIF(btrim(v_lead.lead_source), ''),
+    'lead_score', v_lead.lead_score,
+    'lead_created_at', v_lead.created_at,
+    'lead_last_contacted_at', NULLIF(btrim(v_lead.last_contacted_at), ''),
+    'lead_owner_id', v_lead.user_id,
+    'lead_assigned_agent_id', v_lead.assigned_agent_id,
+    'lead_imported_by_user_id', v_lead.imported_by_user_id);
+  IF v_client_notes IS DISTINCT FROM v_lead.notes AND NULLIF(btrim(COALESCE(v_lead.notes, '')), '') IS NOT NULL THEN
+    v_history := v_history || jsonb_build_object('lead_notes', v_lead.notes);
+  END IF;
+  IF v_legacy_notes IS NOT NULL THEN
+    v_history := v_history || jsonb_build_object('legacy_conversion_notes', v_legacy_notes);
+  END IF;
+  IF v_set_aside IS NOT NULL THEN
+    v_history := v_history || jsonb_build_object('preserved_custom_fields', v_set_aside);
+  END IF;
+
+  -- Canonical payment frequency: blank → NULL; normalized spelling; anything else is a caller bug.
+  v_freq := lower(replace(btrim(COALESCE(p_client->>'payment_frequency', '')), '-', '_'));
+  v_freq := NULLIF(replace(v_freq, ' ', '_'), '');
+  IF v_freq IS NOT NULL AND v_freq NOT IN ('monthly', 'quarterly', 'semi_annual', 'annual') THEN
+    RAISE EXCEPTION 'invalid_payment_frequency' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.clients (
+    first_name, last_name, phone, email,
+    policy_type, carrier, policy_number, premium, face_amount, issue_date, effective_date,
+    sold_date, draft_date, payment_frequency,
+    beneficiary_name, beneficiary_relationship, beneficiary_phone, notes,
+    assigned_agent_id, organization_id, custom_fields, lead_id,
+    state, date_of_birth, age, best_time_to_call, spouse_info, lead_conversion
+  ) VALUES (
+    v_lead.first_name, v_lead.last_name, v_lead.phone, v_lead.email,
+    COALESCE(NULLIF(p_client->>'policy_type', ''), 'Term'),
+    COALESCE(p_client->>'carrier', ''),
+    COALESCE(p_client->>'policy_number', ''),
+    COALESCE((p_client->>'premium')::numeric, 0),
+    COALESCE((p_client->>'face_amount')::numeric, 0),
+    NULLIF(p_client->>'issue_date', ''),
+    NULLIF(p_client->>'effective_date', ''),
+    (NULLIF(p_client->>'sold_date', ''))::date,
+    (NULLIF(p_client->>'draft_date', ''))::date,
+    v_freq,
+    NULLIF(p_client->>'beneficiary_name', ''),
+    NULLIF(p_client->>'beneficiary_relationship', ''),
+    NULLIF(p_client->>'beneficiary_phone', ''),
+    v_client_notes,
+    v_lead.assigned_agent_id,
+    v_org,
+    v_cf,
+    p_lead_id,
+    NULLIF(btrim(public.normalize_us_state(v_lead.state)), ''),
+    NULLIF(btrim(v_lead.date_of_birth), ''),
+    v_lead.age,
+    NULLIF(btrim(v_lead.best_time_to_call), ''),
+    CASE WHEN jsonb_typeof(v_lead.spouse_info) = 'null' THEN NULL ELSE v_lead.spouse_info END,
+    v_history
+  ) RETURNING id INTO v_client;
+
+  UPDATE public.contact_notes SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND contact_type = 'lead';
+  GET DIAGNOSTICS v_notes = ROW_COUNT;
+
+  UPDATE public.contact_activities SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND contact_type = 'lead';
+  GET DIAGNOSTICS v_acts = ROW_COUNT;
+
+  UPDATE public.appointments SET contact_id = v_client WHERE contact_id = p_lead_id;
+  GET DIAGNOSTICS v_appts = ROW_COUNT;
+
+  UPDATE public.tasks SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND contact_type = 'lead';
+  GET DIAGNOSTICS v_tasks = ROW_COUNT;
+
+  UPDATE public.calls SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND (contact_type = 'lead' OR contact_type IS NULL);
+  GET DIAGNOSTICS v_calls = ROW_COUNT;
+
+  UPDATE public.messages SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND (contact_type = 'lead' OR contact_type IS NULL);
+  GET DIAGNOSTICS v_msgs = ROW_COUNT;
+  UPDATE public.messages SET contact_id = v_client, contact_type = 'client'
+   WHERE lead_id = p_lead_id AND contact_id IS NULL;
+  GET DIAGNOSTICS v_msgs2 = ROW_COUNT;
+
+  UPDATE public.contact_emails SET contact_id = v_client WHERE contact_id = p_lead_id;
+  GET DIAGNOSTICS v_emails = ROW_COUNT;
+
+  UPDATE public.workflow_executions SET contact_id = v_client, contact_type = 'client'
+   WHERE contact_id = p_lead_id AND contact_type = 'lead';
+  GET DIAGNOSTICS v_wf = ROW_COUNT;
+
+  SELECT count(*) INTO v_campaign_rows FROM public.campaign_leads WHERE lead_id = p_lead_id;
+
+  DELETE FROM public.leads WHERE id = p_lead_id;
+
+  RETURN jsonb_build_object(
+    'client_id', v_client,
+    'idempotent', false,
+    'transferred', jsonb_build_object(
+      'notes', v_notes, 'activities', v_acts, 'appointments', v_appts, 'tasks', v_tasks,
+      'calls', v_calls, 'messages', v_msgs + v_msgs2, 'contact_emails', v_emails,
+      'workflow_executions', v_wf),
+    'campaign_outcome', jsonb_build_object('campaign_leads_preserved', v_campaign_rows)
+  );
+END;
+$$;
+
+-- ── 4. update_client_with_policy_sale ────────────────────────────────────────────────────────────────────────────
+-- Body restated verbatim from 20261005161611 with EXACTLY these additions: the allowlist and the UPDATE SET list
+-- gain date_of_birth, age, best_time_to_call and spouse_info. lead_conversion is deliberately absent, so this writer
+-- can never change conversion history. Authorization, owner validation, the first-primary-policy sale, the error
+-- messages (the D7 companion's PT409 mapping) and the return shape are unchanged.
+CREATE OR REPLACE FUNCTION public.update_client_with_policy_sale(p_client_id uuid,p_patch jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE actor record; before_row public.clients%ROWTYPE; c public.clients%ROWTYPE; merged public.clients%ROWTYPE; ids uuid[]:='{}';
+BEGIN
+ SELECT * INTO actor FROM private.campaign_actor();
+ SELECT * INTO before_row FROM public.clients WHERE id=p_client_id AND organization_id=actor.org_id FOR UPDATE;
+ IF NOT FOUND OR NOT coalesce(before_row.assigned_agent_id=actor.uid OR actor.actor_role='Admin' OR actor.is_super
+  OR(actor.actor_role IN ('Team Leader','Team Lead') AND public.is_ancestor_of(actor.uid,before_row.assigned_agent_id)),false) THEN
+   RAISE EXCEPTION 'Client not available' USING ERRCODE='42501';
+ END IF;
+ IF jsonb_typeof(p_patch)<>'object' OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_patch) k WHERE k<>ALL(ARRAY[
+  'first_name','last_name','phone','email','state','policy_type','carrier','policy_number','premium','face_amount',
+  'issue_date','effective_date','sold_date','draft_date','payment_frequency','beneficiary_name','beneficiary_relationship',
+  'beneficiary_phone','notes','assigned_agent_id','custom_fields','updated_at',
+  'date_of_birth','age','best_time_to_call','spouse_info'])) THEN
+   RAISE EXCEPTION 'Invalid client edit' USING ERRCODE='22023';
+ END IF;
+ merged := jsonb_populate_record(before_row,p_patch);
+ IF merged.assigned_agent_id IS DISTINCT FROM before_row.assigned_agent_id AND NOT(
+   EXISTS(SELECT 1 FROM public.profiles WHERE id=merged.assigned_agent_id AND organization_id=actor.org_id)
+   AND coalesce(actor.actor_role='Admin' OR actor.is_super OR(actor.actor_role IN ('Team Leader','Team Lead')
+     AND public.is_ancestor_of(actor.uid,merged.assigned_agent_id)),false)) THEN
+   RAISE EXCEPTION 'Invalid client owner' USING ERRCODE='42501';
+ END IF;
+ UPDATE public.clients SET first_name=merged.first_name,last_name=merged.last_name,phone=merged.phone,email=merged.email,
+ state=merged.state,policy_type=merged.policy_type,carrier=merged.carrier,policy_number=merged.policy_number,premium=merged.premium,
+ face_amount=merged.face_amount,issue_date=merged.issue_date,effective_date=merged.effective_date,sold_date=merged.sold_date,
+ draft_date=merged.draft_date,payment_frequency=merged.payment_frequency,beneficiary_name=merged.beneficiary_name,
+ beneficiary_relationship=merged.beneficiary_relationship,beneficiary_phone=merged.beneficiary_phone,notes=merged.notes,
+ assigned_agent_id=merged.assigned_agent_id,custom_fields=merged.custom_fields,
+ date_of_birth=merged.date_of_birth,age=merged.age,best_time_to_call=merged.best_time_to_call,spouse_info=merged.spouse_info,
+ updated_at=now()
+ WHERE id=p_client_id RETURNING * INTO c;
+ IF NOT private.has_primary_policy(to_jsonb(before_row)) AND before_row.primary_policy_id IS NULL AND private.has_primary_policy(to_jsonb(c)) THEN
+   ids:=ARRAY[private.insert_policy_sale(c.id,to_jsonb(c),'policy:'||c.primary_policy_id,NULL)];
+ END IF;
+ RETURN jsonb_build_object('client',to_jsonb(c),'client_id',c.id,'win_ids',ids);
+END $$;
+
+-- ── 5. Post-guard: ownership, definer flag, search_path and ACLs are exactly the preimage's ───────────────────────
+DO $post$
+BEGIN
+  IF EXISTS (SELECT 1 FROM lead_conversion_preservation_preimage pre JOIN pg_proc p ON p.oid = pre.oid
+             WHERE p.proowner <> pre.proowner OR p.prosecdef <> pre.prosecdef
+                OR p.proconfig IS DISTINCT FROM pre.proconfig OR p.proacl::text IS DISTINCT FROM pre.acl)
+     OR (SELECT count(*) FROM lead_conversion_preservation_preimage) <> 2 THEN
+    RAISE EXCEPTION 'lead conversion preservation: writer metadata changed during replacement';
+  END IF;
+  IF has_function_privilege('anon', 'public.convert_lead_to_client_atomic(uuid,jsonb)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.update_client_with_policy_sale(uuid,jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.guard_client_lead_conversion()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'private.guard_client_lead_conversion()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'lead conversion preservation: unexpected EXECUTE grant';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.clients'::regclass
+                   AND tgname = 'clients_lead_conversion_guard' AND tgenabled = 'O') THEN
+    RAISE EXCEPTION 'lead conversion preservation: protection trigger missing';
+  END IF;
+END $post$;

@@ -240,3 +240,7 @@ verify_jwt = false
 
 [functions.clearpath-lead-alert]
 verify_jwt = false
+
+# Dedicated server-to-server worker. Inert until separately approved activation.
+[functions.uv-profile-sync-worker]
+verify_jwt = false

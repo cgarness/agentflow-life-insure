@@ -1,3 +1,782 @@
+## 2026-10-22 06:25 UTC — Google Sheets runner fresh hosted baseline and ordered source re-pin (approved local preparation)
+
+**Authorization and evidence.** After Chris completed secure sign-in and said "Continue", the coordinator obtained read-only evidence from the Supabase browser for project jncvvsvckxhqgqvkppmj at 2026-10-22T06:25:20.775462Z: 342 migration-history rows; latest version 20261021200000; zero Sheets history rows, relations, functions, cron jobs and matching Vault-secret names; permission-helper preimage a199d5ddfb9a56070aeb7706d3e9a4b8. The coordinator separately verified 77 deployed Edge Functions with none of the four Sheets functions, all six B1 Edge secret names present, GOOGLE_SHEETS_ENABLED absent, and GitHub deploy-to-production OFF. No secret values were opened, read or changed. This fresh evidence supersedes the earlier blocked-inventory checkpoint below; it does not authorize a production mutation.
+
+**Follow-up read-only settings evidence.** The coordinator verified VITE_GOOGLE_SHEETS_ENABLED absent from both the AgentFlow project and Shared environment-variable searches, with All Environments/All Variables selected. The current production rollback candidate is dpl_CnxbpTh4fae7Bi6RWvZvWsGBDxP3, Ready/Production/current for www.fflagent.com, source 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4: https://vercel.com/cgarness-projects/agentflow/CnxbpTh4fae7Bi6RWvZvWsGBDxP3. Recapture that candidate before an actual frontend merge because a runner main merge would create a newer deployment. The protected GitHub environment's last read still showed zero secrets; owner entry remains pending. No values were revealed or changed.
+
+**Files and sequence, before implementation.** Update .github/workflows/google-sheets-phase-b.yml to VERSION 20261022062539, LATEST 20261021200000, 342 rows before/applied and 343 recorded, and the renamed migration path supabase/migrations/20261022062539_google_sheets_import_foundation.sql. Preserve the migration, helper and four bundle digests. Update scripts/tests/google_sheets_phase_b_runner.py to seed the matching loopback history and prove the formerly stale pins still refuse when injected as a negative case; use the valid current ordering for the native fixture. Retain the fail-closed ordering guard and recorded maximum equal to VERSION. When the coordinator supplies the reviewed feature commit containing the byte-identical renamed migration, update SOURCE and both checkout refs together, including .github/workflows/google-sheets-phase-b-check.yml. Add outcome records to WORK_LOG.md and this plan. No application, SQL-body, Edge Function, package or permission edits.
+
+**Release boundary.** The coordinator published the reviewed feature source 88669b7d5add7fd692acb262af294e24655c3cc9, tree 92038029ee446a83291986d6e5905c55d673f57f, containing the byte-identical migration and rollback re-stamp. SOURCE and both checkout refs now point to that exact commit. This runner agent will perform no further remote mutation; the coordinator owns publication of the final runner ref. The earlier attempted create_blob returned no result, and no create_tree, create_commit, update_ref or PR-body update was invoked by this agent. Protected-environment credentials, final-head native PostgreSQL 17.6 verification and separately controlled release stages remain prerequisites.
+
+**Verification plan.** Parse both workflow YAMLs and Python programs; execute the actual migration-order test including stale-pin injections; verify before/applied/recorded counts and maxima; preserve dispatch/branch/environment gates; re-hash the renamed migration and all four bundles from the final reviewed source; ensure both checkout refs equal SOURCE and version/path references agree. Recheck changed-line whitespace, conflict-free staging and both-parent document preservation. The application tree is unchanged, so the already completed required TypeScript pass and 84-error main baseline comparison remain applicable. Do not claim the native PostgreSQL suite locally without the engine and CLI.
+
+**Completed local verification.** Fetched the published source read-only and verified its exact tree and parent. The renamed migration and rollback are byte-identical to the earlier approved source; the migration SHA and all four bundle digests match. SOURCE and both checkout refs agree. Workflow/Python parsing, protected/no-secret CI boundaries, nine exact-driver migration-order refusals (including the old pins), current 342/342/343 counts and maxima, all six exact stage-order refusals, and mocked read-only/three correct-stage paths pass. No PostgreSQL transaction/history/rollback run is claimed locally; the final-head native CI gate remains pending. The coordinator owns branch publication and subsequent CI observation.
+
+---
+
+## 2026-10-21 PDT / 2026-10-22 UTC — Google Sheets runner reconciliation (approved local preparation; production gates preserved)
+
+**Authorization and scope.** Chris said "Let's proceed" after the remaining Sheets release work was reviewed. This authorizes reconciling the existing branches and preparing the already-approved Phase B release. This checkpoint makes no production change and does not merge either PR to main. Existing separately controlled frontend activation, real Google pilot, privacy publication and scheduling gates remain.
+
+**Read and conflict review.** Read AGENT_RULES.md in full, VISION.md, the current branch's Sheets runner plan and newest Work Log, current-main rule additions and latest Work Log/plan, and PR #442 release-package.md section 10.3. PR #451 is at 5aab5e06a25a9a25b03a0b6b00f7c5467a26ef18; the current main baseline is 1a7ea7a5c1ee5d2b3cd1eece157900f77da24bf4. Overlapping histories are WORK_LOG.md and implementation_plan.md. Preserve both sides in newest-first chronology, with no application or unrelated release rewrite.
+
+**Files to touch.** WORK_LOG.md and implementation_plan.md for additive merge resolution and this checkpoint. The coordinator subsequently authorized minimal ordering hardening in .github/workflows/google-sheets-phase-b.yml and scripts/tests/google_sheets_phase_b_runner.py while keeping the current pins unchanged. Only a fresh authoritative production read may justify replacing the production baseline pins. The actual driver is the underscore-named Python file; there is no scripts/tests/google-sheets-runner/verify.py. No release artifact, application source, SQL migration, permission, Edge Function or package changes are planned.
+
+**Sequence.** Merge origin/main locally with --no-commit --no-ff. Reconcile the two overlapping documents and mechanically prove all prior lines survive. Keep every runner safety gate, source SHA and artifact hash unchanged unless separately justified by verified evidence. Obtain the live migration count, latest version and helper preimage before changing the expected before/applied/recorded states; do not infer hosted state from filenames. Review the new main rule requiring migration versions to follow hosted history before selecting or executing any revised release package. If hosted access is unavailable, leave the existing exact pins intact and report the release preflight blocked.
+
+**Verification.** Check unmerged paths and whitespace, verify the diff against current main contains only the runner's existing files plus documentation, parse both workflow YAML files and embedded Python, compile the driver, re-verify the pinned source migration and four bundles against Git objects, and exercise existing non-production safety paths where available. Run npx tsc --noEmit and compare the strict app diagnostics to untouched current main when dependencies permit. Native PostgreSQL 17.6 runner verification remains the required CI gate; do not claim it locally without the actual engine and toolchain. No production connection or secrets are used by local tests.
+
+**Release access.** The owner coordinator freshly verified the protected environment with cgarness review, main-only branch and administrator bypass disabled, and observed zero environment secrets. Credentials must be entered by Chris directly into the protected settings. No environment approval is performed on his behalf. Commit/push and any production action are left to the coordinator after review of this local checkpoint.
+
+**Local reconciliation outcome.** Merged current main into the runner worktree without a commit. Only WORK_LOG.md required manual conflict resolution; implementation_plan.md merged automatically. Retained both parents' document content in order. The initial merge preserved the runner workflow, CI workflow and Python driver byte-for-byte; the following authorized safety correction is limited to the runner and its test. The diff against current main remains those three existing runner files and the two documentation files. No application, SQL, Edge Function, dependency or package change was introduced.
+
+**Ordering safety amendment, before implementation.** Fail closed before any mutating stage unless VERSION sorts after LATEST; retain the read-only check stage. Correct the recorded-state expectation to use VERSION as the maximum history version. Add synthetic tests proving equal/older versions refuse before checkout, credentials or any mutating call and that an ordered version uses the right maximum. The native PostgreSQL fixture will temporarily set only its in-memory LATEST to an explicitly synthetic earlier value and populate that loopback history accordingly, so transaction/history/rollback coverage remains meaningful while the real production pins deliberately refuse. SQL bytes, SOURCE, VERSION, LATEST, history counts and artifact digests in the production workflow remain unchanged.
+
+**Verification outcome.** Implemented the minimal ordering correction and exercised the exact new driver test locally: six equal/older-version refusals and the ordered history maximum pass. The unchanged production pins refuse all three mutating stages before file/credential access; the read-only check path still works with mocked external reads. The six existing stage-order cases pass with exact stop-reason assertions under the synthetic ordered fixture. Workflow and Python parsing, protected gate invariants and source migration/four-bundle digest verification pass. Required npx tsc --noEmit passes. Strict app compilation reports 84 diagnostics in an application/config/package tree identical to current main; the coordinator independently confirmed 84 baseline diagnostics and zero new errors. The native PostgreSQL 17.6 transaction/history/rollback suite was not run locally because that engine and CLI are unavailable; it remains a required CI gate.
+
+**Blocked release prerequisite.** The current main rule forbids inserting an out-of-order migration history row. The existing unapplied Sheets version, 20261013120000, precedes the runner's old hosted-head pin, 20261017043757. Mutating stages must remain blocked. A fresh authoritative hosted read must establish the actual migration count, latest version, helper preimage and function inventory. Then rename the unapplied foundation to a version after that hosted head while preserving its SQL bytes, update the reviewed source commit and path references together, and refresh the exact history pins. Those follow-up edits remain pending that evidence; no guessed baseline or weakened guard is accepted. Missing protected-environment credentials and the native PostgreSQL 17.6 verification gate also remain blockers.
+
+---
+
+## 2026-10-22 — APPROVED and IMPLEMENTED (branch only; NOT merged or deployed): Commissions sidebar entry — CircleDollarSign icon, no access delay
+
+**Status:** Chris approved implementation on 2026-10-22 with one change: use `CircleDollarSign` for the sidebar item,
+the page header and the page's loading state (not `DollarSign`), and add `CommissionsPage.tsx` to the plan. Built on
+`claude/zen-bardeen-phqecr` from `main` `40a298c`. This implementation supersedes draft PR #473's icon-only change;
+PR #473 is neither modified nor merged. No merge to `main`, production deploy or database change without separate
+approval. Reviewed AGENT_RULES.md (§3, §7, §8, Commissions center), VISION.md and the newest WORK_LOG entries.
+
+**Conflict check.**
+- Draft PR #473 (`codex/commissions-dollar-icon-20261020`) changes the same line of `CommissionsNavItem.tsx` to
+  `CircleDollarSign`. This implementation makes the same icon choice and also covers the page header and loading
+  state, so it supersedes #473. If both merge they will conflict on that line. Closing #473 is Chris's call.
+- No other open PR or WORK_LOG entry touches the sidebar, `usePermissions` or `useCommissionsAccess`.
+- Unrelated observation: the PR #476 merge message says migration `20261021200000` was applied, but the newest
+  WORK_LOG entry before this one still read "NOT applied" and has no apply record. Not in scope here and left unchanged.
+
+**Root cause.**
+1. `CommissionsNavItem`, the Commissions page header and its "Loading…" panel render the `Wallet` icon.
+2. `useCommissionsAccess` computed `permitted = !permissionsLoading && canSeeCommission(...)`. Admin and Super Admin
+   therefore waited for the `role_permissions` round-trip, even though `canSeeCommission` already returns true for
+   them without that read. The server agrees: `private.policy_commission_toggle` returns true for `p_full`
+   (Admin / Super Admin) without reading `role_permissions`. A Super Admin whose stored role is the legacy
+   `'Super Admin'` string (allowed by `profiles_role_check`, but with no role key in `usePermissions`) never finished
+   loading, so for them the nav item never appeared and the page stayed on "Loading…".
+3. While permissions load, `Sidebar` renders the core menu (fail-open) but Commissions rendered nothing. When access
+   resolved, the item was inserted and Custom links, Settings and the Super Admin entries shifted down one row.
+
+**Design (as built).**
+- **D1 Icon (amended at approval).** Lucide `CircleDollarSign` replaces `Wallet` in `CommissionsNavItem`, the
+  `CommissionsPage` header tile and the page's "Loading…" panel. The page's lock icon for "not available" stays.
+- **D2 Access resolution.** `useCommissionsAccess` is shared by the nav item, the page and every read. It now computes
+  `permitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION)`, where
+  `fullAccess = profile?.is_super_admin === true || profile?.role === "Admin"`.
+  - **Where `fullAccess` comes from (amended during implementation).** It is computed inside `useCommissionsAccess`,
+    repeating `usePermissions`' own definition. The plan was to expose it from `usePermissions`, but
+    `src/lib/__tests__/reportsContracts.test.ts` pins that file's exact bytes (Dialer / Leaderboard boundary), so
+    `usePermissions.ts` stays byte-identical (blob `6789cc0e…1ea5`). The server's `p_full` uses the same definition.
+  - **Final answers are unchanged for every role.** Only the wait is removed, for Admin and Super Admin.
+  - **Agent / Team Leader:** not permitted until their role's permissions load (fail-closed). The stored
+    "View Own Commission Percentage" toggle still decides.
+  - **View As:** unchanged. The nav item returns nothing whenever `isImpersonating`, and reads still require no
+    impersonation and `viewerId === userId`.
+  - **Returned values:** `permissionsLoading` is returned unchanged.
+  - **Page side effect:** for Admin and Super Admin the Commissions page skips its "Loading…" panel. It makes the same
+    reads with the same keys, just without the delay. No new request.
+- **D3 Reserved slot (Agent / Team Leader still loading, not View As).** The nav item renders
+  `<div aria-hidden="true" className="px-3 py-2.5"><div className="h-5" /></div>`, the same 40 px box as a
+  `MainNavItem` row. It has no link, label, icon, tooltip, focus stop or route, so nothing about access is revealed.
+  - **Resolved, permitted:** the real link fills the same slot and nothing below it moves.
+  - **Resolved, denied:** the slot is removed, the same way permission-hidden core items are removed once permissions
+    load. Both roles default to the toggle on, so a typical agent sees no movement.
+- **D4 Unchanged.**
+  - Layout: position directly below Resources, `MainNavItem` styling and active state, collapsed and mobile behavior
+    (one shared `sidebarContent`).
+  - Untouched files: `Sidebar.tsx`, `NavItems.tsx`, `usePermissions.ts`, `useCommissionCalculator.ts`.
+  - Behavior: the page's direct-entry guard, calculations, reads, RLS, database.
+  - No migration and no new query.
+
+**Known limitation (existing behavior, not widened here).** A profile whose stored role is `'Super Admin'` without
+`is_super_admin` has no role key in `usePermissions`, so its loading never ends. The core menu already stays fully
+open for such a profile. The server denies it Commissions, and the nav now shows the empty reserved slot for it
+instead of nothing. Fixing `usePermissions`' unmapped-role behavior is a separate, pinned change.
+
+**Files changed.**
+1. `src/components/layout/CommissionsNavItem.tsx`: icon and reserved slot.
+2. `src/pages/CommissionsPage.tsx`: header and loading icons only.
+3. `src/hooks/useCommissionsCenter.ts`: `useCommissionsAccess` and its doc comment only.
+4. `src/components/layout/__tests__/viewAsSidebarNav.test.tsx`: icon; reserved slot position, box (expanded and
+   collapsed) and stability when access resolves; denied; View As.
+5. `src/pages/__tests__/commissionsPage.test.tsx`: header and loading icons; Admin / Super Admin open without the
+   loading panel while permissions load; an Agent whose access is loading reads nothing.
+6. NEW `src/hooks/__tests__/useCommissionsAccess.test.tsx`: real `usePermissions` + `useCommissionsAccess` with a held
+   `role_permissions` read. Cases:
+   - Admin / Super Admin permitted while the read is pending, with exactly one organization-scoped read.
+   - Legacy `'Super Admin'` role with `is_super_admin` permitted, with no read.
+   - An Admin whose stored toggle is off is still permitted (matches the server).
+   - Agent / Team Leader fail closed while pending; the toggle decides after the read resolves.
+   - Nothing is enabled under View As (viewing as an Admin or an Agent).
+7. `implementation_plan.md` (this entry), `WORK_LOG.md` (newest-first entry), `AGENT_RULES.md` (one bullet under
+   Commissions center recording the nav access rule).
+
+Not modified: `Sidebar.tsx`, `NavItems.tsx`, `usePermissions.ts`, `useCommissionCalculator.ts`,
+`reportsContracts.test.ts`, any SQL or Edge Function, PR #473.
+
+**Verification.** See the newest WORK_LOG entry for the full results.
+- **Fail-first:** with the three source files at `HEAD`, 9 of the 48 tests in the three test files fail (the Wallet
+  icons, the Admin / Super Admin wait and the missing slot); the 39 guard tests pass.
+- **Checks:** root `npx tsc --noEmit`, strict app typecheck compared with the baseline, focused and related Vitest,
+  full Vitest compared with the baseline failure set, ESLint on changed files, and `vite build`.
+- **Delivery:** commit and push to `claude/zen-bardeen-phqecr` only. No PR, merge or `main` push without approval.
+
+---
+
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final layout alignment (podium / Your Performance locked to the Full Rankings / Recent Wins columns)
+
+**Status:** Chris approved §15 with D1 A, D2 A and D3 approved. Implemented in commit `e02f535` on
+`claude/sweet-cannon-jve7ak`. No Supabase or Vercel command run. Details are in
+`docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §15 and `verification.md` §11.
+
+**Summary:**
+- Both board rows share one 2 : 1 column template, with two columns from 1280 px.
+- The podium shares Full Rankings' column and Your Performance shares Recent Wins'. Measured in the browser, the
+  edges match to the pixel at 1280–2560 px with the sidebar open or collapsed.
+- Below 1280 px every panel stacks full width.
+- The three-card podium fills its column. One- and two-agent podiums keep their existing caps, centered.
+- One deviation: the three-card podium drops its cap at every width, not only from `lg`, because of the
+  collapsed-sidebar case.
+
+---
+
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): final UI polish ("Annual Premium" labels; TV totals without Calls)
+
+**Status:** Chris approved the exact plan on 2026-10-21. `main` `40a298c` (PR #476) was merged into
+`claude/sweet-cannon-jve7ak` (`3161c4b`), then commit `8abb0a2` implemented it. No Supabase or Vercel command run.
+Details are in `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md` §14 and `verification.md` §10.
+
+**Summary:** every visible "AP" / "Annualized Premium" label on the Leaderboard and TV Mode now reads "Annual
+Premium". That includes the subtitle "Ranked by Annual Premium". TV's Active-Agent Totals strip shows only Annual
+Premium and Policies in two equal columns. Calls stay on the podium cards and in both ranking tables. No
+calculation, ranking, CSV, data, RPC, RLS or telephony change.
+
+One deviation, for mobile fit: the Full Rankings header wraps wherever its column is narrower than the label (also
+at 768–1100 px), not only below `sm`.
+
+---
+
+## 2026-10-21 — GATE 1 COMPLETE (local build + draft PR; NOT live): Lead → Client conversion preserves every meaningful lead field
+
+**Gate 2 (database only), 2026-10-21:** Chris approved migration `20261021200000` (SHA-256 `ce189016…9ae5`) via the
+version-preserving SQL Editor route. Checksum verified; hosted head `20261021180000`; fresh preflight 12/12;
+fingerprints and advisors (security 253, performance 452) captured; package `apply_20261021200000.sql` (SHA-256
+`fd796409…742a`) built and rehearsed. **NOT applied**: no SQL Editor route in this cloud session; stopped and reported.
+Production unchanged. Gate 3 not approved. Focused `verification.md` §8.
+
+**Status:** Chris approved Gate 1 (D1–D9, file list, local build, tests, commits, pushes, one draft PR) with a
+mixed-version requirement. Built and verified locally on `claude/sweet-fermi-jpsnyn` from `main` `51b0e56`; stopped at
+Gate 2. Migration `20261021200000` NOT applied; frontend NOT merged or released; the only production contact was one
+read-only check. Future conversions only: no backfill, no change to existing clients. Evidence:
+`docs/plans/2026-10-21-lead-client-preservation/verification.md`.
+
+**§14 bugfix (within Gate 1, 2026-10-21):** older-browser notes can no longer replace the client's Notes (explicit
+`notes_source` marker; unclassifiable legacy text kept separately; unknown markers fail closed) and an unrelated client
+edit can no longer rewrite unchanged DOB/age/best time/spouse values. Migration bytes changed (still NOT applied):
+SHA-256 `ce189016…9ae5`; every digest, guard and release script regenerated. Focused plan §14; `verification.md` §7.
+
+**Contract, migration design, exact files, tests, rollout, rollback and decisions D1–D9:**
+`docs/plans/2026-10-21-lead-client-preservation/implementation_plan.md`.
+
+**Summary:** `convert_lead_to_client_atomic` drops state, DOB, age, best time to call, spouse info, lead source,
+status and score, takes custom fields from the browser snapshot, and lets conversion notes replace the lead's notes.
+One new forward-only migration (`20261021200000`, preimage-guarded) makes the converter read every preserved field
+from the locked lead row, adds four nullable editable client columns and one protected read-only `lead_conversion`
+history column, keeps displaced lead notes verbatim, and lets the client editor save the four person fields. The
+profile shows them in the existing details grid plus a read-only "Original lead" panel. Wrapper, commission
+companions, policy cards, telemetry and authorization unchanged.
+
+---
+
+## 2026-10-21 — APPROVED and IMPLEMENTED (draft PR #475; not merged, not released): AP-only Leaderboard redesign (frontend only)
+
+**Status:** Chris approved the plan on 2026-10-21 with D1–D5 = A, plus the instruction that tie-break rank changes show
+correctly in the movement indicators. Implemented on `claude/sweet-cannon-jve7ak` from `main` `51b0e56`; draft PR
+#475 open for review. Against the `main` baseline the root typecheck is clean, the app typecheck has the identical 84-error
+set, and the full Vitest run has no new failure. Targeted 331/331, lint and build pass. Fixture screenshots are in the
+plan folder. No Supabase or Vercel command, migration, merge or release. Merge and frontend release need
+Chris's separate approval. Evidence: `docs/plans/2026-10-21-ap-leaderboard/verification.md`.
+
+**CI blocker fixed (test-only, plan §13):** the `tv-browser` visual harness (`scripts/tests/leaderboard-visual/`
+`entry.tsx`, `verify.mjs`) is updated for the AP-only board; no application, workflow or backend change.
+`verification.md` §8–§9.
+
+**Plan, exact file list, decisions and verification:** `docs/plans/2026-10-21-ap-leaderboard/implementation_plan.md`.
+
+**Summary:** Annualized Premium (AP) is the single ranking metric on the Leaderboard page, TV Mode and the Dashboard
+preview (one shared comparator; deterministic ties). The metric dropdown, the TV metric selector, TV auto-rotation and
+their stored preferences are removed. The podium keeps its design and shows AP, then Policies and Calls. A new Your
+Performance card shows the signed-in agent's AP, rank, real movement, Policies and Calls, or an unavailable state
+when they are not on the board. Full Rankings lists every ranked agent (Rank · Agent · AP · Policies · Calls) with a
+YOU row. Appointments leave every visible Leaderboard surface, including the on-screen outside-roster note. Unchanged:
+`get_leaderboard_snapshot` and its 1:1 AP mapping, RLS, the request gate and polling, stale/error/maintenance states,
+Recent Wins and the CSV export.
+
+---
+
+## 2026-10-21 — PR #474: Gate 3 approved, read-only preview accepted; frontend release pending final checks
+
+Chris approved the separate frontend release by replying "Continue" after Gate 2 completion. Signed-in read-only
+preview acceptance passed on `a5cd1b0`; no production test data was written. Merge waits for all final-head workflows,
+both preview deployments and the Supabase automatic-production-deploy safeguard. PR #474 records the eventual merge
+and both production deployments. Focused `verification.md` §10. Earlier status entries below are historical.
+
+**Gate 2 completion update — 2026-10-21 05:33 UTC (October 20, 10:33 PM PDT):** migration `20261021180000` applied once through the authorized cloud SQL Editor as `postgres`; exact stored text verified. Fresh preflight 20/20, read-back 24/24; all six fingerprints and all existing catalog objects unchanged; both advisors unchanged. Gate 3 remains unapproved and PR #474 remains draft. See `docs/plans/2026-10-21-commissions-insights/verification.md` §8 for the execution record. Earlier preparation entries below are retained as history.
+
+**Status:** Gate 2 database release applied and verified at approximately 05:32 UTC on 2026-10-21 under the exact
+approval for source `0aebd01` and migration `20261021180000` (SHA-256 `d390cc8e…5b3345`, 34,179 bytes). Fresh
+preflight 20/20 and read-back 24/24 passed; fingerprints, existing catalog and both advisors unchanged. Draft PR #474
+stays on `claude/zen-clarke-wdwrrb`; Gate 3 frontend release needs Chris's separate approval. No merge, frontend
+release or production test write. Feature plan §11; `verification.md` §8.
+
+**Contract, metric definitions, migration scope, exact files and tests:**
+`docs/plans/2026-10-21-commissions-insights/implementation_plan.md`.
+
+**Summary:** By carrier (horizontal bars: Policies · Est. commission · Received) and By product (doughnut: Policies ·
+Est. commission) with exactly matching drill-downs; fair comparisons; a next-month Months 10–12 highlight; an optional
+owner-only monthly commission goal measured by recorded receipts; and a browser-local Hide amounts preference across
+the whole Commissions Center. The released reads, writers and definitions are unchanged.
+
+---
+
+## 2026-10-20 — RELEASED: Commissions center (Overview · Payments · Policies · Calculator)
+
+**Status:** Gate 2 applied once on 2026-10-20 at 23:05 UTC under Chris's database-only approval: migration
+`20261020212000`, exact approved bytes, through the Supabase SQL Editor. Preflight 15/15, readback 13/13, six-table
+fingerprints unchanged; signed-in read-only preview checks passed for Overview, Payments, Policies and Calculator.
+Gate 3 approved by Chris and released 2026-10-20 PDT (2026-10-21 UTC): PR #471 merged as `73a83a2` after all nine
+final-head workflows passed. Both Vercel production deployments are READY; `www.fflagent.com` resolves to that commit.
+No production test writes, cleanup or backfill. Evidence: focused `verification.md` §§15–17.
+
+**Contract, metric definitions, migration contract and exact file list:**
+`docs/plans/2026-10-20-commissions-center/implementation_plan.md`.
+
+**Amendment approved 2026-10-20 (local only, PR #471 stays draft):** final copy and filter corrections — compact
+calculator copy ("Your level", "Estimate only" with ⓘ), Settings wording, results kept only while paging within the same
+filters, and Next 90 days / Any date independent of an unfinished custom range. No database change. Plan §12.
+
+**Summary:** the sidebar's "Commission Calculator" becomes **Commissions** with four addressable tabs. Overview, Payments
+and Policies report the signed-in user's own saved estimates, installments and manual receipts (My commissions) through
+five new SECURITY INVOKER read functions (new migration `20261020212000_policy_commission_center_reads.sql`, proposed
+as `20261020180000` and renamed byte-identically for hosted ordering — plan §13; existing
+commission RLS, `wins` and `clients` RLS apply; EXECUTE on the new functions only; no writer, existing grant or policy change). Row actions reuse the Phase 2A
+tracking controls and unresolved-write recovery. The calculator tab reuses `CalculatorWorkspace` unchanged and stays
+hypothetical. Phase 2A (PR #469, merged `0312520`, Gate 4 released 2026-10-20) is the released base.
+
+---
+
+## 2026-10-19 — RELEASED 2026-10-20 (originally approved for local build): Phase 2A saved policy commissions, expected payments and manual receipts
+
+**Status:** Chris approved the local implementation of the companion-function architecture on 2026-10-19. Branch
+`claude/friendly-ptolemy-pvpmfj` from `main` `84ba4f6`; feature-branch commits and pushes are approved. No production
+migration, RLS or grant change, production test write, merge or deployment is approved; reminders, cron, calendar
+integration and commission dashboards stay out of scope. The Gate 3 release method is chosen when the tested
+migration package exists.
+
+**Correction pass (2026-10-19, approved):** draft PR plus the scoped corrections in §12 of the Phase 2A plan
+(unknown-outcome recovery, installment amount, capture lifecycle, wording, PostgreSQL 17.6 measurements, types).
+Still not approved: production migration/RLS, merge, deployment, production reads or test writes.
+
+**Amendment approved 2026-10-20:** simpler commission copy and automatic expected payment dates (effective date only;
+Draft Date never used) — §13 and §13.7 of the Phase 2A plan. Gate 3b APPLIED 2026-10-20: production records
+`20261020040000 / policy_commission_expected_windows` (byte-identical; `verification.md` §15). Gate 4 (merge and frontend
+release) RELEASED 2026-10-20: PR #469 merged as `0312520` after Chris approved the updated preview (`verification.md`
+§16). A named-Agent own-client browser check was not independently observed.
+
+**Gate 2 (local build and verification) complete** — evidence in
+`docs/plans/2026-10-19-policy-commission-phase-2a/verification.md`; Gates 3, 3b and 4 have since been released (above).
+
+**Current contract and exact file list:** `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+It supersedes the Phase 1 §8 deferred snapshot design below and every earlier staged-capture/session design.
+
+**Summary:** four companion save functions delegate to the unchanged sale writers (D7 adds a receipt-bearing
+first-policy-edit companion) and, in the same transaction, record server-proven operation evidence and the immutable
+commission capture inside an error boundary with a soft calculation-start budget, so a commission failure never invalidates a
+legitimate sale. A restricted NOLOGIN/NOBYPASSRLS writer owns the tracking functions; six RLS tables hold evidence,
+captures, estimates, four installments, manual receipts and audit events. Own/Others permissions are enforced on the
+server; sellers own their records; no Agency Group peer access. Frozen submissions replay byte-identically until
+authoritative reconciliation.
+
+---
+
+## 2026-10-18 — DOCS / SECURITY, APPROVED: D0 repository closeout (filename reconciliation and durable release record; repository only)
+
+**Status:** Chris approved the repository-only D0 closeout on 2026-10-18.
+- Branch `claude/d0-repository-closeout` from `origin/main` `f3d9b0ccf08d692cef6bd39a11cb32fb4e20443f`.
+- Commit, push and a draft PR are approved; the merge needs Chris's separate final approval. Never push directly to `main`.
+- **No further production mutation is authorized:** no `apply_migration`, rollback execution, SQL or history repair,
+  permission re-grant, account change or setting change. Supabase "Deploy to production" stays OFF.
+- This rename does not resolve the other migration-version discrepancies (invariant #30).
+- None of D6, C1/C2, the contact guard, F8, P5, D16, D17, the hierarchy repair or any dialer work is included.
+
+**What is being recorded:** D0 was applied once to production on 2026-10-18 under its own separate approval, through
+`apply_migration`. It was recorded as **`20261018060615 / seal_list_unrestricted_users`** (authored as
+`20261018023911`). The durable release record is `docs/security/2026-10-18-d0-release.md`.
+
+**Change:**
+1. **Rename both files, byte-for-byte** (`git mv`, R100; no copy left under the old name):
+   - `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `supabase/migrations/20261018060615_seal_list_unrestricted_users.sql`.
+     3606 bytes, sha256 `b5e89fd8fee33edae2f078fa13a185a8b66b1c2010719e2295d8882a9730c9f3`.
+   - `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql` → `supabase/migrations/rollback/20261018060615_seal_list_unrestricted_users.rollback.sql`.
+     3409 bytes, sha256 `051c79eaa76acc7b44e7d62c26b33c29c0c07bc31890000d36d25d15b867707a`.
+2. **References:**
+   - the runner's `MIG`/`ROLLBACK` paths and its status header;
+   - the workflow's header comment.
+
+   Test behaviour, permission guards and workflow triggers are unchanged; the path globs already match the new names.
+   The runner keeps mode 100755. `supabase/tests/seal_list_unrestricted_users.sql` has no filename or status reference
+   and stays unchanged.
+3. **Status:**
+   - the AGENT_RULES #20 note says applied, keeping the never-re-grant rule;
+   - the earlier D0 entries here and in `WORK_LOG.md` keep their text and gain a superseded pointer;
+   - a newest-first `WORK_LOG.md` closeout entry is added.
+4. **Durable record:** `docs/security/2026-10-18-d0-release.md` (new).
+
+**Files (exactly eight paths):**
+1. `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql` → `supabase/migrations/20261018060615_seal_list_unrestricted_users.sql` (rename)
+2. `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql` → `supabase/migrations/rollback/20261018060615_seal_list_unrestricted_users.rollback.sql` (rename)
+3. `scripts/run_seal_list_unrestricted_users_tests.sh`
+4. `.github/workflows/seal-list-unrestricted-users.yml`
+5. `implementation_plan.md` (this entry)
+6. `WORK_LOG.md`
+7. `AGENT_RULES.md`
+8. `docs/security/2026-10-18-d0-release.md` (new)
+
+**Verification:**
+- Run the D0 suite against the renamed files on a throwaway loopback PostgreSQL with synthetic data only.
+- Run `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`, compared with base `f3d9b0c`.
+- Check both SQL files are byte-identical before and after.
+- Check no active test or workflow reference names the old files.
+- Draft-PR CI: the four path-filtered checks that passed at `5744ee0`:
+  - Seal list_unrestricted_users verification (`postgres:17.6`);
+  - Dialer DNC integrity;
+  - Reporting integrity;
+  - SMS consent integration.
+
+  Normal Vercel previews run.
+- **Supabase preview.** This PR changes `supabase/migrations/`, so the Supabase GitHub integration will attempt an
+  automatic preview.
+  - Chris's closeout approval allows preview usage only within the existing one-D0-preview authorization (one
+    automatically created D0 preview branch). That authorization is unused: the PR #457 preview was cancelled before
+    any branch was created.
+  - At 06:53:56 UTC, `list_branches` showed the 3-branch limit still full (main, #294, #378), so the attempt is expected to
+    be cancelled.
+  - No Supabase branch, limit or setting is created, reset, deleted or changed to influence it.
+  - Its outcome is reported exactly as observed. A pass would not convert the PR #457 accepted exception
+    (NOT PASSED) without Chris's decision.
+
+**Evidence handoff:**
+- A sanitized evidence export and a checksum manifest are attached to the handoff, not committed. The scratchpad
+  originals stay unchanged.
+- No raw session log, credential, token, profile data or unrelated security detail is committed.
+- A checksum computed now is not proof of what was recorded at apply time; the record says which values were captured
+  when.
+
+---
+
+## 2026-10-18 — SECURITY, APPROVED FOR ISOLATED LOCAL BUILD AND TEST ONLY: seal `public.list_unrestricted_users()` (D0)
+
+> **Superseded status (2026-10-18 closeout):** this entry records the local build stage and is kept as written. D0 was
+> later committed, merged (PR #457, merge `f3d9b0c`) and applied to production once, recorded as
+> `20261018060615 / seal_list_unrestricted_users`. The files were then renamed from `20261018023911`. See the closeout
+> entry above and `docs/security/2026-10-18-d0-release.md`.
+
+**Status:** Chris approved D0's isolated local build and test on 2026-10-18. Local branch `claude/seal-list-unrestricted-users` from `origin/main` `e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881`. **Not committed, not pushed, no PR, no merge, no Supabase branch, NOT applied to production.** Each of those is a separate decision. No `#APPROVE_RLS_CHANGE` is granted or needed for this item, and none of D6, C1/C2, the contact guard, F8, P5, D16, D17 or the hierarchy repair is part of it.
+
+**Problem (read-only evidence, 2026-10-17/18):** `public.list_unrestricted_users()` is `SECURITY DEFINER`, owned by `postgres` (BYPASSRLS), body `SELECT * FROM public.profiles;`, and executable by `PUBLIC`, `anon` and `authenticated`. Anyone holding the public anon key can read every agency's profiles through `/rest/v1/rpc/list_unrestricted_users`. It has no callers:
+- The repository holds only its generated type entry (`src/integrations/supabase/types.ts`), its baseline definition and two historical prose mentions. There is no `.rpc(...)` call.
+- Production has zero `pg_depend` dependents and no policy, view or function reference to it, and logged no request to it in the 24 hours inspected.
+
+**Preimage (production, under `search_path = "$user", public, extensions`):** `md5(pg_get_functiondef) = 41b9e7d550c0d013c9306db9dd2b7b27`; owner `postgres`; `prosecdef = true`; ACL `{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`. The fixture reproduces this exactly (the same md5 on PostgreSQL 16.15). It is never changed to make a test pass.
+
+**Change (one migration, one top-level `DO`):**
+- Guard: refuse unless the function exists with the exact md5 (computed under the pinned search_path), owner, `SECURITY DEFINER` and preimage ACL. Also refuse if any catalog-tracked object depends on it (`pg_depend`; invariant #37). `lock_timeout` is 1 s.
+- `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated`. `postgres` (owner) and `service_role` keep EXECUTE, as intended.
+- Postconditions: ACL exactly `{postgres=X/postgres,service_role=X/postgres}`, no effective EXECUTE for `anon` or `authenticated` (inherited grants included), EXECUTE for `service_role`, definition unchanged.
+- Then restore the caller's `search_path` and `lock_timeout`, and `NOTIFY pgrst, 'reload schema'`, which is delivered only on commit.
+- Nothing is dropped, and no data is read or written.
+
+**Rollback:** **"Re-assert only. Not an inverse. Never re-grants EXECUTE."**
+- It never grants EXECUTE to `PUBLIC`, `anon` or `authenticated`, and never revokes from `postgres` or `service_role`.
+- It refuses, changing nothing, if `postgres` or `service_role` would be left without EXECUTE, or if its REVOKE would change the ACL while dependents exist.
+- No inverse is provided. After the rollback runs, re-applying the forward migration is refused by its preimage guard, as intended.
+
+**Tests:** these are database-role verification on a throwaway local cluster. They are not proof of PostgREST, browser or PostgreSQL 17.6 behaviour. Each scenario starts from a fresh clone of the template; S5 and the S7 re-apply deliberately reuse the database they just sealed.
+- S0 reproduction: before the seal, `anon` and `authenticated` read both synthetic agencies.
+- S1 `anon`, and S2 the `authenticated` role, get `42501 permission denied for function list_unrestricted_users`. Claims are set for realism only; the function reads none.
+- S3 `service_role` and `postgres` still read everything.
+- S4 exact ACL, definition and data, checked from a fresh connection.
+- S5 replay refused. S6 definition drift and ACL drift refused, leaving the drifted state untouched.
+- S7 covers the rollback:
+  - its header is verbatim, and it keeps the seal;
+  - re-applying the forward migration afterwards is refused;
+  - on an unsealed database it seals;
+  - with a dependent present it refuses.
+- S8: a test-only `ddl_command_end` event trigger raises at the REVOKE, in autocommit and `--single-transaction`, and a fresh connection still sees the preimage. On its own S8 cannot tell a single `DO` from a split file; S9 and S11 cover that.
+- S9 checks the shape of the migration file:
+  - exactly one top-level `DO` (procedural `BEGIN`/`END` allowed), with only comments and whitespace outside it;
+  - no other statement or psql metacommand, and no transaction control (or `CALL`) inside, scanning the raw body;
+  - complete command-tag output exactly `DO`.
+  
+  It rejects split, internal-`COMMIT`, hidden-`COMMIT`, `CALL`, upper-case-tag, trailing-statement and metacommand variants, each for its asserted reason. The split variant is also caught by the tag check; the `COMMIT` variant only by the static check.
+- S10 dependency refusal: a real catalog-tracked dependent (a view) in a fresh database makes the real migration fail with its specific error. A fresh connection still sees the original ACL and definition. This does not replace the separate caller/reference inventory.
+- S11: a re-grant injected right after the REVOKE makes the migration's own postcondition, and separately the rollback's, refuse. A fresh connection then sees the prior state.
+- S12: the migration still seals under a hostile session `search_path` (`pg_catalog`).
+- S13: a concurrent uncommitted catalog lock makes the migration fail within about 1 s (lock timeout), leaving the preimage.
+- S14: `NOTIFY pgrst` is delivered after the migration and after the rollback, and not after a refused replay.
+- N1: revoking from `anon` and `authenticated` but not `PUBLIC` must fail S1 and S2.
+- N2: a standalone `REVOKE` run with `psql -X -v ON_ERROR_STOP=1 -f` in autocommit finishes and commits, and a later separate top-level statement fails. A fresh connection sees the committed ACL, and statement 3 never runs. This is why the migration must be one statement.
+
+**Files (exactly eight):**
+1. `supabase/migrations/20261018023911_seal_list_unrestricted_users.sql`
+2. `supabase/migrations/rollback/20261018023911_seal_list_unrestricted_users.rollback.sql`
+3. `supabase/tests/seal_list_unrestricted_users.sql` (fixture and assertion library)
+4. `scripts/run_seal_list_unrestricted_users_tests.sh` (accepts only `postgres(ql)://postgres[:password]@127.0.0.1|localhost:<port>`; refuses `PGHOSTADDR`/`PGSERVICE`; proves a loopback server, superuser and synthetic scope before every destructive step, fixture clone and cleanup; never prints the URL)
+5. `.github/workflows/seal-list-unrestricted-users.yml` (existing path-filtered `pull_request` trigger plus `workflow_dispatch`, no push trigger)
+   - It runs `postgres:17.6` through the repository's host-network `docker run` pattern (as in `dialer-dnc-backend.yml`), listening on 127.0.0.1 only. A published-port service container would present its bridge address to the runner's loopback proof.
+   - It is authored only and unverified until a PR runs it.
+6. `implementation_plan.md` (this entry)
+7. `WORK_LOG.md` (newest-first entry with the actual results)
+8. `AGENT_RULES.md` (one scoped invariant #20 note, added after local testing: authored and tested locally, NOT applied to production)
+
+**Local operations:**
+- The throwaway PostgreSQL 16 cluster runs as the `postgres` OS user on 127.0.0.1:55448, and only this run's cluster is removed afterwards.
+- Expected failures are captured explicitly.
+- Also run `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`, compared with the unchanged base.
+
+**Later and separately gated (not approved):**
+- **Commit and push.** Before any remote publication, verify what automatic preview branching would do and what it would cost. A preview database is built from the baseline replay, not production history, so D0's exact ACL and md5 guard may refuse there if its ACL differs in any element or order (unverified).
+- **PR.**
+- **Merge.** First confirm that automatic production deployment is still OFF.
+- **Production apply** through `apply_migration`, after re-capturing the preimage.
+- **Rename** the migration and rollback files to the recorded version with identical bytes, and update the runner, suite and workflow references together (invariants #25 and #35 pattern).
+- **`list_migrations`.**
+- **Targeted security advisors:** 0028 and 0029 should clear for this function and 0011 stays. Unrelated changes are reported separately.
+- **Context snapshot.**
+
+---
+
+## 2026-10-17 — IMPLEMENTED (amended scope approved by Chris at `cc8a2b4`; draft PR, not merged or deployed): Phase 1 policy commission preview (ConvertLeadModal, AddClientModal, RecordPolicyModal)
+
+**Status:** implemented on branch `claude/commission-policy-preview` (from `main` `95009d1`) and opened as draft PR #455; not merged or deployed. Chris decided P1–P4 on 2026-10-17 (below). No migration, RPC, RLS, Edge Function or production data has been changed; production access was read-only catalog and count inspection. Chris approved this amended scope on 2026-10-17 — frontend-only and preview-only, with no migrations, backend changes or production deployment — and it is implemented on the same branch exactly within §6 (see **As built** below). The text from §1 onward is the approved plan, kept as approved. This document is public and carries no compensation data (commission invariant D1): no rates, carrier or product names, or examples from the private grid.
+
+**Decisions (Chris, 2026-10-17)**
+
+| | Decision |
+|---|---|
+| **P1** | **Direct lookup.** The credited agent's level comes from a direct, permission-gated, organization-scoped profile read. No new RPC or migration. "View Own Commission Percentage" governs the signed-in user's own estimate and "View Others' Commission Percentage" governs another agent's; the two are evaluated independently. Existing contact authorization and downline restrictions stay in force, and the permission grants no broader client or profile access. Any unresolved authorization, owner, organization or permission fails closed. This is the existing screen-level model, not database secrecy. Profile permissions and self-edit behavior are not changed. |
+| **P2** | **Final Expense.** Candidates are only the matched carrier's whole-life products, and the agent must select the exact actual product. Never auto-select, substitute, fuzzy-match another carrier, or assume all whole-life products are Final Expense. If there is no exact supported product, show a compact unavailable state; the ordinary save still works. |
+| **P3** | **Preview only.** §8 is **DEFERRED and NOT approved**: no snapshot table, RPC, migration, sale-payload change or post-save write. Previews are never presented as saved, earned, booked or paid commission. |
+| **P4** | **Where it shows.** Creating a client, converting a lead, recording a policy, and the existing first-policy-entry path of client edit. Not ordinary edits of an existing policy. The preview never creates a sale event. |
+
+### As built (2026-10-17)
+**Files:** exactly §6 — 5 new application files, 4 new test files, 3 modals (+16 lines in total), the harness-only mock in the 3 existing modal tests, and the 3 docs. No migration, RPC, RLS, Edge Function, dialer file, sale module or calculator-engine change.
+
+**Refinements within the approved scope (for review):**
+1. Validation reuses the calculator's Zod `validateCalculatorForm` (age, premium, term membership) instead of a second, separately named schema; product membership is structural, since only grid candidates can be selected.
+2. `usePreviewSelection` / `PreviewSelection` live in `usePolicyCommissionPreview.ts` rather than `PolicyCommissionInputs.tsx`, so the component file exports only a component (ESLint `react-refresh/only-export-components`).
+3. Preview controls use explicit `htmlFor`/`id` labels. The real-browser check found that wrapping labels gave each select an accessible name containing its option text.
+4. Age prefill is stricter than §5's wording: a real date of birth that cannot give a valid age on the Sold Date (later than the Sold Date, over 100, or no valid Sold Date) leaves the age blank instead of falling back to a stored age.
+5. The panel stays hidden until a carrier is entered, so "No matching product" never appears before there is a carrier to match.
+6. For another agent, the engine's "Not available at your contract level." reads "Not available at this agent's contract level."
+7. D1: names in the new tests do not appear in the private grid, and the new tests' expected amounts use only synthetic fixture values that do not appear in it (read-only, value-free check). No production values were copied.
+8. Post-PR correction (Chris's owner-cache check): the credited owner is never served from cache. It is re-read on every mount, with an owner cached by an earlier open ignored. It is re-checked on window focus and every 15 seconds while open, and a failed re-check hides the figures. While a modal stays open, a reassignment made elsewhere shows within about 15 seconds; a server push would be needed to remove that window entirely.
+
+**Verification:** see the newest `WORK_LOG.md` entry and draft PR #455.
+
+**High-priority follow-up (separate task, not part of this feature):** the Team Leader hierarchy predicate (`is_ancestor_of` / `hierarchy_path`) is unreliable in production. It is recorded in `AGENT_RULES.md` › Known Tech Debt. No hierarchy data or permission was changed here.
+
+### 1. Goal
+Show a compact emerald estimate directly below each policy's details while the agent enters it:
+
+> Estimated first-year commission: $X
+> Estimated advance (75%): $Y
+
+It recalculates on every input change, reusing the Commission Calculator's grid context, matching rules and exact arithmetic unchanged. It never blocks or alters a save. In multi-policy conversion every policy gets its own estimate, and they are never summed.
+
+### 2. Findings that shape the design (read-only)
+| Area | Finding | Consequence |
+|---|---|---|
+| Engine | `calculateEstimate(context, level, {productId, age, term, monthlyPremium})` returns `estimate`, `unavailable` or `configuration_error`. `estimateCommission` computes monthly × 12 × rate / 100, then the advance as `ADVANCE_PERCENT` (75) of that, in exact BigInt rationals. A stored 0 rate is a real $0; a missing rate is unavailable; ambiguous variants are a configuration error. | Reused unchanged; no parallel engine. |
+| Money | `formatUsd(value: Rational)` rounds half-up to cents itself (`money.ts:48`). | Use `formatUsd(estimate.firstYearCommission)` and `formatUsd(estimate.advance)` directly. Never `formatUsd(toCents(...))`. |
+| Grid context | `get_commission_calculator_context()` returns the selected active grid (id, revision, levels), active products, variants and rates as exact text, plus **the caller's own** level only. `useCommissionCalculatorContext(enabled)` caches it under `commissionCalculatorKeys.context(userId, orgId)` with a 60 s staleTime, disabled under View As. | Reuse the hook, so the preview and the calculator page share one cache. |
+| Categories | The DB CHECK and `CompCategory` allow only `term`, `whole_life`, `iul`. The CRM's `PolicyType` adds "Final Expense". | P2 mapping (§5). |
+| Credited agent (server) | Conversion credits the **stored** `leads.assigned_agent_id` (live `convert_lead_to_client_atomic` inserts it from the row locked `FOR UPDATE`). Manual create credits the owner `Contacts.handleAddClient` passes, which is the effective viewer. First-policy edit and record policy credit the stored `clients.assigned_agent_id`, which `insert_policy_sale` writes into `wins.agent_id`. **The Dialer maps the modal's `lead.assignedAgentId` from `claimed_by` first** (`DialerPage.tsx:238`), so that prop can differ from the agent the server credits. | Read the stored owner (§3). Never trust the prop. |
+| Team Leader scope | The sale writers' Team Leader predicate is `is_ancestor_of`. Contacts' Team scope uses the same predicate through `get_contact_scope_agents`. In production, `is_ancestor_of` holds for only 3 of 11 upline links (the `hierarchy_path` defect documented in `supabase-users.ts`). The `upline_id` resolver `getAgentScopeIds` is broader. | Use the narrower, server-matching `get_contact_scope_agents` (§4). |
+| Others' level displays | Existing `CommissionGate metric="View Others' Commission Percentage"` sites (AgentModal, UserProfileTab, the Contacts agents table) read through `usersApi`/`rowToUser`, which maps a missing level to `"0%"`. | Read the raw `commission_level` column so a missing level stays missing (§4). |
+| Age | `calculateAge` measures to *today* and clamps a future DOB to 0. `parseDOB` is an import normalizer that accepts Excel serials and 2-digit years. `clients` has no DOB or age column. | Strict prefill helper (§5); manual age in AddClient and RecordPolicy. |
+| Controls | All three modals use native `<select>`; the calculator uses Radix Select. | Native selects styled like the host fields. |
+| Sale payloads | `p_client` / `p_policy` are hashed into `private.policy_sale_receipts`; unknown keys are refused. | Preview fields never enter any payload. |
+| Existing tests | `recordPolicyModal.test.tsx`, `addClientSale.test.tsx` and `convertLeadModalPolicyFields.test.tsx` mount the real modals open without a `QueryClientProvider`. Every other suite that renders these modals either mocks them or leaves them closed. | A harness-only change to those three (§6). |
+| Open PRs | #398 touches only `src/underwriting/ui/commission.ts`. #442, #444 and #451 don't touch the planned files. | No conflict beyond newest-first doc entries. |
+
+### 3. Credited agent
+| Surface | Credited agent | How it is resolved |
+|---|---|---|
+| ConvertLeadModal (Contacts, FullScreenContactView, DialerPage, FloatingDialer) | Stored lead owner | `leads.select('assigned_agent_id').eq('id', lead.id).eq('organization_id', org).maybeSingle()`. The query key includes the lead id and the prop's `assignedAgentId`, so a claim while the modal is open refetches. NULL → "No assigned agent". |
+| AddClientModal, new client | The signed-in user. Contacts passes the effective viewer as owner; outside View As that is the signed-in user, and under View As the preview is hidden. | No read. |
+| AddClientModal, first-policy edit | Stored client owner | `clients.select('assigned_agent_id').eq('id', client.id).eq('organization_id', org).maybeSingle()` |
+| RecordPolicyModal | Stored client owner | The same read by `clientId`. The modal's props are unchanged. |
+
+A missing row, read error, NULL owner or organization mismatch means no estimate.
+
+### 4. Authorization and contract level (P1)
+The operator is the signed-in, non-impersonating viewer (`useEffectiveViewer`). Organization-wide access is decided only by `isOrganizationWideViewer`, never by `useOrganization().isSuperAdmin` (invariant #31).
+
+| Credited agent | Required |
+|---|---|
+| The operator | "View Own Commission Percentage" (Admin and Super Admin have full access) |
+| Another agent; operator is Admin or Super Admin (`isOrganizationWideViewer`) | "View Others' Commission Percentage" (full access), and the agent's profile in the operator's organization |
+| Another agent; operator is Team Leader | "View Others' Commission Percentage", and the agent in the operator's existing Contacts Team scope (`get_contact_scope_agents`: self plus `is_ancestor_of`, the sale writers' predicate) |
+| Another agent; operator is Agent | Never. An Agent's hierarchical profile scope is self only. |
+
+- **Independent checks.** The other-agent path never consults "View Own…", and the own path never consults "View Others'…".
+- **Profile read.** It runs only after the permission and scope checks pass: `profiles.select('id, first_name, last_name, email, commission_level').eq('id', agentId).eq('organization_id', org).maybeSingle()`. It keeps the raw value; `rowToUser` is not used.
+- **Strict level.** Then comes the existing strict `parseContractLevel` plus grid membership. Missing, malformed or off-grid produces no estimate and is never defaulted, nearest-matched or replaced. For another agent the message is phrased about that agent.
+- **Fail closed.** No figures while permissions are loading or errored, while the viewer is unresolved, or while the owner, team scope or profile is loading, errored or missing. An organization mismatch also blocks figures.
+- **Operator's own level.** The context RPC still returns it. When only the others' path applies, it is never read or shown.
+- **Unchanged.** Profile RLS, grants and permissions, and the open self-edit follow-up (calculator plan §11).
+- **Known limit, not fixed here.** The `hierarchy_path` defect can hide estimates for part of a Team Leader's downline. This matches what the server's own predicate allows.
+
+### 5. Inputs, matching (P2), state and loading
+**Inputs (per policy, inside the panel).** None is required to save, none is persisted, and none enters a payload.
+- **Product:** a native select.
+- **Term length:** only when the chosen product's variants are termed (`supportedTermLengths`).
+- **Insured age:** a whole number from 0 to 100.
+- **Premium:** the policy's existing Monthly Premium field.
+
+**Matching.**
+- **Categories:** Term → `term`; Whole Life → `whole_life`; IUL → `iul`; Final Expense → `whole_life` (candidates only). A blank or unknown type has no candidates.
+- **Carrier:** an exact match of the policy's carrier text to `comp_products.carrier`, after trimming and ignoring case. No fuzzy or cross-carrier matching.
+- **Candidates:** the selected grid's active products in the mapped categories for that carrier, sorted by product name. Nothing is ever auto-selected, even when there is only one candidate. For Final Expense this lists the carrier's whole-life products without claiming they are Final Expense; the agent's choice names the actual product.
+- **Estimate:** the unchanged `calculateEstimate` then applies variant matching, the exact level, the missing-rate and stored-zero rules, and ambiguous → configuration error.
+
+**Age prefill (ConvertLeadModal only).**
+- Prefer the age on the row's Sold Date, from a strict ISO `YYYY-MM-DD` `lead.dateOfBirth` that is a real calendar date, not after the Sold Date, giving an age of 0–100.
+- Otherwise use `lead.age` if it is a whole number from 0 to 100; otherwise leave it blank.
+- While untouched, the age follows the row's Sold Date. Once edited, the agent's value stays. The other modals start blank.
+
+**Validation.** A Zod `policyPreviewInputSchema` covers age, a product drawn from the candidates, and a term drawn from the supported terms. It reuses the existing `validateCalculatorForm` premium rule (positive, at most 2 decimals). Incomplete input shows a short hint, never a form error.
+
+**Reset rules.** These are derived on the same render the change happens, not in a later effect.
+- A session (user), organization or grid change resets product, term and age.
+- A grid revision, policy type or carrier change keeps product and term only while still valid, otherwise clears them.
+- A credited-agent change keeps a valid product and term, but withholds figures until that agent's level has loaded.
+- A lost permission clears the selection.
+- Figures are recomputed from the current inputs on every render and never stored.
+
+**Caching and stale responses.**
+- **Grid context:** the shared calculator query.
+- **Owner, team-scope and profile reads:** keyed `["commission-preview", kind, userId, orgId, id]`, with a 60 s staleTime, `retry: false` and no placeholder data.
+- **No per-keystroke requests:** typing a premium, age, product or term makes no request.
+- **Stale results:** a profile result is used only if its `id` equals the current credited agent.
+
+**View As.** The hook returns `hidden` before anything else. Every query is disabled, and no query data, cached or fresh, is read or rendered.
+
+**Isolation.**
+- The panel never touches the Save button, validation, payloads, request IDs or callbacks.
+- It sits inside a small local error boundary that renders nothing on error. The app's `ErrorBoundary` is a full-page fallback and isn't suitable. A preview failure therefore cannot unmount a modal or block a save.
+
+### 6. Exact file list
+**New — application**
+1. `src/lib/commission/policyPreview.ts`: pure. Category map, carrier match, candidates, strict age prefill, preview Zod schema, access decision, credited-level resolution (wraps `parseContractLevel`), `previewEstimate` (calls `calculateEstimate`).
+2. `src/lib/commission/previewApi.ts`: the three org-scoped reads (`fetchCreditedOwner`, `fetchCreditedAgentProfile`, `fetchTeamScopeAgentIds`, which uses the existing `get_contact_scope_agents`). Zod-parsed rows, with `.maybeSingle()` wherever zero rows are possible.
+3. `src/hooks/usePolicyCommissionPreview.ts`: combines viewer, permissions, View As, the shared context query and those reads into one state.
+4. `src/components/commission/preview/PolicyCommissionEstimate.tsx`: the panel, its states and the local error boundary. Under 200 lines.
+5. `src/components/commission/preview/PolicyCommissionInputs.tsx`: the product, term and age controls. Under 200 lines.
+
+**New — tests**
+6. `src/lib/commission/__tests__/policyPreview.test.ts`
+7. `src/hooks/__tests__/usePolicyCommissionPreview.test.tsx`
+8. `src/components/commission/preview/__tests__/PolicyCommissionEstimate.test.tsx`
+9. `src/components/contacts/__tests__/policyCommissionPreviewModals.test.tsx`
+
+**Modified — application (surgical)**
+
+10. `src/components/contacts/ConvertLeadModal.tsx`: an import plus one panel per policy row after its Dates block (about +12 lines). `PolicyRow`, the schemas, payload building and callbacks are untouched. The file is already 479 lines; it gets no refactor.
+11. `src/components/contacts/AddClientModal.tsx`: an import plus one panel below the policy fields. It shows when `hasClientPolicyEvidence(form) && (!initial || !hasClientPolicyEvidence(initial))`, the same condition the save uses for a new sale (about +8 lines, roughly 202). `handleSubmit` is untouched.
+12. `src/components/contacts/RecordPolicyModal.tsx`: an import plus one panel after Sold Date (about +5 lines).
+
+**Modified — existing tests (harness only, no assertion changes)**
+
+13. `src/components/contacts/__tests__/recordPolicyModal.test.tsx`
+14. `src/components/contacts/__tests__/addClientSale.test.tsx`
+15. `src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx`
+
+Each gains one `vi.mock` of the panel module rendering `null`, because these harnesses mount no `QueryClientProvider`. The real panel inside each real modal is covered by file 9. If the full suite reveals any other existing test that needs a change, I stop and return for approval rather than edit an unlisted file.
+
+**Docs:**
+16. `implementation_plan.md`: as-built record.
+17. `WORK_LOG.md`: a newest-first entry.
+18. `AGENT_RULES.md`: one paragraph under the Commission grids invariant recording the preview contract.
+
+**Not committed:** a throwaway browser harness in the session scratchpad.
+
+**Unchanged (explicit):** `DialerPage.tsx`, `FloatingDialer.tsx`, `TwilioContext.tsx`, `Contacts.tsx`, `FullScreenContactView.tsx`, `supabase-conversion.ts`, `supabase-clients.ts`, `policySaleRecording.ts`, `clientSaleForm.ts`, `policyIdentity.ts`, `src/lib/commission/{api,calculator,estimate,matching,money,contractLevel,schemas,types}.ts`, `src/hooks/useCommissionCalculator.ts`, `src/hooks/usePermissions.ts`, `src/components/commission/calculator/**`, the synthetic grid fixture (reused as is), and all of `supabase/**`.
+
+**Integration contracts preserved:**
+- **Modals:** no change to any modal's props, callbacks, request IDs, `inFlight` or `loading` guards, or close behavior.
+- **ConvertLeadModal:** still calls `onSuccess(clientId)` then `onClose()`. DialerPage sets `conversionSucceededRef` synchronously before awaiting `proceedSaveAndNext` or `proceedSaveOnly`. Cancel and `onOpenChange` still go to `onClose`, which is blocked while loading.
+- **FloatingDialer:**
+  - Its ConvertLeadModal `open`/`lead` gating stays (`lead` is null when the call scope no longer matches), as do its `conversionCallRef` close guard and the `onSuccess` re-checks.
+  - Its RecordPolicyModal remount key, `open` gating and `onSaved` re-checks are untouched.
+  - When `open` is false or `lead` is null, the panel isn't mounted and requests nothing.
+- **No new writes:** the panel writes no calls, queue, lock, disposition, claim or telemetry data, and adds no `await` to any save path.
+
+### 7. Display
+- **Figures:** exactly the two lines in §1, from `formatUsd(estimate.firstYearCommission)` and `formatUsd(estimate.advance)` on the engine's exact Rationals. The "75" comes from `ADVANCE_PERCENT`.
+- **Another agent:** one compact line above, "For {First Last}" (the email if there is no name). With neither a name nor an email, there is no estimate.
+- **Styling:** `rounded-md border border-emerald-500/30 bg-emerald-500/10`, figures in `text-emerald-700 dark:text-emerald-300 tabular-nums`, one column at 390 px.
+- **Hidden (nothing rendered):**
+  - when not eligible under P4, or under View As;
+  - while permissions, viewer, owner or profile are still loading;
+  - when not permitted for this credited agent, or the agent is outside the Team scope;
+  - when the agency has no calculator grid or no access.
+- **Muted single line (never green, never a figure):**
+  - a read error ("Commission estimate unavailable");
+  - "No assigned agent";
+  - a level problem;
+  - "No matching product on your agency's comp grid";
+  - hints ("Choose a product", "Enter age");
+  - the engine's existing unavailable messages, with a configuration error reported as unavailable.
+- **Real zero:** a stored zero rate shows $0.00.
+- **Copy:** no explanatory paragraphs, footnotes or dashboard.
+
+### 8. Persisted estimate snapshot — DEFERRED, NOT APPROVED FOR IMPLEMENTATION (P3)
+**Superseded (2026-10-19):** not a current design. The current saved-commission contract is `docs/plans/2026-10-19-policy-commission-phase-2a/implementation_plan.md`.
+
+Nothing in this section is built in Phase 1: no table, RPC, migration, payload change or post-save write. The first draft's design is kept below for a future, separately approved phase. If it is revived, it also needs an explicit Agency Group peer-read decision: VISION requires one for new tables, and peers can read `wins`.
+
+```sql
+-- DEFERRED REFERENCE DESIGN — NOT APPROVED, NOT TO BE AUTHORED IN PHASE 1
+CREATE TABLE public.policy_commission_estimates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id),
+  policy_id uuid NOT NULL REFERENCES private.policy_identities(policy_id),
+  win_id uuid NOT NULL REFERENCES public.wins(id),
+  credited_agent_id uuid NOT NULL REFERENCES public.profiles(id),
+  grid_id uuid NOT NULL, grid_revision bigint NOT NULL, grid_name text NOT NULL, grid_effective_date date NOT NULL,
+  product_id uuid NOT NULL, variant_id uuid NOT NULL,
+  category text NOT NULL CHECK (category IN ('term','whole_life','iul')),
+  carrier text NOT NULL, product_name text NOT NULL,
+  insured_age integer NOT NULL CHECK (insured_age BETWEEN 0 AND 100), term_years integer CHECK (term_years > 0),
+  contract_level integer NOT NULL CHECK (contract_level BETWEEN 1 AND 999),
+  rate_percent numeric NOT NULL CHECK (rate_percent BETWEEN 0 AND 300 AND rate_percent = round(rate_percent, 2)),
+  monthly_premium numeric NOT NULL CHECK (monthly_premium > 0 AND monthly_premium = round(monthly_premium, 2)),
+  annual_premium numeric NOT NULL, first_year_commission numeric NOT NULL,
+  advance_percent numeric NOT NULL DEFAULT 75 CHECK (advance_percent = 75), advance_amount numeric NOT NULL,
+  calculation_version text NOT NULL DEFAULT 'policy-preview-v1',
+  calculated_by uuid NOT NULL DEFAULT auth.uid(), created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, win_id),
+  CHECK (annual_premium = monthly_premium * 12),
+  CHECK (first_year_commission = annual_premium * rate_percent / 100),
+  CHECK (advance_amount = first_year_commission * advance_percent / 100)
+);
+```
+The reference writer would be a post-commit, idempotent, server-recomputing RPC keyed on `win_id`, with no client-supplied rate, level, premium or amount. Its reads would be limited to the credited agent, Admin and upline. That remains deferred design text only.
+
+### 9. Rules re-read for conflicts (AGENT_RULES.md, VISION.md, newest WORK_LOG.md)
+No conflict. These rules shape the design:
+- **Commission grids invariant:** estimate only, a screen-level permission (D3), no query under View As, strict and never-defaulted contract levels, exact values rounded only for display.
+- **§3 downline scoping:** query-enforced and fail-closed (§4).
+- **#31 effective viewer** (§4).
+- **#11 conversion gating and the Dialer callback order** (§6 contracts).
+- **#34, #35, #40 and the Oct 3 sale-recording note:** no change to writers or payloads.
+- **#36:** guarded async results (§5).
+- **#28:** production stays read-only.
+- **#6 feature-before-permissions:** satisfied, since this ships with its gates.
+- **VISION:** the dark command-center look; the peer-read rule (§8).
+- **Chris's minimal-copy rule** (§7).
+- **WORK_LOG:** the newest entry is the live Sold Date release (#453); no newer work touches these files.
+
+### 10. Verification
+**Fresh baseline on `95009d1` first (no historical count assumed):**
+- the strict app typecheck (`npx tsc -p tsconfig.app.json --noEmit`) diagnostics, saved to the scratchpad;
+- full Vitest per-file results with CI's inert Supabase environment;
+- ESLint on the files to be touched.
+
+Candidate results are compared against that baseline, with pre-existing failures reported separately from new ones.
+
+**Pure:**
+- the category map, including Final Expense: whole-life products of the matched carrier only, never another carrier, never auto-selected;
+- exact carrier matching (case and spaces);
+- termed and non-termed products, and inclusive age edges;
+- an ambiguous grid, a missing rate, a stored zero ($0.00), and a missing or zero premium (no figure);
+- missing, malformed and off-grid levels, for self and for another agent;
+- strict age prefill: invalid or future DOB, leap day, age 101;
+- **parity:** for the same inputs across the synthetic grid, the preview's amounts equal `calculateEstimate`'s and render byte-identically through `formatUsd`.
+
+**Access (hook):**
+- own and others evaluated independently: an other-agent estimate shows while "View Own" is off, and an own estimate shows while "View Others'" is off;
+- each role: Admin, Super Admin, Team Leader inside and outside the Team scope, a team-scope error, and Agent;
+- operator ≠ credited agent never uses the operator's level;
+- a missing profile row, or one in another organization;
+- permissions loading or errored;
+- View As with a pre-seeded cache: nothing renders and nothing is fetched;
+- a stale response (agent A's level arriving after a switch to agent B) is ignored;
+- an organization or session switch resets the panel.
+
+**Panel:**
+- recalculation on every premium, age, product and term change, with fetch counters proving no extra requests;
+- the reset rules;
+- the error boundary keeps the modal alive.
+
+**Modals:**
+- **P4 visibility:** the panel shows on create, convert, record and first-policy edit, and not on an ordinary edit.
+- **Multiple policies:** independent estimates with different products and premiums, and no total.
+- **Payloads:** deep-equal arguments to `convert_lead_to_client_with_sales`, `create_client_with_sale`, `record_client_policy` and `update_client_with_policy_sale`, with and without preview interaction, so receipt hashes are unchanged.
+- **One RPC call per save, so no duplicate wins.**
+- **Save failure:** the form and preview are kept, and a retry reuses the same request ID.
+- **Preview loading or error:** never disables Save.
+- **ConvertLeadModal callbacks:**
+  - `onSuccess(clientId)` runs once, before `onClose()`;
+  - Cancel calls only `onClose`;
+  - closing is blocked while loading.
+
+**Dialer regression (unchanged files, existing suites):** CI's selection `npx vitest run dialer twilio teamOpen teamCampaign dncCheck`. It covers:
+- DialerPage conversion: Save Only and Save & Next, cancel, and callback ordering via `conversionSucceededRef`;
+- Team/Open queue and lock;
+- FloatingDialer conversion and disposition.
+
+Also run the contacts and conversion suites, the commission suites (`src/lib/commission src/components/commission src/components/settings/commission-grids`) and the full suite.
+
+**Browser:** a throwaway local harness with the synthetic grid and mocked Supabase, never production, in Chromium at 1440×900 and 390×844. It covers:
+- real native-select interaction for product and term;
+- typing premium and age;
+- multi-policy rows;
+- the other-agent line;
+- the unavailable states;
+- no horizontal overflow.
+
+Screenshots are inspected, not committed.
+
+**Static:** `npx tsc --noEmit`, the strict app typecheck against the fresh base, ESLint on touched files, `npm run build`, `git diff --check`.
+
+**D1:** before committing, the added fixture and test values are compared against the private grid through a read-only, value-free production count (zero matching product names or level-rate pairs). No production values are copied.
+
+**No backend change**, so no SQL suites, migrations or Supabase mutations.
+
+### 11. Out of scope
+- snapshots, payout ledgers and reporting;
+- booked, earned or paid commission;
+- profile permission, RLS or self-edit changes;
+- a `hierarchy_path` repair;
+- new client columns or required fields;
+- carrier or product catalogs;
+- a configurable advance percent;
+- any dialer change;
+- merge, deploy, or production writes and test writes.
+
+---
+
 ## 2026-10-17 — Sold Date production release COMPLETE (PR #453)
 
 **Owner approval and release:** Chris approved both backend migrations and the separately controlled frontend production merge/deployment. Reviewed feature head `4bde52a727ca47cc5c772e986a03f72e777fc050` passed all six CI workflows. PR #453 merged to `main` as `12901e5c18922239022afc1c9436df8b2df20c15`. The applied SQL bytes are unchanged by the migration filename reconciliation.

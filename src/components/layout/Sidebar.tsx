@@ -17,7 +17,7 @@ import {
   withAdminOnlySections,
 } from "@/config/settingsConfig";
 import { MainNavItem, SettingsNavItem, CustomMenuSidebarItem } from "./NavItems";
-import CommissionCalculatorNavItem from "./CommissionCalculatorNavItem";
+import CommissionsNavItem from "./CommissionsNavItem";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useCustomMenuLinks } from "@/hooks/useCustomMenuLinks";
 import { useAuth } from "@/contexts/AuthContext";
@@ -136,8 +136,8 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
-        {/* Directly below Resources. Not a "View As" surface: under View As it is neither shown nor queried. */}
-        <CommissionCalculatorNavItem collapsed={collapsed} enabled={!isImpersonating} onClick={() => setMobileOpen(false)} />
+        {/* Directly below Resources. Not a "View As" surface: under View As it is not shown. */}
+        <CommissionsNavItem collapsed={collapsed} onClick={() => setMobileOpen(false)} />
         {/* Custom links target `/app-link/:linkId`, which the route guard blocks. */}
         {(isImpersonating ? [] : customMenuLinks).map((link) => (
           <CustomMenuSidebarItem

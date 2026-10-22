@@ -2,8 +2,8 @@ import React, { useMemo } from "react";
 import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import OdometerValue from "@/components/leaderboard/OdometerValue";
-import type { AgentStats, Metric, Period } from "@/components/leaderboard/leaderboardTypes";
-import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
+import type { AgentStats, Period } from "@/components/leaderboard/leaderboardTypes";
+import { ANNUAL_PREMIUM_LABEL, formatCount, formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
 import { isPremiumWhollyUnknown } from "@/lib/premiumAvailability";
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
@@ -12,75 +12,48 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
   { value: "This Month", label: "Month" },
 ];
 
-const METRIC_COLUMN: Partial<Record<Metric, "calls" | "policies" | "premium" | "appts">> = {
-  "Calls Made": "calls",
-  "Policies Sold": "policies",
-  "Premium Sold": "premium",
-  "Appointments Set": "appts",
-  "Policies per 100 Calls": "policies",
-};
-
 interface TVAgencyTotalsStripProps {
   agents: AgentStats[];
   period: Period;
   onPeriodChange: (period: Period) => void;
-  highlightMetric: Metric;
 }
 
+/** Roster totals: Annual Premium (the ranking metric, always highlighted), then Policies. */
 const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
   agents,
   period,
   onPeriodChange,
-  highlightMetric,
 }) => {
   const totals = useMemo(
     () => ({
-      calls: agents.reduce((sum, a) => sum + a.callsMade, 0),
       policies: agents.reduce((sum, a) => sum + a.policiesSold, 0),
       premium: agents.reduce((sum, a) => sum + a.premiumSold, 0),
       unknownPremiums: agents.reduce((sum, a) => sum + (a.unknownPremiums ?? 0), 0),
-      appts: agents.reduce((sum, a) => sum + a.appointmentsSet, 0),
     }),
     [agents],
   );
 
-  const activeColumn = METRIC_COLUMN[highlightMetric];
-
   const cells: {
-    key: "calls" | "policies" | "premium" | "appts";
+    key: "premium" | "policies";
     label: string;
     value: number | null;
     format: (n: number) => string;
     valueClass: string;
   }[] = [
     {
-      key: "calls",
-      label: "Calls",
-      value: totals.calls,
-      format: (n) => String(Math.round(n)),
-      valueClass: "text-slate-100",
-    },
-    {
-      key: "policies",
-      label: "Policies",
-      value: totals.policies,
-      format: (n) => String(Math.round(n)),
-      valueClass: "text-blue-300",
-    },
-    {
       key: "premium",
-      label: "Annual Premium",
+      label: ANNUAL_PREMIUM_LABEL,
       // The roster sold policies but every premium is unknown: "—", never $0 (D14).
       value: isPremiumWhollyUnknown(totals.policies, totals.unknownPremiums) ? null : totals.premium,
       format: formatPremiumSold,
       valueClass: "text-amber-300",
     },
     {
-      key: "appts",
-      label: "Appts",
-      value: totals.appts,
-      format: (n) => String(Math.round(n)),
-      valueClass: "text-emerald-300",
+      key: "policies",
+      label: "Policies",
+      value: totals.policies,
+      format: formatCount,
+      valueClass: "text-blue-300",
     },
   ];
 
@@ -122,9 +95,9 @@ const TVAgencyTotalsStrip: React.FC<TVAgencyTotalsStripProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 sm:gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4">
         {cells.map((cell) => {
-          const highlighted = activeColumn === cell.key;
+          const highlighted = cell.key === "premium";
           return (
             <div
               key={cell.key}

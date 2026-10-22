@@ -165,7 +165,7 @@ export const ProfileStateLicensesCard: React.FC = () => {
 
   useEffect(() => {
     void fetchLicenses();
-  }, [fetchLicenses]);
+  }, [fetchLicenses, profile?.updated_at]);
 
   const {
     register,

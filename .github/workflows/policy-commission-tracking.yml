@@ -1,0 +1,107 @@
+name: Policy commission tracking verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/*_policy_commission_tracking.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_tracking.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_expected_windows.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_expected_windows.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_center_reads.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_center_reads.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_center_insights.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_center_insights.rollback.sql'
+      - 'supabase/migrations/*_leaderboard_sale_recording.sql'
+      - 'supabase/migrations/*_policy_identity_sale_integrity.sql'
+      - 'supabase/migrations/*_commission_grids_*.sql'
+      - 'supabase/tests/policy_commission_*.sql'
+      - 'supabase/tests/fixtures/policy_commission/**'
+      - 'scripts/policy_commission_fixture.py'
+      - 'scripts/policy_sale_fixture.py'
+      - 'scripts/reporting_fixture.py'
+      - 'scripts/run_policy_commission_tests.sh'
+      - 'scripts/tests/policy_commission/**'
+      - 'src/lib/commission/**'
+      - 'src/lib/policySaleOutcome.ts'
+      - 'src/lib/policySaleRecording.ts'
+      - 'src/lib/supabase-clients.ts'
+      - 'src/lib/supabase-conversion.ts'
+      - 'src/hooks/usePolicySaleSubmission.ts'
+      - 'src/hooks/useClientPolicyCommissions.ts'
+      - 'src/hooks/usePolicyCommissionPreview.ts'
+      - 'src/hooks/useCommissionsCenter.ts'
+      - 'src/components/commission/**'
+      - 'src/components/commissions/**'
+      - 'src/pages/CommissionsPage.tsx'
+      - 'src/pages/__tests__/commissions*.test.tsx'
+      - 'src/components/layout/CommissionsNavItem.tsx'
+      - 'src/components/contacts/**'
+      - 'src/pages/Contacts.tsx'
+      - '.github/workflows/policy-commission-tracking.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: policy-commission-tracking-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  database:
+    name: PostgreSQL 17.6 + PostgREST 12.2.3 (synthetic data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55447:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: PostgREST 12.2.3 (pinned digest)
+        run: |
+          curl -sSLf -o "$RUNNER_TEMP/postgrest.tar.xz" \
+            https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
+          echo "9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c  $RUNNER_TEMP/postgrest.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/postgrest.tar.xz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/postgrest" --version
+      - name: Guards, inventory, suites, races, existing suites, commissions center reads and insights, rollback, PostgREST, timings
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55447
+          PGPASSWORD: isolated-test-only
+          PC_MEASURE: '1'
+        run: POSTGREST_BIN="$RUNNER_TEMP/postgrest" bash scripts/run_policy_commission_tests.sh
+  frontend:
+    name: Commission tracking, sale submission and contact tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: inert-test-key
+        run: >-
+          npx vitest run src/lib/commission src/components/commission src/lib/__tests__/policySaleOutcome.test.ts
+          src/lib/__tests__/saleHandoffApis.test.ts src/hooks/__tests__/usePolicySaleSubmission.test.tsx
+          src/hooks/__tests__/useClientPolicyCommissions.test.tsx src/components/contacts src/pages/__tests__/contactsClientSaleHandoff.test.tsx
+          src/lib/__tests__/normalizedPolicy.test.ts src/components/commissions src/pages/__tests__/commissionsPage.test.tsx
+          src/pages/__tests__/commissionsHideAmounts.test.tsx
+          src/hooks/__tests__/useCommissionsCenter.test.tsx src/components/layout/__tests__/viewAsSidebarNav.test.tsx
