@@ -38,6 +38,13 @@ interface LeaderboardBoardProps {
 
 const EMPTY = new Map();
 
+/**
+ * One column template for both rows, so the podium shares Full Rankings' column and Your Performance shares
+ * Recent Wins'. Two columns (2 : 1) from xl; below that, every panel stacks full width.
+ */
+const BOARD_ROW_CLASS = "grid grid-cols-1 gap-6 xl:grid-cols-3";
+const BOARD_MAIN_COLUMN_CLASS = "min-w-0 xl:col-span-2";
+
 /** The podium's loading shape (tier 2 / 1 / 3), used while the first or a switched selection loads. */
 export const LeaderboardPodiumSkeleton: React.FC = () => (
   <div className={PODIUM_GRID_CLASS}>
@@ -89,17 +96,19 @@ const LeaderboardBoard: React.FC<LeaderboardBoardProps> = ({
         />
       )}
 
-      <section className={`${PODIUM_SECTION_CLASS} grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-end`}>
-        <LeaderboardPodium
-          agents={agents}
-          view={view}
-          userId={userId}
-          rankAnimations={animations}
-          rankMotions={motions}
-          rankDeltas={deltas}
-          spotlightAgentId={spotlightAgentId}
-          newLeaderId={leader}
-        />
+      <section className={`${PODIUM_SECTION_CLASS} ${BOARD_ROW_CLASS} xl:items-end`}>
+        <div className={BOARD_MAIN_COLUMN_CLASS}>
+          <LeaderboardPodium
+            agents={agents}
+            view={view}
+            userId={userId}
+            rankAnimations={animations}
+            rankMotions={motions}
+            rankDeltas={deltas}
+            spotlightAgentId={spotlightAgentId}
+            newLeaderId={leader}
+          />
+        </div>
         <LeaderboardYourPerformance
           agents={agents}
           userId={userId}
@@ -111,8 +120,8 @@ const LeaderboardBoard: React.FC<LeaderboardBoardProps> = ({
         />
       </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className={BOARD_ROW_CLASS}>
+        <div className={BOARD_MAIN_COLUMN_CLASS}>
           <LeaderboardRankingsTable
             agents={agents}
             view={view}

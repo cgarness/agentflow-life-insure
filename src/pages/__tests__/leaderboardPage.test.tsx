@@ -320,6 +320,41 @@ describe("AP-only board", () => {
   });
 });
 
+// jsdom has no layout: these pin the shared column structure; the pixel alignment is checked in a browser.
+describe("board layout: the top row shares the Full Rankings / Recent Wins columns", () => {
+  const classes = (e: Element) => new Set(e.className.split(/\s+/));
+  const podiumGrid = () => podiumCards()[0].closest(".grid") as HTMLElement;
+
+  it("podium and Your Performance use the same column template as Full Rankings and Recent Wins", () => {
+    render(<Leaderboard />);
+    const you = screen.getByRole("region", { name: "Your Performance" });
+    const topRow = you.parentElement as HTMLElement;
+    const tableColumn = screen.getByText("Full Rankings").closest(".rounded-xl")!.parentElement as HTMLElement;
+    const bottomRow = tableColumn.parentElement as HTMLElement;
+    expect(bottomRow.className).toContain("xl:grid-cols-3");
+    expect([...classes(bottomRow)].every((c) => classes(topRow).has(c))).toBe(true);
+    const podiumColumn = topRow.firstElementChild as HTMLElement;
+    expect(podiumColumn.className).toBe(tableColumn.className);
+    expect(podiumColumn).toContainElement(podiumCards()[0]);
+    expect(topRow.lastElementChild).toBe(you);
+    expect(bottomRow.lastElementChild).toHaveTextContent("Recent Wins");
+  });
+
+  it("a three-card podium fills its column; one or two agents keep the narrower centered podium", () => {
+    const { unmount } = render(<Leaderboard />);
+    expect(podiumGrid().className).not.toMatch(/max-w-(?!none)/);
+    unmount();
+    for (const [count, cap] of [[2, "max-w-2xl"], [1, "max-w-sm"]] as const) {
+      h.hookState = { ...baseHookState(), agents: ROSTER.slice(0, count) };
+      const view = render(<Leaderboard />);
+      expect(classes(podiumGrid()).has(cap)).toBe(true);
+      expect(classes(podiumGrid()).has("lg:max-w-4xl")).toBe(true);
+      expect(podiumGrid().className).not.toContain("max-w-none");
+      view.unmount();
+    }
+  });
+});
+
 describe("truthful failure states", () => {
   it("keeps the last snapshot behind a stale banner when a refresh fails, and Retry refetches", () => {
     const retry = vi.fn();

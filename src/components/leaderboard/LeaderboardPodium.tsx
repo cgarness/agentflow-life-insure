@@ -68,6 +68,8 @@ const LeaderboardPodium: React.FC<LeaderboardPodiumProps> = ({
       <div
         className={cn(
           PODIUM_GRID_CLASS,
+          // Three across, the podium spans its whole board column at every width, edge to edge with Full Rankings below.
+          showThreeColumns && "max-w-none lg:max-w-none",
           !showThreeColumns && topAgents.length === 2 && "sm:grid-cols-2 max-w-2xl",
           !showThreeColumns && topAgents.length === 1 && "sm:grid-cols-1 max-w-sm",
         )}
