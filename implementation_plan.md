@@ -1,14 +1,20 @@
-## 2026-10-22 — PLAN (awaiting Chris's approval): standardize carrier selection in Record Policy and Add/Edit Client
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT released): standardize carrier selection in Record Policy and Add/Edit Client
 
-**Status:** plan only, on `claude/carrier-selection-standardize-emoz7q` from `main` `c3f4a27`. No app file edited, no
-Supabase or Vercel command run. Full plan: `docs/plans/2026-10-22-carrier-selection/implementation_plan.md`.
+**Status:** Chris approved the plan with D1–D3 and four added requirements: frozen-retry safety, scope isolation,
+locking and form semantics. The branch `claude/carrier-selection-standardize-emoz7q` was refreshed against `main`
+`1a7ea7a`. Implemented in `2bd6404`; evidence in the focused `verification.md`. No Supabase or Vercel command. Merge
+and release need separate approval. Full plan and exact file list:
+`docs/plans/2026-10-22-carrier-selection/implementation_plan.md` §8.
 
-**Summary:** replace the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` with a shared searchable
-`CarrierCombobox`. It is fed by a new `useOrganizationCarriers` hook that reads `public.carriers` scoped to the
-organization, under RLS, and sorts alphabetically. It never auto-selects and offers no free entry; Zod allows only
-configured names. A stored carrier that is no longer in Settings is kept exactly as stored and labelled "(not in
-Settings)". The control has loading, empty (with a Settings → Carriers link) and error-with-Retry states.
-Commission, sale-recording, reporting and grid-matching code are unchanged. No migration. Decisions D1–D3 are open.
+**Summary:** the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` become a shared searchable
+`CarrierCombobox`. It reads `public.carriers` for the current user and agency (organization filter plus RLS) and sorts
+names alphabetically.
+- **D1:** ConvertLeadModal is unchanged.
+- **D2:** the client's exact stored carrier stays until the user explicitly replaces it. "(not in Settings)" shows only
+  when nothing in Settings matches it.
+- **D3:** unrelated edits save while the list is loading or failed. A new or changed carrier must come from the loaded
+  list.
+- A frozen sale retry never re-checks the carrier list. No auto-selection, no typed carriers, no migration.
 
 ---
 

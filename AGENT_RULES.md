@@ -1005,3 +1005,29 @@ Future conversions only: no backfill, and existing clients are never read or cha
 - Column names deliberately avoid `status`/`lead_source`: the contact-history capture treats those as value-visible
   keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
   must again re-verify the commission companions (Phase 2A rule).
+
+### Carrier selection in Record Policy and Add/Edit Client (built 2026-10-22 on `claude/carrier-selection-standardize-emoz7q`; NOT merged or released)
+
+- **Source.** `RecordPolicyModal` and `AddClientModal` take carriers only from Settings → Carriers.
+  - `useOrganizationCarriers` reads `public.carriers` with an explicit `organization_id` filter; RLS still applies.
+  - The shared `CarrierCombobox` renders the list. It never auto-selects and has no typed or create option.
+  - `carrierSelectionError` (Zod) accepts a nonblank value only if it is an exact loaded name.
+  - ConvertLeadModal keeps its own native `<select>` (D1).
+- **Isolation.** Each loaded list is tagged with the `user|organization` scope and attempt it was requested for, and
+  is cleared on every open or retry. A list for any other scope reads as loading: it can neither display nor
+  validate a save. Do not cache it across organizations or reuse a previous open's result.
+- **Historical values.** The only exception is the exact `initial.carrier` of the client being edited (`preserved`).
+  - It is never derived from search text or the current selection.
+  - It is kept byte-for-byte, including case and whitespace, until the user picks a replacement.
+  - It is marked "(not in Settings)" only when no configured name matches it trimmed and case-insensitively.
+  - Never normalize or backfill stored carrier names from these controls.
+- **Unrelated edits.** These save while the list is loading or failed, as long as the carrier is unchanged (D3).
+  A new or changed nonblank carrier needs the list for the current scope.
+- **Frozen sale retries.** These never consult the carrier list. The modal skips the check and
+  `usePolicySaleSubmission` replays the frozen submission with its request id, unchanged (as `Contacts.tsx`
+  pre-save checks).
+- **Unchanged.** Carrier stays optional except where a sale already required it. The commission estimate still reads
+  the form's carrier through the unchanged matcher.
+- **Layering.** The dropdown layer is `z-[1100]` (above the floating dialer's `z-[1000]`/`z-[1001]`) and the popover
+  is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
+  `type="button"`.

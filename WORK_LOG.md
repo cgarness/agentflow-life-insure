@@ -1,3 +1,60 @@
+## 2026-10-22 — BUGFIX: Record Policy and Add/Edit Client pick carriers from Settings → Carriers (approved, implemented; draft PR; NOT merged, NOT released)
+
+Chris approved branch-only implementation with D1 (ConvertLeadModal unchanged), D2 (the exact stored carrier is kept
+until replaced; "(not in Settings)" only when appropriate) and D3 (unrelated edits save while the list is unavailable;
+a new or changed carrier needs the loaded list). He also set four requirements: frozen-retry safety, scope isolation,
+locking and form semantics.
+- Re-read AGENT_RULES, VISION and WORK_LOG.
+- Merged `main` `1a7ea7a` (PR #477, Commissions sidebar; no overlap) with `f871409`. The root plan's newest-first
+  insertions conflicted; both entries were kept.
+
+- **Defect:** both modals had free-text carrier inputs. Typos and variant names were saved as the policy carrier, and
+  the commission estimate quietly found no products for them.
+- **Change (`2bd6404`):**
+  - **Hook (`useOrganizationCarriers`):**
+    - Reads `public.carriers` filtered by `organization_id`; RLS applies.
+    - Names are trimmed, de-duplicated case-insensitively and sorted.
+    - Each result is tagged with its `user|organization` scope and attempt, and cleared on every open or retry, so
+      another scope's list never renders or validates. Late responses are discarded.
+  - **Zod (`carrierSelectionError`):** accepts blank (callers still decide when a carrier is required), an exact
+    loaded name, or the edited client's exact stored value.
+  - **`CarrierCombobox`:**
+    - Popover plus cmdk, `modal` for wheel scrolling inside dialogs, `z-[1100]`.
+    - No auto-select and no create option.
+    - The saved value appears in its own group, with its "(not in Settings)" tag on a helper line linked by
+      `aria-describedby`.
+    - Loading / empty (Settings link in a new tab, plus refresh) / error-with-Retry states.
+    - When the form is locked or saving, the dropdown closes and ignores selection.
+    - The trigger and every action are `type="button"`.
+    - Add/Edit Client also offers "No carrier", to keep the old ability to clear.
+  - **Modals:** a frozen sale retry skips the carrier check, and `usePolicySaleSubmission` replays the frozen
+    submission and request id unchanged.
+  - **Unchanged:** sale and commission payloads, the estimate matcher, ConvertLeadModal, telephony.
+  - **File sizes:** Record Policy 96 → 108 lines; Add Client 226 → 234; new files at most 113 lines.
+- **Correction to the request:** the floating dialer mounts Record Policy, not Add Client. Add Client is mounted only
+  by Contacts (add and edit). Both paths were checked.
+- **Verification:**
+  - Root tsc: exit 0.
+  - App tsc: 84 errors, identical lines to `main` `1a7ea7a`.
+  - Full Vitest on `2bd6404`: 6,089 passed / 1 failed / 36 skipped. The failing set (10 files, 1 test) is identical
+    to `main`'s 6,047 / 1 / 36 and unrelated. 42 tests are new.
+  - Focused suites: 3 new files plus 4 updated modal and commission files, including stale-response,
+    previous-agency-render and frozen-retry coverage (list failed / loading / carrier removed).
+  - Mutation checks: 11 of 12 guards caught. The one not caught is the `select` disabled guard, which can't be
+    reached because the dropdown unmounts first.
+  - ESLint on the 13 touched files: exit 0. Build: exit 0. `git diff --check`: clean.
+  - Browser, synthetic fixtures: 30/30 PASS at 1280 and 390 px. Covered: layering over the dialog, the Add Client
+    overlay and a simulated floating-dialer layer; focus; keyboard; wheel scrolling; agency switch; exact
+    preservation; empty, error and loading states.
+  - Fixed during verification: the "(not in Settings)" tag had been truncated out of view in the half-width column.
+  - Evidence: `docs/plans/2026-10-22-carrier-selection/verification.md` and `screenshots/`.
+- **Not performed:** signed-in multi-agency testing against real RLS (no test accounts); the real FloatingDialer in a
+  live call.
+- **No** Supabase command or query, migration, RLS, Edge Function, Vercel action, merge or release.
+- **Next:** Chris's review of the draft PR. Merge and frontend release need separate approval.
+
+---
+
 ## 2026-10-22 — Commissions sidebar entry: CircleDollarSign icon, no access delay, no layout jump (branch only; NOT merged or deployed)
 
 Chris approved the plan with one change: use `CircleDollarSign` for the sidebar item, the page header and the page's

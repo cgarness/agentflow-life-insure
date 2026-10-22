@@ -1,7 +1,18 @@
 # BUGFIX — Standardize carrier selection in Record Policy and Add/Edit Client
 
-**Status:** PLAN ONLY. Waiting for Chris's explicit approval. No app files edited, no backend command run.
-**Branch:** `claude/carrier-selection-standardize-emoz7q` (from `main` `c3f4a27`).
+**Status:** APPROVED by Chris on 2026-10-22 for branch-only implementation (§8). IMPLEMENTED in `2bd6404` and verified
+(`verification.md`). Draft PR for review. Not approved for merge or release.
+
+**Implementation notes beyond §8.**
+- **Reload on every open.** The hook clears its result on each open or retry, so a carrier removed between two opens
+  can't be picked from the earlier list.
+- **"No carrier" option, Add/Edit Client only.** This keeps the old ability to clear a carrier where blank is
+  already allowed.
+- **Saved-value tag on its own line.** The "(not in Settings)" tag sits on a helper line under the trigger, linked
+  by `aria-describedby`. The half-width column truncated it out of view inside the trigger.
+- **Settings link opens a new tab.** An in-progress sale or dialer disposition is never lost.
+**Branch:** `claude/carrier-selection-standardize-emoz7q`. Refreshed against `main` `1a7ea7a` (PR #477) by merge
+`f871409`; both sets of document entries kept.
 
 ---
 
@@ -175,6 +186,59 @@ become a combobox pick)**
   alternative is to require re-selection on save, which would block unrelated edits.
 - **D3 — Edits while carriers fail to load.** Recommended: allow the save when the carrier is unchanged, and require
   a loaded list only when the carrier changes.
+
+## 8. Approval (2026-10-22) and amendments
+
+**Decisions.**
+- **D1:** ConvertLeadModal is unchanged.
+- **D2:** the client's exact stored carrier, including case and whitespace, stays until the user explicitly selects a
+  replacement. "(not in Settings)" shows only when no configured carrier matches it trimmed and case-insensitively.
+  A case or whitespace variant of a configured carrier displays exactly as stored, with no tag.
+- **D3:** an unrelated edit saves while the carrier list is loading or failed, as long as the carrier is unchanged.
+  A new or changed nonblank carrier must come from the list loaded successfully for the current user and agency.
+
+**Requirements and how they are met.**
+1. **Frozen retry.** On a frozen submission, both modals skip the carrier-list check and the Submit button never
+   waits on the list. The frozen request is replayed by `usePolicySaleSubmission`, reusing the request id and the
+   frozen payload unchanged. This is the same rule `Contacts.tsx:1974` already applies to its pre-save checks.
+   Regression tests cover a carrier list that fails, and a carrier that is removed, between the unknown-outcome
+   attempt and the retry.
+2. **Isolation.**
+   - The hook stores the scope key (`user|organization`) each result belongs to. A result for any other key reads
+     as `loading`, so a previous scope's list can neither display nor validate.
+   - Late responses are discarded with a request counter.
+   - The historical exception is the `preserved` prop: `initial.carrier` of the client being edited, compared
+     exactly. It is never derived from search text or the current selection.
+   - Items use opaque cmdk values plus a keyword filter, so a case-variant saved value and its configured
+     counterpart never collide.
+3. **Locking.** `disabled` (form locked or saving) disables the trigger, closes an open dropdown and makes
+   `onSelect` a no-op. The trigger and Retry are `type="button"`. The popover is `modal`, so wheel scrolling works
+   inside the Radix Dialog. Its layer is `z-[1100]`, above the floating dialer (`z-[1000]`/`z-[1001]`) and the Add
+   Client overlay (`z-[200]`).
+   **Correction:** the floating dialer mounts **Record Policy** (`FloatingDialer.tsx:780`), not Add Client. Add Client
+   is mounted only by `Contacts.tsx` (add and edit). Both paths are checked in the browser. No telephony code
+   changes.
+4. **Form semantics.** Carrier stays optional except where `clientSaleFormSchema` (a new sale) or Record Policy (always
+   a sale) already requires it. Nothing is auto-selected and no typed carrier can be created.
+
+**Exact files.**
+- New:
+  - `src/hooks/useOrganizationCarriers.ts`
+  - `src/lib/carrierSelection.ts`
+  - `src/components/shared/CarrierCombobox.tsx`
+  - `src/lib/__tests__/carrierSelection.test.ts`
+  - `src/hooks/__tests__/useOrganizationCarriers.test.tsx`
+  - `src/components/shared/__tests__/carrierCombobox.test.tsx`
+  - `src/test/carrierComboboxTestUtils.ts` (pick helper and jsdom stubs for cmdk)
+- Modified, app: `src/components/contacts/RecordPolicyModal.tsx`, `src/components/contacts/AddClientModal.tsx`.
+- Modified, tests (only the carrier fills change, plus new cases):
+  - `src/components/contacts/__tests__/recordPolicyModal.test.tsx`
+  - `src/components/contacts/__tests__/addClientSale.test.tsx`
+  - `src/components/contacts/__tests__/policyCommissionHandoffModals.test.tsx`
+  - `src/components/contacts/__tests__/policyCommissionPreviewModals.test.tsx`
+- Docs: `WORK_LOG.md`, `AGENT_RULES.md`, root `implementation_plan.md`, this plan, and a new `verification.md` beside it.
+- Not touched: `ConvertLeadModal.tsx`, `FloatingDialer.tsx`, `Contacts.tsx`, commission and sale libraries, and
+  Supabase.
 
 ## 7. Migrations / deploys
 
