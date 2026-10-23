@@ -8,7 +8,7 @@ import {
   LEVEL_NOT_ON_GRID_MESSAGE,
   parseContractLevel,
 } from "./contractLevel";
-import { supportedTermLengths } from "./matching";
+import { allVariantsAgeIndependent, supportedTermLengths } from "./matching";
 import type { Rational } from "./money";
 import { validateCalculatorForm } from "./schemas";
 import type { CalculatorProduct, CompCategory, ReadyCalculatorContext } from "./types";
@@ -57,6 +57,11 @@ export function candidateProducts(context: ReadyCalculatorContext, policyType: s
 
 export function productTermLengths(context: ReadyCalculatorContext, productId: string): number[] {
   return supportedTermLengths(context.variants.filter((variant) => variant.productId === productId));
+}
+
+/** Age may be omitted only when no variant of this exact product has an age restriction. */
+export function ageOptionalForProduct(context: ReadyCalculatorContext, productId: string): boolean {
+  return allVariantsAgeIndependent(context.variants.filter((variant) => variant.productId === productId));
 }
 
 // ── Insured age prefill ────────────────────────────────────────────────────────────────────────────
@@ -155,7 +160,7 @@ export function agentDisplayName(profile: { firstName: string; lastName: string;
 export interface PreviewEstimateBasis {
   productId: string;
   variantId: string;
-  age: number;
+  age: number | null;
   term: number | null;
   monthlyPremium: string;
   estimate: CommissionEstimate;
@@ -196,6 +201,7 @@ export function previewOutcome(
       term: inputs.term,
     },
     terms,
+    ageOptionalForProduct(context, product.id),
   );
   if (!form.ok) {
     const { term, age, monthlyPremium } = form.errors;

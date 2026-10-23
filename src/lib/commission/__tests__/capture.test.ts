@@ -27,6 +27,12 @@ describe("commission capture", () => {
     expect([halfCent.first_year_cents, halfCent.advance_cents]).toEqual([150, 113]);
   });
 
+  it("captures a truly unknown age as null, never zero", () => {
+    const inputs = captureSlotInputs({ ...base, age: null, monthlyPremium: "100", estimate: estimateCommission("100", "75")! });
+    expect(inputs.insured_age).toBeNull();
+    expect(commissionPayload([{ slot: PRIMARY_SLOT, inputs }]).slots[0].insured_age).toBeNull();
+  });
+
   it("omits slots without a displayed estimate and never invents one", () => {
     const inputs = captureSlotInputs({ ...base, monthlyPremium: "100", estimate: estimateCommission("100", "110")! });
     const payload = commissionPayload([

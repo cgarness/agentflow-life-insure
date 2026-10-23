@@ -491,6 +491,29 @@ sql -c "SELECT pc_login(11); SET ROLE authenticated;
   SELECT test_assert((get_my_commission_policy_list()->>'total_count')::integer = 1, 'reapplied reads see the kept policy')" >/dev/null
 echo 'PASS commissions insights rollback: goal refusal, exact restore, records kept, replay refusal and reapply'
 
+# ── 4b. Age-independent product validation: additive migration and local-only regression suite ──
+# This deliberately comes after the original rollback proofs so that prior immutable release tests
+# continue on their pinned database contract. Never run the optional-age migration on production here.
+echo 'OPTIONAL-AGE 1/5 preparing isolated synthetic database'
+new_db optional_age
+echo 'OPTIONAL-AGE 2/5 applying new migration to isolated synthetic database'
+sql -1 -f "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql" >/dev/null
+echo 'OPTIONAL-AGE 3/5 running synthetic SQL assertions'
+run_suite "$ROOT/supabase/tests/policy_commission_optional_age.sql"
+echo 'OPTIONAL-AGE 4/5 verifying replay refusal'
+expect_fail 'optional insured age already applied or column drift' "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql"
+# No NULL-age rows were saved in this fixture: rollback must restore both NOT NULL flags and
+# the original preimage bodies exactly; reapply proves the migration is reversible before use.
+echo 'OPTIONAL-AGE 5/5 verifying no-data-loss rollback and reapply'
+sql -1 -f "$ROOT/supabase/migrations/rollback/20261023180000_policy_commission_optional_age.rollback.sql" >/dev/null
+sql -tAX -c "SELECT md5(pg_get_functiondef('private.policy_commission_valid_slot(jsonb,boolean)'::regprocedure))" |
+  grep -qx 34f369b701745683107e77c5304dddfb
+sql -tAX -c "SELECT md5(pg_get_functiondef('private.policy_commission_grid_facts(uuid,jsonb)'::regprocedure))" |
+  grep -qx 034fbd8853d749ad95daa62e192b2598
+sql -1 -f "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql" >/dev/null
+run_suite "$ROOT/supabase/tests/policy_commission_optional_age.sql"
+echo 'PASS optional-age payload/matching, replay refusal, exact rollback and reapply'
+
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
   new_db postgrest

@@ -46,6 +46,13 @@ describe("server payload validation", () => {
 describe("calculator form validation", () => {
   const base: CalculatorFormValues = { category: "whole_life", carrier: "Synthetic Carrier North", productId, age: "0", monthlyPremium: "125.50", term: "" };
 
+  it("keeps the Calculator age-required by default, and permits explicit age independence only", () => {
+    const blank = { ...base, age: "" };
+    expect(validateCalculatorForm(blank, []).ok).toBe(false);
+    expect(validateCalculatorForm(blank, [], true)).toEqual({ ok: true, productId, age: null, term: null, monthlyPremium: "125.50" });
+    expect(validateCalculatorForm({ ...base, age: "101" }, [], true).ok).toBe(false);
+  });
+
   it("accepts age 0 and a premium with cents", () => {
     expect(validateCalculatorForm(base, [])).toEqual({ ok: true, productId, age: 0, term: null, monthlyPremium: "125.50" });
   });

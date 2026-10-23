@@ -5,6 +5,7 @@ import { ADVANCE_PERCENT } from "@/lib/commission/estimate";
 import { formatUsd } from "@/lib/commission/money";
 import {
   candidateProducts,
+  ageOptionalForProduct,
   NO_MATCHING_PRODUCT_MESSAGE,
   prefillAge,
   previewOutcome,
@@ -118,6 +119,7 @@ function PreviewPanel({ owner, policyType, carrier, monthlyPremium, agePrefill, 
           products={products}
           terms={product ? productTermLengths(preview.context, product.id) : []}
           selection={{ productId: selection.productId, term: selection.term, age }}
+          ageOptional={product ? ageOptionalForProduct(preview.context, product.id) : false}
           onChange={update}
         />
         {outcome.kind === "estimate" ? (

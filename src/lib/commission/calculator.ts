@@ -27,7 +27,8 @@ export function resolveLevel(context: ReadyCalculatorContext): LevelState {
 
 export interface CalculatorRequest {
   productId: string;
-  age: number;
+  age: number | null;
+  /** Unknown is valid only for products whose variants all have no age bounds. */
   /** Required for products defined by term lengths; null otherwise. */
   term: number | null;
   /** Validated plain decimal text, > 0. */
@@ -53,10 +54,13 @@ export function calculateEstimate(
   const product = context.products.find((candidate) => candidate.id === request.productId);
   if (!product) return unavailable("This product isn't available in your agency's comp grid.");
   const variants = context.variants.filter((variant) => variant.productId === product.id);
+  if (request.age === null && !variants.every((variant) => variant.minAge === null && variant.maxAge === null)) {
+    return unavailable("Enter the client's age.");
+  }
   const match = matchVariant(variants, request.age, request.term);
   switch (match.kind) {
     case "no_age":
-      return unavailable("Not available for this age.");
+      return unavailable(request.age === null ? "Enter the client's age." : "Not available for this age.");
     case "no_term":
       return unavailable("Not available for this term length.");
     case "no_age_term_combination":

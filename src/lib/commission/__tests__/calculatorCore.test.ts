@@ -6,6 +6,16 @@ import { matchVariant, supportedTermLengths } from "../matching";
 import { formatRatePercent, formatUsd, parseDecimal, toCents } from "../money";
 import { IDS, syntheticContext } from "./syntheticGrid";
 
+describe("null insured age in the calculator engine", () => {
+  const context = syntheticContext();
+  it("estimates only when all product variants are unbounded", () => {
+    const unbounded = calculateEstimate(context, 100, { productId: IDS.zeroPlan, age: null, term: null, monthlyPremium: "100" });
+    expect(unbounded.kind).toBe("estimate");
+    const bounded = calculateEstimate(context, 100, { productId: IDS.finalPlan, age: null, term: null, monthlyPremium: "100" });
+    expect(bounded).toEqual({ kind: "unavailable", message: "Enter the client's age." });
+  });
+});
+
 describe("contract level normalization (strict, read-only)", () => {
   it.each([
     ["120%", 120],

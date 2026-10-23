@@ -23,10 +23,15 @@ export function supportedTermLengths(variants: CalculatorVariant[]): number[] {
   return [...new Set(variants.flatMap((variant) => variant.termYears ?? []))].sort((a, b) => a - b);
 }
 
-const ageMatches = (variant: CalculatorVariant, age: number) =>
-  (variant.minAge === null || age >= variant.minAge) && (variant.maxAge === null || age <= variant.maxAge);
+/** A missing age is safe only if EVERY variant is age-independent; no mixed-grid shortcuts. */
+export const allVariantsAgeIndependent = (variants: CalculatorVariant[]): boolean =>
+  variants.length > 0 && variants.every((variant) => variant.minAge === null && variant.maxAge === null);
 
-export function matchVariant(variants: CalculatorVariant[], age: number, term: number | null): VariantMatch {
+const ageMatches = (variant: CalculatorVariant, age: number | null) =>
+  (variant.minAge === null || (age !== null && age >= variant.minAge)) &&
+  (variant.maxAge === null || (age !== null && age <= variant.maxAge));
+
+export function matchVariant(variants: CalculatorVariant[], age: number | null, term: number | null): VariantMatch {
   const termed = usesTermLengths(variants);
   if (termed && term === null) return { kind: "term_required" };
   const termMatches = (variant: CalculatorVariant) =>
