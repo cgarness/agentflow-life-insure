@@ -56,7 +56,7 @@ const estimateSchema = z.object({
   product_name: z.string(),
   product_carrier: z.string(),
   variant_label: z.string(),
-  insured_age: z.number().int(),
+  insured_age: z.number().int().nullable(),
   term_years: z.number().int().nullable(),
   contract_level: z.number().int(),
   rate_percent: z.string(),
@@ -82,7 +82,7 @@ const captureSchema = z.object({
   captured_by: uuid,
   captured_at: z.string(),
   product_id: uuid,
-  insured_age: z.number().int(),
+  insured_age: z.number().int().nullable(),
   term_years: z.number().int().nullable(),
 });
 
