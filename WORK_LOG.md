@@ -1,3 +1,78 @@
+## 2026-10-23 — RELEASED: Add to Campaign shows Agents their Personal and Team campaigns (PR #483, merge `f03af3b`)
+
+**Authorization.** Chris approved completing PR #483: reconcile it with main, verify, squash-merge and verify production. I re-read AGENT_RULES, VISION and this log first. The only new main work was #479 (carrier selection), which does not conflict with this fix. No production database change, migration, RLS change, backend deployment or real lead mutation was authorized, and none happened.
+
+**Reconciliation.**
+- Main had moved from `f548b59` to `93abbe4` (#479). I merged it into the PR branch as `0755d04`, a normal merge commit; the PR branch was not rebased or force-pushed.
+- Conflicts were limited to the newest-first insertions in `WORK_LOG.md` and `implementation_plan.md`; both entries are kept, the 2026-10-23 one first. `AGENT_RULES.md` auto-merged and keeps both the carrier-selection and Add to Campaign picker rules.
+- Diffing the merged files against both parents shows zero removed lines. #479 touches none of this PR's source files.
+- **Files changed by the reconciliation:**
+  - `WORK_LOG.md` and `implementation_plan.md` (conflict resolution, plus the reconciliation and release plan).
+  - `src/hooks/useAddToCampaignOptions.ts` (one line).
+  - New `src/hooks/__tests__/useAddToCampaignOptions.test.tsx`.
+
+**#479 isolation standard.** #479's review requires that a previous open's, user's or agency's list never renders. I checked this with a new every-render hook test (five cases).
+- The test found one gap: the render right after the modal closed still returned the previous list, until the close effect cleared it. That render was never painted, because the modal renders `null` while closed.
+- The hook now returns nothing while closed (`open && …`).
+- Reopen, org/user switches, A→B→A and superseded retries were already loading on every render.
+- Mutation checks pass: removing the identity mask or the abort guard fails the new tests.
+
+**Verification on merged head `0755d04`.**
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npx tsc -p tsconfig.app.json` | 84 errors, a set identical to main `93abbe4` |
+| Focused Vitest | 61/61 (modal 16, options 16, every-render hook 5, batch 5, access scope 19) |
+| Full Vitest, main `93abbe4` | 6114 passed, 1 failed, 36 skipped |
+| Full Vitest, `0755d04` | 6152 passed, 1 failed, 36 skipped |
+| ESLint `--max-warnings 0`, 9 touched files | 0 problems |
+| `npm run build` | ok |
+| `git diff --check` | clean |
+
+- The full-suite failing set is the same 10 files on main and on this head:
+  - Nine fail at import because the container has no `VITE_SUPABASE_URL`.
+  - One is the `recordingRetentionVoicemail` v29 byte check.
+- The extra 38 passing tests are this PR's new tests.
+
+**GitHub and previews.**
+- All 10 check runs on `0755d04` passed: native, postgres, both frontend jobs, Commission tracking/contact tests, PostgreSQL 17.6 + PostgREST 12.2.3, consent, paired-native, browser and Vercel Preview Comments. Supabase Preview was skipped because there are no `supabase/` changes.
+- Both commit statuses were green, and there were no review threads.
+- No checks ran on the first head `9c879db`, because the PR conflicted with main when it was opened.
+- Previews `dpl_HfTSh9idJLDjYAFPrbfTfU9pWCjB` (agentflow) and `dpl_EELUxGF9AtEMwYyBX1E2jaLM2CBy` (agentflow-life-insure) were READY at `0755d04`.
+
+**Merge.** Marked ready, `mergeable_state: clean`, then squash-merged with expected head `0755d04` into **`f03af3b7d1fe271efd1c18c0dc4912b668df22f6`** (parent `93abbe4`). The merge tree `03f20c22…` is identical to the verified head tree.
+
+**Production.**
+- `agentflow` **`dpl_2jZdD2y5yqBmEqoEdLEhVc64GC32`**: READY, aliases `www.fflagent.com` and `fflagent.com`.
+- `agentflow-life-insure` **`dpl_DjXc7rCALMZZLbu367FDeFHUa3cP`**: READY.
+- Both deployments are at `f03af3b`.
+- **Smoke checks** (read-only, through the Vercel connector, because this container's proxy blocks `www.fflagent.com`):
+  - `www.fflagent.com` returns 200 and serves entry `index-BYOMAilC.js`, replacing `index-DrcWEWyw.js`. The ETag is identical to the deployment's own URL.
+  - `/contacts` returns 200 with the same entry; the apex redirects (307) to www.
+  - Neither project shows runtime errors in the last hour.
+- **Rollback targets:** `dpl_DHoaA3E2ZAqn3SS8Z7PQSK5Dour2` and `dpl_CtihyAzZUucjDpHCphnJxmE8DEeb` (both at `93abbe4`).
+
+**Not verified.**
+- There was no signed-in Agent / Team Leader / Admin walkthrough, because this session has no test-user sign-in. Role visibility rests on the automated tests.
+- The served JavaScript bundle was not downloaded. Its identity rests on three facts:
+  - The served entry matches the `f03af3b` deployment.
+  - The merged tree is identical to the verified head.
+  - A local build of that tree puts the new picker strings in the entry chunk.
+- No unauthorized add was attempted in production, since that would be a mutation. That such an add cannot succeed rests on the unchanged server-side `add_leads_to_campaign` (`can_administer_campaign`, per-lead `can_authorize_campaign_lead`, `ON CONFLICT DO NOTHING`) and on the tests of the `42501` refusal path.
+
+**Unchanged.** No migration, RLS change, Supabase command, Edge Function or backend deployment, and no Vercel environment change. Twilio, dialing, telemetry and queue behaviour are untouched.
+
+**Next.** Chris's signed-in walkthrough on production as an Agent, a Team Leader and an Admin:
+- own Personal campaign, assigned Team campaign and Open Pool visible;
+- Completed campaigns hidden;
+- "Already in <campaign>" for an existing member;
+- the permission message on a refused add.
+
+Option B (the picker mirrors the server's attach authority) remains an optional follow-up.
+
+---
+
 ## 2026-10-23 — BUGFIX: Add to Campaign shows Agents their Personal and Team campaigns again (branch + PR for review; NOT merged, NOT deployed)
 
 **Request and approval.** Chris reported that Agents could not see their eligible Personal or Team campaigns under Add to Campaign in the full contact view. I read AGENT_RULES, VISION and this log before planning; no recent entry touches this area. Chris approved the plan in `implementation_plan.md` with D1 = Option A (keep campaign visibility and the existing server-side permissions) and D2 = accurate "Already in Campaign" messaging. The approval covers implementation, tests and PR preparation only. It does not cover a merge to main, a deployment or any production database change.

@@ -1,4 +1,6 @@
-## 2026-10-23 — PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
+## 2026-10-23 — RELEASED: PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
+
+**Outcome:** merged as `f03af3b` (squash, expected head `0755d04`, identical tree). Production deployments `dpl_2jZdD2y5yqBmEqoEdLEhVc64GC32` (www.fflagent.com) and `dpl_DjXc7rCALMZZLbu367FDeFHUa3cP` are READY, and www serves the new entry. Evidence and limits are in the newest WORK_LOG entry.
 
 **Authorization:** Chris approved completing PR #483: reconcile with main, verify, merge with the repository's squash strategy, and confirm the production Vercel deployment. No production database change, migration, RLS change, backend deployment or real lead mutation is authorized.
 
