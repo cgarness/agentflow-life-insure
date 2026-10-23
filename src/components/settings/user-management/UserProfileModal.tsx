@@ -109,14 +109,14 @@ const UserProfileModal: React.FC<Props> = ({
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      const { patch, partialError } = await saveMemberProfile({
+      const { patch, partialError, partialMessage } = await saveMemberProfile({
         user, organizationId, viewer: saveViewer,
         form: { ...form, avatar: avatarUrl, isSuperAdmin, carriers: normalizeProfileCarriers(form.carriers) },
       });
       if (partialError) {
         toast({
           title: "Some changes were not saved",
-          description: `${errorText(partialError)} Other changes may have been saved; the member list has been reloaded.`,
+          description: partialMessage ?? errorText(partialError),
           variant: "destructive",
         });
         onReload();

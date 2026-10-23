@@ -11,7 +11,10 @@
  *        (not the JWT) is an Admin / Super Admin of the member's organization, and reports a
  *        zero-row soft delete as a failure;
  *  - F1  `updateProfile` with a payload that omits `uplineId` / `commissionLevel` never
- *        lists `upline_id` / `commission_level` in the PATCH.
+ *        lists `upline_id` / `commission_level` in the PATCH;
+ *  - `update`, `assignUpline` and `removeFromTeam` read the row back, so an UPDATE that RLS
+ *        filtered to zero rows rejects with `PROFILE_UPDATE_REFUSED` instead of succeeding;
+ *  - `getAll`'s search term goes through the same sanitizer as `getByIds`.
  *
  * All ids are synthetic. No production identifier appears in this file.
  */
@@ -84,7 +87,7 @@ vi.mock("@/integrations/supabase/client", () => {
 
 vi.mock("@/lib/supabase-contacts", () => ({ leadsSupabaseApi: { reassignAllContacts } }));
 
-import { AGENT_SCOPE_MAX_ROUNDS, usersSupabaseApi } from "@/lib/supabase-users";
+import { AGENT_SCOPE_MAX_ROUNDS, PROFILE_UPDATE_REFUSED, usersSupabaseApi } from "@/lib/supabase-users";
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -196,6 +199,17 @@ describe("getAll (F9) — the schema fallback trims columns, never constraints",
     state.respond = (_q, i) => (i === 0 ? schemaError : fail("still broken"));
     await expect(usersSupabaseApi.getAll({ organizationId: ORG })).rejects.toBeTruthy();
     warn.mockRestore();
+  });
+
+  it("sanitizes the search term like getByIds: no PostgREST metacharacter reaches .or()", async () => {
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: 'Ad,a)*\\"x' });
+    expect(recorded[0].or).toBe("first_name.ilike.%ad a    x%,last_name.ilike.%ad a    x%,email.ilike.%ad a    x%");
+    expect(recorded[0].eq.organization_id).toBe(ORG);
+  });
+
+  it("a term that sanitizes to nothing adds no .or() filter", async () => {
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: ' ,()* ' });
+    expect(recorded[0].or).toBeUndefined();
   });
 });
 
@@ -501,5 +515,54 @@ describe("updateProfile (F1) — an omitted upline / commission is never in the 
   it("still reports an RLS-filtered update as a failure", async () => {
     state.respond = () => ok([]);
     await expect(usersSupabaseApi.updateProfile(MEMBER, { npn: "1" })).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe("update / assignUpline / removeFromTeam — an RLS-filtered write is a failure, not a success", () => {
+  const MEMBER = uid(30);
+  const LEADER = uid(31);
+  const writes = () => recorded.filter((q) => q.op === "update");
+
+  it("update PATCHes the one row and reads it back", async () => {
+    state.respond = () => ok([{ id: MEMBER }]);
+    await usersSupabaseApi.update(MEMBER, { firstName: "Ada" });
+    const [patch] = writes();
+    expect(patch.eq).toEqual({ id: MEMBER });
+    expect(patch.returning).toBe("id");
+    expect(patch.payload).toMatchObject({ first_name: "Ada" });
+  });
+
+  it("assignUpline and removeFromTeam PATCH upline_id and read the row back", async () => {
+    state.respond = () => ok([{ id: MEMBER }]);
+    await usersSupabaseApi.assignUpline(MEMBER, LEADER);
+    await usersSupabaseApi.removeFromTeam(MEMBER);
+    const [assign, remove] = writes();
+    expect(assign.payload).toMatchObject({ upline_id: LEADER });
+    expect(remove.payload).toHaveProperty("upline_id", null);
+    for (const q of [assign, remove]) {
+      expect(q.eq).toEqual({ id: MEMBER });
+      expect(q.returning).toBe("id");
+    }
+  });
+
+  it.each([
+    ["update", () => usersSupabaseApi.update(MEMBER, { firstName: "Ada" })],
+    ["assignUpline", () => usersSupabaseApi.assignUpline(MEMBER, LEADER)],
+    ["removeFromTeam", () => usersSupabaseApi.removeFromTeam(MEMBER)],
+  ])("%s rejects with PROFILE_UPDATE_REFUSED when zero rows come back", async (_name, run) => {
+    for (const empty of [[], null]) {
+      state.respond = () => ok(empty);
+      await expect(run()).rejects.toThrow(PROFILE_UPDATE_REFUSED);
+    }
+  });
+
+  it("a database error still propagates unchanged", async () => {
+    const guard = { message: "Only an Admin of this organization may change account-control fields", code: "42501" };
+    state.respond = () => ({ data: null, error: guard });
+    await expect(usersSupabaseApi.assignUpline(MEMBER, LEADER)).rejects.toBe(guard);
+  });
+
+  it("uses the deleteUser zero-row wording", () => {
+    expect(PROFILE_UPDATE_REFUSED).toBe("Update failed: user profile not found or permission denied.");
   });
 });

@@ -2,6 +2,7 @@ import { loadPerformanceSummary, loadPerformanceDetails } from "@/lib/performanc
 import { formatTalkTime } from "@/components/leaderboard/leaderboardTypes";
 
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import { User, UserProfile, UserRole, UserStatus } from "@/lib/types";
 import { appointmentSetterOrExpression } from "@/lib/appointmentAttribution";
 
@@ -86,9 +87,10 @@ function rowToSafeUser(row: unknown): User & { profile: UserProfile } {
 /**
  * `.or()` interpolates a RAW, non-parameterized PostgREST filter string, so a search
  * term carrying filter metacharacters could otherwise produce a malformed expression.
- * Stripping them keeps the term a plain `ilike` pattern. Note this is defence in depth
- * only: the caller's `.in("id", …)` is a separate AND-level filter that no `.or()`
- * content can escape, so a search can narrow the scoped set but never widen it.
+ * Stripping them keeps the term a plain `ilike` pattern. Used by `getByIds` and `getAll`.
+ * Note this is defence in depth only: the callers' `.in("id", …)` / `organization_id`
+ * filters are separate AND-level filters that no `.or()` content can escape, so a search
+ * can narrow the set but never widen it.
  */
 function sanitizeProfileSearchTerm(raw?: string | null): string {
   if (!raw) return "";
@@ -253,6 +255,20 @@ async function assertCallerAdministersMember(memberId: string): Promise<void> {
   if (actor.is_super_admin !== true && !isOrgAdmin) throw refused();
 }
 
+/** A profile UPDATE that matched no row: RLS filtered it out, or the profile does not exist. */
+export const PROFILE_UPDATE_REFUSED = "Update failed: user profile not found or permission denied.";
+
+/**
+ * PATCH one profile row and read it back. An UPDATE that RLS filters to zero rows is not an
+ * error to PostgREST, so without the read-back a refused write would report success; zero
+ * rows throws `PROFILE_UPDATE_REFUSED` instead (the `deleteUser` rule).
+ */
+async function updateProfileRowOrThrow(id: string, payload: TablesUpdate<"profiles">): Promise<void> {
+  const { data, error } = await supabase.from("profiles").update(payload).eq("id", id).select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error(PROFILE_UPDATE_REFUSED);
+}
+
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string; organizationId?: string }): Promise<(User & { profile: UserProfile })[]> {
     // Every constraint is applied by this one helper, so the schema-column fallback below
@@ -260,8 +276,9 @@ export const usersSupabaseApi = {
     const constrained = (query: unknown) => {
       let q = narrowByRoleAndStatus(query as any, filters ?? {});
 
-      if (filters?.search) {
-        const search = filters.search.toLowerCase();
+      // The same sanitizer as `getByIds`: `.or()` interpolates a raw PostgREST filter string.
+      const search = sanitizeProfileSearchTerm(filters?.search);
+      if (search) {
         q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
       }
 
@@ -520,6 +537,7 @@ export const usersSupabaseApi = {
     return rowToUser(data);
   },
 
+  /** Rejects with `PROFILE_UPDATE_REFUSED` when the PATCH matched no row (RLS-filtered). */
   async update(id: string, updates: Partial<User>): Promise<void> {
     const payload: any = {};
     if (updates.firstName !== undefined) payload.first_name = updates.firstName;
@@ -532,11 +550,7 @@ export const usersSupabaseApi = {
     if (updates.isSuperAdmin !== undefined) payload.is_super_admin = updates.isSuperAdmin;
     payload.updated_at = new Date().toISOString();
 
-    const { error } = await supabase
-      .from("profiles")
-      .update(payload)
-      .eq("id", id);
-    if (error) throw error;
+    await updateProfileRowOrThrow(id, payload);
   },
 
   async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile> {
@@ -845,16 +859,14 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
+  /** Rejects with `PROFILE_UPDATE_REFUSED` when the PATCH matched no row (RLS-filtered). */
   async assignUpline(userId: string, uplineId: string | null): Promise<void> {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ upline_id: uplineId, updated_at: new Date().toISOString() })
-      .eq("id", userId);
-    if (error) throw error;
+    await updateProfileRowOrThrow(userId, { upline_id: uplineId, updated_at: new Date().toISOString() });
   },
 
+  /** `assignUpline(userId, null)`: same read-back, same zero-row failure. */
   async removeFromTeam(userId: string): Promise<void> {
-    return this.assignUpline(userId, null);
+    await updateProfileRowOrThrow(userId, { upline_id: null, updated_at: new Date().toISOString() });
   },
 
   async updateGoals(userId: string, goals: {

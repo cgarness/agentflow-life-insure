@@ -13,7 +13,8 @@
  *  - a changed upline is re-validated with a fresh candidate read BEFORE step 1, so a refused
  *    upline (or a failed read) writes nothing;
  *  - the remaining partial-save case: step 1 committed, step 2 refused → "Some changes were
- *    not saved" with the database message, a list reload, and no optimistic patch;
+ *    not saved" naming what step 1 saved and what step 2 did not, with the database message, a
+ *    list reload, and no optimistic patch;
  *  - database guard messages reach the toast (step 1, step 2, delete);
  *  - Team Leader viewer on a downline member: role, status, upline and commission disabled,
  *    no Delete User; Admin on self: commission editable, role / status not; Agent on self:
@@ -240,7 +241,11 @@ describe("database messages reach the toast", () => {
     await waitFor(() => expect(onReload).toHaveBeenCalledTimes(1));
     expect(h.update.mock.calls[0][1]).toMatchObject({ role: "Team Leader" });
     expect(lastToast().title).toBe("Some changes were not saved");
-    expect(lastToast().description).toContain(guard);
+    // Step 1 read its row back, so what it saved is certain; step 2's fields are named as unsaved.
+    expect(lastToast().description).toBe(
+      "Saved: name, email, phone, role. Not saved: licensed states, resident state, NPN, timezone, carriers, " +
+        `upline. ${guard} The member list has been reloaded.`,
+    );
     expect(onSaved).not.toHaveBeenCalled();
   });
 

@@ -15,11 +15,15 @@
  * committed role / status change. A candidate read failure stops it too (fail closed).
  * "None" needs no check. This is a UI precondition; the database guards stay the authority.
  *
- * Remaining partial-save case (documented and tested): step 1 commits and step 2 fails — a
+ * Both steps read their row back, so an UPDATE that RLS filtered to zero rows is a failure,
+ * never a false success. A step 1 failure therefore means NOTHING was written (the save
+ * rejects with the database message).
+ *
+ * Remaining partial-save case (documented and tested): step 1 committed and step 2 failed — a
  * database guard raced the check (a concurrent move made the choice a cycle), the network
- * dropped, or RLS refused the row. The result then carries `partialError`; the caller says
- * some changes were not saved, shows the database message, and re-reads the member list
- * instead of applying an optimistic patch.
+ * dropped, or RLS refused the row. The result then carries `partialError` and a
+ * `partialMessage` naming exactly what step 1 saved and what step 2 did not; the caller shows
+ * it and re-reads the member list instead of applying an optimistic patch.
  */
 import { z } from "zod";
 import { usersSupabaseApi } from "@/lib/supabase-users";
@@ -51,6 +55,26 @@ export interface SaveMemberProfileResult {
   patch: Partial<UserWithProfile>;
   /** Step 2 failed after step 1 committed; the caller must re-read rather than patch. */
   partialError: unknown | null;
+  /** With `partialError`: which fields step 1 saved, which step 2 did not, and why. */
+  partialMessage: string | null;
+}
+
+const STEP_1_LABELS: Record<string, string> = {
+  firstName: "name", lastName: "name", email: "email", phone: "phone", avatar: "photo",
+  role: "role", status: "status", isSuperAdmin: "Super Admin access",
+};
+const STEP_2_LABELS: Record<string, string> = {
+  licensedStates: "licensed states", residentState: "resident state", npn: "NPN", timezone: "timezone",
+  carriers: "carriers", uplineId: "upline", commissionLevel: "commission level",
+};
+const labelsOf = (payload: object, labels: Record<string, string>) =>
+  [...new Set(Object.keys(payload).map((key) => labels[key]).filter(Boolean))].join(", ") || "nothing";
+
+/** The partial-save toast text: step 1 committed (read back), step 2 was refused. */
+export function partialSaveMessage(saved: object, notSaved: object, error: unknown): string {
+  const reason = (error as { message?: string } | null)?.message || "An unknown error occurred";
+  return `Saved: ${labelsOf(saved, STEP_1_LABELS)}. Not saved: ${labelsOf(notSaved, STEP_2_LABELS)}. ${reason} ` +
+    "The member list has been reloaded.";
 }
 
 export async function saveMemberProfile(params: {
@@ -81,11 +105,12 @@ export async function saveMemberProfile(params: {
     if (!candidates.some((c) => c.id === nextUpline)) throw new Error(UPLINE_NOT_AVAILABLE);
   }
 
+  // Rejects (nothing written) on an error or a zero-row read-back.
   await usersSupabaseApi.update(user.id, userUpdates);
   try {
     await usersSupabaseApi.updateProfile(user.id, profileUpdates);
   } catch (e) {
-    return { patch: { id: user.id }, partialError: e };
+    return { patch: { id: user.id }, partialError: e, partialMessage: partialSaveMessage(userUpdates, profileUpdates, e) };
   }
 
   return {
@@ -95,5 +120,6 @@ export async function saveMemberProfile(params: {
       profile: { ...profileUpdates } as UserWithProfile["profile"],
     },
     partialError: null,
+    partialMessage: null,
   };
 }
