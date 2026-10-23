@@ -10,6 +10,8 @@ on:
       - 'supabase/migrations/rollback/*_policy_commission_center_reads.rollback.sql'
       - 'supabase/migrations/*_policy_commission_center_insights.sql'
       - 'supabase/migrations/rollback/*_policy_commission_center_insights.rollback.sql'
+      - 'supabase/migrations/*_policy_commission_optional_age.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_optional_age.rollback.sql'
       - 'supabase/migrations/*_leaderboard_sale_recording.sql'
       - 'supabase/migrations/*_policy_identity_sale_integrity.sql'
       - 'supabase/migrations/*_commission_grids_*.sql'
