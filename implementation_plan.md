@@ -1,3 +1,81 @@
+## 2026-10-22 — BUGFIX: Contact view "Add to Campaign" hides eligible Personal/Team campaigns (PLAN — awaiting Chris's approval)
+
+**Status:** Plan only. No source file modified, no backend command run, nothing pushed. Base: `main` @ `f548b59`.
+
+### 1. Diagnosis (confirmed in code)
+
+`src/components/contacts/AddToCampaignModal.tsx` (used by BOTH the full contact view and bulk Add to Campaign on Contacts):
+
+1. Reads `campaigns` (`select("*")`, org + `status = 'Active'`) — RLS already returns exactly the Agent's allowed rows (`campaigns_select`: own Personal, assigned Team, org Open Pool; Admin/TL all org rows).
+2. Maps each row to a camelCase UI object that **drops `user_id`** and renames `assigned_agent_ids` → `assignedAgentIds` (lines 62–73).
+3. Passes those objects to `filterCampaignsForManagement`, which reads `user_id` and `assigned_agent_ids` (`campaign-assignee-scope.ts`). Both are `undefined`, so:
+
+| Viewer | Own Personal | Assigned Team | Open Pool |
+|---|---|---|---|
+| Agent | **hidden (bug)** | **hidden (bug)** | shown |
+| Team Leader | **hidden (bug)** | shown (via viewAll) | shown |
+| Admin / Super Admin | shown (admin branch) | shown | shown |
+
+So the bug also hits Team Leaders' own Personal campaigns. Secondary defects in the same file: search text survives close/reopen; a load error renders "No active campaigns found" (looks empty, not broken); no guard against a slow response from a previous org/user landing; the read is unpaginated (silent 1,000-row cap); "already in this campaign" is reported as "not eligible".
+
+### 2. ⚠️ Decision needed — Open Pool (server vs. requested behaviour)
+
+Production migration `20261002184954` (applied 2026-10-02 per WORK_LOG) changed `private.can_administer_campaign`: **Open Pool attachment now requires owner / Admin / Super Admin / Team-Leader hierarchy — a same-org Agent who does not own the Open Pool campaign is refused** (`42501 not authorized for campaign`). Today the modal *shows* every org Open Pool campaign to Agents, so picking one they don't own already fails.
+
+- **Option B (recommended): mirror the server.** Agents see Open Pool campaigns they own; Admin/Super Admin see all. The list then only contains campaigns the add will accept. Narrows today's Agent list.
+- **Option A: keep org-wide Open Pool visibility** as written in the request, and show a clear "You can't add leads to this campaign" message when the server refuses.
+- Changing the server rule back is out of scope (RPC/security change, separate approval).
+
+Team Leaders: unchanged list (own + participant + all Team via viewAll). The server refuses TL attachment to Team/Open Pool campaigns they don't own or participate in because `is_ancestor_of` fails closed (known HIGH-priority hierarchy debt). I will not touch that; the refusal will show as a clear error, never as success or "empty".
+
+### 3. Approach
+
+- **Filter raw rows, then map.** Validate DB rows with a Zod schema (`id, name, type, status, user_id, assigned_agent_ids, total_leads`), apply `filterCampaignsForManagement` to the **raw snake_case rows**, and only then map to a small view object `{ id, name, type, totalLeads }`. No scope field is ever renamed before the access check. A row that fails validation makes the load an **error** (fail closed and visible) — never a silently shorter list.
+- **Query:** narrow columns, `organization_id = <org>` and `status = 'Active'` in the query (Completed/Paused/Draft/Archived never listed), paginated with the existing `fetchAllPages` helper so the list is complete or an error.
+- **Stale-request safety:** TanStack Query keyed `["addToCampaign", orgId, userId]` with the AbortSignal passed through; enabled only while open with a resolved org and user; no placeholder data. A response for an earlier org/user can never satisfy the current key. Management filter applied at render with current role inputs (same rule as the Campaigns table — never cache a filtered set).
+- **Role inputs unchanged:** `isAdmin = role === 'Admin'`, `isSuperAdmin`, `viewAll = Admin || Team Leader` exactly as today. Identity stays `user.id` (= `auth.uid()`, what the server checks). Fail closed under View As (modal is already never mounted there; this is defense in depth).
+- **States:** Loading · Error with Retry · "No active campaigns available to you" · "No campaigns match your search". Search, selection and tab reset every time the modal opens.
+- **Result messages:** `addLeadsToCampaignBatched` additively returns the RPC's existing `skipped_already_present / skipped_ineligible / skipped_not_found` counts (callers ignore extra fields). Single-lead already-member → "This lead is already in {campaign}". Server stays authoritative; `ON CONFLICT DO NOTHING` already prevents duplicates.
+- **Unchanged:** Create New Campaign tab behaviour (moved to its own file verbatim), all RLS, `add_leads_to_campaign`, `can_administer_campaign`, dialing helpers (`canUserDialCampaign` / `can_dial_campaign`), `campaign-assignee-scope.ts`, `FullScreenContactView.tsx`, `Contacts.tsx`. No migration.
+
+### 4. Files
+
+**New**
+- `src/lib/add-to-campaign/attachableCampaigns.ts` — Zod row schema, column list, `fetchAttachableCampaignRows(orgId, signal)`, `selectAttachableCampaigns(rows, userId, role)` (filter raw → map).
+- `src/hooks/useAttachableCampaigns.ts` — keyed query + status (`loading | error | ready`) + retry.
+- `src/components/contacts/AddToCampaignExistingTab.tsx` — search + list + the four states.
+- `src/components/contacts/AddToCampaignCreateTab.tsx` — existing create form, moved verbatim.
+- `src/lib/__tests__/attachableCampaigns.test.ts` — role × type matrix.
+- `src/components/contacts/__tests__/addToCampaignModal.test.tsx` — UI states and races.
+
+**Edited**
+- `src/components/contacts/AddToCampaignModal.tsx` — shell + add/create handlers (target < 200 lines; currently 334).
+- `src/lib/campaigns-table/queries.ts` — `export` on `fetchAllPages` only.
+- `src/lib/supabase-campaign-leads.ts` — additive reason counts.
+- `AGENT_RULES.md` — one invariant line: "map campaigns only after scope filtering raw rows".
+- `WORK_LOG.md` (newest-first entry), `implementation_plan.md` (this plan).
+
+### 5. Verification
+
+Automated (new tests):
+- Agent: owned Active Personal ✓; another user's Personal ✗; assigned Team ✓ (array and JSON-string `assigned_agent_ids`); unassigned Team ✗; Open Pool per §2 decision.
+- Team Leader: own Personal ✓, others' Personal ✗, all Team ✓. Admin/Super Admin: all ✓.
+- Completed/Paused excluded by the query (asserted on the query builder).
+- Malformed row → error state, not empty. Load error shows Error + Retry, never "No campaigns".
+- Search cleared on reopen. Org change and user change mid-flight: older response never rendered.
+- Add success, already-present message, server 42501 → error toast and modal stays open (no false success).
+
+Commands: `npx tsc --noEmit`, focused + full `npx vitest run`, ESLint `--max-warnings 0` on changed files, `npm run build`, `git diff --check`.
+
+Live check (needs a signed-in Agent; I have no test credentials): on the Vercel preview, open a lead → Add to Campaign as an Agent, confirm owned Personal + assigned Team appear, add, refresh, confirm the campaign chip persists; add again → "already in". I can drive this in the built-in browser if you sign in there, or you can run it.
+
+Optional read-only backend checks (only with your OK): `list_migrations` to confirm `20261002184954` is live, and read the current `can_administer_campaign` body to confirm the Open Pool rule before finalising §2.
+
+### 6. Delivery
+Branch `claude/fix-add-to-campaign-visibility`, draft PR to `main`. **No merge or push to `main` without your explicit approval.**
+
+---
+
 ## 2026-10-22 — Google Sheets Phase D/E live-release preparation (draft privacy branch only)
 
 **Intent:** Chris requested completion and production rollout of Google Sheets V1 while retaining the default Agent and Team Leader import permission. The prior Phase C frontend release is live at `069b1ad305fddfe7d7a5f9d5fc80254639d04596`; the Phase B backend is deployed with `GOOGLE_SHEETS_ENABLED` still absent and cron still off. The pilot permission is intentionally NOT restricted, per Chris's instruction.
