@@ -222,8 +222,27 @@ async function main() {
       p_replace_estimate_id: null, p_expected_revision: null, p_reason: null,
     });
     // Transport errors may be UNKNOWN commits: stop, retain manifest/request IDs; never generate new IDs.
-    must(!error && data?.status === "recorded", "Unresolved/refused commission write; stop and recover using the SAME request ID");
-    console.log("Recorded a reviewed commission estimate through the authenticated RPC.");
+    must(!error && data?.status === "recorded" && data?.estimate_id,
+      "Unresolved/refused commission write; stop and recover using the SAME request ID");
+    // A successful RPC response is not a substitute for a scoped, authoritative read-back.
+    const saved = await oneRow(client.from("policy_commission_estimates")
+      .select("id,organization_id,policy_id,win_id,credited_agent_id,status,first_year_cents,advance_cents")
+      .eq("id",data.estimate_id).eq("organization_id",manifest.organizationId), "commission read-back");
+    must(saved.policy_id === row.policyId && saved.win_id === row.winId &&
+      saved.credited_agent_id === row.creditedAgentId && saved.status === "active" &&
+      saved.first_year_cents === row.firstYearCents && saved.advance_cents === row.advanceCents,
+      "Commission read-back did not match approved manifest; stop");
+    const installments = await allRows(client.from("policy_commission_installments")
+      .select("kind,expected_cents").eq("estimate_id",saved.id)
+      .eq("organization_id",manifest.organizationId), "installment read-back");
+    must(installments.length === 4 && new Set(installments.map((i) => i.kind)).size === 4 &&
+      ["advance", "month_10", "month_11", "month_12"].every((kind) =>
+        installments.some((i) => i.kind === kind)), "Expected installment schedule is incomplete");
+    const receipts = await allRows(client.from("policy_commission_receipts")
+      .select("id").eq("estimate_id",saved.id).eq("organization_id",manifest.organizationId),
+      "receipt read-back");
+    must(receipts.length === 0, "Backfill unexpectedly created a payment receipt");
+    console.log("Recorded and read-back verified a reviewed estimate and four installments; no receipt created.");
   }
   console.log("Batch completed through canonical commission writers. No receipts were recorded.");
 }
