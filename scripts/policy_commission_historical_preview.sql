@@ -55,7 +55,7 @@ review AS (
                 WHERE enabled.organization_id=settings.organization_id AND enabled.grid_id=gr.id))
          AND lower(btrim(pr.carrier))=lower(btrim(c.carrier))
          AND pr.category=c.grid_category
-         AND CASE WHEN btrim(c.commission_level) ~ '^[0-9]{1,9}%?
+         AND CASE WHEN btrim(c.commission_level) ~ '^[0-9]{1,9}%?$'
                   THEN substring(c.commission_level FROM '[0-9]+')::integer
                   ELSE NULL END=r.contract_level
     ) AS current_grid_candidates
