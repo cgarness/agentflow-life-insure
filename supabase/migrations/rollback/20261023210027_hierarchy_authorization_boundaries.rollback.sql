@@ -1,4 +1,8 @@
--- Rollback for 20261023210000_hierarchy_authorization_boundaries.sql (hierarchy stabilization M1).
+-- Rollback for 20261023210027_hierarchy_authorization_boundaries.sql (hierarchy stabilization M1). M1 was authored
+-- as 20261023210000 and applied to production on 2026-10-23 (Gate 2a), where it is recorded as
+-- 20261023210027 / hierarchy_authorization_boundaries. Both files were renamed to that version with the forward
+-- bytes unchanged (SHA-256 5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df). The applied forward
+-- file's own "Rollback:" comment still names the authored path; this file is the one it means.
 -- Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §10. Production use requires Chris's
 -- separate explicit approval (#APPROVE_RLS_CHANGE). Reads and writes no data.
 --

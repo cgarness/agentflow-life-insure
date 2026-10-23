@@ -1,8 +1,11 @@
 # Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Status (2026-10-23): GATE 1 BUILT, INDEPENDENTLY REVIEWED AND VERIFIED (rev 4) — draft PR; awaiting the Gate 2a
-decision.** Results, amendments and residual risks: §B below and `verification.md` beside this file. Nothing has been
-applied, merged or deployed; production was only read.
+**Status (2026-10-23, rev 5): GATE 2a RELEASED — M1 is live in production as `20261023210027`. Gate 3 (frontend) is
+being prepared on PR #485 and awaits Chris's explicit approval.** M2 and M3 are NOT applied; PR #485 is NOT merged;
+no frontend has been deployed. Gate 3 preparation: §G3 below. Gate 2a evidence: `verification.md` §9.
+
+**Rev 4 status (superseded): GATE 1 BUILT, INDEPENDENTLY REVIEWED AND VERIFIED** — draft PR; awaited the Gate 2a
+decision. Results, amendments and residual risks: §B below and `verification.md` beside this file.
 
 **Rev 3 status:** GATE 1 APPROVED — development and testing only. Chris approved Gate 1 with the
 recommended D1–D15 defaults and two mandatory corrections (§R). Gate 1 does **not** authorize a merge, deployment,
@@ -25,7 +28,7 @@ Branch `claude/intelligent-lamport-r6hnx7` (from `main` `f03af3b`). Gates — ea
 | Gate | Authorizes | Production effect |
 |---|---|---|
 | **1** ✅ approved | Implementation on this branch: migration + rollback files, test harness + CI workflow, frontend, docs, local/CI verification, independent security review, full regression, one **draft PR** | none |
-| **2a** | `apply_migration` **M1** (authorization boundaries) — `#APPROVE_RLS_CHANGE` | narrowing only; 0 rows change visibility today |
+| **2a** ✅ released | `apply_migration` **M1** (authorization boundaries) — `#APPROVE_RLS_CHANGE`; recorded as `20261023210027` (§G3) | narrowing only; 0 rows change visibility today |
 | **3** | Merge the PR and release the frontend (M2 and M3 stay in `migrations/pending/`, unapplied) | UI only; frontend safety protections live **before** any hierarchy activation path exists |
 | **2b** | `apply_migration` **M2** (integrity triggers + guards) | no row written; from now on real upline edits / TL invites derive correct paths (§6.2) |
 | **2c** | `apply_migration` **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist | **activates TL `f809493e`'s downline authority** (§4) |
@@ -33,6 +36,85 @@ Branch `claude/intelligent-lamport-r6hnx7` (from `main` `f03af3b`). Gates — ea
 Order (correction R2): **1 → 2a (M1) → 3 (frontend) → 2b (M2) → 2c (M3)**, conditional on the frontend ↔ database
 compatibility suite (§8) passing for every state the release passes through. If it does not, the fallback is the
 explicit activation guard in §R.
+
+---
+
+## G3. Gate 2a released; Gate 3 preparation (rev 5, 2026-10-23)
+
+### Gate 2a record
+
+Chris had Gate 2a (M1) executed and verified in production through a separate (ChatGPT) session. It was re-read
+read-only from this session; evidence is in `verification.md` §9.
+- Recorded as **`20261023210027 / hierarchy_authorization_boundaries`**. The file was authored as `20261023210000`;
+  `apply_migration` stamps its own version.
+- It holds one statement whose SHA-256 is **`5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df`**,
+  byte-identical to the repository file. Head `20261023210027`, 344 rows.
+- The post-image equals the reviewed S1 state:
+  - every digest M2's prerequisite guard requires;
+  - 4 RESTRICTIVE policies;
+  - 5 guard triggers (commission, calls, and the contact organization guard on leads, clients and recruits);
+  - 10 policies depend on `is_ancestor_of`;
+  - the anon/PUBLIC revokes.
+- Data is unchanged: 16 profiles, 11 upline edges, 4 stale paths, both fingerprints `ddc1f53f…` / `7daae418…`.
+- M2 and M3 objects are absent.
+
+### Gate 3 scope (unchanged from rev 3/4)
+
+Merge PR #485 and release the frontend. M2 and M3 stay in `supabase/migrations/pending/`, unapplied.
+
+Preconditions for the merge:
+- Chris's explicit Gate 3 approval.
+- Supabase "Deploy to production" confirmed **OFF** by Chris in the dashboard (invariant #30; no tool can read it).
+- CI green at the PR head, and the PR mergeable.
+- This preparation's read-only preflight repeated immediately before the merge (`verification.md` §10).
+
+The merge builds the Vercel production deployments. It must not apply any migration: with M1's file named after its
+recorded version, the repository and `schema_migrations` agree.
+
+### Intended files for this preparation
+
+These were listed before editing. All of them are covered by Chris's Gate 3 preparation instruction and by the Gate 1
+plan, §8 item 6: "reconcile the file name to the stamped version and re-pin pending M2/M3".
+1. **Rename** `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` →
+   `supabase/migrations/20261023210027_hierarchy_authorization_boundaries.sql` with `git mv`, **bytes identical**
+   (SHA-256 `5d99c923…`).
+   - Its line-60 comment still names the authored rollback path. It stays as-is: applied SQL bytes are immutable
+     (AGENT_RULES, "apply_migration stamps its own version").
+2. **Rename** `supabase/migrations/rollback/20261023210000_hierarchy_authorization_boundaries.rollback.sql` →
+   `rollback/20261023210027_hierarchy_authorization_boundaries.rollback.sql`.
+   - Only its header comments change (applied version, authored name, production-use approval).
+   - The guard and body are unchanged. It was never applied, so it is editable.
+3. `scripts/hierarchy_test_state.sh`: the `HS_M1` and `HS_R1` paths and the S1 comment.
+4. `scripts/run_hierarchy_stabilization_tests.sh`:
+   - the "M2 without M1" stderr expectation;
+   - **new static checks:**
+     - exactly one top-level `*_hierarchy_authorization_boundaries.sql`, named `20261023210027_…`, whose SHA-256 is
+       the recorded `5d99c923…`;
+     - no top-level `*_hierarchy_integrity.sql` / `*_hierarchy_path_repair.sql`, so M2 and M3 stay in `pending/`
+       until their gates. A deliberate edit of this check is then part of Gate 2b/2c.
+5. `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`: the refusal message only
+   (`M1 (20261023210000 …)` → `M1 (20261023210027 …)`). The guard, the digests and the body are unchanged, and M2
+   stays unapplied.
+6. Docs:
+   - this plan;
+   - `verification.md` (§9 Gate 2a record, §10 Gate 3 readiness);
+   - root `implementation_plan.md`;
+   - `WORK_LOG.md` (new top entry);
+   - `AGENT_RULES.md`: the hierarchy invariant status, the §3 Team Leader line, and the Known Tech Debt line, which
+     still say M1 is not applied.
+7. PR #485 title and body.
+
+**Not planned:** any frontend, workflow or other migration change. The CI paths in `hierarchy-stabilization.yml` are
+globs (`*_hierarchy_authorization_boundaries.sql`) and already match the new names. If verification or the final
+security review finds that code must change, the change is listed and Chris's approval is requested first.
+
+**Interim guidance after Gate 3 (D14 still holds until Gate 2c).**
+- The new frontend sends `upline_id` only when it changed. An ordinary User Management save therefore no longer heals
+  stale paths.
+- Browser tabs still running the old bundle can still send it until they reload, and the old triggers still derive
+  stale paths on a real reassignment until M2.
+- So keep avoiding saves of `f809493e`, `4ef505e0`, `e5c4ee04` and `89f2e994`, and real reassignments in `f809493e`'s
+  branch, until Gate 2c.
 
 ---
 
@@ -291,7 +373,7 @@ Every new/replaced function: `SET search_path = pg_catalog, public, pg_temp` (lt
 `REVOKE ALL … FROM PUBLIC, anon, authenticated` (default privileges auto-grant anon). Error messages never echo
 organization UUIDs.
 
-### 6.1 M1 — `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql`
+### 6.1 M1 — `supabase/migrations/20261023210027_hierarchy_authorization_boundaries.sql` (authored as `20261023210000`; APPLIED at Gate 2a, §G3)
 
 1. `public.is_ancestor_of(ancestor_id uuid, descendant_id uuid)` — same signature and parameter names, `LANGUAGE sql
    STABLE SECURITY DEFINER`:
@@ -521,7 +603,7 @@ stamped migration versions, deployment ids, blockers, next steps).
 
 | Step | Rollback | Notes |
 |---|---|---|
-| M1 | `rollback/20261023210000_….rollback.sql`: guarded by post-image md5s; restores the verbatim `is_ancestor_of` and `tasks_select_team_leader` (TO public); drops the two `profile_authz` helpers, the commission guard, the calls guard, the contact tenancy guard and its 3 triggers, and the 4 restrictive policies; **no anon/PUBLIC re-grant** (security revokes are re-assert-only) | ⚠ With M3 live, this re-widens TL powers (downline deletes without the toggle, call edits, `commission_level`, Deleted-TL access) and re-opens the contact tenancy gap |
+| M1 | `rollback/20261023210027_….rollback.sql` (renamed from `20261023210000_…` at Gate 3 preparation): guarded by post-image md5s; restores the verbatim `is_ancestor_of` and `tasks_select_team_leader` (TO public); drops the two `profile_authz` helpers, the commission guard, the calls guard, the contact tenancy guard and its 3 triggers, and the 4 restrictive policies; **no anon/PUBLIC re-grant** (security revokes are re-assert-only) | ⚠ With M3 live, this re-widens TL powers (downline deletes without the toggle, call edits, `commission_level`, Deleted-TL access) and re-opens the contact tenancy gap |
 | M2 | `rollback/20261023210100_….rollback.sql`: restores verbatim `compute`/`update`/`cascade` bodies and trigger DDL (`CREATE OR REPLACE TRIGGER`); drops builder, lock trigger, invitation guard, consistency function, index; keeps revokes and the `on_profile_update` search_path hardening | Proven locally: preimage md5s restored; repaired paths stay correct; re-apply after rollback passes the guard |
 | M3 | **Recovery path = operational revocation**: an Admin reassigns the affected agents' upline (fixed triggers revoke immediately) or changes the TL's role. No automatic data inverse — rolling back functions never removes granted authority. The Gate 2c snapshot is forensic only; a byte-exact restore would need an invariant #29 artifact (full-id CSV outside the repo, sha256, re-parsed and compared) plus M2 rolled back and its own approval | |
 | Frontend | Revert the PR / promote the previous Vercel deployment | |
@@ -529,7 +611,7 @@ stamped migration versions, deployment ids, blockers, next steps).
 ## 11. Files to touch (Gate 1)
 
 **Database (new files only; no applied migration edited):**
-`supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql`,
+`supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` (renamed to `20261023210027_…` after Gate 2a, §G3),
 `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`,
 `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`, and
 `supabase/migrations/rollback/` `20261023210000_…`, `20261023210100_…`, `20261023210200_…` (`.rollback.sql`; M3's is a

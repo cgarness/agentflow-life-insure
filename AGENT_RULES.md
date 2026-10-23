@@ -34,7 +34,7 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 - Every tenant row carries **`organization_id`**. RLS uses **`public.get_org_id()`** from the JWT.
 - **Super Admin:** platform console can list all `organizations`; in-app data for super-admins is scoped to their **home org** except Agencies tooling (see migrations `20260430203000_*`).
 - **Admin:** all rows in their `organization_id`.
-- **Team Leader:** downline via `ltree` / `is_ancestor_of` where policies allow. See the **Hierarchy integrity invariant** (2026-10-23): once hierarchy M1 is applied, TL authority needs BOTH the JWT role and the database profile (Active Team Leader) to agree.
+- **Team Leader:** downline via `ltree` / `is_ancestor_of` where policies allow. See the **Hierarchy integrity invariant** (2026-10-23): hierarchy M1 is live (`20261023210027`), so TL authority needs BOTH the JWT role and the database profile (Active Team Leader) to agree.
 - **Agent:** `user_id = auth.uid()` (and campaign-type rules on `campaign_leads`).
 - **Queries:** `.maybeSingle()` for singular lookups that may return zero rows.
 - **Never** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser.
@@ -662,7 +662,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 ## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
 - Split **`DialerPage.tsx`** into subcomponents.
-- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — fix BUILT, NOT APPLIED (2026-10-23).** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix (migrations M1 `20261023210000_hierarchy_authorization_boundaries`, M2/M3 in `supabase/migrations/pending/`) is built and verified on branch `claude/intelligent-lamport-r6hnx7` but each production gate needs Chris's separate approval. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
+- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — M1 APPLIED 2026-10-23 as `20261023210027`; M2/M3 NOT APPLIED.** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix: M1 `20261023210027_hierarchy_authorization_boundaries` (authored as `20261023210000`; live; never edit, rename or replay it), and M2/M3 in `supabase/migrations/pending/`, built and verified on branch `claude/intelligent-lamport-r6hnx7`. Each remaining gate (3 frontend, 2b M2, 2c M3) needs Chris's separate approval; the stale paths persist until M3. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
 
 
@@ -1037,11 +1037,13 @@ Future conversions only: no backfill, and existing clients are never read or cha
   is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
   `type="button"`.
 
-## Hierarchy integrity invariant — October 23, 2026 (Gate 1 built and verified; NOTHING APPLIED)
+## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027` since Gate 2a; M2/M3 NOT APPLIED; frontend Gate 3 pending)
 
 Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 4); evidence: `verification.md`
 beside it. Production gates, each separately approved: **2a M1 → 3 frontend → 2b M2 → 2c M3**. Until a gate is
-applied, its rules below describe the branch, not production — check `list_migrations`.
+applied, its rules below describe the branch, not production — check `list_migrations`. **Gate 2a is done:** M1 is
+recorded as `20261023210027` (1 statement, SHA-256 `5d99c923…`, byte-identical to the repository file, which was renamed
+from `20261023210000`). The runner pins that version and digest, and fails if M2/M3 leave `pending/` before their gates.
 
 - **`profiles.upline_id` is the only hierarchy authority.** `hierarchy_path` is a derived cache (root-first, `-`→`_`
   labels) that M2 keeps equal to the canonical chain: built from the incoming `NEW.upline_id`, whole-subtree refresh

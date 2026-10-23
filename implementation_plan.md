@@ -1,4 +1,24 @@
-## 2026-10-23 — GATE 1 BUILT AND VERIFIED (draft PR; nothing applied, merged or deployed): Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+## 2026-10-23 — GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend prepared on PR #485, awaiting approval: Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+
+**Gate 2a (released).** Chris had M1 applied and verified in production through a separate (ChatGPT) session.
+- Recorded as `20261023210027 / hierarchy_authorization_boundaries`: 1 statement with SHA-256 `5d99c923…`, byte-identical
+  to the repository file.
+- This session re-read production read-only. The post-image equals the reviewed S1 state (plan §G3, `verification.md`
+  §9–§10).
+- Data is unchanged (4 stale paths, both fingerprints).
+- M2 and M3 are NOT applied.
+
+**Gate 3 preparation (this branch).**
+- The M1 forward and rollback files are renamed to `20261023210027_…`, with the forward bytes unchanged.
+- References are updated, and M2's refusal message is re-pinned.
+- The runner pins M1's applied version and SHA-256, and fails if M2 or M3 leaves `pending/`.
+- The docs are updated. No frontend, workflow or other migration change.
+- **Needs before the merge:** Chris's explicit Gate 3 approval; Supabase "Deploy to production" confirmed OFF by Chris;
+  CI green at the head; the read-only preflight in `verification.md` §10.
+
+---
+
+**Gate 1 record (2026-10-23, superseded status):**
 
 **Status:** Gate 1 approved by Chris (D1–D15 defaults; corrections R1 database-authoritative roles and R2 release
 order), built, independently security-reviewed (21 confirmed findings: 18 fixed and re-verified, 3 documented) and
@@ -25,7 +45,7 @@ Vitest 6531 passed (1 pre-existing failure identical on `main`); tsc clean; stri
 **Gates (each needs its own approval):** 1 ✅ → 2a M1 (`#APPROVE_RLS_CHANGE`) → 3 frontend → 2b M2 → 2c M3
 (`#APPROVE_RLS_CHANGE` + invariant #28), gated on the compatibility suite. Rollback: M1/M2 restore verbatim preimages
 (revokes kept); M3 recovery is operational. PostgreSQL 17.6 CI passed on the draft PR (run 39988839376, 2747 PASS
-lines). Next: the Gate 2a decision.
+lines). Gate 2a was then released (above).
 
 ---
 

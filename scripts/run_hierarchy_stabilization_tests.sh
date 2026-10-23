@@ -16,7 +16,8 @@
 # file as ONE multi-statement simple query (one implicit transaction, SET LOCAL effective); the security review
 # applied M1 and M2 both ways and got identical inventories, data and notices.
 #
-# Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites) ·
+# Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites, M1's
+# applied version and bytes, M2 / M3 kept in pending/) ·
 # 2 states S0 S1 S2 S3 S1R S2R S3R and the core suite on each (pinned PASS count; database unchanged by the suite) ·
 # 3 migrations: inventories, replay / drift / missing-prerequisite refusals with nothing changed, rollbacks back to
 # the exact preimage, re-apply after rollback, the M2 trigger probe, a hostile session search_path, lock_timeout,
@@ -311,6 +312,22 @@ set +e; r="$(quit_check "$WORK/v_quit_ok.sql" 2>&1)"; c=$?; set -e
 ok "static: no psql \\q or \\quit in the core, RLS and RPC suites; negative controls rejected, strings and comments allowed"
 case "$HS_M2$HS_M3" in *"/migrations/pending/"*"/migrations/pending/"*) ok "static: M2 and M3 live under migrations/pending/ (outside the CLI glob)" ;;
   *) fail "static: M2/M3 are not under migrations/pending/" ;; esac
+# Gate 2a (2026-10-23): M1 is applied and recorded as 20261023210027, so the repository file is the as-applied record
+# (AGENT_RULES "apply_migration stamps its own version"): exactly one top-level M1 file, named after the recorded
+# version, with the recorded statement's SHA-256. M2 and M3 stay in pending/ until their gates; moving one to the
+# top level is part of Gate 2b / 2c and must change this check deliberately.
+HS_M1_APPLIED_VERSION="20261023210027"
+HS_M1_APPLIED_SHA256="5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df"
+mapfile -t M1_TOP < <(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name '*_hierarchy_authorization_boundaries.sql' | LC_ALL=C sort)
+[ "${#M1_TOP[@]}" = 1 ] && [ "${M1_TOP[0]}" = "$HS_M1" ] \
+  && [ "$(basename "$HS_M1")" = "${HS_M1_APPLIED_VERSION}_hierarchy_authorization_boundaries.sql" ] \
+  || fail "static: expected exactly one top-level M1 file, ${HS_M1_APPLIED_VERSION}_hierarchy_authorization_boundaries.sql (found: ${M1_TOP[*]:-none})"
+[ "$(sha256sum "$HS_M1" | cut -d' ' -f1)" = "$HS_M1_APPLIED_SHA256" ] \
+  || fail "static: M1's bytes differ from the SQL production recorded as $HS_M1_APPLIED_VERSION (SHA-256 $HS_M1_APPLIED_SHA256); an applied migration is immutable"
+ok "static: M1 is the as-applied record: one top-level file at the recorded version $HS_M1_APPLIED_VERSION, SHA-256 $HS_M1_APPLIED_SHA256"
+STRAY_M23="$(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f \( -name '*_hierarchy_integrity.sql' -o -name '*_hierarchy_path_repair.sql' \) | LC_ALL=C sort)"
+[ -z "$STRAY_M23" ] || fail "static: M2/M3 must stay in migrations/pending/ until Gates 2b / 2c; top-level copies: $STRAY_M23"
+ok "static: no top-level M2 / M3 file; both stay in migrations/pending/ until Gates 2b / 2c"
 
 # ── 2. States and the core suite ────────────────────────────────────────────────────────────────────────────────
 echo
@@ -417,7 +434,7 @@ ok "M3 rollback stub always refuses (operational revocation is the recovery path
 # Missing prerequisites and wrong-state rollbacks are refused with nothing changed.
 state_db S0 mig_prereq
 snapshot "$DB" p0
-run_file "$DB" "$HS_M2"; expect_rc 3 "M2 without M1"; expect_stderr_has "hierarchy M2 refused: M1 (20261023210000 hierarchy_authorization_boundaries) is not applied as reviewed" "M2 without M1"
+run_file "$DB" "$HS_M2"; expect_rc 3 "M2 without M1"; expect_stderr_has "hierarchy M2 refused: M1 (20261023210027 hierarchy_authorization_boundaries) is not applied as reviewed" "M2 without M1"
 run_file "$DB" "$WORK/m3_unmodified.sql"; expect_rc 3 "M3 without M1/M2"; expect_stderr_has "hierarchy M3 refused: public.is_ancestor_of(uuid,uuid) is not the reviewed M1/M2 post-image" "M3 without M1/M2"
 run_file "$DB" "$HS_R1"; expect_rc 3 "M1 rollback on S0"; expect_stderr_has "hierarchy M1 rollback refused" "M1 rollback on S0"
 run_file "$DB" "$HS_R2"; expect_rc 3 "M2 rollback on S0"; expect_stderr_has "hierarchy M2 rollback refused" "M2 rollback on S0"

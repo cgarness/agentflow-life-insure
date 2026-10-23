@@ -1,5 +1,9 @@
 # Hierarchy Stabilization — Gate 1 verification (2026-10-23)
 
+**Update (rev 5): Gate 2a released. M1 is live in production as `20261023210027`, with the applied bytes identical to
+the repository file (§9). Gate 3 readiness is in §10.** M2 and M3 are not applied, and PR #485 is not merged. §§1–8
+below are the Gate 1 record as written.
+
 Gate 1 (approved by Chris 2026-10-23 with D1–D15 defaults and corrections R1/R2) authorizes development and testing
 only. **Nothing was applied, merged or deployed. Production was only read** (`SELECT` against `jncvvsvckxhqgqvkppmj`;
 8-character id prefixes; no names, emails or phones). Branch `claude/intelligent-lamport-r6hnx7` from `main`
@@ -182,7 +186,7 @@ mutable search_path `on_profile_update`. Expected after M1: the four anon entrie
 `is_ancestor_of` by design). Expected after M2: both `on_profile_update` executable entries and its search_path entry
 clear. The new `profile_authz` helpers live outside the exposed schema.
 
-## 8. Gate 2a preflight checklist (read-only, immediately before applying M1)
+## 8. Gate 2a preflight checklist (read-only, immediately before applying M1) — used for Gate 2a; release record in §9
 
 1. CI `hierarchy-stabilization.yml` green on PostgreSQL 17.6 at the PR head.
 2. `list_migrations` head; version for M1 sorts after it.
@@ -192,3 +196,41 @@ clear. The new `profile_authz` helpers live outside the exposed schema.
 5. Apply at a quiet time (CREATE POLICY / triggers take brief table locks; `lock_timeout` 1 s fails fast).
 6. Read back bodies, ACLs, policies, triggers, `pg_depend` (10 policies), advisors; reconcile the file name to the
    stamped version and re-pin pending M2/M3.
+
+## 9. Gate 2a release record (M1 live; re-read read-only from this session on 2026-10-23)
+
+Chris had M1 applied and verified in production through a separate (ChatGPT) session; this session did not apply it.
+This session then re-read production independently, read-only:
+
+| Fact | Value |
+|---|---|
+| Recorded migration | `20261023210027 / hierarchy_authorization_boundaries` (authored as `20261023210000`; `apply_migration` stamps its own version) |
+| Recorded statements | 1, SHA-256 `5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df`, 37 906 characters: byte-identical to the repository file |
+| Migration head / rows | `20261023210027` / 344 (was `20261022062539` / 343); no M2 or M3 row |
+| M2 prerequisite digests | `is_ancestor_of` `c6d121db…`, `actor_is_team_leader` `bbc07ccb…`, `actor_is_org_admin` `c64ef188…`, commission trigger `a85d3c1e…`, calls trigger `ae888acb…`: all equal M2's guard constants |
+| Guard functions | calls guard `454ee627…` and contact guard `dc72173f…` (SECURITY INVOKER); commission guard `cc306236…` (SECURITY DEFINER); each pins `search_path = pg_catalog, public, pg_temp`; EXECUTE by `postgres` only |
+| Policies | 4 RESTRICTIVE DELETE policies (the leads, clients and recruits Contacts-toggle policies and `calls_delete_own_rows_or_org_admin`); `tasks_select_team_leader` TO `authenticated` through `is_ancestor_of`; 10 policies depend on `is_ancestor_of` |
+| Guard triggers | 5, all enabled: commission (`profiles`), calls, and the contact organization guard on `leads`, `clients`, `recruits` |
+| ACLs | `is_ancestor_of`: `postgres`, `authenticated`, `service_role` (anon/PUBLIC revoked); `compute_hierarchy_path`, `update_hierarchy_path`, `cascade_hierarchy_update`: `postgres`, `service_role`; the two helpers: `postgres`, `authenticated` |
+| Path functions | preimage bodies unchanged (`b9aaa16d…`, `d9ff2d22…`, `8392e93e…`), which is the state M2 accepts |
+| M2 / M3 objects | absent (builder, lock function, consistency function, `idx_profiles_upline_id`) |
+| Data | 16 profiles, 11 upline edges; 4 stale paths (`4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`); id fingerprint `ddc1f53f…` and target fingerprint `7daae418…` unchanged |
+| Security advisors (observed 21:11 UTC) | anon-executable SECURITY DEFINER 57 → **53**; authenticated-executable 138 → **135**; mutable search_path 22, unchanged (`on_profile_update` clears at M2); every other category unchanged. This is exactly what §7 predicted. |
+| Performance advisors | `auth_rls_initplan` lists `calls_delete_own_rows_or_org_admin`, new in M1 and DELETE-only (follow-up: wrap `auth.uid()` as `(select auth.uid())`), and `tasks_select_team_leader`; `profiles_upline_id_fkey` is an unindexed foreign key, which M2's `idx_profiles_upline_id` addresses. No performance baseline was taken before M1. |
+
+**Full inventory comparison.** One query was run against production and against the local S1 state built from the
+same file (`scratchpad` `gate3/inventory.sql`). It covers:
+- function digests, security flags, configured search_path, owners and ACLs;
+- policy mode, command, roles and expressions;
+- trigger definitions and enabled state;
+- the dependent-policy count.
+
+The result is in §10.
+
+**Repository reconciliation (Gate 3 preparation).**
+- Both M1 files were renamed to `20261023210027_…` with `git mv`. The forward bytes are unchanged; its line-60 comment
+  still names the authored rollback path, because applied bytes are immutable.
+- The references were updated: the state helper, the runner expectation and M2's refusal message (only its text
+  changed).
+- The runner now pins M1's applied version and SHA-256, and fails if M2 or M3 appears outside `pending/`.
+

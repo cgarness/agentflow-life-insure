@@ -88,7 +88,7 @@ BEGIN
           WHERE NOT pol.polpermissive
             AND pol.polname IN ('leads_tl_delete_requires_contacts_permission', 'clients_tl_delete_requires_contacts_permission',
                                 'recruits_tl_delete_requires_contacts_permission', 'calls_delete_own_rows_or_org_admin')) <> 4 THEN
-    RAISE EXCEPTION 'hierarchy M2 refused: M1 (20261023210000 hierarchy_authorization_boundaries) is not applied as reviewed';
+    RAISE EXCEPTION 'hierarchy M2 refused: M1 (20261023210027 hierarchy_authorization_boundaries) is not applied as reviewed';
   END IF;
 
   -- Replaced or hardened functions: (body, EXECUTE grantees) must be the preimage or the post-rollback state. M1
