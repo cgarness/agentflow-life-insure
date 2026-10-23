@@ -8,8 +8,10 @@ SELECT test_assert(
   AND NOT (SELECT attnotnull FROM pg_attribute WHERE attrelid='public.policy_commission_estimates'::regclass AND attname='insured_age'),
   'optional-age migration changes only the two insured-age nullability flags');
 
+-- Direct evaluation of private helpers is deliberately done under postgres on this
+-- disposable fixture, while pc_login still supplies the tested actor's JWT claims.
+-- Real authenticated clients CANNOT call these helpers directly: only writer functions do.
 SELECT pc_login(11);
-SET ROLE authenticated;
 
 -- pc_slot is an existing synthetic harness helper; it inserts JSON null (not age zero) when passed NULL.
 SELECT test_assert(private.policy_commission_valid_slot(
