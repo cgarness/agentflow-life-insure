@@ -21,12 +21,15 @@ SELECT :'state' IN ('S0', 'S1', 'S2', 'S3', 'S1R', 'S2R', 'S3R') AS state_known 
 SELECT hierarchy_test.check(false, 'the state variable is one of S0 S1 S2 S3 S1R S2R S3R');
 \endif
 -- m1: M1's post-image is live; m2: M2's; repaired: the stale rows were repaired by M3; anon_revoked: is_ancestor_of
--- no longer executable by anon (M1 or its rollback); compute_revoked: M2's revokes (M2 or its rollback).
+-- no longer executable by anon (M1 or its rollback); compute_revoked: compute_hierarchy_path, update_hierarchy_path
+-- and cascade_hierarchy_update no longer executable by clients (M1 or its rollback: the revoke is re-assert-only);
+-- opu_hardened: on_profile_update revoked and its search_path pinned (M2 or its rollback).
 SELECT :'state' IN ('S1', 'S2', 'S3', 'S2R') AS m1,
        :'state' IN ('S2', 'S3') AS m2,
        :'state' IN ('S3', 'S3R') AS repaired,
        :'state' <> 'S0' AS anon_revoked,
-       :'state' IN ('S2', 'S3', 'S2R', 'S3R') AS compute_revoked \gset
+       :'state' <> 'S0' AS compute_revoked,
+       :'state' IN ('S2', 'S3', 'S2R', 'S3R') AS opu_hardened \gset
 SELECT hierarchy_test.id('R') AS r, hierarchy_test.id('T') AS t, hierarchy_test.id('A1') AS a1,
        hierarchy_test.id('A2') AS a2, hierarchy_test.id('D1') AS d1, hierarchy_test.id('T2') AS t2,
        hierarchy_test.id('D2') AS d2, hierarchy_test.id('K1') AS k1, hierarchy_test.id('K2') AS k2,
@@ -548,13 +551,16 @@ SELECT hierarchy_test.eq(hierarchy_test.acl('public.is_ancestor_of(uuid,uuid)'),
        :'state' || ' grants: is_ancestor_of EXECUTE');
 SELECT hierarchy_test.eq((SELECT string_agg(f || '=' || hierarchy_test.acl(f::regprocedure), ' ' ORDER BY f COLLATE "C")
                             FROM unnest(ARRAY['public.compute_hierarchy_path(uuid)', 'public.update_hierarchy_path()',
-                                              'public.cascade_hierarchy_update()', 'public.on_profile_update()']) f),
+                                              'public.cascade_hierarchy_update()']) f),
        (SELECT string_agg(f || '=' || CASE WHEN :'compute_revoked' THEN 'postgres,service_role' ELSE 'PUBLIC,anon,authenticated,postgres,service_role' END, ' ' ORDER BY f COLLATE "C")
           FROM unnest(ARRAY['public.compute_hierarchy_path(uuid)', 'public.update_hierarchy_path()',
-                            'public.cascade_hierarchy_update()', 'public.on_profile_update()']) f),
-       :'state' || ' grants: compute_hierarchy_path and the hierarchy trigger functions');
+                            'public.cascade_hierarchy_update()']) f),
+       :'state' || ' grants: compute_hierarchy_path and the path trigger functions ' || CASE WHEN :'compute_revoked' THEN '(revoked by M1; kept by both rollbacks)' ELSE '(preimage)' END);
+SELECT hierarchy_test.eq(hierarchy_test.acl('public.on_profile_update()'),
+       CASE WHEN :'opu_hardened' THEN 'postgres,service_role' ELSE 'PUBLIC,anon,authenticated,postgres,service_role' END,
+       :'state' || ' grants: on_profile_update EXECUTE ' || CASE WHEN :'opu_hardened' THEN '(revoked by M2; kept by its rollback)' ELSE '(preimage)' END);
 SELECT hierarchy_test.eq((SELECT coalesce(array_to_string(proconfig, ';'), '-') FROM pg_proc WHERE oid = 'public.on_profile_update()'::regprocedure),
-       CASE WHEN :'compute_revoked' THEN 'search_path=public, pg_temp' ELSE '-' END,
+       CASE WHEN :'opu_hardened' THEN 'search_path=public, pg_temp' ELSE '-' END,
        :'state' || ' grants: on_profile_update search_path');
 SELECT hierarchy_test.eq((SELECT count(DISTINCT d.objid) FROM pg_depend d WHERE d.classid = 'pg_policy'::regclass
                             AND d.refobjid = 'public.is_ancestor_of(uuid,uuid)'::regprocedure),
@@ -579,6 +585,10 @@ SELECT hierarchy_test.eq((SELECT string_agg(tgname, ',' ORDER BY tgname COLLATE 
 SELECT hierarchy_test.eq((SELECT string_agg(tgname, ',' ORDER BY tgname COLLATE "C") FROM pg_trigger WHERE tgrelid = 'public.calls'::regclass AND NOT tgisinternal),
        CASE WHEN :'m1' THEN 'calls_00_guard_team_leader_downline_update,' ELSE '' END || 'calls_guard_dialer_core,calls_reporting_fields',
        :'state' || ' catalog: calls triggers');
+SELECT hierarchy_test.eq((SELECT coalesce(string_agg(t.tgrelid::regclass::text, ',' ORDER BY t.tgrelid::regclass::text COLLATE "C"), '')
+                            FROM pg_trigger t WHERE t.tgname = 'contacts_00_guard_organization_change' AND t.tgenabled = 'O'),
+       CASE WHEN :'m1' THEN 'clients,leads,recruits' ELSE '' END,
+       :'state' || ' catalog: contact organization guard triggers (leads, clients, recruits)');
 SELECT hierarchy_test.eq(
   (SELECT row(to_regprocedure('private.build_hierarchy_path(uuid,uuid,uuid,boolean)') IS NOT NULL,
               to_regprocedure('private.hierarchy_consistency()') IS NOT NULL,

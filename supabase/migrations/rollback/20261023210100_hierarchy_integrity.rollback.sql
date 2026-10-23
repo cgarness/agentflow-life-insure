@@ -27,7 +27,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('private.build_hierarchy_path(uuid,uuid,uuid,boolean)', 'fecfc2995febeb119f0bc5b862e16500', 'postgres'),
       ('public.compute_hierarchy_path(uuid)', '058bb6b37b152aec062c87f8ac929425', 'postgres,service_role'),
-      ('private.lock_profile_hierarchy()', 'b186acd328fd756ca42e3126d3bc1ba4', 'postgres'),
+      ('private.lock_profile_hierarchy()', '559344d1b35aafaa3567405269b34989', 'postgres'),
       ('public.update_hierarchy_path()', 'f892eb620cdf4d146a112e5b66783d6b', 'postgres,service_role'),
       ('public.cascade_hierarchy_update()', 'e26ddd18e96bffec29d440280176ca2a', 'postgres,service_role'),
       ('private.validate_invitation_upline()', '76f71d54f2ff396080616581f442c87c', 'postgres'),

@@ -13,8 +13,9 @@ migrations that replaced an object), plus:
   * the hierarchy_test helper schema (NOT production objects): id/org/key/label/sp/path_of (synthetic ids and
     paths by shape key), claims/act_as (fresh, stale or forged PostgREST claims), as_user/as_anon/as_system (run one
     statement as that caller: 'OK <rows>' or 'REJECTED <sqlstate>: <message>'), probe (as_user + what changed,
-    always rolled back), try/rows/check/eq, take_snap/diff_snap, canonical/stale/stale_fingerprint/missing_pairs/
-    consistency (path-based, usable in every state), acl/fn_md5/trg_md5/pol_md5 (pinned-search_path digests),
+    always rolled back), try/rows/check/eq, take_snap/diff_snap, canonical/stale/stale_fingerprint/
+    stale_target_fingerprint (M3's two fingerprints)/missing_pairs/consistency (path-based, usable in every state),
+    acl/fn_md5/trg_md5/pol_md5 (pinned-search_path digests),
     set_claim_calls/side_effects (stub counters), shape/shapes_json (hierarchy_shapes.json);
   * the synthetic production-shaped data from supabase/tests/fixtures/hierarchy_shapes.json, written through the
     verbatim preimage triggers in the order that reproduces production's 4 stale paths and 6 missing ancestor pairs.
@@ -805,7 +806,8 @@ LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$
     SELECT c.id, k.path || public.text2ltree(replace(c.id::text, '-', '_')), k.visited || c.id
       FROM canon k JOIN public.profiles c ON c.upline_id = k.id WHERE c.id <> ALL (k.visited))
   SELECT id, path FROM canon $$;
--- stale(): profiles whose stored path differs from the canonical one; stale_fingerprint() = M3's fingerprint.
+-- stale(): profiles whose stored path differs from the canonical one. stale_fingerprint() = M3's id fingerprint
+-- (which rows); stale_target_fingerprint() = M3's target fingerprint (which rows AND the canonical path M3 writes).
 CREATE FUNCTION hierarchy_test.stale() RETURNS TABLE (id uuid, key text, stored text, canonical text)
 LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$
   SELECT p.id, hierarchy_test.key(p.id), hierarchy_test.sp(p.hierarchy_path), hierarchy_test.sp(c.path)
@@ -813,6 +815,11 @@ LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$
    WHERE p.hierarchy_path IS DISTINCT FROM c.path ORDER BY p.id $$;
 CREATE FUNCTION hierarchy_test.stale_fingerprint() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT md5(string_agg(s.id::text, ',' ORDER BY s.id)) FROM hierarchy_test.stale() s $$;
+CREATE FUNCTION hierarchy_test.stale_target_fingerprint() RETURNS text
+LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$
+  SELECT md5(string_agg(p.id::text || '=' || c.path::text, ',' ORDER BY p.id))
+    FROM public.profiles p JOIN hierarchy_test.canonical() c ON c.id = p.id
+   WHERE p.hierarchy_path IS DISTINCT FROM c.path $$;
 -- consistency(): the path-based measure of M2's private.hierarchy_consistency(), usable in every state.
 CREATE FUNCTION hierarchy_test.consistency()
 RETURNS TABLE (profiles bigint, edges bigint, expected_pairs bigint, path_pairs bigint, missing_pairs bigint,
@@ -871,7 +878,8 @@ SET search_path = "$user", public, extensions AS $$
   SELECT md5(coalesce(pg_get_expr(polqual, polrelid), '-')) || '/' || md5(coalesce(pg_get_expr(polwithcheck, polrelid), '-'))
     FROM pg_policy WHERE polrelid = p_table AND polname = p_name $$;
 REVOKE ALL ON FUNCTION hierarchy_test.consistency(), hierarchy_test.canonical(), hierarchy_test.stale(),
-  hierarchy_test.stale_fingerprint(), hierarchy_test.missing_pairs(), hierarchy_test.take_snap(text),
+  hierarchy_test.stale_fingerprint(), hierarchy_test.stale_target_fingerprint(), hierarchy_test.missing_pairs(),
+  hierarchy_test.take_snap(text),
   hierarchy_test.diff_snap(text), hierarchy_test.as_user(uuid, text, text, uuid, boolean), hierarchy_test.as_anon(text),
   hierarchy_test.as_system(text), hierarchy_test.probe(uuid, text, text, uuid) FROM PUBLIC, anon, authenticated, service_role;"""
 

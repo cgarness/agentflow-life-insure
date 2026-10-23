@@ -81,7 +81,8 @@ BEGIN
   RETURN v_out;
 END $$;
 SELECT 'REJECTED 42501: Only the call''s agent or an Admin of this organization may change this call (coaching flag and notes excepted)' AS call_guard,
-       'REJECTED 42501: Only an Admin of this organization may change another member''s commission level' AS level_guard \gset
+       'REJECTED 42501: Only an Admin of this organization may change another member''s commission level' AS level_guard,
+       'REJECTED 42501: A contact''s organization cannot be changed by a direct client write' AS org_guard \gset
 
 BEGIN;
 -- ── Cast and contacts (system caller; paths canonicalised so every state starts from the same hierarchy) ────────
@@ -259,6 +260,44 @@ SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM publi
        :'state' || ' rls D5: the toggle never reaches a non-downline lead');
 SELECT hierarchy_test.check(EXISTS (SELECT 1 FROM public.leads WHERE id = :'l_hp'), :'state' || ' rls D5: (the non-downline lead survives)');
 ROLLBACK TO SAVEPOINT c;
+-- D5 per type: each restrictive policy reads its OWN table's toggle (one toggle on at a time). The deletes are
+-- followed by the surviving rows (a separate statement: subqueries share the outer statement's snapshot).
+SAVEPOINT c;
+INSERT INTO public.role_permissions (organization_id, role, permissions) VALUES (:'org_a', 'Team Leader', '{"contacts": {"contacts.leads.delete": true}}');
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.leads WHERE id = %L', :'l_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.clients WHERE id = %L', :'c_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.recruits WHERE id = %L', :'r_ha')),
+       CASE WHEN :'m1' THEN 'OK 1 OK 0 OK 0' ELSE 'OK 1 OK 1 OK 1' END,
+       :'state' || ' rls D5 per type: leads toggle only ' || CASE WHEN :'m1' THEN 'deletes the lead, not the client or recruit' ELSE '(preimage: no toggle needed)' END);
+SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ha') || ' ' || (SELECT count(*) FROM public.clients WHERE id = :'c_ha')
+                         || ' ' || (SELECT count(*) FROM public.recruits WHERE id = :'r_ha'),
+       CASE WHEN :'m1' THEN '0 1 1' ELSE '0 0 0' END,
+       :'state' || ' rls D5 per type: leads toggle only — surviving lead / client / recruit');
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+INSERT INTO public.role_permissions (organization_id, role, permissions) VALUES (:'org_a', 'Team Leader', '{"contacts": {"contacts.clients.delete": true}}');
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.leads WHERE id = %L', :'l_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.clients WHERE id = %L', :'c_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.recruits WHERE id = %L', :'r_ha')),
+       CASE WHEN :'m1' THEN 'OK 0 OK 1 OK 0' ELSE 'OK 1 OK 1 OK 1' END,
+       :'state' || ' rls D5 per type: clients toggle only ' || CASE WHEN :'m1' THEN 'deletes the client, not the lead or recruit' ELSE '(preimage: no toggle needed)' END);
+SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ha') || ' ' || (SELECT count(*) FROM public.clients WHERE id = :'c_ha')
+                         || ' ' || (SELECT count(*) FROM public.recruits WHERE id = :'r_ha'),
+       CASE WHEN :'m1' THEN '1 0 1' ELSE '0 0 0' END,
+       :'state' || ' rls D5 per type: clients toggle only — surviving lead / client / recruit');
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+INSERT INTO public.role_permissions (organization_id, role, permissions) VALUES (:'org_a', 'Team Leader', '{"contacts": {"contacts.recruits.delete": true}}');
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.leads WHERE id = %L', :'l_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.clients WHERE id = %L', :'c_ha')) || ' '
+                         || hierarchy_test.as_user(:'ht', format('DELETE FROM public.recruits WHERE id = %L', :'r_ha')),
+       CASE WHEN :'m1' THEN 'OK 0 OK 0 OK 1' ELSE 'OK 1 OK 1 OK 1' END,
+       :'state' || ' rls D5 per type: recruits toggle only ' || CASE WHEN :'m1' THEN 'deletes the recruit, not the lead or client' ELSE '(preimage: no toggle needed)' END);
+SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ha') || ' ' || (SELECT count(*) FROM public.clients WHERE id = :'c_ha')
+                         || ' ' || (SELECT count(*) FROM public.recruits WHERE id = :'r_ha'),
+       CASE WHEN :'m1' THEN '1 1 0' ELSE '0 0 0' END,
+       :'state' || ' rls D5 per type: recruits toggle only — surviving lead / client / recruit');
+ROLLBACK TO SAVEPOINT c;
 SAVEPOINT c;
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.clients WHERE id = %L', :'c_ha')) || ' '
                          || hierarchy_test.as_user(:'ht', format('DELETE FROM public.recruits WHERE id = %L', :'r_ha')),
@@ -274,6 +313,71 @@ SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format('DELETE FROM publi
                          || hierarchy_test.as_user(:'hx', format('DELETE FROM public.leads WHERE id = %L', :'l_un')), 'OK 1 OK 1 OK 1 OK 1',
        :'state' || ' rls D5: Agent (own row), Admin, is_super_admin Team Leader and Super Admin deletes are unchanged');
 ROLLBACK TO SAVEPOINT c;
+-- AUTHZ-1 (contact tenancy): the owner branches of the contacts policies' WITH CHECK do not bind organization_id, so
+-- before M1 a Team Leader reassigning a downline contact to itself can move it out of the organization (NULL) or into
+-- another tenant — removing it without the D5 toggle — and an Agent can do the same to its own rows. From M1 on a
+-- direct client write may not change organization_id at all; the row stays in the organization, visible to its Admin.
+-- Each case: <write as the client> / <org Admin R sees the row> [/ <foreign Admin BA sees it>].
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.leads SET assigned_agent_id = %L, organization_id = NULL WHERE id = %L', :'ht', :'l_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.leads WHERE id = %L', :'l_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1' ELSE 'OK 1 / OK 0' END,
+       :'state' || ' rls AUTHZ-1 leads: Team Leader reassign-to-self + organization_id NULL ' || CASE WHEN :'m1' THEN 'rejected; the lead stays visible to the Admin' ELSE 'escapes the organization (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.leads SET assigned_agent_id = %L, organization_id = %L WHERE id = %L', :'ht', :'org_b', :'l_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.leads WHERE id = %L', :'l_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'ba', format('SELECT 1 FROM public.leads WHERE id = %L', :'l_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1 / OK 0' ELSE 'OK 1 / OK 0 / OK 1' END,
+       :'state' || ' rls AUTHZ-1 leads: Team Leader reassign-to-self + foreign organization ' || CASE WHEN :'m1' THEN 'rejected; the lead stays in org A' ELSE 'moves the lead into org B (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.clients SET assigned_agent_id = %L, organization_id = NULL WHERE id = %L', :'ht', :'c_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.clients WHERE id = %L', :'c_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1' ELSE 'OK 1 / OK 0' END,
+       :'state' || ' rls AUTHZ-1 clients: Team Leader reassign-to-self + organization_id NULL ' || CASE WHEN :'m1' THEN 'rejected; the client stays visible to the Admin' ELSE 'escapes the organization (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.clients SET assigned_agent_id = %L, organization_id = %L WHERE id = %L', :'ht', :'org_b', :'c_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.clients WHERE id = %L', :'c_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'ba', format('SELECT 1 FROM public.clients WHERE id = %L', :'c_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1 / OK 0' ELSE 'OK 1 / OK 0 / OK 1' END,
+       :'state' || ' rls AUTHZ-1 clients: Team Leader reassign-to-self + foreign organization ' || CASE WHEN :'m1' THEN 'rejected; the client stays in org A' ELSE 'moves the client into org B (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.recruits SET assigned_agent_id = %L, organization_id = NULL WHERE id = %L', :'ht', :'r_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.recruits WHERE id = %L', :'r_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1' ELSE 'OK 1 / OK 0' END,
+       :'state' || ' rls AUTHZ-1 recruits: Team Leader reassign-to-self + organization_id NULL ' || CASE WHEN :'m1' THEN 'rejected; the recruit stays visible to the Admin' ELSE 'escapes the organization (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.recruits SET assigned_agent_id = %L, organization_id = %L WHERE id = %L', :'ht', :'org_b', :'r_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.recruits WHERE id = %L', :'r_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'ba', format('SELECT 1 FROM public.recruits WHERE id = %L', :'r_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1 / OK 0' ELSE 'OK 1 / OK 0 / OK 1' END,
+       :'state' || ' rls AUTHZ-1 recruits: Team Leader reassign-to-self + foreign organization ' || CASE WHEN :'m1' THEN 'rejected; the recruit stays in org A' ELSE 'moves the recruit into org B (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format('UPDATE public.leads SET organization_id = %L WHERE id = %L', :'org_b', :'l_ha'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.leads WHERE id = %L', :'l_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1' ELSE 'OK 1 / OK 0' END,
+       :'state' || ' rls AUTHZ-1 leads: Agent moving its OWN lead to another organization ' || CASE WHEN :'m1' THEN 'rejected' ELSE 'accepted (pre-existing own-row hole)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+-- Controls: an unchanged organization_id in the SET list passes (the guard rejects only a change); a system caller
+-- (definer RPCs, service_role, migrations) may still move a contact.
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.leads SET organization_id = %L, notes = ''same org'' WHERE id = %L', :'org_a', :'l_ha'))
+                         || ' / ' || hierarchy_test.as_system(format('UPDATE public.clients SET organization_id = %L WHERE id = %L', :'org_b', :'c_ha')),
+       'OK 1 / OK 1', :'state' || ' rls AUTHZ-1 controls: a same-organization save and a system caller''s move are accepted');
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+-- RESIDUAL (pinned, pre-existing, outside hierarchy scope, recorded in plan §12): INSERT is not guarded, so a member
+-- can still create a contact owned by itself in a foreign organization (closing it needs a RESTRICTIVE FOR INSERT).
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format(
+         'INSERT INTO public.leads (organization_id, assigned_agent_id, user_id, first_name, last_name, status) VALUES (%L, %L, %L, ''Synthetic lead'', ''XO'', ''New'')',
+         :'org_b', :'ha', :'ha')),
+       'OK 1', :'state' || ' rls AUTHZ-1 RESIDUAL (pre-existing): an Agent INSERT of an own lead into a foreign organization is accepted');
+ROLLBACK TO SAVEPOINT c;
 -- View / edit / assign toggles are UI-only for Team Leader downline rows, exactly as for own rows (pinned, §12).
 SAVEPOINT c;
 INSERT INTO public.role_permissions (organization_id, role, permissions)
@@ -288,6 +392,21 @@ SAVEPOINT c;
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.calls SET flagged_for_coaching = true, notes = ''coached'' WHERE id = %L', :'k_ha')), 'OK 1',
        :'state' || ' rls calls D6: Team Leader sets the coaching flag and notes on a downline call');
 SELECT hierarchy_test.check((SELECT flagged_for_coaching AND notes = 'coached' FROM public.calls WHERE id = :'k_ha'), :'state' || ' rls calls D6: (the coaching edit is stored)');
+ROLLBACK TO SAVEPOINT c;
+-- AUTHZ-4: on a downline call the modification time is the database's (now() = this transaction's start, i.e. the
+-- statement time of a PostgREST request); the call's own agent keeps today's behaviour (any value it sends).
+SAVEPOINT c;
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.calls SET flagged_for_coaching = true, updated_at = ''2000-01-01'' WHERE id = %L', :'k_ha')),
+       'OK 1', :'state' || ' rls calls AUTHZ-4: Team Leader coaching write supplying updated_at 2000-01-01 is accepted');
+SELECT hierarchy_test.eq((SELECT CASE WHEN flagged_for_coaching AND updated_at >= now() THEN 'flagged, database time'
+                                      WHEN flagged_for_coaching AND updated_at = '2000-01-01'::timestamptz THEN 'flagged, 2000-01-01' ELSE 'other' END
+                            FROM public.calls WHERE id = :'k_ha'),
+       CASE WHEN :'m1' THEN 'flagged, database time' ELSE 'flagged, 2000-01-01' END,
+       :'state' || ' rls calls AUTHZ-4: ' || CASE WHEN :'m1' THEN 'the stored updated_at is the database time (>= the statement time), not the client''s' ELSE '(preimage: the call is backdated)' END);
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format('UPDATE public.calls SET notes = ''own'', updated_at = ''2000-01-01'' WHERE id = %L', :'k_ha')),
+       'OK 1', :'state' || ' rls calls AUTHZ-4: the call''s own agent sets updated_at');
+SELECT hierarchy_test.eq((SELECT updated_at = '2000-01-01'::timestamptz FROM public.calls WHERE id = :'k_ha'), true,
+       :'state' || ' rls calls AUTHZ-4: (the own agent''s value is stored, unchanged behaviour)');
 ROLLBACK TO SAVEPOINT c;
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.calls SET status = ''failed'' WHERE id = %L', :'k_ha')),
        CASE WHEN :'m1' THEN :'call_guard' ELSE 'OK 1' END,
@@ -453,6 +572,24 @@ SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM publi
 SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ha'), CASE WHEN :'m1' THEN 1::bigint ELSE 0::bigint END,
        :'state' || ' rls R1 deactivation (Deleted): ' || CASE WHEN :'m1' THEN 'the downline lead survives' ELSE '(gone)' END);
 ROLLBACK TO SAVEPOINT c;
+-- D5 regardless of status: an Inactive or Deleted Team Leader profile with a live token still needs the delete toggle
+-- for its OWN lead (actor_is_team_leader reads the role, whatever the status).
+SAVEPOINT c;
+UPDATE public.profiles SET status = 'Inactive' WHERE id = :'ht';
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.leads WHERE id = %L', :'l_ht')),
+       CASE WHEN :'m1' THEN 'OK 0' ELSE 'OK 1' END,
+       :'state' || ' rls D5 deactivation (Inactive): own-lead delete without the toggle ' || CASE WHEN :'m1' THEN 'deletes nothing' ELSE '(preimage: deleted)' END);
+SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ht'), CASE WHEN :'m1' THEN 1::bigint ELSE 0::bigint END,
+       :'state' || ' rls D5 deactivation (Inactive): ' || CASE WHEN :'m1' THEN 'the own lead survives' ELSE '(gone)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
+UPDATE public.profiles SET status = 'Deleted' WHERE id = :'ht';
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('DELETE FROM public.leads WHERE id = %L', :'l_ht')),
+       CASE WHEN :'m1' THEN 'OK 0' ELSE 'OK 1' END,
+       :'state' || ' rls D5 deactivation (Deleted): own-lead delete without the toggle ' || CASE WHEN :'m1' THEN 'deletes nothing' ELSE '(preimage: deleted)' END);
+SELECT hierarchy_test.eq((SELECT count(*) FROM public.leads WHERE id = :'l_ht'), CASE WHEN :'m1' THEN 1::bigint ELSE 0::bigint END,
+       :'state' || ' rls D5 deactivation (Deleted): ' || CASE WHEN :'m1' THEN 'the own lead survives' ELSE '(gone)' END);
+ROLLBACK TO SAVEPOINT c;
 -- Demoted or deactivated Admin with a stale Admin token: no edit (beyond coaching) and no delete of others' calls.
 SAVEPOINT c;
 UPDATE public.profiles SET role = 'Agent' WHERE id = :'r';
@@ -578,4 +715,16 @@ ROLLBACK TO SAVEPOINT c;
 SELECT hierarchy_test.eq(hierarchy_test.acl('profile_authz.can_update_profile(uuid)') || ' '
                          || (SELECT string_agg(polname, ',') FROM pg_policy WHERE polrelid = 'public.profiles'::regclass AND polcmd = 'w'),
        'authenticated,postgres profiles_update_authorized', :'state' || ' rls port p0 T19k/l: one profiles UPDATE policy; helper EXECUTE for authenticated only');
+-- D2: a stored path into ANOTHER organization is not ancestry. Such a path cannot be written through the M2 triggers
+-- (nor, in S1, without an Admin's two-save cross-org sequence), so it is planted with triggers off.
+SELECT hierarchy_test.id('K5') AS k5 \gset
+SAVEPOINT c;
+SET LOCAL session_replication_role = replica;
+UPDATE public.profiles SET upline_id = :'ba', hierarchy_path = hierarchy_test.path_of('BA', 'K5') WHERE id = :'k5';
+SET LOCAL session_replication_role = origin;
+SELECT hierarchy_test.eq(public.is_ancestor_of(:'ba', :'k5')::text || ' '
+                         || hierarchy_test.as_user(:'ba', format('SELECT 1 WHERE public.is_ancestor_of(%L, %L)', :'ba', :'k5')),
+       CASE WHEN :'m1' THEN 'false OK 0' ELSE 'true OK 1' END,
+       :'state' || ' rls D2: a stored path into another organization is ' || CASE WHEN :'m1' THEN 'not ancestry (system caller and the signed-in foreign Admin)' ELSE 'ancestry (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
 ROLLBACK;

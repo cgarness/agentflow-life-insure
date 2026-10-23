@@ -4,11 +4,15 @@
 --
 -- Restores public.is_ancestor_of to its exact preimage body (baseline 20260806000000, byte-for-byte; digest
 -- 7c5213032696734f2e0c5ffe5a71a07a) and tasks_select_team_leader to its exact preimage (TO public, inline ltree
--- test), and drops everything M1 added: the commission_level guard, the calls guard, the 4 RESTRICTIVE DELETE
--- policies and the two profile_authz actor helpers.
--- NOT restored: the PUBLIC / anon EXECUTE on is_ancestor_of (security revokes are re-assert-only; CREATE OR REPLACE
--- keeps today's ACL). Re-applying the forward migration after this rollback is supported: its guard accepts exactly
--- this state.
+-- test), and drops everything M1 added: the commission_level guard, the calls guard, the contact organization guard
+-- (its function and its trigger on leads, clients and recruits), the 4 RESTRICTIVE DELETE policies and the two
+-- profile_authz actor helpers.
+-- NOT restored: the PUBLIC / anon EXECUTE on is_ancestor_of, and the PUBLIC / anon / authenticated EXECUTE on
+-- compute_hierarchy_path, update_hierarchy_path and cascade_hierarchy_update (security revokes are re-assert-only;
+-- CREATE OR REPLACE keeps today's ACL; this file never re-grants). Re-applying the forward migration after this
+-- rollback is supported: its guard accepts exactly this state.
+-- ⚠ Rolling back also re-opens the pre-existing contact tenancy gap: a direct client write can again move a
+-- contact the writer owns (or reassigns to itself) out of the organization.
 -- ⚠ With M3 (or any activated Team Leader branch) live, this re-widens Team Leader powers: downline deletes without
 -- the Contacts toggle, edits and deletes of downline calls, downline commission_level changes, and downline access
 -- for Deleted / Inactive / demoted Team Leaders whose tokens are still valid. The guard warns when that applies.
@@ -31,7 +35,8 @@ BEGIN
       ('profile_authz.actor_is_team_leader()', 'bbc07ccb69be5c0eed098e17bd9d191d', 'authenticated,postgres'),
       ('profile_authz.actor_is_org_admin(uuid)', 'c64ef188736fae1b90dc7e6a8d29e04f', 'authenticated,postgres'),
       ('private.guard_profile_commission_level()', 'cc306236935837d49ff89540bb8dff89', 'postgres'),
-      ('private.guard_team_leader_downline_call_update()', '562fda2611f254d555675706e2673f75', 'postgres')) x(fn, digest, acl)
+      ('private.guard_team_leader_downline_call_update()', '454ee627b8df12d5e7f9acc6d526288e', 'postgres'),
+      ('private.guard_contact_organization_change()', 'dc72173fb9d9c786a63af8ed193f5ef6', 'postgres')) x(fn, digest, acl)
   LOOP
     IF pg_catalog.to_regprocedure(r.fn) IS NULL
        OR md5(pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure(r.fn))) <> r.digest THEN
@@ -64,7 +69,10 @@ BEGIN
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
       ('public.profiles', 'trg_01_guard_profile_commission_level', 'a85d3c1edb2ce795b391b780de7bc413'),
-      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65')) x(tbl, name, digest)
+      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65'),
+      ('public.leads', 'contacts_00_guard_organization_change', 'e04378078c3e0f31b889a559acfc4519'),
+      ('public.clients', 'contacts_00_guard_organization_change', '4566b07550a98655bd381f9626738767'),
+      ('public.recruits', 'contacts_00_guard_organization_change', '387528f7702e1a276a0bbee1e64e62ab')) x(tbl, name, digest)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                     WHERE t.tgrelid = r.tbl::regclass AND t.tgname = r.name
@@ -114,12 +122,16 @@ DROP POLICY recruits_tl_delete_requires_contacts_permission ON public.recruits;
 DROP POLICY calls_delete_own_rows_or_org_admin ON public.calls;
 DROP TRIGGER calls_00_guard_team_leader_downline_update ON public.calls;
 DROP TRIGGER trg_01_guard_profile_commission_level ON public.profiles;
+DROP TRIGGER contacts_00_guard_organization_change ON public.leads;
+DROP TRIGGER contacts_00_guard_organization_change ON public.clients;
+DROP TRIGGER contacts_00_guard_organization_change ON public.recruits;
+DROP FUNCTION private.guard_contact_organization_change();
 DROP FUNCTION private.guard_team_leader_downline_call_update();
 DROP FUNCTION private.guard_profile_commission_level();
 DROP FUNCTION profile_authz.actor_is_org_admin(uuid);
 DROP FUNCTION profile_authz.actor_is_team_leader();
 
--- ── 4. Postconditions: the exact preimage bodies and policies, with the revoked ACL ───────────────────────────────
+-- ── 4. Postconditions: the exact preimage bodies and policies, with the revoked ACLs (re-asserted, never re-granted) ─
 DO $post$
 DECLARE
   v_old_sp text := pg_catalog.current_setting('search_path');
@@ -149,8 +161,17 @@ BEGIN
                    AND pol.polrelid IN ('public.leads'::regclass, 'public.clients'::regclass,
                                         'public.recruits'::regclass, 'public.calls'::regclass))
      OR pg_catalog.to_regprocedure('profile_authz.actor_is_team_leader()') IS NOT NULL
-     OR pg_catalog.to_regprocedure('profile_authz.actor_is_org_admin(uuid)') IS NOT NULL THEN
-    RAISE EXCEPTION 'hierarchy M1 rollback postcondition failed: dependent policies, restrictive policies or helpers';
+     OR pg_catalog.to_regprocedure('profile_authz.actor_is_org_admin(uuid)') IS NOT NULL
+     OR pg_catalog.to_regprocedure('private.guard_contact_organization_change()') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgname = 'contacts_00_guard_organization_change') THEN
+    RAISE EXCEPTION 'hierarchy M1 rollback postcondition failed: dependent policies, restrictive policies, helpers or guards';
+  END IF;
+  -- The path-function revokes stay (re-assert-only hardening).
+  IF EXISTS (SELECT 1 FROM unnest(ARRAY['public.compute_hierarchy_path(uuid)'::regprocedure, 'public.update_hierarchy_path()'::regprocedure,
+                                        'public.cascade_hierarchy_update()'::regprocedure]) f(oid)
+              WHERE pg_catalog.has_function_privilege('anon', f.oid, 'EXECUTE')
+                 OR pg_catalog.has_function_privilege('authenticated', f.oid, 'EXECUTE')) THEN
+    RAISE EXCEPTION 'hierarchy M1 rollback postcondition failed: a path function is executable by anon or authenticated';
   END IF;
   PERFORM pg_catalog.set_config('search_path', v_old_sp, true);
 END $post$;

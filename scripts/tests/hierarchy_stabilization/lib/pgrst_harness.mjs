@@ -7,7 +7,9 @@
 // (HIERARCHY_STATES lists the states), PGURL = the cluster without a database, POSTGREST_BIN = PostgREST 12.2.3.
 // Every stage CLONES each state database (CREATE DATABASE <name>_<suffix> TEMPLATE <name>) and drops its clones when
 // it ends, so one stage's writes can never reach another stage. Each clone gets its own PostgREST process, whose
-// authenticator role (hier_rest_<pid>_<n>, never the hosted name "authenticator") is created and dropped here.
+// authenticator role (<HIER_REST_ROLE_PREFIX><pid>_<n>; the runner sets the prefix to hier_<its pid>_rest_ so its
+// leftover check sees only this run's roles; default hier_rest_; never the hosted name "authenticator") is created
+// and dropped here.
 import { spawn } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
 import { createServer } from 'node:net';
@@ -27,7 +29,8 @@ export function stateFlags(state) {
     m2: ['S2', 'S3'].includes(state),
     repaired: ['S3', 'S3R'].includes(state),
     anonRevoked: state !== 'S0',
-    computeRevoked: ['S2', 'S3', 'S2R', 'S3R'].includes(state),
+    // compute_hierarchy_path / update_hierarchy_path / cascade_hierarchy_update: revoked by M1, kept by both rollbacks.
+    computeRevoked: state !== 'S0',
   };
 }
 
@@ -123,9 +126,11 @@ export async function cloneDatabase(sourceUrl, suffix) {
 }
 
 let roleCounter = 0;
+const ROLE_PREFIX = process.env.HIER_REST_ROLE_PREFIX ?? 'hier_rest_';
+if (!/^hier_[a-z0-9_]{0,40}$/.test(ROLE_PREFIX)) throw new Error('HIER_REST_ROLE_PREFIX must match ^hier_[a-z0-9_]{0,40}$');
 /** A LOGIN NOINHERIT authenticator for one PostgREST process (member of anon, authenticated, service_role). */
 export async function createAuthenticator(clusterUrl) {
-  const role = `hier_rest_${process.pid}_${(roleCounter += 1)}`;
+  const role = `${ROLE_PREFIX}${process.pid}_${(roleCounter += 1)}`;
   const password = randomBytes(18).toString('hex');
   const cluster = connect(withDatabase(clusterUrl, 'postgres'), 1);
   try {

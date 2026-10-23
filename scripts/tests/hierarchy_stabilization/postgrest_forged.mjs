@@ -12,8 +12,10 @@
 // deactivation would.
 //
 // Expectations are per state (flags as in the SQL suites): the preimage states S0, S1R and S3R keep the documented
-// gaps (they are the negative controls proving each check can fail); M1 (S1, S2, S3, S2R) closes the R1 gaps; M2
-// (S2, S3) adds the structural guards; S3 / S3R have the repaired paths (Team Leader T reaches A1, A2, D1).
+// gaps (they are the negative controls proving each check can fail); M1 (S1, S2, S3, S2R) closes the R1 gaps, the
+// contact tenancy escape (AUTHZ-1), client-chosen call timestamps (AUTHZ-4) and the cross-org path oracle (D2); the
+// path-function revokes (computeRevoked) hold from S1 on, rollbacks included; M2 (S2, S3) adds the structural guards;
+// S3 / S3R have the repaired paths (Team Leader T reaches A1, A2, D1).
 // Output: one 'PASS <state> <case>: <outcome>' line per case and state, then a case × state matrix; any mismatch
 // prints 'FAIL …' and the process exits 1.
 import * as h from './lib/pgrst_harness.mjs';
@@ -35,6 +37,7 @@ const E = {
 const ROW = {
   lead_A1: 'e2000000-0000-4000-8000-000000000001', lead_T: 'e2000000-0000-4000-8000-000000000002',
   lead_EG1: 'e2000000-0000-4000-8000-000000000003', lead_EX: 'e2000000-0000-4000-8000-000000000004',
+  lead_ET: 'e2000000-0000-4000-8000-000000000005',
   client_EG1: 'e3000000-0000-4000-8000-000000000003', client_EX: 'e3000000-0000-4000-8000-000000000004',
   recruit_EG1: 'e4000000-0000-4000-8000-000000000003', recruit_EX: 'e4000000-0000-4000-8000-000000000004',
   call_A1: 'e5000000-0000-4000-8000-000000000001', call_EG1: 'e5000000-0000-4000-8000-000000000003',
@@ -64,8 +67,8 @@ async function seed(admin) {
                VALUES (${E[key]}, ${orgE}, ${up ? E[up] : null}, ${role}, 'Active', ${`Synthetic ${key}`}, 'Member',
                        ${`${key.toLowerCase()}@synthetic.invalid`}, ${path}::public.ltree)`;
     }
-    const owner = { A1: [orgA, k.id.A1], T: [orgA, k.id.T], EG1: [orgE, E.EG1], EX: [orgE, E.EX] };
-    for (const who of ['A1', 'T', 'EG1', 'EX']) {
+    const owner = { A1: [orgA, k.id.A1], T: [orgA, k.id.T], EG1: [orgE, E.EG1], EX: [orgE, E.EX], ET: [orgE, E.ET] };
+    for (const who of ['A1', 'T', 'EG1', 'EX', 'ET']) {
       const [org, uid] = owner[who];
       await tx`INSERT INTO public.leads (id, organization_id, user_id, assigned_agent_id, first_name, last_name)
                VALUES (${ROW[`lead_${who}`]}, ${org}, ${uid}, ${uid}, ${`Synthetic lead ${who}`}, 'Member')`;
@@ -119,6 +122,35 @@ async function exists(ctx, table, id) {
   const [{ n }] = await ctx.env.admin.unsafe(`SELECT count(*)::int AS n FROM public.${table} WHERE id = $1`, [id]);
   return n === 1;
 }
+/** The organization key a contact row is in now ('none' for NULL), read as the superuser. */
+async function orgOf(ctx, table, id) {
+  const [row] = await ctx.env.admin.unsafe(`SELECT organization_id::text AS org FROM public.${table} WHERE id = $1`, [id]);
+  if (!row) return 'gone';
+  if (row.org === null) return 'none';
+  return (ctx.keys.key[row.org] ?? row.org.slice(0, 8)).replace(/^org:/, '');
+}
+/** AUTHZ-1: <writer> PATCHes <table> row <id> with <patch>; outcome, the row's organization afterwards, and whether
+ *  org E's Admin EA still sees it. */
+async function tenancyMove(ctx, writer, table, id, patch) {
+  const r = await http(ctx, await token(ctx, writer), 'PATCH', `/${table}?id=eq.${id}`, patch);
+  const seen = cell(await http(ctx, await token(ctx, E.EA), 'GET', `/${table}?select=id&id=eq.${id}`));
+  return `${brief(r, true)}; org=${await orgOf(ctx, table, id)}; EA sees ${seen}`;
+}
+/** TESTS-04: with ONLY <toggle> on for org E's Team Leaders, ET deletes a downline lead, client and recruit. */
+async function perTypeDelete(ctx, toggle) {
+  await ctx.env.admin`INSERT INTO public.role_permissions (organization_id, role, permissions)
+                      VALUES (${ctx.org.E}, 'Team Leader', ${ctx.env.admin.json({ contacts: { [toggle]: true } })})`;
+  const tok = await token(ctx, E.ET);
+  const out = [];
+  for (const [table, id] of [['leads', ROW.lead_EG1], ['clients', ROW.client_EG1], ['recruits', ROW.recruit_EG1]]) {
+    out.push(`${table} ${brief(await http(ctx, tok, 'DELETE', `/${table}?id=eq.${id}`))}`);
+  }
+  const left = [];
+  for (const [table, id] of [['leads', ROW.lead_EG1], ['clients', ROW.client_EG1], ['recruits', ROW.recruit_EG1]]) {
+    left.push(`${table}=${(await exists(ctx, table, id)) ? 1 : 0}`);
+  }
+  return `${out.join(', ')}; survivors ${left.join(' ')}`;
+}
 const keysOfPath = (ctx, path) => (path ?? '').split('.').filter(Boolean).map((l) => ctx.keys.key[l.replaceAll('_', '-')] ?? l.slice(0, 8)).join('.');
 const keyOf = (ctx, id) => (id ? ctx.keys.key[id] ?? Object.keys(E).find((k) => E[k] === id) ?? id.slice(0, 8) : 'none');
 
@@ -129,6 +161,9 @@ const SELF = 'Hierarchy: a member cannot be their own upline';
 const ACCOUNT_CONTROL = 'Only an Admin of this organization may change account-control fields (status, team, upline, billing)';
 const COMMISSION = "Only an Admin of this organization may change another member's commission level";
 const CALL_GUARD = "Only the call's agent or an Admin of this organization may change this call (coaching flag and notes excepted)";
+const ORG_GUARD = "A contact's organization cannot be changed by a direct client write";
+const ESCAPED = (org) => `rows 1; org=${org}; EA sees 0`;
+const KEPT = `403 42501 ${ORG_GUARD}; org=E; EA sees 1`;
 
 const FORGED = [
   {
@@ -305,6 +340,91 @@ const FORGED = [
     },
     expect: () => '401 PGRST301 / 401 PGRST301 / 401 PGRST301 / 401 PGRST301',
   },
+  // AUTHZ-1: no direct client write moves a contact between organizations (the owner branches of the contacts
+  // policies' WITH CHECK do not bind organization_id). Preimage: the row escapes and org E's Admin loses it.
+  {
+    id: 'F25', title: 'AUTHZ-1 Team Leader reassigns a downline lead to self + organization_id null',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'leads', ROW.lead_EG1, { assigned_agent_id: E.ET, organization_id: null }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('none')),
+  },
+  {
+    id: 'F26', title: 'AUTHZ-1 Team Leader reassigns a downline lead to self + a foreign organization',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'leads', ROW.lead_EG1, { assigned_agent_id: E.ET, organization_id: ctx.org.A }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('A')),
+  },
+  {
+    id: 'F27', title: 'AUTHZ-1 Team Leader reassigns a downline client to self + organization_id null',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'clients', ROW.client_EG1, { assigned_agent_id: E.ET, organization_id: null }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('none')),
+  },
+  {
+    id: 'F28', title: 'AUTHZ-1 Team Leader reassigns a downline client to self + a foreign organization',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'clients', ROW.client_EG1, { assigned_agent_id: E.ET, organization_id: ctx.org.A }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('A')),
+  },
+  {
+    id: 'F29', title: 'AUTHZ-1 Team Leader reassigns a downline recruit to self + organization_id null',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'recruits', ROW.recruit_EG1, { assigned_agent_id: E.ET, organization_id: null }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('none')),
+  },
+  {
+    id: 'F30', title: 'AUTHZ-1 Team Leader reassigns a downline recruit to self + a foreign organization',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'recruits', ROW.recruit_EG1, { assigned_agent_id: E.ET, organization_id: ctx.org.A }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('A')),
+  },
+  {
+    id: 'F31', title: 'AUTHZ-1 Agent moves its OWN lead to a foreign organization',
+    run: async (ctx) => tenancyMove(ctx, E.EX, 'leads', ROW.lead_EX, { organization_id: ctx.org.A }),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('A')),
+  },
+  {
+    // AUTHZ-4: on a downline call the database sets updated_at; t0 is the database clock before the request.
+    id: 'F32', title: 'AUTHZ-4 Team Leader coaching PATCH supplying updated_at 2000-01-01 (org E)',
+    run: async (ctx) => {
+      const [{ t0 }] = await ctx.env.admin`SELECT clock_timestamp()::text AS t0`;
+      const r = await http(ctx, await token(ctx, E.ET), 'PATCH', `/calls?id=eq.${ROW.call_EG1}`,
+        { flagged_for_coaching: true, updated_at: '2000-01-01T00:00:00Z' });
+      const [c] = await ctx.env.admin`
+        SELECT flagged_for_coaching AS flagged, updated_at >= ${t0}::timestamptz AS fresh,
+               updated_at = '2000-01-01T00:00:00Z'::timestamptz AS backdated
+          FROM public.calls WHERE id = ${ROW.call_EG1}`;
+      return `${brief(r)}; flagged=${c.flagged}; updated_at=${c.fresh ? '>= request time' : c.backdated ? '2000-01-01' : 'other'}`;
+    },
+    expect: (f) => (f.m1 ? 'rows 1; flagged=true; updated_at=>= request time' : 'rows 1; flagged=true; updated_at=2000-01-01'),
+  },
+  {
+    // D2 (TESTS-03): a stored path into ANOTHER organization is not ancestry. Planted by the superuser with triggers
+    // off (no client or M2 path can write it); org B's Admin asks about org A's K5.
+    id: 'F33', title: 'D2 cross-organization stored path: org B Admin is_ancestor_of(self, org A member)',
+    run: async (ctx) => {
+      await ctx.env.admin.begin(async (tx) => {
+        await tx`SELECT set_config('session_replication_role', 'replica', true)`;
+        await tx`UPDATE public.profiles SET upline_id = ${ctx.id.BA}, hierarchy_path = ${`${label(ctx.id.BA)}.${label(ctx.id.K5)}`}::public.ltree
+                  WHERE id = ${ctx.id.K5}`;
+      });
+      return brief(await http(ctx, await token(ctx, ctx.id.BA), 'POST', '/rpc/is_ancestor_of', { ancestor_id: ctx.id.BA, descendant_id: ctx.id.K5 }));
+    },
+    expect: (f) => (f.m1 ? '200 false' : '200 true'),
+  },
+  // TESTS-04: each restrictive DELETE policy reads its own table's toggle.
+  {
+    id: 'F34', title: 'D5 per type: only contacts.leads.delete on — Team Leader DELETE of a downline lead, client, recruit',
+    run: async (ctx) => perTypeDelete(ctx, 'contacts.leads.delete'),
+    expect: (f) => (f.m1 ? 'leads rows 1, clients rows 0, recruits rows 0; survivors leads=0 clients=1 recruits=1'
+      : 'leads rows 1, clients rows 1, recruits rows 1; survivors leads=0 clients=0 recruits=0'),
+  },
+  {
+    id: 'F35', title: 'D5 per type: only contacts.clients.delete on — Team Leader DELETE of a downline lead, client, recruit',
+    run: async (ctx) => perTypeDelete(ctx, 'contacts.clients.delete'),
+    expect: (f) => (f.m1 ? 'leads rows 0, clients rows 1, recruits rows 0; survivors leads=1 clients=0 recruits=1'
+      : 'leads rows 1, clients rows 1, recruits rows 1; survivors leads=0 clients=0 recruits=0'),
+  },
+  {
+    id: 'F36', title: 'D5 per type: only contacts.recruits.delete on — Team Leader DELETE of a downline lead, client, recruit',
+    run: async (ctx) => perTypeDelete(ctx, 'contacts.recruits.delete'),
+    expect: (f) => (f.m1 ? 'leads rows 0, clients rows 0, recruits rows 1; survivors leads=1 clients=1 recruits=0'
+      : 'leads rows 1, clients rows 1, recruits rows 1; survivors leads=0 clients=0 recruits=0'),
+  },
 ];
 
 // ── R1: stale and forged tokens (org E). One battery per variant; every cell is asserted. ──────────────────────────
@@ -396,6 +516,26 @@ const R1 = [
     id: 'R1i', title: 'deactivated Admin: DB Admin Inactive, live Admin token',
     run: async (ctx) => { await setProfile(ctx, E.EA, 'Admin', 'Inactive'); return adminBattery(ctx, await token(ctx, E.EA)); },
     expect: (f) => (f.m1 ? 'readcall=1 coach=1 core=E42501 prof=1 dcall=0 dlead=1' : 'readcall=1 coach=1 core=1 prof=1 dcall=1 dlead=1'),
+  },
+  // TESTS-05: D5 applies whatever the Team Leader profile's status: an Inactive or Deleted Team Leader with a live
+  // token still needs the delete toggle for its OWN lead.
+  {
+    id: 'R1j', title: 'deactivation: DB Team Leader Inactive, live token, DELETE of its OWN lead without the toggle',
+    run: async (ctx) => {
+      await setProfile(ctx, E.ET, 'Team Leader', 'Inactive');
+      const r = await http(ctx, await token(ctx, E.ET), 'DELETE', `/leads?id=eq.${ROW.lead_ET}`);
+      return `${brief(r)}; ${(await exists(ctx, 'leads', ROW.lead_ET)) ? 'survives' : 'deleted'}`;
+    },
+    expect: (f) => (f.m1 ? 'rows 0; survives' : 'rows 1; deleted'),
+  },
+  {
+    id: 'R1k', title: 'deactivation: DB Team Leader Deleted, live token, DELETE of its OWN lead without the toggle',
+    run: async (ctx) => {
+      await setProfile(ctx, E.ET, 'Team Leader', 'Deleted');
+      const r = await http(ctx, await token(ctx, E.ET), 'DELETE', `/leads?id=eq.${ROW.lead_ET}`);
+      return `${brief(r)}; ${(await exists(ctx, 'leads', ROW.lead_ET)) ? 'survives' : 'deleted'}`;
+    },
+    expect: (f) => (f.m1 ? 'rows 0; survives' : 'rows 1; deleted'),
   },
 ];
 

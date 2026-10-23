@@ -7,13 +7,16 @@
 #   <state>     S0   verbatim production preimage + production-shaped stale data (scripts/hierarchy_fixture.py)
 #               S1   S0 + M1 (20261023210000_hierarchy_authorization_boundaries)
 #               S2   S1 + M2 (pending/20261023210100_hierarchy_integrity)
-#               S3   S2 + M3 (pending/20261023210200_hierarchy_path_repair, run from a temporary copy whose reviewed
-#                    fingerprint is replaced by the synthetic stale set's fingerprint)
+#               S3   S2 + M3 (pending/20261023210200_hierarchy_path_repair, run from a temporary copy whose two reviewed
+#                    fingerprints — stale ids and stale ids with their target paths — are replaced by the synthetic
+#                    stale set's)
 #               S1R  S1 then the M1 rollback;  S2R  S2 then the M2 rollback;  S3R  S3 then the M2 and M1 rollbacks
 #   <database>  must match ^hier_[a-z0-9_]{1,50}$; it must not exist, unless --replace is given AND it carries the
 #               synthetic sentinel (then it is dropped and rebuilt).
 # Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §8. Files are applied by EXPLICIT list,
-# each migration in one transaction (psql -1), the way apply_migration runs it. Never point this at production.
+# each migration in one transaction (psql -1 -f). Supabase apply_migration instead sends the whole file as ONE
+# multi-statement simple query (one implicit transaction, SET LOCAL effective); the security review applied M1 and M2
+# both ways and got identical inventories, data and notices. Never point this at production.
 #
 # Sourcing it (HIERARCHY_STATE_LIB=1 source scripts/hierarchy_test_state.sh) only defines the hs_* functions and
 # the file paths below; scripts/run_hierarchy_stabilization_tests.sh builds every state through hs_build.
@@ -28,7 +31,8 @@ HS_R1="$HS_ROOT/supabase/migrations/rollback/20261023210000_hierarchy_authorizat
 HS_R2="$HS_ROOT/supabase/migrations/rollback/20261023210100_hierarchy_integrity.rollback.sql"
 HS_R3="$HS_ROOT/supabase/migrations/rollback/20261023210200_hierarchy_path_repair.rollback.sql"
 HS_FIXTURE_PY="$HS_ROOT/scripts/hierarchy_fixture.py"
-HS_REVIEWED_FINGERPRINT="ddc1f53f3823c6e367310a748ea0ac85"
+HS_REVIEWED_FINGERPRINT="ddc1f53f3823c6e367310a748ea0ac85"          # M3 c_reviewed_fingerprint (stale ids)
+HS_REVIEWED_TARGET_FINGERPRINT="7daae418571600b43b7cf5d5155be0d4"   # M3 c_reviewed_target_fingerprint (ids + target paths)
 HS_SENTINEL="agentflow-hierarchy-synthetic-fixture"
 HS_STATES="S0 S1 S2 S3 S1R S2R S3R"
 
@@ -80,12 +84,17 @@ hs_apply() {
   out="$(psql -X -q -1 -v ON_ERROR_STOP=1 "$@" -f "$file" "$PGURL/$db" 2>&1)" || { echo "$out" >&2; return 1; }
 }
 
-# hs_m3_copy <db> <out-file>: M3 with the reviewed fingerprint replaced by <db>'s current stale-set fingerprint.
+# hs_m3_copy <db> <out-file> [ids-only]: M3 with BOTH reviewed fingerprints replaced by <db>'s current stale-set
+# fingerprints (with 'ids-only', only the id fingerprint: the target check must then refuse).
 hs_m3_copy() {
-  local fp
+  local fp tfp
   fp="$(hs_q "$1" "SELECT coalesce(hierarchy_test.stale_fingerprint(), '')")"
+  tfp="$(hs_q "$1" "SELECT coalesce(hierarchy_test.stale_target_fingerprint(), '')")"
   [ "$(grep -c "$HS_REVIEWED_FINGERPRINT" "$HS_M3")" = 1 ] || hs_refuse "M3 does not carry the reviewed fingerprint exactly once"
-  if [ -z "$fp" ]; then cp "$HS_M3" "$2"; else sed "s/$HS_REVIEWED_FINGERPRINT/$fp/" "$HS_M3" > "$2"; fi
+  [ "$(grep -c "$HS_REVIEWED_TARGET_FINGERPRINT" "$HS_M3")" = 1 ] || hs_refuse "M3 does not carry the reviewed target fingerprint exactly once"
+  if [ -z "$fp" ]; then cp "$HS_M3" "$2"
+  elif [ "${3:-}" = ids-only ]; then sed "s/$HS_REVIEWED_FINGERPRINT/$fp/" "$HS_M3" > "$2"
+  else sed -e "s/$HS_REVIEWED_FINGERPRINT/$fp/" -e "s/$HS_REVIEWED_TARGET_FINGERPRINT/$tfp/" "$HS_M3" > "$2"; fi
 }
 
 # hs_create_s0 <db> [<fixture.sql>]: a new database loaded with the fixture (schema + data).
@@ -145,7 +154,7 @@ hs_build() {
 }
 
 if [ "${HIERARCHY_STATE_LIB:-0}" != 1 ]; then
-  [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { sed -n '5,20p' "$0" >&2; exit 2; }
+  [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { sed -n '6,22p' "$0" >&2; exit 2; }
   [ "$#" = 2 ] || [ "$3" = --replace ] || hs_refuse "unknown option '$3'"
   hs_valid_state "$1"
   hs_check_url

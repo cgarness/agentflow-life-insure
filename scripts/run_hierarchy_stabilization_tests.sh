@@ -5,24 +5,29 @@
 # =====================================================================================================
 # Usage:  PGURL="postgresql://postgres@127.0.0.1:<port>" bash scripts/run_hierarchy_stabilization_tests.sh
 # Optional: POSTGREST_BIN=/path/to/postgrest (12.2.3) runs the PostgREST / supabase-js stages; with CI=true a missing
-# POSTGREST_BIN is a FAILURE, locally it is reported as NOT EXECUTED.
+# POSTGREST_BIN, or any missing later-stage file (named explicitly below), is a FAILURE; locally each is reported as
+# NOT EXECUTED. Every suite's PASS count is pinned per state (EXPECT_* below): a truncated suite fails the run.
 #
 # PGURL must be exactly postgres(ql)://postgres[:password]@<127.0.0.1|localhost>:<port>; the server must answer on a
 # loopback address, as the postgres superuser, with no hosted platform roles and no database named after the
 # production project. The URL is never printed. The run creates and drops only databases named hier_<pid>_*.
 # Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §8. Files are applied by EXPLICIT list
-# (never a glob), each migration in one transaction (psql -1), the way apply_migration runs it.
+# (never a glob), each migration in one transaction (psql -1 -f). Supabase apply_migration instead sends the whole
+# file as ONE multi-statement simple query (one implicit transaction, SET LOCAL effective); the security review
+# applied M1 and M2 both ways and got identical inventories, data and notices.
 #
-# Stages: 1 static checks (transaction control, fingerprint constant) · 2 states S0 S1 S2 S3 S1R S2R S3R and the
-# core suite on each (database unchanged by the suite) · 3 migrations: inventories, replay / drift / missing-
-# prerequisite refusals with nothing changed, rollbacks back to the exact preimage, re-apply after rollback, the
-# M2 trigger probe, a hostile session search_path, lock_timeout, NOTIFY on success only · 4 M3: refusal of the
-# unmodified file on the synthetic set, the substituted copy, side effects (functions fired, rows touched, set_claim
-# writes), second run and no-op, the rollback stub · 5 two-session concurrency (READ COMMITTED and REPEATABLE READ)
-# · 6 auto-discovered later stages: supabase/tests/hierarchy_stabilization_rls.sql and _rpcs.sql per state (psql
-# variables state, m1, m2, repaired, anon_revoked, compute_revoked), scripts/tests/hierarchy_stabilization/*.mjs
-# and src/test/integration/hierarchyFrontendCompat.integration.test.ts with one database per state
-# (env HIERARCHY_DB_<STATE>, HIERARCHY_STATES, PGURL, POSTGREST_BIN).
+# Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites) ·
+# 2 states S0 S1 S2 S3 S1R S2R S3R and the core suite on each (pinned PASS count; database unchanged by the suite) ·
+# 3 migrations: inventories, replay / drift / missing-prerequisite refusals with nothing changed, rollbacks back to
+# the exact preimage, re-apply after rollback, the M2 trigger probe, a hostile session search_path, lock_timeout,
+# NOTIFY on success only · 4 M3: refusal of the unmodified file, of an ids-only copy and of the substituted copy on
+# a re-parented stale set; the substituted copy, side effects (functions fired, rows touched, set_claim writes),
+# second run and no-op, the rollback stub · 5 two-session concurrency at READ COMMITTED; REPEATABLE READ /
+# SERIALIZABLE hierarchy statements refused (0A000), including the mover-vs-inserter race · 6 later stages, by
+# explicit name: supabase/tests/hierarchy_stabilization_rls.sql and _rpcs.sql per state (psql variables state, m1,
+# m2, repaired, anon_revoked, compute_revoked, opu_hardened), scripts/tests/hierarchy_stabilization/
+# postgrest_forged.mjs and src/test/integration/hierarchyFrontendCompat.integration.test.ts with one database per
+# state (env HIERARCHY_DB_<STATE>, HIERARCHY_STATES, PGURL, POSTGREST_BIN, HIER_REST_ROLE_PREFIX).
 # Database-role verification on the server version it runs against; it proves nothing about production.
 set -euo pipefail
 set +o xtrace   # commands carry the URL, which may hold a password: never trace them
@@ -35,16 +40,27 @@ SUITE="$ROOT/supabase/tests/hierarchy_stabilization.sql"
 RLS_SUITE="$ROOT/supabase/tests/hierarchy_stabilization_rls.sql"
 RPC_SUITE="$ROOT/supabase/tests/hierarchy_stabilization_rpcs.sql"
 MJS_DIR="$ROOT/scripts/tests/hierarchy_stabilization"
+FORGED="$MJS_DIR/postgrest_forged.mjs"
 COMPAT_TEST="$ROOT/src/test/integration/hierarchyFrontendCompat.integration.test.ts"
+VITEST="$ROOT/node_modules/.bin/vitest"
 for f in "$HS_M1" "$HS_M2" "$HS_M3" "$HS_R1" "$HS_R2" "$HS_R3" "$HS_FIXTURE_PY" "$SUITE"; do
   [ -f "$f" ] || hs_refuse "missing $f"
 done
 export PYTHONDONTWRITEBYTECODE=1
-# In CI nothing may be skipped: PostgREST must be installed and every later stage must exist.
-if [ "${CI:-}" = true ] && [ -z "${POSTGREST_BIN:-}" ]; then
-  echo "FAIL: CI=true but POSTGREST_BIN is not set; the PostgREST / supabase-js stages must run in CI" >&2
-  exit 1
+# In CI nothing may be skipped: PostgREST must be installed and every later stage must exist, each named explicitly
+# (no glob, so a renamed or moved file fails instead of silently dropping out).
+if [ "${CI:-}" = true ]; then
+  [ -n "${POSTGREST_BIN:-}" ] || { echo "FAIL: CI=true but POSTGREST_BIN is not set; the PostgREST / supabase-js stages must run in CI" >&2; exit 1; }
+  for f in "$RLS_SUITE" "$RPC_SUITE" "$FORGED" "$COMPAT_TEST"; do
+    [ -f "$f" ] || { echo "FAIL: CI=true but ${f#"$ROOT"/} is missing; every later stage must run in CI" >&2; exit 1; }
+  done
 fi
+
+# Pinned PASS counts (update them with the suites): the core suite per state; the RLS and RPC suites per state; the
+# forged stage and the compatibility suite in total over the 7 states. Any other count fails the run.
+declare -A EXPECT_CORE=([S0]=64 [S1]=64 [S2]=114 [S3]=114 [S1R]=64 [S2R]=64 [S3R]=64)
+declare -A EXPECT_LATER=([hierarchy_stabilization_rls.sql]=146 [hierarchy_stabilization_rpcs.sql]=81
+                         [postgrest_forged.mjs]=329 [hierarchyFrontendCompat.integration.test.ts]=190)
 
 PFX="hier_$$_"
 WORK="$(mktemp -d)"
@@ -55,6 +71,10 @@ RC=0
 BG=()
 PASSES=0
 NOT_EXECUTED=()
+
+# The PostgREST harness names its authenticator roles <prefix><node pid>_<n>; a run-specific prefix lets the leftover
+# check below consider only the roles THIS run created.
+export HIER_REST_ROLE_PREFIX="${PFX}rest_"
 
 fail() { echo "   FAIL: $*" >&2; exit 1; }
 ok()   { PASSES=$((PASSES + 1)); echo "   PASS $*"; }
@@ -238,7 +258,57 @@ set +e; r="$(tx_check "$WORK/v_ok.sql" 2>&1)"; c=$?; set -e
 [ "$c" = 0 ] || fail "static control v_ok (words only in strings/comments) was rejected: $r"
 ok "static: negative controls (top-level BEGIN/COMMIT, END;, PL/pgSQL COMMIT, metacommand) rejected; strings and comments allowed"
 [ "$(grep -c "$HS_REVIEWED_FINGERPRINT" "$HS_M3")" = 1 ] || fail "static: M3 must carry the reviewed fingerprint exactly once"
-ok "static: M3 carries the reviewed stale-set fingerprint $HS_REVIEWED_FINGERPRINT exactly once"
+[ "$(grep -c "$HS_REVIEWED_TARGET_FINGERPRINT" "$HS_M3")" = 1 ] || fail "static: M3 must carry the reviewed target fingerprint exactly once"
+grep -q "c_reviewed_fingerprint *CONSTANT text := '$HS_REVIEWED_FINGERPRINT';" "$HS_M3" \
+  && grep -q "c_reviewed_target_fingerprint CONSTANT text := '$HS_REVIEWED_TARGET_FINGERPRINT';" "$HS_M3" \
+  || fail "static: M3's two fingerprint constants are not the reviewed values"
+ok "static: M3 carries the reviewed stale-id fingerprint $HS_REVIEWED_FINGERPRINT and target fingerprint $HS_REVIEWED_TARGET_FINGERPRINT exactly once each"
+# quit_check <file>: no psql \q / \quit anywhere outside comments, string literals and dollar-quoted bodies (psql exits
+# 0 on \q, so a stray one would silently truncate a suite; the pinned counts below catch that too).
+quit_check() {
+  python3 -I - "$1" <<'PY2'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+out, i, n = [], 0, len(src)
+while i < n:
+    if src.startswith('--', i):
+        j = src.find('\n', i); i = n if j < 0 else j; continue
+    if src.startswith('/*', i):
+        j = src.find('*/', i + 2); i = n if j < 0 else j + 2; continue
+    if src[i] == "'":
+        j = i + 1
+        while j < n:
+            if src[j] == "'" and src.startswith("''", j): j += 2; continue
+            if src[j] == "'": break
+            j += 1
+        out.append("''"); i = j + 1; continue
+    m = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", src[i:])
+    if m:
+        j = src.find(m.group(0), i + len(m.group(0)))
+        if j < 0: sys.exit("unterminated dollar quote " + m.group(0))
+        out.append(" $body$ "); i = j + len(m.group(0)); continue
+    out.append(src[i]); i += 1
+for no, line in enumerate("".join(out).split("\n"), 1):
+    if re.search(r"\\(q|quit)(?![A-Za-z0-9_])", line):
+        sys.exit(f"psql \\q / \\quit outside a comment or string (line {no} of the stripped text)")
+print("no \\q or \\quit")
+PY2
+}
+for f in "$SUITE" "$RLS_SUITE" "$RPC_SUITE"; do
+  [ -f "$f" ] || continue   # a missing later suite is reported (or fails in CI) in stage 6
+  set +e; r="$(quit_check "$f" 2>&1)"; c=$?; set -e
+  [ "$c" = 0 ] || fail "static: $(basename "$f"): $r"
+done
+printf 'SELECT 1;\n\\q\nSELECT 2;\n' > "$WORK/v_quit.sql"
+printf "SELECT 1; \\quit\n" > "$WORK/v_quit2.sql"
+printf "SELECT '\\q';\n-- \\q in a comment\nDO \$x\$ BEGIN RAISE NOTICE '\\quit'; END \$x\$;\n" > "$WORK/v_quit_ok.sql"
+for v in v_quit v_quit2; do
+  set +e; r="$(quit_check "$WORK/$v.sql" 2>&1)"; c=$?; set -e
+  [ "$c" != 0 ] || fail "static negative control $v (a top-level \\q / \\quit) was accepted"
+done
+set +e; r="$(quit_check "$WORK/v_quit_ok.sql" 2>&1)"; c=$?; set -e
+[ "$c" = 0 ] || fail "static control v_quit_ok (\\q only in a string / comment / body) was rejected: $r"
+ok "static: no psql \\q or \\quit in the core, RLS and RPC suites; negative controls rejected, strings and comments allowed"
 case "$HS_M2$HS_M3" in *"/migrations/pending/"*"/migrations/pending/"*) ok "static: M2 and M3 live under migrations/pending/ (outside the CLI glob)" ;;
   *) fail "static: M2/M3 are not under migrations/pending/" ;; esac
 
@@ -269,7 +339,8 @@ flags() {   # psql variables describing a state, for every per-state suite
        "-v m2=$(case $s in S2|S3) echo on;; *) echo off;; esac)" \
        "-v repaired=$(case $s in S3|S3R) echo on;; *) echo off;; esac)" \
        "-v anon_revoked=$(case $s in S0) echo off;; *) echo on;; esac)" \
-       "-v compute_revoked=$(case $s in S2|S3|S2R|S3R) echo on;; *) echo off;; esac)"
+       "-v compute_revoked=$(case $s in S0) echo off;; *) echo on;; esac)" \
+       "-v opu_hardened=$(case $s in S2|S3|S2R|S3R) echo on;; *) echo off;; esac)"
 }
 declare -A STATE_PASS
 for st in $HS_STATES; do
@@ -282,12 +353,12 @@ for st in $HS_STATES; do
   set -e
   [ "$RC" = 0 ] || { grep -v '^PASS' "$OUT" >&2 || true; cat "$ERR" >&2; fail "core suite on $st (exit $RC)"; }
   ! grep -v '^PASS ' "$OUT" | grep -q . || { grep -v '^PASS ' "$OUT" >&2; fail "core suite on $st printed a non-PASS line"; }
-  n="$(grep -c '^PASS ' "$OUT")"
-  [ "$n" -gt 0 ] || fail "core suite on $st: no case ran"
+  n="$(grep -c '^PASS ' "$OUT" || true)"
+  [ "$n" = "${EXPECT_CORE[$st]}" ] || fail "core suite on $st: $n cases, expected ${EXPECT_CORE[$st]} (pinned)"
   STATE_PASS[$st]=$n
   PASSES=$((PASSES + n))
   unchanged_since "$DB" "pre_suite" "core suite on $st"
-  echo "   PASS core suite on $st: $n cases; the database is unchanged afterwards (catalog and data)"
+  echo "   PASS core suite on $st: $n cases (= pinned ${EXPECT_CORE[$st]}); the database is unchanged afterwards (catalog and data)"
 done
 
 # ── 3. Migrations: inventories, refusals, rollbacks, re-apply, probe, search_path, lock_timeout, NOTIFY ─────────
@@ -303,9 +374,17 @@ expect_keys "$WORK/s0.inv" "$WORK/s1.inv" "M1 inventory" \
   "f|private.guard_team_leader_downline_call_update()|postgres" "p|tasks|tasks_select_team_leader" \
   "p|leads|leads_tl_delete_requires_contacts_permission" "p|clients|clients_tl_delete_requires_contacts_permission" \
   "p|recruits|recruits_tl_delete_requires_contacts_permission" "p|calls|calls_delete_own_rows_or_org_admin" \
-  "t|profiles|trg_01_guard_profile_commission_level" "t|calls|calls_00_guard_team_leader_downline_update"
+  "t|profiles|trg_01_guard_profile_commission_level" "t|calls|calls_00_guard_team_leader_downline_update" \
+  "f|private.guard_contact_organization_change()|postgres" "t|leads|contacts_00_guard_organization_change" \
+  "t|clients|contacts_00_guard_organization_change" "t|recruits|contacts_00_guard_organization_change" \
+  "f|compute_hierarchy_path(uuid)|postgres" "f|update_hierarchy_path()|postgres" "f|cascade_hierarchy_update()|postgres"
 cmp -s "$WORK/s0.data" "$WORK/s1.data" || fail "M1 wrote data"
-ok "M1 inventory: exactly is_ancestor_of + tasks_select_team_leader changed, 2 helpers + 2 guards + 2 triggers + 4 restrictive policies added; $(wc -l < "$WORK/s0.inv") other catalog entries and all data unchanged"
+for fn in 'compute_hierarchy_path(uuid)' 'update_hierarchy_path()' 'cascade_hierarchy_update()'; do
+  [ "$(grep -F "f|$fn|postgres|" "$WORK/s0.inv" | cut -d'|' -f1-5,7)" = "$(grep -F "f|$fn|postgres|" "$WORK/s1.inv" | cut -d'|' -f1-5,7)" ] \
+    || fail "M1 changed more than the ACL of $fn"
+  grep -qF "f|$fn|postgres|true|search_path=public|{postgres=X/postgres,service_role=X/postgres}|" "$WORK/s1.inv" || fail "M1: $fn ACL is not postgres,service_role"
+done
+ok "M1 inventory: exactly is_ancestor_of + tasks_select_team_leader changed, 3 helpers/guards + the contact organization guard + 5 triggers + 4 restrictive policies added, client EXECUTE revoked on the 3 path functions (bodies unchanged); $(wc -l < "$WORK/s0.inv") other catalog entries and all data unchanged"
 run_file "$DB" "$HS_M2"; expect_rc 0 "M2 apply"
 expect_stdout_has "DO" "M2 apply"
 snapshot "$DB" s2
@@ -316,7 +395,7 @@ expect_keys "$WORK/s1.inv" "$WORK/s2.inv" "M2 inventory" \
   "f|private.hierarchy_consistency()|postgres" "i|idx_profiles_upline_id|index" "t|profiles|trg_update_hierarchy_path" \
   "t|profiles|trg_cascade_hierarchy_update" "t|profiles|trg_update_hierarchy_path_lock" "t|invitations|trg_validate_invitation_upline"
 cmp -s "$WORK/s1.data" "$WORK/s2.data" || fail "M2 wrote data (its trigger probe must roll itself back)"
-ok "M2 inventory: exactly the 3 replaced path functions, on_profile_update hardening, 4 private functions, 2 replaced + 2 new triggers and 1 index; no row written (the \$post\$ probe rolled itself back)"
+ok "M2 inventory: exactly the 3 replaced path functions (ACL already revoked by M1), on_profile_update hardening, 4 private functions, 2 replaced + 2 new triggers and 1 index; no row written (the \$post\$ probe rolled itself back)"
 cp "$HS_M3" "$WORK/m3_unmodified.sql"; hs_m3_copy "$DB" "$WORK/m3_synth.sql"
 run_file "$DB" "$WORK/m3_synth.sql"; expect_rc 0 "M3 (synthetic fingerprint) apply"
 snapshot "$DB" s3
@@ -381,8 +460,23 @@ drift_case S0 "M1: an existing restrictive policy" \
 drift_case S0 "M1: calls_guard_dialer_core disabled" \
   "ALTER TABLE public.calls DISABLE TRIGGER calls_guard_dialer_core" \
   "$HS_M1" "hierarchy M1 refused: trigger calls_guard_dialer_core on public.calls differs from the reviewed preimage"
+drift_case S0 "M1: compute_hierarchy_path ACL (anon revoked, PUBLIC kept)" \
+  "REVOKE EXECUTE ON FUNCTION public.compute_hierarchy_path(uuid) FROM anon" \
+  "$HS_M1" "hierarchy M1 refused: public.compute_hierarchy_path(uuid) owner, definer flag or ACL drifted"
+drift_case S0 "M1: a clients trigger that fires before the organization guard changed" \
+  "ALTER TABLE public.clients DISABLE TRIGGER clients_policy_identity" \
+  "$HS_M1" "hierarchy M1 refused: trigger clients_policy_identity on public.clients differs from the reviewed preimage"
+drift_case S0 "M1: an extra BEFORE UPDATE trigger that would fire before the organization guard" \
+  "CREATE TRIGGER a_drift BEFORE UPDATE ON public.leads FOR EACH ROW EXECUTE FUNCTION public.update_updated_at()" \
+  "$HS_M1" "hierarchy M1 refused: BEFORE UPDATE triggers on public.leads that fire before the organization guard differ from the reviewed set (found a_drift)"
+drift_case S0 "M1: guard_client_lead_conversion body" \
+  "CREATE OR REPLACE FUNCTION private.guard_client_lead_conversion() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS \$\$ BEGIN NEW.organization_id := NULL; RETURN NEW; END \$\$" \
+  "$HS_M1" "hierarchy M1 refused: private.guard_client_lead_conversion() differs from the reviewed preimage"
 drift_case S1 "M2: compute_hierarchy_path body" \
   "CREATE OR REPLACE FUNCTION public.compute_hierarchy_path(target_user_id uuid) RETURNS ltree LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS \$\$ BEGIN RETURN NULL; END; \$\$" \
+  "$HS_M2" "hierarchy M2 refused: public.compute_hierarchy_path(uuid) differs from the reviewed preimage"
+drift_case S1 "M2: compute_hierarchy_path re-granted to anon after M1" \
+  "GRANT EXECUTE ON FUNCTION public.compute_hierarchy_path(uuid) TO anon" \
   "$HS_M2" "hierarchy M2 refused: public.compute_hierarchy_path(uuid) differs from the reviewed preimage"
 drift_case S1 "M2: preimage body with the post-rollback ACL mixed (on_profile_update revoked, not hardened)" \
   "REVOKE EXECUTE ON FUNCTION public.on_profile_update() FROM PUBLIC, anon, authenticated" \
@@ -413,11 +507,18 @@ drift_case S2 "M3: a stale set that is not the reviewed one (one more stale row)
 state_db S1 mig_rb1
 run_file "$DB" "$HS_R1"; expect_rc 0 "M1 rollback"
 snapshot "$DB" s1r
-expect_keys "$WORK/s0.inv" "$WORK/s1r.inv" "M1 rollback vs S0" "f|is_ancestor_of(uuid,uuid)|postgres"
-[ "$(LC_ALL=C comm -13 "$WORK/s0.inv" "$WORK/s1r.inv")" = "f|is_ancestor_of(uuid,uuid)|postgres|true|search_path=public|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|7c5213032696734f2e0c5ffe5a71a07a" ] \
-  || fail "M1 rollback: is_ancestor_of is not the preimage body with the revoked ACL"
+expect_keys "$WORK/s0.inv" "$WORK/s1r.inv" "M1 rollback vs S0" "f|is_ancestor_of(uuid,uuid)|postgres" \
+  "f|compute_hierarchy_path(uuid)|postgres" "f|update_hierarchy_path()|postgres" "f|cascade_hierarchy_update()|postgres"
+printf '%s\n' \
+  "f|cascade_hierarchy_update()|postgres|true|search_path=public|{postgres=X/postgres,service_role=X/postgres}|8392e93e9b09f726dcb097cb54dae522" \
+  "f|compute_hierarchy_path(uuid)|postgres|true|search_path=public|{postgres=X/postgres,service_role=X/postgres}|b9aaa16d5b974676ce18d55c5dce9e18" \
+  "f|is_ancestor_of(uuid,uuid)|postgres|true|search_path=public|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|7c5213032696734f2e0c5ffe5a71a07a" \
+  "f|update_hierarchy_path()|postgres|true|search_path=public|{postgres=X/postgres,service_role=X/postgres}|d9ff2d22fcc0bd5e55ea288850ad1cfe" \
+  | LC_ALL=C sort > "$WORK/s1r.expected"
+LC_ALL=C comm -13 "$WORK/s0.inv" "$WORK/s1r.inv" | diff -u "$WORK/s1r.expected" - >&2 \
+  || fail "M1 rollback: is_ancestor_of and the 3 path functions are not their preimage bodies with the revoked ACLs"
 cmp -s "$WORK/s0.data" "$WORK/s1r.data" || fail "M1 rollback changed data"
-ok "M1 rollback: the exact preimage everywhere (is_ancestor_of md5 7c5213032696734f2e0c5ffe5a71a07a); only the anon/PUBLIC revoke is kept"
+ok "M1 rollback: the exact preimage everywhere (is_ancestor_of md5 7c5213032696734f2e0c5ffe5a71a07a); only the revokes are kept (is_ancestor_of from PUBLIC/anon; the 3 path functions from PUBLIC/anon/authenticated)"
 run_file "$DB" "$HS_M1"; expect_rc 0 "M1 re-apply after rollback"
 inventory "$DB" > "$WORK/s1again.inv"
 diff -u "$WORK/s1.inv" "$WORK/s1again.inv" >&2 || fail "M1 re-apply after rollback differs from the first apply"
@@ -425,14 +526,12 @@ ok "M1 re-apply after rollback accepted; catalog identical to the first apply"
 state_db S2 mig_rb2
 run_file "$DB" "$HS_R2"; expect_rc 0 "M2 rollback"
 snapshot "$DB" s2r
-expect_keys "$WORK/s1.inv" "$WORK/s2r.inv" "M2 rollback vs S1" \
-  "f|compute_hierarchy_path(uuid)|postgres" "f|update_hierarchy_path()|postgres" "f|cascade_hierarchy_update()|postgres" \
-  "f|on_profile_update()|postgres"
+expect_keys "$WORK/s1.inv" "$WORK/s2r.inv" "M2 rollback vs S1" "f|on_profile_update()|postgres"
 for d in b9aaa16d5b974676ce18d55c5dce9e18 d9ff2d22fcc0bd5e55ea288850ad1cfe 8392e93e9b09f726dcb097cb54dae522; do
   grep -q "|{postgres=X/postgres,service_role=X/postgres}|$d\$" "$WORK/s2r.inv" || fail "M2 rollback: preimage body $d with the hardened ACL not found"
 done
 cmp -s "$WORK/s1.data" "$WORK/s2r.data" || fail "M2 rollback changed data"
-ok "M2 rollback: exact preimage bodies (b9aaa16d…, d9ff2d22…, 8392e93e…) and trigger definitions; only the revokes and on_profile_update's search_path are kept"
+ok "M2 rollback: exact preimage bodies (b9aaa16d…, d9ff2d22…, 8392e93e…) with M1's revoked ACL, and the preimage trigger definitions; the catalog equals S1 except on_profile_update's kept revoke and search_path"
 run_file "$DB" "$HS_M2"; expect_rc 0 "M2 re-apply after rollback"
 inventory "$DB" > "$WORK/s2again.inv"
 diff -u "$WORK/s2.inv" "$WORK/s2again.inv" >&2 || fail "M2 re-apply after rollback differs from the first apply"
@@ -508,8 +607,14 @@ run_file "$DB" "$WORK/m3_unmodified.sql"; expect_rc 3 "M3 unmodified on the synt
 expect_stderr_has "hierarchy M3 refused: the 4 stale row(s) are not the reviewed set (fingerprint $(q "$DB" "SELECT hierarchy_test.stale_fingerprint()"))" "M3 unmodified"
 unchanged_since "$DB" m3pre "M3 unmodified refusal"
 ok "the unmodified M3 REFUSES the synthetic stale set (its fingerprint is not production's reviewed $HS_REVIEWED_FINGERPRINT); nothing changed"
+hs_m3_copy "$DB" "$WORK/m3_idsonly.sql" ids-only
+[ "$(diff "$HS_M3" "$WORK/m3_idsonly.sql" | grep -c '^[<>]')" = 2 ] || fail "the ids-only M3 copy differs from the file in more than the id fingerprint line"
+run_file "$DB" "$WORK/m3_idsonly.sql"; expect_rc 3 "M3 with only the id fingerprint substituted"
+expect_stderr_has "hierarchy M3 refused: the 4 stale row(s) would be repaired to paths that are not the reviewed targets (target fingerprint $(q "$DB" "SELECT hierarchy_test.stale_target_fingerprint()"))" "M3 ids-only copy"
+unchanged_since "$DB" m3pre "M3 ids-only refusal"
+ok "M3 with the right stale ids but production's reviewed TARGET fingerprint REFUSES the synthetic set (both fingerprints are required); nothing changed"
 hs_m3_copy "$DB" "$WORK/m3_run.sql"
-[ "$(diff "$HS_M3" "$WORK/m3_run.sql" | grep -c '^[<>]')" = 2 ] || fail "the runner's M3 copy differs from the file in more than the fingerprint line"
+[ "$(diff "$HS_M3" "$WORK/m3_run.sql" | grep -c '^[<>]')" = 4 ] || fail "the runner's M3 copy differs from the file in more than the two fingerprint lines"
 q "$DB" "SELECT hierarchy_test.take_snap('m3')" >/dev/null
 set +e
 psql -X -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN" -c "SET LOCAL track_functions = 'all'" -c "TRUNCATE hierarchy_test.set_claim_calls, hierarchy_test.side_effects" \
@@ -524,7 +629,8 @@ RC=$?
 set -e
 expect_rc 0 "M3 synthetic copy"
 expect_stderr_has "hierarchy M3: 4 row(s) repaired; 15 of 15 expected ancestor pairs present" "M3 summary notice"
-[ "$(grep -c 'hierarchy M3 repair aa000000: depth' "$ERR")" = 4 ] || { cat "$ERR" >&2; fail "M3: expected one NOTICE per repaired row"; }
+[ "$(grep -Ec 'hierarchy M3 repair aa000000: depth [0-9]+ -> [0-9]+, parent (none|[0-9a-f]{8}) -> [0-9a-f]{8}$' "$ERR")" = 4 ] \
+  || { cat "$ERR" >&2; fail "M3: expected one NOTICE per repaired row (id8, old and new depth, old and new parent id8)"; }
 expect_stdout_has "changed A1:path,updated_at A2:path,updated_at D1:path,updated_at D2:path,updated_at" "M3 touched exactly the stale rows"
 expect_stdout_has "claims 8 side_effects 0" "M3 set_claim writes"
 expect_stdout_has "fired build_hierarchy_path=4 lock_profile_hierarchy=1 on_profile_update=4 set_claim=8 update_hierarchy_path=4" "M3 functions fired"
@@ -539,6 +645,28 @@ unchanged_since "$DB" m3post "M3 second run"
 run_file "$DB" "$WORK/m3_unmodified.sql"; expect_rc 0 "unmodified M3 on 0 stale rows"; expect_stderr_has "nothing to repair (no-op)" "unmodified M3 no-op"
 unchanged_since "$DB" m3post "unmodified M3 no-op"
 ok "M3 second run and the unmodified file on repaired data are no-ops (0 rows; catalog and data unchanged)"
+
+# INT-1: an Admin re-parents one of the reviewed stale rows to another Team Leader in the M1-only window (the preimage
+# triggers keep it stale): the stale ids — and so the id fingerprint — are unchanged, the targets are not. The copy
+# substituted for the UNDRIFTED synthetic set must refuse.
+state_db S1 m3_reparent
+FP0="$(q "$DB" "SELECT hierarchy_test.stale_fingerprint() || '/' || hierarchy_test.stale_target_fingerprint()")"
+[ "$FP0" = "$(q "$DB" "SELECT hierarchy_test.stale_fingerprint()")/$(grep -o "c_reviewed_target_fingerprint CONSTANT text := '[0-9a-f]*'" "$WORK/m3_run.sql" | grep -o '[0-9a-f]\{32\}')" ] \
+  || fail "re-parent drift: the substituted copy does not carry this database's undrifted fingerprints"
+R_ID="$(q "$DB" "SELECT hierarchy_test.id('R')")"; K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
+[ "$(q "$DB" "SELECT hierarchy_test.as_user('$R_ID', format('UPDATE public.profiles SET role = %L WHERE id = %L', 'Team Leader', '$K1'))")" = "OK 1" ] \
+  || fail "re-parent drift: the Admin could not promote K1"
+[ "$(q "$DB" "SELECT hierarchy_test.as_user('$R_ID', format('UPDATE public.profiles SET upline_id = %L WHERE id = %L', '$K1', '$A1'))")" = "OK 1" ] \
+  || fail "re-parent drift: the Admin could not move A1 under K1"
+run_file "$DB" "$HS_M2"; expect_rc 0 "M2 on the re-parented set"
+FP1="$(q "$DB" "SELECT hierarchy_test.stale_fingerprint() || '/' || hierarchy_test.stale_target_fingerprint()")"
+[ "${FP0%%/*}" = "${FP1%%/*}" ] && [ "${FP0#*/}" != "${FP1#*/}" ] \
+  || fail "re-parent drift: expected the same id fingerprint and a different target fingerprint ($FP0 -> $FP1)"
+snapshot "$DB" m3drift
+run_file "$DB" "$WORK/m3_run.sql"; expect_rc 3 "M3 on a re-parented stale set"
+expect_stderr_has "hierarchy M3 refused: the 4 stale row(s) would be repaired to paths that are not the reviewed targets (target fingerprint ${FP1#*/})" "M3 on a re-parented stale set"
+unchanged_since "$DB" m3drift "M3 re-parent refusal"
+ok "M3 REFUSES the reviewed stale rows after an Admin re-parented one of them (id fingerprint ${FP0%%/*} unchanged, target fingerprint ${FP0#*/} -> ${FP1#*/}); nothing changed"
 
 # ── 5. Two-session concurrency (M1 + M2 + M3 applied) ───────────────────────────────────────────────────────────
 echo
@@ -556,50 +684,93 @@ wait_active() {   # wait_active <db> <query text fragment>
   done
   fail "concurrency: the first session never started ($2)"
 }
+# READ COMMITTED: the hierarchy lock trigger serializes statements that list a hierarchy column, and the builder's
+# FOR SHARE ancestor walk makes a writer below a moving node wait for the mover. (Which of the two decides a given
+# race is not asserted here; the security review found the FOR SHARE walk alone decides the 2-cycle and the insert
+# race, and the advisory lock alone the deadlock pattern below.)
+ISO="READ COMMITTED"; iso=rc
+state_db S3 "conc_cycle_$iso"
+K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; K2="$(q "$DB" "SELECT hierarchy_test.id('K2')")"
+bg_session "$DB" "$CONC_ERR.a" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K2' WHERE id = '$K1'" -c "SELECT pg_sleep(1.5) /* conc-a */" -c "COMMIT"
+wait_active "$DB" "conc-a"
+set +e
+psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" -c "UPDATE public.profiles SET upline_id = '$K1' WHERE id = '$K2'" -c "COMMIT" >"$OUT" 2>"$ERR"
+RC=$?
+set -e
+wait "${BG[-1]}" || fail "concurrency: the first mover failed: $(cat "$CONC_ERR.a.err")"
+expect_failed "concurrent 2-cycle ($ISO)"
+expect_stderr_has "Hierarchy: this upline would create a reporting cycle" "concurrent 2-cycle ($ISO)"
+q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
+  || fail "concurrency: hierarchy inconsistent after the 2-cycle race ($ISO)"
+ok "concurrent X->Y / Y->X ($ISO): the second mover is serialized behind the first (it waits until the first commits) and then rejected as a cycle; no cycle, all paths canonical"
+
+state_db S3 "conc_insert_$iso"
+T="$(q "$DB" "SELECT hierarchy_test.id('T')")"; K3="$(q "$DB" "SELECT hierarchy_test.id('K3')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
+q "$DB" "INSERT INTO auth.users (id) VALUES ('a8000000-0000-4000-8000-000000000001')" >/dev/null
+bg_session "$DB" "$CONC_ERR.b" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K3' WHERE id = '$T'" -c "SELECT pg_sleep(1.5) /* conc-b */" -c "COMMIT"
+wait_active "$DB" "conc-b"
+set +e
+psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" \
+  -c "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000001', hierarchy_test.org('A'), '$A1', 'Synthetic N')" \
+  -c "COMMIT" >"$OUT" 2>"$ERR"
+RC=$?
+set -e
+wait "${BG[-1]}" || fail "concurrency: the mover failed: $(cat "$CONC_ERR.b.err")"
+expect_rc 0 "insert under a moving node ($ISO)"
+q "$DB" "SELECT hierarchy_test.sp(hierarchy_path) FROM public.profiles WHERE id = 'a8000000-0000-4000-8000-000000000001'" | grep -qx 'R.K3.T.A1.a8000000' \
+  || fail "concurrency: the inserted row did not get the moved chain"
+q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
+  || fail "concurrency: hierarchy inconsistent after insert-under-move ($ISO)"
+ok "insert under a node whose ancestor is moving ($ISO): waits, then stores the moved chain; all paths canonical"
+
+# REPEATABLE READ / SERIALIZABLE (INT-2): the snapshot predates the hierarchy lock, so every hierarchy statement is
+# refused before the lock with 0A000 (a retry at the same level could never succeed).
+RRMSG="0A000: Hierarchy: upline and organization changes must run in a READ COMMITTED transaction"
+state_db S3 conc_rr_refused
+K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; K2="$(q "$DB" "SELECT hierarchy_test.id('K2')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
+q "$DB" "INSERT INTO auth.users (id) VALUES ('a8000000-0000-4000-8000-000000000002')" >/dev/null
+snapshot "$DB" rr
+for ISO in "REPEATABLE READ" "SERIALIZABLE"; do
+  for stmt in "UPDATE public.profiles SET upline_id = '$K2' WHERE id = '$K1'" \
+              "UPDATE public.profiles SET organization_id = hierarchy_test.org('B'), upline_id = NULL WHERE id = '$K1'" \
+              "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000002', hierarchy_test.org('A'), '$A1', 'Synthetic N2')"; do
+    set +e
+    psql -X -qAt -v ON_ERROR_STOP=1 -v VERBOSITY=verbose "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "$stmt" -c "COMMIT" >"$OUT" 2>"$ERR"
+    RC=$?
+    set -e
+    expect_failed "$ISO hierarchy statement"; expect_stderr_has "$RRMSG" "$ISO hierarchy statement (${stmt:0:40}…)"
+  done
+done
+psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL REPEATABLE READ" -c "UPDATE public.profiles SET last_login_at = last_login_at WHERE id = '$K1'" \
+  -c "UPDATE public.profiles SET phone = phone WHERE id = '$K1'" -c "ROLLBACK" >"$OUT" 2>"$ERR" \
+  || { cat "$ERR" >&2; fail "REPEATABLE READ: a statement listing no hierarchy column was refused"; }
+unchanged_since "$DB" rr "REPEATABLE READ / SERIALIZABLE refusals"
+ok "REPEATABLE READ and SERIALIZABLE: upline moves, organization changes and profile inserts are refused before the hierarchy lock ($RRMSG); statements listing no hierarchy column still run; nothing changed"
+
+# The INT-2 race: a REPEATABLE READ mover (A1: out of Team Leader T's branch, under K3) whose snapshot predates a READ
+# COMMITTED insert under A1. Before the fix the mover committed, its cascade missed the new member, and T kept
+# ancestry over it (fail-open); now the mover is refused and the inserted row is canonical.
+state_db S3 conc_rr_race
+K3="$(q "$DB" "SELECT hierarchy_test.id('K3')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
+q "$DB" "INSERT INTO auth.users (id) VALUES ('a8000000-0000-4000-8000-000000000003')" >/dev/null
+bg_session "$DB" "$CONC_ERR.r" -v VERBOSITY=verbose -c "BEGIN ISOLATION LEVEL REPEATABLE READ" -c "SELECT count(*) FROM public.profiles" \
+  -c "SELECT pg_sleep(1.5) /* conc-r */" -c "UPDATE public.profiles SET upline_id = '$K3' WHERE id = '$A1'" -c "COMMIT"
+wait_active "$DB" "conc-r"
+psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" \
+  -c "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000003', hierarchy_test.org('A'), '$A1', 'Synthetic N3')" \
+  >"$OUT" 2>"$ERR" || { cat "$ERR" >&2; fail "INT-2 race: the READ COMMITTED insert failed"; }
+set +e; wait "${BG[-1]}"; RCR=$?; set -e
+[ "$RCR" != 0 ] && grep -qF "$RRMSG" "$CONC_ERR.r.err" || { cat "$CONC_ERR.r.err" >&2; fail "INT-2 race: the REPEATABLE READ mover was not refused"; }
+q "$DB" "SELECT hierarchy_test.sp(hierarchy_path) FROM public.profiles WHERE id = 'a8000000-0000-4000-8000-000000000003'" | grep -qx 'R.T.A1.a8000000' \
+  || fail "INT-2 race: the inserted row is not canonical"
+q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs, cross_org_edges)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0,0)' \
+  || fail "INT-2 race: hierarchy inconsistent"
+ok "INT-2 race (REPEATABLE READ mover vs READ COMMITTED insert under the moving subtree): the mover is refused (0A000), the insert commits canonical; all paths canonical, no cross-organization edge"
+
+# A REPEATABLE READ statement that lists no hierarchy column (login sync) still waits for a mover's FOR SHARE lock on
+# the row, then succeeds.
 for ISO in "READ COMMITTED" "REPEATABLE READ"; do
   iso="$(echo "$ISO" | tr ' [:upper:]' '_[:lower:]')"
-  state_db S3 "conc_cycle_$iso"
-  K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; K2="$(q "$DB" "SELECT hierarchy_test.id('K2')")"
-  bg_session "$DB" "$CONC_ERR.a" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K2' WHERE id = '$K1'" -c "SELECT pg_sleep(1.5) /* conc-a */" -c "COMMIT"
-  wait_active "$DB" "conc-a"
-  set +e
-  psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" -c "UPDATE public.profiles SET upline_id = '$K1' WHERE id = '$K2'" -c "COMMIT" >"$OUT" 2>"$ERR"
-  RC=$?
-  set -e
-  wait "${BG[-1]}" || fail "concurrency: the first mover failed: $(cat "$CONC_ERR.a.err")"
-  expect_failed "concurrent 2-cycle ($ISO)"
-  if [ "$ISO" = "READ COMMITTED" ]; then
-    expect_stderr_has "Hierarchy: this upline would create a reporting cycle" "concurrent 2-cycle ($ISO)"
-  else
-    expect_stderr_has "could not serialize access due to concurrent update" "concurrent 2-cycle ($ISO)"
-  fi
-  q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
-    || fail "concurrency: hierarchy inconsistent after the 2-cycle race ($ISO)"
-  ok "concurrent X->Y / Y->X ($ISO): the second mover waits on the hierarchy lock and is rejected ($( [ "$ISO" = "READ COMMITTED" ] && echo cycle || echo 40001)); no cycle, all paths canonical"
-
-  state_db S3 "conc_insert_$iso"
-  T="$(q "$DB" "SELECT hierarchy_test.id('T')")"; K3="$(q "$DB" "SELECT hierarchy_test.id('K3')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
-  q "$DB" "INSERT INTO auth.users (id) VALUES ('a8000000-0000-4000-8000-000000000001')" >/dev/null
-  bg_session "$DB" "$CONC_ERR.b" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K3' WHERE id = '$T'" -c "SELECT pg_sleep(1.5) /* conc-b */" -c "COMMIT"
-  wait_active "$DB" "conc-b"
-  set +e
-  psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" \
-    -c "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000001', hierarchy_test.org('A'), '$A1', 'Synthetic N')" \
-    -c "COMMIT" >"$OUT" 2>"$ERR"
-  RC=$?
-  set -e
-  wait "${BG[-1]}" || fail "concurrency: the mover failed: $(cat "$CONC_ERR.b.err")"
-  if [ "$ISO" = "READ COMMITTED" ]; then
-    expect_rc 0 "insert under a moving node ($ISO)"
-    q "$DB" "SELECT hierarchy_test.sp(hierarchy_path) FROM public.profiles WHERE id = 'a8000000-0000-4000-8000-000000000001'" | grep -qx 'R.K3.T.A1.a8000000' \
-      || fail "concurrency: the inserted row did not get the moved chain"
-  else
-    expect_failed "insert under a moving node ($ISO)"; expect_stderr_has "could not serialize access due to concurrent update" "insert under a moving node ($ISO)"
-  fi
-  q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
-    || fail "concurrency: hierarchy inconsistent after insert-under-move ($ISO)"
-  ok "insert under a node whose ancestor is moving ($ISO): $( [ "$ISO" = "READ COMMITTED" ] && echo 'waits, then stores the moved chain' || echo 'fails cleanly with 40001'); all paths canonical"
-
   state_db S3 "conc_login_$iso"
   R="$(q "$DB" "SELECT hierarchy_test.id('R')")"; K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; T="$(q "$DB" "SELECT hierarchy_test.id('T')")"
   bg_session "$DB" "$CONC_ERR.c" -c "BEGIN" -c "UPDATE public.profiles SET upline_id = '$T' WHERE id = '$K1'" -c "SELECT pg_sleep(2) /* conc-c */" -c "COMMIT"
@@ -633,15 +804,17 @@ q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra
   || fail "concurrency: hierarchy inconsistent after the deadlock"
 ok "deadlock pattern (row lock on an ancestor, then a hierarchy statement, against a mover): PostgreSQL aborts exactly one side; all paths canonical"
 
-# ── 6. Later stages (auto-discovered) ───────────────────────────────────────────────────────────────────────────
+# ── 6. Later stages (each by explicit name; pinned PASS counts) ──────────────────────────────────────────────────
 echo
 echo "== 6 later stages =="
+declare -A LATER_TOTAL
 for suite in "$RLS_SUITE" "$RPC_SUITE"; do
   name="$(basename "$suite")"
   if [ ! -f "$suite" ]; then
     [ "${CI:-}" != true ] || fail "CI=true but $name is missing"
     NOT_EXECUTED+=("$name (file not present)"); echo "   NOT EXECUTED $name (file not present)"; continue
   fi
+  LATER_TOTAL[$name]=0
   for st in $HS_STATES; do
     state_db "$st" "later_$(echo "${name%%.sql}_$st" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_' '_' | cut -c1-40)"
     snapshot "$DB" later
@@ -652,20 +825,25 @@ for suite in "$RLS_SUITE" "$RPC_SUITE"; do
     set -e
     [ "$RC" = 0 ] || { grep -v '^PASS' "$OUT" >&2 || true; cat "$ERR" >&2; fail "$name on $st (exit $RC)"; }
     n="$(grep -c '^PASS ' "$OUT" || true)"
-    [ "$n" -gt 0 ] || fail "$name on $st: no PASS line"
     ! grep -q '^FAIL' "$OUT" || fail "$name on $st printed FAIL"
+    [ "$n" = "${EXPECT_LATER[$name]}" ] || fail "$name on $st: $n cases, expected ${EXPECT_LATER[$name]} (pinned)"
     unchanged_since "$DB" later "$name on $st"
     PASSES=$((PASSES + n))
-    echo "   PASS $name on $st: $n cases"
+    LATER_TOTAL[$name]=$(( ${LATER_TOTAL[$name]} + n ))
+    echo "   PASS $name on $st: $n cases (= pinned ${EXPECT_LATER[$name]})"
   done
 done
-MJS=()
-if [ -d "$MJS_DIR" ]; then while IFS= read -r f; do MJS+=("$f"); done < <(find "$MJS_DIR" -maxdepth 1 -name '*.mjs' | LC_ALL=C sort); fi
-COMPAT=()
-[ ! -f "$COMPAT_TEST" ] || COMPAT=("$COMPAT_TEST")
-if [ "${#MJS[@]}" -gt 0 ] || [ "${#COMPAT[@]}" -gt 0 ]; then
+HTTP_STAGES=()
+for f in "$FORGED" "$COMPAT_TEST"; do
+  if [ -f "$f" ]; then HTTP_STAGES+=("$f")
+  else
+    [ "${CI:-}" != true ] || fail "CI=true but ${f#"$ROOT"/} is missing"
+    NOT_EXECUTED+=("$(basename "$f") (file not present)"); echo "   NOT EXECUTED $(basename "$f") (file not present)"
+  fi
+done
+if [ "${#HTTP_STAGES[@]}" -gt 0 ]; then
   if [ -z "${POSTGREST_BIN:-}" ]; then
-    for f in "${MJS[@]}" "${COMPAT[@]}"; do NOT_EXECUTED+=("$(basename "$f") (POSTGREST_BIN not set)"); echo "   NOT EXECUTED $(basename "$f") (POSTGREST_BIN not set)"; done
+    for f in "${HTTP_STAGES[@]}"; do NOT_EXECUTED+=("$(basename "$f") (POSTGREST_BIN not set)"); echo "   NOT EXECUTED $(basename "$f") (POSTGREST_BIN not set)"; done
   else
     [ -x "$POSTGREST_BIN" ] || fail "POSTGREST_BIN is not executable"
     echo "   PostgREST: $("$POSTGREST_BIN" --version 2>&1 | head -1)"
@@ -676,56 +854,64 @@ if [ "${#MJS[@]}" -gt 0 ] || [ "${#COMPAT[@]}" -gt 0 ]; then
     done
     # Each stage clones every state database it is given (…_forged / …_compat) and drops its clones, so one
     # stage's writes never reach the next; each prints one 'PASS <state> <case>' line per case (counted here).
-    for f in "${MJS[@]}"; do
+    if [ -f "$FORGED" ]; then
       set +e
-      env "${ENVS[@]}" HIERARCHY_STATES="$HS_STATES" PGURL="$PGURL" POSTGREST_BIN="$POSTGREST_BIN" node "$f" >"$OUT" 2>"$ERR"
+      env "${ENVS[@]}" HIERARCHY_STATES="$HS_STATES" PGURL="$PGURL" POSTGREST_BIN="$POSTGREST_BIN" node "$FORGED" >"$OUT" 2>"$ERR"
       RC=$?
       set -e
       cat "$OUT"
-      [ "$RC" = 0 ] || { cat "$ERR" >&2; fail "$(basename "$f") (exit $RC)"; }
-      ! grep -q '^FAIL' "$OUT" || fail "$(basename "$f") printed FAIL"
+      [ "$RC" = 0 ] || { cat "$ERR" >&2; fail "$(basename "$FORGED") (exit $RC)"; }
+      ! grep -q '^FAIL' "$OUT" || fail "$(basename "$FORGED") printed FAIL"
       n="$(grep -c '^PASS ' "$OUT" || true)"
-      [ "$n" -gt 0 ] || fail "$(basename "$f"): no PASS line"
+      [ "$n" = "${EXPECT_LATER[postgrest_forged.mjs]}" ] || fail "$(basename "$FORGED"): $n cases, expected ${EXPECT_LATER[postgrest_forged.mjs]} (pinned)"
       PASSES=$((PASSES + n))
-      echo "   PASS $(basename "$f") against PostgREST on $HS_STATES: $n cases"
-    done
-    for f in "${COMPAT[@]}"; do
+      LATER_TOTAL[postgrest_forged.mjs]=$n
+      echo "   PASS $(basename "$FORGED") against PostgREST on $HS_STATES: $n cases (= pinned ${EXPECT_LATER[postgrest_forged.mjs]})"
+    fi
+    if [ -f "$COMPAT_TEST" ]; then
+      [ -x "$VITEST" ] || fail "vitest is not installed at ${VITEST#"$ROOT"/} (npm ci); the compatibility suite cannot run"
+      cname="$(basename "$COMPAT_TEST")"
       set +e
       (cd "$ROOT" && env "${ENVS[@]}" HIERARCHY_STATES="$HS_STATES" PGURL="$PGURL" POSTGREST_BIN="$POSTGREST_BIN" \
-         HIERARCHY_COMPAT=1 HIERARCHY_COMPAT_REPORT="$WORK/compat_matrix.txt" NO_COLOR=1 npx vitest run "${f#"$ROOT"/}") >"$OUT" 2>"$ERR"
+         HIERARCHY_COMPAT=1 HIERARCHY_COMPAT_REPORT="$WORK/compat_matrix.txt" NO_COLOR=1 "$VITEST" run "${COMPAT_TEST#"$ROOT"/}") >"$OUT" 2>"$ERR"
       RC=$?
       set -e
       [ ! -f "$WORK/compat_matrix.txt" ] || cat "$WORK/compat_matrix.txt"
       tail -n 8 "$OUT"
-      [ "$RC" = 0 ] || { grep -E 'FAIL|AssertionError|Expected|Received|threw' "$OUT" | head -80 >&2; cat "$ERR" >&2; fail "$(basename "$f") (exit $RC)"; }
+      [ "$RC" = 0 ] || { grep -E 'FAIL|AssertionError|Expected|Received|threw' "$OUT" | head -80 >&2; cat "$ERR" >&2; fail "$cname (exit $RC)"; }
       # The suite skips itself without HIERARCHY_COMPAT=1: a run where only the precondition test passed proves nothing.
       # (Colour codes are stripped in case the CI environment forces them; no match must not abort under set -e.)
       sed -E 's/\x1b\[[0-9;]*m//g' "$OUT" > "$WORK/compat_plain.txt"
       n="$(grep -Eo 'Tests +[0-9]+ passed' "$WORK/compat_plain.txt" | grep -Eo '[0-9]+' | tail -n 1 || true)"
-      [ -n "$n" ] && [ "$n" -gt 1 ] && ! grep -Eq 'Tests .*(skipped|failed)' "$WORK/compat_plain.txt" \
-        || fail "$(basename "$f"): the compatibility cases did not all run"
+      [ -n "$n" ] && ! grep -Eq 'Tests .*(skipped|failed)' "$WORK/compat_plain.txt" \
+        || fail "$cname: the compatibility cases did not all run"
+      [ "$n" = "${EXPECT_LATER[$cname]}" ] || fail "$cname: $n tests, expected ${EXPECT_LATER[$cname]} (pinned)"
       PASSES=$((PASSES + n))
-      echo "   PASS $(basename "$f") (real frontend data-layer modules via supabase-js) on $HS_STATES: $n tests"
-    done
-    # The stages must leave nothing behind (their harness drops every clone and authenticator role it creates);
-    # a leftover clone of this run is dropped here, and either kind of leftover fails the run.
+      LATER_TOTAL[$cname]=$n
+      echo "   PASS $cname (real frontend data-layer modules via supabase-js) on $HS_STATES: $n tests (= pinned ${EXPECT_LATER[$cname]})"
+    fi
+    # The stages must leave nothing behind (their harness drops every clone and authenticator role it creates); a
+    # leftover clone of this run is dropped here, and either kind of leftover OF THIS RUN fails it. Roles another run
+    # or session left (other prefixes) are only listed.
     left="$(q postgres "SELECT coalesce(string_agg(datname, ' '), '') FROM pg_database
                          WHERE starts_with(datname, '${PFX}rest_') AND (datname LIKE '%\_forged' OR datname LIKE '%\_compat')")"
-    roles="$(q postgres "SELECT coalesce(string_agg(rolname, ' '), '') FROM pg_roles WHERE rolname LIKE 'hier\_rest\_%'")"
+    roles="$(q postgres "SELECT coalesce(string_agg(rolname, ' '), '') FROM pg_roles WHERE starts_with(rolname, '${HIER_REST_ROLE_PREFIX}')")"
+    foreign="$(q postgres "SELECT coalesce(string_agg(rolname, ' '), '') FROM pg_roles
+                            WHERE (rolname LIKE 'hier\_rest\_%' OR rolname ~ '^hier_[0-9]+_rest_') AND NOT starts_with(rolname, '${HIER_REST_ROLE_PREFIX}')")"
     for d in $left; do psql -X -q "$PGURL/postgres" -c "DROP DATABASE IF EXISTS $d WITH (FORCE)" >/dev/null 2>&1 || true; done
     [ -z "$left" ] && [ -z "$roles" ] || fail "PostgREST stages left clones ($left) or authenticator roles ($roles) behind"
-    ok "PostgREST stages dropped every database clone and authenticator role they created"
+    [ -z "$foreign" ] || echo "   NOTE: authenticator roles from other runs exist on this cluster (not this run's; not a failure): $foreign"
+    ok "PostgREST stages dropped every database clone and authenticator role this run created"
   fi
-else
-  [ "${CI:-}" != true ] || fail "CI=true but no PostgREST stage (scripts/tests/hierarchy_stabilization/*.mjs or the compat test) is present"
-  NOT_EXECUTED+=("PostgREST stages (no scripts/tests/hierarchy_stabilization/*.mjs or compat test present)")
-  echo "   NOT EXECUTED PostgREST stages (no scripts/tests/hierarchy_stabilization/*.mjs or compat test present)"
 fi
 
 echo
 echo "======================================================================"
 echo " ALL HIERARCHY STABILIZATION PROOFS PASSED on PostgreSQL $SERVER_VERSION: $PASSES PASS lines"
-for st in $HS_STATES; do echo "   core suite $st: ${STATE_PASS[$st]} cases"; done
+for st in $HS_STATES; do echo "   core suite $st: ${STATE_PASS[$st]} cases (pinned ${EXPECT_CORE[$st]})"; done
+for k in hierarchy_stabilization_rls.sql hierarchy_stabilization_rpcs.sql postgrest_forged.mjs hierarchyFrontendCompat.integration.test.ts; do
+  [ -z "${LATER_TOTAL[$k]:-}" ] || echo "   $k: ${LATER_TOTAL[$k]} in total over $HS_STATES"
+done
 if [ "${#NOT_EXECUTED[@]}" -gt 0 ]; then
   echo " NOT EXECUTED (not evidence):"
   for x in "${NOT_EXECUTED[@]}"; do echo "   - $x"; done

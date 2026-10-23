@@ -26,15 +26,34 @@
 --     leads / clients / recruits delete, own rows included (the delete_contact rule; closes reassign-then-delete);
 --     a calls row may be deleted only by its agent or an Active org-admin profile.
 --   * calls_00_guard_team_leader_downline_update — on another agent's call, a client write (current_user =
---     authenticated) by a non-admin profile may change only flagged_for_coaching, notes and updated_at.
---     Definer RPCs, webhooks, service_role and real Admins are unaffected.
+--     authenticated) by a non-admin profile may change only flagged_for_coaching and notes; updated_at is then set
+--     by the database (now()), never taken from the client. Definer RPCs, webhooks, service_role, the call's agent
+--     and real Admins are unaffected.
+--   * contacts_00_guard_organization_change on leads, clients and recruits — a direct client write (current_user =
+--     authenticated) may not change a contact's organization_id (NULL included). The owner branches of the
+--     'Leads/Clients/Recruits Hierarchical Access' WITH CHECKs do not bind the organization, so without this a Team
+--     Leader could reassign a downline contact to itself and move it out of the organization (or into another
+--     tenant), bypassing the D5 delete rule. Definer RPCs (owner postgres), service_role and system callers are
+--     unaffected; no application path changes a contact's organization. Ordering (BEFORE UPDATE row triggers fire in
+--     name order): production's other BEFORE UPDATE triggers on these tables are clients_lead_conversion_guard and
+--     clients_policy_identity (both sort first on clients; neither assigns organization_id — their reviewed bodies
+--     are pinned below) and tr_sync_leads_user_id on leads (sorts after; copies assigned_agent_id into user_id).
+--     NOT closed here (pre-existing, outside hierarchy scope, recorded in plan §12): any authenticated user can
+--     INSERT a contact into a foreign organization (the owner branch again); closing it needs a RESTRICTIVE FOR INSERT
+--     policy binding organization_id to the actor's profile organization.
+--   * EXECUTE on public.compute_hierarchy_path(uuid) (a full upline-chain oracle for anyone with the anon key),
+--     public.update_hierarchy_path() and public.cascade_hierarchy_update() revoked from PUBLIC, anon and
+--     authenticated (D10, moved here from M2 so S1 closes the chain oracle too). Their callers are postgres-owned
+--     SECURITY DEFINER functions and triggers (which fire without EXECUTE). Bodies unchanged.
 --
 -- Unchanged: every other policy (including the 9 that call is_ancestor_of), enforce_profile_field_authorization,
--- profile_authz.can_update_profile, has_contacts_permission, the hierarchy path functions and profiles triggers
--- (M2), calls_guard_dialer_core, calls_reporting_fields, all table and column grants, all data.
+-- profile_authz.can_update_profile, has_contacts_permission, the hierarchy path function bodies, on_profile_update
+-- and the profiles path triggers (M2), calls_guard_dialer_core, calls_reporting_fields, all table and column grants,
+-- all data.
 --
 -- Guards: every replaced or relied-on object must match its reviewed production preimage, or (is_ancestor_of
--- only) the state this file's rollback leaves; anything else — including a replay — is refused.
+-- and the three revoked path functions) the state this file's rollback leaves; anything else — including a replay —
+-- is refused.
 -- Rollback: supabase/migrations/rollback/20261023210000_hierarchy_authorization_boundaries.rollback.sql
 -- Proof:    scripts/run_hierarchy_stabilization_tests.sh (disposable local PostgreSQL only).
 SET LOCAL lock_timeout = '1s';
@@ -69,13 +88,36 @@ BEGIN
     RAISE EXCEPTION 'hierarchy M1 refused: public.is_ancestor_of(uuid,uuid) owner, definer flag or ACL drifted';
   END IF;
 
-  -- Unchanged objects whose behaviour this file relies on.
+  -- The three path functions whose EXECUTE this file revokes: owned by postgres, with the production ACL or the ACL
+  -- this file's rollback leaves (already revoked). Their bodies are M2's concern (M2 guards them).
+  FOR r IN SELECT * FROM (VALUES ('public.compute_hierarchy_path(uuid)'), ('public.update_hierarchy_path()'),
+                                 ('public.cascade_hierarchy_update()')) x(fn)
+  LOOP
+    IF pg_catalog.to_regprocedure(r.fn) IS NULL THEN
+      RAISE EXCEPTION 'hierarchy M1 refused: % not found', r.fn;
+    END IF;
+    SELECT string_agg(g, ',' ORDER BY g COLLATE "C") INTO v
+      FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END AS g
+              FROM pg_catalog.pg_proc f,
+                   pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
+             WHERE f.oid = r.fn::regprocedure AND a.privilege_type = 'EXECUTE') s;
+    IF v IS NULL OR v NOT IN ('PUBLIC,anon,authenticated,postgres,service_role', 'postgres,service_role')
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc f
+                       WHERE f.oid = r.fn::regprocedure AND f.proowner = 'postgres'::regrole AND f.prosecdef) THEN
+      RAISE EXCEPTION 'hierarchy M1 refused: % owner, definer flag or ACL drifted', r.fn;
+    END IF;
+  END LOOP;
+
+  -- Unchanged objects whose behaviour this file relies on (the last two: the clients BEFORE triggers that fire
+  -- before contacts_00_guard_organization_change and must not assign organization_id).
   FOR r IN SELECT * FROM (VALUES
       ('public.enforce_profile_field_authorization()', 'b9b4c345b470c94923cddace49cd1d5b'),
       ('profile_authz.can_update_profile(uuid)', 'c9761a65a963c45cb7aa6dc178bfde36'),
       ('public.has_contacts_permission(text)', 'b656907ca141c08a9ba9f5c867c42b6a'),
       ('private.guard_dialer_core_write()', 'c2fbba6d647babc57c9b4c429d13a551'),
-      ('private.guard_call_reporting_fields()', '7df31398a10a3fb6fa17d3cf515439ca')) x(fn, digest)
+      ('private.guard_call_reporting_fields()', '7df31398a10a3fb6fa17d3cf515439ca'),
+      ('private.guard_client_lead_conversion()', 'f2558ce56aae6f7db84df1b17f085aa0'),
+      ('private.ensure_policy_identity()', '40832187ea4904e8e52e1e4c124caa0e')) x(fn, digest)
   LOOP
     IF pg_catalog.to_regprocedure(r.fn) IS NULL
        OR md5(pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure(r.fn))) <> r.digest THEN
@@ -126,12 +168,28 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.profiles', 'trg_00_enforce_profile_field_authorization', 'fc02958ebc6986a60bda53127323bb7c'),
       ('public.calls', 'calls_guard_dialer_core', 'bce9db5747cd6023eaeef99a38e5ec64'),
-      ('public.calls', 'calls_reporting_fields', '577beff3268dd0e9c58106b4a1088d65')) x(tbl, name, digest)
+      ('public.calls', 'calls_reporting_fields', '577beff3268dd0e9c58106b4a1088d65'),
+      ('public.clients', 'clients_lead_conversion_guard', 'a240a08cc6d1cb8521c761f1f680e739'),
+      ('public.clients', 'clients_policy_identity', 'a240538599f6feeff661a86d401c005f')) x(tbl, name, digest)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                     WHERE t.tgrelid = r.tbl::regclass AND t.tgname = r.name AND t.tgenabled = 'O'
                       AND md5(pg_catalog.pg_get_triggerdef(t.oid)) = r.digest) THEN
       RAISE EXCEPTION 'hierarchy M1 refused: trigger % on % differs from the reviewed preimage', r.name, r.tbl;
+    END IF;
+  END LOOP;
+  -- Row-level BEFORE UPDATE triggers that fire before contacts_00_guard_organization_change (name order): exactly the
+  -- two reviewed clients triggers pinned above, none on leads or recruits.
+  FOR r IN SELECT * FROM (VALUES ('public.leads', ''), ('public.recruits', ''),
+                                 ('public.clients', 'clients_lead_conversion_guard,clients_policy_identity')) x(tbl, names)
+  LOOP
+    SELECT coalesce(string_agg(t.tgname::text, ',' ORDER BY t.tgname COLLATE "C"), '') INTO v
+      FROM pg_catalog.pg_trigger t
+     WHERE t.tgrelid = r.tbl::regclass AND NOT t.tgisinternal
+       AND (t.tgtype & 2) <> 0 AND (t.tgtype & 1) <> 0 AND (t.tgtype & 16) <> 0
+       AND t.tgname COLLATE "C" < 'contacts_00_guard_organization_change';
+    IF v IS DISTINCT FROM r.names THEN
+      RAISE EXCEPTION 'hierarchy M1 refused: BEFORE UPDATE triggers on % that fire before the organization guard differ from the reviewed set (found %)', r.tbl, v;
     END IF;
   END LOOP;
 
@@ -140,8 +198,10 @@ BEGIN
      OR pg_catalog.to_regprocedure('profile_authz.actor_is_org_admin(uuid)') IS NOT NULL
      OR pg_catalog.to_regprocedure('private.guard_profile_commission_level()') IS NOT NULL
      OR pg_catalog.to_regprocedure('private.guard_team_leader_downline_call_update()') IS NOT NULL
+     OR pg_catalog.to_regprocedure('private.guard_contact_organization_change()') IS NOT NULL
      OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
-                 WHERE t.tgname IN ('trg_01_guard_profile_commission_level', 'calls_00_guard_team_leader_downline_update'))
+                 WHERE t.tgname IN ('trg_01_guard_profile_commission_level', 'calls_00_guard_team_leader_downline_update',
+                                    'contacts_00_guard_organization_change'))
      OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy pol
                  WHERE pol.polrelid IN ('public.leads'::regclass, 'public.clients'::regclass,
                                         'public.recruits'::regclass, 'public.calls'::regclass)
@@ -273,6 +333,23 @@ BEGIN
     RAISE EXCEPTION 'Only the call''s agent or an Admin of this organization may change this call (coaching flag and notes excepted)'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
+  NEW.updated_at := now();                        -- the modification time is the database's, never the client's
+  RETURN NEW;
+END
+$$;
+
+-- ── 6. Contact tenancy guard: no direct client write moves a contact between organizations (AUTHZ-1) ─────────────
+-- SECURITY INVOKER on purpose (as the calls guard): current_user identifies a direct client write.
+CREATE FUNCTION private.guard_contact_organization_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF current_user = 'authenticated' AND NEW.organization_id IS DISTINCT FROM OLD.organization_id THEN
+    RAISE EXCEPTION 'A contact''s organization cannot be changed by a direct client write'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
   RETURN NEW;
 END
 $$;
@@ -284,7 +361,9 @@ COMMENT ON FUNCTION profile_authz.actor_is_org_admin(uuid) IS
 COMMENT ON FUNCTION private.guard_profile_commission_level() IS
   'Hierarchy M1 (D4): changing another member''s commission_level needs an Active org-admin profile or is_super_admin.';
 COMMENT ON FUNCTION private.guard_team_leader_downline_call_update() IS
-  'Hierarchy M1 (D6, R1): on another agent''s call, a direct client write by a non-admin profile may change only flagged_for_coaching, notes and updated_at.';
+  'Hierarchy M1 (D6, R1): on another agent''s call, a direct client write by a non-admin profile may change only flagged_for_coaching and notes; updated_at is set to now().';
+COMMENT ON FUNCTION private.guard_contact_organization_change() IS
+  'Hierarchy M1 (D5, R1): a direct client write (current_user authenticated) may not change a lead''s, client''s or recruit''s organization_id (NULL included).';
 
 -- ── Grants (D10): helpers for authenticated only; trigger functions for nobody (triggers fire without EXECUTE) ──
 REVOKE EXECUTE ON FUNCTION public.is_ancestor_of(uuid, uuid) FROM PUBLIC, anon;
@@ -292,8 +371,13 @@ GRANT EXECUTE ON FUNCTION public.is_ancestor_of(uuid, uuid) TO authenticated, se
 REVOKE ALL ON FUNCTION profile_authz.actor_is_team_leader(), profile_authz.actor_is_org_admin(uuid)
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION profile_authz.actor_is_team_leader(), profile_authz.actor_is_org_admin(uuid) TO authenticated;
-REVOKE ALL ON FUNCTION private.guard_profile_commission_level(), private.guard_team_leader_downline_call_update()
+REVOKE ALL ON FUNCTION private.guard_profile_commission_level(), private.guard_team_leader_downline_call_update(),
+                       private.guard_contact_organization_change()
   FROM PUBLIC, anon, authenticated, service_role;
+-- The upline-chain oracle and the path trigger functions (bodies unchanged; on_profile_update stays with M2).
+REVOKE EXECUTE ON FUNCTION public.compute_hierarchy_path(uuid), public.update_hierarchy_path(),
+                           public.cascade_hierarchy_update()
+  FROM PUBLIC, anon, authenticated;
 
 -- ── 1c. tasks_select_team_leader: same name and command, TO authenticated, decided by is_ancestor_of (R1) ────────
 ALTER POLICY tasks_select_team_leader ON public.tasks
@@ -342,6 +426,21 @@ CREATE TRIGGER calls_00_guard_team_leader_downline_update
   FOR EACH ROW
   EXECUTE FUNCTION private.guard_team_leader_downline_call_update();
 
+-- ── 6. Contact tenancy triggers (on leads and recruits the first BEFORE UPDATE trigger; on clients after the two
+--       reviewed guards, which do not assign organization_id) ───────────────────────────────────────────────────────
+CREATE TRIGGER contacts_00_guard_organization_change
+  BEFORE UPDATE OF organization_id ON public.leads
+  FOR EACH ROW
+  EXECUTE FUNCTION private.guard_contact_organization_change();
+CREATE TRIGGER contacts_00_guard_organization_change
+  BEFORE UPDATE OF organization_id ON public.clients
+  FOR EACH ROW
+  EXECUTE FUNCTION private.guard_contact_organization_change();
+CREATE TRIGGER contacts_00_guard_organization_change
+  BEFORE UPDATE OF organization_id ON public.recruits
+  FOR EACH ROW
+  EXECUTE FUNCTION private.guard_contact_organization_change();
+
 -- ── 5. Postconditions ────────────────────────────────────────────────────────────────────────────────────────────
 DO $post$
 DECLARE
@@ -356,7 +455,8 @@ BEGIN
       ('profile_authz.actor_is_team_leader()', 'bbc07ccb69be5c0eed098e17bd9d191d', 'authenticated,postgres'),
       ('profile_authz.actor_is_org_admin(uuid)', 'c64ef188736fae1b90dc7e6a8d29e04f', 'authenticated,postgres'),
       ('private.guard_profile_commission_level()', 'cc306236935837d49ff89540bb8dff89', 'postgres'),
-      ('private.guard_team_leader_downline_call_update()', '562fda2611f254d555675706e2673f75', 'postgres')) x(fn, digest, acl)
+      ('private.guard_team_leader_downline_call_update()', '454ee627b8df12d5e7f9acc6d526288e', 'postgres'),
+      ('private.guard_contact_organization_change()', 'dc72173fb9d9c786a63af8ed193f5ef6', 'postgres')) x(fn, digest, acl)
   LOOP
     SELECT string_agg(g, ',' ORDER BY g COLLATE "C") INTO v
       FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END AS g
@@ -368,6 +468,19 @@ BEGIN
       RAISE EXCEPTION 'hierarchy M1 postcondition failed: % (body, owner or ACL %)', r.fn, v;
     END IF;
   END LOOP;
+  -- The revoked path functions: ACL only (bodies are M2's).
+  IF (SELECT string_agg(f.oid::regprocedure::text || '=' || s.acl, ' ' ORDER BY f.oid::regprocedure::text COLLATE "C")
+        FROM pg_catalog.pg_proc f,
+             LATERAL (SELECT string_agg(CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END,
+                                        ',' ORDER BY CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END COLLATE "C") AS acl
+                        FROM pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
+                       WHERE a.privilege_type = 'EXECUTE') s
+       WHERE f.oid IN ('public.compute_hierarchy_path(uuid)'::regprocedure, 'public.update_hierarchy_path()'::regprocedure,
+                       'public.cascade_hierarchy_update()'::regprocedure))
+     IS DISTINCT FROM 'cascade_hierarchy_update()=postgres,service_role compute_hierarchy_path(uuid)=postgres,service_role '
+                      'update_hierarchy_path()=postgres,service_role' THEN
+    RAISE EXCEPTION 'hierarchy M1 postcondition failed: EXECUTE on the path functions is not postgres,service_role';
+  END IF;
 
   -- 10 policies now call is_ancestor_of: the reviewed 9 plus tasks_select_team_leader (TO authenticated).
   SELECT string_agg(pol.polrelid::regclass::text || '.' || pol.polname, ',' ORDER BY pol.polrelid::regclass::text COLLATE "C", pol.polname COLLATE "C")
@@ -409,12 +522,30 @@ BEGIN
 
   FOR r IN SELECT * FROM (VALUES
       ('public.profiles', 'trg_01_guard_profile_commission_level', 'a85d3c1edb2ce795b391b780de7bc413'),
-      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65')) x(tbl, name, digest)
+      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65'),
+      ('public.leads', 'contacts_00_guard_organization_change', 'e04378078c3e0f31b889a559acfc4519'),
+      ('public.clients', 'contacts_00_guard_organization_change', '4566b07550a98655bd381f9626738767'),
+      ('public.recruits', 'contacts_00_guard_organization_change', '387528f7702e1a276a0bbee1e64e62ab')) x(tbl, name, digest)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                     WHERE t.tgrelid = r.tbl::regclass AND t.tgname = r.name AND t.tgenabled = 'O'
                       AND md5(pg_catalog.pg_get_triggerdef(t.oid)) = r.digest) THEN
       RAISE EXCEPTION 'hierarchy M1 postcondition failed: trigger % on %', r.name, r.tbl;
+    END IF;
+  END LOOP;
+  -- The organization guard is the first BEFORE UPDATE row trigger on leads and recruits; on clients only the two
+  -- reviewed guards (which do not assign organization_id) fire before it.
+  FOR r IN SELECT * FROM (VALUES ('public.leads', 'contacts_00_guard_organization_change'),
+                                 ('public.recruits', 'contacts_00_guard_organization_change'),
+                                 ('public.clients', 'clients_lead_conversion_guard,clients_policy_identity,contacts_00_guard_organization_change')) x(tbl, names)
+  LOOP
+    SELECT string_agg(t.tgname::text, ',' ORDER BY t.tgname COLLATE "C") INTO v
+      FROM pg_catalog.pg_trigger t
+     WHERE t.tgrelid = r.tbl::regclass AND NOT t.tgisinternal
+       AND (t.tgtype & 2) <> 0 AND (t.tgtype & 1) <> 0 AND (t.tgtype & 16) <> 0
+       AND t.tgname COLLATE "C" <= 'contacts_00_guard_organization_change';
+    IF v IS DISTINCT FROM r.names THEN
+      RAISE EXCEPTION 'hierarchy M1 postcondition failed: organization guard order on % (%)', r.tbl, v;
     END IF;
   END LOOP;
   -- Firing order (same timing and level fire in name order): the calls guard first; the commission guard right

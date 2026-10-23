@@ -10,7 +10,8 @@
 --   * private.build_hierarchy_path(p_self, p_upline, p_org, p_lock) walks from the INCOMING upline (never the
 --     stored row): rejects a self/descendant upline (cycle), an existing loop above, a chain deeper than 32 levels,
 --     a missing upline (23503) and any ancestor in another organization (23514). p_lock takes FOR SHARE on each
---     ancestor so a concurrent move cannot interleave. The 32-level cap (plan §3 said 100) keeps every path inside
+--     ancestor so a concurrent READ COMMITTED move cannot interleave (see the lock trigger below for why only READ
+--     COMMITTED is accepted). The 32-level cap (plan §3 said 100) keeps every path inside
 --     what the GiST ltree index idx_profiles_hierarchy_path handles: with 36-character uuid labels its keys
 --     degenerate beyond ~60 levels (measured on PostgreSQL 16: a 70-level insert hits "stack depth limit exceeded"
 --     after bloating the index by hundreds of MB). Production's longest chain is 3; the preimage silently
@@ -24,13 +25,24 @@
 --   * public.cascade_hierarchy_update() — one set-based statement re-derives the moved row's whole subtree,
 --     writing only rows that differ; trigger fires only WHEN the upline really changed.
 --   * trg_update_hierarchy_path_lock — statement-level transaction advisory lock: every statement that lists a
---     hierarchy column serializes on one key (D11).
+--     hierarchy column serializes on one key (D11). READ COMMITTED only: such a statement in a REPEATABLE READ or
+--     SERIALIZABLE transaction is refused (0A000) before the lock is taken, because its snapshot predates the lock and
+--     the cascade / org-change checks would read an old subtree (a concurrent insert or move-in would be missed,
+--     leaving a stale fail-open path or a cross-organization edge). PostgREST, GoTrue and the Supabase SQL paths run
+--     READ COMMITTED; production has no isolation override.
 --   * trg_validate_invitation_upline — an invitation's upline must be an Active member of the invitation's
---     organization, checked on INSERT and when upline_id or organization_id changes (D8).
+--     organization, checked when the invitation is created and when its upline_id or organization_id changes (D8).
+--     It is a creation / upline-change rule only: accepting or releasing an invitation re-checks nothing, so a
+--     member accepted after their upline was deactivated is placed under that (inert, M1) upline, and one whose upline
+--     changed organization fails acceptance (cross-org builder error) until the invitation is revoked.
 --   * idx_profiles_upline_id (D12); private.hierarchy_consistency() (path-based, postgres only).
---   * Hygiene (D10): EXECUTE revoked from client roles on compute_hierarchy_path and the trigger functions;
---     on_profile_update gets a pinned search_path (body unchanged).
--- Documented behaviour changes: a multi-row INSERT that lists a child before its parent is rejected;
+--   * Hygiene (D10): on_profile_update loses client EXECUTE and gets a pinned search_path (body unchanged).
+--     compute_hierarchy_path, update_hierarchy_path and cascade_hierarchy_update were already revoked by M1.
+-- Documented behaviour changes: a multi-row INSERT that lists a child before its parent is rejected; a multi-row
+-- UPDATE of upline_id validates each row against the statement's intermediate state (the rows already processed,
+-- in physical order), so an interdependent re-parenting may be rejected as a cycle even when its final state is
+-- valid — apply such moves as separate statements in dependency order; hierarchy statements (any profiles INSERT, or
+-- an UPDATE listing upline_id, organization_id or hierarchy_path) must run at READ COMMITTED;
 -- provision_organization on a founder who already has an upline is rejected; error messages start with
 -- "Hierarchy:" and never echo organization ids.
 -- ⚠ From this migration on, every real upline change and every accepted invitation derives a correct path, so a
@@ -78,12 +90,15 @@ BEGIN
     RAISE EXCEPTION 'hierarchy M2 refused: M1 (20261023210000 hierarchy_authorization_boundaries) is not applied as reviewed';
   END IF;
 
-  -- Replaced or hardened functions: (body, EXECUTE grantees) must be the preimage or the post-rollback state.
+  -- Replaced or hardened functions: (body, EXECUTE grantees) must be the preimage or the post-rollback state. M1
+  -- already revoked client EXECUTE on the three path functions, so for them the preimage state and this file's
+  -- post-rollback state are the same (preimage body, postgres,service_role); on_profile_update is hardened here.
   FOR r IN SELECT * FROM (VALUES
-      ('public.compute_hierarchy_path(uuid)', 'b9aaa16d5b974676ce18d55c5dce9e18', 'b9aaa16d5b974676ce18d55c5dce9e18'),
-      ('public.update_hierarchy_path()', 'd9ff2d22fcc0bd5e55ea288850ad1cfe', 'd9ff2d22fcc0bd5e55ea288850ad1cfe'),
-      ('public.cascade_hierarchy_update()', '8392e93e9b09f726dcb097cb54dae522', '8392e93e9b09f726dcb097cb54dae522'),
-      ('public.on_profile_update()', 'b44d4c7ddc97d62d2cc9a3b22a8fc057', '0afa0358aca12d396b9ae50c292bca6f')) x(fn, preimage, rolled_back)
+      ('public.compute_hierarchy_path(uuid)', 'b9aaa16d5b974676ce18d55c5dce9e18', 'postgres,service_role', 'b9aaa16d5b974676ce18d55c5dce9e18'),
+      ('public.update_hierarchy_path()', 'd9ff2d22fcc0bd5e55ea288850ad1cfe', 'postgres,service_role', 'd9ff2d22fcc0bd5e55ea288850ad1cfe'),
+      ('public.cascade_hierarchy_update()', '8392e93e9b09f726dcb097cb54dae522', 'postgres,service_role', '8392e93e9b09f726dcb097cb54dae522'),
+      ('public.on_profile_update()', 'b44d4c7ddc97d62d2cc9a3b22a8fc057', 'PUBLIC,anon,authenticated,postgres,service_role',
+       '0afa0358aca12d396b9ae50c292bca6f')) x(fn, preimage, preimage_acl, rolled_back)
   LOOP
     IF pg_catalog.to_regprocedure(r.fn) IS NULL THEN
       RAISE EXCEPTION 'hierarchy M2 refused: % not found', r.fn;
@@ -94,7 +109,7 @@ BEGIN
               FROM pg_catalog.pg_proc f,
                    pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
              WHERE f.oid = r.fn::regprocedure AND a.privilege_type = 'EXECUTE') s;
-    IF NOT ((v_md5 = r.preimage AND v_acl = 'PUBLIC,anon,authenticated,postgres,service_role')
+    IF NOT ((v_md5 = r.preimage AND v_acl = r.preimage_acl)
             OR (v_md5 = r.rolled_back AND v_acl = 'postgres,service_role'))
        OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc f
                        WHERE f.oid = r.fn::regprocedure AND f.proowner = 'postgres'::regrole AND f.prosecdef) THEN
@@ -221,7 +236,7 @@ BEGIN
 END
 $$;
 
--- ── 5. Statement-level hierarchy lock (D11) ─────────────────────────────────────────────────────────────────────
+-- ── 5. Statement-level hierarchy lock (D11), READ COMMITTED only ────────────────────────────────────────────────
 CREATE FUNCTION private.lock_profile_hierarchy()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -229,6 +244,12 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
+  -- Under REPEATABLE READ / SERIALIZABLE the transaction snapshot predates this lock, so the subtree and org checks
+  -- would read stale rows. 0A000, not 40001: a client retry at the same isolation level could never succeed.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'Hierarchy: upline and organization changes must run in a READ COMMITTED transaction'
+      USING ERRCODE = '0A000';
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('agentflow.public.profiles.hierarchy', 0));
   RETURN NULL;
 END
@@ -376,9 +397,9 @@ $$;
 COMMENT ON FUNCTION private.build_hierarchy_path(uuid, uuid, uuid, boolean) IS
   'Hierarchy M2: the canonical root-first path for p_self under the INCOMING upline p_upline; rejects cycles, loops, depth > 32, missing and cross-organization uplines. p_lock = FOR SHARE on each ancestor.';
 COMMENT ON FUNCTION private.lock_profile_hierarchy() IS
-  'Hierarchy M2 (D11): statement-level transaction advisory lock serializing every statement that lists a hierarchy column.';
+  'Hierarchy M2 (D11): statement-level transaction advisory lock serializing every statement that lists a hierarchy column; refuses (0A000) outside READ COMMITTED.';
 COMMENT ON FUNCTION private.validate_invitation_upline() IS
-  'Hierarchy M2 (D8): an invitation''s upline must be an Active member of the invitation''s organization (INSERT, or a real upline/org change).';
+  'Hierarchy M2 (D8): an invitation''s upline must be an Active member of the invitation''s organization when the invitation is created or its upline/org changes (acceptance re-checks nothing).';
 COMMENT ON FUNCTION private.hierarchy_consistency() IS
   'Hierarchy M2: path-based consistency report (expected upline-walk pairs vs stored-path containment, stale and NULL paths, self-parents, cross-org edges, unreachable rows).';
 
@@ -386,9 +407,8 @@ COMMENT ON FUNCTION private.hierarchy_consistency() IS
 REVOKE ALL ON FUNCTION private.build_hierarchy_path(uuid, uuid, uuid, boolean), private.lock_profile_hierarchy(),
                        private.validate_invitation_upline(), private.hierarchy_consistency()
   FROM PUBLIC, anon, authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public.compute_hierarchy_path(uuid), public.update_hierarchy_path(),
-                           public.cascade_hierarchy_update(), public.on_profile_update()
-  FROM PUBLIC, anon, authenticated;
+-- compute_hierarchy_path, update_hierarchy_path and cascade_hierarchy_update: already revoked by M1 (guarded above).
+REVOKE EXECUTE ON FUNCTION public.on_profile_update() FROM PUBLIC, anon, authenticated;
 ALTER FUNCTION public.on_profile_update() SET search_path = public, pg_temp;
 
 -- ── 3–6. Trigger DDL and the index, after every function exists (short ShareRowExclusive / Share locks) ──────────
@@ -422,7 +442,7 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('private.build_hierarchy_path(uuid,uuid,uuid,boolean)', 'fecfc2995febeb119f0bc5b862e16500', 'postgres'),
       ('public.compute_hierarchy_path(uuid)', '058bb6b37b152aec062c87f8ac929425', 'postgres,service_role'),
-      ('private.lock_profile_hierarchy()', 'b186acd328fd756ca42e3126d3bc1ba4', 'postgres'),
+      ('private.lock_profile_hierarchy()', '559344d1b35aafaa3567405269b34989', 'postgres'),
       ('public.update_hierarchy_path()', 'f892eb620cdf4d146a112e5b66783d6b', 'postgres,service_role'),
       ('public.cascade_hierarchy_update()', 'e26ddd18e96bffec29d440280176ca2a', 'postgres,service_role'),
       ('private.validate_invitation_upline()', '76f71d54f2ff396080616581f442c87c', 'postgres'),
