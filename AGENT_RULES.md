@@ -1008,6 +1008,35 @@ Future conversions only: no backfill, and existing clients are never read or cha
   keys. Sale writers' md5 pins in already-applied migrations are not re-run; any later change to these two writers
   must again re-verify the commission companions (Phase 2A rule).
 
+### Carrier selection in Record Policy and Add/Edit Client (built 2026-10-22 on `claude/carrier-selection-standardize-emoz7q`; NOT merged or released)
+
+- **Source.** `RecordPolicyModal` and `AddClientModal` take carriers only from Settings → Carriers.
+  - `useOrganizationCarriers` reads `public.carriers` with an explicit `organization_id` filter; RLS still applies.
+  - The shared `CarrierCombobox` renders the list. It never auto-selects and has no typed or create option.
+  - `carrierSelectionError` (Zod) accepts a nonblank value only if it is an exact loaded name.
+  - ConvertLeadModal keeps its own native `<select>` (D1).
+- **Isolation.** Every load is a session, renewed during render (adjust-state-while-rendering, never a ref write)
+  whenever the user, agency or retry attempt changes or the hook is disabled (modal closed). A result counts only
+  for the session that requested it, so a previous open's, user's or agency's list never renders, not even once, and
+  never validates a save. The request counter (mutated only in effects) still discards superseded responses. Do not
+  cache lists across sessions or validate from an effect-cleared result. Every-render tests in
+  `useOrganizationCarriers.test.tsx` pin this (PR #479 review).
+- **Historical values.** The only exception is the exact `initial.carrier` of the client being edited (`preserved`).
+  - It is never derived from search text or the current selection.
+  - It is kept byte-for-byte, including case and whitespace, until the user picks a replacement.
+  - It is marked "(not in Settings)" only when no configured name matches it trimmed and case-insensitively.
+  - Never normalize or backfill stored carrier names from these controls.
+- **Unrelated edits.** These save while the list is loading or failed, as long as the carrier is unchanged (D3).
+  A new or changed nonblank carrier needs the list for the current scope.
+- **Frozen sale retries.** These never consult the carrier list. The modal skips the check and
+  `usePolicySaleSubmission` replays the frozen submission with its request id, unchanged (as `Contacts.tsx`
+  pre-save checks).
+- **Unchanged.** Carrier stays optional except where a sale already required it. The commission estimate still reads
+  the form's carrier through the unchanged matcher.
+- **Layering.** The dropdown layer is `z-[1100]` (above the floating dialer's `z-[1000]`/`z-[1001]`) and the popover
+  is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
+  `type="button"`.
+
 ## Google Sheets lead import invariant — October 13, 2026 (backend deployed disabled on 2026-10-22 as `20261022062539`; frontend release pending)
 
 Settings → Google Sheets uses a **dedicated** Google OAuth client and its own tables, Vault secrets and Edge functions. Never reuse the Gmail/Calendar client, `_shared/google-token.ts` Base64 storage, `user_email_connections` or `calendar_integrations` for it.

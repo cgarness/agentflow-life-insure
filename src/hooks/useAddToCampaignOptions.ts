@@ -66,7 +66,8 @@ export function useAddToCampaignOptions({ open, orgId, userId, profileRole, isSu
     return () => controller.abort();
   }, [open, orgId, userId, attempt]);
 
-  const current = loaded && loaded.key === key ? loaded : null;
+  // Nothing is returned while closed, and never a result read for another identity.
+  const current = open && loaded && loaded.key === key ? loaded : null;
   const status: AddToCampaignOptionsStatus = !key ? "unavailable" : current ? current.status : "loading";
   const rows = current?.status === "ready" ? current.rows : EMPTY_ROWS;
 

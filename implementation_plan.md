@@ -1,3 +1,31 @@
+## 2026-10-23 — PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
+
+**Authorization:** Chris approved completing PR #483: reconcile with main, verify, merge with the repository's squash strategy, and confirm the production Vercel deployment. No production database change, migration, RLS change, backend deployment or real lead mutation is authorized.
+
+**Reconciliation (within the approved scope):**
+- Main moved from `f548b59` to `93abbe4`, which is #479, carrier selection in Record Policy and Add/Edit Client.
+- #479 touches none of this PR's source files. The only overlap is `AGENT_RULES.md` (auto-merged) and the newest-first insertions in `WORK_LOG.md` and this file. Those conflicted, and both entries are kept, the 2026-10-23 entry above the 2026-10-22 ones.
+- Checked by diffing the merged files against both parents: no line is removed from either side.
+- #479's carrier isolation rule (each load renewed on open, never showing a previous open's list) was compared with `useAddToCampaignOptions`. The campaign hook clears its result when closed and masks any other `org:user` result at render.
+- A hook-level every-render guard test is added for reopen and identity switch. It is verification only and changes no behaviour. If it exposed a defect, the fix would stay inside the hook.
+
+**Files touched by the reconciliation:**
+- `WORK_LOG.md` and `implementation_plan.md` (conflict resolution, then the closeout entry).
+- New `src/hooks/__tests__/useAddToCampaignOptions.test.tsx`.
+- No other source change unless that test exposes a defect.
+
+**Release steps:**
+1. Locally on the merged head: `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json` compared with main, the focused Vitest suites plus the full suite compared with main, ESLint on touched files, `npm run build` and `git diff --check`.
+2. Push the merge commit (no force-push, never to main). Confirm PR #483 is mergeable, its exact-head checks are green and the Vercel preview is Ready.
+3. Mark the PR ready and squash-merge with an expected-head guard.
+4. Verify that the production Vercel deployment for the merge commit is Ready and that `www.fflagent.com` serves it.
+5. Run non-destructive smoke checks only: HTTP status, the served bundle containing the new picker states, and runtime errors.
+6. Write the newest-first Work Log closeout with the merge SHA and deployment id.
+
+**Stop conditions:** a failing required check, a non-Ready preview or production deployment, or any gate that cannot be verified. Any of these is reported as a blocker; completion is not claimed.
+
+---
+
 ## 2026-10-23 — BUGFIX (APPROVED and IMPLEMENTED on branch; PR for review; NOT merged, NOT deployed): Add to Campaign hides eligible Personal and Team campaigns
 
 **Approval (2026-10-23):** Chris approved this plan with D1 = Option A (preserve campaign visibility and the existing server-side permissions) and D2 = include accurate "Already in Campaign" messaging. The approval covers implementation, testing and PR preparation only. It does not cover a merge to main, a deployment, or any production database change. Results are in the newest WORK_LOG entry.
@@ -126,6 +154,28 @@ Add an additive `alreadyPresent` count, read from `skipped_already_present`, to 
   - An authenticated Agent / Team Leader / Admin walkthrough on the Vercel preview. This session has no test-user sign-in.
   - An end-to-end add of a real lead in production, which is a data mutation and is not done by default.
 - No push to main and no PR without explicit approval.
+
+---
+
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT released): standardize carrier selection in Record Policy and Add/Edit Client
+
+**Status:** Chris approved the plan with D1–D3 and four added requirements: frozen-retry safety, scope isolation,
+locking and form semantics. The branch `claude/carrier-selection-standardize-emoz7q` was refreshed against `main`
+`1a7ea7a`. Implemented in `2bd6404`; evidence in the focused `verification.md`. No Supabase or Vercel command. Merge
+and release need separate approval.
+**PR #479 review fix (approved, `f3de39d`):** the carrier list no longer returns a previous open's result on reopen.
+Each load is a render-time session. Focused plan §9; verification §4. Full plan and exact file list:
+`docs/plans/2026-10-22-carrier-selection/implementation_plan.md` §8.
+
+**Summary:** the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` become a shared searchable
+`CarrierCombobox`. It reads `public.carriers` for the current user and agency (organization filter plus RLS) and sorts
+names alphabetically.
+- **D1:** ConvertLeadModal is unchanged.
+- **D2:** the client's exact stored carrier stays until the user explicitly replaces it. "(not in Settings)" shows only
+  when nothing in Settings matches it.
+- **D3:** unrelated edits save while the list is loading or failed. A new or changed carrier must come from the loaded
+  list.
+- A frozen sale retry never re-checks the carrier list. No auto-selection, no typed carriers, no migration.
 
 ---
 
