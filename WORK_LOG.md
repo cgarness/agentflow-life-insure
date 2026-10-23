@@ -48,8 +48,9 @@ never run). 18 were fixed and re-verified with the original exploits and mutants
 | `tsc --noEmit` / strict app | exit 0 / 80 errors vs 84 on `main`, none new |
 | ESLint on 58 touched files | 0 errors; 5 pre-existing warnings (`main` had 36 on these files) |
 | `npm run build` / `git diff --check` | success / clean |
+| CI hierarchy runner (PostgreSQL 17.6, PostgREST 12.2.3), PR #485 head `58e8a59`, run 39988839376 | success: 2747 PASS lines on PostgreSQL 17.6; every count at its pin; the hierarchy frontend job also passed |
 
-**Not verified.** PostgreSQL 17.6 locally (proven only by the PR's CI run — required before Gate 2a); full-stack
+**Not verified.** PostgreSQL 17.6 locally (it is proven by the PR's CI run above); full-stack
 `p0_profile_authorization.sql` / `import_campaign_attachment.sql` (NOT EXECUTED; cases ported); commission engine
 writer-role path; authenticated browser walkthrough by role.
 
@@ -59,9 +60,12 @@ writer-role path; authenticated browser walkthrough by role.
 - Migrations: M1 (unapplied), M2 and M3 in `supabase/migrations/pending/` (unapplied). Production head
   `20261022062539`.
 - Deploys: none.
-- Blockers: PostgreSQL 17.6 CI must pass on the draft PR before Gate 2a.
+- CI: `main` `80921d1` merged into the branch (docs-only conflicts, both entries kept). In `uv-profile-sync.yml`, the
+  exact-base typecheck step required byte-identical output and failed although no diagnostic is new (4 fixed, 1
+  moved). It now uses `scripts/verify-a2p-types.mjs`, as the A2P and Google Sheets workflows do (verification.md §4).
+- Blockers: none for requesting Gate 2a; CI must be green at the head being applied.
 - Next: Gate 2a (apply M1; `#APPROVE_RLS_CHANGE`) → Gate 3 (frontend) → Gate 2b (M2) → Gate 2c (M3), each with its own
-  approval and read-only preflight (verification.md §7). Interim (plan D14): until Gate 2c avoid saving `f809493e`, `4ef505e0`,
+  approval and read-only preflight (verification.md §8). Interim (plan D14): until Gate 2c avoid saving `f809493e`, `4ef505e0`,
   `e5c4ee04`, `89f2e994` in User Management, and after Gate 2b also avoid real reassignments in `f809493e`'s branch and
   TL invitations by `f809493e`; separately decide on public sign-up and `89f2e994`'s session.
 

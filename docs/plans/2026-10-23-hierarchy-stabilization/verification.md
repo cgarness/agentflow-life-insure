@@ -59,6 +59,20 @@ created and dropped; no roles left.
   REPEATABLE READ / SERIALIZABLE hierarchy writes refused with 0A000; the INT-2 race is closed; ancestor login-sync
   waits ~1.9 s for the mover and succeeds; the deadlock pattern aborts exactly one side; all paths canonical.
 
+### CI on PostgreSQL 17.6 (production's major version)
+
+GitHub Actions run 39988839376, job "PostgreSQL 17.6 + PostgREST 12.2.3 (states S0–S3R, synthetic data)": **success** on
+PR #485 head `58e8a59` (the merge of `main` `80921d1`). The run reported **"ALL HIERARCHY STABILIZATION PROOFS PASSED on
+PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1): 2747 PASS lines"**:
+- Every count matched its pin: core 64/64/114/114/64/64/64; RLS 1043; RPC 567; PostgREST forged 336; compatibility
+  190. The last four are totals over the seven states.
+- The 70 databases the run created were all dropped.
+- The run proves the preimage guards and the new post-image digests on production's major version.
+- The same run's "Hierarchy frontend tests" job also passed.
+
+The workflow re-runs on every push to the PR. Gate 2a preflight item 1 (§8) requires it to be green at the head being
+applied.
+
 ### Brief section E coverage
 
 | Requirement | Where |
@@ -99,6 +113,20 @@ their own modules; compatibility with M1/M2 is proven by the hierarchy harness.
 Vitest ran with `VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_ANON_KEY=placeholder` (the container has no
 Supabase env); without them 9 files fail at import on both branches.
 
+**CI gate correction (`uv-profile-sync.yml`).** The step "Reject additional app typecheck errors against exact base"
+failed on this PR (run 39988838948) although no diagnostic is new. It required the `tsc -p tsconfig.app.json` output to
+be byte-identical, and this branch's output differs in two ways:
+- **Four errors are fixed:** `HierarchyTree.tsx` ×2, `profile-org-view.ts` and `profileScopeAndOrgTree.test.ts`.
+- **One pre-existing error moved:** in `supabase-users.ts`, from line 619 to 774.
+
+The step now runs `scripts/verify-a2p-types.mjs`, the exact-base comparison the A2P and Google Sheets workflows
+already use. It counts diagnostics by file, code and message with coordinates normalized, and fails on any added
+diagnostic. `reports-frontend.yml` applies the same rule.
+
+Local proof against `80921d1`:
+- unchanged branch: `base=84, candidate=80, new=0` (exit 0);
+- with one injected type error: `new=1` (exit 1).
+
 ## 5. Independent security review (21 confirmed: 18 fixed and re-verified, 3 documented)
 
 Five fresh reviewers (none wrote the code) attacked the implementation on disposable clusters — authorization bypass,
@@ -129,8 +157,8 @@ profiles query org-filtered); fail-closed scope errors; View As unaffected; `is_
 ## 6. Not verified / residual risk
 
 - **PostgreSQL 17.6** (production and CI) was not run locally (no Docker daemon). The new post-image digests
-  (e.g. calls guard `454ee627…`, contact guard `dc72173f…`, lock function `559344d1…`) are proven only when the
-  `hierarchy-stabilization.yml` run on the draft PR passes. **Gate 2a must not proceed before it does.**
+  (e.g. calls guard `454ee627…`, contact guard `dc72173f…`, lock function `559344d1…`) are proven by the PR's CI run
+  (§2, "CI on PostgreSQL 17.6"). **Gate 2a still requires that run green at the head being applied (§8).**
 - The original full-stack suites `p0_profile_authorization.sql` and `import_campaign_attachment.sql` need a local
   Supabase stack and were **NOT EXECUTED**; only comment/label text changed in them, and their TL/trigger cases are
   ported into the harness.

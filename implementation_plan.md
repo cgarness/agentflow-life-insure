@@ -24,7 +24,8 @@ Vitest 6531 passed (1 pre-existing failure identical on `main`); tsc clean; stri
 
 **Gates (each needs its own approval):** 1 ✅ → 2a M1 (`#APPROVE_RLS_CHANGE`) → 3 frontend → 2b M2 → 2c M3
 (`#APPROVE_RLS_CHANGE` + invariant #28), gated on the compatibility suite. Rollback: M1/M2 restore verbatim preimages
-(revokes kept); M3 recovery is operational. Next: PostgreSQL 17.6 CI green on the draft PR, then the Gate 2a decision.
+(revokes kept); M3 recovery is operational. PostgreSQL 17.6 CI passed on the draft PR (run 39988839376, 2747 PASS
+lines). Next: the Gate 2a decision.
 
 ---
 

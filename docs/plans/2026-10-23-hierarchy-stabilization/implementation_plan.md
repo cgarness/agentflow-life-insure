@@ -108,13 +108,17 @@ INT-4). Evidence: `verification.md`.
 9. **R2 compatibility result:** the real frontend data layer passed all 27 cases × 7 states (190 tests) — every state the
    release passes through (S0 baseline, S1 M1, S2 M1+M2, S3 M1+M2+M3) and on the rollback states, so the order **M1 → frontend →
    M2 → M3 stands** and the activation-guard fallback was not needed.
+10. **CI gate correction.** In `uv-profile-sync.yml`, the step "Reject additional app typecheck errors against exact
+    base" required byte-identical `tsc` output, so it failed on this PR although no diagnostic is new: four are fixed and
+    one moved lines. It now runs `scripts/verify-a2p-types.mjs`, the comparison the A2P and Google Sheets workflows use
+    (no added diagnostic, coordinates normalized). See verification.md §4.
 
 **Recorded residuals (pre-existing or out of hierarchy scope; §12):** demoted-Admin stale JWT keeps the token-based
 Admin branches until refresh; `super_admin_own_org` trusts the `is_super_admin` claim; Inactive Admin via
 `can_update_profile`; import undo toggles (`undo_team_import`, `undo_own_import`) are not enforced by the database
 or UI (§4 corrected); contact INSERT into a foreign or NULL organization; global hierarchy advisory lock can be taken
-by any authenticated zero-row PATCH listing `upline_id` (held for one statement); PostgreSQL 17.6 digests are proven
-only when the GitHub Actions run passes on the draft PR.
+by any authenticated zero-row PATCH listing `upline_id` (held for one statement). PostgreSQL 17.6 digests are proven
+by the draft PR's GitHub Actions run (verification.md §2), which must stay green at the head applied.
 
 ## 0. Sources read and conflict check (2026-10-23)
 
@@ -607,4 +611,5 @@ UplinePicker.tsx,saveMemberProfile.ts,userManagementTypes.ts}`; `src/hooks/useCo
 `src/components/agent-profile/__tests__/profileStates.test.tsx`,
 `src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx`,
 `src/components/settings/user-management/__tests__/{nativeSelectMock.tsx,teamMembersImpersonate.test.tsx}`,
-`src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx` (viewer role in the mock).
+`src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx` (viewer role in the mock); `.github/workflows/uv-profile-sync.yml`
+(its exact-base typecheck step runs `scripts/verify-a2p-types.mjs`; §B item 10).
