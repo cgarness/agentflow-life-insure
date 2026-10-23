@@ -16,7 +16,7 @@ export interface CommissionSlotInputs {
   grid_revision: number;
   product_id: string;
   variant_id: string;
-  insured_age: number;
+  insured_age: number | null;
   term_years: number | null;
   contract_level: number;
   /** Exact rate text as stored in the grid. */
@@ -56,7 +56,7 @@ export function captureSlotInputs(input: {
   level: number;
   productId: string;
   variantId: string;
-  age: number;
+  age: number | null;
   term: number | null;
   monthlyPremium: string;
   estimate: CommissionEstimate;
