@@ -113,145 +113,239 @@ export const AGENT_SCOPE_PAGE_SIZE = 500;
 export const AGENT_SCOPE_MAX_ROUNDS = 100;
 export const AGENT_SCOPE_MAX_PAGES_PER_BATCH = 200;
 
+/**
+ * Batch an id list for `.in()`: the list is serialized into the PostgREST query string, so
+ * a large set is split rather than sent as one oversized URL.
+ */
+function idBatches(ids: string[]): string[][] {
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += AGENT_SCOPE_ID_BATCH_SIZE) {
+    batches.push(ids.slice(i, i + AGENT_SCOPE_ID_BATCH_SIZE));
+  }
+  return batches;
+}
+
+/** Unique, non-empty string ids in first-seen order. */
+function uniqueIds(ids: readonly (string | null | undefined)[] | null | undefined): string[] {
+  return Array.from(
+    new Set((ids ?? []).filter((id): id is string => typeof id === "string" && id.trim().length > 0)),
+  );
+}
+
+/** What one downline traversal resolved: the viewer's scope, and every node it walked. */
+export interface AgentScopeTraversal {
+  /** The viewer first, then every non-Deleted descendant — the `getAgentScopeIds` contract. */
+  scopedIds: string[];
+  /** The viewer first, then every descendant reached (Deleted ones included), in BFS order. */
+  traversedIds: string[];
+}
+
+/**
+ * The single downline BFS behind `getAgentScopeTraversal` and `getAgentScopeIds` (contract
+ * documented on `getAgentScopeTraversal`). Module-level so both methods share one walk and
+ * neither depends on `this`.
+ */
+async function traverseAgentScope(params: {
+  viewerId: string;
+  organizationId: string | null;
+}): Promise<AgentScopeTraversal> {
+  const viewerId = (params.viewerId ?? "").trim();
+  const organizationId = (params.organizationId ?? "").trim();
+  if (!viewerId || !organizationId) return { scopedIds: [], traversedIds: [] };
+
+  // Insertion order is BFS order, so `visited` doubles as the traversal record.
+  const visited = new Set<string>([viewerId]);
+  const scoped = new Set<string>([viewerId]);
+  let frontier: string[] = [viewerId];
+  let rounds = 0;
+
+  while (frontier.length > 0) {
+    rounds += 1;
+    if (rounds > AGENT_SCOPE_MAX_ROUNDS) {
+      throw new Error("Agent scope traversal exceeded its maximum depth.");
+    }
+
+    const discovered: string[] = [];
+
+    for (const batch of idBatches(frontier)) {
+      let offset = 0;
+
+      for (let page = 0; ; page += 1) {
+        if (page >= AGENT_SCOPE_MAX_PAGES_PER_BATCH) {
+          throw new Error("Agent scope traversal exceeded its maximum page count.");
+        }
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, status")
+          .eq("organization_id", organizationId)
+          .in("upline_id", batch)
+          .order("id", { ascending: true })
+          .range(offset, offset + AGENT_SCOPE_PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const rows = (data ?? []) as unknown as { id: string | null; status: string | null }[];
+        for (const row of rows) {
+          const id = row?.id;
+          if (!id || visited.has(id)) continue;
+          visited.add(id);
+          // Enqueued even when Deleted, so the branch below it is still walked.
+          discovered.push(id);
+          if ((row.status ?? "") !== "Deleted") scoped.add(id);
+        }
+
+        if (rows.length < AGENT_SCOPE_PAGE_SIZE) break;
+        offset += AGENT_SCOPE_PAGE_SIZE;
+      }
+    }
+
+    frontier = discovered;
+  }
+
+  return { scopedIds: Array.from(scoped), traversedIds: Array.from(visited) };
+}
+
+/** Optional role / status narrowing shared by `getAll` and `getByIds` ("All" means none). */
+function narrowByRoleAndStatus<Q>(query: Q, filters: { role?: string | null; status?: string | null }): Q {
+  let out = query as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (filters.role && filters.role !== "All") out = out.eq("role", filters.role);
+  if (filters.status && filters.status !== "All") out = out.eq("status", filters.status);
+  return out as Q;
+}
+
 export const usersSupabaseApi = {
   async getAll(filters?: { search?: string; role?: string; status?: string; organizationId?: string }): Promise<(User & { profile: UserProfile })[]> {
-    const allExpectedColumns = PROFILE_ALL_COLUMNS;
-    const safeColumns = PROFILE_SAFE_COLUMNS;
+    // Every constraint is applied by this one helper, so the schema-column fallback below
+    // trims COLUMNS only and keeps the Deleted exclusion, role, status, search and org filters.
+    const constrained = (query: unknown) => {
+      let q = narrowByRoleAndStatus(query as any, filters ?? {}); // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    let q = supabase.from("profiles").select(allExpectedColumns.join(","));
+      if (filters?.search) {
+        const search = filters.search.toLowerCase();
+        q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      }
 
-    if (filters?.search) {
-      const search = filters.search.toLowerCase();
-      q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
-    }
+      if (!filters?.status || filters.status === "All") {
+        q = q.neq("status", "Deleted");
+      }
 
-    if (filters?.role && filters.role !== "All") {
-      q = q.eq("role", filters.role);
-    }
+      if (filters?.organizationId) {
+        q = q.eq("organization_id", filters.organizationId);
+      }
 
-    if (filters?.status && filters.status !== "All") {
-      q = q.eq("status", filters.status);
-    } else {
-      q = q.neq("status", "Deleted");
-    }
+      return q.order("first_name", { ascending: true }) as Promise<{
+        data: unknown[] | null;
+        error: { message: string } | null;
+      }>;
+    };
 
-    if (filters?.organizationId) {
-      q = q.eq("organization_id", filters.organizationId);
-    }
-
-    const { data, error } = await q.order("first_name", { ascending: true });
+    const { data, error } = await constrained(supabase.from("profiles").select(PROFILE_ALL_COLUMNS.join(",")));
 
     if (error && error.message.includes("does not exist")) {
       console.warn("Retrying fetch with safe column set due to schema mismatch:", error.message);
-      let safeQ = supabase.from("profiles").select(safeColumns.join(","));
-      if (filters?.organizationId) {
-        safeQ = safeQ.eq("organization_id", filters.organizationId);
-      }
-      const { data: safeData, error: safeError } = await safeQ
-        .order("first_name", { ascending: true });
-      
+      const { data: safeData, error: safeError } = await constrained(
+        supabase.from("profiles").select(PROFILE_SAFE_COLUMNS.join(",")),
+      );
+
       if (safeError) throw safeError;
-      return (safeData || []).map(row => rowToUser({
-        ...(row as Record<string, any>),
-        onboarding_complete: false,
-        monthly_call_goal: 0,
-        monthly_sales_goal: 0,
-        monthly_policies_goal: 0,
-        weekly_appointment_goal: 0,
-        monthly_appointment_goal: 0,
-        monthly_premium_goal: 0,
-        onboarding_items: [],
-        licensed_states: [],
-        carriers: []
-      }));
+      return (safeData || []).map(rowToSafeUser);
     }
-    
+
     if (error) throw error;
-    
+
     return (data || []).map(rowToUser);
   },
 
   /**
-   * Contacts → Agents scope: the signed-in viewer plus every direct and indirect
-   * downline profile, resolved recursively through `profiles.upline_id`.
+   * Downline scope traversal: the viewer plus every direct and indirect downline
+   * profile, resolved recursively through `profiles.upline_id`, returned two ways —
+   * `scopedIds` (what the viewer may be shown) and `traversedIds` (every node the walk
+   * passed through, Deleted intermediates included, for views that must draw them).
    *
-   * `profiles.hierarchy_path` is deliberately NOT used. Its production values are
-   * depth-1 self-labels (a `compute_hierarchy_path` trigger defect), so
-   * `is_ancestor_of` is false for every distinct pair and any path-based scope would
-   * collapse to self-only for everyone. `upline_id` is the source of truth.
+   * `profiles.upline_id` is the authority; `hierarchy_path` is a derived cache that can
+   * lag it (the stale rows the hierarchy-stabilization repair fixes), so it is NOT read
+   * here. `private.resolve_downline_ids` walks the same edges server-side.
    *
-   * This is Contacts-page query scoping, NOT a database authorization boundary: the
-   * permissive organization-wide SELECT policy on `profiles` is unchanged and still
+   * This is query scoping, NOT a database authorization boundary: the permissive
+   * organization-wide SELECT policy on `profiles` (`profiles_select_org`) still
    * authorizes same-organization reads.
    *
    * Contract:
-   *  - the viewer is always the first scoped id;
+   *  - the viewer is always the first id in both lists;
    *  - every round is constrained to the viewer's organization, so no edge can leave it;
    *  - NO status filter is applied during traversal — a Deleted intermediate manager
    *    must not sever access to active descendants beneath it — but a Deleted profile
-   *    is never added to the returned set;
+   *    is never added to `scopedIds` (it is in `traversedIds`);
    *  - a `visited` set makes the walk cycle-safe and guarantees termination;
    *  - frontiers are batched and each batch is paged to exhaustion, so a large result
-   *    set can never be silently truncated;
+   *    set can never be silently truncated; more than AGENT_SCOPE_MAX_ROUNDS rounds throws;
    *  - any error rejects. Callers must fail closed; there is no organization-wide
-   *    fallback and no partial result.
+   *    fallback and no partial result. A missing viewer or organization issues no query
+   *    and resolves to two empty lists.
+   */
+  async getAgentScopeTraversal(params: { viewerId: string; organizationId: string | null }): Promise<AgentScopeTraversal> {
+    return traverseAgentScope(params);
+  },
+
+  /**
+   * Contacts → Agents scope (and every other downline surface): the `scopedIds` of
+   * `getAgentScopeTraversal` — the viewer plus every non-Deleted descendant. Same walk,
+   * same contract, same queries.
    */
   async getAgentScopeIds(params: { viewerId: string; organizationId: string | null }): Promise<string[]> {
-    const viewerId = (params.viewerId ?? "").trim();
+    return (await traverseAgentScope(params)).scopedIds;
+  },
+
+  /**
+   * The ids ABOVE `profileId` on its reporting line, nearest manager first (its upline,
+   * that upline's upline, … up to the root). `profileId` itself is not included.
+   *
+   * Query scoping for display (the Hierarchy chart, Team "Add Agent" exclusions), not an
+   * authorization boundary. Contract, mirroring the downline traversal:
+   *  - every hop is constrained to `organizationId`; an upline that is not found in the
+   *    organization ends the chain and is not returned, so the walk never leaves it;
+   *  - Deleted ancestors are walked through and returned (callers decide how to draw them);
+   *  - a `visited` set ends the walk on a cycle; more than AGENT_SCOPE_MAX_ROUNDS
+   *    ancestors throws rather than returning a truncated chain;
+   *  - any query error rejects — no partial chain. A missing id or organization issues
+   *    no query and resolves to [].
+   */
+  async getUplineChainIds(params: { profileId: string; organizationId: string | null }): Promise<string[]> {
+    const profileId = (params.profileId ?? "").trim();
     const organizationId = (params.organizationId ?? "").trim();
-    if (!viewerId || !organizationId) return [];
+    if (!profileId || !organizationId) return [];
 
-    const visited = new Set<string>([viewerId]);
-    const scoped = new Set<string>([viewerId]);
-    let frontier: string[] = [viewerId];
-    let rounds = 0;
+    const chain: string[] = [];
+    const visited = new Set<string>([profileId]);
+    let current: string | null = profileId;
 
-    while (frontier.length > 0) {
-      rounds += 1;
-      if (rounds > AGENT_SCOPE_MAX_ROUNDS) {
-        throw new Error("Agent scope traversal exceeded its maximum depth.");
+    while (current) {
+      if (chain.length >= AGENT_SCOPE_MAX_ROUNDS) {
+        throw new Error("Upline chain walk exceeded its maximum depth.");
       }
 
-      const discovered: string[] = [];
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, upline_id")
+        .eq("organization_id", organizationId)
+        .eq("id", current)
+        .maybeSingle();
 
-      for (let start = 0; start < frontier.length; start += AGENT_SCOPE_ID_BATCH_SIZE) {
-        const batch = frontier.slice(start, start + AGENT_SCOPE_ID_BATCH_SIZE);
-        let offset = 0;
+      if (error) throw error;
 
-        for (let page = 0; ; page += 1) {
-          if (page >= AGENT_SCOPE_MAX_PAGES_PER_BATCH) {
-            throw new Error("Agent scope traversal exceeded its maximum page count.");
-          }
+      const row = data as { id: string | null; upline_id: string | null } | null;
+      // Not in this organization (or not visible): the chain ends here.
+      if (!row?.id) break;
+      if (row.id !== profileId) chain.push(row.id);
 
-          const { data, error } = await supabase
-            .from("profiles")
-            .select("id, status")
-            .eq("organization_id", organizationId)
-            .in("upline_id", batch)
-            .order("id", { ascending: true })
-            .range(offset, offset + AGENT_SCOPE_PAGE_SIZE - 1);
-
-          if (error) throw error;
-
-          const rows = (data ?? []) as unknown as { id: string | null; status: string | null }[];
-          for (const row of rows) {
-            const id = row?.id;
-            if (!id || visited.has(id)) continue;
-            visited.add(id);
-            // Enqueued even when Deleted, so the branch below it is still walked.
-            discovered.push(id);
-            if ((row.status ?? "") !== "Deleted") scoped.add(id);
-          }
-
-          if (rows.length < AGENT_SCOPE_PAGE_SIZE) break;
-          offset += AGENT_SCOPE_PAGE_SIZE;
-        }
-      }
-
-      frontier = discovered;
+      const next = row.upline_id ?? null;
+      if (!next || visited.has(next)) break;
+      visited.add(next);
+      current = next;
     }
 
-    return Array.from(scoped);
+    return chain;
   },
 
   /**
@@ -259,16 +353,22 @@ export const usersSupabaseApi = {
    *
    * Every query it issues — the primary one AND the schema-column fallback — carries
    * the organization boundary, the explicit id set, the non-deleted visibility rule and
-   * (when present) the search term, with the existing `first_name` sort preserved. An
-   * empty id set or a missing organization issues NO query at all.
+   * (when present) the search term and the optional role / status narrowing ("All" or
+   * absent means no narrowing), with the existing `first_name` sort preserved. An empty
+   * id set or a missing organization issues NO query at all.
    *
-   * `getAll` remains the unscoped organization-wide method and is intentionally
-   * untouched, so Settings → User Management and View As are unaffected.
+   * `getAll` remains the unscoped organization-wide method for Admin viewers; Team Leader
+   * and Agent viewers of Settings → User Management resolve their ids through
+   * `getAgentScopeTraversal` and load them here.
    */
-  async getByIds(params: { ids: string[]; organizationId?: string | null; search?: string }): Promise<(User & { profile: UserProfile })[]> {
-    const ids = Array.from(
-      new Set((params.ids ?? []).filter((id): id is string => typeof id === "string" && id.length > 0)),
-    );
+  async getByIds(params: {
+    ids: string[];
+    organizationId?: string | null;
+    search?: string;
+    role?: string | null;
+    status?: string | null;
+  }): Promise<(User & { profile: UserProfile })[]> {
+    const ids = uniqueIds(params.ids);
     const organizationId = (params.organizationId ?? "").trim();
     if (ids.length === 0 || !organizationId) return [];
 
@@ -277,17 +377,15 @@ export const usersSupabaseApi = {
     // A batch never exceeds AGENT_SCOPE_ID_BATCH_SIZE ids and `id` is unique, so a
     // batch can never return more rows than it asked for — batching alone is enough
     // here, with no per-batch paging.
-    const batches: string[][] = [];
-    for (let i = 0; i < ids.length; i += AGENT_SCOPE_ID_BATCH_SIZE) {
-      batches.push(ids.slice(i, i + AGENT_SCOPE_ID_BATCH_SIZE));
-    }
+    const batches = idBatches(ids);
 
     const term = sanitizeProfileSearchTerm(params.search);
     const scoped = (query: unknown, batch: string[]) => {
-      let out = (query as any)
+      let out = (query as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .eq("organization_id", organizationId)
         .in("id", batch)
         .neq("status", "Deleted");
+      out = narrowByRoleAndStatus(out, { role: params.role, status: params.status });
       if (term) {
         out = out.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`);
       }
@@ -659,23 +757,45 @@ export const usersSupabaseApi = {
     }
   },
 
+  /**
+   * Soft-delete a member, optionally transferring their contacts to another agent first.
+   *
+   * The transfer is three client UPDATEs that RLS judges from the caller's JWT, while the
+   * soft delete is judged by `enforce_profile_field_authorization` from the caller's
+   * PROFILE row (`status` is an Admin-only account-control field). A caller the database
+   * refuses at the delete — a Team Leader, or anyone whose token is staler than their
+   * profile (e.g. a demoted Admin) — could otherwise move the whole book and then fail,
+   * leaving a partial transfer. So before a transfer starts, the caller's OWN profile row
+   * is read from the database (never the JWT, never UI state) and must be `is_super_admin`
+   * or role Admin / Super Admin in the member's organization; otherwise this throws and
+   * nothing is written. That mirrors the database rule — it is not the authorization
+   * boundary, which stays RLS plus the profile trigger.
+   *
+   * The soft delete reads the row back, so an UPDATE that RLS filtered to zero rows is
+   * reported as a failure instead of a false success.
+   */
   async deleteUser(id: string, transferToUserId?: string): Promise<void> {
     if (transferToUserId) {
+      await assertCallerAdministersMember(id);
       const { leadsSupabaseApi } = await import("./supabase-contacts");
       await leadsSupabaseApi.reassignAllContacts(id, transferToUserId);
     }
 
     // Soft delete: preserve historical rows (calls, wins, etc.) and the auth user.
     // getAll() filters out status="Deleted".
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .update({
         status: "Deleted",
         availability_status: "Offline",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id)
+      .select("id");
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("Delete failed: user profile not found or permission denied.");
+    }
   },
 
   async updateBillingType(userId: string, billingType: "agency_covered" | "self_pay"): Promise<void> {
@@ -715,11 +835,25 @@ export const usersSupabaseApi = {
     if (error) throw error;
   },
 
-  async getDownlineAgents(uplineId: string): Promise<{ id: string; firstName: string; lastName: string }[]> {
+  /**
+   * DIRECT reports of `uplineId` (one level, non-Deleted) in `organizationId` — the task,
+   * appointment and import pickers' existing semantics (D13). The explicit organization
+   * filter is query scoping on top of `profiles_select_org`; a missing upline or
+   * organization issues no query and resolves to [].
+   */
+  async getDownlineAgents(
+    uplineId: string,
+    organizationId: string | null | undefined,
+  ): Promise<{ id: string; firstName: string; lastName: string }[]> {
+    const upline = (uplineId ?? "").trim();
+    const org = (organizationId ?? "").trim();
+    if (!upline || !org) return [];
+
     const { data, error } = await supabase
       .from("profiles")
       .select("id, first_name, last_name")
-      .eq("upline_id", uplineId)
+      .eq("organization_id", org)
+      .eq("upline_id", upline)
       .neq("status", "Deleted")
       .order("first_name", { ascending: true });
 
