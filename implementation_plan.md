@@ -1,3 +1,44 @@
+## 2026-10-23 — PLAN ONLY (awaiting Chris's approval): Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+
+**Status:** plan only. No source file, migration, RLS policy, function, deployment or production row changed; every
+production contact was a read-only `SELECT`. Full plan (rev 2, after an independent four-lens review):
+`docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`. Branch `claude/intelligent-lamport-r6hnx7`
+from `main` `f03af3b`. No open PR touches hierarchy; production head `20261022062539`.
+
+**Verified baseline (2026-10-23):** 16 profiles; 11 direct upline relationships; 4 not recognised by
+`is_ancestor_of`; 15 expected ancestor pairs, 6 missing, 0 extra; 4 stale `hierarchy_path` rows (`4ef505e0`,
+`5f952f0d`, `89f2e994`, `e5c4ee04`; fingerprint `ddc1f53f…`); 0 cross-org edges, missing parents, self-parents or
+cycles; longest chain 3.
+
+**Root cause:** `update_hierarchy_path()` builds the path from the *stored* row (self-only on INSERT, previous upline
+on UPDATE); `cascade_hierarchy_update()` refreshes direct children only; no self/cycle/cross-org guard; stale paths
+fail open on reassignment. **Live risk:** any profile save that lists `upline_id` (User Management always does, even
+unchanged — including a TL saving their own row) silently repairs paths and switches on TL authority; it happened on
+2026-10-17. `compute_hierarchy_path` and `is_ancestor_of` are anon-executable SECURITY DEFINER oracles.
+
+**What the repair activates:** only TL `f809493e`, over `4ef505e0`, `e5c4ee04` (and Deleted `89f2e994`): +132 leads,
++10 clients, +4,590 calls, +86 contact-history events, Contacts Team scope, Dashboard team, sale writers. Reports
+unchanged; no commission rows (toggle off).
+
+**Plan:**
+- **M1** authorization boundaries (`#APPROVE_RLS_CHANGE`): `is_ancestor_of` same-org + caller-bound + Active ancestor;
+  TL direct contact deletes need the Contacts delete toggle (as `delete_contact`); TL downline calls read + coaching
+  flag/notes only, no delete; `commission_level` of another member Admin-only; anon/PUBLIC revokes.
+- **M2** integrity: path from `NEW.upline_id`, whole-subtree cascade, no-op saves change nothing, self/cycle/cross-org
+  guards, invitation upline guard, concurrency lock, `upline_id` index, consistency function.
+- **M3** (kept in `migrations/pending/`) fingerprint-bound idempotent repair of the 4 rows.
+- **Frontend** F1–F12: upline sent only when changed; upline pickers exclude self/descendants; account-control UI
+  mirrors the database; HierarchyTree / User Management / Team tab query-scoped, org-filtered, Deleted-intermediate
+  safe, error states; CampaignDetail TL filter; assignee options; stale comments.
+- **Tests:** verbatim-baseline SQL harness + PostgREST forged-request stage in CI (PG 17.6); all 17 `is_ancestor_of`
+  callers; TL permission matrix per module; frontend Vitest suites.
+
+**Decisions D1–D15** with recommended defaults are in §5 of the full plan. **Gates:** 1 (branch + draft PR) →
+2a+2b (M1, M2; no access change) → 3 (frontend) → 2c (M3, activation; `#APPROVE_RLS_CHANGE` + invariant #28).
+Rollback: M1/M2 restore verbatim preimages (revokes kept); M3 recovery is operational (reassign upline / change role).
+
+---
+
 ## 2026-10-23 — PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
 
 **Authorization:** Chris approved completing PR #483: reconcile with main, verify, merge with the repository's squash strategy, and confirm the production Vercel deployment. No production database change, migration, RLS change, backend deployment or real lead mutation is authorized.
