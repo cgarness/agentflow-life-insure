@@ -1,3 +1,53 @@
+## 2026-10-23 — Hierarchy Stabilization: GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend PREPARED on PR #485 (NOT merged, NOT deployed; M2/M3 NOT applied)
+
+**Gate 2a.** Chris had M1 applied and verified in production through a separate (ChatGPT) session; this session did
+not apply it. This session's read-only re-check (`docs/plans/2026-10-23-hierarchy-stabilization/verification.md` §9)
+found:
+- **Migration record:** `20261023210027 / hierarchy_authorization_boundaries`, one statement whose SHA-256 is
+  `5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df`, byte-identical to the repository file. Head
+  `20261023210027`, 344 rows.
+- **Objects:** the post-image digests M2 requires; 4 RESTRICTIVE policies; 5 guard triggers; 10 policies dependent on
+  `is_ancestor_of`; anon/PUBLIC revokes in place; M2/M3 objects absent.
+- **Data:** 16 profiles, 11 edges, the same 4 stale paths, fingerprints `ddc1f53f…` / `7daae418…` unchanged.
+- **Advisors:**
+  - security: anon-executable SECURITY DEFINER 57 → 53, authenticated-executable 138 → 135, search_path 22 (as
+    predicted);
+  - performance: the new `calls_delete_own_rows_or_org_admin` appears under `auth_rls_initplan` (DELETE-only,
+    follow-up).
+
+**Gate 3 preparation (Chris's instruction; plan rev 5 §G3 lists the files).**
+- **Rename:** M1 and its rollback were renamed to `20261023210027_…` with `git mv`. The forward bytes are unchanged; its
+  line-60 comment still names the authored rollback path, because applied bytes are immutable. The rollback changed in
+  its header comments only.
+- **References:** `scripts/hierarchy_test_state.sh` paths, the runner expectation, and M2's refusal message (text only;
+  digests and body unchanged; still in `pending/`) now use the recorded version.
+- **New runner static checks:**
+  - M1 is pinned to `20261023210027` and SHA-256 `5d99c923…`;
+  - the run fails if M2 or M3 appears outside `migrations/pending/`;
+  - mutation-tested: 5 of 5 mutants fail.
+- **Docs:** plan §G3, verification §9 and §10, root plan, and the AGENT_RULES hierarchy status lines.
+- No frontend, workflow or other migration change.
+
+**Verification at `9962c63`.**
+- **Production equals S1:** the 42-line inventory (functions, ACLs, policies, triggers, dependent count) is identical
+  between production and a local S1 built from the renamed file.
+- **Runner** (PostgreSQL 16.15, PostgREST 12.2.3, CI mode): 2749 PASS lines, every suite at its pin (compatibility 190,
+  forged 336).
+- **Typecheck:** `tsc --noEmit` exit 0; app typecheck `base=84, candidate=80, new=0`.
+- **Focused Vitest:** 634 passed.
+
+**Context snapshot.**
+- Decisions: Gate 2a done; Gate 3 scope unchanged (merge and frontend release only; M2/M3 stay pending); D14 interim
+  guidance still applies until Gate 2c.
+- Migrations: production head `20261023210027` (M1). M2 `pending/20261023210100`, M3 `pending/20261023210200`: NOT
+  applied.
+- Deploys: none. PR #485 NOT merged.
+- Blockers: Chris's explicit Gate 3 approval; Supabase "Deploy to production" confirmed OFF by Chris; CI green at the
+  head; the read-only pre-merge preflight (verification §10).
+- Next: Gate 3 (merge and frontend) → Gate 2b (M2) → Gate 2c (M3), each separately approved.
+
+---
+
 ## 2026-10-23 — Hierarchy Stabilization: GATE 1 BUILT, REVIEWED AND VERIFIED (draft PR; NOTHING applied, merged or deployed)
 
 **Approval.** Chris approved Gate 1 with the recommended D1–D15 defaults and two mandatory corrections: R1 (close the

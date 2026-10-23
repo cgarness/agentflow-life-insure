@@ -234,3 +234,48 @@ The result is in §10.
   changed).
 - The runner now pins M1's applied version and SHA-256, and fails if M2 or M3 appears outside `pending/`.
 
+
+## 10. Gate 3 readiness (frontend release on the live M1-only database)
+
+**Production equals S1.** The §9 inventory query returned 42 lines from production. The same query on a local
+database built as S1 from the renamed M1 file (`scripts/hierarchy_test_state.sh S1`) returned 42 lines, and the two are
+**identical**. They cover:
+- every M1 function (digest, SECURITY DEFINER flag, configured search_path, owner, ACL);
+- the path functions, `on_profile_update`, `can_update_profile` and `has_contacts_permission`;
+- the 10 policies that depend on `is_ancestor_of`, the 4 RESTRICTIVE policies and `tasks_select_team_leader` (mode,
+  command, roles, both expressions);
+- all `profiles` triggers, the calls and contact guards, and the two clients triggers that fire before the
+  organization guard.
+
+The same query on S0 differs from S1 by exactly M1's intended changes. So the S1 results below describe production.
+
+**Local verification at `9962c63` (PostgreSQL 16.15, CI mode, PostgREST 12.2.3).**
+
+| Check | Result |
+|---|---|
+| `scripts/run_hierarchy_stabilization_tests.sh` | exit 0. "ALL HIERARCHY STABILIZATION PROOFS PASSED": **2749 PASS lines** (2747 plus the 2 new static checks). Core 64/64/114/114/64/64/64, RLS 1043, RPC 567, forged 336, compatibility 190 (27 cases × 7 states, S1 included), every count at its pin. All 70 databases dropped. |
+| New static checks | M1 is pinned to version `20261023210027` and SHA-256 `5d99c923…`; no top-level M2/M3. Mutation-tested (a changed byte, an extra copy under the old name, the old name only, M2 or M3 at the top level): all five fail, and the unmodified tree passes. |
+| `npx tsc --noEmit` | exit 0 |
+| App typecheck against `main` `80921d1` (`scripts/verify-a2p-types.mjs`) | `base=84, candidate=80, new=0` |
+| Focused hierarchy / User Management / Contacts / CampaignDetail Vitest (the CI list) | 44 files, 634 passed, 2 skipped |
+
+**What the frontend does on S1 (compatibility suite).** On S1, the real data-layer modules behave exactly as on the
+other states, with M1's narrowing applied:
+- A Team Leader's downline account-control writes, profile saves and `commission_level` changes are refused
+  (W07–W09, W12). On S1 the reason is that RLS filters the row: the stale paths give the Team Leader no recognised
+  descendants until M3. The UI's read-back therefore reports "Update failed: user profile not found or permission
+  denied". M1's explicit 42501 guard messages appear only once a branch is active (S3).
+- Team Leader user deletes are refused before any write (W10), and a demoted Admin's stale token is refused (W11).
+- The legacy always-send-`upline_id` save (W02) still heals stale paths on S1. That is the documented D14 interim
+  risk. The new frontend no longer does it (F1).
+
+**Release preconditions still open (Chris).**
+1. Explicit Gate 3 approval.
+2. Supabase "Deploy to production" confirmed **OFF** in the dashboard (invariant #30). If it were ON, a merge could
+   replay legacy migrations whose versions do not match production.
+3. CI green at the PR head.
+4. Immediately before the merge, re-read production read-only:
+   - head `20261023210027`, M1 statement SHA-256 `5d99c923…`;
+   - the §9 inventory still identical to S1;
+   - 4 stale paths with both fingerprints;
+   - no M2/M3 row or object.
