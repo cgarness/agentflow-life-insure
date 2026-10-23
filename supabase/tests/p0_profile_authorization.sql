@@ -96,7 +96,7 @@
 --        upline_id at that point. The recompute is therefore one change stale. PRE-EXISTING; NOT
 --        introduced by this migration (production 2026-10-23: 4 of 16 stored paths stale, not every
 --        path depth-1 as an earlier revision of this note said). Hierarchy stabilization M2
---        (migrations/pending/20261023210100_hierarchy_integrity.sql, unapplied until its own gate)
+--        (migrations/20261023232435_hierarchy_integrity.sql, applied at Gate 2b on 2026-10-23)
 --        derives the path from the incoming upline and refreshes whole subtrees, after which INFO-1 and
 --        INFO-2 no longer appear; hierarchy_stabilization_rls.sql §6 ports T5c/T13 onto the verbatim
 --        objects and asserts the canonical path from M2 onward. T5c hard-asserts the security property

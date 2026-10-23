@@ -17,7 +17,7 @@
 # applied M1 and M2 both ways and got identical inventories, data and notices.
 #
 # Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites, M1's
-# applied version and bytes, M2 / M3 kept in pending/) ·
+# and M2's applied versions and bytes, M3 kept in pending/) ·
 # 2 states S0 S1 S2 S3 S1R S2R S3R and the core suite on each (pinned PASS count; database unchanged by the suite) ·
 # 3 migrations: inventories, replay / drift / missing-prerequisite refusals with nothing changed, rollbacks back to
 # the exact preimage, re-apply after rollback, the M2 trigger probe, a hostile session search_path, lock_timeout,
@@ -310,24 +310,34 @@ done
 set +e; r="$(quit_check "$WORK/v_quit_ok.sql" 2>&1)"; c=$?; set -e
 [ "$c" = 0 ] || fail "static control v_quit_ok (\\q only in a string / comment / body) was rejected: $r"
 ok "static: no psql \\q or \\quit in the core, RLS and RPC suites; negative controls rejected, strings and comments allowed"
-case "$HS_M2$HS_M3" in *"/migrations/pending/"*"/migrations/pending/"*) ok "static: M2 and M3 live under migrations/pending/ (outside the CLI glob)" ;;
-  *) fail "static: M2/M3 are not under migrations/pending/" ;; esac
-# Gate 2a (2026-10-23): M1 is applied and recorded as 20261023210027, so the repository file is the as-applied record
-# (AGENT_RULES "apply_migration stamps its own version"): exactly one top-level M1 file, named after the recorded
-# version, with the recorded statement's SHA-256. M2 and M3 stay in pending/ until their gates; moving one to the
-# top level is part of Gate 2b / 2c and must change this check deliberately.
-HS_M1_APPLIED_VERSION="20261023210027"
-HS_M1_APPLIED_SHA256="5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df"
-mapfile -t M1_TOP < <(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name '*_hierarchy_authorization_boundaries.sql' | LC_ALL=C sort)
-[ "${#M1_TOP[@]}" = 1 ] && [ "${M1_TOP[0]}" = "$HS_M1" ] \
-  && [ "$(basename "$HS_M1")" = "${HS_M1_APPLIED_VERSION}_hierarchy_authorization_boundaries.sql" ] \
-  || fail "static: expected exactly one top-level M1 file, ${HS_M1_APPLIED_VERSION}_hierarchy_authorization_boundaries.sql (found: ${M1_TOP[*]:-none})"
-[ "$(sha256sum "$HS_M1" | cut -d' ' -f1)" = "$HS_M1_APPLIED_SHA256" ] \
-  || fail "static: M1's bytes differ from the SQL production recorded as $HS_M1_APPLIED_VERSION (SHA-256 $HS_M1_APPLIED_SHA256); an applied migration is immutable"
-ok "static: M1 is the as-applied record: one top-level file at the recorded version $HS_M1_APPLIED_VERSION, SHA-256 $HS_M1_APPLIED_SHA256"
-STRAY_M23="$(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f \( -name '*_hierarchy_integrity.sql' -o -name '*_hierarchy_path_repair.sql' \) | LC_ALL=C sort)"
-[ -z "$STRAY_M23" ] || fail "static: M2/M3 must stay in migrations/pending/ until Gates 2b / 2c; top-level copies: $STRAY_M23"
-ok "static: no top-level M2 / M3 file; both stay in migrations/pending/ until Gates 2b / 2c"
+case "$HS_M3" in *"/migrations/pending/"*) ok "static: M3 lives under migrations/pending/ (outside the CLI glob)" ;;
+  *) fail "static: M3 is not under migrations/pending/" ;; esac
+# Gates 2a / 2b (2026-10-23): M1 and M2 are applied and recorded as 20261023210027 and 20261023232435, so each
+# repository file is the as-applied record (AGENT_RULES "apply_migration stamps its own version"):
+# - exactly one top-level file per applied migration, named after its recorded version;
+# - its SHA-256 equals the recorded statement's;
+# - no copy left in pending/.
+# M3 stays in pending/ until Gate 2c; moving it to the top level is part of Gate 2c and must change this check
+# deliberately.
+pin_applied() {  # <name> <slug> <recorded version> <recorded SHA-256> <expected path>
+  local name="$1" slug="$2" version="$3" sha="$4" path="$5" pend
+  local -a top
+  mapfile -t top < <(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name "*_${slug}.sql" | LC_ALL=C sort)
+  [ "${#top[@]}" = 1 ] && [ "${top[0]}" = "$path" ] && [ "$(basename "$path")" = "${version}_${slug}.sql" ] \
+    || fail "static: expected exactly one top-level $name file, ${version}_${slug}.sql (found: ${top[*]:-none})"
+  pend="$(find "$HS_ROOT/supabase/migrations/pending" -maxdepth 1 -type f -name "*_${slug}.sql" | LC_ALL=C sort)"
+  [ -z "$pend" ] || fail "static: applied $name must not also remain in migrations/pending/: $pend"
+  [ "$(sha256sum "$path" | cut -d' ' -f1)" = "$sha" ] \
+    || fail "static: $name's bytes differ from the SQL production recorded as $version (SHA-256 $sha); an applied migration is immutable"
+  ok "static: $name is the as-applied record: one top-level file at the recorded version $version, SHA-256 $sha"
+}
+pin_applied M1 hierarchy_authorization_boundaries 20261023210027 \
+  5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df "$HS_M1"
+pin_applied M2 hierarchy_integrity 20261023232435 \
+  7f2c61dbdfdd39938d424bc26e024c81c823a5a41692c5a0607a8bff87377aa3 "$HS_M2"
+STRAY_M3="$(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name '*_hierarchy_path_repair.sql' | LC_ALL=C sort)"
+[ -z "$STRAY_M3" ] || fail "static: M3 must stay in migrations/pending/ until Gate 2c; top-level copies: $STRAY_M3"
+ok "static: no top-level M3 file; it stays in migrations/pending/ until Gate 2c"
 
 # ── 2. States and the core suite ────────────────────────────────────────────────────────────────────────────────
 echo

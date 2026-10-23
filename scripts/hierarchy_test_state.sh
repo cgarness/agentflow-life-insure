@@ -7,7 +7,8 @@
 #   <state>     S0   verbatim production preimage + production-shaped stale data (scripts/hierarchy_fixture.py)
 #               S1   S0 + M1 (20261023210027_hierarchy_authorization_boundaries; authored as 20261023210000,
 #                    renamed to the version production recorded at Gate 2a, bytes unchanged)
-#               S2   S1 + M2 (pending/20261023210100_hierarchy_integrity)
+#               S2   S1 + M2 (20261023232435_hierarchy_integrity; authored as pending/20261023210100, renamed to the
+#                    version production recorded at Gate 2b, bytes unchanged)
 #               S3   S2 + M3 (pending/20261023210200_hierarchy_path_repair, run from a temporary copy whose two reviewed
 #                    fingerprints — stale ids and stale ids with their target paths — are replaced by the synthetic
 #                    stale set's)
@@ -26,10 +27,10 @@ set +o xtrace   # commands carry the URL, which may hold a password: never trace
 
 HS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HS_M1="$HS_ROOT/supabase/migrations/20261023210027_hierarchy_authorization_boundaries.sql"
-HS_M2="$HS_ROOT/supabase/migrations/pending/20261023210100_hierarchy_integrity.sql"
+HS_M2="$HS_ROOT/supabase/migrations/20261023232435_hierarchy_integrity.sql"
 HS_M3="$HS_ROOT/supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql"
 HS_R1="$HS_ROOT/supabase/migrations/rollback/20261023210027_hierarchy_authorization_boundaries.rollback.sql"
-HS_R2="$HS_ROOT/supabase/migrations/rollback/20261023210100_hierarchy_integrity.rollback.sql"
+HS_R2="$HS_ROOT/supabase/migrations/rollback/20261023232435_hierarchy_integrity.rollback.sql"
 HS_R3="$HS_ROOT/supabase/migrations/rollback/20261023210200_hierarchy_path_repair.rollback.sql"
 HS_FIXTURE_PY="$HS_ROOT/scripts/hierarchy_fixture.py"
 HS_REVIEWED_FINGERPRINT="ddc1f53f3823c6e367310a748ea0ac85"          # M3 c_reviewed_fingerprint (stale ids)

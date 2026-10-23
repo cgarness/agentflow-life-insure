@@ -4,7 +4,7 @@ name: Hierarchy stabilization verification
 on:
   pull_request:
     paths:
-      # Migrations (M2 / M3 live in pending/ until their gates), their rollbacks, and the baseline the fixture copies.
+      # Migrations (M1 and M2 applied; M3 lives in pending/ until Gate 2c), their rollbacks, and the baseline the fixture copies.
       - 'supabase/migrations/*_hierarchy_authorization_boundaries.sql'
       - 'supabase/migrations/*_hierarchy_integrity.sql'
       - 'supabase/migrations/*_hierarchy_path_repair.sql'
