@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   toasts: [] as unknown[][],
 }));
 
+import { installComboboxDomStubs, pickCarrier } from "@/test/carrierComboboxTestUtils";
 vi.mock("@/integrations/supabase/client", () => {
   const rows: Record<string, () => unknown> = {
     leads: () => ({ assigned_agent_id: h.leadOwner }),
@@ -132,6 +133,7 @@ const flush = () => act(async () => { await new Promise((resolve) => setTimeout(
 const lost = { data: null, error: { message: "TypeError: Failed to fetch", code: "" }, status: 0 };
 
 beforeEach(() => {
+  installComboboxDomStubs();
   Object.assign(h, { role: "Agent", impersonating: false, leadOwner: A, clientOwner: A, saleResponses: [], toasts: [],
     commission: { status: "evidence_recorded", slots: [] } });
   h.perms = new Set([OWN]);
@@ -326,7 +328,7 @@ describe("AddClientModal commission payload", () => {
     const view = openAddClient();
     basics();
     fill("Policy Type", "Final Expense");
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     fill("Monthly Premium", "$100.00");
     fireEvent.change(screen.getAllByTestId("date")[0], { target: { value: "2026-10-03" } });
     await waitFor(() => expect(regions()).toHaveLength(1));
@@ -343,7 +345,7 @@ describe("AddClientModal commission payload", () => {
     const initial = { id: CLIENT_ID, firstName: "Pat", lastName: "Lee", phone: "5551234567", email: "", state: "", assignedAgentId: A };
     const first = openAddClient(initial);
     fill("Policy Type", "Final Expense");
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     fill("Monthly Premium", "100");
     fireEvent.change(screen.getAllByTestId("date")[0], { target: { value: "2026-10-03" } });
     await waitFor(() => expect(regions()).toHaveLength(1));
@@ -369,7 +371,7 @@ describe("AddClientModal commission payload", () => {
     h.perms = new Set([OWN, OTHERS]);
     const view = openAddClient();
     basics();
-    fill("Carrier", NORTH);
+    await pickCarrier(NORTH);
     fill("Monthly Premium", "$100.00");
     fireEvent.change(screen.getAllByTestId("date")[0], { target: { value: "2026-10-03" } });
     await flush();
@@ -389,7 +391,7 @@ describe("RecordPolicyModal commission payload", () => {
     const onSaved = vi.fn();
     mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={vi.fn()} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText("Policy type"), { target: { value: "Final Expense" } });
-    fireEvent.change(screen.getByLabelText("Carrier"), { target: { value: NORTH } });
+    await pickCarrier(NORTH);
     fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
     fireEvent.change(screen.getByLabelText("Sold Date"), { target: { value: "2026-10-03" } });
     await waitFor(() => expect(within(regions()[0]).getByText("For Synthetic B")).toBeTruthy());

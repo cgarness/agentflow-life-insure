@@ -1,3 +1,25 @@
+## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT released): standardize carrier selection in Record Policy and Add/Edit Client
+
+**Status:** Chris approved the plan with D1–D3 and four added requirements: frozen-retry safety, scope isolation,
+locking and form semantics. The branch `claude/carrier-selection-standardize-emoz7q` was refreshed against `main`
+`1a7ea7a`. Implemented in `2bd6404`; evidence in the focused `verification.md`. No Supabase or Vercel command. Merge
+and release need separate approval.
+**PR #479 review fix (approved, `f3de39d`):** the carrier list no longer returns a previous open's result on reopen.
+Each load is a render-time session. Focused plan §9; verification §4. Full plan and exact file list:
+`docs/plans/2026-10-22-carrier-selection/implementation_plan.md` §8.
+
+**Summary:** the free-text carrier inputs in `RecordPolicyModal` and `AddClientModal` become a shared searchable
+`CarrierCombobox`. It reads `public.carriers` for the current user and agency (organization filter plus RLS) and sorts
+names alphabetically.
+- **D1:** ConvertLeadModal is unchanged.
+- **D2:** the client's exact stored carrier stays until the user explicitly replaces it. "(not in Settings)" shows only
+  when nothing in Settings matches it.
+- **D3:** unrelated edits save while the list is loading or failed. A new or changed carrier must come from the loaded
+  list.
+- A frozen sale retry never re-checks the carrier list. No auto-selection, no typed carriers, no migration.
+
+---
+
 ## 2026-10-22 — Google Sheets Phase D/E live-release preparation (draft privacy branch only)
 
 **Intent:** Chris requested completion and production rollout of Google Sheets V1 while retaining the default Agent and Team Leader import permission. The prior Phase C frontend release is live at `069b1ad305fddfe7d7a5f9d5fc80254639d04596`; the Phase B backend is deployed with `GOOGLE_SHEETS_ENABLED` still absent and cron still off. The pilot permission is intentionally NOT restricted, per Chris's instruction.

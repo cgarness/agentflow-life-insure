@@ -4,6 +4,9 @@ import type { ClientSaleOptions } from "@/lib/policySaleRecording";
 import { clientSaleRecordsPolicy, commissionNotice } from "@/lib/policySaleOutcome";
 import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/lib/commission/capture";
 import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
+import { useOrganizationCarriers } from "@/hooks/useOrganizationCarriers";
+import { carrierSelectionError } from "@/lib/carrierSelection";
+import { CarrierCombobox } from "@/components/shared/CarrierCombobox";
 import { X, Loader2 } from "lucide-react";
 import { Client, PolicyType } from "@/lib/types";
 import { toast } from "sonner";
@@ -37,6 +40,8 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
   const submission = usePolicySaleSubmission();
   const { reset } = submission;
   const busy = saving || submission.phase === "sending";
+  const carriers = useOrganizationCarriers(open);
+  const carrierId = React.useId();
   const close = () => { if (!inFlight.current && submission.phase !== "sending") onClose(); };
 
   useEffect(() => {
@@ -77,6 +82,9 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
       toast.error(parsed.error.errors[0].message);
       return;
     }
+    // Only a new or changed carrier needs the loaded list. A frozen retry replays its submission unchecked.
+    const carrierError = submission.frozen ? null : carrierSelectionError(carriers.carriers, form.carrier, initial?.carrier);
+    if (carrierError) { toast.error(carrierError); return; }
 
     if (!initial || isNewSale) {
       const commission = commissionPayload([{ slot: PRIMARY_SLOT, inputs: isNewSale ? capture.current : null }]);
@@ -156,8 +164,8 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ open, onClose, onSave, 
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground block mb-1">Carrier</label>
-              <input value={form.carrier || ""} onChange={e => setForm((f) => ({ ...f, carrier: e.target.value }))} className="w-full h-9 px-3 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none" />
+              <label htmlFor={carrierId} className="text-xs font-medium text-muted-foreground block mb-1">Carrier</label>
+              <CarrierCombobox id={carrierId} value={form.carrier || ""} onChange={carrier => setForm((f) => ({ ...f, carrier }))} list={carriers} preserved={initial?.carrier} disabled={busy || submission.locked} allowClear />
             </div>
           </div>
           <div>
