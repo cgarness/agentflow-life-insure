@@ -55,3 +55,4 @@ SELECT test_assert(
   'existing matching of actual insured ages remains intact');
 
 -- RLS, function owners, execution flags and role ACLs must be checked against the pre-migration inventory in CI.
+\echo ' PASS optional-age null inputs, bounded matching, exact payload and no fabricated age'
