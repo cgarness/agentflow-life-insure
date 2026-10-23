@@ -491,6 +491,15 @@ sql -c "SELECT pc_login(11); SET ROLE authenticated;
   SELECT test_assert((get_my_commission_policy_list()->>'total_count')::integer = 1, 'reapplied reads see the kept policy')" >/dev/null
 echo 'PASS commissions insights rollback: goal refusal, exact restore, records kept, replay refusal and reapply'
 
+# ── 4b. Age-independent product validation: additive migration and local-only regression suite ──
+# This deliberately comes after the original rollback proofs so that prior immutable release tests
+# continue on their pinned database contract. Never run the optional-age migration on production here.
+new_db optional_age
+sql -1 -f "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql" >/dev/null
+run_suite "$ROOT/supabase/tests/policy_commission_optional_age.sql"
+expect_fail 'optional insured age already applied or column drift' "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql"
+echo 'PASS optional-age SQL nullability, payload, matching and replay guard'
+
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
   new_db postgrest
