@@ -498,7 +498,16 @@ new_db optional_age
 sql -1 -f "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql" >/dev/null
 run_suite "$ROOT/supabase/tests/policy_commission_optional_age.sql"
 expect_fail 'optional insured age already applied or column drift' "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql"
-echo 'PASS optional-age SQL nullability, payload, matching and replay guard'
+# No NULL-age rows were saved in this fixture: rollback must restore both NOT NULL flags and
+# the original preimage bodies exactly; reapply proves the migration is reversible before use.
+sql -1 -f "$ROOT/supabase/migrations/rollback/20261023180000_policy_commission_optional_age.rollback.sql" >/dev/null
+sql -tAX -c "SELECT md5(pg_get_functiondef('private.policy_commission_valid_slot(jsonb,boolean)'::regprocedure))" |
+  grep -qx 34f369b701745683107e77c5304dddfb
+sql -tAX -c "SELECT md5(pg_get_functiondef('private.policy_commission_grid_facts(uuid,jsonb)'::regprocedure))" |
+  grep -qx 034fbd8853d749ad95daa62e192b2598
+sql -1 -f "$ROOT/supabase/migrations/20261023180000_policy_commission_optional_age.sql" >/dev/null
+run_suite "$ROOT/supabase/tests/policy_commission_optional_age.sql"
+echo 'PASS optional-age payload/matching, replay refusal, exact rollback and reapply'
 
 # ── 5. Optional: real PostgREST + supabase-js, and save-overhead measurement ─────────────────────────────
 if [ -n "${POSTGREST_BIN:-}" ]; then
