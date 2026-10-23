@@ -35,6 +35,15 @@ found:
   forged 336).
 - **Typecheck:** `tsc --noEmit` exit 0; app typecheck `base=84, candidate=80, new=0`.
 - **Focused Vitest:** 634 passed.
+- **CI at `a1a83fe`:** all 13 checks pass. On PostgreSQL 17.6 (run 40026346591): 2749 PASS lines, all pins.
+- **Final independent security review** (4 lenses, two adversarial verifiers per finding, a completeness critic):
+  - no release blocker;
+  - doc inaccuracies fixed in this preparation, including that the Gate 3 rollback must promote the previous Vercel
+    deployments and never `git revert` the PR, and that both Vercel projects are verified;
+  - three pre-existing UX/robustness items recorded as plan §12 follow-ups: the TL Goals/Onboarding message, no
+    read-back on deactivate/reactivate/billing, and the onboarding toggles not persisting.
+- **Rollback targets now** (main `80921d1`): `agentflow` `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW`, `agentflow-life-insure`
+  `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV`.
 
 **Context snapshot.**
 - Decisions: Gate 2a done; Gate 3 scope unchanged (merge and frontend release only; M2/M3 stay pending); D14 interim

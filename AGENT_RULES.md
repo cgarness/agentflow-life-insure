@@ -1039,7 +1039,7 @@ Future conversions only: no backfill, and existing clients are never read or cha
 
 ## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027` since Gate 2a; M2/M3 NOT APPLIED; frontend Gate 3 pending)
 
-Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 4); evidence: `verification.md`
+Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 5, §G3); evidence: `verification.md`
 beside it. Production gates, each separately approved: **2a M1 → 3 frontend → 2b M2 → 2c M3**. Until a gate is
 applied, its rules below describe the branch, not production — check `list_migrations`. **Gate 2a is done:** M1 is
 recorded as `20261023210027` (1 statement, SHA-256 `5d99c923…`, byte-identical to the repository file, which was renamed
@@ -1067,8 +1067,11 @@ from `20261023210000`). The runner pins that version and digest, and fails if M2
   fingerprint `7daae418…`); anything else refuses. Rolling back functions never removes authority already granted —
   revoke operationally (reassign the upline or change the role).
 - **Release order matters (R2):** the frontend that stops resending unchanged `upline_id` and mirrors account-control
-  rules ships before M2. Profile writes in User Management read rows back and raise `PROFILE_UPDATE_REFUSED` when RLS
-  filters them.
+  rules ships before M2. In User Management, the member profile save, upline assignment, team removal and soft delete
+  read rows back and raise `PROFILE_UPDATE_REFUSED` when RLS filters them.
+  - Deactivate, reactivate and the billing-type change do not read rows back yet.
+  - The Goals and Onboarding writes (`updateProfile`) raise the older "apply the latest database migrations" message.
+  - Both are recorded residuals (plan §12). Never claim them as read-back protected.
 - **Tests:** `scripts/run_hierarchy_stabilization_tests.sh` (disposable loopback cluster; states S0–S3 and rollback
   states; RLS, RPC, PostgREST forged/stale-token and frontend compatibility stages with pinned case counts) and CI
   workflow `hierarchy-stabilization.yml` (PostgreSQL 17.6, PostgREST 12.2.3). Any change to these migrations, the

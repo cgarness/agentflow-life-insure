@@ -68,13 +68,21 @@ Preconditions for the merge:
 - CI green at the PR head, and the PR mergeable.
 - This preparation's read-only preflight repeated immediately before the merge (`verification.md` §10).
 
-The merge builds the Vercel production deployments. It must not apply any migration: with M1's file named after its
-recorded version, the repository and `schema_migrations` agree.
+The merge rebuilds **both** Git-linked Vercel production projects (`agentflow` and `agentflow-life-insure`), and it
+must not apply any migration.
+- M1's file now carries its recorded version, so M1 itself cannot be replayed.
+- The merge is migration-free only because Supabase "Deploy to production" is OFF. Invariant #30: seven legacy
+  repository migrations, including the baseline, still carry versions that differ from production. With the
+  integration ON, a merge could replay them.
+- Rollback candidates at preparation time (main `80921d1`): `agentflow` `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW` and
+  `agentflow-life-insure` `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV`, both READY and rollback candidates. Re-record them
+  immediately before the merge.
 
 ### Intended files for this preparation
 
 These were listed before editing. All of them are covered by Chris's Gate 3 preparation instruction and by the Gate 1
-plan, §8 item 6: "reconcile the file name to the stamped version and re-pin pending M2/M3".
+release procedure: `verification.md` §8 item 6, "reconcile the file name to the stamped version and re-pin pending
+M2/M3", and this plan's §9 item 2.
 1. **Rename** `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` →
    `supabase/migrations/20261023210027_hierarchy_authorization_boundaries.sql` with `git mv`, **bytes identical**
    (SHA-256 `5d99c923…`).
@@ -82,7 +90,8 @@ plan, §8 item 6: "reconcile the file name to the stamped version and re-pin pen
      (AGENT_RULES, "apply_migration stamps its own version").
 2. **Rename** `supabase/migrations/rollback/20261023210000_hierarchy_authorization_boundaries.rollback.sql` →
    `rollback/20261023210027_hierarchy_authorization_boundaries.rollback.sql`.
-   - Only its header comments change (applied version, authored name, production-use approval).
+   - Only its first header comment line changes. It now names the applied version, the authored name and the forward
+     SHA-256.
    - The guard and body are unchanged. It was never applied, so it is editable.
 3. `scripts/hierarchy_test_state.sh`: the `HS_M1` and `HS_R1` paths and the S1 comment.
 4. `scripts/run_hierarchy_stabilization_tests.sh`:
@@ -590,8 +599,12 @@ stamped migration versions, deployment ids, blockers, next steps).
    after it. Never `supabase db push` (baseline row unreconciled).
 3. **Gate 3** — before merging, confirm the Supabase GitHub integration's 'Deploy to production' is still disabled
    (AGENT_RULES #30; preview branching only builds non-production branches) and that M1's file carries its stamped
-   version. Merge (squash, expected-head guard; M2/M3 still in `pending/`); confirm the Vercel production deployment;
-   non-destructive smoke checks only.
+   version.
+   - Record both Vercel projects' current production deployment ids as rollback targets.
+   - Merge (squash, expected-head guard; M2/M3 still in `pending/`).
+   - Confirm that **both** Git-linked Vercel production projects (`agentflow` and `agentflow-life-insure`) are READY at
+     the exact merge SHA and serve the new hashed assets on their production URLs. Non-destructive smoke checks only.
+   - "Both projects serve the Gate 3 SHA" is a Gate 2b precondition (R2).
 4. **Gate 2b** — preflight as 2a plus "still 4 stale, both fingerprints unchanged"; `apply_migration` M2 from `pending/`; read
    back; `$post$` trigger probe; consistency; advisors; move the file to its stamped version in a docs commit.
 5. **Gate 2c** — `#APPROVE_RLS_CHANGE` plus the invariant #28 elements: separate exact approval of the stale set
@@ -606,7 +619,7 @@ stamped migration versions, deployment ids, blockers, next steps).
 | M1 | `rollback/20261023210027_….rollback.sql` (renamed from `20261023210000_…` at Gate 3 preparation): guarded by post-image md5s; restores the verbatim `is_ancestor_of` and `tasks_select_team_leader` (TO public); drops the two `profile_authz` helpers, the commission guard, the calls guard, the contact tenancy guard and its 3 triggers, and the 4 restrictive policies; **no anon/PUBLIC re-grant** (security revokes are re-assert-only) | ⚠ With M3 live, this re-widens TL powers (downline deletes without the toggle, call edits, `commission_level`, Deleted-TL access) and re-opens the contact tenancy gap |
 | M2 | `rollback/20261023210100_….rollback.sql`: restores verbatim `compute`/`update`/`cascade` bodies and trigger DDL (`CREATE OR REPLACE TRIGGER`); drops builder, lock trigger, invitation guard, consistency function, index; keeps revokes and the `on_profile_update` search_path hardening | Proven locally: preimage md5s restored; repaired paths stay correct; re-apply after rollback passes the guard |
 | M3 | **Recovery path = operational revocation**: an Admin reassigns the affected agents' upline (fixed triggers revoke immediately) or changes the TL's role. No automatic data inverse — rolling back functions never removes granted authority. The Gate 2c snapshot is forensic only; a byte-exact restore would need an invariant #29 artifact (full-id CSV outside the repo, sha256, re-parsed and compared) plus M2 rolled back and its own approval | |
-| Frontend | Revert the PR / promote the previous Vercel deployment | |
+| Frontend (Gate 3) | **Promote the previous production deployment on both Vercel projects** (the rollback targets recorded before the merge; no git change). If a code rollback is ever needed, revert only the `src/` changes in a follow-up commit. **Never `git revert` the squashed PR:** that deletes the only repository copy of the applied M1 (`20261023210027`), the pending M2/M3, the rollbacks, the harness and the CI workflow, and it brings back the pre-Gate-2a docs | ⚠ The old bundle always sends `upline_id`. Until Gate 2b, an ordinary User Management save of `f809493e`, `4ef505e0`, `e5c4ee04` or `89f2e994` then heals stale paths and activates TL authority (D14). While it is live, those four must not be saved. |
 
 ## 11. Files to touch (Gate 1)
 
@@ -614,8 +627,8 @@ stamped migration versions, deployment ids, blockers, next steps).
 `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` (renamed to `20261023210027_…` after Gate 2a, §G3),
 `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`,
 `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`, and
-`supabase/migrations/rollback/` `20261023210000_…`, `20261023210100_…`, `20261023210200_…` (`.rollback.sql`; M3's is a
-refusal stub documenting §10).
+`supabase/migrations/rollback/` `20261023210000_…` (renamed to `20261023210027_…` after Gate 2a), `20261023210100_…`,
+`20261023210200_…` (`.rollback.sql`; M3's is a refusal stub documenting §10).
 
 **Tests / CI:** `scripts/hierarchy_fixture.py`, `scripts/run_hierarchy_stabilization_tests.sh`,
 `supabase/tests/hierarchy_stabilization.sql`, `supabase/tests/hierarchy_stabilization_rls.sql`,
@@ -681,6 +694,17 @@ the filtered member list; `reassignAllContacts` does not compare moved counts; t
 the PostgREST row cap; an invitation accepted after its upline was deactivated places the member under that
 (inert) upline; interdependent multi-row re-parenting must be applied as separate statements in dependency order;
 the commission-grids runner fails when another runner's roles remain on a shared cluster (passes on a fresh one).
+
+**Added by the Gate 3 final review (2026-10-23):**
+- On the M1-only database, a Team Leader's downline Goals and Onboarding writes are refused, as on `main`. They show
+  `updateProfile`'s older "Please ensure you have applied the latest database migrations" text instead of
+  `PROFILE_UPDATE_REFUSED`.
+- The member modal stays editable for downline members until M3 makes the branch active.
+- The User Management onboarding toggles persist nothing for any viewer (`updateProfile` does not map
+  `onboarding_items` / `onboarding_complete`), and the optimistic state is not reverted.
+- Performance: the new `calls_delete_own_rows_or_org_admin` evaluates `auth.uid()` per row (`auth_rls_initplan`;
+  DELETE-only).
+- All pre-existing behaviour, or minor; each needs its own approval to change.
 
 ## 13. As built (Gate 1, `git diff --name-status f03af3b`)
 

@@ -278,4 +278,39 @@ other states, with M1's narrowing applied:
    - head `20261023210027`, M1 statement SHA-256 `5d99c923…`;
    - the §9 inventory still identical to S1;
    - 4 stale paths with both fingerprints;
-   - no M2/M3 row or object.
+   - no M2/M3 row or object;
+   - both Vercel projects' current production deployment ids, recorded as rollback targets. At preparation time
+     (main `80921d1`) they are `agentflow` `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW` and `agentflow-life-insure`
+     `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV`, both READY and rollback candidates.
+
+**After the merge (Gate 3 completion checks).**
+- Both Git-linked Vercel production projects are READY at the exact merge SHA and serve new hashed assets on their
+  production URLs.
+- Production's migration head is still `20261023210027`, with no M2/M3 row. "Both projects on the Gate 3 SHA" is a
+  Gate 2b precondition.
+- The rollback is plan §10 "Frontend (Gate 3)": promote the previous deployments, never `git revert` the PR.
+
+**CI at `a1a83fe`.** All 13 GitHub Actions checks pass; Supabase Preview is skipped. In run 40026346591,
+`hierarchy-stabilization.yml` on PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1) with PostgREST 12.2.3 reports "ALL
+HIERARCHY STABILIZATION PROOFS PASSED": **2749 PASS lines**, every count at its pin (compatibility 190, forged 336).
+UV profile sync, Reports frontend, commission/sales/contact, consent, native, postgres, browser and paired-native also
+pass.
+
+**Final independent security review (Gate 3, at `9962c63`).** Four lenses: live-M1 frontend behaviour,
+release/deployment safety, frontend security and tenancy, and reconciliation and docs accuracy. Each finding was
+checked by two adversarial verifiers, and a completeness critic followed (17 agents).
+- **No release blocker.** Release safety and frontend security found nothing new: org scoping, no service-role use or
+  secrets, and no automated path that applies M2/M3.
+- **Fixed in this preparation (docs only):**
+  - plan §G3 overstated why the merge is migration-free (it is because "Deploy to production" is OFF, invariant #30);
+  - wrong cross-references and the rollback-header description in §G3;
+  - the AGENT_RULES plan revision, and its read-back statement (now names exactly which writes read back);
+  - the Gate 3 rollback said "Revert the PR", which would delete applied M1's only repository copy and bring back the
+    old ordinary-save hazard. It now says to promote the previous deployments;
+  - Gate 3 verified only one Vercel project; it now checks both.
+- **Pre-existing, recorded as plan §12 follow-ups (no code change without approval):**
+  - a Team Leader's Goals/Onboarding refusals show `updateProfile`'s older "apply the latest database migrations"
+    message (nit);
+  - deactivate, reactivate and billing-type writes have no read-back (minor; already listed);
+  - the onboarding toggles persist nothing (minor; a disputed verdict: one verifier judged it unreachable in
+    production).
