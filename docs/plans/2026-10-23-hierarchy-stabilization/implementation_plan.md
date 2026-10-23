@@ -1,6 +1,11 @@
 # Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Status (2026-10-23): PLAN ONLY (rev 2) — awaiting Chris's explicit approval.** No source file, migration, RLS
+**Status (2026-10-23): GATE 1 APPROVED (rev 3) — development and testing only.** Chris approved Gate 1 with the
+recommended D1–D15 defaults and two mandatory corrections (§R). Gate 1 does **not** authorize a merge, deployment,
+migration apply, production data change or production RLS change; each production gate below still needs its own
+explicit approval, and the four-row repair fingerprint is preserved.
+
+**Rev 2 status (superseded):** PLAN ONLY — awaiting Chris's explicit approval. No source file, migration, RLS
 policy, function, Edge Function, deployment or production row has been changed. Every production contact was a
 read-only `SELECT` against `jncvvsvckxhqgqvkppmj` (catalog, aggregates, 8-character id prefixes). Throwaway local
 PostgreSQL 16 clusters in the session scratchpad reproduced the defects and proved the design; they were stopped and
@@ -15,15 +20,51 @@ Branch `claude/intelligent-lamport-r6hnx7` (from `main` `f03af3b`). Gates — ea
 
 | Gate | Authorizes | Production effect |
 |---|---|---|
-| **1** | Implementation on this branch: migration + rollback files, test harness + CI workflow, frontend, docs, local/CI verification, one **draft PR** | none |
+| **1** ✅ approved | Implementation on this branch: migration + rollback files, test harness + CI workflow, frontend, docs, local/CI verification, independent security review, full regression, one **draft PR** | none |
 | **2a** | `apply_migration` **M1** (authorization boundaries) — `#APPROVE_RLS_CHANGE` | narrowing only; 0 rows change visibility today |
+| **3** | Merge the PR and release the frontend (M2 and M3 stay in `migrations/pending/`, unapplied) | UI only; frontend safety protections live **before** any hierarchy activation path exists |
 | **2b** | `apply_migration` **M2** (integrity triggers + guards) | no row written; from now on real upline edits / TL invites derive correct paths (§6.2) |
-| **3** | Merge the PR, release the frontend (M3 stays in `migrations/pending/`) | UI only; must precede 2c (§9) |
-| **2c** | `apply_migration` **M3** (guarded path repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist | **activates TL `f809493e`'s downline authority** (§4) |
+| **2c** | `apply_migration` **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist | **activates TL `f809493e`'s downline authority** (§4) |
 
-Recommended order: **1 → 2a+2b → 3 → 2c**, with 3 and 2c close together.
+Order (correction R2): **1 → 2a (M1) → 3 (frontend) → 2b (M2) → 2c (M3)**, conditional on the frontend ↔ database
+compatibility suite (§8) passing for every state the release passes through. If it does not, the fallback is the
+explicit activation guard in §R.
 
 ---
+
+## R. Gate 1 corrections (mandatory, from Chris's approval)
+
+**R1 — Close the stale-JWT role mismatch in hierarchy authorization.** The TL branches of 9 policies key on the JWT
+role (`get_user_role()` = `app_metadata.role`), which survives a promotion, demotion or deactivation until the token
+refreshes. Every hierarchy authorization decision becomes database-authoritative where it matters:
+- `is_ancestor_of` grants strict ancestry only when the **ancestor's profile** (not the JWT) is `Active` and has role
+  `Team Leader`, `Admin` or `Super Admin` (or `is_super_admin`). Combined with the policies' existing JWT role check,
+  a TL branch now needs **both** the token and the database to say Team Leader: a demoted TL (DB `Agent`) with an old
+  TL token gets no downline rows, a deactivated/deleted TL gets none, and a just-promoted TL with an old Agent token
+  fails closed until the token refreshes. Agents never carry hierarchy authority (production: 0 Agent uplines).
+- The new RESTRICTIVE contact-delete policies decide "is this a Team Leader" from the database through
+  `profile_authz.actor_is_team_leader()` (`profile_authz` is the existing policy-helper schema; `authenticated` has
+  USAGE, not on `private`).
+- The new calls DELETE and UPDATE guards decide from the database: on a call row owned by someone else, only an
+  actor whose **profile** is Admin/Super Admin of that org or `is_super_admin` may delete it or edit anything beyond
+  `flagged_for_coaching` / `notes`. So a demoted TL — or any stale elevated token — cannot edit or delete downline
+  calls, even through a direct API write.
+- `tasks_select_team_leader` (TO public, inline ltree test, no status check) is recreated under the same name **TO
+  authenticated**, using `is_ancestor_of(auth.uid(), assigned_to)` with the viewer's DB role check kept — narrowing
+  only (0 rows today); TO authenticated is required because anon keeps table SELECT on `tasks` and loses EXECUTE on
+  `is_ancestor_of`.
+- Already database-authoritative and unchanged: `can_update_profile`, `enforce_profile_field_authorization`, the
+  `commission_level` guard, `private.campaign_actor()` (10 TL-capable functions: DB role, Active, org match).
+- Tests (§8): promotion, demotion, deactivation (Inactive and Deleted) and forged/stale-token direct API writes
+  (PostgREST with minted tokens whose role/org claims disagree with the database), per module.
+
+**R2 — Frontend safety protections live before M2 can activate hierarchy access.** Order M1 → frontend → M2 → M3.
+M2 also stays in `migrations/pending/` until its own gate, so the merged `main` contains only applied migrations.
+A compatibility suite runs the **real frontend data-layer modules** (supabase-js against local PostgREST) on every
+database state the release passes through — S0 baseline, S1 M1, S2 M1+M2, S3 M1+M2+M3 — plus the rollback states.
+**Fallback if compatibility fails:** M2 ships with a database activation guard (`private.hierarchy_activation`
+single-row flag, default off) under which the new triggers keep paths frozen except through the reviewed repair; it
+is switched on only at Gate 2c. Not built unless needed.
 
 ## 0. Sources read and conflict check (2026-10-23)
 
@@ -163,10 +204,10 @@ Reply "approve Gate 1 with the recommended defaults" or name any change.
 |---|---|---|---|
 | D1 | Canonical TL resolver | ★ Path-based `is_ancestor_of` (GiST-indexed, 27 policies) with `hierarchy_path` **kept correct by the database**; Reports keep `resolve_downline_ids`; parity tests pin the two | Per-row upline walk in `is_ancestor_of` (slower in RLS; tasks policy still reads paths) |
 | D2 | `is_ancestor_of` semantics | ★ Same signature (9 policies depend on it). Add: same org for ancestor and descendant; **ancestor must be the caller** (`auth.uid() IS NULL OR ancestor_id = auth.uid()` — all 17 callers and 9 policies already pass the caller; closes the cross-org oracle for signed-in users). Self stays true; Deleted descendants stay included | Also exclude Deleted descendants (matches Reports; hides orphaned books) |
-| D3 | Deleted / Inactive TLs | ★ Ancestor must be `Active` (except self). Closes "soft-deleted TL with a live token keeps downline access" for the 9 policies and 7 non-`campaign_actor` functions; 0 effect today | Rely on banning (soft delete does not ban today) |
+| D3 | Deleted / Inactive / demoted TLs (R1) | ★ Strict ancestry needs the ancestor's **profile** to be `Active` with role Team Leader / Admin / Super Admin or `is_super_admin`. Closes stale tokens after deactivation, deletion or demotion for the 9 policies, the tasks policy and the 7 non-`campaign_actor` functions; 0 effect today | Rely on token refresh / banning |
 | D4 | TL edits of downline profiles (designed since 2026-03, dormant) | ★ Keep the TL branch. Additive trigger: **changing** another member's `commission_level` requires Admin/Super Admin of that org or `is_super_admin`, read from the actor's profile (fires `WHEN (OLD IS DISTINCT FROM NEW)`, so unchanged-value saves pass). UI mirrors all account-control fields (F6) | (b) TL self-only; (c) restore everything as designed |
-| D5 | Contacts DELETE by TLs | ★ RESTRICTIVE DELETE policies on `leads`/`clients`/`recruits`: a TL's **direct** delete (own rows included) needs `has_contacts_permission('contacts.<type>.delete')` — exactly `delete_contact`'s rule; closes reassign-to-self-then-delete. UI already hides delete without the toggle. Admin/Agent unchanged | Accept the bypass; or enforce for every role (wider change, out of scope) |
-| D6 | TL writes on downline call rows | ★ RESTRICTIVE DELETE on `calls` (TL deletes own rows only) + BEFORE UPDATE guard: on another agent's call a TL may change only `flagged_for_coaching` and `notes` (direct client writes only; definer RPCs, webhooks and Admins unaffected) | Restore the designed UPDATE/DELETE (would let TLs move downline calls between report periods or clear missed flags) |
+| D5 | Contacts DELETE by TLs | ★ RESTRICTIVE DELETE policies on `leads`/`clients`/`recruits`: an actor whose **profile** is Team Leader (R1) needs `has_contacts_permission('contacts.<type>.delete')` for any direct delete (own rows included) — exactly `delete_contact`'s rule; closes reassign-to-self-then-delete. UI already hides delete without the toggle. Admin/Agent unchanged | Accept the bypass; or enforce for every role (wider change, out of scope) |
+| D6 | Writes on other agents' call rows | ★ RESTRICTIVE DELETE on `calls`: own rows, or an actor whose **profile** is Admin/Super Admin of the org or `is_super_admin`. BEFORE UPDATE guard: on another agent's call, a non-admin **profile** may change only `flagged_for_coaching` and `notes` (direct client writes only; definer RPCs, webhooks and real Admins unaffected). Covers TLs and any stale elevated token (R1) | Restore the designed UPDATE/DELETE |
 | D7 | Commission design | ★ No change. Confirm: TL + "View Others' Commission Percentage" = read downline commission rows; a TL-recorded downline sale captures with read access (Phase 2A). Note: `profiles.commission_level` itself is readable org-wide regardless of the toggle (§12) | Close the TL commission branch (a commission-permission change) |
 | D8 | Upline rules | ★ Database enforces structure (self, cycle, cross-org, depth 100, org change stranding downline). Status/role rules are UI-only (pickers: Active Admin/TL, same org, excluding self + descendants). Invitations: database requires an **Active same-org upline** on INSERT or upline/org change | Enforce role/status for profiles too (breaks TL demotion / soft-delete flows that leave children in place) |
 | D9 | Repair packaging | ★ M3 separate, in `migrations/pending/` until 2c; refuses unless the live stale set's fingerprint equals the reviewed one (`ddc1f53f…`), no-op when nothing is stale; repairs all 4 incl. the 2 Deleted rows; accepts 4 `updated_at` bumps and 8 unchanged-value `set_claim` writes | Repair inside M2; exclude Deleted rows |
@@ -175,7 +216,7 @@ Reply "approve Gate 1 with the recommended defaults" or name any change.
 | D12 | Index | ★ `idx_profiles_upline_id ON profiles (upline_id) WHERE upline_id IS NOT NULL` | None |
 | D13 | Frontend scope | ★ §6.4 F1–F12 (confirmed defects + safety mirrors). Task / appointment / import pickers keep direct reports (identical today) | Switch them to the full subtree now |
 | D14 | Interim | ★ §1 interim guidance until Gate 2c | Frontend-only stop-gap first |
-| D15 | Release order | ★ 1 → 2a+2b → 3 → 2c (frontend before activation, so a TL never sees a "Delete User" that moves a book and then fails) | 2c before 3 (accept that risk window) |
+| D15 | Release order (R2) | ★ 1 → 2a (M1) → 3 (frontend) → 2b (M2) → 2c (M3), gated on the compatibility suite | Activation-guard fallback (§R) |
 
 **Your action, outside code (not part of any gate):** (a) confirm Supabase Auth public sign-up is **off**
 (`handle_new_user` trusts signup metadata for org, role and upline; the app only uses `admin.createUser`);
@@ -201,30 +242,36 @@ organization UUIDs.
    STABLE SECURITY DEFINER`:
    `EXISTS (SELECT 1 FROM public.profiles d JOIN public.profiles a ON a.id = ancestor_id WHERE d.id = descendant_id
    AND (auth.uid() IS NULL OR a.id = auth.uid()) AND d.organization_id = a.organization_id
-   AND d.hierarchy_path <@ a.hierarchy_path AND (a.id = d.id OR a.status = 'Active'))` (D2, D3).
+   AND d.hierarchy_path <@ a.hierarchy_path AND (a.id = d.id OR (a.status = 'Active' AND (coalesce(a.is_super_admin,
+   false) OR a.role IN ('Team Leader','Admin','Super Admin')))))` (D2, D3, R1).
    REVOKE EXECUTE FROM PUBLIC, anon; re-assert GRANT to authenticated, service_role.
+1b. `profile_authz.actor_is_team_leader()` and `profile_authz.actor_is_org_admin(p_org uuid)` — `STABLE SECURITY
+   DEFINER`, read the caller's own profile row (never the JWT), EXECUTE to authenticated only (R1).
+1c. `tasks_select_team_leader` recreated (same name, SELECT, PERMISSIVE) **TO authenticated**:
+   `EXISTS (viewer = auth.uid() profile, same org as the task, role IN ('Team Leader','Team Lead')) AND
+   public.is_ancestor_of(auth.uid(), tasks.assigned_to)` (R1; narrowing only).
 2. `private.guard_profile_commission_level()` + `trg_01_guard_profile_commission_level` — `BEFORE UPDATE OF
    commission_level ON public.profiles FOR EACH ROW WHEN (OLD.commission_level IS DISTINCT FROM
    NEW.commission_level)`: `auth.uid()` NULL passes; self passes (existing self-edit stays a follow-up); otherwise the
    actor's **profile** must be `is_super_admin` or role Admin/Super Admin in `OLD.organization_id`, else 42501 (D4).
    `enforce_profile_field_authorization` is not edited.
 3. RESTRICTIVE `FOR DELETE TO authenticated` policies (D5, D6):
-   - `leads_tl_delete_requires_contacts_permission`: `coalesce(public.get_user_role(),'') <> 'Team Leader' OR public.has_contacts_permission('contacts.leads.delete')`
+   - `leads_tl_delete_requires_contacts_permission`: `NOT profile_authz.actor_is_team_leader() OR public.has_contacts_permission('contacts.leads.delete')`
    - `clients_tl_delete_requires_contacts_permission`, `recruits_tl_delete_requires_contacts_permission`: same with `contacts.clients.delete` / `contacts.recruits.delete`
-   - `calls_tl_delete_own_rows_only`: `agent_id = auth.uid() OR coalesce(public.get_user_role(),'') NOT IN ('Team Leader','Team Lead') OR public.super_admin_own_org(organization_id)`
+   - `calls_delete_own_rows_or_org_admin`: `agent_id = auth.uid() OR profile_authz.actor_is_org_admin(organization_id)`
 4. `private.guard_team_leader_downline_call_update()` + `calls_00_guard_team_leader_downline_update` (BEFORE UPDATE,
    sorts before `calls_guard_dialer_core` / `calls_reporting_fields`, so it sees the client-supplied row): returns
    immediately unless `current_user = 'authenticated'` (definer RPCs, webhooks and service role untouched), the
-   caller is not the row's `agent_id`, `OLD.agent_id IS NOT NULL`, and the caller's profile is a Team Leader without
-   `is_super_admin`; in that case `to_jsonb(NEW) - {flagged_for_coaching, notes, updated_at}` must equal the same for
-   `OLD`, else 42501 (D6).
+   caller is not the row's `agent_id`, `OLD.agent_id IS NOT NULL`, and the caller's **profile** is not Admin/Super
+   Admin of the row's org nor `is_super_admin`; in that case `to_jsonb(NEW) - {flagged_for_coaching, notes,
+   updated_at}` must equal the same for `OLD`, else 42501 (D6, R1).
 5. Postconditions: `count(DISTINCT objid) = 9` policies depending on `is_ancestor_of` with the exact name set; ACLs;
    the 4 restrictive policies; both triggers and their order.
 
 **Effect at apply time:** narrowing only; `f809493e` has 0 `is_ancestor_of` descendants, so no visible row changes
 (re-verified in the 2a preflight).
 
-### 6.2 M2 — `supabase/migrations/20261023210100_hierarchy_integrity.sql`
+### 6.2 M2 — `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql` (moved out of `pending/` at Gate 2b)
 
 From the locally proven prototype, with the two plan additions (no-op return, cascade `WHEN`) **proven in the review
 run** on stale data (Admin no-op save, TL self-save, Admin save of a stale row: only `updated_at` changes; real moves
@@ -370,6 +417,8 @@ cross-org edge) are seeded with triggers disabled or kept out of harnesses that 
 | TL permissions (as `authenticated` with `request.jwt.claims`) | leads, clients, recruits, calls, contact_emails, tasks, contact history, profiles UPDATE — Agent, TL, Admin, Super Admin, `is_super_admin` TL, Deleted/Inactive TL with live JWT, demoted TL with stale JWT, cross-org TL; before M1 / after M1 / after M3; delete toggle on/off incl. TL reassign-to-self-then-delete (row survives); calls: TL coaching flag/notes accepted, `created_at`/`status`/`is_missed` rejected, owner and Admin unchanged; TL unchanged-`commission_level` downline save accepted, change rejected, Admin accepted; view/edit/assign toggles pinned as UI-only |
 | RPCs (all 17 direct callers) | TL-downline allowed; non-downline / cross-org / Deleted-target refused; Deleted TL with live JWT refused — incl. 4 sale writers + handoff (TL capture with read access when toggle on), conversion, `delete_contact` toggle, `notify_win`, import undo/finalize, campaign admin/authorize/assign, kanban/bulk-select, `performance_scope`; `get_report_scope_v2('team')` identical before/after; `is_ancestor_of` vs `resolve_downline_ids` parity (documented Deleted difference) |
 | Ported full-stack cases | `p0_profile_authorization.sql` T5c/T13/T19, `import_campaign_attachment.sql` T4, `contacts_permissions_integration.sql` TL cases — ported onto the verbatim objects with M1–M3; the original full-stack suites are marked NOT EXECUTED unless a stack is available |
+| Stale / forged tokens (R1) | per module, with tokens whose role/org claims disagree with the database: **promotion** (DB TL, token Agent → fail closed; refreshed token → allowed), **demotion** (DB Agent, token TL → no downline read, update, delete or call edit, incl. coaching flag), **deactivation** (DB Inactive / Deleted, token TL → nothing), stale Admin token on a demoted Admin → no call edits/deletes on others' rows; all as direct PostgREST writes and reads |
+| Compatibility (R2) | the real frontend data-layer modules (`supabase-users.ts`, `uplineCandidates`, `hierarchyTreeData`, `profileSavePayload` + `updateProfile`, User Management / Team tab loaders, CampaignDetail scope, assignee resolver) via supabase-js against local PostgREST on S0, S1, S2, S3 and each rollback state: every call succeeds or fails exactly as designed (e.g. guard messages only from S2) |
 | Forged requests (PostgREST) | anon/authenticated `/rpc/compute_hierarchy_path` denied; anon `/rpc/is_ancestor_of` denied; authenticated `is_ancestor_of` on two foreign ids and a foreign self-pair = false; PATCH `hierarchy_path` denied; cross-org/cyclic upline PATCH rejected; TL PATCH of downline upline/`commission_level` rejected; TL DELETE of downline lead/call → 0 rows and the row survives |
 | Side effects | repair touches exactly the stale rows; path + lock triggers fire, cascade does not; `set_claim` stub = 2 per row; no UV/notify |
 | Migrations | preimage guard refuses on drift; replay refused; re-apply after rollback accepted (M1, M2); `$post$` trigger probe; M3: fingerprint mismatch refused, synthetic fingerprint (runner-substituted copy) passes, second run 0 rows, no-op on 0 stale; rollbacks restore exact preimage md5s; ACL and `count(DISTINCT objid)` assertions; grep: no BEGIN/COMMIT |
@@ -395,14 +444,15 @@ stamped migration versions, deployment ids, blockers, next steps).
 ## 9. Release procedure (each step separately approved)
 
 1. **Gate 1** — implement, test, commit, push, one draft PR. Stop.
-2. **Gates 2a + 2b** — read-only preflight: migration head; preimage md5s; §1 counts; `f809493e` still 0 descendants;
-   no hierarchy writes since the snapshot. `apply_migration` M1 then M2; read back bodies, ACLs, triggers,
-   `pg_depend`, consistency (still 4 stale, same fingerprint), advisors. Reconcile the files to the stamped versions
-   (`git mv`, forward bytes unchanged) and re-pin the still-pending M3 file and runner references to sort after them.
-   Never `supabase db push` (baseline row unreconciled).
-3. **Gate 3** — merge (squash, expected-head guard); confirm the Vercel production deployment; non-destructive smoke
-   checks only.
-4. **Gate 2c** — `#APPROVE_RLS_CHANGE` plus the invariant #28 elements: separate exact approval of the stale set
+2. **Gate 2a** — read-only preflight: migration head; preimage md5s; §1 counts; `f809493e` still 0 descendants.
+   `apply_migration` M1; read back bodies, ACLs, policies, triggers, `pg_depend`, advisors. Reconcile the file to the
+   stamped version (`git mv`, forward bytes unchanged); re-pin the pending M2/M3 files and runner references to sort
+   after it. Never `supabase db push` (baseline row unreconciled).
+3. **Gate 3** — merge (squash, expected-head guard; M2/M3 still in `pending/`); confirm the Vercel production
+   deployment; non-destructive smoke checks only.
+4. **Gate 2b** — preflight as 2a plus "still 4 stale, same fingerprint"; `apply_migration` M2 from `pending/`; read
+   back; `$post$` trigger probe; consistency; advisors; move the file to its stamped version in a docs commit.
+5. **Gate 2c** — `#APPROVE_RLS_CHANGE` plus the invariant #28 elements: separate exact approval of the stale set
    (fingerprint `ddc1f53f…`), read-only preflight re-measuring §4, bounded targets (4 rows), recovery plan (§10).
    Forensic snapshot `(id8, depth, updated_at)` into `verification.md`. Apply M3; post-check 15/15, 0 stale; re-run
    is a no-op. Move the file out of `pending/` to its stamped version in a docs commit.
@@ -420,14 +470,16 @@ stamped migration versions, deployment ids, blockers, next steps).
 
 **Database (new files only; no applied migration edited):**
 `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql`,
-`supabase/migrations/20261023210100_hierarchy_integrity.sql`,
+`supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`,
 `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`, and
 `supabase/migrations/rollback/` `20261023210000_…`, `20261023210100_…`, `20261023210200_…` (`.rollback.sql`; M3's is a
 refusal stub documenting §10).
 
 **Tests / CI:** `scripts/hierarchy_fixture.py`, `scripts/run_hierarchy_stabilization_tests.sh`,
 `supabase/tests/hierarchy_stabilization.sql`, `supabase/tests/hierarchy_stabilization_rls.sql`,
-`supabase/tests/hierarchy_stabilization_rpcs.sql`, `scripts/tests/hierarchy_stabilization/postgrest_forged.mjs`,
+`supabase/tests/hierarchy_stabilization_rpcs.sql`, `supabase/tests/fixtures/hierarchy_shapes.json` (shared TS/SQL
+shapes), `scripts/tests/hierarchy_stabilization/postgrest_forged.mjs`,
+`src/test/integration/hierarchyFrontendCompat.integration.test.ts` (env-gated, run by the runner against PostgREST),
 `.github/workflows/hierarchy-stabilization.yml`; expectation/comment updates only in
 `supabase/tests/import_campaign_attachment.sql` (T4), `supabase/tests/p0_profile_authorization.sql` (INFO notes),
 `supabase/tests/profile_book_stats_rpc.sql` (T8 from the shared data file).
