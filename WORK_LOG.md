@@ -71,6 +71,8 @@
 
 Option B (the picker mirrors the server's attach authority) remains an optional follow-up.
 
+**Closeout path.** Restarting `claude/fervent-planck-hkun67` would have needed a force-push, which was refused, so Chris chose a separate docs-only branch, `claude/fervent-planck-hkun67-closeout`, cut from main `f03af3b`. The original branch is unchanged: its remote is still at `0755d04`. Merging that closeout PR builds a new Vercel production deployment of the same application code, since `vercel.json` has no ignore rule. The served entry asset is re-checked after that merge.
+
 ---
 
 ## 2026-10-23 — BUGFIX: Add to Campaign shows Agents their Personal and Team campaigns again (branch + PR for review; NOT merged, NOT deployed)
