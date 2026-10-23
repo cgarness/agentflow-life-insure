@@ -13,9 +13,11 @@ export async function addLeadsToCampaignBatched(
   campaignId: string,
   leadIds: string[],
   importHistoryId?: string | null
-): Promise<{ added: number; skipped: number }> {
+): Promise<{ added: number; skipped: number; alreadyPresent: number }> {
   let added = 0;
   let skipped = 0;
+  // Subset of `skipped`: leads that were already campaign members (never duplicated).
+  let alreadyPresent = 0;
   for (let i = 0; i < leadIds.length; i += RPC_BATCH_SIZE) {
     const batch = leadIds.slice(i, i + RPC_BATCH_SIZE);
     // p_import_history_id is a defaulted 3rd arg (migration 20260620000100); omit (undefined) for the
@@ -26,9 +28,10 @@ export async function addLeadsToCampaignBatched(
       p_import_history_id: importHistoryId ?? undefined,
     });
     if (error) throw error;
-    const result = data as unknown as { added: number; skipped: number };
+    const result = data as unknown as { added: number; skipped: number; skipped_already_present?: number };
     added += result.added ?? 0;
     skipped += result.skipped ?? 0;
+    alreadyPresent += result.skipped_already_present ?? 0;
   }
-  return { added, skipped };
+  return { added, skipped, alreadyPresent };
 }

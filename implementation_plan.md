@@ -1,3 +1,162 @@
+## 2026-10-23 — PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
+
+**Authorization:** Chris approved completing PR #483: reconcile with main, verify, merge with the repository's squash strategy, and confirm the production Vercel deployment. No production database change, migration, RLS change, backend deployment or real lead mutation is authorized.
+
+**Reconciliation (within the approved scope):**
+- Main moved from `f548b59` to `93abbe4`, which is #479, carrier selection in Record Policy and Add/Edit Client.
+- #479 touches none of this PR's source files. The only overlap is `AGENT_RULES.md` (auto-merged) and the newest-first insertions in `WORK_LOG.md` and this file. Those conflicted, and both entries are kept, the 2026-10-23 entry above the 2026-10-22 ones.
+- Checked by diffing the merged files against both parents: no line is removed from either side.
+- #479's carrier isolation rule (each load renewed on open, never showing a previous open's list) was compared with `useAddToCampaignOptions`. The campaign hook clears its result when closed and masks any other `org:user` result at render.
+- A hook-level every-render guard test is added for reopen and identity switch. It is verification only and changes no behaviour. If it exposed a defect, the fix would stay inside the hook.
+
+**Files touched by the reconciliation:**
+- `WORK_LOG.md` and `implementation_plan.md` (conflict resolution, then the closeout entry).
+- New `src/hooks/__tests__/useAddToCampaignOptions.test.tsx`.
+- No other source change unless that test exposes a defect.
+
+**Release steps:**
+1. Locally on the merged head: `npx tsc --noEmit`, `npx tsc -p tsconfig.app.json` compared with main, the focused Vitest suites plus the full suite compared with main, ESLint on touched files, `npm run build` and `git diff --check`.
+2. Push the merge commit (no force-push, never to main). Confirm PR #483 is mergeable, its exact-head checks are green and the Vercel preview is Ready.
+3. Mark the PR ready and squash-merge with an expected-head guard.
+4. Verify that the production Vercel deployment for the merge commit is Ready and that `www.fflagent.com` serves it.
+5. Run non-destructive smoke checks only: HTTP status, the served bundle containing the new picker states, and runtime errors.
+6. Write the newest-first Work Log closeout with the merge SHA and deployment id.
+
+**Stop conditions:** a failing required check, a non-Ready preview or production deployment, or any gate that cannot be verified. Any of these is reported as a blocker; completion is not claimed.
+
+---
+
+## 2026-10-23 — BUGFIX (APPROVED and IMPLEMENTED on branch; PR for review; NOT merged, NOT deployed): Add to Campaign hides eligible Personal and Team campaigns
+
+**Approval (2026-10-23):** Chris approved this plan with D1 = Option A (preserve campaign visibility and the existing server-side permissions) and D2 = include accurate "Already in Campaign" messaging. The approval covers implementation, testing and PR preparation only. It does not cover a merge to main, a deployment, or any production database change. Results are in the newest WORK_LOG entry.
+
+**Original status (plan):** Plan only. No source file changed, no backend or production command run, no migration. Branch `claude/fervent-planck-hkun67` at main `f548b59`. The latest Work Log entries (Google Sheets D/E, Commissions sidebar, Leaderboard #475, Lead → Client #476) do not touch this modal, the campaign scope helper or the attachment RPC, so there is no conflicting work.
+
+### Root cause (confirmed in source)
+
+- `src/components/contacts/AddToCampaignModal.tsx:62-73` maps each `campaigns` row to the camelCase `Campaign` UI shape. The mapper drops `user_id` and renames `assigned_agent_ids` to `assignedAgentIds`. Line 78 then passes `mapped as any` to `filterCampaignsForManagement`.
+- `src/lib/campaign-assignee-scope.ts:51-69` reads `c.user_id` (Personal owner) and `c.assigned_agent_ids` (Team participants). On the mapped objects both are `undefined`, and the `as any` cast hid that type mismatch.
+- **Effect by role:**
+
+  | Role | Before the fix |
+  |---|---|
+  | Agent | Sees Open Pool only. Own Personal and assigned Team campaigns are hidden (the reported bug). |
+  | Team Leader | Own Personal campaigns are hidden too; Team campaigns still show through `viewAll`. |
+  | Super Admin whose role is not Admin or Team Leader | Loses Team campaigns they participate in. |
+  | Admin | Unaffected (`isAdmin` and `viewAll`). |
+
+- The database is not the cause. The baseline RLS `campaigns_select` already returns same-org Open Pool, own Personal (`user_id = auth.uid()`) and Team rows where `auth.uid()` is in `assigned_agent_ids`. The rows reach the browser and are discarded client-side, so no RLS or migration change is needed.
+- The same modal serves the Contacts bulk "Add to Campaign" action (`Contacts.tsx:3475`), so this fixes both entry points.
+
+### Other defects found in the same component
+
+1. The campaign search text survives a close and reopen: the reset effect at lines 35-42 does not clear `searchQuery`.
+2. A load failure shows a toast and then falls through to "No active campaigns found". An error looks the same as an empty result.
+3. A missing organization still sends `.eq("organization_id", null)` and renders as empty. It should not send a read at all.
+4. There is no stale-response guard. The fetch effect re-runs when org, user or role changes, and an older in-flight response can resolve last and overwrite current results. The previous identity's list also stays on screen while the new one loads.
+5. The selection deliberately survives an identity change (comment at line 33). That means a campaign id from the previous org or user remains submittable.
+6. A lead already in the campaign is reported as "not eligible". The RPC returns `skipped_already_present`, but `addLeadsToCampaignBatched` collapses every skip into one `skipped` count.
+7. A server refusal shows the raw Postgres text, for example `not authorized for campaign <uuid>`.
+
+### Server-side facts this plan relies on (applied migrations; read in the repo, not re-read live)
+
+- `public.add_leads_to_campaign` first resolves the actor through `private.campaign_actor()` (profiles role, Active status, org). It then loads the org-scoped campaign, checks `private.can_administer_campaign`, and calls `private.attach_leads_to_campaign_core`. The core authorizes each lead with `can_authorize_campaign_lead` and checks type compatibility. Inserts use `INSERT … ON CONFLICT DO NOTHING` on the partial unique `(campaign_id, lead_id)` index, so existing membership never duplicates. **This stays the authority and is not changed.**
+- `can_administer_campaign`, as applied in `20261002184954` (recorded as applied, WORK_LOG line 4184), allows only:
+  - the owner, for every campaign type;
+  - Admin or Super Admin;
+  - a Team Leader through `is_ancestor_of`, which currently fails closed;
+  - a listed Team participant.
+
+  **Open Pool attachment is therefore no longer org-wide.** This closed the September 24 High finding.
+- The server does not check `campaigns.status`. Keeping Completed campaigns out of attachment depends on the UI's `status = 'Active'` read. This plan keeps that read and adds a second filter, but adds no server status check, since that would need a migration.
+
+### Decision D1: picker visibility versus server attach authority (default: Option A)
+
+Under the current server rules, some campaigns the picker shows will be refused on Add: an Open Pool campaign the Agent does not own, and a non-participant Team campaign shown to a Team Leader through `viewAll`.
+
+- **Option A (recommended; matches the brief).** Restore the management scope exactly. Open Pool stays visible org-wide, and Admin / Team Leader `viewAll` behaviour is unchanged. The server stays authoritative, and a `42501` refusal shows "You don't have permission to add leads to this campaign." instead of the raw text. Open Pool behaviour is identical to today's.
+- **Option B.** Make the picker mirror the server's attach authority (owner, Admin/Super Admin, Team participant). Agents would stop seeing Open Pool campaigns they do not own, and Team Leaders would lose non-participant Team campaigns. That contradicts "Preserve Open Pool organization visibility" and the Team Leader privileges in the brief, so it should be a separate follow-up if wanted.
+
+Approving the plan as written means Option A.
+
+### Decision D2: report "already in this campaign" (default: include)
+
+Add an additive `alreadyPresent` count, read from `skipped_already_present`, to `addLeadsToCampaignBatched`. The modal then says "Already in <campaign>" when every requested lead was already a member. `ImportLeadsModal` and `Contacts` only destructure `added` and `skipped`, so nothing else changes. One existing `toEqual` assertion in `campaignLeadsBatch.test.ts` gains the new field.
+
+### Implementation (after approval)
+
+1. **NEW `src/components/contacts/addToCampaignOptions.ts`** (pure, about 70 lines)
+   - `ADD_TO_CAMPAIGN_COLUMNS`: an explicit column list (`id, name, type, status, user_id, assigned_agent_ids, total_leads`) instead of `*`.
+   - `AddToCampaignRow`: a `Pick<Tables<"campaigns">, …>` type for the raw database record.
+   - `AddToCampaignOption`: the UI type `{ id, name, type, totalLeads }`.
+   - `managementRoleFor(profile)`: exactly today's inputs, `isAdmin = role === "Admin"`, `isSuperAdmin`, `viewAll = Admin || Team Leader`.
+   - `selectAddToCampaignOptions(rows, userId, role)`: keeps `status === "Active"` as a second filter, applies `filterCampaignsForManagement` to the **raw rows**, then maps. No `as any`.
+   - `addToCampaignSubmitSchema` (Zod): `{ campaignId: non-empty string, leadIds: non-empty string[] }`.
+   - `attachErrorMessage(err)`: `42501` gives the permission message; anything else keeps the existing "Failed to add contacts: …".
+2. **NEW `src/hooks/useAddToCampaignOptions.ts`** (about 60 lines)
+   - Reads only when `open` and both the org and the user are known. A missing identity gives `unavailable` and sends no unscoped read.
+   - Each read gets an `AbortController`. The effect cleanup aborts it on close, on org or user change, and on unmount, and a late result is discarded.
+   - The returned state carries its `org:user` key. A key that does not match the current identity is **masked as `loading` during render**, so another identity's rows are never painted, not even for one frame.
+   - Closing resets the state, so every open starts with a fresh read and its own loading state.
+   - Role filtering runs at render through `useMemo`. A filtered set is never stored, which mirrors the Campaigns-table invariant.
+   - Returns `{ status: "loading" | "error" | "unavailable" | "ready", options, retry }`.
+3. **NEW `src/components/contacts/AddToCampaignExistingList.tsx`** (about 70 lines, Tailwind only, minimal copy)
+   - Holds the search input and the list body.
+   - Separate states: loading (spinner, `aria-busy`), error ("Campaigns couldn't be loaded." plus a Retry button), unavailable, empty ("No active campaigns available."), no search match, and the list.
+4. **EDIT `src/components/contacts/AddToCampaignModal.tsx`**
+   - Remove the inline fetch, the mapper and both `as any` casts; use the hook and the list component.
+   - Add `setSearchQuery("")` to the open-reset effect.
+   - Resolve `selectedCampaign` from the **current ready options only**, and disable Add unless it resolves. A selection from a previous identity can no longer submit, while the existing "identity change does not wipe the selection" behaviour is kept.
+   - `handleAdd` validates with the Zod schema, maps errors with `attachErrorMessage`, and uses the D2 wording.
+   - The Create New tab is unchanged.
+   - Expected size is about 250 lines, down from 334. Getting under 200 would mean moving the untouched Create New tab, which is not proposed for a surgical fix.
+5. **EDIT `src/lib/supabase-campaign-leads.ts`** (D2): sum `skipped_already_present ?? 0` into `alreadyPresent`.
+6. **Tests**
+   - **NEW `src/components/contacts/__tests__/addToCampaignOptions.test.ts`** covers the role matrix on raw rows:
+     - Agent: sees own Personal, assigned Team and Open Pool; does not see another agent's Personal or a non-participant Team campaign.
+     - Team Leader: sees own Personal (regression) and every Team campaign; does not see another agent's Personal.
+     - Admin and Super Admin: unchanged.
+     - Completed and Paused rows are excluded; a JSON-string `assigned_agent_ids` is handled.
+     - Error mapping is covered.
+   - **NEW `src/components/contacts/__tests__/addToCampaignModal.test.tsx`** renders the real modal with a mocked Supabase chain and covers:
+     - **The reported Agent regression.** This test fails on the current code.
+     - The read is scoped to the org with `status = 'Active'` and explicit columns.
+     - A load error shows Retry, not the empty text.
+     - Reopening clears the search.
+     - An org A response that resolves after a switch to org B is never shown; the same for a user switch.
+     - A missing org sends no read.
+     - A selection from the previous identity cannot submit.
+     - Add sends exactly the chosen campaign and lead ids.
+     - The already-present wording and the permission-refusal wording.
+   - **EDIT `src/lib/__tests__/campaignLeadsBatch.test.ts`**: the new field in the existing expectation, plus one already-present sum case.
+   - `campaignAccessScope.test.ts` stays as is; the helper is unchanged.
+7. **Docs**
+   - `WORK_LOG.md`: a newest-first entry.
+   - This plan's status.
+   - `AGENT_RULES.md`: two sentences in the Campaigns table invariant.
+     - Scope helpers take raw database-shaped rows (`user_id`, `assigned_agent_ids`), never mapped UI objects.
+     - Picker visibility is not attach authority: since `20261002184954`, Open Pool attachment is owner, Admin or Super Admin only, and `add_leads_to_campaign` decides.
+
+### Not changed
+
+- No RLS policy, migration, RPC or Edge Function.
+- `campaign-assignee-scope.ts` semantics and the Dialer scope (`canUserDialCampaign`).
+- `can_dial_campaign` and the Create New tab.
+- The `FullScreenContactView` refresh after success, and the View As unmount rule in `Contacts.tsx`.
+- No dependency change.
+
+### Verification
+
+- **Local:** `npm ci` (local `node_modules` only), `npx tsc --noEmit`, `npx vitest run`, ESLint with `--max-warnings 0` on the touched files, `npm run build`, `git diff --check`.
+- The `vitest` run covers the new suites and `campaignAccessScope`, `campaignLeadsBatch`, `importLeadsModal*`, `fullScreenContactView*` and `contacts*`, followed by the full suite.
+- **Needs separate approval:**
+  - A read-only Supabase catalog check that live `private.can_administer_campaign` and `campaigns_select` match the repo.
+  - An authenticated Agent / Team Leader / Admin walkthrough on the Vercel preview. This session has no test-user sign-in.
+  - An end-to-end add of a real lead in production, which is a data mutation and is not done by default.
+- No push to main and no PR without explicit approval.
+
+---
+
 ## 2026-10-22 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT released): standardize carrier selection in Record Policy and Add/Edit Client
 
 **Status:** Chris approved the plan with D1–D3 and four added requirements: frozen-retry safety, scope isolation,

@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from "react";
-import { X, Search, Loader2, Megaphone } from "lucide-react";
+import { X, Loader2, Megaphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { toast } from "sonner";
-import { Campaign } from "@/lib/types";
 import { addLeadsToCampaignBatched } from "@/lib/supabase-campaign-leads";
 import { useAuth } from "@/contexts/AuthContext";
-import { filterCampaignsForManagement } from "@/lib/campaign-assignee-scope";
+import { useAddToCampaignOptions } from "@/hooks/useAddToCampaignOptions";
+import AddToCampaignExistingList from "@/components/contacts/AddToCampaignExistingList";
+import {
+  addToCampaignSubmitSchema,
+  attachErrorMessage,
+  describeAttachResult,
+} from "@/components/contacts/addToCampaignOptions";
 
 interface AddToCampaignModalProps {
   open: boolean;
@@ -20,8 +25,13 @@ interface AddToCampaignModalProps {
 const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, selectedContacts, leadIds, onSuccess }) => {
   const { organizationId } = useOrganization();
   const { user, profile } = useAuth();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { status: campaignsStatus, options: campaigns, retry: retryCampaigns } = useAddToCampaignOptions({
+    open,
+    orgId: organizationId,
+    userId: user?.id ?? null,
+    profileRole: profile?.role ?? null,
+    isSuperAdmin: Boolean(profile?.is_super_admin),
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +44,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
   // in org/user identity can never wipe the user's in-progress selection.
   useEffect(() => {
     if (open) {
+      setSearchQuery("");
       setSelectedCampaignId(null);
       setActiveTab("existing");
       setNewCampaignName("");
@@ -41,84 +52,32 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
     }
   }, [open]);
 
-  // Fetching is a separate effect so its real dependencies can be declared honestly.
-  useEffect(() => {
-    if (open) void fetchCampaigns();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, organizationId, user?.id, profile?.role, profile?.is_super_admin]);
-
-  const fetchCampaigns = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("campaigns")
-      .select("*")
-      .eq("organization_id", organizationId)
-      .eq("status", "Active")
-      .order("name");
-    
-    if (error) {
-      toast.error("Failed to load active campaigns");
-    } else {
-      const mapped = (data || []).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        type: c.type,
-        status: c.status,
-        description: c.description,
-        assignedAgentIds: c.assigned_agent_ids || [],
-        createdBy: c.created_by,
-        totalLeads: c.total_leads,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at
-      }));
-      // Management scope: same-org Admin / Super Admin may attach into an agent-owned
-      // Personal campaign; a Team Leader or Agent still may not. Never a dialing rule.
-      const visible = user?.id
-        ? filterCampaignsForManagement(
-            mapped as any,
-            user.id,
-            {
-              isAdmin: profile?.role === "Admin",
-              isSuperAdmin: Boolean(profile?.is_super_admin),
-              viewAll: profile?.role === "Admin" || profile?.role === "Team Leader",
-            },
-          )
-        : [];
-      setCampaigns(visible as any);
-    }
-    setLoading(false);
-  };
-
+  // Only a campaign in the CURRENT identity's loaded options can be submitted; a selection
+  // kept across an org/user change stays visible but is not addable.
+  const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId) ?? null;
   const effectiveLeadIds = leadIds && leadIds.length > 0 ? leadIds : selectedContacts.map(c => c.id);
   const contactCount = effectiveLeadIds.length;
 
   const handleAdd = async () => {
-    if (!selectedCampaignId) {
-      toast.error("Please select a campaign");
-      return;
-    }
-    if (contactCount === 0) {
-      toast.error("No contacts selected");
+    const parsed = addToCampaignSubmitSchema.safeParse({
+      campaignId: selectedCampaign?.id ?? "",
+      leadIds: effectiveLeadIds,
+    });
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Please select a campaign");
       return;
     }
 
     setSaving(true);
     try {
-      const result = await addLeadsToCampaignBatched(selectedCampaignId, effectiveLeadIds);
-      const campaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
-
-      if (result.added === 0 && result.skipped > 0) {
-        toast.error(`No leads were added — all ${result.skipped} are not eligible for this campaign.`, { duration: 5000, position: "bottom-right" });
-      } else if (result.skipped > 0) {
-        toast.success(`${result.added} leads added to ${campaignName}, ${result.skipped} skipped`, { duration: 4000, position: "bottom-right" });
-      } else {
-        toast.success(`${result.added} leads added to ${campaignName}`, { duration: 3000, position: "bottom-right" });
-      }
+      const result = await addLeadsToCampaignBatched(parsed.data.campaignId, parsed.data.leadIds);
+      const { kind, message, duration } = describeAttachResult(result, selectedCampaign?.name || "campaign");
+      toast[kind](message, { duration, position: "bottom-right" });
 
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error("Failed to add contacts: " + err.message);
+    } catch (err) {
+      toast.error(attachErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -175,12 +134,6 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
 
   if (!open) return null;
 
-  const filteredCampaigns = campaigns.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const selectedCampaignName = campaigns.find(c => c.id === selectedCampaignId)?.name || "campaign";
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
@@ -218,43 +171,15 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
               Select an active campaign to add {contactCount} contact{contactCount !== 1 ? "s" : ""} to.
             </p>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search campaigns..."
-                className="w-full h-9 pl-9 pr-4 rounded-lg bg-muted text-sm text-foreground border border-border focus:ring-2 focus:ring-primary/50 focus:outline-none"
-              />
-            </div>
-
-            <div className="max-h-60 overflow-y-auto space-y-1 border rounded-lg p-1 bg-muted/30">
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                </div>
-              ) : filteredCampaigns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No active campaigns found</p>
-              ) : (
-                filteredCampaigns.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCampaignId(c.id)}
-                    className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                      selectedCampaignId === c.id
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-accent text-foreground"
-                    }`}
-                  >
-                    <div className="font-medium">{c.name}</div>
-                    <div className={`text-xs ${selectedCampaignId === c.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      {c.type} • {c.totalLeads || 0} leads
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+            <AddToCampaignExistingList
+              status={campaignsStatus}
+              options={campaigns}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              selectedId={selectedCampaignId}
+              onSelect={setSelectedCampaignId}
+              onRetry={retryCampaigns}
+            />
 
             <div className="flex gap-3 pt-2">
               <button
@@ -266,7 +191,7 @@ const AddToCampaignModal: React.FC<AddToCampaignModalProps> = ({ open, onClose, 
               </button>
               <button
                 onClick={handleAdd}
-                disabled={saving || !selectedCampaignId}
+                disabled={saving || !selectedCampaign}
                 className="flex-1 h-10 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -26,7 +26,17 @@ describe("addLeadsToCampaignBatched", () => {
     // 1200 -> 500 / 500 / 200
     expect(rpcCalls.map((c) => c.args.p_lead_ids.length)).toEqual([500, 500, 200]);
     // added = (500-1)+(500-1)+(200-1) = 1197 ; skipped = 3
-    expect(res).toEqual({ added: 1197, skipped: 3 });
+    expect(res).toEqual({ added: 1197, skipped: 3, alreadyPresent: 0 });
+  });
+
+  it("sums skipped_already_present across batches as alreadyPresent", async () => {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const spy = vi.spyOn(supabase, "rpc").mockResolvedValue(
+      { data: { added: 0, skipped: 2, skipped_already_present: 1 }, error: null } as any,
+    );
+    const res = await addLeadsToCampaignBatched("camp-4", mkIds(600));
+    expect(res).toEqual({ added: 0, skipped: 4, alreadyPresent: 2 });
+    spy.mockRestore();
   });
 
   it("forwards p_import_history_id on every batch", async () => {
