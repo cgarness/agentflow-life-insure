@@ -59,8 +59,8 @@ fi
 # Pinned PASS counts (update them with the suites): the core suite per state; the RLS and RPC suites per state; the
 # forged stage and the compatibility suite in total over the 7 states. Any other count fails the run.
 declare -A EXPECT_CORE=([S0]=64 [S1]=64 [S2]=114 [S3]=114 [S1R]=64 [S2R]=64 [S3R]=64)
-declare -A EXPECT_LATER=([hierarchy_stabilization_rls.sql]=146 [hierarchy_stabilization_rpcs.sql]=81
-                         [postgrest_forged.mjs]=329 [hierarchyFrontendCompat.integration.test.ts]=190)
+declare -A EXPECT_LATER=([hierarchy_stabilization_rls.sql]=149 [hierarchy_stabilization_rpcs.sql]=81
+                         [postgrest_forged.mjs]=336 [hierarchyFrontendCompat.integration.test.ts]=190)
 
 PFX="hier_$$_"
 WORK="$(mktemp -d)"
@@ -493,6 +493,9 @@ drift_case S1 "M2: an invitations trigger already present" \
 drift_case S1 "M2: clients granted CREATE on public" \
   "GRANT CREATE ON SCHEMA public TO authenticated" \
   "$HS_M2" "hierarchy M2 refused: ltree location or public/private schema privileges differ from the reviewed state"
+drift_case S1 "M1 rollback: compute_hierarchy_path re-granted to anon after M1" \
+  "GRANT EXECUTE ON FUNCTION public.compute_hierarchy_path(uuid) TO anon" \
+  "$HS_R1" "hierarchy M1 rollback refused: public.compute_hierarchy_path(uuid) ACL drifted (anon,postgres,service_role)"
 drift_case S2 "M3: an M2 trigger disabled" \
   "ALTER TABLE public.profiles DISABLE TRIGGER trg_update_hierarchy_path_lock" \
   "$WORK/m3_synth.sql" "hierarchy M3 refused: trigger trg_update_hierarchy_path_lock on public.profiles is not the reviewed M1/M2 post-image"
@@ -685,43 +688,62 @@ wait_active() {   # wait_active <db> <query text fragment>
   fail "concurrency: the first session never started ($2)"
 }
 # READ COMMITTED: the hierarchy lock trigger serializes statements that list a hierarchy column, and the builder's
-# FOR SHARE ancestor walk makes a writer below a moving node wait for the mover. (Which of the two decides a given
-# race is not asserted here; the security review found the FOR SHARE walk alone decides the 2-cycle and the insert
-# race, and the advisory lock alone the deadlock pattern below.)
+# FOR SHARE ancestor walk makes a writer below a moving node wait for the mover. The cases below assert the outcome,
+# how long the second session was blocked, and the lock it was observed waiting on (the statement-level advisory lock
+# is taken first, so that is where it blocks). They do NOT prove which mechanism is necessary: the security review
+# found the FOR SHARE walk alone also serializes the 2-cycle and the insert race, and only the deadlock pattern below
+# depends on the advisory lock.
+# second_session <tag> <sql...>: runs a second session in the background, samples what its tagged statement waits on
+# while blocked (W), then waits for it (RC; stdout/stderr in $OUT/$ERR; WAIT_MS = its wall time).
+second_session() {
+  local tag="$1" p t0 t1; shift
+  t0="$(date +%s%N)"
+  set +e
+  psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" "$@" >"$OUT" 2>"$ERR" &
+  p=$!; BG+=("$p")
+  W=""
+  for _ in $(seq 1 150); do
+    W="$(q postgres "SELECT coalesce(string_agg(DISTINCT wait_event_type || '/' || wait_event, ','), '') FROM pg_stat_activity
+                     WHERE datname = '$DB' AND query LIKE '%$tag%' AND wait_event_type = 'Lock'")"
+    [ -n "$W" ] && break
+    sleep 0.02
+  done
+  wait "$p"; RC=$?
+  set -e
+  t1="$(date +%s%N)"; WAIT_MS=$(( (t1 - t0) / 1000000 ))
+}
 ISO="READ COMMITTED"; iso=rc
 state_db S3 "conc_cycle_$iso"
 K1="$(q "$DB" "SELECT hierarchy_test.id('K1')")"; K2="$(q "$DB" "SELECT hierarchy_test.id('K2')")"
 bg_session "$DB" "$CONC_ERR.a" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K2' WHERE id = '$K1'" -c "SELECT pg_sleep(1.5) /* conc-a */" -c "COMMIT"
 wait_active "$DB" "conc-a"
-set +e
-psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" -c "UPDATE public.profiles SET upline_id = '$K1' WHERE id = '$K2'" -c "COMMIT" >"$OUT" 2>"$ERR"
-RC=$?
-set -e
-wait "${BG[-1]}" || fail "concurrency: the first mover failed: $(cat "$CONC_ERR.a.err")"
+second_session conc-a2 -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" -c "UPDATE public.profiles SET upline_id = '$K1' WHERE id = '$K2' /* conc-a2 */" -c "COMMIT"
+wait "${BG[-2]}" || fail "concurrency: the first mover failed: $(cat "$CONC_ERR.a.err")"
 expect_failed "concurrent 2-cycle ($ISO)"
 expect_stderr_has "Hierarchy: this upline would create a reporting cycle" "concurrent 2-cycle ($ISO)"
+[ "$W" = "Lock/advisory" ] || fail "concurrent 2-cycle ($ISO): the second mover was observed waiting on '$W', not the hierarchy advisory lock"
+[ "$WAIT_MS" -ge 1000 ] || fail "concurrent 2-cycle ($ISO): the second mover was not blocked until the first committed (${WAIT_MS} ms)"
 q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
   || fail "concurrency: hierarchy inconsistent after the 2-cycle race ($ISO)"
-ok "concurrent X->Y / Y->X ($ISO): the second mover is serialized behind the first (it waits until the first commits) and then rejected as a cycle; no cycle, all paths canonical"
+ok "concurrent X->Y / Y->X ($ISO): the second mover is blocked ${WAIT_MS} ms (observed waiting on Lock/advisory) until the first commits, then rejected as a cycle; no cycle, all paths canonical"
 
 state_db S3 "conc_insert_$iso"
 T="$(q "$DB" "SELECT hierarchy_test.id('T')")"; K3="$(q "$DB" "SELECT hierarchy_test.id('K3')")"; A1="$(q "$DB" "SELECT hierarchy_test.id('A1')")"
 q "$DB" "INSERT INTO auth.users (id) VALUES ('a8000000-0000-4000-8000-000000000001')" >/dev/null
 bg_session "$DB" "$CONC_ERR.b" -c "BEGIN ISOLATION LEVEL $ISO" -c "UPDATE public.profiles SET upline_id = '$K3' WHERE id = '$T'" -c "SELECT pg_sleep(1.5) /* conc-b */" -c "COMMIT"
 wait_active "$DB" "conc-b"
-set +e
-psql -X -qAt -v ON_ERROR_STOP=1 "$PGURL/$DB" -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" \
-  -c "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000001', hierarchy_test.org('A'), '$A1', 'Synthetic N')" \
-  -c "COMMIT" >"$OUT" 2>"$ERR"
-RC=$?
-set -e
-wait "${BG[-1]}" || fail "concurrency: the mover failed: $(cat "$CONC_ERR.b.err")"
+second_session conc-b2 -c "BEGIN ISOLATION LEVEL $ISO" -c "SELECT 1" \
+  -c "INSERT INTO public.profiles (id, organization_id, upline_id, first_name) VALUES ('a8000000-0000-4000-8000-000000000001', hierarchy_test.org('A'), '$A1', 'Synthetic N') /* conc-b2 */" \
+  -c "COMMIT"
+wait "${BG[-2]}" || fail "concurrency: the mover failed: $(cat "$CONC_ERR.b.err")"
 expect_rc 0 "insert under a moving node ($ISO)"
+[ "$W" = "Lock/advisory" ] || fail "insert under a moving node ($ISO): the insert was observed waiting on '$W', not the hierarchy advisory lock"
+[ "$WAIT_MS" -ge 1000 ] || fail "insert under a moving node ($ISO): the insert was not blocked until the mover committed (${WAIT_MS} ms)"
 q "$DB" "SELECT hierarchy_test.sp(hierarchy_path) FROM public.profiles WHERE id = 'a8000000-0000-4000-8000-000000000001'" | grep -qx 'R.K3.T.A1.a8000000' \
   || fail "concurrency: the inserted row did not get the moved chain"
 q "$DB" "SELECT row(self_parents, unreachable, stale_paths, missing_pairs, extra_pairs)::text FROM private.hierarchy_consistency()" | grep -qx '(0,0,0,0,0)' \
   || fail "concurrency: hierarchy inconsistent after insert-under-move ($ISO)"
-ok "insert under a node whose ancestor is moving ($ISO): waits, then stores the moved chain; all paths canonical"
+ok "insert under a node whose ancestor is moving ($ISO): blocked ${WAIT_MS} ms (observed waiting on Lock/advisory) until the mover commits, then stores the moved chain; all paths canonical"
 
 # REPEATABLE READ / SERIALIZABLE (INT-2): the snapshot predates the hierarchy lock, so every hierarchy statement is
 # refused before the lock with 0A000 (a retry at the same level could never succeed).

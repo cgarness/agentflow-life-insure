@@ -90,8 +90,8 @@ async function seed(admin) {
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
-async function http(ctx, token, method, path, body) {
-  const headers = { 'Content-Type': 'application/json', Prefer: 'return=representation' };
+async function http(ctx, token, method, path, body, prefer = '') {
+  const headers = { 'Content-Type': 'application/json', Prefer: ['return=representation', prefer].filter(Boolean).join(',') };
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(ctx.env.rest.base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await res.text();
@@ -129,10 +129,13 @@ async function orgOf(ctx, table, id) {
   if (row.org === null) return 'none';
   return (ctx.keys.key[row.org] ?? row.org.slice(0, 8)).replace(/^org:/, '');
 }
-/** AUTHZ-1: <writer> PATCHes <table> row <id> with <patch>; outcome, the row's organization afterwards, and whether
- *  org E's Admin EA still sees it. */
-async function tenancyMove(ctx, writer, table, id, patch) {
-  const r = await http(ctx, await token(ctx, writer), 'PATCH', `/${table}?id=eq.${id}`, patch);
+/** AUTHZ-1: <writer> PATCHes <table> row <id> with <patch> (or, with upsert, POSTs {id, ...patch} as a
+ *  merge-duplicates upsert: INSERT … ON CONFLICT (id) DO UPDATE SET <payload columns>); outcome, the row's
+ *  organization afterwards, and whether org E's Admin EA still sees it. */
+async function tenancyMove(ctx, writer, table, id, patch, upsert = false) {
+  const r = upsert
+    ? await http(ctx, await token(ctx, writer), 'POST', `/${table}?on_conflict=id`, { id, ...patch }, 'resolution=merge-duplicates')
+    : await http(ctx, await token(ctx, writer), 'PATCH', `/${table}?id=eq.${id}`, patch);
   const seen = cell(await http(ctx, await token(ctx, E.EA), 'GET', `/${table}?select=id&id=eq.${id}`));
   return `${brief(r, true)}; org=${await orgOf(ctx, table, id)}; EA sees ${seen}`;
 }
@@ -424,6 +427,13 @@ const FORGED = [
     run: async (ctx) => perTypeDelete(ctx, 'contacts.recruits.delete'),
     expect: (f) => (f.m1 ? 'leads rows 0, clients rows 0, recruits rows 1; survivors leads=1 clients=1 recruits=0'
       : 'leads rows 1, clients rows 1, recruits rows 1; survivors leads=0 clients=0 recruits=0'),
+  },
+  // AUTHZ-1 over the upsert shape: organization_id is an ON CONFLICT DO UPDATE target, so the column-list trigger fires.
+  {
+    id: 'F37', title: 'AUTHZ-1 Team Leader upsert (POST merge-duplicates) of a downline lead to self + organization_id null',
+    run: async (ctx) => tenancyMove(ctx, E.ET, 'leads', ROW.lead_EG1,
+      { organization_id: null, assigned_agent_id: E.ET, user_id: E.ET, first_name: 'Synthetic lead EG1', last_name: 'Member' }, true),
+    expect: (f) => (f.m1 ? KEPT : ESCAPED('none')),
   },
 ];
 

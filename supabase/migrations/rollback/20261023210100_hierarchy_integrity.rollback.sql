@@ -8,7 +8,8 @@
 -- and drops everything M2 added: the builder, the statement lock trigger and function, the invitation guard and its
 -- trigger, private.hierarchy_consistency() and idx_profiles_upline_id.
 -- KEPT (re-assert-only hardening): EXECUTE stays revoked from PUBLIC / anon / authenticated on the three restored
--- functions and on on_profile_update, and on_profile_update keeps its pinned search_path. Paths repaired by M3 (or
+-- functions (revoked by M1; CREATE OR REPLACE keeps the ACL) and on on_profile_update (revoked by M2), and
+-- on_profile_update keeps its pinned search_path. Nothing is re-granted. Paths repaired by M3 (or
 -- derived while M2 was live) stay correct; from then on the preimage defects apply again to new writes.
 -- Re-applying the forward migration after this rollback is supported: its guard accepts exactly this state.
 -- M1 is not touched (roll it back separately, after this file, if needed).

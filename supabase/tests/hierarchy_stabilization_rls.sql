@@ -364,6 +364,16 @@ SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format('UPDATE public.lea
        :'state' || ' rls AUTHZ-1 leads: Agent moving its OWN lead to another organization ' || CASE WHEN :'m1' THEN 'rejected' ELSE 'accepted (pre-existing own-row hole)' END);
 ROLLBACK TO SAVEPOINT c;
 SAVEPOINT c;
+-- The upsert shape (PostgREST Prefer: resolution=merge-duplicates sends INSERT … ON CONFLICT DO UPDATE SET <every
+-- payload column> = EXCLUDED.<column>): organization_id is an UPDATE target, so the column-list trigger fires.
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format(
+         'INSERT INTO public.leads (id, organization_id, assigned_agent_id, user_id, first_name, last_name, status) VALUES (%L, NULL, %L, %L, ''Synthetic lead'', ''UP'', ''New'') '
+         'ON CONFLICT (id) DO UPDATE SET organization_id = EXCLUDED.organization_id, assigned_agent_id = EXCLUDED.assigned_agent_id', :'l_ha', :'ht', :'ht'))
+                         || ' / ' || hierarchy_test.as_user(:'r', format('SELECT 1 FROM public.leads WHERE id = %L', :'l_ha')),
+       CASE WHEN :'m1' THEN :'org_guard' || ' / OK 1' ELSE 'OK 1 / OK 0' END,
+       :'state' || ' rls AUTHZ-1 leads: Team Leader upsert (ON CONFLICT DO UPDATE SET organization_id NULL) ' || CASE WHEN :'m1' THEN 'rejected; the lead stays visible to the Admin' ELSE 'escapes the organization (preimage)' END);
+ROLLBACK TO SAVEPOINT c;
+SAVEPOINT c;
 -- Controls: an unchanged organization_id in the SET list passes (the guard rejects only a change); a system caller
 -- (definer RPCs, service_role, migrations) may still move a contact.
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.leads SET organization_id = %L, notes = ''same org'' WHERE id = %L', :'org_a', :'l_ha'))
@@ -398,11 +408,18 @@ ROLLBACK TO SAVEPOINT c;
 SAVEPOINT c;
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.calls SET flagged_for_coaching = true, updated_at = ''2000-01-01'' WHERE id = %L', :'k_ha')),
        'OK 1', :'state' || ' rls calls AUTHZ-4: Team Leader coaching write supplying updated_at 2000-01-01 is accepted');
-SELECT hierarchy_test.eq((SELECT CASE WHEN flagged_for_coaching AND updated_at >= now() THEN 'flagged, database time'
+SELECT hierarchy_test.eq((SELECT CASE WHEN flagged_for_coaching AND updated_at >= now() AND updated_at <= clock_timestamp() THEN 'flagged, database time'
                                       WHEN flagged_for_coaching AND updated_at = '2000-01-01'::timestamptz THEN 'flagged, 2000-01-01' ELSE 'other' END
                             FROM public.calls WHERE id = :'k_ha'),
        CASE WHEN :'m1' THEN 'flagged, database time' ELSE 'flagged, 2000-01-01' END,
-       :'state' || ' rls calls AUTHZ-4: ' || CASE WHEN :'m1' THEN 'the stored updated_at is the database time (>= the statement time), not the client''s' ELSE '(preimage: the call is backdated)' END);
+       :'state' || ' rls calls AUTHZ-4: ' || CASE WHEN :'m1' THEN 'the stored updated_at is the database time (>= the statement''s now(), <= the clock), not the client''s' ELSE '(preimage: the call is backdated)' END);
+SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ht', format('UPDATE public.calls SET notes = ''later'', updated_at = ''2099-01-01'' WHERE id = %L', :'k_ha')),
+       'OK 1', :'state' || ' rls calls AUTHZ-4: Team Leader notes write supplying a FUTURE updated_at (2099-01-01) is accepted');
+SELECT hierarchy_test.eq((SELECT CASE WHEN updated_at >= now() AND updated_at <= clock_timestamp() THEN 'database time'
+                                      WHEN updated_at = '2099-01-01'::timestamptz THEN '2099-01-01' ELSE 'other' END
+                            FROM public.calls WHERE id = :'k_ha'),
+       CASE WHEN :'m1' THEN 'database time' ELSE '2099-01-01' END,
+       :'state' || ' rls calls AUTHZ-4: ' || CASE WHEN :'m1' THEN 'a future client updated_at is replaced by the database time' ELSE '(preimage: the future value is stored as sent)' END);
 SELECT hierarchy_test.eq(hierarchy_test.as_user(:'ha', format('UPDATE public.calls SET notes = ''own'', updated_at = ''2000-01-01'' WHERE id = %L', :'k_ha')),
        'OK 1', :'state' || ' rls calls AUTHZ-4: the call''s own agent sets updated_at');
 SELECT hierarchy_test.eq((SELECT updated_at = '2000-01-01'::timestamptz FROM public.calls WHERE id = :'k_ha'), true,

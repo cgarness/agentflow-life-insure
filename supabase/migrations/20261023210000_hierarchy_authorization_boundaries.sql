@@ -35,9 +35,12 @@
 --     Leader could reassign a downline contact to itself and move it out of the organization (or into another
 --     tenant), bypassing the D5 delete rule. Definer RPCs (owner postgres), service_role and system callers are
 --     unaffected; no application path changes a contact's organization. Ordering (BEFORE UPDATE row triggers fire in
---     name order): production's other BEFORE UPDATE triggers on these tables are clients_lead_conversion_guard and
+--     name order; production read-only 2026-10-23, where no trigger or function of these names exists yet):
+--     production's other BEFORE UPDATE row triggers on these tables are clients_lead_conversion_guard and
 --     clients_policy_identity (both sort first on clients; neither assigns organization_id — their reviewed bodies
---     are pinned below) and tr_sync_leads_user_id on leads (sorts after; copies assigned_agent_id into user_id).
+--     are pinned below) and tr_sync_leads_user_id on leads (sorts after; copies assigned_agent_id into user_id);
+--     recruits has none. The guard fires on UPDATE and on INSERT … ON CONFLICT DO UPDATE whenever organization_id is
+--     an UPDATE target (PostgREST PATCH and merge-duplicates upserts list every payload column).
 --     NOT closed here (pre-existing, outside hierarchy scope, recorded in plan §12): any authenticated user can
 --     INSERT a contact into a foreign organization (the owner branch again); closing it needs a RESTRICTIVE FOR INSERT
 --     policy binding organization_id to the actor's profile organization.

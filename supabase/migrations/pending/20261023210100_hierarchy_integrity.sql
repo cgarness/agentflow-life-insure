@@ -29,7 +29,8 @@
 --     SERIALIZABLE transaction is refused (0A000) before the lock is taken, because its snapshot predates the lock and
 --     the cascade / org-change checks would read an old subtree (a concurrent insert or move-in would be missed,
 --     leaving a stale fail-open path or a cross-organization edge). PostgREST, GoTrue and the Supabase SQL paths run
---     READ COMMITTED; production has no isolation override.
+--     at the database default, READ COMMITTED (production, read-only 2026-10-23: default_transaction_isolation
+--     'read committed' from the built-in default, no role / database / function isolation override).
 --   * trg_validate_invitation_upline — an invitation's upline must be an Active member of the invitation's
 --     organization, checked when the invitation is created and when its upline_id or organization_id changes (D8).
 --     It is a creation / upline-change rule only: accepting or releasing an invitation re-checks nothing, so a

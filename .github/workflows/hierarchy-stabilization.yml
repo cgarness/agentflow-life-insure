@@ -1,6 +1,6 @@
 name: Hierarchy stabilization verification
 # Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §8 (Harness), §R (R1, R2).
-# Disposable service database and synthetic data only; nothing here can reach production (no secrets are used).
+# Disposable loopback database and synthetic data only; nothing here can reach production (no secrets are used).
 on:
   pull_request:
     paths:
@@ -57,15 +57,8 @@ jobs:
     name: PostgreSQL 17.6 + PostgREST 12.2.3 (states S0–S3R, synthetic data)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17.6
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: isolated-test-only
-        ports: ['55449:5432']
-        options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    # No `services:` container: a published service port is reached through a bridge address (docker-proxy), which the
+    # runner's strict loopback proof refuses by design. PostgreSQL runs on the host network, bound to 127.0.0.1 only.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -78,6 +71,20 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      # The official postgres:17.6 image, pinned by its OCI index digest (Docker Hub library/postgres, tag 17.6,
+      # confirmed 2026-10-23; the linux/amd64 entry is annotated version 17.6). Host network, loopback listener only.
+      - name: Start disposable PostgreSQL 17.6 on loopback only (host network)
+        run: |
+          docker run --detach --name hierarchy-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929 \
+            -c listen_addresses=127.0.0.1 -c port=55449
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 55449 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          docker logs hierarchy-postgres || true
+          exit 1
       - name: PostgREST 12.2.3 (pinned digest)
         run: |
           curl -sSLf -o "$RUNNER_TEMP/postgrest.tar.xz" \
@@ -91,6 +98,9 @@ jobs:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55449
           PGPASSWORD: isolated-test-only
         run: POSTGREST_BIN="$RUNNER_TEMP/postgrest" bash scripts/run_hierarchy_stabilization_tests.sh
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force hierarchy-postgres
   frontend:
     name: Hierarchy frontend tests (Vitest, synthetic data)
     runs-on: ubuntu-latest

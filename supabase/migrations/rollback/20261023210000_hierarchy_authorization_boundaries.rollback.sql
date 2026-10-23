@@ -16,7 +16,8 @@
 -- ⚠ With M3 (or any activated Team Leader branch) live, this re-widens Team Leader powers: downline deletes without
 -- the Contacts toggle, edits and deletes of downline calls, downline commission_level changes, and downline access
 -- for Deleted / Inactive / demoted Team Leaders whose tokens are still valid. The guard warns when that applies.
--- Guarded: refuses unless every M1 object is exactly the reviewed post-image.
+-- Guarded: refuses unless every M1 object is exactly the reviewed post-image (including the path functions'
+-- revoked ACL; it is asserted again afterwards and never re-granted).
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '60s';
 SET LOCAL search_path = pg_catalog, public, pg_temp;
@@ -48,6 +49,20 @@ BEGIN
                    pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
              WHERE f.oid = r.fn::regprocedure AND a.privilege_type = 'EXECUTE') s;
     IF v IS DISTINCT FROM r.acl THEN
+      RAISE EXCEPTION 'hierarchy M1 rollback refused: % ACL drifted (%)', r.fn, v;
+    END IF;
+  END LOOP;
+  -- The three path functions M1 revoked: EXECUTE for postgres and service_role only (M1's post-image; M2, its
+  -- rollback and M3 keep it). Their bodies are M2's concern and are not checked here.
+  FOR r IN SELECT * FROM (VALUES ('public.compute_hierarchy_path(uuid)'), ('public.update_hierarchy_path()'),
+                                 ('public.cascade_hierarchy_update()')) x(fn)
+  LOOP
+    SELECT string_agg(g, ',' ORDER BY g COLLATE "C") INTO v
+      FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee) END AS g
+              FROM pg_catalog.pg_proc f,
+                   pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
+             WHERE f.oid = pg_catalog.to_regprocedure(r.fn) AND a.privilege_type = 'EXECUTE') s;
+    IF v IS DISTINCT FROM 'postgres,service_role' THEN
       RAISE EXCEPTION 'hierarchy M1 rollback refused: % ACL drifted (%)', r.fn, v;
     END IF;
   END LOOP;
