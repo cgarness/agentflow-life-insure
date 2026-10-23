@@ -10,11 +10,12 @@ interface PolicyCommissionInputsProps {
   products: CalculatorProduct[];
   terms: number[];
   selection: { productId: string; term: string; age: string };
+  ageOptional: boolean;
   onChange: (patch: Partial<PreviewSelection>) => void;
 }
 
 /** Explicit label/control pairs, so each control's accessible name is exactly its label (never option text). */
-export function PolicyCommissionInputs({ products, terms, selection, onChange }: PolicyCommissionInputsProps) {
+export function PolicyCommissionInputs({ products, terms, selection, ageOptional, onChange }: PolicyCommissionInputsProps) {
   const id = useId();
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
@@ -48,7 +49,7 @@ export function PolicyCommissionInputs({ products, terms, selection, onChange }:
         </div>
       )}
       <div className="min-w-0">
-        <label htmlFor={`${id}-age`} className={labelCls}>Insured age</label>
+        <label htmlFor={`${id}-age`} className={labelCls}>Insured age{ageOptional ? " (optional)" : ""}</label>
         <input
           id={`${id}-age`}
           className={fieldCls}
