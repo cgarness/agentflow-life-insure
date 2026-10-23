@@ -53,6 +53,5 @@ SELECT test_assert(
     jsonb_build_array(jsonb_build_object('key','existing','product_id',test_id(502),'age',60,'term',NULL)))
     #>> '{items,0,match,kind}')='matched',
   'existing matching of actual insured ages remains intact');
-RESET ROLE;
 
 -- RLS, function owners, execution flags and role ACLs must be checked against the pre-migration inventory in CI.
