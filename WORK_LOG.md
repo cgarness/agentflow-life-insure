@@ -1,3 +1,71 @@
+## 2026-10-23 — Hierarchy Stabilization: GATE 1 BUILT, REVIEWED AND VERIFIED (draft PR; NOTHING applied, merged or deployed)
+
+**Approval.** Chris approved Gate 1 with the recommended D1–D15 defaults and two mandatory corrections: R1 (close the
+stale-JWT role mismatch in hierarchy authorization with database-authoritative checks; a demoted Team Leader must not
+keep downline call-editing authority) and R2 (frontend safety protections live before M2 can activate hierarchy
+access; order M1 → frontend → M2 → M3 if compatibility tests pass). Gate 1 covers development and testing only.
+Production was only read. Plan rev 4 and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`.
+
+**Root cause (confirmed).** `update_hierarchy_path()` built `hierarchy_path` from the stored row (self-only on
+INSERT, previous upline on UPDATE); `cascade_hierarchy_update()` refreshed direct children only; nothing prevented
+self-parents, cycles or cross-org uplines; stale paths fail open on reassignment. Any profile save listing `upline_id`
+(User Management always did) silently repaired paths and switched Team Leader branches on — it happened on
+2026-10-17. Baseline today: 16 profiles, 11 edges, 4 unrecognised, 6 of 15 pairs missing, 4 stale rows.
+
+**What was built (branch `claude/intelligent-lamport-r6hnx7`).**
+- **M1** `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` (narrowing only): caller-bound,
+  same-org, database-authoritative `is_ancestor_of` (ancestor profile must be an Active TL/Admin/Super Admin);
+  `profile_authz.actor_is_team_leader` / `actor_is_org_admin`; `tasks_select_team_leader` TO authenticated via
+  `is_ancestor_of`; `commission_level` guard; RESTRICTIVE delete policies (TL contact deletes need the toggle; calls
+  only by agent or Active org admin); calls guard (non-admin edits of another agent's call limited to coaching flag and
+  notes); contact tenancy guard (no client write may change or null a contact's organization); anon/PUBLIC revokes on
+  the path functions and `is_ancestor_of`.
+- **M2** `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`: path from `NEW.upline_id`, whole-subtree
+  cascade, no-op saves change nothing, structural guards (self, cycle, cross-org, depth 32, org change), invitation
+  upline guard, advisory lock + `FOR SHARE`, READ COMMITTED only, `upline_id` index, consistency function, hygiene.
+- **M3** `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`: repairs only the reviewed four rows —
+  id fingerprint `ddc1f53f…` (unchanged) AND id+target fingerprint `7daae418…`; otherwise refuses.
+- Rollbacks for all three (M3's refuses and documents operational revocation).
+- Harness: `scripts/run_hierarchy_stabilization_tests.sh`, `scripts/hierarchy_fixture.py` (verbatim baseline objects),
+  `scripts/hierarchy_test_state.sh`, core/RLS/RPC suites, PostgREST forged/stale-token stage, frontend↔DB
+  compatibility suite, CI `hierarchy-stabilization.yml` (PostgreSQL 17.6 digest-pinned, PostgREST 12.2.3).
+- Frontend: upline sent only when changed; upline pickers exclude self and descendants; account-control UI mirrors the
+  database; HierarchyTree / User Management / Team tab query-scoped, org-filtered, Deleted-manager safe, error states;
+  zero-row write read-back; CampaignDetail TL filter; role-scoped assignee options; Team Profile Deleted-manager rule.
+
+**Independent security review.** Five fresh reviewers plus adversarial verifiers found 21 confirmed issues, including
+two majors (a TL could make downline contacts vanish via reassign + organization change; the CI database job could
+never run). All were fixed and re-verified with the original exploits and mutants; AUTHZ-2 (import-undo toggles not
+enforced, pre-existing) and two behavioural notes are documented.
+
+**Verification (this session).**
+
+| Check | Result |
+|---|---|
+| Hierarchy runner (PG 16.15, CI mode, PostgREST 12.2.3) | exit 0, 2747 PASS lines; core 64/114 per state, RLS 149, RPC 81 (×7 states), forged 336/336, compatibility 190/190; all pinned |
+| Existing SQL runners | 18/18 pass (commission-grids needs a fresh cluster on `main` too) |
+| `npx vitest run` | 6531 passed, 1 failed (`recordingRetentionVoicemail`, identical on `main`), 37 skipped |
+| `tsc --noEmit` / strict app | exit 0 / 80 errors vs 84 on `main`, none new |
+| ESLint on 58 touched files | 0 errors; 5 pre-existing warnings (`main` had 36 on these files) |
+| `npm run build` / `git diff --check` | success / clean |
+
+**Not verified.** PostgreSQL 17.6 locally (proven only by the PR's CI run — required before Gate 2a); full-stack
+`p0_profile_authorization.sql` / `import_campaign_attachment.sql` (NOT EXECUTED; cases ported); commission engine
+writer-role path; authenticated browser walkthrough by role.
+
+**Context snapshot.**
+- Decisions: D1–D15 defaults approved; R1 and R2 implemented; amendments in plan §B (contact tenancy guard, revokes
+  moved to M1, dual fingerprint, READ COMMITTED only, depth cap 32).
+- Migrations: M1 (unapplied), M2 and M3 in `supabase/migrations/pending/` (unapplied). Production head
+  `20261022062539`.
+- Deploys: none.
+- Blockers: PostgreSQL 17.6 CI must pass on the draft PR before Gate 2a.
+- Next: Gate 2a (apply M1; `#APPROVE_RLS_CHANGE`) → Gate 3 (frontend) → Gate 2b (M2) → Gate 2c (M3), each with its own
+  approval and read-only preflight (verification.md §7). Interim: avoid saving `f809493e`, `4ef505e0`, `e5c4ee04`,
+  `89f2e994` in User Management until the frontend ships; separately decide on public sign-up and `89f2e994`'s session.
+
+---
+
 ## 2026-10-23 — BUGFIX: Add to Campaign shows Agents their Personal and Team campaigns again (branch + PR for review; NOT merged, NOT deployed)
 
 **Request and approval.** Chris reported that Agents could not see their eligible Personal or Team campaigns under Add to Campaign in the full contact view. I read AGENT_RULES, VISION and this log before planning; no recent entry touches this area. Chris approved the plan in `implementation_plan.md` with D1 = Option A (keep campaign visibility and the existing server-side permissions) and D2 = accurate "Already in Campaign" messaging. The approval covers implementation, tests and PR preparation only. It does not cover a merge to main, a deployment or any production database change.

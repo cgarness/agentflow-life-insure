@@ -168,7 +168,7 @@ export function useContactScope(opts?: { requestedScope?: string | null }): UseC
     }
     let cancelled = false;
     (async () => {
-      const { data, error } = await (supabase as any).rpc("get_contact_scope_agents"); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any).rpc("get_contact_scope_agents");
       if (cancelled) return;
       if (error) {
         console.error("[useContactScope] downline load failed:", error);

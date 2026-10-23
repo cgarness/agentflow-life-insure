@@ -1236,7 +1236,7 @@ const Contacts: React.FC = () => {
     try {
       const rows = await leadsSupabaseApi.getByIds(h.importedLeadIds);
       setImportDetailLeads(rows);
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       setImportDetailError(e?.message ?? "Failed to load imported contacts.");
     } finally {
       setImportDetailLoading(false);

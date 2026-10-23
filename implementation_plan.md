@@ -1,4 +1,8 @@
-## 2026-10-23 — PLAN ONLY (awaiting Chris's approval): Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+## 2026-10-23 — GATE 1 BUILT AND VERIFIED (draft PR; nothing applied, merged or deployed): Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+
+**Update (Gate 1):** approved with D1–D15 defaults and corrections R1/R2; built, independently security-reviewed
+(21 findings fixed and re-verified) and verified — see WORK_LOG and `docs/plans/2026-10-23-hierarchy-stabilization/`
+(plan rev 4 §B, `verification.md`). Next: PostgreSQL 17.6 CI on the draft PR, then the Gate 2a decision.
 
 **Status:** plan only. No source file, migration, RLS policy, function, deployment or production row changed; every
 production contact was a read-only `SELECT`. Full plan (rev 2, after an independent four-lens review):
