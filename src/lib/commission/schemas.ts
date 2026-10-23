@@ -101,9 +101,8 @@ const formSchema = z
     age: z
       .string()
       .trim()
-      .min(1, "Enter the client's age.")
-      .regex(/^\d{1,3}$/, AGE_MESSAGE)
-      .refine((value) => Number(value) <= 100, AGE_MESSAGE),
+      .regex(/^\d{0,3}$/, AGE_MESSAGE)
+      .refine((value) => value === "" || Number(value) <= 100, AGE_MESSAGE),
     monthlyPremium: z
       .string()
       .trim()
@@ -112,20 +111,24 @@ const formSchema = z
       .refine((value) => /[1-9]/.test(value), "Monthly premium must be greater than $0."),
     term: z.string(),
     supportedTerms: z.array(z.number()),
+    ageOptional: z.boolean().default(false),
   })
   .superRefine((value, ctx) => {
+    if (!value.ageOptional && value.age === "") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["age"], message: "Enter the client's age." });
+    }
     if (value.supportedTerms.length > 0 && !value.supportedTerms.includes(Number(value.term))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["term"], message: "Choose a term length." });
     }
   });
 
 export type CalculatorFormResult =
-  | { ok: true; productId: string; age: number; term: number | null; monthlyPremium: string; errors?: undefined }
+  | { ok: true; productId: string; age: number | null; term: number | null; monthlyPremium: string; errors?: undefined }
   | { ok: false; errors: Partial<Record<keyof CalculatorFormValues, string>> };
 
 /** Validate the form against the chosen product's supported term lengths (empty = terms do not apply). */
-export function validateCalculatorForm(values: CalculatorFormValues, supportedTerms: number[]): CalculatorFormResult {
-  const parsed = formSchema.safeParse({ ...values, supportedTerms });
+export function validateCalculatorForm(values: CalculatorFormValues, supportedTerms: number[], ageOptional = false): CalculatorFormResult {
+  const parsed = formSchema.safeParse({ ...values, supportedTerms, ageOptional });
   if (!parsed.success) {
     const errors: Partial<Record<keyof CalculatorFormValues, string>> = {};
     for (const issue of parsed.error.issues) {
@@ -137,7 +140,7 @@ export function validateCalculatorForm(values: CalculatorFormValues, supportedTe
   return {
     ok: true,
     productId: parsed.data.productId,
-    age: Number(parsed.data.age),
+    age: parsed.data.age === "" ? null : Number(parsed.data.age),
     term: supportedTerms.length > 0 ? Number(parsed.data.term) : null,
     monthlyPremium: parsed.data.monthlyPremium,
   };
