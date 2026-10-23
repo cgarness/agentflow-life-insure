@@ -17,7 +17,8 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 const HOME_ORG_ID = "a0000000-0000-0000-0000-000000000001";
-const uuid = z.string().uuid();
+// Some legacy organization UUIDs are stable nil-version identifiers, not RFC-v4 IDs.
+const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 const positiveCents = z.number().int().nonnegative().safe();
 const decimal = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
 const percent = decimal.refine((v) => Number(v) <= 300, "Commission rate must be 0–300%");
