@@ -34,7 +34,7 @@ Stable IDs agents must use before writing code. **Never commit secrets** — Edg
 - Every tenant row carries **`organization_id`**. RLS uses **`public.get_org_id()`** from the JWT.
 - **Super Admin:** platform console can list all `organizations`; in-app data for super-admins is scoped to their **home org** except Agencies tooling (see migrations `20260430203000_*`).
 - **Admin:** all rows in their `organization_id`.
-- **Team Leader:** downline via `ltree` / `is_ancestor_of` where policies allow.
+- **Team Leader:** downline via `ltree` / `is_ancestor_of` where policies allow. See the **Hierarchy integrity invariant** (2026-10-23): once hierarchy M1 is applied, TL authority needs BOTH the JWT role and the database profile (Active Team Leader) to agree.
 - **Agent:** `user_id = auth.uid()` (and campaign-type rules on `campaign_leads`).
 - **Queries:** `.maybeSingle()` for singular lookups that may return zero rows.
 - **Never** expose `SUPABASE_SERVICE_ROLE_KEY` in the browser.
@@ -306,7 +306,7 @@ Non-negotiables from production:
 - **Retry is `public.retry_import_campaign_attachment(uuid)` and takes ONLY the import id.** The retry set is derived server-side from `import_history.imported_lead_ids` minus real membership, so forged or unrelated lead ids are structurally unreachable. It never re-runs the lead import, is idempotent, locks `import_history FOR UPDATE` briefly with no external calls held, and recomputes status from rows. It honours `already_undone`/org/authorization/provenance but **deliberately ignores the 24-hour `expired` flag** — that window bounds *undo* (which deletes leads), not an additive repair.
 - **MANAGEMENT access ≠ DIALER access.** `canUserManageCampaign` (same-org Admin/Super Admin may administer agent-owned Personal campaigns) is a different helper from **`canUserDialCampaign`**, which is **owner-only for Personal and takes no `viewAll`/admin argument at all** — an Admin's "View All Campaigns" permission must never grant Personal dialing. The database mirrors this in **`public.can_dial_campaign(uuid)`** (no role branch), and **`start_dialer_session` independently refuses** an unauthorized campaign-scoped session. **Documented limitation:** Campaign Detail quick-call goes `FloatingDialer → TwilioContext.makeCall()` and does **not** pass through `start_dialer_session`, so for that path `can_dial_campaign` is a server-authoritative *decision* consumed by a cooperating client — **not** a database-level block. Closing it requires tightening `campaign_leads_select` (a separate, approved security task). An Admin retains legitimate org-wide access to the same lead via Contacts; what is blocked is using another agent's Personal campaign as the dialing context.
 - **Authorization in these RPCs reads `public.profiles` for `auth.uid()`, never `get_user_role()`** (JWT-only, no profiles fallback — invariant #19), and additionally requires the profile to be **Active** and in the authoritative organization. `authenticated` holds only SELECT on `profiles`, so this cannot be self-escalated.
-- **Known fail-closed behaviour:** Team Leader downline authority uses `public.is_ancestor_of`, and **every `profiles.hierarchy_path` in production is a depth-1 self-label**, so `is_ancestor_of` returns false for every pair and TL downline authorization denies everything. This is deliberate for now; repairing `hierarchy_path` is a tracked pre-V1 security follow-up because it would re-activate TL branches in several RLS policies at once.
+- **Known fail-closed behaviour (corrected 2026-10-23):** Team Leader downline authority uses `public.is_ancestor_of`. The older claim that every `profiles.hierarchy_path` is a depth-1 self-label is no longer true: on 2026-10-23, 12 of 16 stored paths were canonical and 4 were stale (7 of 11 upline edges recognised), and any profile save that lists `upline_id` can repair paths and switch TL branches on. No Active TL had a recognised downline that day. The approved repair is the hierarchy stabilization project (see the Hierarchy integrity invariant); until its gates are applied, treat the TL branches as one ordinary save away from activating.
 - **`private.attach_leads_to_campaign_core` / `campaign_actor` / `can_administer_campaign` / `import_attachment_status` / `assert_may_assign_to` / `assert_import_set_campaign_compatible` are REVOKED from PUBLIC, anon and authenticated.** Every public wrapper validates `auth.uid()`, organization, role scope, campaign compatibility and provenance before delegating.
 
 27. **Custom-field identity is the database id + canonical name; `"(Custom)"` is UI decoration only (CSV Import Mapping Fix, 2026-08-07; frontend-only, no migration)** —
@@ -662,7 +662,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 ## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
 - Split **`DialerPage.tsx`** into subcomponents.
-- 🚨 **HIGH PRIORITY — Team Leader hierarchy predicate is unreliable (found 2026-10-17, commission preview Phase 1; NOT fixed there).** `public.is_ancestor_of` depends on `profiles.hierarchy_path`, whose production values are largely self-labels (the `compute_hierarchy_path` defect already noted in `supabase-users.ts`). A read-only production count on 2026-10-17 found `is_ancestor_of(upline_id, id)` true for only **3 of 11** profiles that have an `upline_id`. The Team Leader branch of every sale writer (`create_client_with_sale`, `convert_lead_to_client_with_sales`, `record_client_policy`, `update_client_with_policy_sale`), `get_contact_scope_agents` (Contacts Team scope) and the clients hierarchical RLS all use this predicate, while `usersApi.getAgentScopeIds` walks `upline_id` instead. Consequences: Team Leaders can be refused or under-scoped for their real downline, and the commission preview (which deliberately uses the same narrower predicate) hides estimates for those agents. Needs its own approved plan (diagnosis, data repair and/or trigger fix through a reviewed migration, and a decision on one canonical resolver). Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
+- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — fix BUILT, NOT APPLIED (2026-10-23).** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix (migrations M1 `20261023210000_hierarchy_authorization_boundaries`, M2/M3 in `supabase/migrations/pending/`) is built and verified on branch `claude/intelligent-lamport-r6hnx7` but each production gate needs Chris's separate approval. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
 
 
@@ -831,7 +831,7 @@ Gate 3, §15 Gate 3b, §16 Gate 4 note).
   has no table write grants. `policy_commission_authz.access` mirrors "View Own/Others' Commission Percentage"
   (pinned with `usePermissions` by `supabase/tests/fixtures/policy_commission/permission_defaults.json`): the
   credited agent (Own toggle) and same-organization Admins/Super Admins (Others toggle) write; Team Leaders with the
-  Others toggle read agents below them by `is_ancestor_of` (see the hierarchy debt above); no Agency Group peer
+  Others toggle read agents below them by `is_ancestor_of` (see the Hierarchy integrity invariant); no Agency Group peer
   access; nothing is requested under View As. Never add an application-controlled authority token or a
   postgres-owned fallback writer.
 - **Errors.** PT409 conflict (HTTP 409), PT404 not found (never P0002, which PostgREST maps to HTTP 500), 42501
@@ -1036,6 +1036,41 @@ Future conversions only: no backfill, and existing clients are never read or cha
 - **Layering.** The dropdown layer is `z-[1100]` (above the floating dialer's `z-[1000]`/`z-[1001]`) and the popover
   is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
   `type="button"`.
+
+## Hierarchy integrity invariant — October 23, 2026 (Gate 1 built and verified; NOTHING APPLIED)
+
+Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 4); evidence: `verification.md`
+beside it. Production gates, each separately approved: **2a M1 → 3 frontend → 2b M2 → 2c M3**. Until a gate is
+applied, its rules below describe the branch, not production — check `list_migrations`.
+
+- **`profiles.upline_id` is the only hierarchy authority.** `hierarchy_path` is a derived cache (root-first, `-`→`_`
+  labels) that M2 keeps equal to the canonical chain: built from the incoming `NEW.upline_id`, whole-subtree refresh
+  on a real move, unchanged-upline saves change nothing, direct path writes are overwritten. Never write
+  `hierarchy_path` yourself and never repair it outside the reviewed M3.
+- **Structure is enforced in the database (M2):** no self-parent, cycle, cross-org upline/ancestor, or org change that
+  strands downline; chains capped at **32** levels (GiST ltree limit); hierarchy writes only in READ COMMITTED
+  (0A000 otherwise); invitations need an Active same-org upline when created or re-pointed. Status/role rules for
+  uplines are UI-only (pickers: Active Admin/TL, excluding self and descendants).
+- **TL authority is database-authoritative (M1, correction R1):** strict ancestry in `is_ancestor_of` requires the
+  ancestor's **profile** to be Active with role Team Leader/Admin/Super Admin or `is_super_admin`; the ancestor must be
+  the caller; ancestor and descendant must share the organization. A demoted, deactivated or deleted TL's live token
+  carries no downline authority. Keep `is_ancestor_of(ancestor_id, descendant_id)`'s signature (10 policies depend on
+  it) — `CREATE OR REPLACE` only.
+- **M1 boundaries:** a Team Leader profile needs the Contacts delete toggle for any direct lead/client/recruit delete;
+  only the agent or an Active org-admin profile may delete a call; on another agent's call a non-admin client write may
+  change only `flagged_for_coaching` and `notes` (`updated_at` is stamped); changing another member's
+  `commission_level` needs an Active org-admin profile; a direct client write may never change or null a contact's
+  `organization_id`; `compute_hierarchy_path`, `is_ancestor_of` and the path trigger functions are not anon-executable.
+- **M3 is fingerprint-bound:** it repairs only the reviewed four rows (id fingerprint `ddc1f53f…` AND id+target
+  fingerprint `7daae418…`); anything else refuses. Rolling back functions never removes authority already granted —
+  revoke operationally (reassign the upline or change the role).
+- **Release order matters (R2):** the frontend that stops resending unchanged `upline_id` and mirrors account-control
+  rules ships before M2. Profile writes in User Management read rows back and raise `PROFILE_UPDATE_REFUSED` when RLS
+  filters them.
+- **Tests:** `scripts/run_hierarchy_stabilization_tests.sh` (disposable loopback cluster; states S0–S3 and rollback
+  states; RLS, RPC, PostgREST forged/stale-token and frontend compatibility stages with pinned case counts) and CI
+  workflow `hierarchy-stabilization.yml` (PostgreSQL 17.6, PostgREST 12.2.3). Any change to these migrations, the
+  harness or the hierarchy frontend modules must keep both green.
 
 ## Google Sheets lead import invariant — October 13, 2026 (backend deployed disabled on 2026-10-22 as `20261022062539`; frontend release pending)
 

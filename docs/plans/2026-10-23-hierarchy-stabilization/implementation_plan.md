@@ -1,6 +1,10 @@
 # Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Status (2026-10-23): GATE 1 APPROVED (rev 3) — development and testing only.** Chris approved Gate 1 with the
+**Status (2026-10-23): GATE 1 BUILT, INDEPENDENTLY REVIEWED AND VERIFIED (rev 4) — draft PR; awaiting the Gate 2a
+decision.** Results, amendments and residual risks: §B below and `verification.md` beside this file. Nothing has been
+applied, merged or deployed; production was only read.
+
+**Rev 3 status:** GATE 1 APPROVED — development and testing only. Chris approved Gate 1 with the
 recommended D1–D15 defaults and two mandatory corrections (§R). Gate 1 does **not** authorize a merge, deployment,
 migration apply, production data change or production RLS change; each production gate below still needs its own
 explicit approval, and the four-row repair fingerprint is preserved.
@@ -66,6 +70,50 @@ database state the release passes through — S0 baseline, S1 M1, S2 M1+M2, S3 M
 single-row flag, default off) under which the new triggers keep paths frozen except through the reviewed repair; it
 is switched on only at Gate 2c. Not built unless needed.
 
+## B. Gate 1 results and amendments (rev 4, 2026-10-23)
+
+Built on this branch, then attacked by an independent five-lens security review (authorization bypass, hierarchy
+integrity, apply safety, frontend, mutation testing; every finding adversarially re-verified). All 21 confirmed
+findings were fixed and re-verified with the original exploits and mutants. Evidence: `verification.md`.
+
+**Amendments to §6 (all narrowing or hardening; none widens access):**
+1. **Contact tenancy guard (review AUTHZ-1, major).** A Team Leader could reassign a downline lead/client/recruit to
+   themselves and in the same UPDATE set `organization_id` to NULL or another tenant — the row vanished from the org
+   (and could land in another tenant), bypassing D5. M1 adds `private.guard_contact_organization_change()` and
+   `contacts_00_guard_organization_change` (BEFORE UPDATE OF `organization_id` on leads, clients, recruits): a direct
+   client write (`current_user = 'authenticated'`) may never change or null a contact's organization. Closes the
+   same pre-existing hole for owners' own rows. No app path changes a contact's organization.
+2. **Path-function revokes move to M1 (AUTHZ-3).** `compute_hierarchy_path`, `update_hierarchy_path` and
+   `cascade_hierarchy_update` lose PUBLIC/anon/authenticated EXECUTE at Gate 2a, so the anon upline-chain oracle
+   closes with the first production change instead of at M2. `on_profile_update` hygiene stays in M2.
+3. **Calls guard stamps `updated_at` (AUTHZ-4)**: on another agent's call a non-admin write stores `now()`.
+4. **M3 binds both the rows and their targets (INT-1).** The reviewed four-row id fingerprint
+   `ddc1f53f3823c6e367310a748ea0ac85` is **kept unchanged**; M3 additionally requires
+   `md5(string_agg(id || '=' || canonical_path, ',' ORDER BY id))` = `7daae418571600b43b7cf5d5155be0d4` (production,
+   read-only, 2026-10-23), so an Admin re-parenting a stale row before Gate 2c makes M3 refuse.
+5. **Hierarchy writes are READ COMMITTED only (INT-2).** A REPEATABLE READ / SERIALIZABLE hierarchy write could
+   leave a fail-open stale path; the lock function now refuses them with SQLSTATE 0A000. Production default is READ
+   COMMITTED with no overrides (PostgREST, GoTrue and all writers). READ UNCOMMITTED is refused too (harmless).
+6. **Depth cap 32, not 100.** The GiST ltree index on 36-character labels breaks between 60 and 70 levels (stack
+   depth / buffer exhaustion locally); 32 rejects cleanly. Production's longest chain is 3; the old code silently
+   truncated at 20. Traversal caps (`resolve_downline_ids`, `getAgentScopeIds`) stay at 100.
+7. `profile_authz.actor_is_org_admin` also requires an **Active** profile; after M1 **10** policies depend on
+   `is_ancestor_of` (tasks joins the 9); **M2 refuses unless M1 is live.**
+8. Frontend additions beyond F1–F12: zero-row read-back (`update`, `assignUpline`, `removeFromTeam`, soft delete
+   raise `PROFILE_UPDATE_REFUSED` when RLS filters the write); exact partial-save messages; Team Profile uses the same
+   Deleted-manager rule as Settings → Hierarchy; `useContactAssigneeOptions` (FullScreenContactView shrinks); stale-load
+   guards in every new hook; the search sanitizer keeps apostrophes.
+9. **R2 compatibility result:** the real frontend data layer passed 190/190 cases on every state the release passes
+   through (S0 baseline, S1 M1, S2 M1+M2, S3 M1+M2+M3) and on the rollback states, so the order **M1 → frontend →
+   M2 → M3 stands** and the activation-guard fallback was not needed.
+
+**Recorded residuals (pre-existing or out of hierarchy scope; §12):** demoted-Admin stale JWT keeps the token-based
+Admin branches until refresh; `super_admin_own_org` trusts the `is_super_admin` claim; Inactive Admin via
+`can_update_profile`; import undo toggles (`undo_team_import`, `undo_own_import`) are not enforced by the database
+or UI (§4 corrected); contact INSERT into a foreign or NULL organization; global hierarchy advisory lock can be taken
+by any authenticated zero-row PATCH listing `upline_id` (held for one statement); PostgreSQL 17.6 digests are proven
+only when the GitHub Actions run passes on the draft PR.
+
 ## 0. Sources read and conflict check (2026-10-23)
 
 - `AGENT_RULES.md`: §3 (incl. "Downline profile scoping is query-enforced, not RLS-enforced"), invariants #6, #8, #20,
@@ -87,7 +135,7 @@ is switched on only at Gate 2c. Not built unless needed.
 | Direct upline relationships | 11 |
 | Direct relationships `is_ancestor_of` does not recognise | 4 |
 | Expected ancestor pairs (upline walk) / missing / extra | 15 / **6** / 0 |
-| Stored `hierarchy_path` ≠ canonical | **4** — `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`; fingerprint `md5(sorted ids) = ddc1f53f3823c6e367310a748ea0ac85` |
+| Stored `hierarchy_path` ≠ canonical | **4** — `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`; fingerprint `md5(sorted ids) = ddc1f53f3823c6e367310a748ea0ac85`; target fingerprint `md5(id=canonical path) = 7daae418571600b43b7cf5d5155be0d4` (§B4) |
 | Cross-org edges / missing parents / self-parents / cycles | 0 / 0 / 0 / 0 |
 | Longest reporting chain | 3 profiles |
 | PostgreSQL / ltree | 17.6 / 1.3 in schema `public` |
@@ -161,7 +209,8 @@ name/roster reads are accepted with explicit org filters added where §6.4 touch
    cycle-safe, capped at 100 levels (= `resolve_downline_ids` / `getAgentScopeIds`).
 3. **Whole-subtree refresh** in one set-based statement when an upline really changes; **no-op saves change nothing**.
 4. **Structural guards**: no self-parent, cycle, cross-org upline/ancestor, or org change stranding downline;
-   invitations need an Active same-org upline.
+   invitations need an Active same-org upline when created or when their upline/org changes (acceptance applies the
+   D8 structural rules only).
 5. **Authorization boundaries before activation** (M1) so the repair grants nothing beyond the existing Contacts
    toggles, commission toggles and role boundaries.
 6. **Controlled activation** by a fingerprint-bound, idempotent repair (M3) after M1, M2 and the frontend.
@@ -186,7 +235,7 @@ Repair adds exactly 6 ancestor pairs, removes none: `f809493e→{4ef505e0, e5c4e
 | Contacts Team scope / assignable lists (`get_contact_scope_agents`) | self only | self + `4ef505e0` + `e5c4ee04` | same |
 | Dashboard team (`performance_scope`) | self | self + 3 (incl. Deleted `89f2e994`, 0 activity) | same |
 | Sale writers, conversion, `notify_win`, campaign/import branches | own | downline leads & clients (0 campaigns, 0 imports today) | same |
-| `delete_contact` / `undo_contact_import` | own | downline; delete honours the toggle; team import undo honours `contacts.leads.undo_team_import` (TL default on, 24 h, by design) | same |
+| `delete_contact` / `undo_contact_import` | own | downline; delete honours the toggle; team import undo is **not** gated by `contacts.leads.undo_team_import` in the database or UI (TL default on, so live behaviour matches the default; pre-existing, §12) | same |
 | Commission rows | none | none — "View Others' Commission Percentage" **off** for TLs in `a0000000` (46 rows open only if an Admin enables it: Phase 2A design) | same; no new commission permission |
 | Reports (`report_access_v2`) | self + `4ef505e0` + `e5c4ee04` | **unchanged** | unchanged |
 | CampaignDetail TL filter (display) | own + unclaimed | — | after F7: also downline-claimed rows already in the payload (`campaign_leads_select` gives TLs all org campaign leads) |
@@ -210,9 +259,9 @@ Reply "approve Gate 1 with the recommended defaults" or name any change.
 | D6 | Writes on other agents' call rows | ★ RESTRICTIVE DELETE on `calls`: own rows, or an actor whose **profile** is Admin/Super Admin of the org or `is_super_admin`. BEFORE UPDATE guard: on another agent's call, a non-admin **profile** may change only `flagged_for_coaching` and `notes` (direct client writes only; definer RPCs, webhooks and real Admins unaffected). Covers TLs and any stale elevated token (R1) | Restore the designed UPDATE/DELETE |
 | D7 | Commission design | ★ No change. Confirm: TL + "View Others' Commission Percentage" = read downline commission rows; a TL-recorded downline sale captures with read access (Phase 2A). Note: `profiles.commission_level` itself is readable org-wide regardless of the toggle (§12) | Close the TL commission branch (a commission-permission change) |
 | D8 | Upline rules | ★ Database enforces structure (self, cycle, cross-org, depth 100, org change stranding downline). Status/role rules are UI-only (pickers: Active Admin/TL, same org, excluding self + descendants). Invitations: database requires an **Active same-org upline** on INSERT or upline/org change | Enforce role/status for profiles too (breaks TL demotion / soft-delete flows that leave children in place) |
-| D9 | Repair packaging | ★ M3 separate, in `migrations/pending/` until 2c; refuses unless the live stale set's fingerprint equals the reviewed one (`ddc1f53f…`), no-op when nothing is stale; repairs all 4 incl. the 2 Deleted rows; accepts 4 `updated_at` bumps and 8 unchanged-value `set_claim` writes | Repair inside M2; exclude Deleted rows |
-| D10 | Grants & hygiene | ★ REVOKE `compute_hierarchy_path` from PUBLIC/anon/authenticated; `is_ancestor_of` from PUBLIC/anon; trigger functions from PUBLIC/anon/authenticated; `SET search_path` on `on_profile_update` (body unchanged) | Separate security change |
-| D11 | Concurrency | ★ Proven design: statement-level transaction advisory lock + `FOR SHARE` ancestor walk (concurrent 2-cycle rejected under READ COMMITTED, 40001 under RR). Accept: all hierarchy-listing statements serialize on one key; ancestor login-sync waits for a mover's commit; rare detected deadlocks abort one side | Advisory lock only + refuse non-READ-COMMITTED hierarchy writes |
+| D9 | Repair packaging | ★ M3 separate, in `migrations/pending/` until 2c; no-op when nothing is stale; otherwise refuses unless BOTH the reviewed four-row id fingerprint (`ddc1f53f…`, unchanged) AND the id+target-path fingerprint (`7daae418…`, §B4) match; repairs all 4 incl. the 2 Deleted rows; accepts 4 `updated_at` bumps and 8 unchanged-value `set_claim` writes | Repair inside M2; exclude Deleted rows |
+| D10 | Grants & hygiene | ★ In **M1**: REVOKE `compute_hierarchy_path`, `update_hierarchy_path`, `cascade_hierarchy_update` from PUBLIC/anon/authenticated and `is_ancestor_of` from PUBLIC/anon (§B2). In M2: REVOKE `on_profile_update` and `SET search_path` on it (body unchanged) | Separate security change |
+| D11 | Concurrency | ★ Statement-level transaction advisory lock + `FOR SHARE` ancestor walk, and hierarchy writes refused outside READ COMMITTED (SQLSTATE 0A000; §B5). Accept: all hierarchy-listing statements serialize on one key; ancestor login-sync waits for a mover's commit; rare detected deadlocks abort one side | Advisory lock only |
 | D12 | Index | ★ `idx_profiles_upline_id ON profiles (upline_id) WHERE upline_id IS NOT NULL` | None |
 | D13 | Frontend scope | ★ §6.4 F1–F12 (confirmed defects + safety mirrors). Task / appointment / import pickers keep direct reports (identical today) | Switch them to the full subtree now |
 | D14 | Interim | ★ §1 interim guidance until Gate 2c | Frontend-only stop-gap first |
@@ -519,7 +568,22 @@ role (incl. Super Admin) directly; TLs can revoke any org invitation; `get_invit
 `upline_id` to token holders; legacy `accept-invite`. Signup: `handle_new_user` trusts metadata. Display: Contacts
 Agents tab and `useContactScope` errors look like an empty downline; DialerPage roster and AgentModal `select('*')`
 lack explicit org filters; bulk delete reports `ids.length`; task/appointment/import pickers direct-report only;
-`fetchTeamRoster` unbatched; appointments TL scope on inert `team_id`; `tasks_select_team_leader` lacks the D3 status
-check (0 rows). Platform: agency-group self-match in `is_agency_group_peer_organization`; `dialer_lead_locks_delete`
+`fetchTeamRoster` unbatched; appointments TL scope on inert `team_id`. Platform: agency-group self-match in `is_agency_group_peer_organization`; `dialer_lead_locks_delete`
 without org filter; `super_admin_all_users` anon-executable; legacy `'Team Lead'` literals; SECURITY DEFINER advisor
 backlog (57 anon-executable); migration-history filename drift.
+
+**Added by the Gate 1 build and security review (2026-10-23):** stale **Admin** tokens keep the token-based Admin
+branches of leads/clients/recruits/calls until refresh (≤ 3600 s; R1 closed the hierarchy branches only);
+`super_admin_own_org` trusts the `is_super_admin` claim; an Inactive Admin keeps `can_update_profile` /
+`enforce_profile_field_authorization` authority; import undo toggles (`contacts.leads.undo_team_import`,
+`undo_own_import`) are enforced by neither the database nor the UI (production Agents have undo_own_import = false
+and can still undo their own imports — enforcing it removes a capability, so it needs its own decision); any
+authenticated member can INSERT a contact into a foreign or NULL organization (needs a RESTRICTIVE FOR INSERT
+policy); the cluster-wide hierarchy advisory lock can be taken by any authenticated zero-row PATCH listing
+`upline_id` (held for one statement); `private.hierarchy_consistency()` is O(n²) (≈3 s at 3k profiles; M2/M3 run it
+under a 60 s statement timeout); `deactivate`, `reactivate`, `updateBillingType` and `updateOnboardingItems` still
+report success on an RLS-filtered zero-row write; `updateProfile` ignores onboarding items; TransferLeadsModal uses
+the filtered member list; `reassignAllContacts` does not compare moved counts; the team queries do not page past
+the PostgREST row cap; an invitation accepted after its upline was deactivated places the member under that
+(inert) upline; interdependent multi-row re-parenting must be applied as separate statements in dependency order;
+the commission-grids runner fails when another runner's roles remain on a shared cluster (passes on a fresh one).

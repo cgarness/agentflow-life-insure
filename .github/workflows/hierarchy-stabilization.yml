@@ -36,6 +36,8 @@ on:
       - 'src/hooks/useTeamMembers.ts'
       - 'src/hooks/useCampaignTeamScope.ts'
       - 'src/hooks/useContactScope.ts'
+      - 'src/hooks/useContactAssigneeOptions.ts'
+      - 'src/components/agent-profile/team/**'
       - 'src/components/settings/HierarchyTree.tsx'
       - 'src/components/settings/UserManagement.tsx'
       - 'src/components/settings/hierarchy/**'
@@ -125,7 +127,8 @@ jobs:
           src/lib/__tests__/profileScopeAndOrgTree.test.ts src/lib/profile-org-tree.test.ts
           src/lib/__tests__/contactsAgentsScope.test.tsx src/lib/__tests__/teamLeaderInvitations.test.ts
           src/components/settings src/components/agent-profile/__tests__/profileContracts.test.ts
-          src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx
+          src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx src/hooks/__tests__/useContactAssigneeOptions.test.tsx
+          src/components/agent-profile/__tests__/profileStates.test.tsx
           src/components/contacts/__tests__/addTaskModalDueDate.test.tsx
           src/components/layout/__tests__/viewAsCallerContract.test.tsx src/hooks/__tests__/useContactScopeViewAs.test.tsx
           src/pages/__tests__/campaignDetailTeamFilter.test.tsx src/pages/__tests__/campaignDetailImportRetry.test.tsx
