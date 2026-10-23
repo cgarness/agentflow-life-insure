@@ -98,6 +98,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: TypeScript typecheck (full project)
         run: npx tsc --noEmit
+      - name: Historical commission backfill pure arithmetic and syntax (no network)
+        run: node --check scripts/policy_commission_backfill_batch.mjs && node --test scripts/tests/policy_commission/historical_backfill.test.mjs
       - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
