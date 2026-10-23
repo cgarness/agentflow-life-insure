@@ -87,7 +87,11 @@ function rowToSafeUser(row: unknown): User & { profile: UserProfile } {
 /**
  * `.or()` interpolates a RAW, non-parameterized PostgREST filter string, so a search
  * term carrying filter metacharacters could otherwise produce a malformed expression.
- * Stripping them keeps the term a plain `ilike` pattern. Used by `getByIds` and `getAll`.
+ * Replacing them with spaces keeps the term a plain `ilike` pattern: `,` `(` `)` delimit
+ * the logic tree, `"` and `\` quote / escape a value, and `*` is PostgREST's `%` alias.
+ * The apostrophe is NOT reserved in PostgREST logic trees (PostgREST, not this string,
+ * quotes the value for SQL), so it is kept: a search for "O'Brien" must match `o'brien`.
+ * Used by `getByIds` and `getAll`.
  * Note this is defence in depth only: the callers' `.in("id", …)` / `organization_id`
  * filters are separate AND-level filters that no `.or()` content can escape, so a search
  * can narrow the set but never widen it.
@@ -96,7 +100,7 @@ function sanitizeProfileSearchTerm(raw?: string | null): string {
   if (!raw) return "";
   return raw
     .toLowerCase()
-    .replace(/[,()*\\"']/g, " ")
+    .replace(/[,()*\\"]/g, " ")
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .trim();
@@ -890,7 +894,10 @@ export const usersSupabaseApi = {
    * DIRECT reports of `uplineId` (one level, non-Deleted) in `organizationId` — the task,
    * appointment and import pickers' existing semantics (D13). The explicit organization
    * filter is query scoping on top of `profiles_select_org`; a missing upline or
-   * organization issues no query and resolves to [].
+   * organization issues no query and resolves to []. ImportLeadsPage passes the viewer's
+   * organization and re-reads when it changes, so its Team Leader assignable set is the
+   * leader plus these direct reports in this organization (only the leader until the
+   * organization is known).
    */
   async getDownlineAgents(
     uplineId: string,

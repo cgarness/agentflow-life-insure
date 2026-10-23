@@ -14,7 +14,9 @@
  *        lists `upline_id` / `commission_level` in the PATCH;
  *  - `update`, `assignUpline` and `removeFromTeam` read the row back, so an UPDATE that RLS
  *        filtered to zero rows rejects with `PROFILE_UPDATE_REFUSED` instead of succeeding;
- *  - `getAll`'s search term goes through the same sanitizer as `getByIds`.
+ *  - `getAll`'s search term goes through the same sanitizer as `getByIds`, which neutralises
+ *    the PostgREST metacharacters `,` `(` `)` `*` `"` `\` but keeps the apostrophe, so a search
+ *    for "O'Brien" sends `ilike.%o'brien%` and still matches.
  *
  * All ids are synthetic. No production identifier appears in this file.
  */
@@ -210,6 +212,57 @@ describe("getAll (F9) — the schema fallback trims columns, never constraints",
   it("a term that sanitizes to nothing adds no .or() filter", async () => {
     await usersSupabaseApi.getAll({ organizationId: ORG, search: ' ,()* ' });
     expect(recorded[0].or).toBeUndefined();
+  });
+});
+
+describe("search sanitizer — apostrophes kept, PostgREST metacharacters neutralised", () => {
+  const SCOPE = [uid(1), uid(2), uid(3)];
+  const orFor = (term: string) => `first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`;
+
+  it("getAll sends an apostrophe name as typed (lower-cased): O'Brien → ilike.%o'brien%", async () => {
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: "O'Brien" });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].or).toBe(orFor("o'brien"));
+    expect(recorded[0].eq.organization_id).toBe(ORG);
+  });
+
+  it("getByIds sends an apostrophe name as typed (lower-cased) inside the scoped set", async () => {
+    await usersSupabaseApi.getByIds({ ids: SCOPE, organizationId: ORG, search: "O'Brien" });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].or).toBe(orFor("o'brien"));
+    expect(recorded[0].eq.organization_id).toBe(ORG);
+    expect(recorded[0].inVals).toEqual(SCOPE);
+  });
+
+  it("the apostrophe survives the schema fallback query too", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    state.respond = (_q, i) => (i === 0 ? schemaError : ok([]));
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: "D'Angelo" });
+    warn.mockRestore();
+    expect(recorded).toHaveLength(2);
+    for (const q of recorded) expect(q.or).toBe(orFor("d'angelo"));
+  });
+
+  it("( ) , \" \\ and * are still neutralised to spaces by getAll and getByIds", async () => {
+    // Each reserved character becomes one space; the apostrophe stays.
+    const raw = 'O\'B(r)i,e"n\\x*y';
+    const expected = "o'b r i e n x y";
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: raw });
+    await usersSupabaseApi.getByIds({ ids: SCOPE, organizationId: ORG, search: raw });
+    expect(recorded).toHaveLength(2);
+    for (const q of recorded) {
+      expect(q.or).toBe(orFor(expected));
+      // The interpolated term can never open a new logic-tree branch or quoted value.
+      expect(q.or!.split(",")).toHaveLength(3);
+      expect(q.or).not.toMatch(/[()"\\*]/);
+    }
+  });
+
+  it("an apostrophe-only term is a real search, while a metacharacter-only term adds no .or()", async () => {
+    await usersSupabaseApi.getAll({ organizationId: ORG, search: " ' " });
+    await usersSupabaseApi.getByIds({ ids: SCOPE, organizationId: ORG, search: ' (,)"\\* ' });
+    expect(recorded[0].or).toBe(orFor("'"));
+    expect(recorded[1].or).toBeUndefined();
   });
 });
 

@@ -10,8 +10,9 @@
  * error state, never "No agents assigned"; "Add Agent" offers only Active, unassigned Agents
  * of the organization and never the leader's own upline chain (a cycle); a chain or roster
  * failure shows an error instead of a list; Add / Remove re-read the team from the database,
- * call `onTeamChanged`, and surface database messages; non-Admin viewers get no controls.
- * All ids are synthetic.
+ * call `onTeamChanged`, and surface database messages; non-Admin viewers get no controls; a
+ * list load that finishes after a close, a newer open or a leader switch is stale and ignored
+ * (it never re-opens the list). All ids are synthetic.
  */
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -208,6 +209,106 @@ describe("Add Agent", () => {
     expect(await screen.findByText("We couldn't load agents to add. Try again.")).toBeInTheDocument();
     expect(screen.queryByText("Fay Test")).toBeNull();
     expect(screen.queryByText("No unassigned agents found.")).toBeNull();
+  });
+});
+
+/**
+ * Holds every `getUplineChainIds` call (one per "Add Agent" open) until the test releases it.
+ * `release` then runs the REAL chain walk; `fail` rejects. `settled` resolves once the held
+ * promise handed to the hook has settled either way.
+ */
+function holdChains() {
+  const real = usersSupabaseApi.getUplineChainIds.bind(usersSupabaseApi);
+  const held: { release: () => void; fail: (e: unknown) => void; settled: Promise<unknown> }[] = [];
+  vi.spyOn(usersSupabaseApi, "getUplineChainIds").mockImplementation((args) => {
+    let release!: () => void;
+    let fail!: (e: unknown) => void;
+    const promise = new Promise<string[]>((resolve, reject) => {
+      release = () => { real(args).then(resolve, reject); };
+      fail = reject;
+    });
+    held.push({ release, fail, settled: promise.then(() => undefined, () => undefined) });
+    return promise;
+  });
+  return held;
+}
+/** Settles a held load and lets the hook's continuation run. */
+async function settle(load: { settled: Promise<unknown> }) {
+  await act(async () => {
+    await load.settled;
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+const listOpen = () => screen.queryByPlaceholderText("Search agents...") !== null;
+
+describe("Add Agent — a stale list load never re-opens or overwrites the list", () => {
+  it("close while loading, release, stays closed", async () => {
+    const held = holdChains();
+    await show();
+    const button = screen.getByRole("button", { name: /Add Agent/ });
+    fireEvent.click(button);
+    expect(screen.getByText("Loading agents…")).toBeInTheDocument();
+    fireEvent.click(button); // closed by the user while the load is still in flight
+    expect(listOpen()).toBe(false);
+
+    held[0].release();
+    await settle(held[0]);
+    expect(listOpen()).toBe(false);
+    expect(screen.queryByText("Fay Test")).toBeNull();
+  });
+
+  it("close while loading, the load then fails: stays closed with no error", async () => {
+    const held = holdChains();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await show();
+    const button = screen.getByRole("button", { name: /Add Agent/ });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    held[0].fail(new Error("chain read failed"));
+    await settle(held[0]);
+    expect(listOpen()).toBe(false);
+    expect(screen.queryByText("We couldn't load agents to add. Try again.")).toBeNull();
+    error.mockRestore();
+  });
+
+  it("a newer open wins: the older in-flight load cannot overwrite its list", async () => {
+    const held = holdChains();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await show();
+    const button = screen.getByRole("button", { name: /Add Agent/ });
+    fireEvent.click(button); // open #1
+    fireEvent.click(button); // close
+    fireEvent.click(button); // open #2
+    expect(held).toHaveLength(2);
+
+    held[1].release();
+    await settle(held[1]);
+    expect(screen.getByText("Fay Test")).toBeInTheDocument();
+
+    held[0].fail(new Error("older load failed late"));
+    await settle(held[0]);
+    expect(listOpen()).toBe(true);
+    expect(screen.getByText("Fay Test")).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't load agents to add. Try again.")).toBeNull();
+    error.mockRestore();
+  });
+
+  it("a leader switch closes the list, and the old leader's load cannot re-open it", async () => {
+    const held = holdChains();
+    const view = render(<UserTeamTab userId={LEADER} organizationId={ORG} canManage onTeamChanged={vi.fn()} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /Add Agent/ }));
+    expect(listOpen()).toBe(true);
+
+    view.rerender(<UserTeamTab userId={ADMIN} organizationId={ORG} canManage onTeamChanged={vi.fn()} />);
+    await act(async () => {});
+    expect(listOpen()).toBe(false);
+
+    held[0].release();
+    await settle(held[0]);
+    expect(listOpen()).toBe(false);
+    expect(screen.queryByText("Fay Test")).toBeNull();
   });
 });
 

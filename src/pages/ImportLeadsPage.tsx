@@ -36,11 +36,10 @@ const ImportLeadsPage: React.FC = () => {
   useEffect(() => {
     if (!organizationId) return;
 
-    // Org roster: explicit organization filter on top of profiles_select_org (query scoping).
     supabase
       .from("profiles")
       .select("id, first_name, last_name, status")
-      .eq("organization_id", organizationId)
+      .eq("organization_id", organizationId) // query scoping on top of profiles_select_org
       .eq("status", "Active")
       .then(({ data }) => {
         if (data)
@@ -69,11 +68,9 @@ const ImportLeadsPage: React.FC = () => {
       });
   }, [organizationId]);
 
-  // Direct reports in this organization (getDownlineAgents: no organization, no query).
   useEffect(() => {
     if (!user?.id || role !== "Team Leader") return;
-    usersApi
-      .getDownlineAgents(user.id, organizationId)
+    usersApi.getDownlineAgents(user.id, organizationId)
       .then((agents) => setDownlineIds(agents.map((a) => a.id)))
       .catch(console.error);
   }, [user?.id, role, organizationId]);

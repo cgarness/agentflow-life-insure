@@ -9,6 +9,8 @@
  *  - a load failure is an error state, never an empty team;
  *  - "Add Agent" offers Active Agents of the organization with no upline, minus the leader
  *    and the leader's own upline chain (`getUplineChainIds`), so it cannot offer a cycle;
+ *  - a list load that finishes after the list was closed, re-opened, or the leader /
+ *    organization changed is stale and ignored (`openSeq`), so it can never re-open the list;
  *  - every Add / Remove re-reads the team from the database and calls `onTeamChanged` so the
  *    parent member list refreshes too.
  */
@@ -31,6 +33,9 @@ export interface TeamMemberRow {
 
 const LOAD_ERROR = "We couldn't load this team. Try again.";
 const AGENTS_ERROR = "We couldn't load agents to add. Try again.";
+
+type AgentsState = { open: boolean; rows: TeamMemberRow[]; loading: boolean; error: string | null };
+const AGENTS_CLOSED: AgentsState = { open: false, rows: [], loading: false, error: null };
 
 function keep(rows: unknown): TeamMemberRow[] {
   return ((rows ?? []) as TeamMemberRow[]).filter((row) => !!row?.id);
@@ -85,9 +90,7 @@ export function useTeamMembers(params: { leaderId: string; organizationId: strin
   const [team, setTeam] = useState<{ rows: TeamMemberRow[]; loading: boolean; error: string | null }>(
     { rows: [], loading: true, error: null },
   );
-  const [agents, setAgents] = useState<{ open: boolean; rows: TeamMemberRow[]; loading: boolean; error: string | null }>(
-    { open: false, rows: [], loading: false, error: null },
-  );
+  const [agents, setAgents] = useState<AgentsState>(AGENTS_CLOSED);
   const [version, setVersion] = useState(0);
   const teamRef = useRef<TeamMemberRow[]>([]);
 
@@ -109,17 +112,29 @@ export function useTeamMembers(params: { leaderId: string; organizationId: strin
     return () => { cancelled = true; };
   }, [leaderId, organizationId, version]);
 
-  const closeAddAgent = useCallback(() => setAgents({ open: false, rows: [], loading: false, error: null }), []);
+  // Each open takes a new sequence number; a close (or a newer open) bumps it, so a load that
+  // finishes afterwards is stale and must not re-open the list or overwrite a newer one.
+  const openSeq = useRef(0);
+  const closeAddAgent = useCallback(() => {
+    openSeq.current += 1;
+    setAgents(AGENTS_CLOSED);
+  }, []);
+
+  // A leader or organization switch closes the list: its rows were computed for the old leader.
+  useEffect(() => { closeAddAgent(); }, [leaderId, organizationId, closeAddAgent]);
 
   const openAddAgent = useCallback(async () => {
+    const seq = ++openSeq.current;
     setAgents({ open: true, rows: [], loading: true, error: null });
     try {
       const rows = await loadTeamAssignableAgents({
         leaderId, organizationId, excludeIds: teamRef.current.map((m) => m.id),
       });
+      if (seq !== openSeq.current) return;
       setAgents({ open: true, rows, loading: false, error: null });
     } catch (e) {
       console.error("[UserTeamTab] assignable agents failed:", e);
+      if (seq !== openSeq.current) return;
       setAgents({ open: true, rows: [], loading: false, error: AGENTS_ERROR });
     }
   }, [leaderId, organizationId]);

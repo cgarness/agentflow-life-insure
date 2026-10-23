@@ -8,7 +8,10 @@ vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ da
  * already narrowed by role. The options now come from the shared pure
  * `resolveAssignableAgents` (Admin / effective super admin → org roster; Team Leader → self +
  * downline from `get_contact_scope_agents`; Agent → self), with the contact's current assignee
- * always kept, and the roster query carries an explicit organization filter.
+ * always kept, and the roster query carries an explicit organization filter. The reads and the
+ * resolver call live in `useContactAssigneeOptions` (F12); this suite drives them through the
+ * real component, and `src/hooks/__tests__/useContactAssigneeOptions.test.tsx` pins the hook's
+ * reads, fail-closed errors and stale-response rules directly.
  *
  * A UX narrowing only — RLS and the server checks are the authority. Under "View As" the team RPC
  * is withheld (it would answer for the real operator's `auth.uid()`), so a viewed Team Leader is
