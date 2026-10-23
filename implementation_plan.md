@@ -1,6 +1,8 @@
-## 2026-10-23 — BUGFIX (PLAN ONLY, awaiting Chris's approval): Add to Campaign hides eligible Personal and Team campaigns
+## 2026-10-23 — BUGFIX (APPROVED and IMPLEMENTED on branch; PR for review; NOT merged, NOT deployed): Add to Campaign hides eligible Personal and Team campaigns
 
-**Status:** Plan only. No source file changed, no backend or production command run, no migration. Branch `claude/fervent-planck-hkun67` at main `f548b59`. The latest Work Log entries (Google Sheets D/E, Commissions sidebar, Leaderboard #475, Lead → Client #476) do not touch this modal, the campaign scope helper or the attachment RPC, so there is no conflicting work.
+**Approval (2026-10-23):** Chris approved this plan with D1 = Option A (preserve campaign visibility and the existing server-side permissions) and D2 = include accurate "Already in Campaign" messaging. The approval covers implementation, testing and PR preparation only. It does not cover a merge to main, a deployment, or any production database change. Results are in the newest WORK_LOG entry.
+
+**Original status (plan):** Plan only. No source file changed, no backend or production command run, no migration. Branch `claude/fervent-planck-hkun67` at main `f548b59`. The latest Work Log entries (Google Sheets D/E, Commissions sidebar, Leaderboard #475, Lead → Client #476) do not touch this modal, the campaign scope helper or the attachment RPC, so there is no conflicting work.
 
 ### Root cause (confirmed in source)
 

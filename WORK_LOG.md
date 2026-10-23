@@ -1,3 +1,69 @@
+## 2026-10-23 — BUGFIX: Add to Campaign shows Agents their Personal and Team campaigns again (branch + PR for review; NOT merged, NOT deployed)
+
+**Request and approval.** Chris reported that Agents could not see their eligible Personal or Team campaigns under Add to Campaign in the full contact view. I read AGENT_RULES, VISION and this log before planning; no recent entry touches this area. Chris approved the plan in `implementation_plan.md` with D1 = Option A (keep campaign visibility and the existing server-side permissions) and D2 = accurate "Already in Campaign" messaging. The approval covers implementation, tests and PR preparation only. It does not cover a merge to main, a deployment or any production database change.
+
+**Root cause.** `AddToCampaignModal` converted each `campaigns` row to the camelCase UI shape, which dropped `user_id` and renamed `assigned_agent_ids`, and then passed the result (`as any`) to `filterCampaignsForManagement`. That helper reads exactly those two fields. As a result:
+- Agents saw only Open Pool campaigns.
+- Team Leaders lost their own Personal campaigns.
+- A Super Admin whose role is not Admin or Team Leader lost the Team campaigns they participate in.
+
+RLS `campaigns_select` was already returning these rows, so the bug was purely client-side. The same modal serves the Contacts bulk Add to Campaign action, so that path is fixed too.
+
+**What changed (frontend only).**
+- **New `src/components/contacts/addToCampaignOptions.ts`.**
+  - Explicit scope columns, and a typed raw row (`Pick<Tables<"campaigns">, …>`).
+  - `selectAddToCampaignOptions` keeps `status === "Active"` as a second filter, applies the management scope to the **raw rows**, and only then maps to `{ id, name, type, totalLeads }`.
+  - `managementRoleFor` keeps the modal's existing inputs unchanged.
+  - A Zod submit schema.
+  - `describeAttachResult`: "Already in <campaign>", "All N leads are already in <campaign>", and a split between already-present and ineligible. The existing messages are unchanged when nothing was already present.
+  - `attachErrorMessage`: a `42501` refusal becomes a permission message instead of raw Postgres text.
+- **New `src/hooks/useAddToCampaignOptions.ts`.**
+  - Each open is a fresh org-scoped read with an `AbortController`. Close, org change, user change, retry and unmount all abort it, and a late result is discarded.
+  - A stored result for another `org:user` is masked as loading during render, so another identity's campaigns are never painted.
+  - A missing org or user sends no read and shows `unavailable`.
+  - Role scope is applied at render; a filtered set is never stored.
+- **New `src/components/contacts/AddToCampaignExistingList.tsx`.** Search plus separate loading, error-with-Retry, unavailable, empty and no-match states.
+- **Edited `AddToCampaignModal.tsx`** (334 → 259 lines):
+  - Clears the search on reopen.
+  - Add is enabled only for a campaign in the **current** identity's loaded options, so a selection kept across an org or user change cannot submit.
+  - Zod validation, plus the new result and error messages.
+  - The Create New tab is unchanged. Getting under 200 lines would have meant moving it, which was out of scope.
+- **Edited `src/lib/supabase-campaign-leads.ts`.** Additive `alreadyPresent`, summed from the RPC's existing `skipped_already_present`. Other callers only destructure `added` and `skipped`.
+
+**Not changed.** No RLS policy, migration, RPC or Edge Function. `add_leads_to_campaign` remains the authority (`can_administer_campaign`, per-lead `can_authorize_campaign_lead`, `ON CONFLICT DO NOTHING`, so no duplicates). The `campaign-assignee-scope.ts` rules, Dialer scope, `can_dial_campaign`, the Create New tab and the View As unmount rule are unchanged, and there are no new dependencies. `AGENT_RULES.md` gains an "Add to Campaign picker" paragraph in the Campaigns table invariant.
+
+**Verification (local container).**
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| Strict `tsc -p tsconfig.app.json` | 84 errors, a set identical to main `f548b59` (diffed in a main worktree); none in touched files |
+| New focused tests | `addToCampaignOptions` 16/16, `addToCampaignModal` 16/16 |
+| Updated and related tests | `campaignLeadsBatch` 5/5, `campaignAccessScope` 19/19 |
+| Regression probe | The Agent scenario **fails on main's unmodified modal** (own Personal campaign missing) and passes on the branch |
+| Full `npx vitest run` | 6103 passed, 1 failed, 36 skipped (6140 tests); 394 files passed, 10 failed, 2 skipped |
+| ESLint `--max-warnings 0`, all 8 touched files | 0 problems |
+| `npm run build` | succeeds |
+| `git diff --check` | clean |
+
+- The modal tests cover:
+  - The Agent / Team Leader / Admin visibility matrix.
+  - An org-scoped `status = 'Active'` read with the scope columns.
+  - Loading versus error-with-Retry versus empty.
+  - Missing org sends no read; reopen clears the search.
+  - A late response from the previous org is discarded, and the previous org's list is masked immediately.
+  - A user switch; a stale selection cannot submit.
+  - The add call, Already in Campaign and the permission refusal.
+- **Full-suite failures, all pre-existing on main.** All 10 failing files fail identically on untouched main:
+  - Nine fail at import with `supabaseUrl is required`, because this container has no `VITE_SUPABASE_URL`. With placeholder localhost values those nine pass on the branch (89/89).
+  - One is the `recordingRetentionVoicemail` byte-identity check against deployed v29.
+
+**Not verified.** No authenticated browser walkthrough by role: this session has no test-user sign-in. No live read of the production functions or policies; the server facts come from the applied migration files and this log. No production add was performed. The server does not check `campaigns.status`, so keeping Completed campaigns out of attachment remains UI-only, as before.
+
+**Next.** Review the PR and the Vercel preview, then do an Agent / Team Leader / Admin walkthrough (own Personal, assigned Team, Open Pool, Completed hidden, Already in Campaign). A merge and release need Chris's separate approval. Option B (picker mirrors the server's attach authority) remains a possible follow-up.
+
+---
+
 ## 2026-10-22 — Google Sheets D/E rollout preparation: privacy addendum drafted; not deployed
 
 **Request and decision:** Chris asked to finish the Google Sheets build and get the integration live, explicitly choosing to keep Agent and Team Leader import permissions enabled. Their `contacts.leads.import_google_sheets` overrides remain absent and SQL defaults TRUE. The pilot is therefore not role restricted. With a project-wide backend flag and all eligible roles on, release-package §5.2 requires Sheets privacy publication before Phase D if Google OAuth Audience is In production. Prepare the reviewable legal copy first regardless of the Audience status.
