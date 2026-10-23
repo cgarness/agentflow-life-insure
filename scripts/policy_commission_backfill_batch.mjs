@@ -11,12 +11,16 @@
  */
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+const HOME_ORG_ID = "a0000000-0000-0000-0000-000000000001";
 const uuid = z.string().uuid();
 const positiveCents = z.number().int().nonnegative().safe();
 const decimal = z.string().regex(/^\d{1,9}(\.\d{1,2})?$/);
+const percent = decimal.refine((v) => Number(v) <= 300, "Commission rate must be 0–300%");
 const rowSchema = z.object({
   policyId: uuid,
   winId: uuid,
@@ -28,7 +32,7 @@ const rowSchema = z.object({
   variantId: uuid,
   monthlyPremium: decimal,
   contractLevel: z.number().int().min(1).max(999),
-  ratePercent: decimal,
+  ratePercent: percent,
   firstYearCents: positiveCents,
   advanceCents: positiveCents,
   requestId: uuid,
@@ -79,6 +83,7 @@ async function oneRow(query, what) {
 
 export async function audit(client, actorId, manifest) {
   const org = manifest.organizationId;
+  must(org === HOME_ORG_ID, "Only the approved AgentFlow home organization is in scope");
   const me = await oneRow(client.from("profiles").select("id,role,status,organization_id,is_super_admin").eq("id", actorId), "admin profile");
   must(me.organization_id === org && me.status === "Active" &&
     (me.role === "Admin" || me.role === "Super Admin" || me.is_super_admin === true),
@@ -222,6 +227,6 @@ async function main() {
   console.log("Batch completed through canonical commission writers. No receipts were recorded.");
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1])) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => { console.error(`Backfill stopped: ${error.message}`); process.exitCode=1; });
 }
