@@ -120,8 +120,14 @@ describe("hierarchy resolution", () => {
   });
 
   it("scope comes from the ONE audited resolver, not a second traversal", () => {
-    expect(readCode("lib/profile/profile-queries.ts")).toContain("usersSupabaseApi.getAgentScopeIds");
-    // getDownlineAgents returns DIRECT reports only (one level), so it can never be a team scope.
+    // The traversal (the walk behind getAgentScopeIds): its traversedIds carry the Deleted
+    // intermediates, so the Team Profile tree applies the Settings chart's Deleted-connector rule (F4).
+    const queries = readCode("lib/profile/profile-queries.ts");
+    expect(queries).toContain("usersSupabaseApi.getAgentScopeTraversal");
+    expect(queries).toContain("traversedIds");
+    expect(queries).not.toContain("getAgentScopeIds");
+    // getDownlineAgents is org-filtered since F8 but returns DIRECT reports only (one level), so it
+    // can never be a team scope.
     expect(FEATURE_SOURCE).not.toContain("getDownlineAgents");
   });
 

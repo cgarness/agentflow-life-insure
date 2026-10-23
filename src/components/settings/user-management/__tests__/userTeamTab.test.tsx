@@ -70,7 +70,7 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: (t: { title?: string; description?: string; variant?: string }) => { h.toasts.push(t); } }),
 }));
 
-import { usersSupabaseApi } from "@/lib/supabase-users";
+import { PROFILE_UPDATE_REFUSED, usersSupabaseApi } from "@/lib/supabase-users";
 import UserTeamTab from "../UserTeamTab";
 import { loadTeamAssignableAgents, loadTeamMembers } from "@/hooks/useTeamMembers";
 
@@ -225,6 +225,17 @@ describe("Remove and viewer controls", () => {
     await show();
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(lastToast()?.description).toMatch(/Only an Admin of this organization/));
+    expect(memberNames()).toEqual(["Amy Test"]);
+  });
+
+  it("an RLS-filtered (zero-row) removal is a failure toast, never a silent success", async () => {
+    removeSpy.mockRejectedValueOnce(new Error(PROFILE_UPDATE_REFUSED));
+    const { onTeamChanged } = await show();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(lastToast()).toMatchObject({
+      title: "Failed to remove agent", description: PROFILE_UPDATE_REFUSED, variant: "destructive",
+    }));
+    expect(onTeamChanged).not.toHaveBeenCalled();
     expect(memberNames()).toEqual(["Amy Test"]);
   });
 

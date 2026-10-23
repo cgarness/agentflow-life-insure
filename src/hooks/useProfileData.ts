@@ -107,7 +107,7 @@ export function useTeamReadiness(enabled = true): AsyncState<TeamReadinessStats>
 /**
  * The downline roster used by the preview card and the full organization tree.
  *
- * This resolves scope through `getAgentScopeIds`, which is STRICTLY SEQUENTIAL — rounds x batches x
+ * This resolves scope through `getAgentScopeTraversal`, STRICTLY SEQUENTIAL — rounds x batches x
  * pages, one network round trip each — so a deep organization takes a visible moment. It is
  * deliberately gated on `enabled`, which the page sets only when the Team tab is actually showing,
  * so the Agent Profile tab never waits on it.

@@ -4,7 +4,7 @@
  * The tree itself is `OrgTreeRow`, which mounts a subtree only when it is open, so opening this on
  * a large organization costs a handful of rows rather than hundreds of nodes in the DOM.
  *
- * The data is the SAME roster the compact preview already has — one `getAgentScopeIds` traversal
+ * The data is the SAME roster the compact preview already has — one `getAgentScopeTraversal` walk
  * and one `profiles` read — so opening this dialog issues no additional query.
  */
 

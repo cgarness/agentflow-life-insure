@@ -9,14 +9,17 @@
  *
  * Avatars are INITIALS. `avatar_url` holds a base64 data URL (`ProfileAvatarUploader.tsx:48`), so
  * loading it for every node would pull megabytes to draw 32px circles.
+ *
+ * A Deleted connector (`node.isDeleted`) is drawn muted with a "Deleted" label, as on the Settings
+ * chart: it is never presented as an agent, and its count chip is the live people beneath it.
  */
 
 import React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { formatCount } from "@/lib/profile/profile-format";
 import {
-  formatCount,
-} from "@/lib/profile/profile-format";
-import { displayNameFor, initialsFor, type OrgTreeNode } from "@/lib/profile/profile-org-view";
+  DELETED_CONNECTOR_TITLE, displayNameFor, initialsFor, roleLabelFor, type OrgTreeNode,
+} from "@/lib/profile/profile-org-view";
 import { DEFAULT_EXPANDED_DEPTH, subtreeMatches } from "@/lib/profile/org-tree-filter";
 import { cn } from "@/lib/utils";
 
@@ -28,13 +31,7 @@ export interface OrgTreeRowProps {
   isRoot: boolean;
 }
 
-export const OrgTreeRow: React.FC<OrgTreeRowProps> = ({
-  node,
-  expanded,
-  toggle,
-  filter,
-  isRoot,
-}) => {
+export const OrgTreeRow: React.FC<OrgTreeRowProps> = ({ node, expanded, toggle, filter, isRoot }) => {
   const hasChildren = node.children.length > 0;
   // An active filter forces branches open, so a deep match is never hidden behind a closed parent.
   const isOpen = filter !== "" ? true : expanded.has(node.id) || node.depth < DEFAULT_EXPANDED_DEPTH;
@@ -44,9 +41,11 @@ export const OrgTreeRow: React.FC<OrgTreeRowProps> = ({
   return (
     <li>
       <div
+        title={node.isDeleted ? DELETED_CONNECTOR_TITLE : undefined}
         className={cn(
           "flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-accent/50",
           isRoot && "bg-primary/5",
+          node.isDeleted && "opacity-70",
         )}
       >
         {hasChildren ? (
@@ -70,20 +69,20 @@ export const OrgTreeRow: React.FC<OrgTreeRowProps> = ({
         <span
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold",
-            isRoot
-              ? "border-primary/30 bg-primary/15 text-primary"
-              : "border-border bg-muted text-muted-foreground",
+            isRoot ? "border-primary/30 bg-primary/15 text-primary"
+              : node.isDeleted ? "border-dashed border-border bg-muted/40 text-muted-foreground"
+                : "border-border bg-muted text-muted-foreground",
           )}
         >
           {initialsFor(node)}
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">
+          <p className={cn("truncate text-sm font-medium", node.isDeleted ? "text-muted-foreground" : "text-foreground")}>
             {displayNameFor(node)}
             {isRoot && <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>}
           </p>
-          <p className="truncate text-xs text-muted-foreground">{node.role}</p>
+          <p className="truncate text-xs text-muted-foreground">{roleLabelFor(node)}</p>
         </div>
 
         {node.descendantCount > 0 && (

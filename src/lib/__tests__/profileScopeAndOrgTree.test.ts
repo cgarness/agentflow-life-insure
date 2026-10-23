@@ -11,7 +11,7 @@
  * supabase/tests/profile_book_stats_rpc.sql (T8, `private.resolve_downline_ids`). The "shared
  * hierarchy shapes" cases load supabase/tests/fixtures/hierarchy_shapes.json — the same file
  * scripts/hierarchy_fixture.py seeds into the hierarchy stabilization SQL suites — through
- * src/lib/__tests__/hierarchyFixture.ts, and run the REAL `getAgentScopeIds` walk and
+ * src/lib/__tests__/hierarchyFixture.ts, and run the REAL `getAgentScopeTraversal` walk and
  * `fetchTeamRoster` against an in-memory `profiles` table. Two implementations exist because the
  * business aggregate cannot be trusted client-side — `clients` RLS reaches a downline only through
  * a Team Leader's role and the path-based `is_ancestor_of` — and the shared shapes are what stop
@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { buildOrgTreeView, displayNameFor, initialsFor } from "@/lib/profile/profile-org-view";
+import { buildOrgTreeView, displayNameFor, initialsFor, roleLabelFor } from "@/lib/profile/profile-org-view";
 import type { DownlineProfile } from "@/lib/profile/profile-queries";
 import {
   PRODUCTION_EXPECTED,
@@ -71,10 +71,38 @@ describe("buildOrgTreeView — the shape the preview and the dialog render", () 
     expect(view.maxDepth).toBe(3);
   });
 
-  it("does NOT sever a branch beneath a deleted intermediate manager", () => {
-    // getAgentScopeIds walks THROUGH a status='Deleted' profile while excluding it from the
-    // returned scope, so the roster contains BELOW_DELETED but not DELETED_MID. The tree must
-    // still surface the orphan rather than losing an authorized agent.
+  it("keeps a Deleted intermediate as a muted connector: the branch stays attached, Deleted never counted", () => {
+    // fetchTeamRoster loads getAgentScopeTraversal's traversedIds, so the Deleted manager the walk
+    // passed through IS in the roster — the one Deleted-intermediate rule of the Settings chart.
+    const view = buildOrgTreeView(
+      [
+        profile(ROOT, null),
+        profile(CHILD, ROOT),
+        profile(DELETED_MID, ROOT, { status: "Deleted", role: "Team Leader" }),
+        profile(BELOW_DELETED, DELETED_MID),
+        profile("deleted-leaf", DELETED_MID, { status: "Deleted" }),
+      ],
+      ROOT,
+    );
+
+    expect(view.unattached).toEqual([]);
+    expect(view.unattachedCount).toBe(0);
+    const mid = view.directReports.find((n) => n.id === DELETED_MID)!;
+    expect(mid.isDeleted).toBe(true);
+    expect(mid.children.map((n) => n.id)).toEqual([BELOW_DELETED]); // the Deleted leaf is dropped
+    expect(mid.descendantCount).toBe(1);
+    expect(roleLabelFor(mid)).toBe("Deleted · Team Leader");
+    expect(roleLabelFor(view.directReports.find((n) => n.id === CHILD)!)).toBe("Agent");
+    // CHILD + BELOW_DELETED: the connector is not a member, not a direct report, not downline.
+    expect(view.totalDownline).toBe(2);
+    expect(view.directReportCount).toBe(1);
+    expect(view.root!.descendantCount).toBe(2);
+    expect(view.maxDepth).toBe(3);
+  });
+
+  it("does NOT sever a branch when a roster lacks its Deleted intermediate", () => {
+    // Defensive: a roster without DELETED_MID (e.g. a scoped id set) must still surface the orphan
+    // rather than losing an authorized agent.
     const view = buildOrgTreeView(
       [profile(ROOT, null), profile(BELOW_DELETED, DELETED_MID)],
       ROOT,
@@ -86,6 +114,19 @@ describe("buildOrgTreeView — the shape the preview and the dialog render", () 
     ];
     expect(allIds).toContain(BELOW_DELETED);
     expect(view.unattached.map((n) => n.id)).toEqual([BELOW_DELETED]);
+    expect(view.unattachedCount).toBe(1);
+  });
+
+  it("counts only live people as unattached, the live nodes beneath an unattached connector included", () => {
+    // A Deleted connector whose own upline is missing from the roster (a gap in the reporting line)
+    // is surfaced with its live report beneath it; only the live report is counted.
+    const view = buildOrgTreeView(
+      [profile(ROOT, null), profile(DELETED_MID, OTHER_MANAGER, { status: "Deleted" }), profile(BELOW_DELETED, DELETED_MID)],
+      ROOT,
+    );
+    expect(view.unattached.map((n) => [n.id, n.isDeleted])).toEqual([[DELETED_MID, true]]);
+    expect(view.unattachedCount).toBe(1);
+    expect(view.totalDownline).toBe(0);
   });
 
   it("never renders a peer as part of the viewer's organization", () => {
@@ -170,10 +211,10 @@ describe("fetchTeamRoster — fails closed", () => {
   });
 
   it("throws rather than returning an empty roster when scope resolution yields nothing", async () => {
-    // getAgentScopeIds seeds its set with the viewer, so an empty array can only mean a missing
+    // The traversal seeds its set with the viewer, so an empty result can only mean a missing
     // viewerId/organizationId. Rendering that as "you have no team" would be a lie.
     vi.doMock("@/lib/supabase-users", () => ({
-      usersSupabaseApi: { getAgentScopeIds: vi.fn().mockResolvedValue([]) },
+      usersSupabaseApi: { getAgentScopeTraversal: vi.fn().mockResolvedValue({ scopedIds: [], traversedIds: [] }) },
     }));
     vi.doMock("@/integrations/supabase/client", () => ({ supabase: {} }));
 
@@ -184,7 +225,7 @@ describe("fetchTeamRoster — fails closed", () => {
   it("propagates a scope-traversal failure instead of widening to the organization", async () => {
     const boom = new Error("Agent scope traversal exceeded its maximum depth.");
     vi.doMock("@/lib/supabase-users", () => ({
-      usersSupabaseApi: { getAgentScopeIds: vi.fn().mockRejectedValue(boom) },
+      usersSupabaseApi: { getAgentScopeTraversal: vi.fn().mockRejectedValue(boom) },
     }));
     vi.doMock("@/integrations/supabase/client", () => ({ supabase: {} }));
 
@@ -192,19 +233,21 @@ describe("fetchTeamRoster — fails closed", () => {
     await expect(fetchTeamRoster("viewer", "org")).rejects.toThrow(boom);
   });
 
-  it("constrains the profiles read to the resolved id set AND the organization", async () => {
+  it("constrains the profiles read to the TRAVERSED id set AND the organization", async () => {
     const eq = vi.fn().mockReturnThis();
     const inFn = vi.fn().mockReturnThis();
     const order = vi.fn().mockResolvedValue({ data: [], error: null });
-    const select = vi.fn(() => ({ eq, in: inFn, order }));
+    const select = vi.fn((columns: string) => ({ columns, eq, in: inFn, order }));
     // Chainable builder: every call returns the same object so the chain can be inspected.
     const builder: Record<string, unknown> = { select, eq, in: inFn, order };
     eq.mockReturnValue(builder);
     inFn.mockReturnValue(builder);
 
-    vi.doMock("@/lib/supabase-users", () => ({
-      usersSupabaseApi: { getAgentScopeIds: vi.fn().mockResolvedValue(["viewer", "child"]) },
-    }));
+    const getAgentScopeTraversal = vi.fn().mockResolvedValue({
+      scopedIds: ["viewer", "child"],
+      traversedIds: ["viewer", "child", "deleted-mid", "below-deleted"],
+    });
+    vi.doMock("@/lib/supabase-users", () => ({ usersSupabaseApi: { getAgentScopeTraversal } }));
     vi.doMock("@/integrations/supabase/client", () => ({
       supabase: { from: vi.fn(() => builder) },
     }));
@@ -212,10 +255,13 @@ describe("fetchTeamRoster — fails closed", () => {
     const { fetchTeamRoster } = await import("@/lib/profile/profile-queries");
     await fetchTeamRoster("viewer", "org-a");
 
+    expect(getAgentScopeTraversal).toHaveBeenCalledWith({ viewerId: "viewer", organizationId: "org-a" });
     expect(eq).toHaveBeenCalledWith("organization_id", "org-a");
-    expect(inFn).toHaveBeenCalledWith("id", ["viewer", "child"]);
-    // avatar_url must NOT be selected across a roster.
+    // traversedIds, not scopedIds: the Deleted intermediate is loaded so the tree can attach beneath it.
+    expect(inFn).toHaveBeenCalledWith("id", ["viewer", "child", "deleted-mid", "below-deleted"]);
     const columns = String(select.mock.calls[0][0]);
+    // status drives the Deleted-connector rule; avatar_url must NOT be selected across a roster.
+    expect(columns).toContain("status");
     expect(columns).not.toContain("avatar_url");
   });
 });
@@ -271,7 +317,7 @@ function profilesEmulator(rows: HierarchyProfileRow[]) {
   };
 }
 
-describe("shared hierarchy shapes — getAgentScopeIds + fetchTeamRoster + the org tree", () => {
+describe("shared hierarchy shapes — getAgentScopeTraversal + fetchTeamRoster + the org tree", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -291,24 +337,30 @@ describe("shared hierarchy shapes — getAgentScopeIds + fetchTeamRoster + the o
   const prod = hierarchyShape("production");
   const keys = (shape: { keyOf(id: string): string }, ids: string[]) => ids.map((id) => shape.keyOf(id)).sort();
 
-  it("the Team Leader's Team Profile is the live team beneath them, a Deleted report excluded", async () => {
+  it("the Team Leader's Team Profile is the live team beneath them, a Deleted leaf loaded but dropped", async () => {
     const { fetchTeamRoster } = await modules();
     const roster = await fetchTeamRoster(prod.id("T"), prod.orgOf("T"));
-    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(["A1", "A2", "T"]);
+    // The roster is the traversal (D1 included); the tree drops a Deleted node with nobody beneath it.
+    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(["A1", "A2", "D1", "T"]);
 
     const view = buildOrgTreeView(roster.profiles, prod.id("T"));
     expect(keys(prod, view.directReports.map((n) => n.id))).toEqual(["A1", "A2"]);
+    expect(view.directReportCount).toBe(2);
     expect(view.totalDownline).toBe(2);
     expect(view.unattached).toEqual([]);
   });
 
-  it("the Admin root's Team Profile covers the whole live organization, Deleted branches dropped", async () => {
+  it("the Admin root's Team Profile covers the whole live organization, all-Deleted branches dropped", async () => {
     const { fetchTeamRoster } = await modules();
     const roster = await fetchTeamRoster(prod.id("R"), prod.orgOf("R"));
-    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(["A1", "A2", "K1", "K2", "K3", "K4", "K5", "R", "T"]);
+    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(
+      ["A1", "A2", "D1", "D2", "K1", "K2", "K3", "K4", "K5", "R", "T", "T2"],
+    );
 
     const view = buildOrgTreeView(roster.profiles, prod.id("R"));
+    // T2 (Deleted) has only D2 (Deleted) beneath it, so neither is drawn or counted.
     expect(keys(prod, view.directReports.map((n) => n.id))).toEqual(["K1", "K2", "K3", "K4", "K5", "T"]);
+    expect(view.directReportCount).toBe(6);
     expect(view.totalDownline).toBe(8);
     expect(view.maxDepth).toBe(PRODUCTION_EXPECTED.longest_chain);
     expect(view.unattached).toEqual([]);
@@ -337,13 +389,19 @@ describe("shared hierarchy shapes — getAgentScopeIds + fetchTeamRoster + the o
     }
   });
 
-  it("an Active member beneath a Deleted Team Leader stays in scope and surfaces as unattached", async () => {
+  it("an Active member beneath a Deleted Team Leader stays attached under it (muted, never counted)", async () => {
     const shape = hierarchyShape("deleted_intermediate");
     const { fetchTeamRoster } = await modules();
     const roster = await fetchTeamRoster(shape.id("M"), shape.orgOf("M"));
-    expect(keys(shape, roster.profiles.map((p) => p.id))).toEqual(["M", "MG"]);
+    expect(keys(shape, roster.profiles.map((p) => p.id))).toEqual(["M", "MG", "MT"]);
     const view = buildOrgTreeView(roster.profiles, shape.id("M"));
-    expect(view.unattached.map((n) => n.id)).toEqual([shape.id("MG")]);
+    expect(view.unattached).toEqual([]);
+    expect(view.unattachedCount).toBe(0);
+    expect(view.directReports.map((n) => [shape.keyOf(n.id), n.isDeleted, n.descendantCount])).toEqual([["MT", true, 1]]);
+    expect(view.directReports[0].children.map((n) => shape.keyOf(n.id))).toEqual(["MG"]);
+    expect(view.directReportCount).toBe(0);
+    expect(view.totalDownline).toBe(1);
+    expect(view.maxDepth).toBe(3);
   });
 
   it("walks a 25-level chain completely (the preimage SQL path builder stopped at 20)", async () => {

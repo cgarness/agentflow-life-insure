@@ -9,7 +9,7 @@
  *   * Business figures and readiness come from RPCs that derive scope from `auth.uid()` alone —
  *     the browser cannot steer them, because neither function accepts an agent id.
  *   * The roster, preview and org tree come from a query-scoped `profiles` read whose id set is
- *     resolved by `getAgentScopeIds` over `upline_id`, which throws rather than widening on error.
+ *     resolved by `getAgentScopeTraversal` over `upline_id`, which throws rather than widening.
  *   * Nothing here reads `hierarchy_path`.
  */
 

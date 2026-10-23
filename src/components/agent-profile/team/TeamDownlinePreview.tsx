@@ -6,7 +6,8 @@
  * in a dialog, so the page never mounts hundreds of cards to render a summary.
  *
  * Avatars are initials. `avatar_url` holds a base64 data URL, so a roster of even twenty agents
- * would pull megabytes into the browser to draw twenty circles.
+ * would pull megabytes into the browser to draw twenty circles. A Deleted connector is drawn muted
+ * with a "Deleted" label (as on the Settings chart) and is never counted or presented as an agent.
  */
 
 import React from "react";
@@ -18,24 +19,26 @@ import {
   ProfileSection,
   ProfileSkeletonBlock,
 } from "../ProfilePrimitives";
+import { formatCount } from "@/lib/profile/profile-format";
 import {
-  formatCount,
-} from "@/lib/profile/profile-format";
-import { displayNameFor, initialsFor, type OrgTreeView } from "@/lib/profile/profile-org-view";
+  DELETED_CONNECTOR_TITLE, displayNameFor, initialsFor, roleLabelFor, type OrgTreeView,
+} from "@/lib/profile/profile-org-view";
+import { cn } from "@/lib/utils";
 
 const AgentCard: React.FC<{
-  name: string;
-  initials: string;
-  role: string;
+  name: string; initials: string; role: string;
   descendantCount: number;
   emphasis?: boolean;
-}> = ({ name, initials, role, descendantCount, emphasis = false }) => (
+  deleted?: boolean;
+}> = ({ name, initials, role, descendantCount, emphasis = false, deleted = false }) => (
   <div
-    className={
-      emphasis
-        ? "flex w-full max-w-[220px] flex-col items-center rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 text-center"
-        : "flex w-full max-w-[200px] flex-col items-center rounded-xl border border-border/60 bg-card px-4 py-3 text-center transition-colors hover:border-primary/30"
-    }
+    title={deleted ? DELETED_CONNECTOR_TITLE : undefined}
+    className={cn(
+      "flex w-full flex-col items-center rounded-xl border px-4 py-3 text-center",
+      emphasis ? "max-w-[220px] border-primary/30 bg-primary/5"
+        : deleted ? "max-w-[200px] border-dashed border-border bg-muted/40 opacity-70"
+          : "max-w-[200px] border-border/60 bg-card transition-colors hover:border-primary/30",
+    )}
   >
     <div
       className={
@@ -46,7 +49,7 @@ const AgentCard: React.FC<{
     >
       {initials}
     </div>
-    <p className="mt-2 w-full truncate text-sm font-medium text-foreground">{name}</p>
+    <p className={cn("mt-2 w-full truncate text-sm font-medium", deleted ? "text-muted-foreground" : "text-foreground")}>{name}</p>
     <p className="w-full truncate text-xs text-muted-foreground">{role}</p>
     {descendantCount > 0 && (
       <span className="mt-2 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -70,15 +73,11 @@ export interface TeamDownlinePreviewProps {
 const PREVIEW_LIMIT = 8;
 
 export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
-  view,
-  isLoading,
-  error,
-  onRetry,
-  onOpenFullTree,
-  maxDepth,
+  view, isLoading, error, onRetry, onOpenFullTree, maxDepth,
 }) => {
   const shown = view?.directReports.slice(0, PREVIEW_LIMIT) ?? [];
-  const hidden = Math.max(0, (view?.directReports.length ?? 0) - shown.length);
+  // Live direct reports past the limit; Deleted connectors are never counted (the full tree has them).
+  const hidden = (view?.directReports.slice(PREVIEW_LIMIT) ?? []).filter((n) => !n.isDeleted).length;
 
   return (
     <ProfileSection
@@ -130,7 +129,8 @@ export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
                   key={child.id}
                   name={displayNameFor(child)}
                   initials={initialsFor(child)}
-                  role={child.role}
+                  role={roleLabelFor(child)}
+                  deleted={child.isDeleted}
                   descendantCount={child.descendantCount}
                 />
               ))}
@@ -152,7 +152,7 @@ export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
           <div className="mt-8 grid gap-3 border-t border-border/60 pt-5 sm:grid-cols-3">
             <div>
               <p className="text-xl font-semibold tabular-nums text-foreground">
-                {formatCount(view.directReports.length)}
+                {formatCount(view.directReportCount)}
               </p>
               <p className="text-xs text-muted-foreground">Direct reports</p>
             </div>
@@ -170,12 +170,12 @@ export const TeamDownlinePreview: React.FC<TeamDownlinePreviewProps> = ({
             </div>
           </div>
 
-          {view.unattached.length > 0 && (
+          {view.unattachedCount > 0 && (
             /* Surfaced, never dropped. These are authorized agents whose branch could not be
-               attached — a missing upline row or a cycle the builder broke. */
+               attached — a missing upline row or a cycle the builder broke. Live people only. */
             <p className="mt-4 text-xs leading-relaxed text-warning">
-              {formatCount(view.unattached.length)}{" "}
-              {view.unattached.length === 1 ? "agent is" : "agents are"} in your team but could not
+              {formatCount(view.unattachedCount)}{" "}
+              {view.unattachedCount === 1 ? "agent is" : "agents are"} in your team but could not
               be placed in the chart, usually because of a gap in the reporting line.
             </p>
           )}

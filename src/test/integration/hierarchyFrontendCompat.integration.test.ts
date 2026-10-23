@@ -147,6 +147,8 @@ const INVITE = "Hierarchy: an invitation's upline must be an active member of th
 const ACCOUNT_CONTROL = "Only an Admin of this organization may change account-control fields (status, team, upline, billing)";
 const COMMISSION = "Only an Admin of this organization may change another member's commission level";
 const RLS_UPDATE = "Update failed: User profile not found or permission denied (RLS). Please ensure you have applied the latest database migrations.";
+// update / assignUpline / removeFromTeam read the row back: an RLS-filtered PATCH (zero rows) is this error, not "ok".
+const ZERO_ROW = "Update failed: user profile not found or permission denied.";
 const DELETE_REFUSED = "Only an Admin of this organization can transfer contacts and delete a member.";
 
 // ── Cases ──────────────────────────────────────────────────────────────────────────────────────
@@ -419,19 +421,28 @@ const WRITES: Case[] = [
       const r = await attempt(() => usersSupabaseApi.removeFromTeam(ctx.id.A1));
       return `${r}; upline=${ctx.key[(await profileRow(ctx, ctx.id.A1)).upline_id]}`;
     },
-    // Reachable only on repaired paths, where the account-control trigger refuses; otherwise RLS matches no row.
-    expect: (f) => (f.repaired ? `error 42501 ${ACCOUNT_CONTROL}; upline=T` : "ok; upline=T"),
+    // Reachable only on repaired paths, where the account-control trigger refuses; otherwise RLS matches no row,
+    // which the read-back reports as a failure (it used to report "ok" for a write that changed nothing).
+    expect: (f) => (f.repaired ? `error 42501 ${ACCOUNT_CONTROL}; upline=T` : `error ${ZERO_ROW}; upline=T`),
   },
   {
     id: "W08", title: "saveMemberProfile, Team Leader T saves downline A1 (F6: no account-control keys)",
     run: async (ctx) => {
       await signInAs(ctx, "T");
       const m = await member(ctx, "T", "A1");
-      const r = await saveMemberProfile({ user: m, form: formOf(m, { firstName: "Synthetic A1 renamed", commissionLevel: "90%", uplineId: ctx.id.R }), viewer: TL_VIEWER, organizationId: orgA(ctx) });
+      let outcome: string;
+      try {
+        const r = await saveMemberProfile({ user: m, form: formOf(m, { firstName: "Synthetic A1 renamed", commissionLevel: "90%", uplineId: ctx.id.R }), viewer: TL_VIEWER, organizationId: orgA(ctx) });
+        outcome = r.partialError ? `partial: ${failure(r.partialError)}` : "saved";
+      } catch (e) {
+        outcome = `refused: ${failure(e)}`;
+      }
       const p = await profileRow(ctx, ctx.id.A1);
-      return `${r.partialError ? `partial: ${failure(r.partialError)}` : "saved"}; name=${p.first_name} level=${p.commission_level} upline=${ctx.key[p.upline_id]}`;
+      return `${outcome}; name=${p.first_name} level=${p.commission_level} upline=${ctx.key[p.upline_id]}`;
     },
-    expect: (f) => (f.repaired ? "saved; name=Synthetic A1 renamed level=0% upline=T" : `partial: error ${RLS_UPDATE}; name=Synthetic A1 level=0% upline=T`),
+    // Before the repair RLS gives T no UPDATE on A1: step 1 reads back zero rows, so the save is refused with
+    // nothing written (step 1 used to report a false success, then step 2 failed: a "partial" that saved nothing).
+    expect: (f) => (f.repaired ? "saved; name=Synthetic A1 renamed level=0% upline=T" : `refused: error ${ZERO_ROW}; name=Synthetic A1 level=0% upline=T`),
   },
   {
     // A forged direct call (bypassing the F6 payload): the commission guard refuses it with M1 once the TL reaches

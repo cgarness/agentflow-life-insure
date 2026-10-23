@@ -21,15 +21,18 @@
  *    ALGORITHM is right; reusing that component is not.
  *
  * `buildProfileOrgForest` attaches on `upline_id` alone and knows nothing about organizations, so
- * it is safe ONLY because its input is already organization-constrained — here, the output of
- * `getAgentScopeIds` filtered by `organization_id` in the roster query.
+ * it is safe ONLY because its input is already organization-constrained — here, the
+ * `traversedIds` of `getAgentScopeTraversal` filtered by `organization_id` in the roster query
+ * (`fetchTeamRoster`). Query scoping, not authorization.
  *
  * DELETED PROFILES follow the one Deleted-intermediate rule both charts share
- * (`pruneDeletedLeaves` in `profile-org-tree.ts`): a Deleted row in the roster is kept only as a
- * connector when someone who is not Deleted reports beneath it (`isDeleted`, drawn muted) and is
- * never counted in `descendantCount` / `totalDownline`; a Deleted row with nobody live beneath it
- * is dropped. A roster without its Deleted intermediates (today's `getAgentScopeIds`-based roster)
- * still surfaces the reports beneath them as `unattached`, never loses them.
+ * (`pruneDeletedLeaves` in `profile-org-tree.ts`; hierarchy stabilization F4): the roster carries
+ * the Deleted intermediates the walk passed through, and a Deleted row is kept only as a connector
+ * when someone who is not Deleted reports beneath it (`isDeleted`, drawn muted with a "Deleted"
+ * label, never offered as an agent). It is never counted — not in `descendantCount`,
+ * `totalDownline`, `directReportCount` or `unattachedCount`. A Deleted row with nobody live
+ * beneath it is dropped. A roster that lacks a Deleted intermediate still surfaces the reports
+ * beneath it as `unattached`, never loses them.
  */
 
 import {
@@ -57,8 +60,10 @@ export interface OrgTreeNode {
 export interface OrgTreeView {
   /** The viewer's node, or `null` when the viewer is not present in the roster. */
   root: OrgTreeNode | null;
-  /** Immediate children of the viewer. */
+  /** Immediate children of the viewer, Deleted connectors included (drawn muted). */
   directReports: OrgTreeNode[];
+  /** Live (non-Deleted) direct reports — what "Direct reports" counts. */
+  directReportCount: number;
   /** Everyone live beneath the viewer, at every level. EXCLUDES the viewer and Deleted connectors. */
   totalDownline: number;
   /** Deepest level reached below the viewer; 1 when the viewer has no downline. */
@@ -70,6 +75,22 @@ export interface OrgTreeView {
    * worse than showing them as unattached.
    */
   unattached: OrgTreeNode[];
+  /** Live people in `unattached`, the live nodes beneath each unattached root included. */
+  unattachedCount: number;
+}
+
+/** Shown on a Deleted connector, as on the Settings chart (`VisualOrgNode`). */
+export const DELETED_CONNECTOR_TITLE = "Deleted member, shown because people still report through them";
+
+/** The role line: a Deleted connector reads "Deleted · <role>", never as an agent. */
+export function roleLabelFor(node: Pick<OrgTreeNode, "role" | "isDeleted">): string {
+  if (!node.isDeleted) return node.role;
+  return node.role ? `Deleted · ${node.role}` : "Deleted";
+}
+
+/** Live people a set of subtrees holds: each live node plus its live descendants. */
+function livePeople(nodes: OrgTreeNode[]): number {
+  return nodes.reduce((sum, n) => sum + n.descendantCount + (n.isDeleted ? 0 : 1), 0);
 }
 
 /** `DownlineProfile` as an object type (not an interface), so it satisfies `ProfileOrgRow`. */
@@ -85,7 +106,7 @@ function toNode(node: ProfileOrgNode<RosterRow>, depth: number): OrgTreeNode {
     isDeleted: isDeletedProfile(node),
     depth,
     children,
-    descendantCount: children.reduce((sum, c) => sum + c.descendantCount + (c.isDeleted ? 0 : 1), 0),
+    descendantCount: livePeople(children),
   };
 }
 
@@ -103,12 +124,15 @@ export function buildOrgTreeView(profiles: DownlineProfile[], rootId: string): O
   const root = roots.find((n) => n.id === rootId) ?? null;
   const unattached = roots.filter((n) => n.id !== rootId);
 
+  const directReports = root?.children ?? [];
   return {
     root,
-    directReports: root?.children ?? [],
+    directReports,
+    directReportCount: directReports.filter((n) => !n.isDeleted).length,
     totalDownline: root?.descendantCount ?? 0,
     maxDepth: root ? deepest(root) : 1,
     unattached,
+    unattachedCount: livePeople(unattached),
   };
 }
 
