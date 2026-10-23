@@ -1,45 +1,30 @@
 ## 2026-10-23 — GATE 1 BUILT AND VERIFIED (draft PR; nothing applied, merged or deployed): Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Update (Gate 1):** approved with D1–D15 defaults and corrections R1/R2; built, independently security-reviewed
-(21 findings fixed and re-verified) and verified — see WORK_LOG and `docs/plans/2026-10-23-hierarchy-stabilization/`
-(plan rev 4 §B, `verification.md`). Next: PostgreSQL 17.6 CI on the draft PR, then the Gate 2a decision.
+**Status:** Gate 1 approved by Chris (D1–D15 defaults; corrections R1 database-authoritative roles and R2 release
+order), built, independently security-reviewed (21 confirmed findings: 18 fixed and re-verified, 3 documented) and
+verified. Full plan rev 4 and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/` (`implementation_plan.md`
+§B, `verification.md`). Production was only read. Branch `claude/intelligent-lamport-r6hnx7` from `main` `f03af3b`.
 
-**Status:** plan only. No source file, migration, RLS policy, function, deployment or production row changed; every
-production contact was a read-only `SELECT`. Full plan (rev 2, after an independent four-lens review):
-`docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`. Branch `claude/intelligent-lamport-r6hnx7`
-from `main` `f03af3b`. No open PR touches hierarchy; production head `20261022062539`.
+**Baseline:** 16 profiles; 11 upline edges, 4 unrecognised by `is_ancestor_of`; 6 of 15 expected pairs missing; 4 stale
+paths (id fingerprint `ddc1f53f…`, target fingerprint `7daae418…`); no cross-org edges, missing parents or cycles.
 
-**Verified baseline (2026-10-23):** 16 profiles; 11 direct upline relationships; 4 not recognised by
-`is_ancestor_of`; 15 expected ancestor pairs, 6 missing, 0 extra; 4 stale `hierarchy_path` rows (`4ef505e0`,
-`5f952f0d`, `89f2e994`, `e5c4ee04`; fingerprint `ddc1f53f…`); 0 cross-org edges, missing parents, self-parents or
-cycles; longest chain 3.
+**Root cause:** `update_hierarchy_path()` built the path from the stored row; the cascade refreshed direct children
+only; no structural guards; stale paths fail open; any save listing `upline_id` silently activated TL branches.
 
-**Root cause:** `update_hierarchy_path()` builds the path from the *stored* row (self-only on INSERT, previous upline
-on UPDATE); `cascade_hierarchy_update()` refreshes direct children only; no self/cycle/cross-org guard; stale paths
-fail open on reassignment. **Live risk:** any profile save that lists `upline_id` (User Management always does, even
-unchanged — including a TL saving their own row) silently repairs paths and switches on TL authority; it happened on
-2026-10-17. `compute_hierarchy_path` and `is_ancestor_of` are anon-executable SECURITY DEFINER oracles.
+**Built:** M1 (authorization boundaries: database-authoritative, caller-bound, same-org `is_ancestor_of`; tasks TL
+policy via `is_ancestor_of`; TL contact deletes need the toggle; call deletes/edits limited; `commission_level` guard;
+contact tenancy guard; path-function and anon revokes); M2 in `pending/` (derivation from `NEW.upline_id`, subtree
+cascade, no-op saves inert, self/cycle/cross-org/depth-32 guards, invitation guard, READ COMMITTED only, lock, index,
+consistency); M3 in `pending/` (repairs only the reviewed four rows, both fingerprints required); rollbacks; harness
+with RLS, RPC, PostgREST forged/stale-token and frontend-compatibility stages; CI on PostgreSQL 17.6; frontend F1–F12
+plus review fixes.
 
-**What the repair activates:** only TL `f809493e`, over `4ef505e0`, `e5c4ee04` (and Deleted `89f2e994`): +132 leads,
-+10 clients, +4,590 calls, +86 contact-history events, Contacts Team scope, Dashboard team, sale writers. Reports
-unchanged; no commission rows (toggle off).
+**Verification:** runner 2747 PASS (forged 336/336; compatibility 27 cases × 7 states); 18 existing SQL suites pass;
+Vitest 6531 passed (1 pre-existing failure identical on `main`); tsc clean; strict 80 vs 84 errors; build OK.
 
-**Plan:**
-- **M1** authorization boundaries (`#APPROVE_RLS_CHANGE`): `is_ancestor_of` same-org + caller-bound + Active ancestor;
-  TL direct contact deletes need the Contacts delete toggle (as `delete_contact`); TL downline calls read + coaching
-  flag/notes only, no delete; `commission_level` of another member Admin-only; anon/PUBLIC revokes.
-- **M2** integrity: path from `NEW.upline_id`, whole-subtree cascade, no-op saves change nothing, self/cycle/cross-org
-  guards, invitation upline guard, concurrency lock, `upline_id` index, consistency function.
-- **M3** (kept in `migrations/pending/`) fingerprint-bound idempotent repair of the 4 rows.
-- **Frontend** F1–F12: upline sent only when changed; upline pickers exclude self/descendants; account-control UI
-  mirrors the database; HierarchyTree / User Management / Team tab query-scoped, org-filtered, Deleted-intermediate
-  safe, error states; CampaignDetail TL filter; assignee options; stale comments.
-- **Tests:** verbatim-baseline SQL harness + PostgREST forged-request stage in CI (PG 17.6); all 17 `is_ancestor_of`
-  callers; TL permission matrix per module; frontend Vitest suites.
-
-**Decisions D1–D15** with recommended defaults are in §5 of the full plan. **Gates:** 1 (branch + draft PR) →
-2a+2b (M1, M2; no access change) → 3 (frontend) → 2c (M3, activation; `#APPROVE_RLS_CHANGE` + invariant #28).
-Rollback: M1/M2 restore verbatim preimages (revokes kept); M3 recovery is operational (reassign upline / change role).
+**Gates (each needs its own approval):** 1 ✅ → 2a M1 (`#APPROVE_RLS_CHANGE`) → 3 frontend → 2b M2 → 2c M3
+(`#APPROVE_RLS_CHANGE` + invariant #28), gated on the compatibility suite. Rollback: M1/M2 restore verbatim preimages
+(revokes kept); M3 recovery is operational. Next: PostgreSQL 17.6 CI green on the draft PR, then the Gate 2a decision.
 
 ---
 

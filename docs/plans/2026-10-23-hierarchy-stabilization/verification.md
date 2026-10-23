@@ -14,7 +14,7 @@ only. **Nothing was applied, merged or deployed. Production was only read** (`SE
 | Expected ancestor pairs / missing / extra | 15 / 6 / 0 |
 | Stale stored paths | 4: `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04` |
 | Reviewed id fingerprint `md5(string_agg(id::text, ',' ORDER BY id))` | `ddc1f53f3823c6e367310a748ea0ac85` |
-| Target fingerprint `md5(string_agg(id || '=' || compute_hierarchy_path(id), ',' ORDER BY id))` | `7daae418571600b43b7cf5d5155be0d4` |
+| Target fingerprint — M3's expression `md5(string_agg(p.id::text || '=' || canon.path::text, ',' ORDER BY p.id))` (canon = canonical paths; re-run read-only by the completeness critic) | `7daae418571600b43b7cf5d5155be0d4` |
 | Cross-org edges / missing parents / self-parents / cycles / longest chain | 0 / 0 / 0 / 0 / 3 |
 | Migration head | `20261022062539` (343 rows) |
 | PostgreSQL / ltree / default isolation | 17.6 / 1.3 in `public` / read committed (no overrides) |
@@ -38,11 +38,13 @@ created and dropped; no roles left.
   stale paths and 6 missing pairs; S1 = +M1; S2 = +M2; S3 = +M3; S1R/S2R/S3R = rollback states. Every count equals
   the pinned expectation; a suite that exits early, skips a stage or is missing in CI fails the run.
 - **PostgREST forged / stale-token stage:** 336 passed, 0 failed (48 cases × 7 states).
-- **R2 frontend ↔ database compatibility:** 190/190 — the real frontend data-layer modules (supabase-users,
+- **R2 frontend ↔ database compatibility:** 27 cases × 7 states (190 tests) all passed — the real frontend data-layer modules (supabase-users,
   uplineCandidates, hierarchyTreeData, profileSavePayload + updateProfile, User Management / Team tab loaders,
   CampaignDetail scope, assignee resolver) via supabase-js against PostgREST on every state. Every call succeeds or
   fails exactly as designed, so the order **M1 → frontend → M2 → M3** is confirmed and the activation-guard fallback
-  was not needed.
+  was not needed. The interval between Gate 2a and Gate 3 runs `main`'s frontend against S1: M1 is narrowing only,
+  case W02 replays the legacy always-send-`upline_id` save on S1 (it heals stale paths — the documented D14 interim),
+  and the RLS and PostgREST stages cover every direct client write a `main` client can make.
 - **Migrations:** replays refused; M2 without M1 and M3 without M1/M2 refused; 22 drift cases refused with nothing
   changed (policy expressions, ACLs, trigger order, preceding clients triggers, re-grants, extra triggers, CREATE on
   public, cross-org data, unreviewed stale sets); rollbacks restore the exact preimage digests; re-apply after
@@ -73,7 +75,8 @@ created and dropped; no roles left.
 
 ## 3. Existing SQL suites (regression, PostgreSQL 16.15, this session)
 
-18 runners, all **passed**: policy-sale-recording, policy-commission (with PostgREST), lead-conversion-preservation,
+18 runners, all **passed** (run at the build checkpoint before the security remediation; none of the files these
+runners load changed afterwards): policy-sale-recording, policy-commission (with PostgREST), lead-conversion-preservation,
 reports-rpc, reporting-integrity, reports-integrity, contact-history, commission-grids, group-leaderboard,
 dialer-dnc, profile-rpc, seal-list-unrestricted-users, rls-phase1, custom-field-guard, platform-admin-notification,
 onboarding-email, google-sheets, inbound-sql. Note: commission-grids fails only on a cluster where another runner has
@@ -89,14 +92,14 @@ their own modules; compatibility with M1/M2 is proven by the hierarchy harness.
 | The single failure | `recordingRetentionVoicemail` "byte-identical to deployed v29" — identical on `main`, unrelated | same |
 | `tsc --noEmit` | exit 0 | exit 0 |
 | `tsc -p tsconfig.app.json` | 80 errors, none new (3 fixed, 1 more by the follow-ups) | 84 |
-| ESLint on the 58 touched source files | 0 errors; 5 warnings, all pre-existing `exhaustive-deps` lines in `Contacts.tsx` (`main` had 36 warnings on these files) | — |
+| ESLint on the 58 touched source files | 0 errors; 5 warnings after removing two unused directives (7 in the final log), all pre-existing `exhaustive-deps` lines in `Contacts.tsx` (`main` had 36 warnings on these files) | — |
 | `npm run build` | success | — |
 | `git diff --check` | clean | — |
 
 Vitest ran with `VITE_SUPABASE_URL=http://127.0.0.1:54321 VITE_SUPABASE_ANON_KEY=placeholder` (the container has no
 Supabase env); without them 9 files fail at import on both branches.
 
-## 5. Independent security review
+## 5. Independent security review (21 confirmed: 18 fixed and re-verified, 3 documented)
 
 Five fresh reviewers (none wrote the code) attacked the implementation on disposable clusters — authorization bypass,
 hierarchy integrity, apply safety, frontend, mutation testing — and an adversarial verifier re-checked each lens.
@@ -140,7 +143,18 @@ profiles query org-filtered); fail-closed scope errors; View As unaffected; `is_
   organization; the global hierarchy advisory lock can be taken by any authenticated zero-row PATCH listing
   `upline_id` (one statement).
 
-## 7. Gate 2a preflight checklist (read-only, immediately before applying M1)
+## 7. Security advisors baseline (read-only, 2026-10-23, before any change)
+
+`get_advisors(security)`: anon-executable SECURITY DEFINER 57, authenticated-executable 138, mutable search_path 22,
+`extension_in_public` 3 (incl. `ltree`, intentionally kept), RLS-enabled-no-policy 33, RLS-disabled-in-public 2, leaked
+password protection off. Hierarchy entries present today: anon-executable `compute_hierarchy_path`, `is_ancestor_of`,
+`update_hierarchy_path`, `cascade_hierarchy_update`, `on_profile_update`; authenticated-executable the same five;
+mutable search_path `on_profile_update`. Expected after M1: the four anon entries for the path functions and
+`is_ancestor_of` and the three authenticated entries for the path functions clear (authenticated keeps
+`is_ancestor_of` by design). Expected after M2: both `on_profile_update` executable entries and its search_path entry
+clear. The new `profile_authz` helpers live outside the exposed schema.
+
+## 8. Gate 2a preflight checklist (read-only, immediately before applying M1)
 
 1. CI `hierarchy-stabilization.yml` green on PostgreSQL 17.6 at the PR head.
 2. `list_migrations` head; version for M1 sorts after it.

@@ -73,8 +73,9 @@ is switched on only at Gate 2c. Not built unless needed.
 ## B. Gate 1 results and amendments (rev 4, 2026-10-23)
 
 Built on this branch, then attacked by an independent five-lens security review (authorization bypass, hierarchy
-integrity, apply safety, frontend, mutation testing; every finding adversarially re-verified). All 21 confirmed
-findings were fixed and re-verified with the original exploits and mutants. Evidence: `verification.md`.
+integrity, apply safety, frontend, mutation testing; every finding adversarially re-verified). Of the 21 confirmed
+findings, 18 were fixed and re-verified with the original exploits and mutants and 3 are documented (AUTHZ-2, INT-3,
+INT-4). Evidence: `verification.md`.
 
 **Amendments to §6 (all narrowing or hardening; none widens access):**
 1. **Contact tenancy guard (review AUTHZ-1, major).** A Team Leader could reassign a downline lead/client/recruit to
@@ -89,7 +90,8 @@ findings were fixed and re-verified with the original exploits and mutants. Evid
 3. **Calls guard stamps `updated_at` (AUTHZ-4)**: on another agent's call a non-admin write stores `now()`.
 4. **M3 binds both the rows and their targets (INT-1).** The reviewed four-row id fingerprint
    `ddc1f53f3823c6e367310a748ea0ac85` is **kept unchanged**; M3 additionally requires
-   `md5(string_agg(id || '=' || canonical_path, ',' ORDER BY id))` = `7daae418571600b43b7cf5d5155be0d4` (production,
+   `md5(string_agg(p.id::text || '=' || canon.path::text, ',' ORDER BY p.id))` over the stale rows (canon = the
+   canonical paths M3 writes) = `7daae418571600b43b7cf5d5155be0d4` (production,
    read-only, 2026-10-23), so an Admin re-parenting a stale row before Gate 2c makes M3 refuse.
 5. **Hierarchy writes are READ COMMITTED only (INT-2).** A REPEATABLE READ / SERIALIZABLE hierarchy write could
    leave a fail-open stale path; the lock function now refuses them with SQLSTATE 0A000. Production default is READ
@@ -103,8 +105,8 @@ findings were fixed and re-verified with the original exploits and mutants. Evid
    raise `PROFILE_UPDATE_REFUSED` when RLS filters the write); exact partial-save messages; Team Profile uses the same
    Deleted-manager rule as Settings → Hierarchy; `useContactAssigneeOptions` (FullScreenContactView shrinks); stale-load
    guards in every new hook; the search sanitizer keeps apostrophes.
-9. **R2 compatibility result:** the real frontend data layer passed 190/190 cases on every state the release passes
-   through (S0 baseline, S1 M1, S2 M1+M2, S3 M1+M2+M3) and on the rollback states, so the order **M1 → frontend →
+9. **R2 compatibility result:** the real frontend data layer passed all 27 cases × 7 states (190 tests) — every state the
+   release passes through (S0 baseline, S1 M1, S2 M1+M2, S3 M1+M2+M3) and on the rollback states, so the order **M1 → frontend →
    M2 → M3 stands** and the activation-guard fallback was not needed.
 
 **Recorded residuals (pre-existing or out of hierarchy scope; §12):** demoted-Admin stale JWT keeps the token-based
@@ -206,7 +208,7 @@ name/roster reads are accepted with explicit org filters added where §6.4 touch
    the canonical chain (same root-first `-`→`_` format, so `is_ancestor_of`, the GiST index and the tasks policy work
    unchanged).
 2. **Derivation from the incoming row**: a builder walks from `NEW.upline_id`, org-checked at every ancestor,
-   cycle-safe, capped at 100 levels (= `resolve_downline_ids` / `getAgentScopeIds`).
+   cycle-safe, capped at 32 levels (§B6; traversal caps in `resolve_downline_ids` / `getAgentScopeIds` stay 100).
 3. **Whole-subtree refresh** in one set-based statement when an upline really changes; **no-op saves change nothing**.
 4. **Structural guards**: no self-parent, cycle, cross-org upline/ancestor, or org change stranding downline;
    invitations need an Active same-org upline when created or when their upline/org changes (acceptance applies the
@@ -258,7 +260,7 @@ Reply "approve Gate 1 with the recommended defaults" or name any change.
 | D5 | Contacts DELETE by TLs | ★ RESTRICTIVE DELETE policies on `leads`/`clients`/`recruits`: an actor whose **profile** is Team Leader (R1) needs `has_contacts_permission('contacts.<type>.delete')` for any direct delete (own rows included) — exactly `delete_contact`'s rule; closes reassign-to-self-then-delete. UI already hides delete without the toggle. Admin/Agent unchanged | Accept the bypass; or enforce for every role (wider change, out of scope) |
 | D6 | Writes on other agents' call rows | ★ RESTRICTIVE DELETE on `calls`: own rows, or an actor whose **profile** is Admin/Super Admin of the org or `is_super_admin`. BEFORE UPDATE guard: on another agent's call, a non-admin **profile** may change only `flagged_for_coaching` and `notes` (direct client writes only; definer RPCs, webhooks and real Admins unaffected). Covers TLs and any stale elevated token (R1) | Restore the designed UPDATE/DELETE |
 | D7 | Commission design | ★ No change. Confirm: TL + "View Others' Commission Percentage" = read downline commission rows; a TL-recorded downline sale captures with read access (Phase 2A). Note: `profiles.commission_level` itself is readable org-wide regardless of the toggle (§12) | Close the TL commission branch (a commission-permission change) |
-| D8 | Upline rules | ★ Database enforces structure (self, cycle, cross-org, depth 100, org change stranding downline). Status/role rules are UI-only (pickers: Active Admin/TL, same org, excluding self + descendants). Invitations: database requires an **Active same-org upline** on INSERT or upline/org change | Enforce role/status for profiles too (breaks TL demotion / soft-delete flows that leave children in place) |
+| D8 | Upline rules | ★ Database enforces structure (self, cycle, cross-org, depth 32, org change stranding downline). Status/role rules are UI-only (pickers: Active Admin/TL, same org, excluding self + descendants). Invitations: database requires an **Active same-org upline** on INSERT or upline/org change | Enforce role/status for profiles too (breaks TL demotion / soft-delete flows that leave children in place) |
 | D9 | Repair packaging | ★ M3 separate, in `migrations/pending/` until 2c; no-op when nothing is stale; otherwise refuses unless BOTH the reviewed four-row id fingerprint (`ddc1f53f…`, unchanged) AND the id+target-path fingerprint (`7daae418…`, §B4) match; repairs all 4 incl. the 2 Deleted rows; accepts 4 `updated_at` bumps and 8 unchanged-value `set_claim` writes | Repair inside M2; exclude Deleted rows |
 | D10 | Grants & hygiene | ★ In **M1**: REVOKE `compute_hierarchy_path`, `update_hierarchy_path`, `cascade_hierarchy_update` from PUBLIC/anon/authenticated and `is_ancestor_of` from PUBLIC/anon (§B2). In M2: REVOKE `on_profile_update` and `SET search_path` on it (body unchanged) | Separate security change |
 | D11 | Concurrency | ★ Statement-level transaction advisory lock + `FOR SHARE` ancestor walk, and hierarchy writes refused outside READ COMMITTED (SQLSTATE 0A000; §B5). Accept: all hierarchy-listing statements serialize on one key; ancestor login-sync waits for a mover's commit; rare detected deadlocks abort one side | Advisory lock only |
@@ -314,7 +316,7 @@ organization UUIDs.
    caller is not the row's `agent_id`, `OLD.agent_id IS NOT NULL`, and the caller's **profile** is not Admin/Super
    Admin of the row's org nor `is_super_admin`; in that case `to_jsonb(NEW) - {flagged_for_coaching, notes,
    updated_at}` must equal the same for `OLD`, else 42501 (D6, R1).
-5. Postconditions: `count(DISTINCT objid) = 9` policies depending on `is_ancestor_of` with the exact name set; ACLs;
+5. Postconditions: `count(DISTINCT objid) = 10` policies depending on `is_ancestor_of` (the reviewed 9 + tasks) with the exact name set; ACLs;
    the 4 restrictive policies; both triggers and their order.
 
 **Effect at apply time:** narrowing only; `f809493e` has 0 `is_ancestor_of` descendants, so no visible row changes
@@ -328,9 +330,9 @@ cascade a 6-row depth-5 subtree and pass `trg_00`; mixed multi-row statements en
 
 1. `private.build_hierarchy_path(p_self, p_upline, p_org, p_lock boolean DEFAULT false) RETURNS public.ltree` —
    VOLATILE (required for `FOR SHARE`), SECURITY DEFINER; walks from `p_upline`; rejects reaching `p_self` (cycle), a
-   revisited node, > 100 levels, a missing upline (23503) and any ancestor whose org ≠ `p_org` (23514).
+   revisited node, > 32 levels (§B6), a missing upline (23503) and any ancestor whose org ≠ `p_org` (23514).
 2. `public.compute_hierarchy_path(uuid)` — same signature/output; delegates to the builder without locks (the enforce
-   trigger keeps comparing against it). REVOKE from PUBLIC, anon, authenticated.
+   trigger keeps comparing against it). Its PUBLIC/anon/authenticated EXECUTE is already revoked by M1 (§B2).
 3. `public.update_hierarchy_path()` (BEFORE ROW): self-parent → error; **UPDATE with `upline_id`,
    `organization_id` and `hierarchy_path` all unchanged → `RETURN NEW`**; org change while children remain in the old
    org → error; else `NEW.hierarchy_path := build(NEW.id, NEW.upline_id, NEW.organization_id, true)`.
@@ -340,7 +342,8 @@ cascade a 6-row depth-5 subtree and pass `trg_00`; mixed multi-row statements en
    its whole subtree, writing only differing rows; `trg_cascade_hierarchy_update` → `AFTER UPDATE OF upline_id …
    WHEN (OLD.upline_id IS DISTINCT FROM NEW.upline_id)`. Its own `SET hierarchy_path` cannot re-fire it.
 5. `private.lock_profile_hierarchy()` + `trg_update_hierarchy_path_lock` (BEFORE INSERT OR UPDATE OF the same
-   columns FOR EACH STATEMENT): `pg_advisory_xact_lock(hashtextextended('agentflow.public.profiles.hierarchy', 0))`.
+   columns FOR EACH STATEMENT): `pg_advisory_xact_lock(hashtextextended('agentflow.public.profiles.hierarchy', 0))`, refused first with SQLSTATE
+   0A000 unless the transaction is READ COMMITTED (§B5).
 6. `private.validate_invitation_upline()` + `trg_validate_invitation_upline` (BEFORE INSERT OR UPDATE ON
    `public.invitations`; on UPDATE only when `upline_id` or `organization_id` changes): upline must exist, be in the
    invitation's org and be `Active` (D8). Live: no invitation triggers today, 0 unexpired pending invitations;
@@ -350,7 +353,7 @@ cascade a 6-row depth-5 subtree and pass `trg_00`; mixed multi-row statements en
 8. `private.hierarchy_consistency()` (postgres-only): profiles, edges, expected pairs (upline walk), stored-path
    containment pairs, missing, extra, stale, NULL paths, self-parents, cross-org edges, unreachable rows — on
    **paths**, not `is_ancestor_of`, so D2/D3 filters do not distort it.
-9. Hygiene (D10): REVOKE EXECUTE on `update_hierarchy_path()`, `cascade_hierarchy_update()`, `on_profile_update()`;
+9. Hygiene (D10): REVOKE EXECUTE on `on_profile_update()` (the path trigger functions are already revoked by M1, §B2);
    `ALTER FUNCTION public.on_profile_update() SET search_path = public, pg_temp`.
 10. `$post$` probe that **fires the triggers**: inside a `BEGIN … EXCEPTION` sub-block, a no-op `SET upline_id =
     upline_id` and a `hierarchy_path` rewrite on one existing row, then a deliberate raise to roll the probe back — any
@@ -372,8 +375,10 @@ Kept in `pending/` (outside the CLI glob) until Gate 2c, then moved to its stamp
 - Preconditions: M1 and M2 post-images present (`is_ancestor_of` md5, `trg_01_*`, the 4 restrictive policies, the
   calls guard, the cascade `WHEN` clause, the lock trigger, `private.hierarchy_consistency`); self-parents = 0,
   cross-org = 0, unreachable = 0.
-- Stale set: none → no-op (CI replays); otherwise `md5(string_agg(id::text, ',' ORDER BY id))` must equal
-  `ddc1f53f3823c6e367310a748ea0ac85` (the reviewed 4 rows; re-confirmed at 2c) — else refuse and re-review.
+- Stale set: none → no-op (CI replays); otherwise BOTH `md5(string_agg(id::text, ',' ORDER BY id))` =
+  `ddc1f53f3823c6e367310a748ea0ac85` (the reviewed 4 rows, unchanged) AND `md5(string_agg(p.id::text || '=' ||
+  canon.path::text, ',' ORDER BY p.id))` = `7daae418571600b43b7cf5d5155be0d4` (their target paths, §B4) — else refuse
+  and re-review.
 - `RAISE NOTICE` per row (id prefix, old/new depth); `UPDATE public.profiles p SET hierarchy_path = canon.path FROM
   canon WHERE p.id = canon.id AND p.hierarchy_path IS DISTINCT FROM canon.path`.
 - Postconditions: stale = 0, NULL = 0, missing = extra = 0 (15/15); a second run updates 0 rows.
@@ -460,7 +465,7 @@ cross-org edge) are seeded with triggers disabled or kept out of harnesses that 
 |---|---|
 | Reproduce | production-shaped fixture on the preimage objects shows the 4 stale paths and 6 missing pairs |
 | Derivation | INSERT with upline; A→B; TL1→TL2 (old TL loses access); remove → NULL (revoked); move a TL with grandchildren; depth 5; re-parent a middle node; depth 25 (old 20-cap fixed); multi-row moves |
-| Integrity | self-parent; 2-cycle (two statements, one multi-row); move under own descendant; cross-org upline on INSERT/UPDATE; org change stranding downline; child-before-parent multi-row INSERT; `provision_organization` with an upline; depth > 100; invitation with cross-org / Deleted / Inactive upline — all rejected; deleted intermediate keeps ancestry |
+| Integrity | self-parent; 2-cycle (two statements, one multi-row); move under own descendant; cross-org upline on INSERT/UPDATE; org change stranding downline; child-before-parent multi-row INSERT; `provision_organization` with an upline; depth > 32; RR/SERIALIZABLE hierarchy writes (0A000); invitation with cross-org / Deleted / Inactive upline — all rejected; deleted intermediate keeps ancestry |
 | Consistency | `hierarchy_consistency()` = 0/0/0 after every step; full ordered-pair truth table vs upline walk |
 | No-op (**Gate 1 exit criterion**) | on STALE data, before and after M2: TL self-save and Admin save with unchanged upline change no other row and heal nothing |
 | TL permissions (as `authenticated` with `request.jwt.claims`) | leads, clients, recruits, calls, contact_emails, tasks, contact history, profiles UPDATE — Agent, TL, Admin, Super Admin, `is_super_admin` TL, Deleted/Inactive TL with live JWT, demoted TL with stale JWT, cross-org TL; before M1 / after M1 / after M3; delete toggle on/off incl. TL reassign-to-self-then-delete (row survives); calls: TL coaching flag/notes accepted, `created_at`/`status`/`is_missed` rejected, owner and Admin unchanged; TL unchanged-`commission_level` downline save accepted, change rejected, Admin accepted; view/edit/assign toggles pinned as UI-only |
@@ -497,12 +502,14 @@ stamped migration versions, deployment ids, blockers, next steps).
    `apply_migration` M1; read back bodies, ACLs, policies, triggers, `pg_depend`, advisors. Reconcile the file to the
    stamped version (`git mv`, forward bytes unchanged); re-pin the pending M2/M3 files and runner references to sort
    after it. Never `supabase db push` (baseline row unreconciled).
-3. **Gate 3** — merge (squash, expected-head guard; M2/M3 still in `pending/`); confirm the Vercel production
-   deployment; non-destructive smoke checks only.
-4. **Gate 2b** — preflight as 2a plus "still 4 stale, same fingerprint"; `apply_migration` M2 from `pending/`; read
+3. **Gate 3** — before merging, confirm the Supabase GitHub integration's 'Deploy to production' is still disabled
+   (AGENT_RULES #30; preview branching only builds non-production branches) and that M1's file carries its stamped
+   version. Merge (squash, expected-head guard; M2/M3 still in `pending/`); confirm the Vercel production deployment;
+   non-destructive smoke checks only.
+4. **Gate 2b** — preflight as 2a plus "still 4 stale, both fingerprints unchanged"; `apply_migration` M2 from `pending/`; read
    back; `$post$` trigger probe; consistency; advisors; move the file to its stamped version in a docs commit.
 5. **Gate 2c** — `#APPROVE_RLS_CHANGE` plus the invariant #28 elements: separate exact approval of the stale set
-   (fingerprint `ddc1f53f…`), read-only preflight re-measuring §4, bounded targets (4 rows), recovery plan (§10).
+   (id fingerprint `ddc1f53f…` and target fingerprint `7daae418…`), read-only preflight re-measuring §4, bounded targets (4 rows), recovery plan (§10).
    Forensic snapshot `(id8, depth, updated_at)` into `verification.md`. Apply M3; post-check 15/15, 0 stale; re-run
    is a no-op. Move the file out of `pending/` to its stamped version in a docs commit.
 
@@ -510,7 +517,7 @@ stamped migration versions, deployment ids, blockers, next steps).
 
 | Step | Rollback | Notes |
 |---|---|---|
-| M1 | `rollback/20261023210000_….rollback.sql`: guarded by post-image md5s; restores the verbatim `is_ancestor_of`; drops the commission guard, the calls guard and the 4 restrictive policies; **no anon/PUBLIC re-grant** (security revokes are re-assert-only) | ⚠ With M3 live, this re-widens TL powers (downline deletes without the toggle, call edits, `commission_level`, Deleted-TL access) |
+| M1 | `rollback/20261023210000_….rollback.sql`: guarded by post-image md5s; restores the verbatim `is_ancestor_of` and `tasks_select_team_leader` (TO public); drops the two `profile_authz` helpers, the commission guard, the calls guard, the contact tenancy guard and its 3 triggers, and the 4 restrictive policies; **no anon/PUBLIC re-grant** (security revokes are re-assert-only) | ⚠ With M3 live, this re-widens TL powers (downline deletes without the toggle, call edits, `commission_level`, Deleted-TL access) and re-opens the contact tenancy gap |
 | M2 | `rollback/20261023210100_….rollback.sql`: restores verbatim `compute`/`update`/`cascade` bodies and trigger DDL (`CREATE OR REPLACE TRIGGER`); drops builder, lock trigger, invitation guard, consistency function, index; keeps revokes and the `on_profile_update` search_path hardening | Proven locally: preimage md5s restored; repaired paths stay correct; re-apply after rollback passes the guard |
 | M3 | **Recovery path = operational revocation**: an Admin reassigns the affected agents' upline (fixed triggers revoke immediately) or changes the TL's role. No automatic data inverse — rolling back functions never removes granted authority. The Gate 2c snapshot is forensic only; a byte-exact restore would need an invariant #29 artifact (full-id CSV outside the repo, sha256, re-parsed and compared) plus M2 rolled back and its own approval | |
 | Frontend | Revert the PR / promote the previous Vercel deployment | |
@@ -531,7 +538,8 @@ shapes), `scripts/tests/hierarchy_stabilization/postgrest_forged.mjs`,
 `src/test/integration/hierarchyFrontendCompat.integration.test.ts` (env-gated, run by the runner against PostgREST),
 `.github/workflows/hierarchy-stabilization.yml`; expectation/comment updates only in
 `supabase/tests/import_campaign_attachment.sql` (T4), `supabase/tests/p0_profile_authorization.sql` (INFO notes),
-`supabase/tests/profile_book_stats_rpc.sql` (T8 from the shared data file).
+`supabase/tests/profile_book_stats_rpc.sql` (planned T8 move — intentionally left unchanged: parity is held by the hand-written
+mirror plus `supabase/tests/fixtures/hierarchy_shapes.json`).
 
 **Frontend:** `src/lib/supabase-users.ts`, `src/lib/profile-org-tree.ts`, `src/lib/profile/profile-queries.ts`,
 `src/lib/profile/profile-org-view.ts`; new `src/lib/user-management/profileSavePayload.ts`,
@@ -548,14 +556,14 @@ Tests: new `profileSavePayload.test.ts`, `userProfileModalSave.test.tsx`, `uplin
 `agentScopeTraversal.test.ts`, `profile-org-tree.test.ts`, `profileScopeAndOrgTree.test.ts`,
 `profileContracts.test.ts`.
 
-**Docs:** `AGENT_RULES.md` (§3 Team Leader line; #20 hierarchy bullets; #26 "Known fail-closed behaviour"; Known Tech
+**Docs:** `AGENT_RULES.md` (§3 Team Leader line; #26 "Known fail-closed behaviour"; Known Tech
 Debt entry → new "Hierarchy integrity invariant"; Phase 2A "see the hierarchy debt above" cross-reference),
 `WORK_LOG.md`, `implementation_plan.md`, `docs/plans/2026-10-23-hierarchy-stabilization/{implementation_plan.md,
 verification.md}`.
 
 **Not touched:** Edge Functions (no deploy; `create-user` must not be redeployed), sale writers, commission
-functions, Reports RPCs, `enforce_profile_field_authorization`, `handle_new_user`, `tasks_select_team_leader`,
-applied migrations, telephony.
+functions, Reports RPCs, `enforce_profile_field_authorization`, `handle_new_user`, applied migrations, telephony.
+(`tasks_select_team_leader` IS changed by M1: recreated TO authenticated through `is_ancestor_of`, narrowing only.)
 
 ## 12. Out of scope — recorded follow-ups
 
@@ -587,3 +595,16 @@ the filtered member list; `reassignAllContacts` does not compare moved counts; t
 the PostgREST row cap; an invitation accepted after its upline was deactivated places the member under that
 (inert) upline; interdependent multi-row re-parenting must be applied as separate statements in dependency order;
 the commission-grids runner fails when another runner's roles remain on a shared cluster (passes on a fresh one).
+
+## 13. As built (Gate 1, `git diff --name-status f03af3b`)
+
+Beyond §11, the build also changed or added: `scripts/hierarchy_test_state.sh`,
+`scripts/tests/hierarchy_stabilization/lib/pgrst_harness.mjs`; `src/components/agent-profile/team/{FullOrganizationTreeDialog,
+OrgTreeRow,TeamDownlinePreview,TeamProfileTab}.tsx`, `src/hooks/useProfileData.ts`, `src/pages/AgentProfile.tsx` (Team
+Profile Deleted-manager rule; comments); `src/components/settings/user-management/{TeamMembersFilters.tsx,
+UplinePicker.tsx,saveMemberProfile.ts,userManagementTypes.ts}`; `src/hooks/useContactAssigneeOptions.ts`;
+`src/lib/hierarchy/__tests__/hierarchyTreeData.test.ts`, `src/hooks/__tests__/useContactAssigneeOptions.test.tsx`,
+`src/components/agent-profile/__tests__/profileStates.test.tsx`,
+`src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx`,
+`src/components/settings/user-management/__tests__/{nativeSelectMock.tsx,teamMembersImpersonate.test.tsx}`,
+`src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx` (viewer role in the mock).

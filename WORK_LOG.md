@@ -35,8 +35,8 @@ self-parents, cycles or cross-org uplines; stale paths fail open on reassignment
 
 **Independent security review.** Five fresh reviewers plus adversarial verifiers found 21 confirmed issues, including
 two majors (a TL could make downline contacts vanish via reassign + organization change; the CI database job could
-never run). All were fixed and re-verified with the original exploits and mutants; AUTHZ-2 (import-undo toggles not
-enforced, pre-existing) and two behavioural notes are documented.
+never run). 18 were fixed and re-verified with the original exploits and mutants; 3 are documented: AUTHZ-2
+(import-undo toggles not enforced, pre-existing) and two behavioural notes (INT-3, INT-4).
 
 **Verification (this session).**
 
@@ -61,8 +61,9 @@ writer-role path; authenticated browser walkthrough by role.
 - Deploys: none.
 - Blockers: PostgreSQL 17.6 CI must pass on the draft PR before Gate 2a.
 - Next: Gate 2a (apply M1; `#APPROVE_RLS_CHANGE`) → Gate 3 (frontend) → Gate 2b (M2) → Gate 2c (M3), each with its own
-  approval and read-only preflight (verification.md §7). Interim: avoid saving `f809493e`, `4ef505e0`, `e5c4ee04`,
-  `89f2e994` in User Management until the frontend ships; separately decide on public sign-up and `89f2e994`'s session.
+  approval and read-only preflight (verification.md §7). Interim (plan D14): until Gate 2c avoid saving `f809493e`, `4ef505e0`,
+  `e5c4ee04`, `89f2e994` in User Management, and after Gate 2b also avoid real reassignments in `f809493e`'s branch and
+  TL invitations by `f809493e`; separately decide on public sign-up and `89f2e994`'s session.
 
 ---
 
