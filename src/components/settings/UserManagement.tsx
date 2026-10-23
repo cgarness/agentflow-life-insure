@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrganization } from "@/hooks/useOrganization";
+import { useInviteManagerCandidates, useUserManagementMembers } from "@/hooks/useUserManagementMembers";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { logActivity } from "@/lib/activityLogger";
 import HierarchyTree from "./HierarchyTree";
@@ -18,10 +18,7 @@ import type { ConfirmDialogState, UserWithProfile } from "./user-management/user
 const UserManagement: React.FC = () => {
   const { toast } = useToast();
   const { user: currentUser, profile: currentProfile } = useAuth();
-  const { organizationId, isSuperAdmin: isCurrentUserSuperAdmin } = useOrganization();
 
-  const [allUsers, setAllUsers] = useState<UserWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -32,42 +29,16 @@ const UserManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState("users");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({ open: false, user: null, action: "deactivate" });
 
-  const fetchUsers = useCallback(async () => {
-    // Wait until org context is resolved. Without an org id, the API skips the
-    // organization_id filter and RLS may return cross-org rows (especially for
-    // super admins), causing a brief flash of other orgs' users on refresh.
-    if (!organizationId) {
-      setAllUsers([]);
-      setLoading(true);
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await usersApi.getAll({ search, role: roleFilter, status: statusFilter, organizationId });
-      setAllUsers(data);
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [search, roleFilter, statusFilter, organizationId, toast]);
+  // Rows are query-scoped per viewer (Admin: organization; Team Leader: downline traversal;
+  // Agent: self) and fail closed — see useUserManagementMembers. Not an authorization boundary.
+  const {
+    members, loading, error, managerNames, reload, patchMember, removeMember, viewer, canAdminister, organizationId,
+  } = useUserManagementMembers({ search, role: roleFilter, status: statusFilter });
+  const inviteManagers = useInviteManagerCandidates(organizationId, inviteOpen);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
-  const users = useMemo(() => {
-    if (!currentProfile) return [];
-    if (isCurrentUserSuperAdmin) return allUsers;
-
-    return allUsers.filter(u => {
-      const role = currentProfile.role?.toLowerCase();
-      if (role === "admin") return true;
-      // Team Leader: self is always visible; only show users whose direct upline is this leader.
-      // RLS enforces the deep ltree hierarchy — this is a shallow frontend defense-in-depth layer.
-      if (role === "team leader") return u.id === currentProfile.id || u.profile.uplineId === currentProfile.id;
-      if (role === "agent") return u.id === currentProfile.id;
-      return false;
-    });
-  }, [allUsers, currentProfile, isCurrentUserSuperAdmin]);
+  useEffect(() => {
+    if (inviteManagers.error) toast({ title: "Managers unavailable", description: inviteManagers.error, variant: "destructive" });
+  }, [inviteManagers.error, toast]);
 
   const handleDeactivateReactivate = async () => {
     const u = confirmDialog.user;
@@ -77,11 +48,11 @@ const UserManagement: React.FC = () => {
       if (confirmDialog.action === "deactivate") {
         await usersApi.deactivate(targetId);
         toast({ title: "Deactivated", description: `${u.firstName} ${u.lastName} has been deactivated.` });
-        setAllUsers(prev => prev.map(usr => usr.id === targetId ? { ...usr, status: "Inactive" as any } : usr)); // eslint-disable-line @typescript-eslint/no-explicit-any
+        patchMember({ id: targetId, status: "Inactive" });
       } else {
         await usersApi.reactivate(targetId);
         toast({ title: "Reactivated", description: `${u.firstName} ${u.lastName} has been reactivated.` });
-        setAllUsers(prev => prev.map(usr => usr.id === targetId ? { ...usr, status: "Active" as any } : usr)); // eslint-disable-line @typescript-eslint/no-explicit-any
+        patchMember({ id: targetId, status: "Active" });
       }
       if (organizationId) {
         void logActivity({
@@ -94,7 +65,7 @@ const UserManagement: React.FC = () => {
         });
       }
       setConfirmDialog({ open: false, user: null, action: "deactivate" });
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -108,21 +79,21 @@ const UserManagement: React.FC = () => {
 
         <TabsContent value="users">
           <TeamMembersTable
-            users={users}
-            allUsers={allUsers}
+            users={members}
+            managerNames={managerNames}
             loading={loading}
+            error={error}
             search={search}
             setSearch={setSearch}
             roleFilter={roleFilter}
             setRoleFilter={setRoleFilter}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
-            isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
+            isCurrentUserSuperAdmin={viewer?.isSuperAdmin === true}
+            canAdminister={canAdminister}
             onSelectUser={(u) => { setSelectedUser(u); setProfileOpen(true); }}
             onConfirm={setConfirmDialog}
-            onBillingChange={(userId, newVal) => {
-              setAllUsers(prev => prev.map(x => x.id === userId ? { ...x, profile: { ...x.profile, billingType: newVal } } : x));
-            }}
+            onBillingChange={(userId, newVal) => patchMember({ id: userId, profile: { billingType: newVal } })}
           />
         </TabsContent>
 
@@ -139,34 +110,23 @@ const UserManagement: React.FC = () => {
         user={selectedUser}
         open={profileOpen}
         onClose={() => { setProfileOpen(false); setSelectedUser(null); }}
-        onSaved={(patch) => {
-          if (!patch?.id) return;
-          setAllUsers((prev) =>
-            prev.map((u) => {
-              if (u.id !== patch.id) return u;
-              const { profile: patchProfile, ...userPatch } = patch as Partial<UserWithProfile> & { profile?: Partial<UserWithProfile["profile"]> };
-              const merged = { ...u, ...userPatch } as UserWithProfile;
-              if (patchProfile) merged.profile = { ...u.profile, ...patchProfile };
-              return merged;
-            })
-          );
-        }}
+        onSaved={patchMember}
         onDeleted={(id) => {
-          setAllUsers(prev => prev.filter(u => u.id !== id));
+          removeMember(id);
           setProfileOpen(false);
           setSelectedUser(null);
         }}
-        currentUserId={currentUser?.id || ""}
-        currentUserRole={currentProfile?.role || ""}
-        isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
-        allUsers={users}
+        onReload={reload}
+        viewer={viewer}
+        organizationId={organizationId}
+        allUsers={members}
       />
 
       <InviteUserModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        onSuccess={() => { fetchUsers(); setInvitationVersion(v => v + 1); }}
-        managers={allUsers.filter(u => u.role === "Admin" || u.role === "Team Leader")}
+        onSuccess={() => { reload(); setInvitationVersion(v => v + 1); }}
+        managers={inviteManagers.managers}
       />
 
       <UserManagementConfirmDialogs

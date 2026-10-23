@@ -1,22 +1,25 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Ban, Eye, Mail, MoreHorizontal, Pencil, RefreshCw, Search, Users } from "lucide-react";
+import { Ban, Eye, Mail, MoreHorizontal, Pencil, RefreshCw, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import type { ManagerName } from "@/lib/hierarchy/uplineCandidates";
 import { VIEW_AS_LANDING_PATH } from "@/lib/viewAsSurfaces";
+import TeamMembersFilters from "./TeamMembersFilters";
 import { AVAIL_COLORS, ROLE_BADGE } from "./userManagementUtils";
 import type { ConfirmDialogState, UserWithProfile } from "./userManagementTypes";
 
 interface Props {
   users: UserWithProfile[];
-  allUsers: UserWithProfile[];
+  /** Manager-column names by upline id (filter-independent lookup). */
+  managerNames?: Record<string, ManagerName>;
   loading: boolean;
+  /** A scope / load failure: shown instead of the empty state, never as "no members". */
+  error?: string | null;
   search: string;
   setSearch: (v: string) => void;
   roleFilter: string;
@@ -24,14 +27,16 @@ interface Props {
   statusFilter: string;
   setStatusFilter: (v: string) => void;
   isCurrentUserSuperAdmin: boolean;
+  /** Viewer is an Admin of this organization: billing and Deactivate / Reactivate (UI mirror only). */
+  canAdminister?: boolean;
   onSelectUser: (u: UserWithProfile) => void;
   onConfirm: (s: ConfirmDialogState) => void;
   onBillingChange: (userId: string, newVal: "agency_covered" | "self_pay") => void;
 }
 
 const TeamMembersTable: React.FC<Props> = ({
-  users, allUsers, loading, search, setSearch, roleFilter, setRoleFilter,
-  statusFilter, setStatusFilter, isCurrentUserSuperAdmin, onSelectUser, onConfirm, onBillingChange,
+  users, managerNames = {}, loading, error, search, setSearch, roleFilter, setRoleFilter, statusFilter,
+  setStatusFilter, isCurrentUserSuperAdmin, canAdminister = false, onSelectUser, onConfirm, onBillingChange,
 }) => {
   const navigate = useNavigate();
   const { user: currentUser, startImpersonation } = useAuth();
@@ -43,48 +48,23 @@ const TeamMembersTable: React.FC<Props> = ({
     try {
       await usersApi.updateBillingType(userId, newVal);
       onBillingChange(userId, newVal);
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Failed to update billing type", description: e.message, variant: "destructive" });
     }
   };
 
   return (
     <div className="space-y-4 mt-6 animate-in fade-in-50 duration-500">
-      <div className="flex flex-wrap gap-3 p-4 bg-accent/20 rounded-xl border border-border/50">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search team by name, email, or role..."
-            className="pl-9 bg-background/50 border-border/50 focus:border-primary/50 transition-all"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-44 bg-background/50 border-border/50"><SelectValue placeholder="Filter by Role" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All Roles</SelectItem>
-            <SelectItem value="Admin">Admin</SelectItem>
-            <SelectItem value="Team Leader">Team Leader</SelectItem>
-            <SelectItem value="Agent">Agent</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-44 bg-background/50 border-border/50"><SelectValue placeholder="Filter by Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All Statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Inactive">Inactive</SelectItem>
-            <SelectItem value="Pending">Pending</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <TeamMembersFilters search={search} setSearch={setSearch} roleFilter={roleFilter} setRoleFilter={setRoleFilter}
+        statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
 
       <div className="bg-card rounded-2xl border border-border/50 shadow-xl shadow-black/5 overflow-hidden">
         {loading ? (
           <div className="p-8 space-y-4">
             {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-16 rounded-xl bg-muted/30 animate-pulse" />)}
           </div>
+        ) : error ? (
+          <div className="p-16 text-center text-sm text-destructive">{error}</div>
         ) : users.length === 0 ? (
           <div className="p-16 text-center">
             <div className="w-16 h-16 bg-muted/20 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -109,7 +89,7 @@ const TeamMembersTable: React.FC<Props> = ({
               </thead>
               <tbody className="divide-y divide-border/50">
                 {users.map(u => {
-                  const upline = u.profile.uplineId ? allUsers.find(m => m.id === u.profile.uplineId) : null;
+                  const upline = u.profile.uplineId ? managerNames[u.profile.uplineId] : undefined;
                   return (
                     <tr
                       key={u.id}
@@ -150,7 +130,7 @@ const TeamMembersTable: React.FC<Props> = ({
                             <div className="w-5 h-5 rounded bg-muted flex items-center justify-center text-[8px] font-bold">
                               {upline.firstName[0]}
                             </div>
-                            {upline.firstName} {upline.lastName}
+                            {upline.firstName} {upline.lastName}{upline.status === "Deleted" ? " (Deleted)" : ""}
                           </div>
                         ) : <span className="text-muted-foreground/30 text-xs">-</span>}
                       </td>
@@ -164,6 +144,7 @@ const TeamMembersTable: React.FC<Props> = ({
                         <select
                           value={u.profile.billingType ?? "agency_covered"}
                           onChange={e => handleBillingChange(u.id, e.target.value as "agency_covered" | "self_pay")}
+                          disabled={!canAdminister}
                           className="h-7 px-2 rounded-md bg-accent text-xs border-0"
                         >
                           <option value="agency_covered">Agency Covered</option>
@@ -182,7 +163,7 @@ const TeamMembersTable: React.FC<Props> = ({
                             <DropdownMenuItem className="rounded-lg py-2" onClick={() => onSelectUser(u)}>
                               <Pencil className="w-4 h-4 mr-2" /> Edit Member
                             </DropdownMenuItem>
-                            {u.status === "Active" && u.id !== currentUser?.id && (
+                            {canAdminister && u.status === "Active" && u.id !== currentUser?.id && (
                               <DropdownMenuItem
                                 className="text-destructive rounded-lg py-2 focus:text-destructive"
                                 onClick={() => onConfirm({ open: true, user: u, action: "deactivate" })}
@@ -190,7 +171,7 @@ const TeamMembersTable: React.FC<Props> = ({
                                 <Ban className="w-4 h-4 mr-2" /> Deactivate
                               </DropdownMenuItem>
                             )}
-                            {u.status === "Inactive" && (
+                            {canAdminister && u.status === "Inactive" && u.id !== currentUser?.id && (
                               <DropdownMenuItem className="rounded-lg py-2" onClick={() => onConfirm({ open: true, user: u, action: "reactivate" })}>
                                 <RefreshCw className="w-4 h-4 mr-2" /> Reactivate
                               </DropdownMenuItem>

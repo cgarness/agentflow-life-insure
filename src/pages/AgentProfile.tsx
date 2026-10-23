@@ -73,7 +73,7 @@ const AgentProfile: React.FC = () => {
 
           {/*
             Mounted only once the Team tab is selected. Resolving the downline runs
-            getAgentScopeIds, which is strictly sequential — rounds x batches x pages, one network
+            getAgentScopeTraversal, which is strictly sequential — rounds x batches x pages, one network
             round trip each — so the Agent tab must never wait on it.
           */}
           <TabsContent value="team" className="mt-0 focus-visible:outline-none">

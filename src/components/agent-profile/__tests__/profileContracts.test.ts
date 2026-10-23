@@ -110,16 +110,24 @@ describe("the book of business is clients, never wins", () => {
 
 describe("hierarchy resolution", () => {
   it("nothing reads hierarchy_path or is_ancestor_of", () => {
-    // 7 of 12 stored paths disagree with compute_hierarchy_path() in production, so is_ancestor_of
-    // denies almost everything. upline_id is the only trustworthy source.
+    // upline_id is the authority; hierarchy_path is a derived cache (4 profiles stale, 6 of 15
+    // ancestor pairs missing at the 2026-10-23 read-only baseline), and is_ancestor_of — like
+    // get_contact_scope_agents, which calls it — reads those paths. This surface walks upline_id
+    // exactly as private.resolve_downline_ids does for its RPCs, so roster and figures agree.
     expect(FEATURE_SOURCE).not.toContain("hierarchy_path");
     expect(FEATURE_SOURCE).not.toContain("is_ancestor_of");
     expect(FEATURE_SOURCE).not.toContain("get_contact_scope_agents");
   });
 
   it("scope comes from the ONE audited resolver, not a second traversal", () => {
-    expect(readCode("lib/profile/profile-queries.ts")).toContain("usersSupabaseApi.getAgentScopeIds");
-    // getDownlineAgents is one level deep and carries NO organization filter.
+    // The traversal (the walk behind getAgentScopeIds): its traversedIds carry the Deleted
+    // intermediates, so the Team Profile tree applies the Settings chart's Deleted-connector rule (F4).
+    const queries = readCode("lib/profile/profile-queries.ts");
+    expect(queries).toContain("usersSupabaseApi.getAgentScopeTraversal");
+    expect(queries).toContain("traversedIds");
+    expect(queries).not.toContain("getAgentScopeIds");
+    // getDownlineAgents is org-filtered since F8 but returns DIRECT reports only (one level), so it
+    // can never be a team scope.
     expect(FEATURE_SOURCE).not.toContain("getDownlineAgents");
   });
 
@@ -139,6 +147,25 @@ describe("hierarchy resolution", () => {
     const rosterSelect = /fetchTeamRoster[\s\S]*?\.select\(([^)]*)\)/.exec(queries);
     expect(rosterSelect).not.toBeNull();
     expect(rosterSelect![1]).not.toContain("avatar_url");
+  });
+});
+
+describe("getDownlineAgents callers pass the organization (hierarchy stabilization F8)", () => {
+  it("every call site supplies (uplineId, organizationId); without an org the helper issues no query", () => {
+    const sources = ["components", "pages", "hooks", "lib", "contexts"]
+      .flatMap((dir) => collect(dir))
+      .filter((f) => !f.includes("__tests__") && f !== "lib/supabase-users.ts");
+    const calls = sources.flatMap((f) =>
+      [...stripTsComments(read(f)).matchAll(/\.getDownlineAgents\(([^)]*)\)/g)].map((m) => ({ f, args: m[1] })),
+    );
+    expect(calls.map((c) => c.f)).toEqual(
+      expect.arrayContaining(["components/contacts/AddTaskModal.tsx", "pages/ImportLeadsPage.tsx"]),
+    );
+    for (const { f, args } of calls) {
+      const parts = args.split(",").map((a) => a.trim()).filter(Boolean);
+      expect({ f, parts: parts.length }).toEqual({ f, parts: 2 });
+      expect(parts[1]).toMatch(/organizationId/);
+    }
   });
 });
 

@@ -211,8 +211,11 @@ BEGIN
     'not authorized to create a campaign for user', 'T3 agent cannot create for another agent');
 END $$;
 
--- T4. Team Leader: self is allowed; downline authority uses is_ancestor_of and FAILS CLOSED while
---     profiles.hierarchy_path is unrepaired (D-2). This test pins the CURRENT behaviour deliberately.
+-- T4. Team Leader: self is allowed; downline authority uses is_ancestor_of over the stored hierarchy_path. In
+--     this fixture AG1 does not report to the TL, so T4b takes its fail-closed branch; a real downline target
+--     is allowed. After hierarchy stabilization M1 is_ancestor_of also needs the TL's PROFILE to be an Active
+--     Team Leader (a deactivated or demoted TL fails closed). The verbatim port of T4 across the M1-M3 states,
+--     including the repaired-downline case, is supabase/tests/hierarchy_stabilization_rpcs.sql §6.
 DO $$
 DECLARE r jsonb; v_anc boolean;
 BEGIN
@@ -233,7 +236,7 @@ BEGIN
     PERFORM pg_temp._expect_error('ca000000-0000-0000-0000-00000000001d','ca000000-0000-0000-0000-00000000000a','Team Leader',
       $q$ SELECT public.create_import_campaign('IC TL Down','Personal','',
             'ca000000-0000-0000-0000-0000000000a1', NULL, 'specific_agent') $q$,
-      'not authorized to create a campaign for user', 'T4b TL downline fails closed (hierarchy_path unrepaired)');
+      'not authorized to create a campaign for user', 'T4b TL target outside the stored downline fails closed');
   END IF;
 END $$;
 

@@ -1,3 +1,54 @@
+## 2026-10-23 — GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend prepared on PR #485, awaiting approval: Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+
+**Gate 2a (released).** Chris had M1 applied and verified in production through a separate (ChatGPT) session.
+- Recorded as `20261023210027 / hierarchy_authorization_boundaries`: 1 statement with SHA-256 `5d99c923…`, byte-identical
+  to the repository file.
+- This session re-read production read-only. The post-image equals the reviewed S1 state (plan §G3, `verification.md`
+  §9–§10).
+- Data is unchanged (4 stale paths, both fingerprints).
+- M2 and M3 are NOT applied.
+
+**Gate 3 preparation (this branch).**
+- The M1 forward and rollback files are renamed to `20261023210027_…`, with the forward bytes unchanged.
+- References are updated, and M2's refusal message is re-pinned.
+- The runner pins M1's applied version and SHA-256, and fails if M2 or M3 leaves `pending/`.
+- The docs are updated. No frontend, workflow or other migration change.
+- **Needs before the merge:** Chris's explicit Gate 3 approval; Supabase "Deploy to production" confirmed OFF by Chris;
+  CI green at the head; the read-only preflight in `verification.md` §10.
+
+---
+
+**Gate 1 record (2026-10-23, superseded status):**
+
+**Status:** Gate 1 approved by Chris (D1–D15 defaults; corrections R1 database-authoritative roles and R2 release
+order), built, independently security-reviewed (21 confirmed findings: 18 fixed and re-verified, 3 documented) and
+verified. Full plan rev 4 and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/` (`implementation_plan.md`
+§B, `verification.md`). Production was only read. Branch `claude/intelligent-lamport-r6hnx7` from `main` `f03af3b`.
+
+**Baseline:** 16 profiles; 11 upline edges, 4 unrecognised by `is_ancestor_of`; 6 of 15 expected pairs missing; 4 stale
+paths (id fingerprint `ddc1f53f…`, target fingerprint `7daae418…`); no cross-org edges, missing parents or cycles.
+
+**Root cause:** `update_hierarchy_path()` built the path from the stored row; the cascade refreshed direct children
+only; no structural guards; stale paths fail open; any save listing `upline_id` silently activated TL branches.
+
+**Built:** M1 (authorization boundaries: database-authoritative, caller-bound, same-org `is_ancestor_of`; tasks TL
+policy via `is_ancestor_of`; TL contact deletes need the toggle; call deletes/edits limited; `commission_level` guard;
+contact tenancy guard; path-function and anon revokes); M2 in `pending/` (derivation from `NEW.upline_id`, subtree
+cascade, no-op saves inert, self/cycle/cross-org/depth-32 guards, invitation guard, READ COMMITTED only, lock, index,
+consistency); M3 in `pending/` (repairs only the reviewed four rows, both fingerprints required); rollbacks; harness
+with RLS, RPC, PostgREST forged/stale-token and frontend-compatibility stages; CI on PostgreSQL 17.6; frontend F1–F12
+plus review fixes.
+
+**Verification:** runner 2747 PASS (forged 336/336; compatibility 27 cases × 7 states); 18 existing SQL suites pass;
+Vitest 6531 passed (1 pre-existing failure identical on `main`); tsc clean; strict 80 vs 84 errors; build OK.
+
+**Gates (each needs its own approval):** 1 ✅ → 2a M1 (`#APPROVE_RLS_CHANGE`) → 3 frontend → 2b M2 → 2c M3
+(`#APPROVE_RLS_CHANGE` + invariant #28), gated on the compatibility suite. Rollback: M1/M2 restore verbatim preimages
+(revokes kept); M3 recovery is operational. PostgreSQL 17.6 CI passed on the draft PR (run 39988839376, 2747 PASS
+lines). Gate 2a was then released (above).
+
+---
+
 ## 2026-10-23 — RELEASED: PR #483 reconciliation with main `93abbe4` and production release (approved by Chris)
 
 **Outcome:** merged as `f03af3b` (squash, expected head `0755d04`, identical tree). Production deployments `dpl_2jZdD2y5yqBmEqoEdLEhVc64GC32` (www.fflagent.com) and `dpl_DjXc7rCALMZZLbu367FDeFHUa3cP` are READY, and www serves the new entry. Evidence and limits are in the newest WORK_LOG entry.

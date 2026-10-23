@@ -1,3 +1,135 @@
+## 2026-10-23 — Hierarchy Stabilization: GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend PREPARED on PR #485 (NOT merged, NOT deployed; M2/M3 NOT applied)
+
+**Gate 2a.** Chris had M1 applied and verified in production through a separate (ChatGPT) session; this session did
+not apply it. This session's read-only re-check (`docs/plans/2026-10-23-hierarchy-stabilization/verification.md` §9)
+found:
+- **Migration record:** `20261023210027 / hierarchy_authorization_boundaries`, one statement whose SHA-256 is
+  `5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df`, byte-identical to the repository file. Head
+  `20261023210027`, 344 rows.
+- **Objects:** the post-image digests M2 requires; 4 RESTRICTIVE policies; 5 guard triggers; 10 policies dependent on
+  `is_ancestor_of`; anon/PUBLIC revokes in place; M2/M3 objects absent.
+- **Data:** 16 profiles, 11 edges, the same 4 stale paths, fingerprints `ddc1f53f…` / `7daae418…` unchanged.
+- **Advisors:**
+  - security: anon-executable SECURITY DEFINER 57 → 53, authenticated-executable 138 → 135, search_path 22 (as
+    predicted);
+  - performance: the new `calls_delete_own_rows_or_org_admin` appears under `auth_rls_initplan` (DELETE-only,
+    follow-up).
+
+**Gate 3 preparation (Chris's instruction; plan rev 5 §G3 lists the files).**
+- **Rename:** M1 and its rollback were renamed to `20261023210027_…` with `git mv`. The forward bytes are unchanged; its
+  line-60 comment still names the authored rollback path, because applied bytes are immutable. The rollback changed in
+  its header comments only.
+- **References:** `scripts/hierarchy_test_state.sh` paths, the runner expectation, and M2's refusal message (text only;
+  digests and body unchanged; still in `pending/`) now use the recorded version.
+- **New runner static checks:**
+  - M1 is pinned to `20261023210027` and SHA-256 `5d99c923…`;
+  - the run fails if M2 or M3 appears outside `migrations/pending/`;
+  - mutation-tested: 5 of 5 mutants fail.
+- **Docs:** plan §G3, verification §9 and §10, root plan, and the AGENT_RULES hierarchy status lines.
+- No frontend, workflow or other migration change.
+
+**Verification at `9962c63`.**
+- **Production equals S1:** the 42-line inventory (functions, ACLs, policies, triggers, dependent count) is identical
+  between production and a local S1 built from the renamed file.
+- **Runner** (PostgreSQL 16.15, PostgREST 12.2.3, CI mode): 2749 PASS lines, every suite at its pin (compatibility 190,
+  forged 336).
+- **Typecheck:** `tsc --noEmit` exit 0; app typecheck `base=84, candidate=80, new=0`.
+- **Focused Vitest:** 634 passed.
+- **CI at `a1a83fe`:** all 13 checks pass. On PostgreSQL 17.6 (run 40026346591): 2749 PASS lines, all pins.
+- **Final independent security review** (4 lenses, two adversarial verifiers per finding, a completeness critic):
+  - no release blocker;
+  - doc inaccuracies fixed in this preparation, including that the Gate 3 rollback must promote the previous Vercel
+    deployments and never `git revert` the PR, and that both Vercel projects are verified;
+  - three pre-existing UX/robustness items recorded as plan §12 follow-ups: the TL Goals/Onboarding message, no
+    read-back on deactivate/reactivate/billing, and the onboarding toggles not persisting.
+- **Rollback targets now** (main `80921d1`): `agentflow` `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW`, `agentflow-life-insure`
+  `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV`.
+
+**Context snapshot.**
+- Decisions: Gate 2a done; Gate 3 scope unchanged (merge and frontend release only; M2/M3 stay pending); D14 interim
+  guidance still applies until Gate 2c.
+- Migrations: production head `20261023210027` (M1). M2 `pending/20261023210100`, M3 `pending/20261023210200`: NOT
+  applied.
+- Deploys: none. PR #485 NOT merged.
+- Blockers: Chris's explicit Gate 3 approval; Supabase "Deploy to production" confirmed OFF by Chris; CI green at the
+  head; the read-only pre-merge preflight (verification §10).
+- Next: Gate 3 (merge and frontend) → Gate 2b (M2) → Gate 2c (M3), each separately approved.
+
+---
+
+## 2026-10-23 — Hierarchy Stabilization: GATE 1 BUILT, REVIEWED AND VERIFIED (draft PR; NOTHING applied, merged or deployed)
+
+**Approval.** Chris approved Gate 1 with the recommended D1–D15 defaults and two mandatory corrections: R1 (close the
+stale-JWT role mismatch in hierarchy authorization with database-authoritative checks; a demoted Team Leader must not
+keep downline call-editing authority) and R2 (frontend safety protections live before M2 can activate hierarchy
+access; order M1 → frontend → M2 → M3 if compatibility tests pass). Gate 1 covers development and testing only.
+Production was only read. Plan rev 4 and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`.
+
+**Root cause (confirmed).** `update_hierarchy_path()` built `hierarchy_path` from the stored row (self-only on
+INSERT, previous upline on UPDATE); `cascade_hierarchy_update()` refreshed direct children only; nothing prevented
+self-parents, cycles or cross-org uplines; stale paths fail open on reassignment. Any profile save listing `upline_id`
+(User Management always did) silently repaired paths and switched Team Leader branches on — it happened on
+2026-10-17. Baseline today: 16 profiles, 11 edges, 4 unrecognised, 6 of 15 pairs missing, 4 stale rows.
+
+**What was built (branch `claude/intelligent-lamport-r6hnx7`).**
+- **M1** `supabase/migrations/20261023210000_hierarchy_authorization_boundaries.sql` (narrowing only): caller-bound,
+  same-org, database-authoritative `is_ancestor_of` (ancestor profile must be an Active TL/Admin/Super Admin);
+  `profile_authz.actor_is_team_leader` / `actor_is_org_admin`; `tasks_select_team_leader` TO authenticated via
+  `is_ancestor_of`; `commission_level` guard; RESTRICTIVE delete policies (TL contact deletes need the toggle; calls
+  only by agent or Active org admin); calls guard (non-admin edits of another agent's call limited to coaching flag and
+  notes); contact tenancy guard (no client write may change or null a contact's organization); anon/PUBLIC revokes on
+  the path functions and `is_ancestor_of`.
+- **M2** `supabase/migrations/pending/20261023210100_hierarchy_integrity.sql`: path from `NEW.upline_id`, whole-subtree
+  cascade, no-op saves change nothing, structural guards (self, cycle, cross-org, depth 32, org change), invitation
+  upline guard, advisory lock + `FOR SHARE`, READ COMMITTED only, `upline_id` index, consistency function, hygiene.
+- **M3** `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`: repairs only the reviewed four rows —
+  id fingerprint `ddc1f53f…` (unchanged) AND id+target fingerprint `7daae418…`; otherwise refuses.
+- Rollbacks for all three (M3's refuses and documents operational revocation).
+- Harness: `scripts/run_hierarchy_stabilization_tests.sh`, `scripts/hierarchy_fixture.py` (verbatim baseline objects),
+  `scripts/hierarchy_test_state.sh`, core/RLS/RPC suites, PostgREST forged/stale-token stage, frontend↔DB
+  compatibility suite, CI `hierarchy-stabilization.yml` (PostgreSQL 17.6 digest-pinned, PostgREST 12.2.3).
+- Frontend: upline sent only when changed; upline pickers exclude self and descendants; account-control UI mirrors the
+  database; HierarchyTree / User Management / Team tab query-scoped, org-filtered, Deleted-manager safe, error states;
+  zero-row write read-back; CampaignDetail TL filter; role-scoped assignee options; Team Profile Deleted-manager rule.
+
+**Independent security review.** Five fresh reviewers plus adversarial verifiers found 21 confirmed issues, including
+two majors (a TL could make downline contacts vanish via reassign + organization change; the CI database job could
+never run). 18 were fixed and re-verified with the original exploits and mutants; 3 are documented: AUTHZ-2
+(import-undo toggles not enforced, pre-existing) and two behavioural notes (INT-3, INT-4).
+
+**Verification (this session).**
+
+| Check | Result |
+|---|---|
+| Hierarchy runner (PG 16.15, CI mode, PostgREST 12.2.3) | exit 0, 2747 PASS lines; core 64/114 per state, RLS 149, RPC 81 (×7 states), forged 336/336, compatibility 190/190; all pinned |
+| Existing SQL runners | 18/18 pass (commission-grids needs a fresh cluster on `main` too) |
+| `npx vitest run` | 6531 passed, 1 failed (`recordingRetentionVoicemail`, identical on `main`), 37 skipped |
+| `tsc --noEmit` / strict app | exit 0 / 80 errors vs 84 on `main`, none new |
+| ESLint on 58 touched files | 0 errors; 5 pre-existing warnings (`main` had 36 on these files) |
+| `npm run build` / `git diff --check` | success / clean |
+| CI hierarchy runner (PostgreSQL 17.6, PostgREST 12.2.3), PR #485 head `58e8a59`, run 39988839376 | success: 2747 PASS lines on PostgreSQL 17.6; every count at its pin; the hierarchy frontend job also passed |
+
+**Not verified.** PostgreSQL 17.6 locally (it is proven by the PR's CI run above); full-stack
+`p0_profile_authorization.sql` / `import_campaign_attachment.sql` (NOT EXECUTED; cases ported); commission engine
+writer-role path; authenticated browser walkthrough by role.
+
+**Context snapshot.**
+- Decisions: D1–D15 defaults approved; R1 and R2 implemented; amendments in plan §B (contact tenancy guard, revokes
+  moved to M1, dual fingerprint, READ COMMITTED only, depth cap 32).
+- Migrations: M1 (unapplied), M2 and M3 in `supabase/migrations/pending/` (unapplied). Production head
+  `20261022062539`.
+- Deploys: none.
+- CI: `main` `80921d1` merged into the branch (docs-only conflicts, both entries kept). In `uv-profile-sync.yml`, the
+  exact-base typecheck step required byte-identical output and failed although no diagnostic is new (4 fixed, 1
+  moved). It now uses `scripts/verify-a2p-types.mjs`, as the A2P and Google Sheets workflows do (verification.md §4).
+- Blockers: none for requesting Gate 2a; CI must be green at the head being applied.
+- Next: Gate 2a (apply M1; `#APPROVE_RLS_CHANGE`) → Gate 3 (frontend) → Gate 2b (M2) → Gate 2c (M3), each with its own
+  approval and read-only preflight (verification.md §8). Interim (plan D14): until Gate 2c avoid saving `f809493e`, `4ef505e0`,
+  `e5c4ee04`, `89f2e994` in User Management, and after Gate 2b also avoid real reassignments in `f809493e`'s branch and
+  TL invitations by `f809493e`; separately decide on public sign-up and `89f2e994`'s session.
+
+---
+
 ## 2026-10-23 — RELEASED: Add to Campaign shows Agents their Personal and Team campaigns (PR #483, merge `f03af3b`)
 
 **Authorization.** Chris approved completing PR #483: reconcile it with main, verify, squash-merge and verify production. I re-read AGENT_RULES, VISION and this log first. The only new main work was #479 (carrier selection), which does not conflict with this fix. No production database change, migration, RLS change, backend deployment or real lead mutation was authorized, and none happened.

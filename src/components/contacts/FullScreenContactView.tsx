@@ -34,6 +34,8 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { useContactAssigneeOptions } from "@/hooks/useContactAssigneeOptions";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { formatPhoneNumber, normalizePhoneNumber, toE164Plus } from "@/utils/phoneUtils";
 import { PhoneInput } from "@/components/shared/PhoneInput";
@@ -189,6 +191,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile, user, isImpersonating } = useAuth();
+  const { viewer } = useEffectiveViewer();
   const { formatDate, formatDateTime, branding } = useBranding();
   // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
   const { hasContactsPermission } = usePermissions();
@@ -239,9 +242,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     definitions: fieldsReady ? customFields : [], values: editForm.customFields, entity: editForm,
   }), [type, fieldsReady, fieldOrder, customFields, editForm]);
 
-
-  const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
-  const [rosterLoaded, setRosterLoaded] = useState(false);
+  const { agents, rosterLoaded, assigneeOptions } = useContactAssigneeOptions({
+    contactId: contact?.id, currentAssigneeId: contact?.assignedAgentId, organizationId, viewer, selfId: profile?.id,
+  });
   const [coreLoading, setCoreLoading] = useState(true);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
   const [fromNumber, setFromNumber] = useState<string>("");
@@ -326,8 +329,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
     setPipelineStages([]);
     setFieldOrder(getDefaultFieldOrder(type));
-    setRosterLoaded(false);
     setCoreLoading(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contact/type switch only (see below)
   }, [contact?.id, type]);
 
   // Same contact refreshed from parent (e.g. after save + list refetch). Compare snapshot so Dialer/Calendar inline `contact` objects do not re-sync every parent render.
@@ -351,16 +354,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     if (!contact?.id) return;
     const myId = contact.id;
     const myType = type;
-    const assignedAgentIdForContact = (contact.assignedAgentId as string | undefined)?.trim() ?? "";
     let cancelled = false;
     const isCurrent = () => !cancelled && latestContactIdRef.current === myId && fieldScopeRef.current === fieldScope;
 
     async function loadData() {
-      const assignedRowP =
-        assignedAgentIdForContact && assignedAgentIdForContact !== profile?.id
-          ? supabase.from("profiles").select("id, first_name, last_name").eq("id", assignedAgentIdForContact).maybeSingle()
-          : Promise.resolve({ data: null });
-
       const pipelineP =
         myType === "lead" || myType === "recruit"
           ? myType === "recruit"
@@ -422,8 +419,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             .in("status", ["active", "Active"])
         : Promise.resolve({ data: null });
 
-      const profilesP = supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
-
       const lastCallP = supabase
         .from("calls")
         .select("caller_id_used")
@@ -445,16 +440,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         : Promise.resolve([]);
 
       const [
-        assignedRowRes,
         fetchedNotes,
         fetchedStages,
         settingsPack,
         campaignRes,
         phoneRes,
-        profilesRes,
         lastCallRes,
         dispositionRows,
-      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, dispositionsP]);
+      ] = await Promise.all([notesActsP, pipelineP, settingsP, campaignP, phoneP, lastCallP, dispositionsP]);
 
       if (!isCurrent()) return;
 
@@ -529,20 +522,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         else setFromNumber(phoneData.find((p) => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
       }
 
-      let agentRows = (profilesRes.data || []).map((p: any) => ({
-        id: p.id,
-        firstName: p.first_name || "",
-        lastName: p.last_name || "",
-      }));
-      const ar = assignedRowRes.data as { id: string; first_name: string | null; last_name: string | null } | null;
-      if (ar?.id && !agentRows.some((x) => x.id === ar.id)) {
-        agentRows = [
-          { id: ar.id, firstName: ar.first_name || "", lastName: ar.last_name || "" },
-          ...agentRows,
-        ];
-      }
-      setAgents(agentRows);
-      setRosterLoaded(true);
       setCoreLoading(false);
 
       setEditMode(false);
@@ -1128,7 +1107,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                               {editMode ? (
                                 <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
                                   <option value="">—</option>
-                                  {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
+                                  {assigneeOptions.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                      {`${a.firstName} ${a.lastName}`.trim() || getAgentDisplayName(a.id)}
+                                    </option>
+                                  ))}
                                 </select>
                               ) : (
                                 <div className="flex items-center gap-1.5">

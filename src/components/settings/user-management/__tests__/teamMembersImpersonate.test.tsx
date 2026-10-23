@@ -90,7 +90,6 @@ function renderTable() {
   return render(
     <TeamMembersTable
       users={[member] as never}
-      allUsers={[member] as never}
       loading={false}
       search=""
       setSearch={() => {}}

@@ -1,14 +1,20 @@
 /**
- * Fix 2 (traversal) — `usersSupabaseApi.getAgentScopeIds`.
+ * Downline traversal — `usersSupabaseApi.getAgentScopeTraversal` and its thin wrapper
+ * `getAgentScopeIds`.
  *
- * The Contacts → Agents tab must show the signed-in viewer plus every direct and
- * indirect downline profile, resolved recursively through `profiles.upline_id`.
- * `profiles.hierarchy_path` is NOT used: its production values are depth-1
- * self-labels, so `is_ancestor_of` is false for every distinct pair.
+ * Every downline surface (Contacts → Agents, User Management, the Hierarchy chart, Team
+ * Profile, Conversations) resolves the viewer plus every direct and indirect downline
+ * profile recursively through `profiles.upline_id`, the authority. `hierarchy_path` is a
+ * derived cache that can lag `upline_id` (the stale rows the hierarchy-stabilization
+ * repair fixes), so it is NOT read.
  *
- * This is Contacts-page query scoping, not a database authorization boundary — the
- * permissive organization-wide SELECT policy on `profiles` is unchanged. What these
- * tests lock is that the page asks for exactly the right ids and can never widen.
+ * One BFS returns two lists: `scopedIds` (viewer + non-Deleted descendants — the
+ * `getAgentScopeIds` contract, unchanged) and `traversedIds` (every node the walk passed
+ * through, Deleted intermediates included, for views that must draw them).
+ *
+ * This is query scoping, not a database authorization boundary — the permissive
+ * organization-wide SELECT policy on `profiles` (`profiles_select_org`) is unchanged. What
+ * these tests lock is that the page asks for exactly the right ids and can never widen.
  *
  * All ids are synthetic. No production identifier appears in this file.
  */
@@ -91,7 +97,7 @@ const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0"
 const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
 
-/** §4.3 aliases. */
+/** Aliases for the production-shaped graph below. */
 const ROOT_ADMIN = uid(1);
 const RETIRED_ADMIN = uid(2);
 const TEAM_LEADER_A = uid(3);
@@ -100,6 +106,7 @@ const AGENT_B = uid(5);
 const AGENT_C = uid(6);
 const RETIRED_TEAM_LEADER = uid(7);
 const RETIRED_AGENT = uid(8);
+const RETIRED_AGENT_UNDER_TL = uid(9);
 
 const row = (
   id: string,
@@ -108,13 +115,20 @@ const row = (
   orgId = ORG,
 ): Row => ({ id, uplineId, status, orgId });
 
-/** The verified production shape, expressed with synthetic ids. */
+/**
+ * The verified production `upline_id` shape (2026-10-23), expressed with synthetic ids:
+ * a root Admin over an Active Team Leader with 2 Active reports and 1 Deleted report, a
+ * Deleted Team Leader with a Deleted report, and a direct Active Agent; plus a Deleted,
+ * unattached Admin. (`upline_id` is the authority; the stale `hierarchy_path` values the
+ * repair fixes are irrelevant to this walk.)
+ */
 const PRODUCTION_SHAPE: Row[] = [
   row(ROOT_ADMIN, null),
   row(RETIRED_ADMIN, null, "Deleted"),
   row(TEAM_LEADER_A, ROOT_ADMIN),
-  row(AGENT_A, ROOT_ADMIN),
-  row(AGENT_B, ROOT_ADMIN),
+  row(AGENT_A, TEAM_LEADER_A),
+  row(AGENT_B, TEAM_LEADER_A),
+  row(RETIRED_AGENT_UNDER_TL, TEAM_LEADER_A, "Deleted"),
   row(AGENT_C, ROOT_ADMIN),
   row(RETIRED_TEAM_LEADER, ROOT_ADMIN, "Deleted"),
   row(RETIRED_AGENT, RETIRED_TEAM_LEADER, "Deleted"),
@@ -122,6 +136,9 @@ const PRODUCTION_SHAPE: Row[] = [
 
 const scopeOf = (viewerId: string, organizationId: string | null = ORG) =>
   usersSupabaseApi.getAgentScopeIds({ viewerId, organizationId });
+
+const traversalOf = (viewerId: string, organizationId: string | null = ORG) =>
+  usersSupabaseApi.getAgentScopeTraversal({ viewerId, organizationId });
 
 beforeEach(() => {
   recorded.length = 0;
@@ -156,7 +173,13 @@ describe("descendant discovery", () => {
   it("includes direct descendants", async () => {
     state.rows = PRODUCTION_SHAPE;
     const scope = await scopeOf(ROOT_ADMIN);
-    expect(scope).toEqual(expect.arrayContaining([TEAM_LEADER_A, AGENT_A, AGENT_B, AGENT_C]));
+    expect(scope).toEqual(expect.arrayContaining([TEAM_LEADER_A, AGENT_C]));
+  });
+
+  it("includes indirect descendants beneath a Team Leader", async () => {
+    state.rows = PRODUCTION_SHAPE;
+    const scope = await scopeOf(ROOT_ADMIN);
+    expect(scope).toEqual(expect.arrayContaining([AGENT_A, AGENT_B]));
   });
 
   it("includes multi-level descendants across a deep chain", async () => {
@@ -175,9 +198,11 @@ describe("descendant discovery", () => {
 });
 
 describe("exclusions", () => {
-  it("excludes the viewer's own manager (ancestor)", async () => {
+  it("excludes the viewer's own manager and every further ancestor", async () => {
     state.rows = PRODUCTION_SHAPE;
-    expect(await scopeOf(AGENT_A)).not.toContain(ROOT_ADMIN);
+    const scope = await scopeOf(AGENT_A);
+    expect(scope).not.toContain(TEAM_LEADER_A);
+    expect(scope).not.toContain(ROOT_ADMIN);
   });
 
   it("excludes peers sharing the viewer's manager", async () => {
@@ -237,6 +262,7 @@ describe("Deleted profiles", () => {
     const scope = await scopeOf(ROOT_ADMIN);
     expect(scope).not.toContain(RETIRED_TEAM_LEADER);
     expect(scope).not.toContain(RETIRED_AGENT);
+    expect(scope).not.toContain(RETIRED_AGENT_UNDER_TL);
   });
 
   it("traverses THROUGH a Deleted intermediate to reach an active descendant beneath it", async () => {
@@ -408,8 +434,8 @@ describe("production-shape parity (synthetic ids, verified graph)", () => {
     expect(scope).toHaveLength(5);
   });
 
-  it("the active Team Leader sees only themselves", async () => {
-    expect(await scopeOf(TEAM_LEADER_A)).toEqual([TEAM_LEADER_A]);
+  it("the active Team Leader sees self plus its two Active reports — never its Deleted report", async () => {
+    expect(await scopeOf(TEAM_LEADER_A)).toEqual([TEAM_LEADER_A, AGENT_A, AGENT_B]);
   });
 
   it("each active Agent sees only themselves", async () => {
@@ -426,6 +452,114 @@ describe("production-shape parity (synthetic ids, verified graph)", () => {
       expect(scope).not.toContain(RETIRED_ADMIN);
       expect(scope).not.toContain(RETIRED_TEAM_LEADER);
       expect(scope).not.toContain(RETIRED_AGENT);
+      expect(scope).not.toContain(RETIRED_AGENT_UNDER_TL);
     }
+  });
+
+  it("the Deleted Team Leader and its Deleted report stay out of every Active viewer's scope", async () => {
+    const scope = await scopeOf(ROOT_ADMIN);
+    expect(scope).not.toContain(RETIRED_TEAM_LEADER);
+    expect(scope).not.toContain(RETIRED_AGENT);
+    // …but the walk still went through them.
+    const { traversedIds } = await traversalOf(ROOT_ADMIN);
+    expect(traversedIds).toEqual(expect.arrayContaining([RETIRED_TEAM_LEADER, RETIRED_AGENT]));
+  });
+});
+
+describe("getAgentScopeTraversal — scoped vs traversed", () => {
+  beforeEach(() => {
+    state.rows = PRODUCTION_SHAPE;
+  });
+
+  it("the Team Leader's walk reaches its Deleted report but does not scope it", async () => {
+    const { scopedIds, traversedIds } = await traversalOf(TEAM_LEADER_A);
+    expect(scopedIds).toEqual([TEAM_LEADER_A, AGENT_A, AGENT_B]);
+    expect(traversedIds).toEqual([TEAM_LEADER_A, AGENT_A, AGENT_B, RETIRED_AGENT_UNDER_TL]);
+  });
+
+  it("the root Admin's walk lists every node in BFS order, managers before their reports", async () => {
+    const { scopedIds, traversedIds } = await traversalOf(ROOT_ADMIN);
+    expect(scopedIds).toEqual([ROOT_ADMIN, TEAM_LEADER_A, AGENT_C, AGENT_A, AGENT_B]);
+    expect(traversedIds).toEqual([
+      ROOT_ADMIN,
+      TEAM_LEADER_A,
+      AGENT_C,
+      RETIRED_TEAM_LEADER,
+      AGENT_A,
+      AGENT_B,
+      RETIRED_AGENT,
+      RETIRED_AGENT_UNDER_TL,
+    ]);
+    // The unattached Deleted Admin is not anyone's descendant.
+    expect(traversedIds).not.toContain(RETIRED_ADMIN);
+  });
+
+  it("a Deleted Team Leader viewer is its own first id and walks to its Deleted report", async () => {
+    const { scopedIds, traversedIds } = await traversalOf(RETIRED_TEAM_LEADER);
+    expect(scopedIds).toEqual([RETIRED_TEAM_LEADER]);
+    expect(traversedIds).toEqual([RETIRED_TEAM_LEADER, RETIRED_AGENT]);
+  });
+
+  it("traversedIds is always a superset of scopedIds, and both start with the viewer", async () => {
+    for (const viewer of [ROOT_ADMIN, TEAM_LEADER_A, AGENT_A, RETIRED_TEAM_LEADER]) {
+      const { scopedIds, traversedIds } = await traversalOf(viewer);
+      expect(scopedIds[0]).toBe(viewer);
+      expect(traversedIds[0]).toBe(viewer);
+      for (const id of scopedIds) expect(traversedIds).toContain(id);
+    }
+  });
+
+  it("traverses THROUGH a Deleted intermediate: the Active grandchild is scoped, the intermediate only traversed", async () => {
+    const viewer = uid(150);
+    const deletedMid = uid(151);
+    const activeGrandchild = uid(152);
+    state.rows = [row(viewer, null), row(deletedMid, viewer, "Deleted"), row(activeGrandchild, deletedMid)];
+    const { scopedIds, traversedIds } = await traversalOf(viewer);
+    expect(scopedIds).toEqual([viewer, activeGrandchild]);
+    expect(traversedIds).toEqual([viewer, deletedMid, activeGrandchild]);
+  });
+
+  it("getAgentScopeIds is exactly the traversal's scopedIds, issuing the identical queries", async () => {
+    const traversal = await traversalOf(ROOT_ADMIN);
+    const traversalQueries = recorded.map((q) => ({ ...q }));
+    recorded.length = 0;
+    const scope = await scopeOf(ROOT_ADMIN);
+    expect(scope).toEqual(traversal.scopedIds);
+    expect(recorded).toEqual(traversalQueries);
+  });
+
+  it("keeps every round organization-scoped with no status filter", async () => {
+    await traversalOf(ROOT_ADMIN);
+    expect(recorded.length).toBeGreaterThan(1);
+    for (const q of recorded) {
+      expect(q.eq.organization_id).toBe(ORG);
+      expect(q.eq.status).toBeUndefined();
+      expect(q.neq).toBeUndefined();
+      expect(q.inCol).toBe("upline_id");
+    }
+  });
+
+  it("never follows a cross-organization edge into traversedIds", async () => {
+    const viewer = uid(160);
+    const foreignChild = uid(161);
+    state.rows = [row(viewer, null), row(foreignChild, viewer, "Deleted", OTHER_ORG)];
+    expect(await traversalOf(viewer)).toEqual({ scopedIds: [viewer], traversedIds: [viewer] });
+  });
+
+  it("resolves to two empty lists without querying when the viewer or organization is missing", async () => {
+    expect(await traversalOf("")).toEqual({ scopedIds: [], traversedIds: [] });
+    expect(await traversalOf(ROOT_ADMIN, null)).toEqual({ scopedIds: [], traversedIds: [] });
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("rejects on a traversal query error — never a partial result", async () => {
+    state.failAtQuery = 1;
+    await expect(traversalOf(ROOT_ADMIN)).rejects.toThrow();
+  });
+
+  it("throws rather than truncating when the depth cap is exceeded", async () => {
+    const chain = Array.from({ length: AGENT_SCOPE_MAX_ROUNDS + 5 }, (_, i) => uid(40000 + i));
+    state.rows = chain.map((id, i) => row(id, i === 0 ? null : chain[i - 1]));
+    await expect(traversalOf(chain[0])).rejects.toThrow(/depth/i);
   });
 });

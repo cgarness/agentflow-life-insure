@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -6,7 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { normalizeProfileCarriers } from "@/components/settings/ProfileCarriersSection";
-import { OnboardingItem, User, UserProfile, UserRole } from "@/lib/types";
+import { OnboardingItem, User, UserProfile } from "@/lib/types";
+import { isOrgAdminViewer, profileFieldEditability } from "@/lib/user-management/profileSavePayload";
+import type { UserManagementViewer } from "@/hooks/useUserManagementMembers";
 import TransferLeadsModal from "../TransferLeadsModal";
 import AvatarUploadPreview from "./AvatarUploadPreview";
 import UserProfileTab from "./UserProfileTab";
@@ -15,7 +17,10 @@ import UserOnboardingTab from "./UserOnboardingTab";
 import UserPerformanceTab from "./UserPerformanceTab";
 import UserTeamTab from "./UserTeamTab";
 import { formatDate, goalActualsFrom, ROLE_BADGE, STATUS_BADGE } from "./userManagementUtils";
+import { saveMemberProfile } from "./saveMemberProfile";
 import type { UserWithProfile } from "./userManagementTypes";
+
+const errorText = (e: unknown) => (e as { message?: string } | null)?.message || "An unknown error occurred";
 
 interface Props {
   user: UserWithProfile | null;
@@ -23,15 +28,16 @@ interface Props {
   onClose: () => void;
   onSaved: (patch?: Partial<UserWithProfile>) => void;
   onDeleted: (id: string) => void;
-  currentUserId: string;
-  currentUserRole: string;
-  isCurrentUserSuperAdmin: boolean;
+  /** Re-read the member list from the database (team changes, partial saves). */
+  onReload: () => void;
+  /** The signed-in viewer's own profile row. Drives UI mirrors only; the database decides. */
+  viewer: UserManagementViewer | null;
+  organizationId: string | null;
   allUsers: UserWithProfile[];
 }
 
 const UserProfileModal: React.FC<Props> = ({
-  user, open, onClose, onSaved, onDeleted,
-  currentUserId, currentUserRole, isCurrentUserSuperAdmin, allUsers,
+  user, open, onClose, onSaved, onDeleted, onReload, viewer, organizationId, allUsers,
 }) => {
   const { toast } = useToast();
   const [editMode, setEditMode] = useState(true);
@@ -43,13 +49,9 @@ const UserProfileModal: React.FC<Props> = ({
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [form, setForm] = useState<Partial<User & UserProfile>>({});
   const [onboardingItems, setOnboardingItems] = useState<OnboardingItem[]>([]);
-  const [performance, setPerformance] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [performance, setPerformance] = useState<any>(null);
   const [perfLoading, setPerfLoading] = useState(false);
   const [resetPwOpen, setResetPwOpen] = useState(false);
-
-  const uplineCandidates = useMemo(() =>
-    allUsers.filter(u => u.id !== user?.id && u.status === "Active" && (u.role === "Agent" || u.role === "Team Leader" || u.role === "Admin"))
-  , [allUsers, user]);
 
   useEffect(() => {
     if (user) {
@@ -94,54 +96,37 @@ const UserProfileModal: React.FC<Props> = ({
   if (!user) return null;
 
   const initials = `${user.firstName[0]}${user.lastName[0]}`;
-  const isSelf = user.id === currentUserId;
+  const isSelf = user.id === viewer?.id;
   const goalActuals = goalActualsFrom(performance);
+  const saveViewer = {
+    isAdminViewer: isOrgAdminViewer(viewer, user.profile.organizationId ?? organizationId),
+    isSelf,
+    isSuperAdminViewer: viewer?.isSuperAdmin === true,
+  };
+  // UI mirror of the database's account-control rules, NOT authorization (F6 / F12).
+  const editable = profileFieldEditability(saveViewer);
 
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      await usersApi.update(user.id, {
-        firstName: form.firstName as string,
-        lastName: form.lastName as string,
-        email: form.email as string,
-        phone: form.phone as string,
-        role: form.role as UserRole,
-        status: form.status as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-        avatar: avatarUrl,
-        isSuperAdmin,
+      const { patch, partialError, partialMessage } = await saveMemberProfile({
+        user, organizationId, viewer: saveViewer,
+        form: { ...form, avatar: avatarUrl, isSuperAdmin, carriers: normalizeProfileCarriers(form.carriers) },
       });
-      await usersApi.updateProfile(user.id, {
-        licensedStates: (form.licensedStates as any[]) || [], // eslint-disable-line @typescript-eslint/no-explicit-any
-        residentState: (form.residentState as string) || "",
-        commissionLevel: (form.commissionLevel as string) || "0%",
-        uplineId: form.uplineId === "_none" ? null : form.uplineId,
-        npn: (form.npn as string) || "",
-        timezone: (form.timezone as string) || "Eastern Time (US & Canada)",
-        carriers: normalizeProfileCarriers(form.carriers),
-      });
+      if (partialError) {
+        toast({
+          title: "Some changes were not saved",
+          description: partialMessage ?? errorText(partialError),
+          variant: "destructive",
+        });
+        onReload();
+        return;
+      }
       toast({ title: "Changes saved successfully" });
       setEditMode(false);
-      const savedCarriers = normalizeProfileCarriers(form.carriers);
-      onSaved({
-        id: user.id,
-        role: form.role as UserRole,
-        status: form.status as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-        firstName: form.firstName as string,
-        lastName: form.lastName as string,
-        isSuperAdmin,
-        profile: {
-          ...user.profile,
-          licensedStates: (form.licensedStates as any[]) || [], // eslint-disable-line @typescript-eslint/no-explicit-any
-          residentState: (form.residentState as string) || "",
-          commissionLevel: (form.commissionLevel as string) || "0%",
-          uplineId: form.uplineId === "_none" ? null : form.uplineId,
-          npn: (form.npn as string) || "",
-          timezone: (form.timezone as string) || "Eastern Time (US & Canada)",
-          carriers: savedCarriers,
-        },
-      } as Partial<UserWithProfile>);
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      toast({ title: "Failed to save changes", description: e.message || "An unknown error occurred", variant: "destructive" });
+      onSaved(patch);
+    } catch (e) {
+      toast({ title: "Failed to save changes", description: errorText(e), variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -158,7 +143,7 @@ const UserProfileModal: React.FC<Props> = ({
       });
       toast({ title: "Saved", description: "Goals updated successfully." });
       onSaved();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -175,7 +160,7 @@ const UserProfileModal: React.FC<Props> = ({
       await usersApi.updateProfile(user.id, { onboardingItems: updated, onboardingComplete: allDone });
       toast({ title: "Saved", description: `Onboarding item ${checked ? "completed" : "unchecked"}.` });
       onSaved();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -187,7 +172,7 @@ const UserProfileModal: React.FC<Props> = ({
       await usersApi.updateProfile(user.id, { onboardingItems: reset, onboardingComplete: false });
       toast({ title: "Saved", description: "Onboarding checklist reset." });
       onSaved();
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -197,7 +182,7 @@ const UserProfileModal: React.FC<Props> = ({
       await usersApi.resetPassword(user.email);
       toast({ title: "Password reset email sent", description: `Password reset email sent to ${user.email}` });
       setResetPwOpen(false);
-    } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -215,7 +200,7 @@ const UserProfileModal: React.FC<Props> = ({
       onDeleted(user.id);
     } catch (e) {
       console.error(e);
-      toast({ title: "Failed to delete user. Please try again.", variant: "destructive" });
+      toast({ title: "Failed to delete user. Please try again.", description: errorText(e), variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -270,14 +255,17 @@ const UserProfileModal: React.FC<Props> = ({
                   form={form}
                   setForm={setForm}
                   editMode={editMode}
+                  editable={editable}
                   isSuperAdmin={isSuperAdmin}
                   setIsSuperAdmin={setIsSuperAdmin}
-                  isCurrentUserSuperAdmin={isCurrentUserSuperAdmin}
+                  isCurrentUserSuperAdmin={saveViewer.isSuperAdminViewer}
                   isSelf={isSelf}
-                  uplineCandidates={uplineCandidates}
+                  memberId={user.id}
+                  organizationId={user.profile.organizationId ?? organizationId}
+                  originalUplineId={user.profile.uplineId}
                   saving={saving}
                   onResetPasswordClick={() => setResetPwOpen(true)}
-                  onDeleteClick={() => setDeleteConfirmOpen(true)}
+                  onDeleteClick={() => editable.deleteUser && setDeleteConfirmOpen(true)}
                   onCancel={onClose}
                   onSave={handleSaveProfile}
                 />
@@ -304,7 +292,8 @@ const UserProfileModal: React.FC<Props> = ({
               </TabsContent>
               {user.role === "Team Leader" && (
                 <TabsContent value="myteam">
-                  <UserTeamTab userId={user.id} currentUserRole={currentUserRole} />
+                  <UserTeamTab userId={user.id} organizationId={user.profile.organizationId ?? organizationId}
+                    canManage={editable.upline} onTeamChanged={onReload} />
                 </TabsContent>
               )}
             </Tabs>

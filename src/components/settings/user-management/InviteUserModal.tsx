@@ -14,7 +14,7 @@ import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
 import { logActivity } from "@/lib/activityLogger";
 import { UserRole } from "@/lib/types";
 import StateMultiSelect from "./StateMultiSelect";
-import type { LicensedStateEntry, UserWithProfile } from "./userManagementTypes";
+import type { LicensedStateEntry, ManagerOption } from "./userManagementTypes";
 
 const invitationSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required"),
@@ -30,7 +30,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  managers: UserWithProfile[];
+  managers: ManagerOption[];
 }
 
 const InviteUserModal: React.FC<Props> = ({ open, onClose, onSuccess, managers }) => {

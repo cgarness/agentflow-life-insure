@@ -194,7 +194,7 @@ vi.mock("@/contexts/BrandingContext", () => ({
     branding: { companyName: "AgentFlow" },
   }),
 }));
-vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG }) }));
+vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Admin" }) }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ hasContactsPermission: () => true }) }));
 
 vi.mock("@/components/calendar/AppointmentModal", () => ({ default: () => null }));

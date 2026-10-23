@@ -18,10 +18,12 @@
  * ---------------------------------------------------------------------------------------------
  *  * BOOK OF BUSINESS (clients, policies, premium, carriers, mix, achievements) -> the
  *    `get_profile_book_stats` RPC. It is not a performance choice. `clients` RLS
- *    ("Clients Hierarchical Access") routes a Team Leader's downline through `is_ancestor_of`,
- *    which depends on the defective `profiles.hierarchy_path`, and gives a plain Agent no downline
- *    branch at all — so for anyone below Admin the downline's client rows are NEVER RETURNED over
- *    PostgREST, at any volume. A client-side team aggregate is structurally impossible.
+ *    ("Clients Hierarchical Access") reaches a downline only through a Team Leader's JWT role AND
+ *    the path-based `is_ancestor_of` (stale stored paths hid Team Leaders' teams at the 2026-10-23
+ *    baseline), and gives a plain Agent no downline branch at all — so below Admin the downline's
+ *    client rows are not reliably returned over PostgREST, and a client-side team aggregate cannot
+ *    be trusted. The RPC resolves the team from `upline_id` (`private.resolve_downline_ids`, as
+ *    Reports do).
  *
  *  * TEAM READINESS + LICENCE COVERAGE -> the `get_profile_team_readiness` RPC, for the same
  *    reason: `agent_state_licenses` RLS returns only their own rows to a plain Agent.
@@ -297,7 +299,11 @@ export async function fetchOwnLicenses(
   return (result.data ?? []) as unknown as LicenseRow[];
 }
 
-/** A downline profile as the preview and the org tree need it. */
+/**
+ * A downline profile as the preview and the org tree need it. `status` may be "Deleted": the
+ * roster carries the Deleted intermediates the walk passed through, so the tree can keep the
+ * live reports beneath them attached (`pruneDeletedLeaves`); they are never counted.
+ */
 export interface DownlineProfile {
   id: string;
   first_name: string;
@@ -314,12 +320,18 @@ export interface TeamRoster {
 }
 
 /**
- * Resolve the viewer's authorized scope and load those profiles.
+ * Resolve the viewer's downline and load those profiles. Query scoping, not authorization —
+ * `profiles_select_org` permits same-org reads.
  *
- * `getAgentScopeIds` is the ONE downline resolver: a BFS over `profiles.upline_id`,
- * organization-constrained on every round, cycle-safe, paged to exhaustion, and it THROWS on any
- * Supabase error rather than returning a partial or org-wide set. `hierarchy_path` is never read —
- * it is defective in production and `is_ancestor_of` therefore denies almost everything.
+ * `getAgentScopeTraversal` is the ONE downline resolver (the same BFS behind `getAgentScopeIds`):
+ * a walk over `profiles.upline_id`, organization-constrained on every round, cycle-safe, paged to
+ * exhaustion, and it THROWS on any Supabase error rather than returning a partial or org-wide set.
+ * The roster loads its `traversedIds` — the viewer, every live descendant AND the Deleted
+ * intermediates the walk passed through — so the tree applies the one Deleted-intermediate rule
+ * the Settings chart applies (hierarchy stabilization F4): a live report stays attached under its
+ * Deleted manager, which is drawn muted and never counted. `hierarchy_path` is never read: the
+ * roster follows `upline_id` exactly as `private.resolve_downline_ids` behind the RPCs does, so
+ * the preview, the tree and the business figures always describe the same live team.
  *
  * `avatar_url` is DELIBERATELY NOT SELECTED. It holds a base64 data URL
  * (`ProfileAvatarUploader.tsx:48`), so selecting it across a downline would pull megabytes into the
@@ -333,10 +345,10 @@ export async function fetchTeamRoster(
   viewerId: string,
   organizationId: string,
 ): Promise<TeamRoster> {
-  const scopeIds = await usersSupabaseApi.getAgentScopeIds({ viewerId, organizationId });
+  const { traversedIds } = await usersSupabaseApi.getAgentScopeTraversal({ viewerId, organizationId });
 
-  if (scopeIds.length === 0) {
-    // getAgentScopeIds seeds its set with the viewer, so an empty array can only mean a missing
+  if (traversedIds.length === 0) {
+    // The traversal seeds its set with the viewer, so an empty array can only mean a missing
     // viewerId/organizationId. Failing closed here beats rendering an empty organization.
     throw new DashboardQueryError(
       "profile-team-roster",
@@ -348,7 +360,7 @@ export async function fetchTeamRoster(
     .from("profiles")
     .select("id, first_name, last_name, role, status, upline_id")
     .eq("organization_id", organizationId)
-    .in("id", scopeIds)
+    .in("id", traversedIds)
     .order("first_name", { ascending: true });
 
   assertNoQueryError("profile-team-roster", result);

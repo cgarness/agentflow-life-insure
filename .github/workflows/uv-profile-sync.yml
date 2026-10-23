@@ -1,7 +1,7 @@
 name: UV profile sync verification
 on:
   pull_request:
-    paths: ['src/**', 'supabase/**', 'scripts/tests/uv-profile/**', '.github/workflows/uv-profile-sync.yml']
+    paths: ['src/**', 'supabase/**', 'scripts/tests/uv-profile/**', 'scripts/verify-a2p-types.mjs', '.github/workflows/uv-profile-sync.yml']
 permissions:
   contents: read
 concurrency:
@@ -26,24 +26,13 @@ jobs:
           node-version: '22.16.0'
       - run: npm ci --no-audit --no-fund
       - run: npx tsc --noEmit
+      # Same exact-base comparison as the A2P and Google Sheets workflows: diagnostics are counted by file, code and
+      # message with line/column normalized, and any added diagnostic fails. Byte equality also failed PRs that only
+      # fixed existing errors or moved them by editing lines above them.
       - name: Reject additional app typecheck errors against exact base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || 'e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881' }}
-        run: |
-          python3 - <<'PY'
-          import os, subprocess
-          from pathlib import Path
-          root=Path.cwd(); baseline=Path(os.environ['RUNNER_TEMP'])/'uv-base'
-          subprocess.run(['git','worktree','add','--detach',str(baseline),os.environ['BASE_SHA']],check=True)
-          (baseline/'node_modules').symlink_to(root/'node_modules',target_is_directory=True)
-          outputs=[]
-          for folder in (baseline,root):
-              result=subprocess.run(['node',str(root/'node_modules/typescript/bin/tsc'),'--noEmit','-p','tsconfig.app.json'],cwd=folder,text=True,capture_output=True)
-              assert result.returncode in (0,2), result.stdout+result.stderr
-              outputs.append((result.returncode,sorted(result.stdout.splitlines()),result.stderr))
-          assert outputs[0]==outputs[1], 'New app typecheck diagnostics: '+str(outputs[1])
-          print('APP_TYPECHECK_BASELINE_MATCH=true')
-          PY
+          A2P_BASE_SHA: ${{ github.event.pull_request.base.sha || 'e2ddef261e0288a058f8bf1eaa6f9c1ace8d7881' }}
+        run: node scripts/verify-a2p-types.mjs
       - run: npx vitest run src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile src/components/settings/profile/__tests__/myProfileSurface.test.tsx src/lib/__tests__/profileSetupWizardRemoval.test.ts
       - run: npx eslint src/lib/uv-profile src/hooks/useUnderwriterVerifiedProfile.ts src/components/underwriter-verified src/test/uvProfile.test.tsx src/test/uvVerificationWizard.test.tsx src/components/agent-profile/AgentProfileTab.tsx src/components/settings/MyProfile.tsx supabase/functions/_shared/uv-profile supabase/functions/uv-profile-sync-worker
       - run: npm run build

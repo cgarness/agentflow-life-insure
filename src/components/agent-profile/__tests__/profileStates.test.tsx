@@ -19,8 +19,11 @@ import { LicensingCard } from "../LicensingCard";
 import { ReadinessCard } from "../ReadinessCard";
 import { AchievementsCard } from "../AchievementsCard";
 import { TeamReadinessCard } from "../team/TeamReadinessCard";
+import { TeamDownlinePreview } from "../team/TeamDownlinePreview";
+import { OrgTreeRow } from "../team/OrgTreeRow";
 import { computeReadiness } from "@/lib/profile/profile-readiness";
-import type { BookStats, TeamReadinessStats } from "@/lib/profile/profile-queries";
+import { buildOrgTreeView, DELETED_CONNECTOR_TITLE } from "@/lib/profile/profile-org-view";
+import type { BookStats, DownlineProfile, TeamReadinessStats } from "@/lib/profile/profile-queries";
 
 // BrandingContext reads Supabase on mount; the profile surface only needs its formatters.
 vi.mock("@/contexts/BrandingContext", () => ({
@@ -366,5 +369,47 @@ describe("responsive layout", () => {
         expect(Number(match[1])).toBeLessThanOrEqual(360);
       }
     }
+  });
+});
+
+describe("Deleted connectors in the Team Profile tree (the Settings chart's rule, F4)", () => {
+  const row = (id: string, upline: string | null, status = "Active", role = "Agent"): DownlineProfile =>
+    ({ id, first_name: id, last_name: "Synthetic", role, status, upline_id: upline });
+  // me → live; me → gone (Deleted Team Leader) → under (Active).
+  const view = buildOrgTreeView(
+    [row("me", null, "Active", "Team Leader"), row("live", "me"), row("gone", "me", "Deleted", "Team Leader"), row("under", "gone")],
+    "me",
+  );
+  const preview = (v = view) => ui(
+    <TeamDownlinePreview view={v} isLoading={false} error={null} onRetry={vi.fn()} onOpenFullTree={vi.fn()} maxDepth={null} />,
+  );
+  const stat = (label: string) => screen.getByText(label).previousElementSibling?.textContent;
+
+  it("the preview draws the Deleted manager muted and labelled, and counts only live people", () => {
+    preview();
+    const card = screen.getByText("Deleted · Team Leader").closest("[title]") as HTMLElement;
+    expect(card).toHaveAttribute("title", DELETED_CONNECTOR_TITLE);
+    expect(card.className).toContain("opacity-70");
+    expect(within(card).getByText("+1 agent")).toBeInTheDocument(); // the live report beneath it
+    expect(stat("Direct reports")).toBe("1");
+    expect(stat("Total downline (excludes you)")).toBe("2");
+    expect(screen.queryByText(/could not be placed/)).toBeNull();
+  });
+
+  it("the full tree row draws the connector muted with a Deleted label and its live report beneath", () => {
+    ui(<ul><OrgTreeRow node={view.root!} expanded={new Set(["gone"])} toggle={vi.fn()} filter="" isRoot /></ul>);
+    const connector = screen.getByText("Deleted · Team Leader").closest("[title]") as HTMLElement;
+    expect(connector).toHaveAttribute("title", DELETED_CONNECTOR_TITLE);
+    expect(connector.className).toContain("opacity-70");
+    expect(screen.getByText("under Synthetic")).toBeInTheDocument();
+    expect(screen.getAllByText("Agent")).toHaveLength(2); // live and under; the connector is not an agent
+  });
+
+  it("an unattached Deleted connector is not counted; the live report beneath it is", () => {
+    preview(buildOrgTreeView(
+      [row("me", null), row("live", "me"), row("gone", "elsewhere", "Deleted"), row("under", "gone")],
+      "me",
+    ));
+    expect(screen.getByText(/could not be placed/).textContent).toMatch(/^1 agent is in your team/);
   });
 });
