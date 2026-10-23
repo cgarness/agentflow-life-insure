@@ -6,6 +6,7 @@ import { LEVEL_MALFORMED_MESSAGE, LEVEL_MISSING_MESSAGE, LEVEL_NOT_ON_GRID_MESSA
 import { equals, formatUsd } from "../money";
 import {
   ageOnDate,
+  ageOptionalForProduct,
   agentDisplayName,
   candidateProducts,
   policyTypeCategories,
@@ -63,6 +64,24 @@ describe("candidate products", () => {
   it("reports a product's supported term lengths (empty when terms do not apply)", () => {
     expect(productTermLengths(context, IDS.levelTerm)).toEqual([10, 15, 20, 30]);
     expect(productTermLengths(context, IDS.finalPlan)).toEqual([]);
+  });
+});
+
+describe("age-independent policy variants", () => {
+  it("requires age only when any variant for that product has bounds", () => {
+    expect(ageOptionalForProduct(context, IDS.zeroPlan)).toBe(true);
+    expect(ageOptionalForProduct(context, IDS.finalPlan)).toBe(false);
+    expect(ageOptionalForProduct(context, IDS.levelTerm)).toBe(false);
+    expect(ageOptionalForProduct({ ...context, variants: [] }, IDS.zeroPlan)).toBe(false);
+    const mixed = { ...context, variants: [...context.variants, { ...context.variants.find(v => v.id === IDS.zeroPlanAll)!, id: IDS.finalPlanYoung, minAge: 40 }] };
+    expect(ageOptionalForProduct(mixed, IDS.zeroPlan)).toBe(false);
+  });
+
+  it("allows unknown age on unbounded products, never fabricating zero", () => {
+    const result = previewOutcome(context, 100, product(IDS.zeroPlan), { age: "", term: "", monthlyPremium: "100" }, true);
+    expect(result.kind).toBe("estimate");
+    if (result.kind === "estimate") expect(result.basis.age).toBeNull();
+    expect(previewOutcome(context, 100, product(IDS.finalPlan), { age: "", term: "", monthlyPremium: "100" }, true)).toEqual({ kind: "hint", message: "Enter the client's age." });
   });
 });
 
