@@ -49,7 +49,10 @@ export function PolicyCommissionInputs({ products, terms, selection, ageOptional
         </div>
       )}
       <div className="min-w-0">
-        <label htmlFor={`${id}-age`} className={labelCls}>Insured age{ageOptional ? " (optional)" : ""}</label>
+        <div className="flex items-center justify-between gap-1">
+          <label htmlFor={`${id}-age`} className={labelCls}>Insured age</label>
+          {ageOptional && <span className="text-[10px] text-muted-foreground">Optional</span>}
+        </div>
         <input
           id={`${id}-age`}
           className={fieldCls}
