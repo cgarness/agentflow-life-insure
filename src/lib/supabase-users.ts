@@ -101,7 +101,8 @@ function sanitizeProfileSearchTerm(raw?: string | null): string {
 }
 
 /**
- * Contacts → Agents scope traversal bounds.
+ * Downline scope traversal bounds (Contacts → Agents, User Management, the Hierarchy
+ * chart and every other `getAgentScopeTraversal` / `getUplineChainIds` caller).
  *
  * `.in()` is serialized into the PostgREST query string and a response is capped
  * server-side at a row limit, so a frontier is split into id batches AND each batch is
@@ -208,10 +209,48 @@ async function traverseAgentScope(params: {
 
 /** Optional role / status narrowing shared by `getAll` and `getByIds` ("All" means none). */
 function narrowByRoleAndStatus<Q>(query: Q, filters: { role?: string | null; status?: string | null }): Q {
-  let out = query as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let out = query as any;
   if (filters.role && filters.role !== "All") out = out.eq("role", filters.role);
   if (filters.status && filters.status !== "All") out = out.eq("status", filters.status);
   return out as Q;
+}
+
+/**
+ * Database-authoritative pre-check mirroring `enforce_profile_field_authorization`'s
+ * account-control rule: the CALLER's own profile row (read from `profiles`, never the JWT)
+ * must be `is_super_admin`, or role Admin / Super Admin in `memberId`'s organization.
+ * Throws otherwise, and on any read error or missing row. This is not an authorization
+ * boundary; it stops a multi-write operation from starting when the database is going to
+ * refuse its final write.
+ */
+async function assertCallerAdministersMember(memberId: string): Promise<void> {
+  const refused = () => new Error("Only an Admin of this organization can transfer contacts and delete a member.");
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  const actorId = sessionData?.session?.user?.id ?? "";
+  if (!actorId || !memberId) throw refused();
+
+  const [actorRes, memberRes] = await Promise.all([
+    supabase.from("profiles").select("id, role, organization_id, is_super_admin").eq("id", actorId).maybeSingle(),
+    supabase.from("profiles").select("id, organization_id").eq("id", memberId).maybeSingle(),
+  ]);
+  if (actorRes.error) throw actorRes.error;
+  if (memberRes.error) throw memberRes.error;
+
+  const actor = actorRes.data as {
+    role: string | null;
+    organization_id: string | null;
+    is_super_admin: boolean | null;
+  } | null;
+  const member = memberRes.data as { organization_id: string | null } | null;
+  if (!actor || !member) throw refused();
+
+  const isOrgAdmin =
+    (actor.role === "Admin" || actor.role === "Super Admin") &&
+    !!actor.organization_id &&
+    actor.organization_id === member.organization_id;
+  if (actor.is_super_admin !== true && !isOrgAdmin) throw refused();
 }
 
 export const usersSupabaseApi = {
@@ -219,7 +258,7 @@ export const usersSupabaseApi = {
     // Every constraint is applied by this one helper, so the schema-column fallback below
     // trims COLUMNS only and keeps the Deleted exclusion, role, status, search and org filters.
     const constrained = (query: unknown) => {
-      let q = narrowByRoleAndStatus(query as any, filters ?? {}); // eslint-disable-line @typescript-eslint/no-explicit-any
+      let q = narrowByRoleAndStatus(query as any, filters ?? {});
 
       if (filters?.search) {
         const search = filters.search.toLowerCase();
@@ -381,7 +420,7 @@ export const usersSupabaseApi = {
 
     const term = sanitizeProfileSearchTerm(params.search);
     const scoped = (query: unknown, batch: string[]) => {
-      let out = (query as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      let out = (query as any)
         .eq("organization_id", organizationId)
         .in("id", batch)
         .neq("status", "Deleted");
@@ -827,7 +866,7 @@ export const usersSupabaseApi = {
     await this.updateProfile(userId, goals);
   },
 
-  async updateOnboardingItems(userId: string, items: any[]): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async updateOnboardingItems(userId: string, items: any[]): Promise<void> {
     const { error } = await supabase
       .from("profiles")
       .update({ onboarding_items: items, updated_at: new Date().toISOString() })

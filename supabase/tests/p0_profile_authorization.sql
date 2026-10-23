@@ -93,11 +93,15 @@
 -- INFORMATIONAL OBSERVATIONS (PRE-EXISTING defects; NOT security assertions, NOT gated, NOT 'passing')
 --   T5c  public.update_hierarchy_path() calls compute_hierarchy_path(NEW.id) from a BEFORE UPDATE
 --        trigger, and compute_hierarchy_path() re-reads public.profiles — which still holds the OLD
---        upline_id at that point. The recompute is therefore one change stale. PRE-EXISTING (visible in
---        live data today: every profile with an upline_id still has a 1-level hierarchy_path); NOT
---        introduced by this migration. T5c hard-asserts the security property (the path is DB-derived
---        and ends in the row's own label); the canonical-ancestor-chain comparison is recorded here as
---        INFO-1 and never gates the run.
+--        upline_id at that point. The recompute is therefore one change stale. PRE-EXISTING; NOT
+--        introduced by this migration (production 2026-10-23: 4 of 16 stored paths stale, not every
+--        path depth-1 as an earlier revision of this note said). Hierarchy stabilization M2
+--        (migrations/pending/20261023210100_hierarchy_integrity.sql, unapplied until its own gate)
+--        derives the path from the incoming upline and refreshes whole subtrees, after which INFO-1 and
+--        INFO-2 no longer appear; hierarchy_stabilization_rls.sql §6 ports T5c/T13 onto the verbatim
+--        objects and asserts the canonical path from M2 onward. T5c hard-asserts the security property
+--        (the path is DB-derived and ends in the row's own label); the canonical-ancestor-chain
+--        comparison is recorded here as INFO-1 and never gates the run.
 --   T13  HARD GATE, not a soft check — the assertion aborts the run on failure, and a failure here is a
 --        real regression. Only the descendant-path staleness note (INFO-2) is informational.
 --        cascade_hierarchy_update() (AFTER UPDATE OF upline_id) issues

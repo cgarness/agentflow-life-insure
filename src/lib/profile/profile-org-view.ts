@@ -7,25 +7,37 @@
  * per-node descendant count and depth the preview and the dialog need, which are pure derivations
  * over the forest it returns.
  *
- * TWO THINGS IN `profile-org-tree.ts` THAT ARE DELIBERATELY NOT USED:
+ * TWO THINGS THAT ARE DELIBERATELY NOT REUSED:
  *
  *  * `filterReportingLineHierarchy` includes the viewer's UPLINE by design
- *    (profile-org-tree.ts:96-104). The Team Profile is "the organization I have built BENEATH me",
+ *    (its `isInViewersUpline` walk). The Team Profile is "the organization I have built BENEATH me",
  *    so rendering the viewer's own managers above them would be exactly backwards.
  *
- *  * `HierarchyTree.tsx` (the component) is not reused at all. Its own fetch carries NO
- *    `organization_id` filter (:216-222) and `profilesForOrgTree` deliberately admits rows from
- *    other organizations linked by `upline_id` (:187-197), returning every row when
- *    `organizationId` is null (:168). It also renders every descendant unconditionally with a
- *    per-node blurred gradient and no collapse state. Reusing the ALGORITHM is right; reusing that
- *    component would import a cross-tenant leak and a rendering cliff.
+ *  * `HierarchyTree.tsx` (the Settings chart) is not reused. Since hierarchy stabilization F4 its
+ *    rows come from `src/lib/hierarchy/hierarchyTreeData.ts` (explicit `organization_id` filter on
+ *    every query, no query without an organization, and an Admin's chart is organization-wide by
+ *    design), but it still renders every descendant unconditionally with a per-node blurred
+ *    gradient and no collapse state — a rendering cliff on a large organization. Reusing the
+ *    ALGORITHM is right; reusing that component is not.
  *
  * `buildProfileOrgForest` attaches on `upline_id` alone and knows nothing about organizations, so
  * it is safe ONLY because its input is already organization-constrained — here, the output of
  * `getAgentScopeIds` filtered by `organization_id` in the roster query.
+ *
+ * DELETED PROFILES follow the one Deleted-intermediate rule both charts share
+ * (`pruneDeletedLeaves` in `profile-org-tree.ts`): a Deleted row in the roster is kept only as a
+ * connector when someone who is not Deleted reports beneath it (`isDeleted`, drawn muted) and is
+ * never counted in `descendantCount` / `totalDownline`; a Deleted row with nobody live beneath it
+ * is dropped. A roster without its Deleted intermediates (today's `getAgentScopeIds`-based roster)
+ * still surfaces the reports beneath them as `unattached`, never loses them.
  */
 
-import { buildProfileOrgForest, type ProfileOrgNode } from "@/lib/profile-org-tree";
+import {
+  buildProfileOrgForest,
+  isDeletedProfile,
+  pruneDeletedLeaves,
+  type ProfileOrgNode,
+} from "@/lib/profile-org-tree";
 import type { DownlineProfile } from "@/lib/profile/profile-queries";
 
 export interface OrgTreeNode {
@@ -33,7 +45,9 @@ export interface OrgTreeNode {
   firstName: string;
   lastName: string;
   role: string;
-  /** Nodes beneath this one, at every level. Excludes the node itself. */
+  /** A Deleted manager kept only so the live reports beneath it stay attached; draw it muted. */
+  isDeleted: boolean;
+  /** Live (non-Deleted) nodes beneath this one, at every level. Excludes the node itself. */
   descendantCount: number;
   /** 1 for the root. */
   depth: number;
@@ -45,7 +59,7 @@ export interface OrgTreeView {
   root: OrgTreeNode | null;
   /** Immediate children of the viewer. */
   directReports: OrgTreeNode[];
-  /** Everyone beneath the viewer, at every level. EXCLUDES the viewer. */
+  /** Everyone live beneath the viewer, at every level. EXCLUDES the viewer and Deleted connectors. */
   totalDownline: number;
   /** Deepest level reached below the viewer; 1 when the viewer has no downline. */
   maxDepth: number;
@@ -58,16 +72,20 @@ export interface OrgTreeView {
   unattached: OrgTreeNode[];
 }
 
-function toNode(node: ProfileOrgNode<DownlineProfile & { id: string; upline_id: string | null }>, depth: number): OrgTreeNode {
-  const children = node.children.map((c) => toNode(c as never, depth + 1));
+/** `DownlineProfile` as an object type (not an interface), so it satisfies `ProfileOrgRow`. */
+type RosterRow = { [K in keyof DownlineProfile]: DownlineProfile[K] };
+
+function toNode(node: ProfileOrgNode<RosterRow>, depth: number): OrgTreeNode {
+  const children = node.children.map((c) => toNode(c, depth + 1));
   return {
     id: node.id,
     firstName: node.first_name ?? "",
     lastName: node.last_name ?? "",
     role: node.role ?? "",
+    isDeleted: isDeletedProfile(node),
     depth,
     children,
-    descendantCount: children.reduce((sum, c) => sum + c.descendantCount + 1, 0),
+    descendantCount: children.reduce((sum, c) => sum + c.descendantCount + (c.isDeleted ? 0 : 1), 0),
   };
 }
 
@@ -76,11 +94,12 @@ function deepest(node: OrgTreeNode): number {
 }
 
 export function buildOrgTreeView(profiles: DownlineProfile[], rootId: string): OrgTreeView {
-  const forest = buildProfileOrgForest(
-    profiles.map((p) => ({ ...p, upline_id: p.upline_id ?? null })),
+  const forest = pruneDeletedLeaves(
+    buildProfileOrgForest<RosterRow>(profiles.map((p) => ({ ...p, upline_id: p.upline_id ?? null }))),
+    new Set([rootId]),
   );
 
-  const roots = forest.map((n) => toNode(n as never, 1));
+  const roots = forest.map((n) => toNode(n, 1));
   const root = roots.find((n) => n.id === rootId) ?? null;
   const unattached = roots.filter((n) => n.id !== rootId);
 

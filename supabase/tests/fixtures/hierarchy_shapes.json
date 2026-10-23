@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "description": "Shared hierarchy shapes for the hierarchy stabilization SQL suites (scripts/hierarchy_fixture.py) and the TypeScript tests (src/lib/__tests__/hierarchyFixture.ts). Synthetic ids and names only; no production row is represented. Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §1 and §8.",
+  "organizations": [
+    { "key": "A", "id": "0a000000-0000-4000-8000-00000000000a", "name": "Synthetic Agency A" },
+    { "key": "B", "id": "0b000000-0000-4000-8000-00000000000b", "name": "Synthetic Agency B" },
+    { "key": "C", "id": "0c000000-0000-4000-8000-00000000000c", "name": "Synthetic Agency C" },
+    { "key": "D", "id": "0d000000-0000-4000-8000-00000000000d", "name": "Synthetic Agency D" },
+    { "key": "E", "id": "0e000000-0000-4000-8000-00000000000e", "name": "Synthetic Agency E" },
+    { "key": "F", "id": "0f000000-0000-4000-8000-00000000000f", "name": "Synthetic Agency F" }
+  ],
+  "shapes": {
+    "production": {
+      "description": "Production-shaped hierarchy (counts equal the 2026-10-23 read-only baseline: 16 profiles, 6 organizations of which 4 hold profiles, 11 direct edges, 15 expected ancestor pairs, 4 stale paths, 6 missing pairs, 0 extra pairs, longest chain 3). Admin root R; Team Leader T (Active) leads A1 and A2 (Active; moved R -> T, stored path [R, self]) and D1 (Deleted; invited under T, stored path [self]); Deleted Team Leader T2 under R leads Deleted D2 (stored path [self]); K1-K5 report directly to R. B, C and D are separate organizations; E and F hold no profiles.",
+      "profiles": [
+        { "key": "R",  "id": "aa000000-0000-4000-8000-000000000001", "org": "A", "role": "Admin",       "status": "Active",  "upline": null },
+        { "key": "T",  "id": "aa000000-0000-4000-8000-000000000002", "org": "A", "role": "Team Leader", "status": "Active",  "upline": "R" },
+        { "key": "A1", "id": "aa000000-0000-4000-8000-000000000003", "org": "A", "role": "Agent",       "status": "Active",  "upline": "T" },
+        { "key": "A2", "id": "aa000000-0000-4000-8000-000000000004", "org": "A", "role": "Agent",       "status": "Active",  "upline": "T" },
+        { "key": "D1", "id": "aa000000-0000-4000-8000-000000000005", "org": "A", "role": "Agent",       "status": "Deleted", "upline": "T" },
+        { "key": "T2", "id": "aa000000-0000-4000-8000-000000000006", "org": "A", "role": "Team Leader", "status": "Deleted", "upline": "R" },
+        { "key": "D2", "id": "aa000000-0000-4000-8000-000000000007", "org": "A", "role": "Agent",       "status": "Deleted", "upline": "T2" },
+        { "key": "K1", "id": "aa000000-0000-4000-8000-000000000008", "org": "A", "role": "Agent",       "status": "Active",  "upline": "R" },
+        { "key": "K2", "id": "aa000000-0000-4000-8000-000000000009", "org": "A", "role": "Agent",       "status": "Active",  "upline": "R" },
+        { "key": "K3", "id": "aa000000-0000-4000-8000-00000000000a", "org": "A", "role": "Agent",       "status": "Active",  "upline": "R" },
+        { "key": "K4", "id": "aa000000-0000-4000-8000-00000000000b", "org": "A", "role": "Agent",       "status": "Active",  "upline": "R" },
+        { "key": "K5", "id": "aa000000-0000-4000-8000-00000000000c", "org": "A", "role": "Agent",       "status": "Active",  "upline": "R" },
+        { "key": "BA", "id": "bb000000-0000-4000-8000-000000000001", "org": "B", "role": "Admin",       "status": "Active",  "upline": null },
+        { "key": "CA", "id": "cc000000-0000-4000-8000-000000000001", "org": "C", "role": "Admin",       "status": "Active",  "upline": null },
+        { "key": "CG", "id": "cc000000-0000-4000-8000-000000000002", "org": "C", "role": "Agent",       "status": "Active",  "upline": null },
+        { "key": "DA", "id": "dd000000-0000-4000-8000-000000000001", "org": "D", "role": "Admin",       "status": "Active",  "upline": null }
+      ],
+      "build": [
+        { "op": "insert", "note": "roots and the first members, each invited WITH an upline: the preimage trigger stores a self-only path", "keys": ["R", "BA", "CA", "CG", "DA", "T", "T2", "K1", "K2", "K3", "K4", "K5", "A1", "A2"], "initial_upline": { "A1": "R", "A2": "R" } },
+        { "op": "touch_upline", "note": "a later save that lists R.upline_id: the preimage cascade refreshes R's direct children only", "keys": ["R"] },
+        { "op": "move", "note": "A1 and A2 reassigned R -> T: the preimage BEFORE trigger reads the stored (old) upline", "keys": ["A1", "A2"], "to": "T" },
+        { "op": "insert", "note": "invited under T and T2 after the refresh: self-only paths", "keys": ["D1", "D2"] },
+        { "op": "set_status", "keys": ["T2", "D1", "D2"], "status": "Deleted" }
+      ],
+      "expected": {
+        "profiles": 16,
+        "organizations": 6,
+        "organizations_with_profiles": 4,
+        "edges": 11,
+        "expected_pairs": 15,
+        "path_pairs_before_repair": 9,
+        "missing_pairs": 6,
+        "extra_pairs": 0,
+        "unrecognised_edges": 4,
+        "longest_chain": 3,
+        "stale": ["A1", "A2", "D1", "D2"],
+        "stale_paths": { "A1": ["R", "A1"], "A2": ["R", "A2"], "D1": ["D1"], "D2": ["D2"] },
+        "missing": [["T", "A1"], ["T", "A2"], ["T", "D1"], ["R", "D1"], ["T2", "D2"], ["R", "D2"]],
+        "canonical_paths": {
+          "R": ["R"], "T": ["R", "T"], "A1": ["R", "T", "A1"], "A2": ["R", "T", "A2"], "D1": ["R", "T", "D1"],
+          "T2": ["R", "T2"], "D2": ["R", "T2", "D2"], "K1": ["R", "K1"], "K2": ["R", "K2"], "K3": ["R", "K3"],
+          "K4": ["R", "K4"], "K5": ["R", "K5"], "BA": ["BA"], "CA": ["CA"], "CG": ["CG"], "DA": ["DA"]
+        },
+        "team_leader_descendants_before_repair": { "T": [], "T2": [] },
+        "team_leader_descendants_after_repair": { "T": ["A1", "A2", "D1"], "T2": ["D2"] }
+      }
+    },
+    "invalid": {
+      "description": "T8 shapes. two_cycle, self_loop and cross_org_edge cannot exist once M2 is applied: SQL suites seed them only with triggers disabled (or expect the write to be rejected); TypeScript traversal tests use them as raw rows. deep_chain is valid (25 profiles, deeper than the preimage's 20-level cap). deleted_intermediate is valid: a Deleted Team Leader between an Admin and an Agent keeps passing authority through.",
+      "two_cycle": {
+        "org": "E",
+        "profiles": [
+          { "key": "X", "id": "e1000000-0000-4000-8000-000000000001", "org": "E", "role": "Agent", "status": "Active", "upline": "Y" },
+          { "key": "Y", "id": "e1000000-0000-4000-8000-000000000002", "org": "E", "role": "Agent", "status": "Active", "upline": "X" }
+        ]
+      },
+      "self_loop": {
+        "org": "E",
+        "profiles": [
+          { "key": "S", "id": "e2000000-0000-4000-8000-000000000001", "org": "E", "role": "Agent", "status": "Active", "upline": "S" }
+        ]
+      },
+      "cross_org_edge": {
+        "org": "E",
+        "profiles": [
+          { "key": "P", "id": "e3000000-0000-4000-8000-000000000001", "org": "F", "role": "Team Leader", "status": "Active", "upline": null },
+          { "key": "Q", "id": "e3000000-0000-4000-8000-000000000002", "org": "E", "role": "Agent",       "status": "Active", "upline": "P" }
+        ]
+      },
+      "deep_chain": {
+        "org": "E",
+        "length": 25,
+        "id_pattern": "e4000000-0000-4000-8000-0000000000NN (NN = 01..25, two decimal digits); L01 is the root Admin, L(n) reports to L(n-1), every other member is an Active Agent",
+        "profiles": [
+          { "key": "L01", "id": "e4000000-0000-4000-8000-000000000001", "org": "E", "role": "Admin", "status": "Active", "upline": null },
+          { "key": "L02", "id": "e4000000-0000-4000-8000-000000000002", "org": "E", "role": "Agent", "status": "Active", "upline": "L01" },
+          { "key": "L03", "id": "e4000000-0000-4000-8000-000000000003", "org": "E", "role": "Agent", "status": "Active", "upline": "L02" },
+          { "key": "L04", "id": "e4000000-0000-4000-8000-000000000004", "org": "E", "role": "Agent", "status": "Active", "upline": "L03" },
+          { "key": "L05", "id": "e4000000-0000-4000-8000-000000000005", "org": "E", "role": "Agent", "status": "Active", "upline": "L04" },
+          { "key": "L06", "id": "e4000000-0000-4000-8000-000000000006", "org": "E", "role": "Agent", "status": "Active", "upline": "L05" },
+          { "key": "L07", "id": "e4000000-0000-4000-8000-000000000007", "org": "E", "role": "Agent", "status": "Active", "upline": "L06" },
+          { "key": "L08", "id": "e4000000-0000-4000-8000-000000000008", "org": "E", "role": "Agent", "status": "Active", "upline": "L07" },
+          { "key": "L09", "id": "e4000000-0000-4000-8000-000000000009", "org": "E", "role": "Agent", "status": "Active", "upline": "L08" },
+          { "key": "L10", "id": "e4000000-0000-4000-8000-000000000010", "org": "E", "role": "Agent", "status": "Active", "upline": "L09" },
+          { "key": "L11", "id": "e4000000-0000-4000-8000-000000000011", "org": "E", "role": "Agent", "status": "Active", "upline": "L10" },
+          { "key": "L12", "id": "e4000000-0000-4000-8000-000000000012", "org": "E", "role": "Agent", "status": "Active", "upline": "L11" },
+          { "key": "L13", "id": "e4000000-0000-4000-8000-000000000013", "org": "E", "role": "Agent", "status": "Active", "upline": "L12" },
+          { "key": "L14", "id": "e4000000-0000-4000-8000-000000000014", "org": "E", "role": "Agent", "status": "Active", "upline": "L13" },
+          { "key": "L15", "id": "e4000000-0000-4000-8000-000000000015", "org": "E", "role": "Agent", "status": "Active", "upline": "L14" },
+          { "key": "L16", "id": "e4000000-0000-4000-8000-000000000016", "org": "E", "role": "Agent", "status": "Active", "upline": "L15" },
+          { "key": "L17", "id": "e4000000-0000-4000-8000-000000000017", "org": "E", "role": "Agent", "status": "Active", "upline": "L16" },
+          { "key": "L18", "id": "e4000000-0000-4000-8000-000000000018", "org": "E", "role": "Agent", "status": "Active", "upline": "L17" },
+          { "key": "L19", "id": "e4000000-0000-4000-8000-000000000019", "org": "E", "role": "Agent", "status": "Active", "upline": "L18" },
+          { "key": "L20", "id": "e4000000-0000-4000-8000-000000000020", "org": "E", "role": "Agent", "status": "Active", "upline": "L19" },
+          { "key": "L21", "id": "e4000000-0000-4000-8000-000000000021", "org": "E", "role": "Agent", "status": "Active", "upline": "L20" },
+          { "key": "L22", "id": "e4000000-0000-4000-8000-000000000022", "org": "E", "role": "Agent", "status": "Active", "upline": "L21" },
+          { "key": "L23", "id": "e4000000-0000-4000-8000-000000000023", "org": "E", "role": "Agent", "status": "Active", "upline": "L22" },
+          { "key": "L24", "id": "e4000000-0000-4000-8000-000000000024", "org": "E", "role": "Agent", "status": "Active", "upline": "L23" },
+          { "key": "L25", "id": "e4000000-0000-4000-8000-000000000025", "org": "E", "role": "Agent", "status": "Active", "upline": "L24" }
+        ]
+      },
+      "deleted_intermediate": {
+        "org": "F",
+        "profiles": [
+          { "key": "M",  "id": "e5000000-0000-4000-8000-000000000001", "org": "F", "role": "Admin",       "status": "Active",  "upline": null },
+          { "key": "MT", "id": "e5000000-0000-4000-8000-000000000002", "org": "F", "role": "Team Leader", "status": "Deleted", "upline": "M" },
+          { "key": "MG", "id": "e5000000-0000-4000-8000-000000000003", "org": "F", "role": "Agent",       "status": "Active",  "upline": "MT" }
+        ]
+      }
+    }
+  }
+}

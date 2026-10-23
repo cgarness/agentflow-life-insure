@@ -1,0 +1,122 @@
+name: Hierarchy stabilization verification
+# Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §8 (Harness), §R (R1, R2).
+# Disposable service database and synthetic data only; nothing here can reach production (no secrets are used).
+on:
+  pull_request:
+    paths:
+      # Migrations (M2 / M3 live in pending/ until their gates), their rollbacks, and the baseline the fixture copies.
+      - 'supabase/migrations/*_hierarchy_authorization_boundaries.sql'
+      - 'supabase/migrations/*_hierarchy_integrity.sql'
+      - 'supabase/migrations/*_hierarchy_path_repair.sql'
+      - 'supabase/migrations/pending/*_hierarchy_integrity.sql'
+      - 'supabase/migrations/pending/*_hierarchy_path_repair.sql'
+      - 'supabase/migrations/rollback/*_hierarchy_authorization_boundaries.rollback.sql'
+      - 'supabase/migrations/rollback/*_hierarchy_integrity.rollback.sql'
+      - 'supabase/migrations/rollback/*_hierarchy_path_repair.rollback.sql'
+      - 'supabase/migrations/20260806000000_baseline_production_schema.sql'
+      # Harness, fixture, suites, shapes and the PostgREST / compatibility stages.
+      - 'scripts/hierarchy_fixture.py'
+      - 'scripts/hierarchy_test_state.sh'
+      - 'scripts/run_hierarchy_stabilization_tests.sh'
+      - 'scripts/tests/hierarchy_stabilization/**'
+      - 'supabase/tests/hierarchy_stabilization*.sql'
+      - 'supabase/tests/fixtures/hierarchy_shapes.json'
+      - 'src/test/integration/hierarchyFrontendCompat.integration.test.ts'
+      - 'src/lib/__tests__/hierarchyFixture.ts'
+      # Frontend data-layer modules the compatibility suite runs against PostgREST, and their UI consumers.
+      - 'src/lib/supabase-users.ts'
+      - 'src/lib/supabase-contacts.ts'
+      - 'src/lib/hierarchy/**'
+      - 'src/lib/user-management/**'
+      - 'src/lib/contacts/resolveAssignableAgents.ts'
+      - 'src/lib/profile-org-tree.ts'
+      - 'src/lib/profile/profile-org-view.ts'
+      - 'src/lib/profile/profile-queries.ts'
+      - 'src/hooks/useUserManagementMembers.ts'
+      - 'src/hooks/useTeamMembers.ts'
+      - 'src/hooks/useCampaignTeamScope.ts'
+      - 'src/hooks/useContactScope.ts'
+      - 'src/components/settings/HierarchyTree.tsx'
+      - 'src/components/settings/UserManagement.tsx'
+      - 'src/components/settings/hierarchy/**'
+      - 'src/components/settings/user-management/**'
+      - 'src/components/contacts/FullScreenContactView.tsx'
+      - 'src/components/contacts/AddTaskModal.tsx'
+      - 'src/pages/CampaignDetail.tsx'
+      - 'src/pages/ImportLeadsPage.tsx'
+      - 'src/pages/Contacts.tsx'
+      - '.github/workflows/hierarchy-stabilization.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hierarchy-stabilization-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  database:
+    name: PostgreSQL 17.6 + PostgREST 12.2.3 (states S0–S3R, synthetic data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55449:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      # Scripts are not needed: the stages import @supabase/supabase-js, postgres and vitest only.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: PostgREST 12.2.3 (pinned digest)
+        run: |
+          curl -sSLf -o "$RUNNER_TEMP/postgrest.tar.xz" \
+            https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
+          echo "9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c  $RUNNER_TEMP/postgrest.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/postgrest.tar.xz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/postgrest" --version
+      # CI=true (set by Actions) makes the runner FAIL, not skip, when PostgREST or any later-stage file is missing.
+      - name: Static checks, states, core / RLS / RPC suites, migrations, M3, concurrency, PostgREST forged requests, frontend compatibility
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55449
+          PGPASSWORD: isolated-test-only
+        run: POSTGREST_BIN="$RUNNER_TEMP/postgrest" bash scripts/run_hierarchy_stabilization_tests.sh
+  frontend:
+    name: Hierarchy frontend tests (Vitest, synthetic data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Focused hierarchy, User Management, Contacts scope and CampaignDetail suites
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: inert-test-key
+        run: >-
+          npx vitest run
+          src/lib/user-management src/lib/hierarchy src/lib/contacts/__tests__/resolveAssignableAgents.test.ts
+          src/lib/__tests__/supabaseUsersQueries.test.ts src/lib/__tests__/agentScopeTraversal.test.ts
+          src/lib/__tests__/profileScopeAndOrgTree.test.ts src/lib/profile-org-tree.test.ts
+          src/lib/__tests__/contactsAgentsScope.test.tsx src/lib/__tests__/teamLeaderInvitations.test.ts
+          src/components/settings src/components/agent-profile/__tests__/profileContracts.test.ts
+          src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx
+          src/components/contacts/__tests__/addTaskModalDueDate.test.tsx
+          src/components/layout/__tests__/viewAsCallerContract.test.tsx src/hooks/__tests__/useContactScopeViewAs.test.tsx
+          src/pages/__tests__/campaignDetailTeamFilter.test.tsx src/pages/__tests__/campaignDetailImportRetry.test.tsx
+          src/pages/__tests__/campaignDetailLeadFilterEmpty.test.tsx src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx

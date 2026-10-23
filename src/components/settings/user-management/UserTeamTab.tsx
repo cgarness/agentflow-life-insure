@@ -1,103 +1,83 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
+import { useTeamMembers, type TeamMemberRow } from "@/hooks/useTeamMembers";
 import { ROLE_BADGE } from "./userManagementUtils";
 
 interface Props {
+  /** The Team Leader whose direct reports are shown. */
   userId: string;
-  currentUserRole: string;
+  organizationId: string | null;
+  /**
+   * The viewer may change uplines (Admin of this organization or platform super admin).
+   * UI mirror only: the database keeps `upline_id` Admin-only.
+   */
+  canManage: boolean;
+  /** Called after a successful Add / Remove so the member list re-reads from the database. */
+  onTeamChanged?: () => void;
 }
 
-interface TeamRow {
-  id: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  role: string;
-  avatar_url?: string | null;
-  upline_id?: string | null;
-}
+const errorText = (e: unknown) =>
+  (e as { message?: string } | null)?.message || "An unknown error occurred";
 
-const UserTeamTab: React.FC<Props> = ({ userId, currentUserRole }) => {
+const Initials: React.FC<{ row: TeamMemberRow; size: string }> = ({ row, size }) => (
+  <div className={`${size} rounded-full bg-primary/10 text-primary font-bold flex items-center justify-center shrink-0 overflow-hidden`}>
+    {row.avatar_url
+      ? <img src={row.avatar_url} alt="" className="w-full h-full object-cover" />
+      : `${(row.first_name || "")[0] || ""}${(row.last_name || "")[0] || ""}`}
+  </div>
+);
+
+const UserTeamTab: React.FC<Props> = ({ userId, organizationId, canManage, onTeamChanged }) => {
   const { toast } = useToast();
-  const [teamMembers, setTeamMembers] = useState<TeamRow[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
-  const [addAgentOpen, setAddAgentOpen] = useState(false);
-  const [availableAgents, setAvailableAgents] = useState<TeamRow[]>([]);
+  const { team, agents, openAddAgent, closeAddAgent, assignAgent, removeMember } =
+    useTeamMembers({ leaderId: userId, organizationId, onTeamChanged });
   const [agentSearch, setAgentSearch] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    setTeamLoading(true);
-    supabase
-      .from("profiles")
-      .select("id, first_name, last_name, email, role, upline_id, avatar_url")
-      .eq("upline_id", userId)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (!error) setTeamMembers((data as TeamRow[]) || []);
-        setTeamLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [userId]);
-
-  const openAddAgent = async () => {
-    if (addAgentOpen) { setAddAgentOpen(false); return; }
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, first_name, last_name, email, role, avatar_url")
-      .eq("role", "Agent")
-      .eq("status", "Active")
-      .is("upline_id", null);
-    const currentIds = new Set(teamMembers.map(m => m.id));
-    setAvailableAgents(((data as TeamRow[]) || []).filter(a => !currentIds.has(a.id)));
+  const toggleAddAgent = () => {
+    if (agents.open) { closeAddAgent(); return; }
     setAgentSearch("");
-    setAddAgentOpen(true);
+    void openAddAgent();
   };
 
-  const handleAssignAgent = async (agent: TeamRow) => {
+  const handleAssignAgent = async (agent: TeamMemberRow) => {
     try {
-      await usersApi.assignUpline(agent.id, userId);
-      setTeamMembers(prev => [...prev, { ...agent, upline_id: userId }]);
-      setAddAgentOpen(false);
+      await assignAgent(agent.id);
       toast({ title: "Agent assigned successfully" });
-    } catch {
-      toast({ title: "Failed to assign agent", variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Failed to assign agent", description: errorText(e), variant: "destructive" });
     }
   };
 
   const handleRemoveAgent = async (memberId: string) => {
     try {
-      await usersApi.removeFromTeam(memberId);
-      setTeamMembers(prev => prev.filter(m => m.id !== memberId));
-    } catch {
-      toast({ title: "Failed to remove agent", variant: "destructive" });
+      await removeMember(memberId);
+    } catch (e) {
+      toast({ title: "Failed to remove agent", description: errorText(e), variant: "destructive" });
     }
   };
 
-  const filteredAvailable = availableAgents.filter(a => {
-    const q = agentSearch.toLowerCase();
-    return !q || `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) || (a.email || "").toLowerCase().includes(q);
-  });
+  const q = agentSearch.toLowerCase();
+  const filteredAvailable = agents.rows.filter(a =>
+    !q || `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) || (a.email || "").toLowerCase().includes(q));
+  const members = team.rows;
 
   return (
     <div className="space-y-4 mt-0">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-foreground">
-          {teamLoading ? "" : `${teamMembers.length} agent${teamMembers.length !== 1 ? "s" : ""} assigned`}
+          {team.loading || team.error ? "" : `${members.length} agent${members.length !== 1 ? "s" : ""} assigned`}
         </p>
-        {currentUserRole === "Admin" && (
+        {canManage && (
           <div className="relative">
-            <Button size="sm" variant="outline" onClick={openAddAgent}>
+            <Button size="sm" variant="outline" onClick={toggleAddAgent} disabled={team.loading || !!team.error}>
               <Users className="w-3.5 h-3.5 mr-1.5" />
               Add Agent
             </Button>
-            {addAgentOpen && (
+            {agents.open && (
               <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-card border border-border rounded-lg shadow-lg">
                 <div className="p-2 border-b border-border">
                   <Input placeholder="Search agents..." value={agentSearch} onChange={e => setAgentSearch(e.target.value)} className="h-8" autoFocus />
@@ -110,18 +90,16 @@ const UserTeamTab: React.FC<Props> = ({ userId, currentUserRole }) => {
                       className="w-full flex items-center gap-2.5 px-2 py-2 rounded hover:bg-accent text-left text-sm"
                       onClick={() => handleAssignAgent(agent)}
                     >
-                      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 overflow-hidden">
-                        {agent.avatar_url
-                          ? <img src={agent.avatar_url} alt="" className="w-full h-full object-cover" />
-                          : `${(agent.first_name || "")[0] || ""}${(agent.last_name || "")[0] || ""}`}
-                      </div>
+                      <Initials row={agent} size="w-7 h-7 text-xs" />
                       <div className="min-w-0">
                         <p className="font-medium text-foreground truncate">{agent.first_name} {agent.last_name}</p>
                         <p className="text-xs text-muted-foreground truncate">{agent.email}</p>
                       </div>
                     </button>
                   ))}
-                  {filteredAvailable.length === 0 && (
+                  {agents.loading && <p className="text-xs text-muted-foreground text-center py-4">Loading agents…</p>}
+                  {agents.error && <p className="text-xs text-destructive text-center py-4">{agents.error}</p>}
+                  {!agents.loading && !agents.error && filteredAvailable.length === 0 && (
                     <p className="text-xs text-muted-foreground text-center py-4">No unassigned agents found.</p>
                   )}
                 </div>
@@ -131,33 +109,35 @@ const UserTeamTab: React.FC<Props> = ({ userId, currentUserRole }) => {
         )}
       </div>
 
-      {teamLoading && (
+      {team.loading && (
         <div className="space-y-2">
           {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />)}
         </div>
       )}
 
-      {!teamLoading && teamMembers.length === 0 && (
+      {!team.loading && team.error && (
+        <div className="py-12 text-center border rounded-lg border-destructive/30 bg-destructive/5">
+          <p className="text-sm text-destructive">{team.error}</p>
+        </div>
+      )}
+
+      {!team.loading && !team.error && members.length === 0 && (
         <div className="py-12 text-center border rounded-lg bg-accent/10">
           <p className="text-sm text-muted-foreground">No agents assigned to this team leader yet.</p>
         </div>
       )}
 
-      {!teamLoading && teamMembers.length > 0 && (
+      {!team.loading && !team.error && members.length > 0 && (
         <div className="space-y-2">
-          {teamMembers.map(member => (
+          {members.map(member => (
             <div key={member.id} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
-              <div className="w-9 h-9 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0 overflow-hidden">
-                {member.avatar_url
-                  ? <img src={member.avatar_url} alt="" className="w-full h-full object-cover" />
-                  : `${(member.first_name || "")[0] || ""}${(member.last_name || "")[0] || ""}`}
-              </div>
+              <Initials row={member} size="w-9 h-9 text-sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{member.first_name} {member.last_name}</p>
                 <p className="text-xs text-muted-foreground truncate">{member.email}</p>
               </div>
-              <Badge className={ROLE_BADGE[member.role] || ""}>{member.role}</Badge>
-              {currentUserRole === "Admin" && (
+              <Badge className={ROLE_BADGE[member.role ?? ""] || ""}>{member.role}</Badge>
+              {canManage && (
                 <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 shrink-0" onClick={() => handleRemoveAgent(member.id)}>
                   Remove
                 </Button>

@@ -7,15 +7,27 @@
  * organization. The only thing keeping a Team Profile honest is the query, which is why these
  * cases exist and why every one of them must FAIL CLOSED.
  *
- * TS/SQL PARITY: the same hierarchy shapes are asserted against the SQL resolver in
- * supabase/tests/profile_book_stats_rpc.sql (T8). The two implementations exist because the
- * business aggregate cannot run client-side at all — `clients` RLS returns nothing for a Team
- * Leader's downline — and this shared fixture table is what stops them drifting.
+ * TS/SQL PARITY: the hand-written fixture below mirrors the fixture map at the top of
+ * supabase/tests/profile_book_stats_rpc.sql (T8, `private.resolve_downline_ids`). The "shared
+ * hierarchy shapes" cases load supabase/tests/fixtures/hierarchy_shapes.json — the same file
+ * scripts/hierarchy_fixture.py seeds into the hierarchy stabilization SQL suites — through
+ * src/lib/__tests__/hierarchyFixture.ts, and run the REAL `getAgentScopeIds` walk and
+ * `fetchTeamRoster` against an in-memory `profiles` table. Two implementations exist because the
+ * business aggregate cannot be trusted client-side — `clients` RLS reaches a downline only through
+ * a Team Leader's role and the path-based `is_ancestor_of` — and the shared shapes are what stop
+ * them drifting.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildOrgTreeView, displayNameFor, initialsFor } from "@/lib/profile/profile-org-view";
 import type { DownlineProfile } from "@/lib/profile/profile-queries";
+import {
+  PRODUCTION_EXPECTED,
+  hierarchyShape,
+  shapeDownlineKeys,
+  type HierarchyProfileRow,
+  type HierarchyShapeName,
+} from "./hierarchyFixture";
 
 /**
  * THE SHARED HIERARCHY FIXTURE. Mirrors the fixture map at the top of
@@ -205,5 +217,169 @@ describe("fetchTeamRoster — fails closed", () => {
     // avatar_url must NOT be selected across a roster.
     const columns = String(select.mock.calls[0][0]);
     expect(columns).not.toContain("avatar_url");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Shared hierarchy shapes (hierarchy_shapes.json) through the REAL resolver and roster query
+// ---------------------------------------------------------------------------------------------
+
+const ALL_SHAPES: HierarchyShapeName[] = [
+  "production", "two_cycle", "self_loop", "cross_org_edge", "deep_chain", "deleted_intermediate",
+];
+
+/** Every shape in one table, as one database holds them. */
+const SHAPE_TABLE: HierarchyProfileRow[] = ALL_SHAPES.flatMap((name) => hierarchyShape(name).rows());
+
+/**
+ * A `profiles` table emulator for exactly the filters the scope walk and the roster query emit
+ * (`eq`, `in`, `order`, `range`). Anything else throws, so a query that starts emitting an
+ * unsupported filter fails loudly instead of being silently ignored.
+ */
+function profilesEmulator(rows: HierarchyProfileRow[]) {
+  return {
+    from(table: string) {
+      if (table !== "profiles") throw new Error(`unexpected table ${table}`);
+      const eq: Record<string, unknown> = {};
+      let inFilter: { col: string; vals: unknown[] } | null = null;
+      let orderCol: string | null = null;
+      let range: [number, number] | null = null;
+      let columns = "*";
+      const b: Record<string, unknown> = {
+        select(cols: string) { columns = cols; return b; },
+        eq(col: string, v: unknown) { eq[col] = v; return b; },
+        in(col: string, vals: unknown[]) { inFilter = { col, vals: [...vals] }; return b; },
+        order(col: string) { orderCol = col; return b; },
+        range(from: number, to: number) { range = [from, to]; return b; },
+        then(onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) {
+          let out = rows.filter((r) =>
+            Object.entries(eq).every(([c, v]) => (r as unknown as Record<string, unknown>)[c] === v) &&
+            (!inFilter || inFilter.vals.includes((r as unknown as Record<string, unknown>)[inFilter.col])));
+          if (orderCol) {
+            const col = orderCol;
+            out = [...out].sort((x, y) =>
+              String((x as unknown as Record<string, unknown>)[col]).localeCompare(String((y as unknown as Record<string, unknown>)[col])));
+          }
+          if (range) out = out.slice(range[0], range[1] + 1);
+          const cols = columns.split(",").map((c) => c.trim());
+          const data = out.map((r) => Object.fromEntries(cols.map((c) => [c, (r as unknown as Record<string, unknown>)[c]])));
+          return Promise.resolve({ data, error: null }).then(onF, onR);
+        },
+      };
+      return b;
+    },
+  };
+}
+
+describe("shared hierarchy shapes — getAgentScopeIds + fetchTeamRoster + the org tree", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    // The fail-closed cases above register a fake resolver; these cases need the real one.
+    vi.doUnmock("@/lib/supabase-users");
+    vi.doMock("@/integrations/supabase/client", () => ({ supabase: profilesEmulator(SHAPE_TABLE) }));
+  });
+
+  async function modules() {
+    const [{ usersSupabaseApi }, { fetchTeamRoster }] = await Promise.all([
+      import("@/lib/supabase-users"),
+      import("@/lib/profile/profile-queries"),
+    ]);
+    return { usersSupabaseApi, fetchTeamRoster };
+  }
+
+  const prod = hierarchyShape("production");
+  const keys = (shape: { keyOf(id: string): string }, ids: string[]) => ids.map((id) => shape.keyOf(id)).sort();
+
+  it("the Team Leader's Team Profile is the live team beneath them, a Deleted report excluded", async () => {
+    const { fetchTeamRoster } = await modules();
+    const roster = await fetchTeamRoster(prod.id("T"), prod.orgOf("T"));
+    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(["A1", "A2", "T"]);
+
+    const view = buildOrgTreeView(roster.profiles, prod.id("T"));
+    expect(keys(prod, view.directReports.map((n) => n.id))).toEqual(["A1", "A2"]);
+    expect(view.totalDownline).toBe(2);
+    expect(view.unattached).toEqual([]);
+  });
+
+  it("the Admin root's Team Profile covers the whole live organization, Deleted branches dropped", async () => {
+    const { fetchTeamRoster } = await modules();
+    const roster = await fetchTeamRoster(prod.id("R"), prod.orgOf("R"));
+    expect(keys(prod, roster.profiles.map((p) => p.id))).toEqual(["A1", "A2", "K1", "K2", "K3", "K4", "K5", "R", "T"]);
+
+    const view = buildOrgTreeView(roster.profiles, prod.id("R"));
+    expect(keys(prod, view.directReports.map((n) => n.id))).toEqual(["K1", "K2", "K3", "K4", "K5", "T"]);
+    expect(view.totalDownline).toBe(8);
+    expect(view.maxDepth).toBe(PRODUCTION_EXPECTED.longest_chain);
+    expect(view.unattached).toEqual([]);
+  });
+
+  it("matches the repaired canonical paths for both Team Leaders (the Deleted difference documented)", async () => {
+    // team_leader_descendants_after_repair is what is_ancestor_of recognises once M3 has made every
+    // stored path canonical. The upline_id walk TRAVERSES exactly that set; its SCOPE drops the
+    // Deleted members (as private.resolve_downline_ids does).
+    const { usersSupabaseApi } = await modules();
+    for (const [tl, expected] of Object.entries(PRODUCTION_EXPECTED.team_leader_descendants_after_repair)) {
+      const t = await usersSupabaseApi.getAgentScopeTraversal({ viewerId: prod.id(tl), organizationId: prod.orgOf(tl) });
+      expect(keys(prod, t.traversedIds.slice(1))).toEqual([...expected].sort());
+      const live = expected.filter((k) => prod.profiles.find((p) => p.key === k)?.status !== "Deleted");
+      expect(keys(prod, t.scopedIds.slice(1))).toEqual([...live].sort());
+    }
+  });
+
+  it("every production-shape profile resolves exactly the reference upline walk", async () => {
+    const { usersSupabaseApi } = await modules();
+    for (const p of prod.profiles) {
+      const t = await usersSupabaseApi.getAgentScopeTraversal({ viewerId: p.id, organizationId: prod.orgOf(p.key) });
+      expect(t.scopedIds[0]).toBe(p.id);
+      expect(keys(prod, t.scopedIds.slice(1))).toEqual(shapeDownlineKeys(prod, p.key, { includeDeleted: false }).sort());
+      expect(keys(prod, t.traversedIds.slice(1))).toEqual(shapeDownlineKeys(prod, p.key, { includeDeleted: true }).sort());
+    }
+  });
+
+  it("an Active member beneath a Deleted Team Leader stays in scope and surfaces as unattached", async () => {
+    const shape = hierarchyShape("deleted_intermediate");
+    const { fetchTeamRoster } = await modules();
+    const roster = await fetchTeamRoster(shape.id("M"), shape.orgOf("M"));
+    expect(keys(shape, roster.profiles.map((p) => p.id))).toEqual(["M", "MG"]);
+    const view = buildOrgTreeView(roster.profiles, shape.id("M"));
+    expect(view.unattached.map((n) => n.id)).toEqual([shape.id("MG")]);
+  });
+
+  it("walks a 25-level chain completely (the preimage SQL path builder stopped at 20)", async () => {
+    const shape = hierarchyShape("deep_chain");
+    const { fetchTeamRoster } = await modules();
+    const roster = await fetchTeamRoster(shape.id("L01"), shape.orgOf("L01"));
+    expect(roster.profiles).toHaveLength(25);
+    const view = buildOrgTreeView(roster.profiles, shape.id("L01"));
+    expect(view.totalDownline).toBe(24);
+    expect(view.maxDepth).toBe(25);
+  });
+
+  it("terminates on a 2-cycle and a self-loop with exactly the SQL T8 membership", async () => {
+    const { usersSupabaseApi } = await modules();
+    const cycle = hierarchyShape("two_cycle");
+    const cycleIds = await usersSupabaseApi.getAgentScopeIds({ viewerId: cycle.id("X"), organizationId: cycle.orgOf("X") });
+    expect(keys(cycle, cycleIds)).toEqual(["X", "Y"]);
+
+    const loop = hierarchyShape("self_loop");
+    expect(await usersSupabaseApi.getAgentScopeIds({ viewerId: loop.id("S"), organizationId: loop.orgOf("S") })).toEqual([
+      loop.id("S"),
+    ]);
+  });
+
+  it("a cross-organization upline edge never pulls a foreign profile into scope", async () => {
+    const shape = hierarchyShape("cross_org_edge");
+    const { usersSupabaseApi } = await modules();
+    expect(await usersSupabaseApi.getAgentScopeIds({ viewerId: shape.id("P"), organizationId: shape.orgOf("P") })).toEqual([
+      shape.id("P"),
+    ]);
+  });
+
+  it("the right viewer in the WRONG organization resolves no roster — fails closed", async () => {
+    const { fetchTeamRoster } = await modules();
+    const roster = await fetchTeamRoster(prod.id("T"), hierarchyShape("cross_org_edge").orgOf("Q"));
+    expect(roster.profiles).toEqual([]);
+    expect(buildOrgTreeView(roster.profiles, prod.id("T")).root).toBeNull();
   });
 });

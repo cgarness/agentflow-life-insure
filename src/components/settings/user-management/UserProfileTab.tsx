@@ -6,23 +6,31 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Badge } from "@/components/ui/badge";
 import { CommissionGate } from "@/components/PermissionGate";
 import ProfileCarriersSection, { normalizeProfileCarriers } from "@/components/settings/ProfileCarriersSection";
+import type { ProfileFieldEditability } from "@/lib/user-management/profileSavePayload";
 import { UserRole } from "@/lib/types";
 import StateMultiSelect from "./StateMultiSelect";
 import SingleStateSelect from "./SingleStateSelect";
-import type { UserWithProfile } from "./userManagementTypes";
+import UplinePicker from "./UplinePicker";
 
 interface Props {
-  form: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-  setForm: (updater: (p: any) => any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+  form: Record<string, any>;
+  setForm: (updater: (p: any) => any) => void;
   editMode: boolean;
+  /**
+   * Which account-control inputs this viewer may use on this member — a UI mirror of
+   * `enforce_profile_field_authorization` and the commission guard, NOT authorization.
+   */
+  editable: ProfileFieldEditability;
   isSuperAdmin: boolean;
   setIsSuperAdmin: (v: boolean) => void;
   isCurrentUserSuperAdmin: boolean;
   isSelf: boolean;
-  uplineCandidates: UserWithProfile[];
+  memberId: string;
+  organizationId: string | null;
+  /** The member's saved upline, for the picker's "current" option. */
+  originalUplineId: string | null | undefined;
   saving: boolean;
   onResetPasswordClick: () => void;
   onDeleteClick: () => void;
@@ -31,8 +39,8 @@ interface Props {
 }
 
 const UserProfileTab: React.FC<Props> = ({
-  form, setForm, editMode, isSuperAdmin, setIsSuperAdmin, isCurrentUserSuperAdmin,
-  isSelf, uplineCandidates, saving, onResetPasswordClick, onDeleteClick, onCancel, onSave,
+  form, setForm, editMode, editable, isSuperAdmin, setIsSuperAdmin, isCurrentUserSuperAdmin, isSelf,
+  memberId, organizationId, originalUplineId, saving, onResetPasswordClick, onDeleteClick, onCancel, onSave,
 }) => {
   return (
     <div className="space-y-4 mt-0">
@@ -47,8 +55,8 @@ const UserProfileTab: React.FC<Props> = ({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label>Role</Label>
-          <Select value={form.role as string} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+          <Select value={form.role as string} disabled={!editMode || !editable.role} onValueChange={v => setForm(p => ({ ...p, role: v as UserRole }))}>
+            <SelectTrigger aria-label="Role"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="Admin">Admin</SelectItem>
               <SelectItem value="Team Leader">Team Leader</SelectItem>
@@ -61,8 +69,9 @@ const UserProfileTab: React.FC<Props> = ({
           <div className="flex items-center gap-3 mt-2">
             <span className="text-sm text-foreground">{form.status === "Active" ? "Active" : "Inactive"}</span>
             <Switch
+              aria-label="Active status"
               checked={form.status === "Active"}
-              disabled={!editMode || isSelf}
+              disabled={!editMode || !editable.status}
               onCheckedChange={(checked) => setForm(p => ({ ...p, status: checked ? "Active" : "Inactive" }))}
             />
             <TooltipProvider>
@@ -91,11 +100,7 @@ const UserProfileTab: React.FC<Props> = ({
               <p className="text-xs text-muted-foreground">Grants full system access across all organizations.</p>
             </div>
           </div>
-          <Switch
-            checked={isSuperAdmin}
-            disabled={!editMode || (isSelf && isSuperAdmin)}
-            onCheckedChange={setIsSuperAdmin}
-          />
+          <Switch aria-label="Super Admin access" checked={isSuperAdmin} disabled={!editMode || !editable.superAdminFlag} onCheckedChange={setIsSuperAdmin} />
         </div>
       )}
 
@@ -111,30 +116,18 @@ const UserProfileTab: React.FC<Props> = ({
 
       <div className="grid grid-cols-2 gap-4">
         <CommissionGate metric="View Others' Commission Percentage">
-          <div><Label>Commission Level</Label><Input value={form.commissionLevel as string} disabled={!editMode} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
+          <div><Label htmlFor="member-commission-level">Commission Level</Label><Input id="member-commission-level" value={form.commissionLevel as string} disabled={!editMode || !editable.commission} onChange={e => setForm(p => ({ ...p, commissionLevel: e.target.value }))} placeholder="e.g. 75%" /></div>
         </CommissionGate>
-        <div>
-          <Label>Upline Agent</Label>
-          <Select value={form.uplineId || "_none"} disabled={!editMode} onValueChange={v => setForm(p => ({ ...p, uplineId: v === "_none" ? null : v }))}>
-            <SelectTrigger><SelectValue placeholder="Select upline agent..." /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_none">None</SelectItem>
-              {uplineCandidates.map(u => (
-                <SelectItem key={u.id} value={u.id}>
-                  <span className="flex items-center gap-2">
-                    {u.firstName} {u.lastName}
-                    <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1">{u.role}</Badge>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <UplinePicker
+          memberId={memberId} organizationId={organizationId} currentUplineId={originalUplineId}
+          value={form.uplineId as string | null | undefined} onChange={v => setForm(p => ({ ...p, uplineId: v }))}
+          canEdit={editable.upline} disabled={!editMode}
+        />
       </div>
 
       {editMode && (
         <div className="flex gap-2 justify-end pt-4 pb-2">
-          {!isSelf && (
+          {editable.deleteUser && (
             <Button variant="ghost" className="text-destructive hover:bg-destructive/10 mr-auto" onClick={onDeleteClick}>
               Delete User
             </Button>

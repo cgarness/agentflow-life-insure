@@ -2,10 +2,17 @@
  * useContactScope — Contacts Build 2.
  *
  * Owns the My / Team / Agency scope: the permission-gated available options
- * (from getDataScope("leads")), the recursive downline (self + descendants via
- * the canonical hierarchy_path), the persisted last-valid scope in
+ * (from getDataScope("leads")), the team (self + non-Deleted descendants from the
+ * `get_contact_scope_agents` RPC), the persisted last-valid scope in
  * user_preferences.settings, and the fallback logic. Scope is shared across
  * Leads / Clients / Recruits and never widens past the permission maximum.
+ *
+ * The RPC's team is the path-based `is_ancestor_of` — the predicate the contacts RLS
+ * and the assignment checks enforce — so it can be NARROWER than the `upline_id` walk
+ * behind Contacts → Agents (`usersApi.getAgentScopeIds`) while stored `hierarchy_path`s
+ * are stale, and (hierarchy stabilization M1) it holds no downline unless the viewer's
+ * own profile is an Active Team Leader / Admin / Super Admin or platform super admin.
+ * It is the list Contacts and the full-screen view offer a Team Leader as assignees.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

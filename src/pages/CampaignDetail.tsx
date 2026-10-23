@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { filterCampaignLeadsForRole, isCampaignTeamLeaderRole, useCampaignTeamScope } from "@/hooks/useCampaignTeamScope";
 import { PermissionGate } from "@/components/PermissionGate";
 import {
   canDialCampaign,
@@ -318,7 +319,7 @@ const SortableLeadRow: React.FC<{
   isAdmin: boolean;
   isOpenPool: boolean;
   isDragEnabled: boolean;
-  user: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  user: any;
   agents: AgentProfile[];
   selectedLeadIds: Set<string>;
   actionMenuId: string | null;
@@ -422,6 +423,7 @@ const CampaignDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, profile } = useAuth();
+  const { organizationId } = useOrganization();
   const { formatDate, formatDateTime } = useBranding();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -464,6 +466,8 @@ const CampaignDetail: React.FC = () => {
   const [retryingImportId, setRetryingImportId] = useState<string | null>(null);
 
   const isAdmin = profile?.role?.toLowerCase() === "admin";
+  // Team Leader display filter only (no query for other roles); fails narrow to own + unclaimed.
+  const teamScopeIds = useCampaignTeamScope({ viewerId: user?.id, organizationId, enabled: isCampaignTeamLeaderRole(profile?.role) });
 
   // DnD sensors
   const sensors = useSensors(
@@ -521,12 +525,15 @@ const CampaignDetail: React.FC = () => {
     if (!silent) setLeadsLoading(false);
   }, [id]);
 
+  // Active roster of THIS organization (explicit filter on top of profiles_select_org); no org, no query.
   const fetchAgents = useCallback(async () => {
     setAgentsLoading(true);
-    const { data } = await supabase.from("profiles").select("id, first_name, last_name, email, role, avatar_url").eq("status", "Active");
+    const { data } = organizationId
+      ? await supabase.from("profiles").select("id, first_name, last_name, email, role, avatar_url").eq("organization_id", organizationId).eq("status", "Active")
+      : { data: [] };
     if (data) { setAgents(data as AgentProfile[]); }
     setAgentsLoading(false);
-  }, []);
+  }, [organizationId]);
 
   const fetchImportHistory = useCallback(async () => {
     if (!id) return;
@@ -568,43 +575,23 @@ const CampaignDetail: React.FC = () => {
     setImportHistoryLoading(false);
   }, [id]);
 
-  useEffect(() => { fetchCampaign(); fetchLeads(); fetchAgents(); }, [fetchCampaign, fetchLeads, fetchAgents]);
+  useEffect(() => { fetchCampaign(); fetchLeads(); }, [fetchCampaign, fetchLeads]);
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
   useEffect(() => { if (tab === "Import History") fetchImportHistory(); }, [tab, fetchImportHistory]);
 
   const existingLeadIds = useMemo(() => new Set(leads.map(l => l.lead_id).filter(Boolean) as string[]), [leads]);
 
+  // A DISPLAY filter over rows RLS already returned (campaign_leads_select), not authorization:
+  // Admin → all; Agent → own claims; Team Leader → own, unclaimed and downline-claimed rows.
   const filteredLeads = useMemo(() => {
-    const role = profile?.role?.toLowerCase();
-    const currentUserId = user?.id;
-    const isAdmin = role === "admin";
-
-    // Admins see all leads. Others might only see claimed leads.
-    let visibleLeads = leads;
-
-    if (role === "agent") {
-      // Agent: only their own claimed leads
-      visibleLeads = visibleLeads.filter(l => l.claimed_by === currentUserId);
-    } else if (role === "team leader" || role === "team_leader") {
-      // Team Leader: own leads + leads claimed by direct reports + unclaimed leads
-      const teamMemberIds = new Set(
-        agents.filter(a => (a as any).upline_id === currentUserId).map(a => a.id)
-      );
-      visibleLeads = visibleLeads.filter(
-        l => l.claimed_by === currentUserId || (l.claimed_by && teamMemberIds.has(l.claimed_by)) || l.claimed_by == null
-      );
-    }
-    // Admin: all leads, no additional filtering
-
-    if (leadFilter !== "All") {
-      return visibleLeads.filter(l => l.status === leadFilter);
-    }
-    return visibleLeads;
-  }, [leads, leadFilter, profile, user, agents]);
+    const visibleLeads = filterCampaignLeadsForRole(leads, { role: profile?.role, viewerId: user?.id, teamIds: teamScopeIds });
+    return leadFilter !== "All" ? visibleLeads.filter(l => l.status === leadFilter) : visibleLeads;
+  }, [leads, leadFilter, profile?.role, user?.id, teamScopeIds]);
 
   // Status actions
   const updateStatus = async (newStatus: string) => {
     if (!id) return;
-    const { error } = await supabase.from("campaigns").update({ status: newStatus } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("campaigns").update({ status: newStatus } as any).eq("id", id);
     if (error) { toast.error("Failed to update status", { duration: 3000, position: "bottom-right" }); return; }
     toast.success(`Campaign ${newStatus.toLowerCase()}`, { duration: 3000, position: "bottom-right" });
     fetchCampaign();
@@ -649,7 +636,7 @@ const CampaignDetail: React.FC = () => {
   const handleBulkAssign = async (agentId: string) => {
     const ids = Array.from(selectedLeadIds);
     if (ids.length === 0) return;
-    const { error } = await supabase.from("campaign_leads").update({ claimed_by: agentId } as any).in("id", ids); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from("campaign_leads").update({ claimed_by: agentId } as any).in("id", ids);
     if (error) { toast.error("Failed to assign agent", { duration: 3000, position: "bottom-right" }); return; }
     const agent = agents.find(a => a.id === agentId);
     toast.success(`${ids.length} leads assigned to ${agent ? getAgentDisplayName(agent) : "agent"}`, { duration: 3000, position: "bottom-right" });
@@ -745,7 +732,7 @@ const CampaignDetail: React.FC = () => {
       const chunk = updates.slice(i, i + 50);
       await Promise.all(
         chunk.map(u =>
-          supabase.from("campaign_leads").update({ sort_order: u.sort_order } as any).eq("id", u.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+          supabase.from("campaign_leads").update({ sort_order: u.sort_order } as any).eq("id", u.id)
         )
       );
     }
@@ -753,7 +740,7 @@ const CampaignDetail: React.FC = () => {
   };
 
 
-  const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const handleSettingsChange = (key: string, value: any) => { setSettingsForm(prev => ({ ...prev, [key]: value })); setSettingsDirty(true); };
   const toggleSettingsAgent = (agentId: string) => {
     const current = (settingsForm.assigned_agent_ids || []) as string[];
     if (settingsForm.type === "Personal") { handleSettingsChange("assigned_agent_ids", [agentId]); }
@@ -773,7 +760,7 @@ const CampaignDetail: React.FC = () => {
       description: settingsForm.description,
       assigned_agent_ids: assignedIds,
       tags: settingsForm.tags,
-    } as any).eq("id", id); // eslint-disable-line @typescript-eslint/no-explicit-any
+    } as any).eq("id", id);
     setSettingsSaving(false);
     if (error) { toast.error("Failed to save: " + error.message, { duration: 3000, position: "bottom-right" }); return; }
     toast.success("Campaign settings saved", { duration: 3000, position: "bottom-right" });

@@ -1,261 +1,85 @@
-import React, { useEffect, useCallback, useMemo, useState } from "react";
-import { Crown, Shield, User, Loader2, Sparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useOrganization } from "@/hooks/useOrganization";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { buildProfileOrgForest, filterReportingLineHierarchy } from "@/lib/profile-org-tree";
-
-interface ProfileNode {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  role: string | null;
-  upline_id: string | null;
-  hierarchy_path: string | null;
-  avatar_url: string | null;
-  children: ProfileNode[];
-}
-
-function initials(node: ProfileNode): string {
-  const a = (node.first_name || "").trim().charAt(0);
-  const b = (node.last_name || "").trim().charAt(0);
-  if (a && b) return `${a}${b}`.toUpperCase();
-  if (a) return a.toUpperCase();
-  const e = (node.email || "?").charAt(0).toUpperCase();
-  return e || "?";
-}
-
-function displayName(node: ProfileNode): string {
-  const n = [node.first_name, node.last_name].filter(Boolean).join(" ").trim();
-  return n || node.email || "Unknown";
-}
-
-const MemberAvatar: React.FC<{ node: ProfileNode; className?: string }> = ({ node, className = "" }) => {
-  const ini = initials(node);
-  const url = (node.avatar_url || "").trim();
-  const label = displayName(node);
-  return (
-    <div
-      className={`relative mx-auto flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-primary to-primary/70 text-sm font-bold text-primary-foreground shadow-inner ring-2 ring-primary/30 ${className}`}
-    >
-      {url ? (
-        <img src={url} alt={label} className="h-full w-full object-cover" />
-      ) : (
-        <span aria-hidden>{ini}</span>
-      )}
-    </div>
-  );
-};
-
-const RoleBadge: React.FC<{ role: string | null }> = ({ role }) => {
-  const r = (role || "Agent").toLowerCase();
-  if (r === "admin") {
-    return (
-      <Badge className="mt-2 border border-sky-400/40 bg-sky-500/15 text-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.25)] gap-1 font-medium tracking-wide">
-        <Crown className="h-3 w-3" />
-        {role}
-      </Badge>
-    );
-  }
-  if (r === "team leader") {
-    return (
-      <Badge className="mt-2 border border-emerald-400/40 bg-emerald-500/15 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.2)] gap-1 font-medium tracking-wide">
-        <Shield className="h-3 w-3" />
-        {role}
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="secondary" className="mt-2 border border-border/60 bg-muted/40 gap-1 font-medium">
-      <User className="h-3 w-3" />
-      {role || "Agent"}
-    </Badge>
-  );
-};
-
-/** SVG T-junction: horizontal bar at top + one drop per child to bottom of connector zone. */
-function OrgBranchSvg({ childCount }: { childCount: number }) {
-  if (childCount < 2) return null;
-  const centers = Array.from({ length: childCount }, (_, i) => ((i + 0.5) / childCount) * 100);
-  const xL = centers[0];
-  const xR = centers[childCount - 1];
-  const d = [
-    `M ${xL} 0 L ${xR} 0`,
-    ...centers.map((cx) => `M ${cx} 0 L ${cx} 100`),
-  ].join(" ");
-  return (
-    <svg
-      className="pointer-events-none block h-full w-full overflow-visible text-primary/20"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      <path
-        d={d}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-        strokeLinecap="square"
-      />
-    </svg>
-  );
-}
-
-/** Top-down org node: stem + SVG fork (multi-child) so lines aren’t clipped or mis-measured. */
-const VisualOrgNode: React.FC<{ node: ProfileNode }> = ({ node }) => {
-  const n = node.children.length;
-  const hasChildren = n > 0;
-  const name = displayName(node);
-
-  return (
-    <div className="flex min-w-0 flex-col items-center overflow-visible">
-      <div className="relative overflow-visible">
-        <div
-          className="pointer-events-none absolute -inset-1 rounded-2xl bg-gradient-to-br from-primary/35 via-cyan-500/15 to-violet-500/20 opacity-70 blur-md"
-          aria-hidden
-        />
-        <div className="relative rounded-2xl border border-primary/20 bg-card/90 px-5 py-4 text-center shadow-lg shadow-primary/5 backdrop-blur-sm min-w-[168px] max-w-[220px]">
-          <MemberAvatar node={node} />
-          <p className="mt-2.5 truncate text-sm font-semibold tracking-tight text-foreground" title={name}>
-            {name}
-          </p>
-          <RoleBadge role={node.role} />
-        </div>
-      </div>
-
-      {hasChildren && (
-        <div className="relative mt-0 flex min-w-0 flex-col items-center overflow-visible">
-          <div className="h-6 w-px shrink-0 bg-primary/20" aria-hidden />
-
-          <div className="relative inline-flex max-w-full flex-col items-center overflow-visible">
-            <div
-              className={`relative z-10 flex w-max max-w-full flex-row flex-wrap justify-center gap-x-12 gap-y-16 ${n > 1 ? "pt-8" : "pt-0"}`}
-            >
-              {node.children.map((child) => (
-                <div key={child.id} className="relative flex min-w-[168px] flex-col items-center overflow-visible">
-                  {n === 1 && (
-                    <div
-                      className="h-6 w-px shrink-0 bg-primary/20"
-                      aria-hidden
-                    />
-                  )}
-                  <VisualOrgNode node={child} />
-                </div>
-              ))}
-            </div>
-            {n > 1 && (
-              <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 z-0 overflow-visible">
-                <OrgBranchSvg childCount={n} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+import {
+  buildProfileOrgForest,
+  countForestNodes,
+  isLiveProfileNode,
+  pruneDeletedLeaves,
+} from "@/lib/profile-org-tree";
+import { loadHierarchyTreeData, type HierarchyTreeData } from "@/lib/hierarchy/hierarchyTreeData";
+import { VisualOrgNode, type HierarchyChartNode } from "./hierarchy/VisualOrgNode";
 
 /**
- * Same people you can load for User Management: RLS decides rows (no SQL organization_id filter).
- * Then keep everyone in the current org **plus** anyone linked as upline/downline so managers
- * with NULL or legacy org_id still appear (fixes missing middle nodes in the tree).
+ * Settings → User Management → Hierarchy (hierarchy stabilization F4).
+ *
+ * Query scoping, not authorization — `profiles_select_org` permits same-org reads. The rows
+ * come from `loadHierarchyTreeData` and are drawn as loaded, never re-filtered:
+ *  - Admin / Super Admin (role or `is_super_admin` on the viewer's PROFILE): the whole
+ *    organization, explicit `organization_id` filter, Deleted rows included;
+ *  - Team Leader / Agent: their upline chain, themselves and their downline walk only.
+ * Deleted members follow the shared Deleted-intermediate rule (`pruneDeletedLeaves`): drawn
+ * muted only where someone still reports through them, never counted. Without an organization
+ * nothing is queried; a load failure is an error state, never an empty chart.
  */
-function profilesForOrgTree(rows: { id: string; organization_id?: string | null; upline_id?: string | null }[], organizationId: string | null): typeof rows {
-  if (!organizationId) return rows;
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const relevant = new Set<string>();
-  for (const r of rows) {
-    if (r.organization_id === organizationId) relevant.add(r.id);
-  }
-  let grew = true;
-  let guard = 0;
-  while (grew && guard++ < rows.length + 8) {
-    grew = false;
-    for (const r of rows) {
-      if (relevant.has(r.id)) continue;
-      const up = r.upline_id;
-      if (up && relevant.has(up)) {
-        relevant.add(r.id);
-        grew = true;
-      }
-    }
-  }
-  for (const id of [...relevant]) {
-    let cur: string | null | undefined = byId.get(id)?.upline_id;
-    let hops = 0;
-    while (cur && hops++ < 64) {
-      if (relevant.has(cur)) break;
-      const row = byId.get(cur);
-      if (!row) break;
-      relevant.add(cur);
-      cur = row.upline_id ?? null;
-    }
-  }
-  return rows.filter((r) => relevant.has(r.id));
-}
+
+type LoadState =
+  | { key: string; status: "loading" | "error" }
+  | { key: string; status: "ready"; data: HierarchyTreeData };
+
+const SCOPE_COPY: Record<HierarchyTreeData["scope"], string> = {
+  organization: "Everyone in your organization, grouped under their manager.",
+  "reporting-line": "Your full upline chain and everyone in your downline. Peers under the same manager are not shown.",
+  none: "",
+};
+
+const Notice: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="relative z-10 py-16 text-center text-sm text-muted-foreground">{children}</div>
+);
 
 const HierarchyTree: React.FC = () => {
-  const { toast } = useToast();
-  const { profile: currentProfile } = useAuth();
-  const { organizationId, isSuperAdmin } = useOrganization();
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchProfiles = useCallback(async () => {
-    if (!organizationId && !isSuperAdmin) {
-      setProfiles([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select(
-          "id, first_name, last_name, email, role, status, organization_id, upline_id, hierarchy_path, avatar_url",
-        )
-        .neq("status", "Deleted")
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      setProfiles(data || []);
-    } catch (e: any) {
-      toast({ title: "Failed to load team", description: e.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [organizationId, isSuperAdmin, toast]);
+  const { profile } = useAuth();
+  const organizationId = (useOrganization().organizationId ?? "").trim() || null;
+  const viewerId = profile?.id ?? null;
+  const role = profile?.role ?? null;
+  const isSuperAdmin = profile?.is_super_admin === true;
+  const scopeKey = `${viewerId ?? ""}|${organizationId ?? ""}|${role ?? ""}|${isSuperAdmin}`;
+  const [state, setState] = useState<LoadState>({ key: "", status: "loading" });
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
+    // Fail closed: no viewer or no organization → no query at all.
+    if (!viewerId || !organizationId) return;
+    let cancelled = false;
+    setState({ key: scopeKey, status: "loading" });
+    loadHierarchyTreeData({ viewerId, organizationId, role, isSuperAdmin })
+      .then((data) => { if (!cancelled) setState({ key: scopeKey, status: "ready", data }); })
+      .catch((e) => {
+        console.error("[HierarchyTree] load failed:", e);
+        if (!cancelled) setState({ key: scopeKey, status: "error" });
+      });
+    return () => { cancelled = true; };
+  }, [scopeKey, viewerId, organizationId, role, isSuperAdmin, version]);
 
-  const displayProfiles = useMemo(() => {
-    const orgScoped = profilesForOrgTree(profiles, organizationId);
-    return filterReportingLineHierarchy(orgScoped, currentProfile?.id);
-  }, [profiles, organizationId, currentProfile?.id]);
+  // A previous viewer's or organization's rows are never drawn for the current one.
+  const current = state.key === scopeKey ? state : null;
+  const data = current?.status === "ready" ? current.data : null;
 
-  const tree = useMemo(() => {
-    return buildProfileOrgForest(displayProfiles) as ProfileNode[];
-  }, [displayProfiles]);
-
-  const uniqueProfileCount = useMemo(
-    () => new Set(displayProfiles.map((p) => p?.id).filter(Boolean) as string[]).size,
-    [displayProfiles],
+  const tree = useMemo<HierarchyChartNode[]>(
+    () => (data ? pruneDeletedLeaves(buildProfileOrgForest(data.rows), new Set(viewerId ? [viewerId] : [])) : []),
+    [data, viewerId],
   );
-  const duplicateRows = displayProfiles.length > uniqueProfileCount;
+  const memberCount = useMemo(() => countForestNodes(tree, isLiveProfileNode), [tree]);
+  const deletedShown = useMemo(() => countForestNodes(tree) - memberCount, [tree, memberCount]);
+
+  const phase = !viewerId ? "loading" : !organizationId ? "no-organization" : current?.status ?? "loading";
 
   return (
     <div className="relative overflow-x-auto overflow-y-visible rounded-2xl border border-primary/10 bg-gradient-to-b from-muted/30 via-card to-card p-6 pb-8 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
       <div
-        className="pointer-events-none absolute inset-0 z-0 rounded-2xl opacity-[0.35] dark:opacity-20"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 20% 0%, hsl(var(--primary) / 0.12), transparent 45%), radial-gradient(circle at 80% 100%, hsl(280 60% 50% / 0.08), transparent 40%)",
-        }}
+        className="pointer-events-none absolute inset-0 z-0 rounded-2xl bg-[radial-gradient(circle_at_20%_0%,hsl(var(--primary)/0.12),transparent_45%),radial-gradient(circle_at_80%_100%,hsl(280_60%_50%/0.08),transparent_40%)] opacity-[0.35] dark:opacity-20"
         aria-hidden
       />
 
@@ -265,34 +89,44 @@ const HierarchyTree: React.FC = () => {
             <Sparkles className="h-5 w-5 text-primary" aria-hidden />
             <h4 className="text-lg font-semibold tracking-tight">Team structure</h4>
           </div>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Your full upline chain and everyone in your downline. Peers under the same manager are not shown.
-          </p>
-        </div>
-        <div className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          <p>
-            {uniqueProfileCount} member{uniqueProfileCount !== 1 ? "s" : ""}
-            {duplicateRows ? ` (${profiles.length} rows)` : ""}
-          </p>
-          {duplicateRows && (
-            <p className="mt-1 max-w-xs text-[10px] font-normal normal-case text-amber-600 dark:text-amber-400">
-              Duplicate profile rows for the same user id; chart shows one card per person.
+          {data && <p className="mt-1 max-w-xl text-sm text-muted-foreground">{SCOPE_COPY[data.scope]}</p>}
+          {deletedShown > 0 && (
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+              Deleted members appear muted only where someone still reports through them.
             </p>
           )}
         </div>
+        {data && (
+          <p className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {memberCount} member{memberCount !== 1 ? "s" : ""}
+          </p>
+        )}
       </div>
 
-      {loading ? (
+      {phase === "loading" ? (
         <div className="relative z-10 flex min-h-[200px] items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary/60" aria-label="Loading" />
         </div>
-      ) : tree.length === 0 ? (
-        <div className="relative z-10 py-16 text-center text-sm text-muted-foreground">
-          No team members in this organization yet.
+      ) : phase === "no-organization" ? (
+        <Notice>Your organization could not be determined, so no team structure is shown.</Notice>
+      ) : phase === "error" ? (
+        <div role="alert" className="relative z-10 flex flex-col items-center gap-3 py-16 text-center text-sm">
+          <p className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-4 w-4" aria-hidden />
+            We couldn't load the team structure.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => setVersion((v) => v + 1)}>
+            <RefreshCw className="mr-2 h-3.5 w-3.5" aria-hidden />
+            Try again
+          </Button>
         </div>
+      ) : tree.length === 0 ? (
+        <Notice>
+          {data?.scope === "organization" ? "No team members in this organization yet." : "No reporting line to show yet."}
+        </Notice>
       ) : (
         <div className="relative z-10 space-y-4">
-          {tree.length > 1 && (
+          {data?.scope === "reporting-line" && tree.length > 1 && (
             <p className="mx-auto max-w-2xl text-center text-xs text-muted-foreground">
               Your manager may appear separately if their own manager is not shown on this chart.
             </p>

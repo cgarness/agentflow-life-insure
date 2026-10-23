@@ -97,6 +97,7 @@ import ContactScopeSelector from "@/components/contacts/ContactScopeSelector";
 import { CommissionGate } from "@/components/PermissionGate";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useContactScope } from "@/hooks/useContactScope";
+import { resolveAssignableAgents } from "@/lib/contacts/resolveAssignableAgents";
 import {
   buildLeadFilterPayload,
   resolveAgentFilterOptions,
@@ -299,11 +300,11 @@ const Contacts: React.FC = () => {
   // Contacts Build 6 — table fetch error surface (kept distinct from the empty state).
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Contacts → Agents scope: the signed-in viewer plus every direct and indirect
-  // downline profile, resolved recursively through profiles.upline_id (NOT the broken
-  // hierarchy_path). Component state only — never a module-level, persisted or shared
-  // cache, so one viewer's scope can never leak into another session. Independent of
-  // useContactScope/teamAgentIds, which remain hierarchy_path-based and untouched.
+  // Contacts → Agents scope: the effective viewer plus every non-Deleted direct and indirect
+  // downline profile, resolved by usersApi.getAgentScopeIds over profiles.upline_id (never
+  // hierarchy_path). Component state only — never a module-level, persisted or shared cache,
+  // so one viewer's scope can never leak into another session. Independent of
+  // useContactScope/teamAgentIds, which come from get_contact_scope_agents (is_ancestor_of).
   //
   // The resolved ids are stored WITH the identity they were resolved for, and read back
   // through a derived value. Under View As the organization changes IN PLACE with no
@@ -1129,8 +1130,8 @@ const Contacts: React.FC = () => {
     });
 
     // Fetch agent profiles for display
-    supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active").then(({ data }) => {
-      if (data) setAgentProfiles(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" }))); // eslint-disable-line @typescript-eslint/no-explicit-any
+    supabase.from("profiles").select("id, first_name, last_name, status").eq("organization_id", organizationId).eq("status", "Active").then(({ data }) => {
+      if (data) setAgentProfiles(data.map((p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" })));
     });
     // Fetch campaigns for import modal
     supabase
@@ -1152,14 +1153,12 @@ const Contacts: React.FC = () => {
       });
   }, [organizationId, isImpersonating]);
 
-  const assignableAgentsForAddLead = React.useMemo(() => {
-    if (!viewerId) return [] as { id: string; firstName: string; lastName: string }[];
-    // Team Leader → self + recursive downline (canonical hierarchy); Admin/Super → org.
-    // `viewerIsSuperAdmin`, not `isSuperAdmin`: viewing as an Agent must not expose the whole roster.
-    if (role === "Team Leader") return teamAgents;
-    if (role === "Admin" || viewerIsSuperAdmin) return agentProfiles;
-    return [] as { id: string; firstName: string; lastName: string }[];
-  }, [viewerId, role, viewerIsSuperAdmin, teamAgents, agentProfiles]);
+  // Team Leader → self + downline (get_contact_scope_agents); Admin/Super → org; Agent → none (own
+  // leads are assigned implicitly). `viewerIsSuperAdmin`, not `isSuperAdmin`: viewing as an Agent must
+  // not expose the whole roster. Shared with FullScreenContactView via resolveAssignableAgents (F10).
+  const assignableAgentsForAddLead = React.useMemo(() => resolveAssignableAgents({
+    role, viewerId, isSuperAdmin: viewerIsSuperAdmin, orgAgents: agentProfiles, teamAgents, agentSelf: "none",
+  }), [viewerId, role, viewerIsSuperAdmin, teamAgents, agentProfiles]);
 
   const assignableAgentIdsForImport = React.useMemo(() => {
     if (!viewerId) return [] as string[];

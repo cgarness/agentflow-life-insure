@@ -36,14 +36,16 @@ const ImportLeadsPage: React.FC = () => {
   useEffect(() => {
     if (!organizationId) return;
 
+    // Org roster: explicit organization filter on top of profiles_select_org (query scoping).
     supabase
       .from("profiles")
       .select("id, first_name, last_name, status")
+      .eq("organization_id", organizationId)
       .eq("status", "Active")
       .then(({ data }) => {
         if (data)
           setAgentProfiles(
-            data.map((p: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+            data.map((p: any) => ({
               id: p.id,
               firstName: p.first_name ?? "",
               lastName: p.last_name ?? "",
@@ -67,13 +69,14 @@ const ImportLeadsPage: React.FC = () => {
       });
   }, [organizationId]);
 
+  // Direct reports in this organization (getDownlineAgents: no organization, no query).
   useEffect(() => {
     if (!user?.id || role !== "Team Leader") return;
     usersApi
-      .getDownlineAgents(user.id)
-      .then((agents: any[]) => setDownlineIds(agents.map((a) => a.id))) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .getDownlineAgents(user.id, organizationId)
+      .then((agents) => setDownlineIds(agents.map((a) => a.id)))
       .catch(console.error);
-  }, [user?.id, role]);
+  }, [user?.id, role, organizationId]);
 
   const assignableAgentIds = useMemo(() => {
     if (!user?.id) return [] as string[];
@@ -176,7 +179,7 @@ const ImportLeadsPage: React.FC = () => {
       onViewLeads={() =>
         navigate("/contacts?tab=Leads", { state: { importCompleted: true } })
       }
-      existingLeads={existingLeads as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+      existingLeads={existingLeads as any}
       campaigns={campaigns}
       organizationId={organizationId}
       currentUserId={user?.id}

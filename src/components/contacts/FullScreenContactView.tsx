@@ -34,6 +34,9 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
+import { isEffectiveSuperAdmin } from "@/lib/effectiveViewer";
+import { resolveAssignableAgents } from "@/lib/contacts/resolveAssignableAgents";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
 import { formatPhoneNumber, normalizePhoneNumber, toE164Plus } from "@/utils/phoneUtils";
 import { PhoneInput } from "@/components/shared/PhoneInput";
@@ -189,6 +192,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile, user, isImpersonating } = useAuth();
+  const { viewer } = useEffectiveViewer();
   const { formatDate, formatDateTime, branding } = useBranding();
   // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
   const { hasContactsPermission } = usePermissions();
@@ -239,8 +243,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     definitions: fieldsReady ? customFields : [], values: editForm.customFields, entity: editForm,
   }), [type, fieldsReady, fieldOrder, customFields, editForm]);
 
-
   const [agents, setAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
+  const [teamAgents, setTeamAgents] = useState<{ id: string; firstName: string; lastName: string }[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
   const [coreLoading, setCoreLoading] = useState(true);
   const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
@@ -422,7 +426,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
             .in("status", ["active", "Active"])
         : Promise.resolve({ data: null });
 
-      const profilesP = supabase.from("profiles").select("id, first_name, last_name, status").eq("status", "Active");
+      const profilesP = organizationId ? supabase.from("profiles").select("id, first_name, last_name, status").eq("organization_id", organizationId).eq("status", "Active") : Promise.resolve({ data: null });
+      // A Team Leader's assignees: self + downline per the server (withheld under View As, where auth.uid() is the operator).
+      const teamP = viewer?.role === "Team Leader" && !viewer.isImpersonating ? (supabase as any).rpc("get_contact_scope_agents") : Promise.resolve({ data: null });
 
       const lastCallP = supabase
         .from("calls")
@@ -454,7 +460,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         profilesRes,
         lastCallRes,
         dispositionRows,
-      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, dispositionsP]);
+        teamRes,
+      ] = await Promise.all([assignedRowP, notesActsP, pipelineP, settingsP, campaignP, phoneP, profilesP, lastCallP, dispositionsP, teamP]);
 
       if (!isCurrent()) return;
 
@@ -529,19 +536,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         else setFromNumber(phoneData.find((p) => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
       }
 
-      let agentRows = (profilesRes.data || []).map((p: any) => ({
-        id: p.id,
-        firstName: p.first_name || "",
-        lastName: p.last_name || "",
-      }));
+      const toAgent = (p: any) => ({ id: p.id, firstName: p.first_name || "", lastName: p.last_name || "" });
+      const agentRows = (profilesRes.data || []).map(toAgent);
       const ar = assignedRowRes.data as { id: string; first_name: string | null; last_name: string | null } | null;
-      if (ar?.id && !agentRows.some((x) => x.id === ar.id)) {
-        agentRows = [
-          { id: ar.id, firstName: ar.first_name || "", lastName: ar.last_name || "" },
-          ...agentRows,
-        ];
-      }
-      setAgents(agentRows);
+      setAgents(ar?.id && !agentRows.some((x) => x.id === ar.id) ? [toAgent(ar), ...agentRows] : agentRows);
+      setTeamAgents(((teamRes.data ?? []) as any[]).map(toAgent));
       setRosterLoaded(true);
       setCoreLoading(false);
 
@@ -568,7 +567,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id, user?.id, fieldScope, setEmailSubject]);
+  }, [contact?.id, contact?.assignedAgentId, type, organizationId, profile?.id, user?.id, fieldScope, setEmailSubject, viewer?.role, viewer?.isImpersonating]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) setStatusDropdownOpen(false); };
@@ -1128,7 +1127,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                               {editMode ? (
                                 <select value={editForm.assignedAgentId || ""} onChange={e => handleFieldChange("assignedAgentId", e.target.value)} className={inputCls}>
                                   <option value="">—</option>
-                                  {agents.map(a => <option key={a.id} value={a.id}>{a.firstName} {a.lastName}</option>)}
+                                  {resolveAssignableAgents({ role: viewer?.role, viewerId: viewer?.viewerId, isSuperAdmin: isEffectiveSuperAdmin(viewer), orgAgents: agents, teamAgents, currentAssigneeId: contact.assignedAgentId })
+                                    .map(a => <option key={a.id} value={a.id}>{`${a.firstName} ${a.lastName}`.trim() || getAgentDisplayName(a.id)}</option>)}
                                 </select>
                               ) : (
                                 <div className="flex items-center gap-1.5">

@@ -51,7 +51,7 @@ export function AddTaskModal({ open, onOpenChange, contactId, contactType, agent
     if (profile.role === 'Admin' || profile.role === 'Super Admin' || profile.is_super_admin) {
       setAssignableAgents(agents);
     } else if (profile.role === 'Team Leader') {
-      usersSupabaseApi.getDownlineAgents(profile.id).then(downlines => {
+      usersSupabaseApi.getDownlineAgents(profile.id, organizationId).then(downlines => {
         const self = agents.find(a => a.id === profile.id);
         const list = [...downlines];
         if (self && !list.some(a => a.id === self.id)) {
@@ -67,7 +67,7 @@ export function AddTaskModal({ open, onOpenChange, contactId, contactType, agent
       const self = agents.find(a => a.id === profile.id);
       setAssignableAgents(self ? [self] : []);
     }
-  }, [profile, agents]);
+  }, [profile, agents, organizationId]);
 
   const form = useForm<z.infer<typeof taskSchema>>({
     resolver: zodResolver(taskSchema),
