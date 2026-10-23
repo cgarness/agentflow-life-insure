@@ -96,6 +96,8 @@ jobs:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: TypeScript typecheck (full project)
+        run: npx tsc --noEmit
       - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
