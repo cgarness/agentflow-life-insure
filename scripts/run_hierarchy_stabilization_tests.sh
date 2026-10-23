@@ -654,6 +654,7 @@ for suite in "$RLS_SUITE" "$RPC_SUITE"; do
     n="$(grep -c '^PASS ' "$OUT" || true)"
     [ "$n" -gt 0 ] || fail "$name on $st: no PASS line"
     ! grep -q '^FAIL' "$OUT" || fail "$name on $st printed FAIL"
+    unchanged_since "$DB" later "$name on $st"
     PASSES=$((PASSES + n))
     echo "   PASS $name on $st: $n cases"
   done
