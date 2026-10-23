@@ -847,6 +847,23 @@ Gate 3, §15 Gate 3b, §16 Gate 4 note).
   carrier rule, and never evidence that a premium or commission was received. The contact view shows no pay-grid
   breakdown. Contract: plan §13.7; evidence: `verification.md` §14.
 
+### Age-independent commission variants (BRANCH ONLY, not applied or deployed — 2026-10-23)
+
+Proposed migration `20261023180000_policy_commission_optional_age.sql`, its frontend changes and a five-policy
+historical dry run are staged on `chatgpt/commission-age-optional-20261023`. **They are not production rules
+until the migration and frontend are separately approved and released.** Once applied: `insured_age = NULL` means
+truly unknown; it is allowed only when **every** variant of the *selected, explicitly confirmed product* has
+both `min_age` and `max_age` NULL. The server enforces this even if the client submits a fake/omitted age.
+Mixed bounded/unbounded products always require age. Preserve the all-keys commission input validation, exact
+`policy_commission_grid_facts` seller/organization access, immutable estimate snapshots and existing writer RLS.
+Never save `0` as an unknown-age placeholder.
+
+Backfilled history must use the reviewed `record_policy_commission_estimate_later` writer and show
+`recorded_later` / **current rate**, not retroactively claim sale-time capture, earned commission or paid receipt.
+The current FFL grid became effective after the five selected sales; the exact product and historical
+rate may differ. An Admin must confirm each mapped product and the rate-basis before the batch is authorized.
+No historical sale, owner, sold date, premium or already-active estimate may be changed by this operation.
+
 ### Commissions center (LIVE 2026-10-20: Gate 2 migration `20261020212000` immutable; Gate 3 frontend PR #471, merge `73a83a2`)
 
 Release ordering: a migration version is chosen against the HOSTED migration history (`list_migrations` /
