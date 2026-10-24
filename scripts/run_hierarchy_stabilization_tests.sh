@@ -16,8 +16,8 @@
 # file as ONE multi-statement simple query (one implicit transaction, SET LOCAL effective); the security review
 # applied M1 and M2 both ways and got identical inventories, data and notices.
 #
-# Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites, M1's
-# and M2's applied versions and bytes, M3 kept in pending/) ·
+# Stages: 1 static checks (transaction control, the two M3 fingerprint constants, no \q / \quit in the suites, M1's,
+# M2's and M3's applied versions and bytes, no hierarchy migration in pending/, M3's recorded history shape) ·
 # 2 states S0 S1 S2 S3 S1R S2R S3R and the core suite on each (pinned PASS count; database unchanged by the suite) ·
 # 3 migrations: inventories, replay / drift / missing-prerequisite refusals with nothing changed, rollbacks back to
 # the exact preimage, re-apply after rollback, the M2 trigger probe, a hostile session search_path, lock_timeout,
@@ -310,16 +310,15 @@ done
 set +e; r="$(quit_check "$WORK/v_quit_ok.sql" 2>&1)"; c=$?; set -e
 [ "$c" = 0 ] || fail "static control v_quit_ok (\\q only in a string / comment / body) was rejected: $r"
 ok "static: no psql \\q or \\quit in the core, RLS and RPC suites; negative controls rejected, strings and comments allowed"
-case "$HS_M3" in *"/migrations/pending/"*) ok "static: M3 lives under migrations/pending/ (outside the CLI glob)" ;;
-  *) fail "static: M3 is not under migrations/pending/" ;; esac
-# Gates 2a / 2b (2026-10-23): M1 and M2 are applied and recorded as 20261023210027 and 20261023232435, so each
-# repository file is the as-applied record (AGENT_RULES "apply_migration stamps its own version"):
+# Gates 2a / 2b / 2c: M1, M2 and M3 are applied and recorded as 20261023210027, 20261023232435 and 20261024045812,
+# so each repository file is the as-applied record:
 # - exactly one top-level file per applied migration, named after its recorded version;
-# - its SHA-256 equals the recorded statement's;
+# - its SHA-256 equals the bytes production ran. For M1 and M2 (apply_migration, one statement) that is also the
+#   recorded statement's SHA-256 (AGENT_RULES "apply_migration stamps its own version"). M3 ran once in the SQL
+#   Editor; its history row was written by the CLI's `migration repair`, which splits the file on the client, so the
+#   row holds 4 statements whose concatenation hashes to 80b363c5…, never the file SHA (checked below);
 # - no copy left in pending/.
-# M3 stays in pending/ until Gate 2c; moving it to the top level is part of Gate 2c and must change this check
-# deliberately.
-pin_applied() {  # <name> <slug> <recorded version> <recorded SHA-256> <expected path>
+pin_applied() {  # <name> <slug> <recorded version> <as-applied file SHA-256> <expected path>
   local name="$1" slug="$2" version="$3" sha="$4" path="$5" pend
   local -a top
   mapfile -t top < <(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name "*_${slug}.sql" | LC_ALL=C sort)
@@ -328,16 +327,28 @@ pin_applied() {  # <name> <slug> <recorded version> <recorded SHA-256> <expected
   pend="$(find "$HS_ROOT/supabase/migrations/pending" -maxdepth 1 -type f -name "*_${slug}.sql" | LC_ALL=C sort)"
   [ -z "$pend" ] || fail "static: applied $name must not also remain in migrations/pending/: $pend"
   [ "$(sha256sum "$path" | cut -d' ' -f1)" = "$sha" ] \
-    || fail "static: $name's bytes differ from the SQL production recorded as $version (SHA-256 $sha); an applied migration is immutable"
+    || fail "static: $name's bytes differ from the SQL production applied as $version (SHA-256 $sha); an applied migration is immutable"
   ok "static: $name is the as-applied record: one top-level file at the recorded version $version, SHA-256 $sha"
 }
 pin_applied M1 hierarchy_authorization_boundaries 20261023210027 \
   5d99c92328a507451968133603c8f53cd13a782a9749637dfc32d449e137d5df "$HS_M1"
 pin_applied M2 hierarchy_integrity 20261023232435 \
   7f2c61dbdfdd39938d424bc26e024c81c823a5a41692c5a0607a8bff87377aa3 "$HS_M2"
-STRAY_M3="$(find "$HS_ROOT/supabase/migrations" -maxdepth 1 -type f -name '*_hierarchy_path_repair.sql' | LC_ALL=C sort)"
-[ -z "$STRAY_M3" ] || fail "static: M3 must stay in migrations/pending/ until Gate 2c; top-level copies: $STRAY_M3"
-ok "static: no top-level M3 file; it stays in migrations/pending/ until Gate 2c"
+pin_applied M3 hierarchy_path_repair 20261024045812 \
+  2da22c6f45163174c26b7edff75e73bb5a286ec9c87f12bfcabf3a0dc57a4c6b "$HS_M3"
+PENDING_HIER="$(find "$HS_ROOT/supabase/migrations/pending" -maxdepth 1 -type f -name '*_hierarchy_*.sql' | LC_ALL=C sort)"
+[ -z "$PENDING_HIER" ] || fail "static: every hierarchy migration is applied; none may be in migrations/pending/: $PENDING_HIER"
+ok "static: no hierarchy migration in migrations/pending/"
+# M3's history row (CLI 2.121.0 migration repair, Gate 2c run 40115718668): 4 statements, SHA-256 of their
+# concatenation 80b363c5…. The history runner checks a row against its own constants and its test reproduces them
+# with the real pinned CLI; this pins those constants to the recorded shape.
+HS_M3_RECORDED_STATEMENTS=4
+HS_M3_RECORDED_DIGEST="80b363c573d9d2028aedc2dd8def58b0c8b50f99db3ff1872138b5ffa29c0af0"
+HS_M3_HISTORY_RUNNER="$HS_ROOT/scripts/hierarchy_m3_history_record.py"
+grep -qx "RECORDED_STATEMENTS = $HS_M3_RECORDED_STATEMENTS" "$HS_M3_HISTORY_RUNNER" \
+  && grep -qx "RECORDED_DIGEST = '$HS_M3_RECORDED_DIGEST'" "$HS_M3_HISTORY_RUNNER" \
+  || fail "static: the history runner's recorded M3 shape is not $HS_M3_RECORDED_STATEMENTS statements / digest $HS_M3_RECORDED_DIGEST"
+ok "static: M3's recorded history shape is $HS_M3_RECORDED_STATEMENTS CLI statements, digest $HS_M3_RECORDED_DIGEST (not the file SHA)"
 
 # ── 2. States and the core suite ────────────────────────────────────────────────────────────────────────────────
 echo

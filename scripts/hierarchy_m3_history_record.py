@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Hierarchy M3 history-only record (Gate 2c closeout).
 
-M3 (supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql, SHA-256 2da22c6f…) ran ONCE in production,
-through the Supabase SQL Editor, at 2026-10-24 04:58:12 UTC. It is not in supabase_migrations.schema_migrations. This
-runner records it as 20261024045812 with Supabase's official `supabase migration repair --status applied` (CLI
-2.121.0, as in the Google Sheets record-history stage). Rehearsed with log_statement = all, the CLI sends one
+M3 (authored as supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql, SHA-256 2da22c6f…) ran ONCE in
+production, through the Supabase SQL Editor, at 2026-10-24 04:58:12 UTC. This runner recorded it history-only as
+20261024045812 (run 40115718668, 2026-10-24 18:32 UTC) with Supabase's official `supabase migration repair --status
+applied` (CLI 2.121.0, as in the Google Sheets record-history stage); the repository file then moved, bytes unchanged,
+to supabase/migrations/20261024045812_hierarchy_path_repair.sql. In the recorded state record-history refuses and
+check verifies the row read-only. Rehearsed with log_statement = all, the CLI sends one
 parameterized INSERT … ON CONFLICT (version) DO UPDATE SET name, statements: M3's SQL is a text parameter only and
 is never executed. The CLI splits the file on the client, so the row holds 4 statements whose concatenation hashes
 to 80b363c5…, not the file's 2da22c6f…. This runner never runs db push, migration up, psql -f or M3's SQL, and it
@@ -40,7 +42,7 @@ REVIEWER = 'cgarness'
 VERSION = '20261024045812'
 NAME = 'hierarchy_path_repair'
 AUTHORED_VERSION = '20261023210200'
-SOURCE = Path('supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql')
+SOURCE = Path('supabase/migrations/20261024045812_hierarchy_path_repair.sql')
 SOURCE_SHA256 = '2da22c6f45163174c26b7edff75e73bb5a286ec9c87f12bfcabf3a0dc57a4c6b'
 CLI_VERSION = '2.121.0'
 # What CLI 2.121.0 records for these bytes (rehearsed; reproduced by the test with the real CLI).
@@ -132,7 +134,9 @@ def files_gate(root):
     require(source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() == SOURCE_SHA256,
             'M3 source bytes (SHA-256 2da22c6f…)')
     top = sorted((root / 'supabase/migrations').glob('*_hierarchy_path_repair.sql'))
-    require(not top, 'no top-level M3 file before the history record')
+    require(top == [source], 'one top-level M3 file, at the recorded version')
+    pending = sorted((root / 'supabase/migrations/pending').glob('*_hierarchy_path_repair.sql'))
+    require(not pending, 'no M3 copy left in pending/')
     return source.read_bytes()
 
 
@@ -245,8 +249,8 @@ def verify_recorded(target, expect, before=None):
 # ── the one write ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def repair(target, source_bytes, cli):
-    # A temporary workdir holding only a byte copy of M3 at the recorded version, so main never carries an
-    # unrecorded top-level M3. The CLI reads name and statements from this file; it executes none of it.
+    # A temporary workdir holding only a byte copy of M3 at the recorded version (the record ran while main still
+    # kept M3 in pending/). The CLI reads name and statements from this file; it executes none of it.
     work = Path(tempfile.mkdtemp(prefix='hier-m3-history-'))
     try:
         migrations = work / 'supabase' / 'migrations'

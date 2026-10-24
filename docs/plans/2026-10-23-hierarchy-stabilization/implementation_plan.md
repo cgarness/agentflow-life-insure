@@ -1,6 +1,21 @@
 # Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Status (2026-10-24, rev 7): GATE 2c EXECUTED; its migration-history record is pending.**
+**Status (2026-10-24, rev 8): GATE 2c COMPLETE — M3 executed once and recorded history-only as `20261024045812`;
+PR 2 (release record) awaits review.**
+- The protected runner recorded M3 history-only in run `40115718668` (Chris approved the environment review). The
+  run's own read-back passed. This session's read-only post-record checks (19:43 UTC) found:
+  - 346 rows, head `20261024045812`;
+  - the row has 4 CLI statements, digest `80b363c5…`;
+  - the other 345 rows are byte-identical;
+  - profiles unchanged, 15/15 pairs, 0 stale, P2 unchanged, advisors 52 / 134 / 21.
+
+  Evidence: `verification.md` §13.5.
+- PR 2 moves M3 to `supabase/migrations/20261024045812_hierarchy_path_repair.sql`, its bytes unchanged
+  (`2da22c6f…`), and its rollback stub to the same version. The runner pins all three hierarchy migrations as applied
+  and fails if any hierarchy migration is left in `pending/`.
+- Live Agent / Team Leader / Admin browser acceptance remains OUTSTANDING (no sign-ins).
+
+**Rev 7 status (superseded): GATE 2c EXECUTED; its migration-history record was pending.**
 - M3 ran exactly once in production, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It used the
   reviewed bytes (SHA-256 `2da22c6f…`) and repaired the four reviewed rows. Read back: 15/15 pairs, 0 stale, and
   `f809493e` recognises 3 descendants.
@@ -48,7 +63,7 @@ Branch `claude/intelligent-lamport-r6hnx7` (from `main` `f03af3b`). Gates — ea
 | **2a** ✅ released | `apply_migration` **M1** (authorization boundaries) — `#APPROVE_RLS_CHANGE`; recorded as `20261023210027` (§G3) | narrowing only; 0 rows change visibility today |
 | **3** ✅ released | Merge the PR and release the frontend (M2 and M3 stay in `migrations/pending/`, unapplied); PR #485 merged as `89e452c` | UI only; frontend safety protections live **before** any hierarchy activation path exists |
 | **2b** ✅ released | `apply_migration` **M2** (integrity triggers + guards); recorded as `20261023232435` (§G2b) | no row written; from now on real upline edits / TL invites derive correct paths (§6.2) |
-| **2c** ✅ executed | **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist; run once in the SQL Editor on 2026-10-24 04:58:12 UTC; history record `20261024045812` pending (status above) | **activates TL `f809493e`'s downline authority** (§4) |
+| **2c** ✅ executed | **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist; run once in the SQL Editor on 2026-10-24 04:58:12 UTC; recorded history-only as `20261024045812` (run `40115718668`) | **activates TL `f809493e`'s downline authority** (§4) |
 
 Order (correction R2): **1 → 2a (M1) → 3 (frontend) → 2b (M2) → 2c (M3)**, conditional on the frontend ↔ database
 compatibility suite (§8) passing for every state the release passes through. If it does not, the fallback is the
@@ -560,9 +575,9 @@ listing `upline_id`).
 accepted invitation, derives correct paths — so a real move in `f809493e`'s branch (or of `ecf2bb91`/`86ca95f2`) or a
 new TL-invited agent activates TL authority before 2c (hence D14 and D15).
 
-### 6.3 M3 — `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`
+### 6.3 M3 — `supabase/migrations/20261024045812_hierarchy_path_repair.sql` (authored as `pending/20261023210200_…`; EXECUTED at Gate 2c and recorded history-only, `verification.md` §13)
 
-Kept in `pending/` (outside the CLI glob) until Gate 2c, then moved to its stamped version.
+Kept in `pending/` (outside the CLI glob) until Gate 2c, then moved to its recorded version with its bytes unchanged.
 
 - Preconditions: M1 and M2 post-images present (`is_ancestor_of` md5, `trg_01_*`, the 4 restrictive policies, the
   calls guard, the cascade `WHEN` clause, the lock trigger, `private.hierarchy_consistency`); self-parents = 0,

@@ -313,9 +313,19 @@ def test_entry_gates(tmp):
     (fake / m.SOURCE).write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
     stops(lambda: m.files_gate(fake), 'M3 source bytes (SHA-256 2da22c6f…)')
     (fake / m.SOURCE).write_bytes(data)
-    (fake / 'supabase/migrations/20261024045812_hierarchy_path_repair.sql').write_bytes(data)
-    stops(lambda: m.files_gate(fake), 'no top-level M3 file before the history record')
-    ok('M3 bytes pinned (a one-bit change refused); a top-level copy refused')
+    quiet(lambda: m.files_gate(fake))
+    authored = fake / 'supabase/migrations/20261023210200_hierarchy_path_repair.sql'
+    authored.write_bytes(data)
+    stops(lambda: m.files_gate(fake), 'one top-level M3 file, at the recorded version')
+    authored.unlink()
+    pending = fake / 'supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql'
+    pending.parent.mkdir()
+    pending.write_bytes(data)
+    stops(lambda: m.files_gate(fake), 'no M3 copy left in pending/')
+    (fake / m.SOURCE).unlink()
+    stops(lambda: m.files_gate(fake), 'M3 source bytes (SHA-256 2da22c6f…)')
+    ok('M3 pinned at the recorded version (a one-bit change refused); a second top-level copy, a copy left in '
+       'pending/ and the pre-record pending-only layout refused')
     with patch.dict(os.environ, {'PGPASSWORD': 'x', 'SUPABASE_ACCESS_TOKEN': 'x', 'SUPABASE_DB_PASSWORD': 'x'}):
         env = m.cli_env()
     assert not any(k.startswith('PG') or k in ('SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD') for k in env)

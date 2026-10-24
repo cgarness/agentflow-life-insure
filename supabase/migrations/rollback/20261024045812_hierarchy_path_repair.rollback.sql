@@ -1,4 +1,9 @@
--- Rollback stub for migrations/pending/20261023210200_hierarchy_path_repair.sql (hierarchy stabilization M3).
+-- Rollback stub for 20261024045812_hierarchy_path_repair.sql (hierarchy stabilization M3). M3 was authored as
+-- pending/20261023210200, executed once in production through the SQL Editor at Gate 2c (2026-10-24 04:58:12 UTC)
+-- and recorded history-only as 20261024045812 / hierarchy_path_repair (CLI migration repair; 4 statements, digest of
+-- their concatenation 80b363c5…). Both files were renamed to that version with the forward bytes unchanged (SHA-256
+-- 2da22c6f45163174c26b7edff75e73bb5a286ec9c87f12bfcabf3a0dc57a4c6b). The forward file's own "Rollback:" comment
+-- still names the authored path; this file is the one it means.
 -- Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §10. This file ALWAYS REFUSES and
 -- changes nothing: M3 has no automatic data inverse.
 --

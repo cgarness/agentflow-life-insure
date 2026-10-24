@@ -1,3 +1,75 @@
+## 2026-10-24 — APPROVED and BUILT (PR 2 for review; NOT merged): Hierarchy Gate 2c closeout PR 2 — M3 release record after its history-only record
+
+**Approvals (Chris, 2026-10-24).**
+- "Execute M3 history recording only". This session dispatched it, and Chris approved the environment review: run
+  `40115718668`.
+- "APPROVED — AgentFlow Gate 2c PR 2 preparation": the 12-file scope below, plus a post-record read-only Supabase
+  verification (SELECT queries and security advisors).
+- No merge, deploy or production mutation. The branch is updated to `main` `86e0010` (PR #489), and #489's entries
+  in this file, `WORK_LOG.md` and `AGENT_RULES.md` are preserved.
+
+**Reconciliation with the closeout plan §F (PR 2).** Context read: AGENT_RULES (§§1–11, invariants #25/#28/#29, the
+Hierarchy integrity invariant), VISION, and the newest WORK_LOG entries. No open PR touches the hierarchy files.
+Deltas from §F:
+1. **Branch:** `claude/lucid-ritchie-8p5tdc`, this session's designated branch. It is not PR 1's branch name.
+2. **Runner test added to the scope.** Its file-gate cases expected "no top-level M3". They now expect exactly one
+   top-level M3 at the recorded version and none in `pending/`.
+3. **The two checksums.** `pin_applied`'s message no longer says the file SHA is the recorded statement's. For M3 the
+   file is `2da22c6f…` and the row is the CLI split (4 statements, `80b363c5…`). A new static check pins the history
+   runner's recorded-shape constants to those values.
+4. **M3's own "Rollback:" comment** still names the authored stub path (immutable bytes). The renamed stub's header
+   explains this, as was done for M2.
+5. **Kept, not dropped:** the live `environment-guard` CI job (Chris: retain it, as there is no specific technical
+   reason to remove it) and the `pending/` path filters (so a reintroduced hierarchy file runs the check that fails
+   it). §F.6's "drop" is superseded.
+6. AGENT_RULES line 311's "Until M3 is applied…" was stale. It is updated with the other status lines.
+7. The protected workflow `hierarchy-m3-history.yml` is unchanged.
+
+**Files (the approved 12).**
+1. `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql` →
+   `supabase/migrations/20261024045812_hierarchy_path_repair.sql`: `git mv`, bytes unchanged (`2da22c6f…`).
+2. `supabase/migrations/rollback/20261023210200_…` → `rollback/20261024045812_hierarchy_path_repair.rollback.sql`:
+   header comment only.
+3. `scripts/hierarchy_test_state.sh`: the M3 and rollback paths, and the S3 comment.
+4. `scripts/run_hierarchy_stabilization_tests.sh`: the header, `pin_applied M3`, no hierarchy migration in
+   `pending/`, and the recorded-shape pin.
+5. `scripts/hierarchy_m3_history_record.py`: the source path, the file gate and the docstring. Production constants,
+   stages and the write path are unchanged.
+6. `scripts/tests/hierarchy_m3_history_record_test.py`: the file-gate cases.
+7. `.github/workflows/hierarchy-stabilization.yml`: the path-filter comment only.
+8. `docs/plans/2026-10-23-hierarchy-stabilization/verification.md`: §13.5 and the banner.
+9. `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`: rev 8, the gate table and the §6.3
+   heading.
+10. `AGENT_RULES.md`: the hierarchy status lines.
+11. `implementation_plan.md`: this entry and the closeout status.
+12. `WORK_LOG.md`: a new top entry.
+
+**Verification.** Full evidence is in `verification.md` §13.5.
+- **Post-record production (read-only):**
+  - 346 rows, head `20261024045812`;
+  - the row has 4 statements, `80b363c5…`, and its per-statement SHA-256s equal the CLI's split of the moved file;
+  - the other 345 rows are byte-identical to the before-image (`7b2aa665…`);
+  - version list `835868a6…`, as rehearsed;
+  - 15/15 pairs and 0 stale; P6 3/3; P2 unchanged; profiles unchanged;
+  - advisors 52 / 134 / 21.
+- **Local:**
+  - `tsc`: exit 0;
+  - the full runner: 2751 PASS lines, every pin met;
+  - the runner test: 18/18;
+  - focused Vitest: 44 files, 641 passed, 2 skipped;
+  - mutation checks: 12/12 caught;
+  - `git diff --check`: clean.
+
+**Before merge (Chris).**
+- Confirm Supabase "Deploy to production" is still OFF.
+- CI green on the PR head.
+- Separate approval to merge.
+
+**Outstanding after merge.** The root closeout plan's §H live browser acceptance (Agent / Team Leader / Admin) needs
+real sign-ins and stays OUTSTANDING. The `89f2e994` session decision remains Chris's.
+
+---
+
 ## 2026-10-24 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT deployed): Google Sheets "Add sheet" — the Picker opens inside a modal dialog and its selection never reaches AgentFlow
 
 **Status.** Chris approved the plan at `540d45c` ("APPROVED — AgentFlow Google Sheets Picker BUGFIX"). It is
@@ -239,10 +311,16 @@ payload. This is so a key or referrer problem is diagnosable in production.
 
 ---
 
-## 2026-10-24 — APPROVED, PR 1 BUILT (awaiting its review gate): Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
+## 2026-10-24 — APPROVED; PR 1 MERGED (#488), M3 HISTORY RECORDED (`20261024045812`), PR 2 BUILT (see the PR 2 entry, newer): Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
 
-**Status.** M3 ran exactly once, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It is NOT recorded in
-`supabase_migrations.schema_migrations`. **M3 must never run again.**
+**Status update.**
+- PR 1 merged as `0f3b00f`.
+- M3 was recorded history-only in run `40115718668`.
+- PR 2, the release record, is built and awaits review: see the PR 2 entry (newer).
+- The rest of this section is the plan as approved.
+
+**Original status.** M3 ran exactly once, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It was
+then NOT recorded in `supabase_migrations.schema_migrations`. **M3 must never run again.**
 
 **Approval (Chris, 2026-10-24): "APPROVE PLAN — Gate 2c closeout preparation only".** His conditions:
 1. Reuse `google-sheets-production`, provided its required reviewer, main-only restriction and disabled administrator
