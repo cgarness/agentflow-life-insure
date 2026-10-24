@@ -7,6 +7,7 @@ import { autoMap } from "@/lib/google-sheets/autoMap";
 import { sourceDraftSchema, toPayload, type SheetSourceRow, type SheetsContext, type SourceDraft } from "@/lib/google-sheets/schema";
 import type { ReviewOverride } from "./SheetReviewDialog";
 import SheetPickStep, { type PickResult } from "./SheetPickStep";
+import { useSheetPick } from "./useSheetPick";
 import SheetMappingStep from "./SheetMappingStep";
 import SheetPreviewStep from "./SheetPreviewStep";
 
@@ -35,6 +36,7 @@ const AddSheetDialog: React.FC<Props> = ({ source, context, onClose, onSaved, on
   const [saved, setSaved] = useState<{ id: string; version: number } | null>(source ? { id: source.id, version: source.config_version } : null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -52,6 +54,7 @@ const AddSheetDialog: React.FC<Props> = ({ source, context, onClose, onSaved, on
     setDraft((d) => ({ ...d, displayName: d.displayName || `${p.spreadsheetName} – ${p.sheetTitle}`.slice(0, 120), ...auto }));
     setStep("map");
   };
+  const sheetPick = useSheetPick(onPicked, contentRef);
 
   const validate = (): boolean => {
     const r = sourceDraftSchema.safeParse(draft);
@@ -97,10 +100,12 @@ const AddSheetDialog: React.FC<Props> = ({ source, context, onClose, onSaved, on
   });
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
+    // Closed while the Google Picker is open: its modal layer would block every click and focus on the Picker.
+    // (While closed, Radix never calls onOpenChange(false), so a click during the closing animation can't dismiss it.)
+    <Dialog open={!sheetPick.picking} onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
+      <DialogContent ref={contentRef} className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader><DialogTitle>{source ? "Edit sheet" : "Add sheet"}</DialogTitle></DialogHeader>
-        {step === "pick" && <SheetPickStep onPicked={onPicked} />}
+        {step === "pick" && <SheetPickStep pick={sheetPick} />}
         {step === "map" && pick && <SheetMappingStep headers={pick.headers} draft={draft} onChange={setDraft} context={context} errors={errors} />}
         {step === "preview" && pick && (
           <>

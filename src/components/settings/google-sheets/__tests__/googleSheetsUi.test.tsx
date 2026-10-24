@@ -13,7 +13,12 @@ vi.mock("@/lib/google-sheets/api", async (orig) => {
   return { ...real, sheetsApi: (...a: unknown[]) => sheetsApi(...a), startGoogleConnect: vi.fn() };
 });
 const pickSpreadsheet = vi.fn();
-vi.mock("@/lib/google-sheets/picker", () => ({ pickSpreadsheet: (t: string) => pickSpreadsheet(t), pickerConfigured: () => true }));
+const preparePicker = vi.fn();
+vi.mock("@/lib/google-sheets/picker", async (orig) => {
+  const real = await orig<typeof import("@/lib/google-sheets/picker")>();
+  return { ...real, pickSpreadsheet: (t: string, s?: AbortSignal) => pickSpreadsheet(t, s), preparePicker: () => preparePicker(),
+    pickerConfigured: () => true };
+});
 
 const gsState: { identityKey: string | null } = { identityKey: "o1:u1" };
 vi.mock("@/hooks/useGoogleSheets", () => ({
@@ -28,11 +33,12 @@ vi.mock("@/hooks/useGoogleSheets", () => ({
 
 import GoogleSheetsSettings from "../GoogleSheetsSettings";
 import AddSheetDialog from "../AddSheetDialog";
-import SheetPickStep from "../SheetPickStep";
 import SheetReviewDialog from "../SheetReviewDialog";
 import SheetIdentityReviewDialog from "../SheetIdentityReviewDialog";
 import SheetSourceRowItem from "../SheetSourceRow";
+import { waitForModalRelease } from "../useSheetPick";
 import { SheetsApiError } from "@/lib/google-sheets/api";
+import { PickerError } from "@/lib/google-sheets/picker";
 import type { SheetSourceRow } from "@/lib/google-sheets/schema";
 
 const draftSource: SheetSourceRow = {
@@ -47,7 +53,7 @@ const preview = { title: "Tab", total_rows: 3, valid_rows: 2, invalid_rows: 1, i
   has_lead_created_workflows: true, rows: [{ row: 2, first_name: "Ann", last_name: "Lee", phone: "555", email: "", outcome: "import", reason: null }] };
 
 beforeEach(() => {
-  sheetsApi.mockReset(); pickSpreadsheet.mockReset();
+  sheetsApi.mockReset(); pickSpreadsheet.mockReset(); preparePicker.mockReset().mockResolvedValue(undefined);
   auth.isImpersonating = false; gsState.identityKey = "o1:u1";
   vi.stubEnv("VITE_GOOGLE_SHEETS_ENABLED", "true");
 });
@@ -130,11 +136,145 @@ describe("Picker token handling", () => {
   it("the Picker token is used once and never persisted in browser storage or the page", async () => {
     sheetsApi.mockResolvedValue({ access_token: "ya29.SECRET-TOKEN", expires_in: 3599 });
     pickSpreadsheet.mockResolvedValue(null);
-    render(<SheetPickStep onPicked={vi.fn()} />);
+    render(<AddSheetDialog source={null} context={null} onClose={vi.fn()} onSaved={vi.fn()} onNeedsReview={vi.fn()} />);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /choose spreadsheet/i })); });
-    expect(pickSpreadsheet).toHaveBeenCalledWith("ya29.SECRET-TOKEN");
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledWith("ya29.SECRET-TOKEN", expect.any(AbortSignal)));
+    await screen.findByRole("button", { name: /choose spreadsheet/i });
     const stored = JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.body.innerHTML;
     expect(stored).not.toContain("ya29");
+  });
+});
+
+/** A pending pickSpreadsheet that records the page state at the moment the Picker would be shown. */
+function deferredPick() {
+  const seen: { dialogs: number; bodyPointerEvents: string; focusGuards: number; signal?: AbortSignal }[] = [];
+  let finish: (v: { id: string; name: string } | null) => void = () => undefined;
+  pickSpreadsheet.mockImplementation((_t: string, signal?: AbortSignal) => {
+    seen.push({ dialogs: document.querySelectorAll('[role="dialog"]').length, bodyPointerEvents: document.body.style.pointerEvents,
+      focusGuards: document.querySelectorAll("[data-radix-focus-guard]").length, signal });
+    return new Promise((r) => { finish = r; });
+  });
+  return { seen, resolve: (v: { id: string; name: string } | null) => act(async () => { finish(v); }) };
+}
+const renderAdd = () => render(<AddSheetDialog source={null} context={null} onClose={vi.fn()} onSaved={vi.fn()} onNeedsReview={vi.fn()} />);
+const chooseButton = () => screen.getByRole("button", { name: /choose spreadsheet|opening google/i });
+let tokens = 0;
+const api = (overrides: Record<string, () => unknown> = {}) => sheetsApi.mockImplementation(async (action: string) => {
+  if (overrides[action]) return overrides[action]();
+  if (action === "picker_token") return { access_token: `ya29.T${++tokens}` };
+  if (action === "inspect") return { name: "Facebook Leads", tabs: [{ sheetId: 0, title: "Leads", configured: false }] };
+  if (action === "headers") return { header: ["First Name", "Phone"], title: "Leads" };
+  throw new Error("unexpected " + action);
+});
+const calls = (action: string) => sheetsApi.mock.calls.filter((c) => c[0] === action);
+
+describe("Google Picker flow", () => {
+  beforeEach(() => { tokens = 0; });
+
+  it("the dialog's modal layer is fully released before the Picker opens; the pick reopens it with tabs", async () => {
+    api();
+    const pick = deferredPick();
+    renderAdd();
+    expect(document.body.style.pointerEvents).toBe("none");                     // the modal lock is real in this test
+    expect(document.querySelectorAll("[data-radix-focus-guard]").length).toBeGreaterThan(0);
+    fireEvent.click(chooseButton());
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledTimes(1));
+    expect(pick.seen[0]).toMatchObject({ dialogs: 0, focusGuards: 0 });
+    expect(pick.seen[0].bodyPointerEvents).not.toBe("none");
+    expect(pick.seen[0].signal?.aborted).toBe(false);
+    expect(calls("inspect")).toHaveLength(0);
+    await pick.resolve({ id: "SHEET_ABCDEFGHIJ", name: "Facebook Leads" });
+    expect(await screen.findByText("Facebook Leads — choose a tab")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(calls("inspect")[0][1]).toEqual({ spreadsheet_id: "SHEET_ABCDEFGHIJ" });
+    fireEvent.click(screen.getByRole("button", { name: "Leads" }));
+    expect(await screen.findByLabelText("Name")).toHaveValue("Facebook Leads – Leads");   // mapping step
+    expect(calls("headers")[0][1]).toEqual({ spreadsheet_id: "SHEET_ABCDEFGHIJ", sheet_id: 0 });
+  });
+
+  it("Cancel returns to the dialog with nothing inspected; a retry mints a fresh token", async () => {
+    api();
+    const pick = deferredPick();
+    renderAdd();
+    fireEvent.click(chooseButton());
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledTimes(1));
+    await pick.resolve(null);
+    expect(await screen.findByRole("button", { name: "Choose spreadsheet" })).toBeEnabled();
+    expect(calls("inspect")).toHaveLength(0);
+    fireEvent.click(chooseButton());
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledTimes(2));
+    expect(pickSpreadsheet.mock.calls.map((c) => c[0])).toEqual(["ya29.T1", "ya29.T2"]);
+  });
+
+  it("a Google ERROR shows a message, logs only the code, and the retry works", async () => {
+    api();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    pickSpreadsheet.mockRejectedValueOnce(new PickerError("picker_error"));
+    renderAdd();
+    fireEvent.click(chooseButton());
+    expect(await screen.findByText(/Google couldn't open the file picker/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(warn).toHaveBeenCalledWith("[google-sheets] picker", "picker_error");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("ya29");
+    const pick = deferredPick();
+    fireEvent.click(chooseButton());
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Google couldn't open the file picker/)).not.toBeInTheDocument();
+    await pick.resolve({ id: "SHEET_ABCDEFGHIJ", name: "Facebook Leads" });
+    expect(await screen.findByText("Facebook Leads — choose a tab")).toBeInTheDocument();
+    warn.mockRestore();
+  });
+
+  it("a Picker that can't load shows a message and never mints a token", async () => {
+    api();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    preparePicker.mockRejectedValueOnce(new PickerError("load_timeout"));
+    renderAdd();
+    fireEvent.click(chooseButton());
+    expect(await screen.findByText(/Couldn't load Google's file picker/)).toBeInTheDocument();
+    expect(calls("picker_token")).toHaveLength(0);
+    expect(pickSpreadsheet).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Choose spreadsheet" })).toBeEnabled();
+  });
+
+  it("a token failure keeps the dialog open with the server's message", async () => {
+    api({ picker_token: () => { throw new SheetsApiError("reconnect_required"); } });
+    renderAdd();
+    fireEvent.click(chooseButton());
+    expect(await screen.findByText(/Google access expired/)).toBeInTheDocument();
+    expect(pickSpreadsheet).not.toHaveBeenCalled();
+  });
+
+  it("an identity change while the Picker is open aborts it and drops the late pick", async () => {
+    api();
+    const pick = deferredPick();
+    const view = render(<MemoryRouter><GoogleSheetsSettings /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: /add sheet/i }));
+    fireEvent.click(chooseButton());
+    await waitFor(() => expect(pickSpreadsheet).toHaveBeenCalledTimes(1));
+    gsState.identityKey = "o2:u9";
+    view.rerender(<MemoryRouter><GoogleSheetsSettings /></MemoryRouter>);
+    expect(pick.seen[0].signal?.aborted).toBe(true);
+    await pick.resolve({ id: "LATE", name: "Late" });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(calls("inspect")).toHaveLength(0);
+  });
+});
+
+describe("waitForModalRelease", () => {
+  it("never resolves while a modal layer is still mounted", async () => {
+    const node = document.body.appendChild(document.createElement("div"));
+    await expect(waitForModalRelease({ current: node }, 60)).rejects.toMatchObject({ code: "page_busy" });
+    node.remove();
+    const guard = document.body.appendChild(document.createElement("span"));
+    guard.setAttribute("data-radix-focus-guard", "");
+    await expect(waitForModalRelease({ current: null }, 60)).rejects.toMatchObject({ code: "page_busy" });
+    guard.remove();
+    document.body.style.pointerEvents = "none";
+    await expect(waitForModalRelease({ current: null }, 60)).rejects.toMatchObject({ code: "page_busy" });
+    document.body.style.pointerEvents = "";
+    await expect(waitForModalRelease({ current: null }, 60)).resolves.toBeUndefined();
   });
 });
 
