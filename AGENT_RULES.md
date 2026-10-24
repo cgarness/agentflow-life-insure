@@ -1102,6 +1102,30 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
   - Never claim this revokes a token Google already minted.
 - **Sheets disconnect never calls Google revoke**, because revocation can span the whole project and break Gmail/Calendar.
 
+**Picker UI (bugfix 2026-10-24)**
+- **Never show the Google Picker while a modal Radix layer is mounted.**
+  - A modal Dialog sets `body { pointer-events: none }`, traps focus and dismisses on an outside click.
+  - The Picker attaches to `<body>`, so it is unclickable, or a click dismisses the dialog and the pick lands in an
+    unmounted component.
+  - That was the production failure: `picker_token` only, no `inspect`, 0 sources.
+- **How the Picker opens.** `AddSheetDialog` closes its dialog for the Picker (`open={!picking}`). `useSheetPick` opens
+  the Picker only after `waitForModalRelease` has verified the release:
+  - the dialog content is unmounted;
+  - the body pointer lock is lifted;
+  - no `[data-radix-focus-guard]` remains;
+  - then one 0 ms tick passes, for FocusScope's deferred teardown.
+
+  Otherwise it fails with `page_busy`. Never replace this with a React state change alone: in the browser the Picker
+  would open during the dialog's 150 ms exit animation, under the live lock.
+- **`pickSpreadsheet` settles exactly once** (PICKED / CANCEL / ERROR / abort) and disposes the Picker every time.
+  - The loader is bounded (15 s) and retry-safe.
+  - Unmounting, an identity change included, aborts an open Picker.
+  - Every attempt mints a fresh token.
+  - Log only `PickerError.code`.
+- **List view.** The view is `DocsViewMode.LIST`, because `drive.file` grants no thumbnail access.
+- **Test stub.** The browser harness's Picker stub must stay DOM-faithful: a body-level backdrop and an iframe, answered
+  only by real clicks. A stub that calls back by itself hid this bug.
+
 **Identity and receipts**
 - A Source Lead ID (case-sensitive) or row position with **full-prefix** fingerprint validation from one consistent read. A 25-row window is not acceptable.
 - Ambiguity → Needs review, with nothing imported.

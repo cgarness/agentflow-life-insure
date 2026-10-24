@@ -1,7 +1,11 @@
-## 2026-10-24 — PLAN (awaiting Chris's approval): Google Sheets "Add sheet" — the Picker opens inside a modal dialog and its selection never reaches AgentFlow
+## 2026-10-24 — APPROVED and IMPLEMENTED (draft PR; NOT merged, NOT deployed): Google Sheets "Add sheet" — the Picker opens inside a modal dialog and its selection never reaches AgentFlow
 
-**Status.** Plan only. No source file changed, no backend or production command run, no migration. Branch
-`claude/trusting-wright-tfuswc` at main `0f3b00f`.
+**Status.** Chris approved the plan at `540d45c` ("APPROVED — AgentFlow Google Sheets Picker BUGFIX"). It is
+implemented on `claude/trusting-wright-tfuswc` as a frontend-only change.
+- No merge, deploy, migration, Supabase change or Google Cloud change.
+- The plan below is unchanged.
+- §8 records the implementation and its two deliberate deviations.
+- Original status: plan only, at main `0f3b00f`.
 
 **Context checks.**
 - Read AGENT_RULES §3–§11 and the Google Sheets lead import invariant, VISION, and the latest WORK_LOG entries.
@@ -200,6 +204,38 @@ payload. This is so a key or referrer problem is diagnosable in production.
 - Implementation starts only on Chris's explicit approval of this plan.
 - Merge to main and any Vercel deploy each need separate approval.
 - This is a frontend-only change. Rollback is a Vercel revert to the current production deployment.
+
+### 8. Implementation record (2026-10-24, after approval)
+
+**Approval additions, and how each was met**
+1. **Release proven before the Picker shows.** `waitForModalRelease` (`useSheetPick.ts`) waits for verified DOM
+   conditions, not a React state change:
+   - the dialog content node is unmounted;
+   - `body.style.pointerEvents` is not `none`;
+   - no `[data-radix-focus-guard]` remains;
+   - then one 0 ms tick, because FocusScope finishes its teardown in a 0 ms timer.
+
+   It is bounded at 3 s and otherwise fails with `page_busy`.
+   - Removing the wait made the real-browser harness fail: the Picker opened during the dialog's 150 ms exit
+     animation, and the first click hit the closing overlay.
+2. **Interactivity.** The harness clicks inside the Picker iframe at screen coordinates, checks that
+   `elementFromPoint` hits the Picker, and types into a search box inside it. It covers select, cancel and Google error.
+3. **Full flow.** In the harness at 1440 and 390 px: Add sheet → Choose → Cancel → Choose (Google error) →
+   Choose (retry) → type in the Picker → Select → tab → mapping → Preview → Enable.
+4. **Nothing left behind.**
+   - Every Picker outcome settles once and disposes.
+   - Each attempt mints a fresh token, and no token is ever stored.
+   - An identity change aborts an open Picker, and its late pick is dropped (Vitest).
+   - The loader timeout and retry are covered in `picker.test.ts`.
+
+**Deviations from §4**
+- **No extra close guard.** §4.4's extra `onOpenChange` guard while picking was not added. Radix's controlled state
+  calls `onOpenChange` only when the value changes (`react-use-controllable-state` 1.2.2), so while `open={false}` no
+  dismissal can reach it.
+  - This was verified in the browser: a click on the closing overlay leaves the flow intact with or without the guard.
+- **No `onCloseAutoFocus` handler.** Radix's modal Dialog already prevents close auto-focus, and it has no trigger to
+  focus here.
+- **Added beyond §4:** a `page_busy` error code, and the "Opening Google…" button label.
 
 ---
 

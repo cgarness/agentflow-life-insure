@@ -84,6 +84,61 @@ function apiResponse(body) {
   }
 }
 
+// ---- fake Google Picker, shaped like the real one: a backdrop and a dialog holding an iframe, appended straight to
+// <body>, that answers only to real clicks inside the iframe (or reports an error when __pickerMode = "error"). It records
+// the page state at the moment it is shown, so a Picker opened under a modal layer is caught. ----
+function pickerStub() {
+  window.__picker = {}; window.__pickerShows = []; window.__pickerDisposed = 0; window.__pickerMode = "pick";
+  window.google = { picker: {
+    ViewId: { SPREADSHEETS: "spreadsheets" }, DocsViewMode: { LIST: "list" },
+    Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" },
+    Response: { ACTION: "action", DOCUMENTS: "docs" }, Document: { ID: "id", NAME: "name" },
+    DocsView: function () { this.setMimeTypes = () => this; this.setMode = (m) => { window.__picker.mode = m; return this; }; },
+    PickerBuilder: function () {
+      const b = this; let cb;
+      ["setAppId", "setDeveloperKey", "setOAuthToken", "setOrigin", "addView"].forEach((m) => b[m] = (v) => { window.__picker[m] = v; return b; });
+      b.setCallback = (f) => { cb = f; return b; };
+      b.build = () => {
+        let nodes = []; let onMsg = null;
+        const remove = () => { nodes.forEach((n) => n.remove()); nodes = []; if (onMsg) window.removeEventListener("message", onMsg); };
+        return {
+          setVisible: () => {
+            window.__pickerShows.push({ bodyPointerEvents: document.body.style.pointerEvents, dialogs: document.querySelectorAll('[role="dialog"]').length,
+              focusGuards: document.querySelectorAll("[data-radix-focus-guard]").length });
+            const bg = document.createElement("div"); bg.className = "picker-dialog-bg";
+            bg.setAttribute("style", "position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.4)");
+            const dlg = document.createElement("div"); dlg.className = "picker-dialog";
+            dlg.setAttribute("style", "position:fixed;left:5%;top:10%;width:90%;height:70%;z-index:1001;background:#fff");
+            const fr = document.createElement("iframe"); fr.className = "picker-frame"; fr.title = "Google Picker";
+            fr.setAttribute("style", "width:100%;height:100%;border:0");
+            fr.srcdoc = "<input id='q' aria-label='Search'><p>Facebook Leads</p><button id='sel' onclick=\"parent.postMessage('gp:pick','*')\">Select</button>"
+              + " <button id='cancel' onclick=\"parent.postMessage('gp:cancel','*')\">Cancel</button>";
+            dlg.appendChild(fr); document.body.append(bg, dlg); nodes = [bg, dlg];
+            onMsg = (e) => {
+              if (e.data === "gp:pick") { remove(); cb({ action: "picked", docs: [{ id: "SHEET_ABCDEFGHIJKL", name: "Facebook Leads" }] }); }
+              if (e.data === "gp:cancel") { remove(); cb({ action: "cancel" }); }
+            };
+            window.addEventListener("message", onMsg);
+            setTimeout(() => cb({ action: "loaded" }), 10);
+            if (window.__pickerMode === "error") setTimeout(() => cb({ action: "error" }), 150);
+          },
+          dispose: () => { window.__pickerDisposed++; remove(); },
+        };
+      };
+    },
+  } };
+  window.gapi = { load: (n, cfg) => (typeof cfg === "function" ? cfg : cfg.callback)() };
+}
+
+/** Clicks a button inside the Picker iframe at its screen position, as a person would, and reports what was hit. */
+async function humanClick(page, selector) {
+  const box = await page.frameLocator("iframe.picker-frame").locator(selector).boundingBox();
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const hit = await page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.className ?? null, [x, y]);
+  await page.mouse.click(x, y);
+  return hit;
+}
+
 // CHROMIUM_PATH selects a preinstalled browser; otherwise Playwright's own installed Chromium is used (CI).
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const results = [];
@@ -94,17 +149,8 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height } });
   await ctx.addInitScript(([key, session]) => { localStorage.setItem(key, session); },
     ["sb-mock-auth-token", JSON.stringify({ access_token: JWT, refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: exp, user })]);
-  await ctx.route("https://apis.google.com/js/api.js", (route) => route.fulfill({ contentType: "application/javascript", body: `
-    window.google = { picker: {
-      ViewId: { SPREADSHEETS: "spreadsheets" }, Action: { PICKED: "picked", CANCEL: "cancel" },
-      Response: { ACTION: "action", DOCUMENTS: "docs" }, Document: { ID: "id", NAME: "name" },
-      DocsView: function () { this.setMimeTypes = () => this; },
-      PickerBuilder: function () { const b = this; let cb;
-        ["setAppId","setDeveloperKey","setOAuthToken","setOrigin","addView"].forEach((m) => b[m] = (v) => { window.__picker = window.__picker || {}; window.__picker[m] = v; return b; });
-        b.setCallback = (f) => { cb = f; return b; };
-        b.build = () => ({ setVisible: () => setTimeout(() => cb({ action: "picked", docs: [{ id: "SHEET_ABCDEFGHIJKL", name: "Facebook Leads" }] }), 50) });
-      } } };
-    window.gapi = { load: (n, cb) => cb() };` }));
+  await ctx.route("https://apis.google.com/js/api.js", (route) => route.fulfill({ contentType: "application/javascript",
+    body: `(${pickerStub.toString()})();` }));
   await ctx.route("https://mock.supabase.co/**", async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -138,13 +184,48 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   check(await page.getByText("No sheets yet.").isVisible(), `${vp.name}: empty state`);
   await page.screenshot({ path: `${OUT}/gs-${vp.name}-1-connected.png`, fullPage: true });
 
-  // Add sheet → Picker → tab → mapping
+  // Add sheet → Picker. The dialog closes before the Picker shows, so nothing modal sits over or under it.
   await page.getByRole("button", { name: "Add sheet" }).click();
-  await page.getByRole("button", { name: "Choose spreadsheet" }).click();
+  const choose = page.getByRole("button", { name: "Choose spreadsheet" });
+  // 1) Cancel inside the Picker → back to the dialog, nothing inspected, Picker removed
+  await choose.click();
+  await page.locator("iframe.picker-frame").waitFor();
+  check(await humanClick(page, "#cancel") === "picker-frame", `${vp.name}: Picker Cancel is clickable (nothing covers it)`);
+  await choose.waitFor();
+  check(!state.calls.includes("inspect") && await page.locator(".picker-dialog").count() === 0,
+        `${vp.name}: Cancel reopens the dialog; nothing inspected; Picker removed`);
+  // 2) Google reports an error → message in the reopened dialog, Picker disposed, retry available
+  await page.evaluate(() => { window.__pickerMode = "error"; });
+  await choose.click();
+  await page.getByText("Google couldn't open the file picker. Try again. If it keeps happening, tell your admin.").waitFor();
+  check(await page.locator(".picker-dialog").count() === 0 && await choose.isEnabled(), `${vp.name}: Google error → message, Picker disposed, retry enabled`);
+  await page.screenshot({ path: `${OUT}/gs-${vp.name}-1b-picker-error.png`, fullPage: true });
+  await page.evaluate(() => { window.__pickerMode = "pick"; });
+  // 3) Retry; a click on the closing dialog's backdrop must not abandon the flow; then pick with a real click
+  const heading = await page.locator("h1").first().boundingBox();       // inert text outside the dialog box
+  await choose.click();
+  await page.locator('[role="dialog"][data-state="closed"]').waitFor({ state: "attached", timeout: 5000 }).catch(() => undefined);
+  await page.mouse.click(heading.x + 8, heading.y + heading.height / 2);
+  await page.locator("iframe.picker-frame").waitFor();
+  await page.screenshot({ path: `${OUT}/gs-${vp.name}-1c-picker-open.png`, fullPage: true });
+  const shows = await page.evaluate(() => window.__pickerShows);
+  check(shows.length === 3 && shows.every((s) => s.dialogs === 0 && s.focusGuards === 0 && s.bodyPointerEvents !== "none"),
+        `${vp.name}: every Picker opened only after the dialog's pointer lock and focus trap were gone`);
+  const searchHit = await humanClick(page, "#q");
+  await page.keyboard.type("Leads");
+  await page.waitForTimeout(150);                                       // a focus trap would pull focus back by now
+  check(searchHit === "picker-frame" && await page.frameLocator("iframe.picker-frame").locator("#q").inputValue() === "Leads"
+        && await page.evaluate(() => document.activeElement?.className === "picker-frame"), `${vp.name}: keyboard focus stays in the Picker (search typing works)`);
+  check(await humanClick(page, "#sel") === "picker-frame", `${vp.name}: Picker Select is clickable`);
   await page.getByRole("button", { name: /^Leads$/ }).click();
   await page.getByLabel("Name", { exact: true }).waitFor();
   const picker = await page.evaluate(() => window.__picker);
   check(picker?.setAppId === "87346168200" && picker?.setDeveloperKey === "test-picker-key", `${vp.name}: Picker appId = project number, developer key set`);
+  check(picker?.mode === "list", `${vp.name}: Picker uses the list view (drive.file has no thumbnail access)`);
+  check(state.calls.filter((c) => c === "picker_token").length === 3 && state.calls.filter((c) => c === "inspect").length === 1,
+        `${vp.name}: a fresh token per attempt; one inspect, after the pick`);
+  check(await page.evaluate(() => window.__pickerDisposed) === 3 && await page.locator(".picker-dialog").count() === 0,
+        `${vp.name}: every finished Picker disposed`);
   const stored = await page.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage));
   check(!stored.includes("ya29.fake-local-token"), `${vp.name}: Picker token not in browser storage`);
   check(await page.getByLabel("Field for First Name").textContent().then((t) => t.includes("First Name")), `${vp.name}: auto-mapped First Name`);
