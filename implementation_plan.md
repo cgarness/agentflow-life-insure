@@ -1,8 +1,31 @@
-## 2026-10-24 — PLAN, AWAITING CHRIS'S APPROVAL: Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
+## 2026-10-24 — APPROVED, PR 1 BUILT (awaiting its review gate): Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
 
 **Status.** M3 ran exactly once, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It is NOT recorded in
-`supabase_migrations.schema_migrations`. **M3 must never run again.** Until Chris approves, this section is the only file
-change. No backend command beyond read-only SELECTs has run.
+`supabase_migrations.schema_migrations`. **M3 must never run again.**
+
+**Approval (Chris, 2026-10-24): "APPROVE PLAN — Gate 2c closeout preparation only".** His conditions:
+1. Reuse `google-sheets-production`, provided its required reviewer, main-only restriction and disabled administrator
+   bypass are verified.
+   - This container cannot read the environment API (proxy 403). The protections were last browser-verified
+     2026-10-22.
+   - So PR 1 adds a secret-free **environment guard**. It runs in PR 1's CI and again as job 1 of every dispatch.
+     It fails closed unless the reviewer is exactly `cgarness`, deployments come from `main` only, and
+     `can_admins_bypass` is false.
+2. Confirm Supabase "Deploy to production" is OFF before either merge.
+   - Corroborated: the integration's `main` row has `git_branch: ""`, unchanged since 2026-08-25.
+   - Direct confirmation needs the signed-in dashboard.
+3. Use Chris's actual pre-apply forensic records in `verification.md` (done, §13.2).
+4. Build and test PR 1 only.
+5. Do not merge PR 1 and do not record history without separate approval of those exact actions.
+
+**PR 1 scope as built.** It is §F's PR 1, plus the documentation Chris asked for:
+- `verification.md` §13 and the §12 header;
+- the hierarchy plan's status lines (rev 7);
+- the AGENT_RULES status lines that said "M3 NOT APPLIED";
+- `hierarchy-stabilization.yml`, which gains two jobs: `history-runner` (the runner test with the real CLI) and
+  `environment-guard` (live and read-only).
+
+No migration file moves in PR 1.
 
 ### A. Read-only findings (this session, 2026-10-24 05:02–05:16 UTC)
 
@@ -171,27 +194,12 @@ Read-back inside the same run:
    - the runner test reproduces that shape with the pinned CLI.
 5. `scripts/hierarchy_m3_history_record.py`: the source path becomes the top-level file. `record-history` keeps
    refusing in the recorded state.
-6. `.github/workflows/hierarchy-stabilization.yml`: path filters and comment (no `pending/` hierarchy entries).
-7. `docs/plans/2026-10-23-hierarchy-stabilization/verification.md`: a new §13, the Gate 2c release record.
-   - Chris's execution report.
-   - P5b before the apply: this session's run, 4 rows (`4ef505e0 t/t`, `5f952f0d f/f`, `89f2e994 t/t`, `e5c4ee04 t/t`).
-   - P5 forensic snapshot:
-     - pre-apply depths derived from the Gate 1 pair sets (6 missing, 0 extra): `4ef505e0` 2, `5f952f0d` 1,
-       `89f2e994` 1, `e5c4ee04` 2;
-     - post-apply: depth 3, uplines `f809493e`/`86ca95f2`/`f809493e`/`f809493e`, status, `updated_at 04:58:12.87362`;
-     - the exact pre-apply `updated_at` values were captured only by the ChatGPT session. They are recorded as such
-       unless Chris supplies them.
-   - The post-repair P2/P3/P4/P6 and advisor results.
-   - The history record and read-back.
-   - The rehearsal evidence.
-   - §12's header is marked APPLIED.
-8. `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`: rev 7, gate 2c ✅, D14 lifted.
-9. `AGENT_RULES.md`, as a status and invariant correction only:
-   - hierarchy section header and runner sentence;
-   - the Known Tech Debt hierarchy line;
-   - one rule: a migration executed outside `apply_migration` is recorded only through the pinned CLI repair. Its
-     recorded statements are the CLI's split, so integrity is checked by name, version, statement count and split
-     digest, never by re-running it.
+6. `.github/workflows/hierarchy-stabilization.yml`: path filters and comment (no `pending/` hierarchy entries). Drop
+   the live `environment-guard` CI job once the record is done (unrelated PRs should not depend on live settings).
+7. `docs/plans/2026-10-23-hierarchy-stabilization/verification.md`: extend §13 (written in PR 1 with Chris's actual
+   pre-apply records) with the run ID, the history read-back and the moved file.
+8. `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`: rev 8, history recorded.
+9. `AGENT_RULES.md`: the status lines say "recorded". The CLI-repair integrity rule is already added in PR 1.
 10. `implementation_plan.md` (status) and `WORK_LOG.md`, a new top entry.
 
 There is no frontend, Edge Function, A2P, commissions, telephony, RLS or schema change.

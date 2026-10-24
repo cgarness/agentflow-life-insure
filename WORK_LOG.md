@@ -1,3 +1,75 @@
+## 2026-10-24 — Hierarchy Stabilization: GATE 2c EXECUTED (M3 ran once, SQL Editor, 04:58:12 UTC); history-only record runner prepared on PR 1 (NOT merged, history NOT recorded)
+
+**Approval.** Chris approved the closeout plan ("APPROVE PLAN — Gate 2c closeout preparation only"). The approval
+covers building and testing PR 1 only. Merging PR 1 and recording the history each need separate approval of the exact
+action.
+
+**Production (read-only only).**
+- M3 ran exactly once in the SQL Editor at 2026-10-24 04:58:12 UTC (Chris's report). It is not in
+  `supabase_migrations.schema_migrations`.
+- This session confirmed, read-only:
+  - 15/15 pairs, with 0 stale, missing, extra or invalid edges;
+  - the four rows' stored paths equal the reviewed targets (`7daae418…`);
+  - exactly 4 profiles stamped `04:58:12.87362`, and none updated since (re-read at 16:15:51 UTC);
+  - `f809493e` recognises 3 descendants;
+  - the M1+M2 post-image is unchanged (49 / `f01ab348…`);
+  - advisors 52 / 134 / 21;
+  - history 345 rows, head `20261023232435`, `20261024045812` free.
+- `5f952f0d` gained its two claim keys (plan §6.3).
+- Chris supplied the actual pre-apply P5 records (depths 2/1/1/2 → 3 and the original `updated_at` values). They are in
+  `verification.md` §13.2, with this session's pre-apply P5b.
+
+**Built (PR 1).**
+- **Workflow:** `.github/workflows/hierarchy-m3-history.yml`, dispatch-only and main-only.
+  - Job 1 is a secret-free environment guard. It fails closed unless `google-sheets-production` has exactly
+    `cgarness` as required reviewer, main-only deployments and administrator bypass off.
+  - Job 2 runs in that environment with only the two database secrets.
+- **Runner:** `scripts/hierarchy_m3_history_record.py`. It passes read-only gates, then runs
+  `supabase migration repair 20261024045812 --status applied` with CLI 2.121.0 from a temporary workdir holding a byte
+  copy of `pending/` M3. It reads back the exact row (4 CLI statements, `80b363c5…`) and proves every other row and
+  profiles unchanged.
+- **Test:** `scripts/tests/hierarchy_m3_history_record_test.py`, loopback, with the real CLI connecting as a role
+  limited to the history table.
+- **CI:** `hierarchy-stabilization.yml` gains `history-runner` and `environment-guard`.
+- **Docs:**
+  - `verification.md` §13 and the §12 header;
+  - the hierarchy plan's rev 7 status;
+  - the AGENT_RULES status lines, plus the CLI-repair integrity rule;
+  - the root plan.
+- No migration file moved. No frontend, Edge Function, RLS, schema, A2P, commissions or telephony change.
+
+**Verification.**
+- `npx tsc --noEmit`: exit 0.
+- **Runner test:** ALL PASSED, 18 checks.
+  - 8 drifted states are refused without invoking the CLI.
+  - The real record produces the exact row, with the other rows and profiles unchanged.
+  - A re-record is refused, and the inverse restores the before-image.
+  - 6 wrong writes are caught.
+  - Mutation testing: 10/10 mutants caught.
+  - It found and fixed a real defect: `concat_ws` renders booleans as `t`, so the runner compares `::text`.
+- **Full hierarchy runner** (loopback PostgreSQL 16.15, PostgREST 12.2.3, `CI=true`): exit 0, **2750 PASS lines**,
+  every pin met (core 64/114, RLS 1043, RPC 567, forged 336, compatibility 190). The M3 stage still passes with M3 in
+  `pending/`.
+- **Focused hierarchy Vitest:** 44 files, 634 passed, 2 skipped.
+
+**Context snapshot.**
+- **Decisions:**
+  - Record M3 history-only as `20261024045812` (the execution second) with the official CLI repair.
+  - Its integrity is checked by name, version, statement count (4) and split digest, never by re-running.
+  - `main` never carries an unrecorded top-level M3.
+- **Migrations:** none applied; M3 not executed again. **Deploys:** none.
+- **Blockers / approvals, in order:**
+  1. Supabase "Deploy to production" confirmed OFF by Chris before the merge. It is corroborated by the integration
+     row (`git_branch: ""`, unchanged since 2026-08-25), but the setting is only readable in the dashboard.
+  2. Merge PR 1.
+  3. "Approve M3 history record `20261024045812`", then the environment review.
+  4. PR 2 (move M3 out of `pending/` with its bytes unchanged, re-pin, docs).
+  5. Live Agent / Team Leader / Admin browser acceptance tests remain OUTSTANDING: there are no sign-ins.
+- **Stop condition:** a new production migration before the record changes the pinned count and head, and needs a
+  re-pin.
+
+---
+
 ## 2026-10-23 — Hierarchy Stabilization: GATE 3 and GATE 2b RELEASED (frontend `89e452c`, M2 live as `20261023232435`); Gate 2b release record on a draft PR; M3 (Gate 2c) NOT applied
 
 **Gate 3 (frontend).**
