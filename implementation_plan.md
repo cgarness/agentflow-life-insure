@@ -1,3 +1,208 @@
+## 2026-10-24 — PLAN (awaiting Chris's approval): Google Sheets "Add sheet" — the Picker opens inside a modal dialog and its selection never reaches AgentFlow
+
+**Status.** Plan only. No source file changed, no backend or production command run, no migration. Branch
+`claude/trusting-wright-tfuswc` at main `0f3b00f`.
+
+**Context checks.**
+- Read AGENT_RULES §3–§11 and the Google Sheets lead import invariant, VISION, and the latest WORK_LOG entries.
+  The newest work (hierarchy Gate 2c closeout) does not touch Sheets.
+- Open PRs: #480 and #481 are docs-only Sheets release records, so their only overlap is the newest-first
+  insertions in `WORK_LOG.md` / `implementation_plan.md`. No open PR touches `picker.ts` or the Add sheet components.
+  **No conflicting work.**
+
+### 1. Production evidence (reported)
+- The Google Sheets connection is healthy and holds a refresh token.
+- `picker_token` requests succeed.
+- No `inspect` or `save` request follows.
+- `google_sheets_sources` has 0 rows.
+
+### 2. Root cause
+
+**Primary: deterministic, and reproduced locally.** `SheetPickStep` opens the Google Picker while `AddSheetDialog`'s
+modal Radix Dialog is open (`AddSheetDialog.tsx:103`, inside `DialogContent`). Radix 1.1.14 modal content does three
+things here:
+- sets `body { pointer-events: none }` (`@radix-ui/react-dismissable-layer` dist `index.mjs:70-73`);
+- traps focus and aria-hides everything else (`@radix-ui/react-dialog` dist `index.mjs:137,144-145`);
+- treats an outside pointerdown as a dismissal (`index.mjs:150`).
+
+The Picker appends its backdrop and its iframe dialog directly to `<body>`, so it inherits `pointer-events: none`.
+That leaves two outcomes:
+1. **A click on the part of the Picker over the dialog box** passes through to `DialogContent`, so nothing happens.
+   - The Picker is visible but dead, so neither PICKED nor CANCEL can fire.
+   - `pickSpreadsheet`'s Promise never settles, so "Choose spreadsheet" stays disabled.
+2. **A click on the part of the Picker over the dim overlay** reaches the Radix overlay, which dismisses the dialog.
+   - `onOpenChange(false)` checks only `AddSheetDialog`'s own `busy`, which is false during the pick step
+     (`AddSheetDialog.tsx:100`), so it calls `onClose()` and `SheetPickStep` unmounts.
+   - The body pointer lock lifts and the Picker starts working. The user picks a file, and PICKED resolves.
+   - `SheetPickStep.tsx:24` (`if (!picked || !alive.current) return;`) then drops the result silently: no `inspect`,
+     no error, no source.
+
+Either way the server sees exactly `picker_token` and nothing after it, which is the production evidence.
+
+**Secondary defects.** Each of these would leave the same server-side evidence, and none can be ruled in or out from
+this container:
+- **ERROR is ignored** (`picker.ts:42-50`). If Google reports `Action.ERROR`, the Promise never settles. Possible
+  triggers are a key referrer or API restriction, the Picker API not being enabled, or an appId and OAuth client from
+  different projects.
+- **The loader can hang.** `gapi.load("picker", cb)` (`picker.ts:19`) has no error or timeout path. A failed script load
+  resets the cache but leaves the dead `<script>` in the page.
+- **No `dispose()`.** The Picker's DOM is never removed.
+- **Grid view under `drive.file`.** Google's `DocsView.setMode` reference recommends `DocsViewMode.LIST` for any scope
+  other than `drive` / `drive.readonly`, because the user has not granted thumbnail access. This affects how the view
+  looks; it is not the cause of the hang.
+
+**Why CI passed.** Both test layers bypass the real Picker:
+- The browser harness's Picker stub (`scripts/tests/google-sheets-ui/verify.mjs:97-107`) renders nothing and calls back
+  50 ms after `setVisible`, with no user click.
+- Vitest mocks `pickSpreadsheet` entirely.
+
+So no test ever put a body-level overlay under the modal.
+
+**API key restrictions.** The release package restricts the Picker key's referrers to `www.fflagent.com/*`,
+`fflagent.com/*` and `docs.google.com/*`. The key itself can only be read in the Google Cloud console, and this
+container cannot reach Google hosts (proxy 403). The key does not need to be wrong to explain the evidence. After the
+fix, any key problem surfaces as a visible ERROR message instead of a hang.
+
+### 3. Evidence gathered (read-only, this session)
+
+**Local reproduction.** Ran Vite on a mocked Supabase host, with a Picker stub shaped like the real one: a fixed
+backdrop plus a dialog with an iframe, appended to `<body>`, that calls back only on a real click. Viewport 1440×900.
+
+| Step | Observation |
+|---|---|
+| Picker shown | body `pointer-events: "none"`; Picker computed `pointer-events: none`; the element under the Picker's Select button is the Add sheet `DialogContent`. Server calls: `status,context,picker_token` |
+| Click Select | No Picker callback; dialog still open; Picker still shown |
+| Click the Picker's top-left (over the overlay) | Element actually hit: the Radix overlay. The Add sheet dialog closes; body pointer-events restored |
+| Click Select again | Picker callback `picked` fires. Dialog gone, no error shown. Server calls still `status,context,picker_token`; **`inspect` never called; 0 sources** |
+
+**External reports of the same failure:** InfinityBowman/corates#621 and amoeba-devops/appAcademy2#335 (Google Picker
+not clickable over a Radix modal).
+
+### 4. Proposed fix (frontend only)
+
+**Approach: close the Add sheet dialog while the Picker is open, then reopen it with the result.** While the Picker is
+open, no Radix modal layer is mounted, so there is no pointer lock, focus trap, aria-hiding or outside-dismiss for it
+to fight. The Picker is already a full-screen modal with its own Cancel.
+
+**4.1 `src/lib/google-sheets/picker.ts`**
+- **Bounded loading.** Script load plus `gapi.load` share one 15 s budget, using `gapi.load`'s documented
+  `{ callback, onerror }` form.
+  - Every failure clears the loader cache and removes the failed script, so a retry starts fresh.
+  - A retry reuses an already-loaded `gapi` instead of injecting the script again.
+- **Every outcome settles exactly once.**
+  - PICKED → `{ id, name }`.
+  - CANCEL → `null`.
+  - ERROR → reject with `PickerError("picker_error")`, matched as `g.Action.ERROR ?? "error"` so that a missing enum
+    can never match an undefined action.
+  - Undocumented actions (for example `loaded`) are ignored.
+- **Cleanup.** Each outcome calls `picker.dispose()`.
+- **Abort.** A new optional `AbortSignal` disposes the Picker and resolves `null`, used when the dialog unmounts.
+- **List mode.** `DocsView(...).setMode(DocsViewMode.LIST)`, per Google's `drive.file` guidance.
+- **Exports.** A small `PickerError` class (codes `load_failed` / `load_timeout` / `picker_error`) and `preparePicker()`,
+  so the script loads before a token is minted.
+- **Unchanged:** the token stays in memory only, `setAppId` (project number), the developer key, `setOrigin`, and
+  `pickerConfigured`.
+
+**4.2 `src/components/settings/google-sheets/useSheetPick.ts` (new, about 60 lines)**
+
+This holds the pick flow that today lives in `SheetPickStep`, so its state survives the dialog closing and reopening.
+It lives in `AddSheetDialog`, which stays mounted. It exposes `{ file, busy, picking, error, choose, chooseTab }`.
+
+`choose()` runs these steps:
+1. Load the Picker script (bounded), while the dialog still shows "Opening Google…".
+2. Fetch a fresh `picker_token`. Every attempt gets a new token, and none is reused or stored.
+3. Stop if unmounted.
+4. Set `picking = true`.
+5. Run `pickSpreadsheet(token, signal)`.
+6. Set `picking = false`.
+7. On a pick, call `inspect`.
+
+Every failure path clears `picking` and `busy` and keeps the dialog usable for retry. On unmount, an identity change
+included, the hook aborts, which disposes any open Picker.
+
+`chooseTab()` is moved from `SheetPickStep` unchanged.
+
+**4.3 `src/components/settings/google-sheets/SheetPickStep.tsx`**
+
+It becomes presentational: it takes the hook's values and callbacks. The markup, the Tailwind classes and the "not
+available yet" notice are unchanged. The button reads "Opening Google…" while the Picker is being prepared.
+
+**4.4 `src/components/settings/google-sheets/AddSheetDialog.tsx`** (about 8 lines)
+- `<Dialog open={!pick.picking}>`.
+- `onOpenChange` also ignores closes while `picking`. This covers the closing animation, while the outgoing overlay
+  still listens.
+- `onCloseAutoFocus` is prevented while picking, so focus is not pulled back onto the page under the Picker.
+- `SheetPickStep` receives the hook's values.
+
+The map, preview, save, activate, edit, `config_version` and Zod (`sourceDraftSchema`) paths are untouched.
+
+**4.5 Error copy.** These are new codes; the existing `SheetsApiError` copy is unchanged.
+
+| Code | Message |
+|---|---|
+| `load_failed`, `load_timeout` | "Couldn't load Google's file picker. Check your connection or allow this site in blockers, then try again." |
+| `picker_error` | "Google couldn't open the file picker. Try again. If it keeps happening, tell your admin." |
+| any other error | existing "Couldn't open Google. Try again." |
+
+The console gets `console.warn("[google-sheets] picker", code)`: the code only, never the token or the callback
+payload. This is so a key or referrer problem is diagnosable in production.
+
+**4.6 Not changed.**
+- Inspected and left unchanged:
+  - `GoogleSheetsSettings.tsx`: an identity change already unmounts the dialog, and the hook's abort disposes the
+    Picker.
+  - `api.ts`;
+  - all four Edge Functions.
+- OAuth stays as it is: scopes `openid email drive.file`, PKCE, state, the Vault refresh token, the Picker-token
+  re-check and saved connections.
+- No change to database behavior, RLS, permissions or `organization_id` scoping.
+- No migration, no new dependency, and no new Supabase query (so no `.maybeSingle()` case).
+- No mock data in production paths.
+
+**Alternatives rejected:**
+- Forcing `pointer-events` on Google's DOM and shielding focus/pointer events in the capture phase. It depends on
+  Google's markup and Radix listener internals, and needs inline styles.
+- Making the whole dialog non-modal. It changes the dialog's look and dismissal for every step.
+- A session timeout on the open Picker. It would close a Picker the user is still browsing.
+
+### 5. Files to touch (after approval)
+
+| File | Change |
+|---|---|
+| `src/lib/google-sheets/picker.ts` | ERROR/CANCEL/PICKED settle once, `dispose`, abort, bounded retry-safe loader, LIST mode, `PickerError`, `preparePicker` |
+| `src/components/settings/google-sheets/useSheetPick.ts` (new) | Pick flow state outside the dialog content |
+| `src/components/settings/google-sheets/SheetPickStep.tsx` | Presentational; error copy |
+| `src/components/settings/google-sheets/AddSheetDialog.tsx` | Close the dialog while picking; guards |
+| `src/lib/google-sheets/__tests__/picker.test.ts` (new) | PICKED/CANCEL/ERROR/abort each settle once and dispose; LIST mode; load error/timeout and retry |
+| `src/components/settings/google-sheets/__tests__/googleSheetsUi.test.tsx` | Update the token test to the new API. Add: dialog hidden while picking, then reopened with tabs and `inspect` called; ERROR shows copy and a retry mints a new token; unmount aborts the Picker |
+| `scripts/tests/google-sheets-ui/verify.mjs` | DOM-faithful Picker stub (body-level overlay, real click); assert it is clickable and `inspect` runs |
+| `AGENT_RULES.md` | One rule under the Google Sheets invariant: never open the Picker over a mounted modal Radix layer; every Picker outcome must settle and dispose |
+| `WORK_LOG.md`, `implementation_plan.md` | Records |
+
+### 6. Verification
+- `npx vitest run src/lib/google-sheets src/components/settings/google-sheets`
+- `npx tsc --noEmit`
+- ESLint on the changed files.
+- `npm run build`.
+- `verify.mjs` at 1440 and 390 px, plus this session's reproduction, which must now show the Picker clickable,
+  `inspect` called and the draft saved.
+- **After a separately approved release:** Chris runs the real Google test on `www.fflagent.com` with DevTools open:
+  pick, choose a tab, map, preview, Enable, then check that `google_sheets_sources` gains the row.
+  - If `[google-sheets] picker picker_error` appears, check these in the Cloud console:
+    - the key's HTTP referrers;
+    - the key's API restriction (Google Picker API);
+    - that the Picker API is enabled;
+    - that `VITE_GOOGLE_CLOUD_PROJECT_NUMBER` is the project number of the OAuth client's project.
+  - If `inspect` returns `access_lost`, it points to an appId/project mismatch, because `drive.file` grants the
+    picked file to the appId's project.
+
+### 7. Gates
+- Implementation starts only on Chris's explicit approval of this plan.
+- Merge to main and any Vercel deploy each need separate approval.
+- This is a frontend-only change. Rollback is a Vercel revert to the current production deployment.
+
+---
+
 ## 2026-10-24 — APPROVED, PR 1 BUILT (awaiting its review gate): Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
 
 **Status.** M3 ran exactly once, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It is NOT recorded in
