@@ -1,8 +1,12 @@
 # Hierarchy Stabilization — Gate 1 verification (2026-10-23)
 
-**Update (rev 5): Gate 2a released. M1 is live in production as `20261023210027`, with the applied bytes identical to
-the repository file (§9). Gate 3 readiness is in §10.** M2 and M3 are not applied, and PR #485 is not merged. §§1–8
-below are the Gate 1 record as written.
+**Update (rev 6): Gates 2a, 3 and 2b are released.**
+- M1 is live as `20261023210027` (§9).
+- The frontend is live from PR #485's merge `89e452c` (§11).
+- M2 is live as `20261023232435` (§11).
+- **M3 is not applied.** Gate 2c readiness is in §12.
+
+§§1–8 below are the Gate 1 record as written.
 
 Gate 1 (approved by Chris 2026-10-23 with D1–D15 defaults and corrections R1/R2) authorizes development and testing
 only. **Nothing was applied, merged or deployed. Production was only read** (`SELECT` against `jncvvsvckxhqgqvkppmj`;
@@ -314,3 +318,360 @@ checked by two adversarial verifiers, and a completeness critic followed (17 age
   - deactivate, reactivate and billing-type writes have no read-back (minor; already listed);
   - the onboarding toggles persist nothing (minor; a disputed verdict: one verifier judged it unreachable in
     production).
+
+## 11. Gate 3 completion and Gate 2b release record (2026-10-23)
+
+**Gate 3 (frontend), verified read-only by this session at 23:05–23:11 UTC.**
+
+| Fact | Value |
+|---|---|
+| Merge | PR #485 squash-merged as `89e452cdf446b08f2a3addffec8ee8b1db53834f`; tree identical to the reviewed head `97ef36d` |
+| `agentflow` | `dpl_HLo8CYs8uaxrBvGUveaeJMkD7dPP` READY at `89e452c`; aliases `www.fflagent.com`, `fflagent.com` |
+| `agentflow-life-insure` | `dpl_GHgG7xHmFBiX5hYcTKdh4bdyrxCS` READY at `89e452c`; alias `agentflow-life-insure.vercel.app` |
+| Database after the merge | head `20261023210027`, 344 rows, no M2/M3 row or object; `is_ancestor_of` `c6d121db…`; 16 profiles; 4 stale paths; both fingerprints unchanged. This is consistent with "Deploy to production" being OFF. |
+| Rollback targets | `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW` / `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV` (promote; never `git revert` #485) |
+| Not verified | Served assets: this container's proxy refuses the production hosts (HTTP 403 on CONNECT). The alias assignment is the evidence. |
+
+**Gate 2b (M2), applied and verified by Chris through a separate session.**
+
+| Fact | Value | Source |
+|---|---|---|
+| Recorded migration | `20261023232435 / hierarchy_integrity` (authored as `pending/20261023210100_hierarchy_integrity.sql`) | Chris's report |
+| SHA-256 | `7f2c61dbdfdd39938d424bc26e024c81c823a5a41692c5a0607a8bff87377aa3` | Chris's report; this session confirmed it equals the repository bytes on `main` `89e452c` (32 520 bytes) |
+| M1 | still `20261023210027` | Chris's report |
+| M3 | not applied | Chris's report |
+| Independent re-read | **not performed this round.** Chris asked for no backend commands; the Gate 2c preflight (§12, P1–P3) re-checks M2's post-image | — |
+
+The bytes are identical to the Gate 1-reviewed M2 except for the refusal-message re-pin made at Gate 3 preparation
+(`M1 (20261023210000 …)` → `M1 (20261023210027 …)`). M3 (`2da22c6f…`) is byte-identical to its Gate 1-reviewed
+version at every commit since.
+
+**Repository reconciliation (Gate 2b release-record PR, plan §G2b).**
+- M2 and its rollback were renamed from `pending/20261023210100_…` / `rollback/20261023210100_…` to
+  `20261023232435_…` with `git mv`. The forward bytes are unchanged; its line-58 comment still names the authored
+  rollback path, because applied bytes are immutable. The rollback changed in its first header comment only.
+- References were updated in the state helper, one `p0_profile_authorization.sql` comment and one
+  `hierarchy-stabilization.yml` comment.
+- **Runner static checks (CI version and checksum assertions):** for each applied hierarchy migration,
+  - exactly one top-level file, named after the recorded version;
+  - its SHA-256 equals the recorded statement's;
+  - no copy left in `pending/`.
+
+  M1 is pinned to `20261023210027` / `5d99c923…` and M2 to `20261023232435` / `7f2c61db…`. M3 must stay in `pending/`,
+  with no top-level copy.
+- **Mutation-tested:** a changed byte in M1, a changed byte in M2, M2 left in `pending/`, M2 under its old name, an
+  extra top-level M2 copy, M3 copied to the top level, and M3 moved out. All seven fail, and the unmodified tree
+  passes all four checks.
+
+**Local verification (PostgreSQL 16.15, CI mode, PostgREST 12.2.3).**
+- `scripts/run_hierarchy_stabilization_tests.sh` exited 0: "ALL HIERARCHY STABILIZATION PROOFS PASSED", **2750 PASS
+  lines** (one more than before: the M2 pin). Every count matched its pin:
+  - core 64/64/114/114/64/64/64;
+  - RLS 1043 and RPC 567;
+  - PostgREST forged requests 336;
+  - frontend compatibility 190.
+- The M3 stage passed:
+  - the unmodified file refuses the synthetic set;
+  - the right ids with production's target fingerprint are refused;
+  - a substituted copy repairs exactly 4 rows (one NOTICE each, path and `updated_at` only, 8 `set_claim` writes, no
+    UV/notification effect);
+  - the second run is a no-op;
+  - a re-parented stale set is refused.
+- `npx tsc --noEmit`: exit 0. No `src/` file changed.
+
+## 12. Gate 2c readiness — M3, the fingerprint-bound four-row repair (NOT APPLIED; needs Chris's separate approval)
+
+**What M3 does.** `supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql`, SHA-256
+`2da22c6f45163174c26b7edff75e73bb5a286ec9c87f12bfcabf3a0dc57a4c6b`, unchanged since the Gate 1 review:
+- It refuses unless M1's and M2's post-images are live (checked by digest, not version), and the data has no
+  self-parent, cross-organization edge or unreachable row.
+- With nothing stale it is a no-op. Otherwise it refuses unless the stale set is exactly the reviewed four rows (id
+  fingerprint `ddc1f53f3823c6e367310a748ea0ac85`) **and** their target paths are the reviewed ones (target
+  fingerprint `7daae418571600b43b7cf5d5155be0d4`).
+- It rewrites `hierarchy_path` on those four rows only: `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`. Triggers stamp
+  `updated_at`, and there is one NOTICE per row.
+- Postconditions (checked by M3 itself): 0 stale, 0 NULL, 0 missing and 0 extra pairs, and `path_pairs =
+  expected_pairs` (15/15 with today's 16 profiles). A second run is a no-op.
+- **Effect (plan §4):** it adds exactly 6 ancestor pairs and removes none.
+  - `f809493e→{4ef505e0, e5c4ee04, 89f2e994}`, `ecf2bb91→{89f2e994, 5f952f0d}` and `86ca95f2→5f952f0d`. `86ca95f2` is
+    Deleted and banned, and inert under M1.
+  - **Team Leader `f809493e` gains downline authority:**
+    - their leads and clients: SELECT, INSERT and UPDATE. Direct DELETE only with the Contacts delete toggle (default
+      off);
+    - their calls: SELECT, plus UPDATE of `flagged_for_coaching` and `notes` only, with no DELETE;
+    - their contact history;
+    - their profile rows, but not `commission_level` or account-control fields.
+
+  No access is withdrawn from anyone.
+
+**Invariant #28 elements Gate 2c needs.**
+1. **Separate exact approval:** `#APPROVE_RLS_CHANGE`, plus explicit approval of the four target rows and both
+   fingerprints.
+2. **Read-only preflight**, run immediately before the apply (below), with every result matching the expected
+   values.
+3. **Bounded targets:** 4 `public.profiles` rows, the `hierarchy_path` column only (`updated_at` by trigger).
+   - **Side writes:** `on_profile_update` makes 8 `set_claim` UPDATEs of `auth.users.raw_app_meta_data`, on the same
+     4 users. The values are unchanged, except that banned `5f952f0d` gains the missing `organization_id` and `role`
+     keys (plan §6.3).
+   - There is no `auth.users.updated_at` bump and no session, realtime, UV or notification effect.
+   - P5b records the keys' presence beforehand.
+4. **Recovery plan (plan §10):** operational revocation. An Admin reassigns the affected agents' upline (M2's triggers
+   re-derive paths immediately) or changes the Team Leader's role. Rolling back functions never removes granted
+   authority. There is no data inverse; a byte-exact restore would need an invariant #29 artifact, M2 rolled back
+   (while M2 is live, any path write is re-derived canonically) and its own approval.
+5. **Forensic snapshot** (`id8`, stored and target depth, `upline8`, status, `updated_at` of the four rows; P5 below),
+   recorded in this file before the apply.
+
+**Read-only preflight (SELECT-only; one session).** It was tested on the local S2 state. P2–P7 (with P2b and P5b) run
+there; P2b on S1 correctly reports the 6 functions and 3 triggers M2 had not yet created; P1 needs
+Supabase's history schema.
+
+```sql
+-- Gate 2c read-only preflight (hierarchy M3). SELECT-only; run immediately before applying M3, in one session.
+SET search_path TO "$user", public, extensions;
+-- P1 history of the three hierarchy migrations and the head
+SELECT 'P1' AS step, version, name, array_length(statements, 1) AS n_statements,
+       encode(sha256(convert_to(array_to_string(statements, ''), 'UTF8')), 'hex') AS sha256
+  FROM supabase_migrations.schema_migrations
+ WHERE name IN ('hierarchy_authorization_boundaries', 'hierarchy_integrity', 'hierarchy_path_repair')
+ ORDER BY version;
+SELECT 'P1h' AS step, max(version) AS head, count(*) AS migration_rows FROM supabase_migrations.schema_migrations;
+-- P2 the M1 + M2 post-image inventory as one hash (lines sorted with the C collation)
+SELECT 'P2' AS step, count(*) AS lines, md5(string_agg(line, E'\n' ORDER BY line COLLATE "C")) AS inventory_md5
+  FROM (
+WITH fns AS (
+  SELECT 'fn' AS kind, p.oid::regprocedure::text AS name,
+         md5(pg_get_functiondef(p.oid)) || '|secdef=' || p.prosecdef::text || '|vol=' || p.provolatile::text ||
+         '|cfg=' || coalesce(array_to_string(p.proconfig, ','), '') ||
+         '|owner=' || pg_get_userbyid(p.proowner) || '|acl=' || coalesce(array_to_string(p.proacl, ' '), 'NULL') AS v
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE (n.nspname, p.proname) IN (('public','is_ancestor_of'), ('profile_authz','actor_is_team_leader'),
+         ('profile_authz','actor_is_org_admin'), ('private','guard_profile_commission_level'),
+         ('private','guard_team_leader_downline_call_update'), ('private','guard_contact_organization_change'),
+         ('public','compute_hierarchy_path'), ('public','update_hierarchy_path'), ('public','cascade_hierarchy_update'),
+         ('public','on_profile_update'), ('profile_authz','can_update_profile'), ('public','has_contacts_permission'),
+         ('private','build_hierarchy_path'), ('private','lock_profile_hierarchy'),
+         ('private','validate_invitation_upline'), ('private','hierarchy_consistency'))
+), pols AS (
+  SELECT 'policy' AS kind, c.relname || '.' || pol.polname AS name,
+         'permissive=' || pol.polpermissive::text || '|cmd=' || pol.polcmd::text || '|roles=' ||
+         coalesce(array_to_string(ARRAY(SELECT CASE WHEN r = 0 THEN 'public' ELSE r::regrole::text END
+                                          FROM unnest(pol.polroles) r ORDER BY 1), ','), '') ||
+         '|qual=' || md5(coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')) ||
+         '|check=' || md5(coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '')) AS v
+    FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid
+   WHERE pol.polname IN ('leads_tl_delete_requires_contacts_permission', 'clients_tl_delete_requires_contacts_permission',
+                         'recruits_tl_delete_requires_contacts_permission', 'calls_delete_own_rows_or_org_admin',
+                         'tasks_select_team_leader')
+      OR pol.oid IN (SELECT objid FROM pg_depend WHERE classid = 'pg_policy'::regclass
+                        AND refobjid = 'public.is_ancestor_of(uuid,uuid)'::regprocedure)
+), trgs AS (
+  SELECT 'trigger' AS kind, c.relname || '.' || t.tgname AS name,
+         md5(pg_get_triggerdef(t.oid)) || '|enabled=' || t.tgenabled::text AS v
+    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+   WHERE NOT t.tgisinternal AND c.relnamespace = 'public'::regnamespace
+     AND (c.relname = 'profiles' OR t.tgname IN ('trg_validate_invitation_upline', 'calls_00_guard_team_leader_downline_update',
+                                                'contacts_00_guard_organization_change',
+                                                'clients_lead_conversion_guard', 'clients_policy_identity'))
+), idx AS (
+  SELECT 'index' AS kind, indexrelid::regclass::text AS name, md5(pg_get_indexdef(indexrelid)) AS v
+    FROM pg_index WHERE indexrelid = to_regclass('public.idx_profiles_upline_id')
+), dep AS (
+  SELECT 'meta' AS kind, 'is_ancestor_of_dependent_policies' AS name,
+         (SELECT count(DISTINCT objid) FROM pg_depend WHERE classid = 'pg_policy'::regclass
+             AND refobjid = 'public.is_ancestor_of(uuid,uuid)'::regprocedure)::text AS v
+)
+SELECT kind || ' ' || name || ' ' || v AS line
+  FROM (SELECT * FROM fns UNION ALL SELECT * FROM pols UNION ALL SELECT * FROM trgs UNION ALL SELECT * FROM idx
+        UNION ALL SELECT * FROM dep) x
+ ORDER BY 1
+  ) inv;
+-- P2b M3's own preconditions, run read-only (the same digests, triggers and policy set M3 checks before it writes)
+WITH fns(fn, digest) AS (VALUES
+      ('public.is_ancestor_of(uuid,uuid)', 'c6d121db50b7ea2e37ce4a620cc855af'),
+      ('profile_authz.actor_is_team_leader()', 'bbc07ccb69be5c0eed098e17bd9d191d'),
+      ('profile_authz.actor_is_org_admin(uuid)', 'c64ef188736fae1b90dc7e6a8d29e04f'),
+      ('private.guard_profile_commission_level()', 'cc306236935837d49ff89540bb8dff89'),
+      ('private.guard_team_leader_downline_call_update()', '454ee627b8df12d5e7f9acc6d526288e'),
+      ('private.guard_contact_organization_change()', 'dc72173fb9d9c786a63af8ed193f5ef6'),
+      ('private.build_hierarchy_path(uuid,uuid,uuid,boolean)', 'fecfc2995febeb119f0bc5b862e16500'),
+      ('public.compute_hierarchy_path(uuid)', '058bb6b37b152aec062c87f8ac929425'),
+      ('private.lock_profile_hierarchy()', '559344d1b35aafaa3567405269b34989'),
+      ('public.update_hierarchy_path()', 'f892eb620cdf4d146a112e5b66783d6b'),
+      ('public.cascade_hierarchy_update()', 'e26ddd18e96bffec29d440280176ca2a'),
+      ('private.hierarchy_consistency()', 'e1984a07ba5c76004d5f9290d49f2834'),
+      ('public.enforce_profile_field_authorization()', 'b9b4c345b470c94923cddace49cd1d5b')),
+trg(tbl, name, digest) AS (VALUES
+      ('public.profiles', 'trg_01_guard_profile_commission_level', 'a85d3c1edb2ce795b391b780de7bc413'),
+      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65'),
+      ('public.profiles', 'trg_update_hierarchy_path', '41c39a180f8715ab543c6a02af00eaf3'),
+      ('public.profiles', 'trg_cascade_hierarchy_update', '9540c1a57f6878f9e1b625840c261085'),
+      ('public.profiles', 'trg_update_hierarchy_path_lock', '69081184456094326ffbd0b34942e7c1'),
+      ('public.profiles', 'trg_00_enforce_profile_field_authorization', 'fc02958ebc6986a60bda53127323bb7c'),
+      ('public.leads', 'contacts_00_guard_organization_change', 'e04378078c3e0f31b889a559acfc4519'),
+      ('public.clients', 'contacts_00_guard_organization_change', '4566b07550a98655bd381f9626738767'),
+      ('public.recruits', 'contacts_00_guard_organization_change', '387528f7702e1a276a0bbee1e64e62ab')),
+fn_bad AS (SELECT fn FROM fns
+            WHERE to_regprocedure(fn) IS NULL OR md5(pg_get_functiondef(to_regprocedure(fn))) <> digest),
+trg_bad AS (SELECT trg.name || ' on ' || trg.tbl AS t FROM trg
+             WHERE NOT EXISTS (SELECT 1 FROM pg_trigger x
+                                WHERE x.tgrelid = trg.tbl::regclass AND x.tgname = trg.name AND x.tgenabled = 'O'
+                                  AND md5(pg_get_triggerdef(x.oid)) = trg.digest)),
+pol AS (SELECT string_agg(p.polname, ',' ORDER BY p.polname COLLATE "C") AS v FROM pg_policy p
+         WHERE NOT p.polpermissive AND p.polcmd = 'd' AND p.polroles = ARRAY['authenticated'::regrole::oid]
+           AND p.polrelid IN ('public.leads'::regclass, 'public.clients'::regclass,
+                              'public.recruits'::regclass, 'public.calls'::regclass))
+SELECT 'P2b' AS step,
+       (SELECT count(*) FROM fn_bad) AS functions_not_reviewed, (SELECT string_agg(fn, ', ') FROM fn_bad) AS bad_functions,
+       (SELECT count(*) FROM trg_bad) AS triggers_not_reviewed, (SELECT string_agg(t, ', ') FROM trg_bad) AS bad_triggers,
+       (SELECT v FROM pol) = 'calls_delete_own_rows_or_org_admin,clients_tl_delete_requires_contacts_permission,'
+                             'leads_tl_delete_requires_contacts_permission,recruits_tl_delete_requires_contacts_permission'
+         AS restrictive_delete_policies_ok;
+-- P3 consistency report
+SELECT 'P3' AS step, * FROM private.hierarchy_consistency();
+-- P4 the stale set and both fingerprints M3 requires
+WITH RECURSIVE canon(id, path, visited) AS (
+    SELECT p.id, public.text2ltree(replace(p.id::text, '-', '_')), ARRAY[p.id] FROM public.profiles p WHERE p.upline_id IS NULL
+    UNION ALL
+    SELECT c.id, k.path || public.text2ltree(replace(c.id::text, '-', '_')), k.visited || c.id
+      FROM canon k JOIN public.profiles c ON c.upline_id = k.id WHERE c.id <> ALL (k.visited))
+SELECT 'P4' AS step, count(*) AS stale, md5(string_agg(p.id::text, ',' ORDER BY p.id)) AS id_fingerprint,
+       md5(string_agg(p.id::text || '=' || c.path::text, ',' ORDER BY p.id)) AS target_fingerprint
+  FROM public.profiles p JOIN canon c ON c.id = p.id WHERE p.hierarchy_path IS DISTINCT FROM c.path;
+-- P5 forensic snapshot of the four rows (8-character prefixes only), recorded in verification.md before applying
+WITH RECURSIVE canon(id, path, visited) AS (
+    SELECT p.id, public.text2ltree(replace(p.id::text, '-', '_')), ARRAY[p.id] FROM public.profiles p WHERE p.upline_id IS NULL
+    UNION ALL
+    SELECT c.id, k.path || public.text2ltree(replace(c.id::text, '-', '_')), k.visited || c.id
+      FROM canon k JOIN public.profiles c ON c.upline_id = k.id WHERE c.id <> ALL (k.visited))
+SELECT 'P5' AS step, left(p.id::text, 8) AS id8, public.nlevel(p.hierarchy_path) AS stored_depth,
+       public.nlevel(c.path) AS target_depth, left(p.upline_id::text, 8) AS upline8, p.status, p.updated_at
+  FROM public.profiles p JOIN canon c ON c.id = p.id WHERE p.hierarchy_path IS DISTINCT FROM c.path ORDER BY 2;
+-- P5b the claim keys M3's on_profile_update side writes touch (booleans only), part of the forensic snapshot
+SELECT 'P5b' AS step, left(u.id::text, 8) AS id8, u.raw_app_meta_data ? 'organization_id' AS has_org_key,
+       u.raw_app_meta_data ? 'role' AS has_role_key
+  FROM auth.users u WHERE left(u.id::text, 8) IN ('4ef505e0', '5f952f0d', '89f2e994', 'e5c4ee04') ORDER BY 2;
+-- P6 Team Leader f809493e: descendants recognised today vs by the upline walk
+WITH RECURSIVE tl AS (SELECT id FROM public.profiles WHERE id::text LIKE 'f809493e%'),
+walk(id, visited) AS (
+    SELECT p.id, ARRAY[p.id] FROM public.profiles p JOIN tl ON p.upline_id = tl.id
+    UNION ALL
+    SELECT c.id, w.visited || c.id FROM walk w JOIN public.profiles c ON c.upline_id = w.id WHERE c.id <> ALL (w.visited))
+SELECT 'P6' AS step,
+       (SELECT count(*) FROM public.profiles d, tl WHERE d.id <> tl.id AND public.is_ancestor_of(tl.id, d.id)) AS recognised_now,
+       (SELECT count(*) FROM walk) AS upline_walk_descendants,
+       (SELECT string_agg(left(id::text, 8), ',' ORDER BY id::text) FROM walk) AS walk_ids8;
+-- P7 re-measure plan §4: rows owned by f809493e's upline-walk descendants (they become reachable after M3)
+WITH RECURSIVE tl AS (SELECT id, organization_id FROM public.profiles WHERE id::text LIKE 'f809493e%'),
+walk(id, visited) AS (
+    SELECT p.id, ARRAY[p.id] FROM public.profiles p JOIN tl ON p.upline_id = tl.id
+    UNION ALL
+    SELECT c.id, w.visited || c.id FROM walk w JOIN public.profiles c ON c.upline_id = w.id WHERE c.id <> ALL (w.visited)),
+l AS (SELECT x.id FROM public.leads x, tl WHERE x.organization_id = tl.organization_id AND x.user_id IN (SELECT id FROM walk)),
+c AS (SELECT x.id FROM public.clients x, tl WHERE x.organization_id = tl.organization_id AND x.assigned_agent_id IN (SELECT id FROM walk))
+SELECT 'P7' AS step,
+       (SELECT count(*) FROM l) AS leads_by_user_id,
+       (SELECT count(*) FROM c) AS clients_by_assigned_agent,
+       (SELECT count(*) FROM public.calls x, tl WHERE x.organization_id = tl.organization_id AND x.agent_id IN (SELECT id FROM walk)) AS calls_by_agent,
+       (SELECT count(*) FROM public.contact_history_events e WHERE e.contact_id IN (SELECT id FROM l UNION ALL SELECT id FROM c)) AS history_events_on_those_contacts;
+```
+
+**Expected results.**
+
+| Step | Expected | Stop if |
+|---|---|---|
+| P1 | `20261023210027 hierarchy_authorization_boundaries` with SHA-256 `5d99c923…`, and `20261023232435 hierarchy_integrity` with SHA-256 `7f2c61db…`, one statement each; no `hierarchy_path_repair` row; head `20261023232435` and 345 rows, unless another separately approved migration has landed since | any hierarchy row differs or M3 is recorded |
+| P2 | `49` lines, `inventory_md5 = f01ab3483fb26104607f571d80ec4ff3`: the M1 and M2 post-image, identical to the local S2 built from the applied files (lines below) | different hash. Compare line by line with the list below; any difference is reviewed before going on |
+| P2b | `functions_not_reviewed 0`, `triggers_not_reviewed 0`, `restrictive_delete_policies_ok true`. These are exactly M3's own preconditions, so a difference here means M3 would refuse | any non-zero count or `false`. The named object differs from the reviewed post-image |
+| P3 | **Invariants, all strict:** `missing_pairs 6, extra_pairs 0, stale_paths 4, null_paths 0, self_parents 0, cross_org_edges 0, unreachable 0`, and `expected_pairs − path_pairs = 6`. **Sizes on 2026-10-23:** profiles 16, edges 11, expected_pairs 15, path_pairs 9. Larger sizes are acceptable only when explained by new members outside `f809493e`'s branch: M2 derives their paths correctly, and P6 pins that branch. Record the actual sizes | any invariant differs, or growth that new members outside the branch do not explain |
+| P4 | `stale 4`, `id_fingerprint ddc1f53f3823c6e367310a748ea0ac85`, `target_fingerprint 7daae418571600b43b7cf5d5155be0d4` | different values: M3 would refuse; the stale set must be re-reviewed |
+| P5 | four rows, `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`; record them here as the forensic snapshot | a different set |
+| P5b | four rows. Plan §6.3 says `5f952f0d` lacks the `organization_id` / `role` keys (M3's side write adds them) and the other three have them. Record the actual booleans | a row missing |
+| P6 | `recognised_now 0`, `upline_walk_descendants 3`, `walk_ids8 4ef505e0,89f2e994,e5c4ee04` | `recognised_now > 0`, which means authority was activated outside the reviewed repair |
+| P7 | re-measures plan §4. On 2026-10-23 that was +132 leads, +10 clients, +4,590 calls, +86 history events. Growth from normal work is expected. P7 counts history events by contact ownership, so a small definitional difference from §4's +86 is explained, not blocking | a decrease in leads, clients or calls, or new owners: review before applying |
+
+Also run `get_advisors(security)`. Expected after M2: anon-executable SECURITY DEFINER 52, authenticated-executable
+134, mutable search_path 21. The `on_profile_update` entries clear at M2; no new hierarchy entry appears.
+
+<details><summary>Expected P2 inventory lines (local S2 = M1 + M2 applied from the repository files; C-collated)</summary>
+
+```
+fn cascade_hierarchy_update() e26ddd18e96bffec29d440280176ca2a|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres service_role=X/postgres
+fn compute_hierarchy_path(uuid) 058bb6b37b152aec062c87f8ac929425|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres service_role=X/postgres
+fn has_contacts_permission(text) b656907ca141c08a9ba9f5c867c42b6a|secdef=true|vol=s|cfg=search_path=public, pg_temp|owner=postgres|acl=postgres=X/postgres authenticated=X/postgres service_role=X/postgres
+fn is_ancestor_of(uuid,uuid) c6d121db50b7ea2e37ce4a620cc855af|secdef=true|vol=s|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres authenticated=X/postgres service_role=X/postgres
+fn on_profile_update() 0afa0358aca12d396b9ae50c292bca6f|secdef=true|vol=v|cfg=search_path=public, pg_temp|owner=postgres|acl=postgres=X/postgres service_role=X/postgres
+fn private.build_hierarchy_path(uuid,uuid,uuid,boolean) fecfc2995febeb119f0bc5b862e16500|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.guard_contact_organization_change() dc72173fb9d9c786a63af8ed193f5ef6|secdef=false|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.guard_profile_commission_level() cc306236935837d49ff89540bb8dff89|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.guard_team_leader_downline_call_update() 454ee627b8df12d5e7f9acc6d526288e|secdef=false|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.hierarchy_consistency() e1984a07ba5c76004d5f9290d49f2834|secdef=true|vol=s|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.lock_profile_hierarchy() 559344d1b35aafaa3567405269b34989|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn private.validate_invitation_upline() 76f71d54f2ff396080616581f442c87c|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres
+fn profile_authz.actor_is_org_admin(uuid) c64ef188736fae1b90dc7e6a8d29e04f|secdef=true|vol=s|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres authenticated=X/postgres
+fn profile_authz.actor_is_team_leader() bbc07ccb69be5c0eed098e17bd9d191d|secdef=true|vol=s|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres authenticated=X/postgres
+fn profile_authz.can_update_profile(uuid) c9761a65a963c45cb7aa6dc178bfde36|secdef=true|vol=s|cfg=search_path=public, pg_temp|owner=postgres|acl=postgres=X/postgres authenticated=X/postgres
+fn update_hierarchy_path() f892eb620cdf4d146a112e5b66783d6b|secdef=true|vol=v|cfg=search_path=pg_catalog, public, pg_temp|owner=postgres|acl=postgres=X/postgres service_role=X/postgres
+index idx_profiles_upline_id 6200ef769341b8b0667f0716e6101081
+meta is_ancestor_of_dependent_policies 10
+policy calls.Calls Hierarchical Delete permissive=true|cmd=d|roles=authenticated|qual=37497d04aa864ed0d6b80d2ab0a01810|check=d41d8cd98f00b204e9800998ecf8427e
+policy calls.Calls Hierarchical Insert permissive=true|cmd=a|roles=authenticated|qual=d41d8cd98f00b204e9800998ecf8427e|check=983d0bbf7a63d66586402747d60138d0
+policy calls.Calls Hierarchical Select permissive=true|cmd=r|roles=authenticated|qual=11a30ab26c1dc348d1125863fd71a6fd|check=d41d8cd98f00b204e9800998ecf8427e
+policy calls.Calls Hierarchical Update permissive=true|cmd=w|roles=authenticated|qual=37497d04aa864ed0d6b80d2ab0a01810|check=983d0bbf7a63d66586402747d60138d0
+policy calls.calls_delete_own_rows_or_org_admin permissive=false|cmd=d|roles=authenticated|qual=ae4bdbb08b4dfebc1f72c6759f84785f|check=d41d8cd98f00b204e9800998ecf8427e
+policy clients.Clients Hierarchical Access permissive=true|cmd=*|roles=authenticated|qual=6bc2d03ca69f509d66711ec272b223e8|check=6bc2d03ca69f509d66711ec272b223e8
+policy clients.clients_tl_delete_requires_contacts_permission permissive=false|cmd=d|roles=authenticated|qual=b9b6c708202d5db1a3aa345621b108cc|check=d41d8cd98f00b204e9800998ecf8427e
+policy contact_emails.contact_emails_select permissive=true|cmd=r|roles=authenticated|qual=795bda19a5048190ff71471b375c4a0f|check=d41d8cd98f00b204e9800998ecf8427e
+policy leads.Leads Hierarchical Access permissive=true|cmd=*|roles=authenticated|qual=4db40edfe28246948621a7c90b7b4309|check=4db40edfe28246948621a7c90b7b4309
+policy leads.leads_tl_delete_requires_contacts_permission permissive=false|cmd=d|roles=authenticated|qual=3fc00bba927c58f93d681265c8dc7124|check=d41d8cd98f00b204e9800998ecf8427e
+policy profiles.profiles_select_hierarchical permissive=true|cmd=r|roles=authenticated|qual=5234dd30570f6c000db0ed918c53621f|check=d41d8cd98f00b204e9800998ecf8427e
+policy recruits.Recruits Hierarchical Access permissive=true|cmd=*|roles=authenticated|qual=6bc2d03ca69f509d66711ec272b223e8|check=6bc2d03ca69f509d66711ec272b223e8
+policy recruits.recruits_tl_delete_requires_contacts_permission permissive=false|cmd=d|roles=authenticated|qual=bd825cc1e1e085499e5d22318254567e|check=d41d8cd98f00b204e9800998ecf8427e
+policy tasks.tasks_select_team_leader permissive=true|cmd=r|roles=authenticated|qual=99b43cc5f9de132a3fa76f5ab0188f3e|check=d41d8cd98f00b204e9800998ecf8427e
+trigger calls.calls_00_guard_team_leader_downline_update ae888acb2d2139410e346827ec999c65|enabled=O
+trigger clients.clients_lead_conversion_guard a240a08cc6d1cb8521c761f1f680e739|enabled=O
+trigger clients.clients_policy_identity a240538599f6feeff661a86d401c005f|enabled=O
+trigger clients.contacts_00_guard_organization_change 4566b07550a98655bd381f9626738767|enabled=O
+trigger invitations.trg_validate_invitation_upline c393c409a3d428287db81f720c0a0065|enabled=O
+trigger leads.contacts_00_guard_organization_change e04378078c3e0f31b889a559acfc4519|enabled=O
+trigger profiles.on_profile_update_trigger 3a263cfd07d006faf8ee054842f785a7|enabled=O
+trigger profiles.profiles_updated_at 8dc89bf1e11c8e19fc11aaaa220640a1|enabled=O
+trigger profiles.trg_00_enforce_profile_field_authorization fc02958ebc6986a60bda53127323bb7c|enabled=O
+trigger profiles.trg_01_guard_profile_commission_level a85d3c1edb2ce795b391b780de7bc413|enabled=O
+trigger profiles.trg_cascade_hierarchy_update 9540c1a57f6878f9e1b625840c261085|enabled=O
+trigger profiles.trg_update_hierarchy_path 41c39a180f8715ab543c6a02af00eaf3|enabled=O
+trigger profiles.trg_update_hierarchy_path_lock 69081184456094326ffbd0b34942e7c1|enabled=O
+trigger profiles.trg_zz_platform_admin_notify_user_registered b0225cf3906ab258d4fad48728565b30|enabled=O
+trigger profiles.uv_profile_deleted 16cb310e99ab92eb2aee766ff3fd1c95|enabled=O
+trigger profiles.uv_profile_saved 1019dbecc18f15bc55524d6f41b6fab6|enabled=O
+trigger recruits.contacts_00_guard_organization_change 387528f7702e1a276a0bbee1e64e62ab|enabled=O
+```
+
+</details>
+
+**Apply and verify (only after approval).**
+1. `apply_migration` with the exact bytes of the pending file (SHA-256 `2da22c6f…`), and no error.
+   - If the tool shows NOTICEs, expect 4 per-row NOTICEs plus one summary NOTICE ("4 row(s) repaired; N of N
+     expected ancestor pairs present").
+   - The read-back below is authoritative.
+   - A lock timeout is retryable.
+2. Read back:
+   - `private.hierarchy_consistency()` gives `stale_paths 0, null_paths 0, missing_pairs 0, extra_pairs 0` and
+     `path_pairs = expected_pairs` (15 with today's 16 profiles);
+   - P6 gives `recognised_now 3`;
+   - P4 gives `stale 0`;
+   - the history row holds one statement with SHA-256 `2da22c6f…`;
+   - the advisors are unchanged.
+3. Release-record PR: move M3 to its recorded version with `git mv`, bytes unchanged. Change the runner's M3 check to
+   `pin_applied M3 …`, and fail if any hierarchy migration remains in `pending/`.
+4. Monitor `f809493e`'s first sessions. Delete actions stay toggle-gated, and call edits are limited to coaching flag
+   and notes (M1).
+
+**Until Gate 2c (D14).**
+- Make no real reassignments in `f809493e`'s branch, and no moves of `ecf2bb91` / `86ca95f2`.
+- Send **no invitations, by anyone, whose upline is `f809493e` or a member of its branch**.
+
+With M2 live these derive correct paths, so they would activate authority before review.
+- Moving one of the 4 stale rows or one of their ancestors changes the fingerprints, so M3 refuses.
+- An invitation, or a move into `f809493e`'s branch, leaves both fingerprints unchanged. It is caught only by the
+  preflight (P6 `recognised_now > 0` or a larger walk, and P3), and Gate 2c must then be re-reviewed.

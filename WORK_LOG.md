@@ -1,3 +1,56 @@
+## 2026-10-23 — Hierarchy Stabilization: GATE 3 and GATE 2b RELEASED (frontend `89e452c`, M2 live as `20261023232435`); Gate 2b release record on a draft PR; M3 (Gate 2c) NOT applied
+
+**Gate 3 (frontend).**
+- Chris merged PR #485 as `89e452c`; its tree is identical to the reviewed head `97ef36d`.
+- This session verified read-only at 23:05–23:11 UTC:
+  - `agentflow` `dpl_HLo8CYs8uaxrBvGUveaeJMkD7dPP` and `agentflow-life-insure` `dpl_GHgG7xHmFBiX5hYcTKdh4bdyrxCS` are READY
+    at that SHA, with the production aliases (`www.fflagent.com`, `agentflow-life-insure.vercel.app`) on them;
+  - the database was unchanged by the merge (head `20261023210027`, no M2/M3).
+- Rollback targets: `dpl_ApSgSsRRXpzDRJpFDWUtBPJg4tqW` / `dpl_Ho62Md54pbAJYXAocLtYhxBqEGsV`.
+- Served assets could not be fetched: the container's proxy refuses the hosts.
+
+**Gate 2b (M2).**
+- Chris had M2 applied and verified through a separate session: `20261023232435 / hierarchy_integrity`, SHA-256
+  `7f2c61dbdfdd39938d424bc26e024c81c823a5a41692c5a0607a8bff87377aa3`; M1 unchanged, M3 not applied.
+- This session confirmed the SHA-256 equals the repository bytes. It ran no backend command, at Chris's instruction.
+  The Gate 2c preflight re-checks M2's post-image.
+
+**Release record (draft PR; plan rev 6 §G2b lists the files).**
+- M2 and its rollback were renamed from `pending/20261023210100_…` / `rollback/20261023210100_…` to
+  `20261023232435_…` with `git mv`, the forward
+  bytes unchanged. The rollback changed in its header comment only.
+- References were updated (state helper, one p0 test comment, one workflow comment).
+- The runner's static stage now pins every applied hierarchy migration (one top-level file at the recorded version,
+  recorded SHA-256, no copy in `pending/`): M1 `5d99c923…` and M2 `7f2c61db…`. It fails if M3 leaves `pending/`.
+  Mutation-tested: 7 of 7 mutants fail.
+- **Docs:** plan rev 6, verification §11 (Gate 3 and 2b record) and §12 (Gate 2c readiness), the root plan, and the
+  AGENT_RULES hierarchy status (flagged as release-record status only).
+- No frontend, workflow-logic or other migration change. M3 is byte-identical and still in `pending/`.
+
+**Verification.**
+- Local runner (PostgreSQL 16.15, PostgREST 12.2.3, CI mode): exit 0, **2750 PASS lines**. Every count is at its pin
+  (compatibility 190, forged 336), and the M3 stage passes.
+- `npx tsc --noEmit`: exit 0.
+- The Gate 2c read-only preflight was tested on the local S2 state: P2–P7, with P2b (M3's own preconditions) and P5b.
+  P1 needs Supabase's history schema. The M1 + M2 post-image inventory hash is
+  `f01ab3483fb26104607f571d80ec4ff3` (49 lines).
+
+**Context snapshot.**
+- Decisions:
+  - M2's applied bytes are immutable; the repository file now carries its recorded version.
+  - M3 stays in `pending/` and byte-identical (`2da22c6f…`).
+  - Gate 2c needs `#APPROVE_RLS_CHANGE`, explicit approval of the four rows and both fingerprints, the §12 preflight,
+    the forensic snapshot and the operational-revocation recovery plan.
+- Migrations: production M1 `20261023210027` and M2 `20261023232435` (head per Chris). M3
+  `pending/20261023210200` NOT applied.
+- Deploys: frontend `89e452c` live on both Vercel projects. No other deploy.
+- Blockers for Gate 2c: Chris's separate approval; the read-only preflight immediately before the apply.
+- Next: review and merge of this release-record PR, which needs Chris's approval; then Gate 2c.
+- D14 until Gate 2c: no real reassignments in `f809493e`'s branch, no moves of `ecf2bb91` / `86ca95f2`, and no
+  invitations, by anyone, whose upline is `f809493e` or a member of its branch.
+
+---
+
 ## 2026-10-23 — Hierarchy Stabilization: GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend PREPARED on PR #485 (NOT merged, NOT deployed; M2/M3 NOT applied)
 
 **Gate 2a.** Chris had M1 applied and verified in production through a separate (ChatGPT) session; this session did

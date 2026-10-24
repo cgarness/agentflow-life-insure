@@ -1,4 +1,27 @@
-## 2026-10-23 — GATE 2a RELEASED (M1 live as `20261023210027`); Gate 3 frontend prepared on PR #485, awaiting approval: Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+## 2026-10-23 — GATES 2a, 3 AND 2b RELEASED (M1 `20261023210027`, frontend `89e452c`, M2 `20261023232435`); Gate 2b release record on a draft PR; M3 (Gate 2c) awaiting separate approval: Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
+
+**Gate 3 (released).** PR #485 merged as `89e452c`. Both Vercel production projects are READY at that SHA with the
+production aliases on them, and the database was unchanged by the merge (verified read-only at 23:05–23:11 UTC).
+
+**Gate 2b (released).** Chris had M2 applied and verified through a separate session.
+- Recorded as `20261023232435 / hierarchy_integrity` with SHA-256 `7f2c61db…`, which equals the repository bytes.
+- This session ran no backend command this round.
+
+**Gate 2b release record (draft PR, this branch restarted from `main` `89e452c`).**
+- M2 and its rollback are renamed from `pending/20261023210100_…` / `rollback/20261023210100_…` to
+  `20261023232435_…`, with the forward bytes
+  unchanged.
+- References are updated. The runner pins M1 and M2 (recorded version and SHA-256, no copy in `pending/`), and fails
+  if M3 leaves `pending/`.
+- The docs are updated. No frontend, workflow-logic or other migration change.
+
+**Gate 2c (M3, fingerprint-bound four-row repair) is NOT applied.** It needs Chris's separate approval with
+`#APPROVE_RLS_CHANGE` and the invariant #28 elements. The readiness package is `verification.md` §12.
+
+---
+
+**Gate 2a / Gate 3 preparation record (superseded status):**
+
 
 **Gate 2a (released).** Chris had M1 applied and verified in production through a separate (ChatGPT) session.
 - Recorded as `20261023210027 / hierarchy_authorization_boundaries`: 1 statement with SHA-256 `5d99c923…`, byte-identical

@@ -1,4 +1,8 @@
--- Rollback for migrations/pending/20261023210100_hierarchy_integrity.sql (hierarchy stabilization M2).
+-- Rollback for 20261023232435_hierarchy_integrity.sql (hierarchy stabilization M2). M2 was authored as
+-- pending/20261023210100 and applied to production at Gate 2b (2026-10-23), where it is recorded as
+-- 20261023232435 / hierarchy_integrity. Both files were renamed to that version with the forward bytes unchanged
+-- (SHA-256 7f2c61dbdfdd39938d424bc26e024c81c823a5a41692c5a0607a8bff87377aa3). The applied forward file's own
+-- "Rollback:" comment still names the authored path; this file is the one it means.
 -- Plan: docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md §10. Production use requires Chris's
 -- separate explicit approval. Reads and writes no rows.
 --
