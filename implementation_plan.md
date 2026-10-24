@@ -8,7 +8,8 @@ production aliases on them, and the database was unchanged by the merge (verifie
 - This session ran no backend command this round.
 
 **Gate 2b release record (draft PR, this branch restarted from `main` `89e452c`).**
-- M2 and its rollback are renamed from `pending/20261023210100_…` to `20261023232435_…`, with the forward bytes
+- M2 and its rollback are renamed from `pending/20261023210100_…` / `rollback/20261023210100_…` to
+  `20261023232435_…`, with the forward bytes
   unchanged.
 - References are updated. The runner pins M1 and M2 (recorded version and SHA-256, no copy in `pending/`), and fails
   if M3 leaves `pending/`.

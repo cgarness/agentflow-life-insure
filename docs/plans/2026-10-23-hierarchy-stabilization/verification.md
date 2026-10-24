@@ -390,7 +390,8 @@ version at every commit since.
   fingerprint `7daae418571600b43b7cf5d5155be0d4`).
 - It rewrites `hierarchy_path` on those four rows only: `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`. Triggers stamp
   `updated_at`, and there is one NOTICE per row.
-- Postconditions: 0 stale, 15/15 ancestor pairs, consistency clean. A second run is a no-op.
+- Postconditions (checked by M3 itself): 0 stale, 0 NULL, 0 missing and 0 extra pairs, and `path_pairs =
+  expected_pairs` (15/15 with today's 16 profiles). A second run is a no-op.
 - **Effect (plan §4):** it adds exactly 6 ancestor pairs and removes none.
   - `f809493e→{4ef505e0, e5c4ee04, 89f2e994}`, `ecf2bb91→{89f2e994, 5f952f0d}` and `86ca95f2→5f952f0d`. `86ca95f2` is
     Deleted and banned, and inert under M1.
@@ -408,15 +409,21 @@ version at every commit since.
    fingerprints.
 2. **Read-only preflight**, run immediately before the apply (below), with every result matching the expected
    values.
-3. **Bounded targets:** 4 rows, the `hierarchy_path` column only (`updated_at` by trigger).
+3. **Bounded targets:** 4 `public.profiles` rows, the `hierarchy_path` column only (`updated_at` by trigger).
+   - **Side writes:** `on_profile_update` makes 8 `set_claim` UPDATEs of `auth.users.raw_app_meta_data`, on the same
+     4 users. The values are unchanged, except that banned `5f952f0d` gains the missing `organization_id` and `role`
+     keys (plan §6.3).
+   - There is no `auth.users.updated_at` bump and no session, realtime, UV or notification effect.
+   - P5b records the keys' presence beforehand.
 4. **Recovery plan (plan §10):** operational revocation. An Admin reassigns the affected agents' upline (M2's triggers
    re-derive paths immediately) or changes the Team Leader's role. Rolling back functions never removes granted
-   authority. There is no data inverse; a byte-exact restore would need an invariant #29 artifact and its own
-   approval.
+   authority. There is no data inverse; a byte-exact restore would need an invariant #29 artifact, M2 rolled back
+   (while M2 is live, any path write is re-derived canonically) and its own approval.
 5. **Forensic snapshot** (`id8`, stored and target depth, `upline8`, status, `updated_at` of the four rows; P5 below),
    recorded in this file before the apply.
 
-**Read-only preflight (SELECT-only; one session).** It was tested on the local S2 state, where P2–P7 run and P1 needs
+**Read-only preflight (SELECT-only; one session).** It was tested on the local S2 state. P2–P7 (with P2b and P5b) run
+there; P2b on S1 correctly reports the 6 functions and 3 triggers M2 had not yet created; P1 needs
 Supabase's history schema.
 
 ```sql
@@ -479,6 +486,47 @@ SELECT kind || ' ' || name || ' ' || v AS line
         UNION ALL SELECT * FROM dep) x
  ORDER BY 1
   ) inv;
+-- P2b M3's own preconditions, run read-only (the same digests, triggers and policy set M3 checks before it writes)
+WITH fns(fn, digest) AS (VALUES
+      ('public.is_ancestor_of(uuid,uuid)', 'c6d121db50b7ea2e37ce4a620cc855af'),
+      ('profile_authz.actor_is_team_leader()', 'bbc07ccb69be5c0eed098e17bd9d191d'),
+      ('profile_authz.actor_is_org_admin(uuid)', 'c64ef188736fae1b90dc7e6a8d29e04f'),
+      ('private.guard_profile_commission_level()', 'cc306236935837d49ff89540bb8dff89'),
+      ('private.guard_team_leader_downline_call_update()', '454ee627b8df12d5e7f9acc6d526288e'),
+      ('private.guard_contact_organization_change()', 'dc72173fb9d9c786a63af8ed193f5ef6'),
+      ('private.build_hierarchy_path(uuid,uuid,uuid,boolean)', 'fecfc2995febeb119f0bc5b862e16500'),
+      ('public.compute_hierarchy_path(uuid)', '058bb6b37b152aec062c87f8ac929425'),
+      ('private.lock_profile_hierarchy()', '559344d1b35aafaa3567405269b34989'),
+      ('public.update_hierarchy_path()', 'f892eb620cdf4d146a112e5b66783d6b'),
+      ('public.cascade_hierarchy_update()', 'e26ddd18e96bffec29d440280176ca2a'),
+      ('private.hierarchy_consistency()', 'e1984a07ba5c76004d5f9290d49f2834'),
+      ('public.enforce_profile_field_authorization()', 'b9b4c345b470c94923cddace49cd1d5b')),
+trg(tbl, name, digest) AS (VALUES
+      ('public.profiles', 'trg_01_guard_profile_commission_level', 'a85d3c1edb2ce795b391b780de7bc413'),
+      ('public.calls', 'calls_00_guard_team_leader_downline_update', 'ae888acb2d2139410e346827ec999c65'),
+      ('public.profiles', 'trg_update_hierarchy_path', '41c39a180f8715ab543c6a02af00eaf3'),
+      ('public.profiles', 'trg_cascade_hierarchy_update', '9540c1a57f6878f9e1b625840c261085'),
+      ('public.profiles', 'trg_update_hierarchy_path_lock', '69081184456094326ffbd0b34942e7c1'),
+      ('public.profiles', 'trg_00_enforce_profile_field_authorization', 'fc02958ebc6986a60bda53127323bb7c'),
+      ('public.leads', 'contacts_00_guard_organization_change', 'e04378078c3e0f31b889a559acfc4519'),
+      ('public.clients', 'contacts_00_guard_organization_change', '4566b07550a98655bd381f9626738767'),
+      ('public.recruits', 'contacts_00_guard_organization_change', '387528f7702e1a276a0bbee1e64e62ab')),
+fn_bad AS (SELECT fn FROM fns
+            WHERE to_regprocedure(fn) IS NULL OR md5(pg_get_functiondef(to_regprocedure(fn))) <> digest),
+trg_bad AS (SELECT trg.name || ' on ' || trg.tbl AS t FROM trg
+             WHERE NOT EXISTS (SELECT 1 FROM pg_trigger x
+                                WHERE x.tgrelid = trg.tbl::regclass AND x.tgname = trg.name AND x.tgenabled = 'O'
+                                  AND md5(pg_get_triggerdef(x.oid)) = trg.digest)),
+pol AS (SELECT string_agg(p.polname, ',' ORDER BY p.polname COLLATE "C") AS v FROM pg_policy p
+         WHERE NOT p.polpermissive AND p.polcmd = 'd' AND p.polroles = ARRAY['authenticated'::regrole::oid]
+           AND p.polrelid IN ('public.leads'::regclass, 'public.clients'::regclass,
+                              'public.recruits'::regclass, 'public.calls'::regclass))
+SELECT 'P2b' AS step,
+       (SELECT count(*) FROM fn_bad) AS functions_not_reviewed, (SELECT string_agg(fn, ', ') FROM fn_bad) AS bad_functions,
+       (SELECT count(*) FROM trg_bad) AS triggers_not_reviewed, (SELECT string_agg(t, ', ') FROM trg_bad) AS bad_triggers,
+       (SELECT v FROM pol) = 'calls_delete_own_rows_or_org_admin,clients_tl_delete_requires_contacts_permission,'
+                             'leads_tl_delete_requires_contacts_permission,recruits_tl_delete_requires_contacts_permission'
+         AS restrictive_delete_policies_ok;
 -- P3 consistency report
 SELECT 'P3' AS step, * FROM private.hierarchy_consistency();
 -- P4 the stale set and both fingerprints M3 requires
@@ -499,6 +547,10 @@ WITH RECURSIVE canon(id, path, visited) AS (
 SELECT 'P5' AS step, left(p.id::text, 8) AS id8, public.nlevel(p.hierarchy_path) AS stored_depth,
        public.nlevel(c.path) AS target_depth, left(p.upline_id::text, 8) AS upline8, p.status, p.updated_at
   FROM public.profiles p JOIN canon c ON c.id = p.id WHERE p.hierarchy_path IS DISTINCT FROM c.path ORDER BY 2;
+-- P5b the claim keys M3's on_profile_update side writes touch (booleans only), part of the forensic snapshot
+SELECT 'P5b' AS step, left(u.id::text, 8) AS id8, u.raw_app_meta_data ? 'organization_id' AS has_org_key,
+       u.raw_app_meta_data ? 'role' AS has_role_key
+  FROM auth.users u WHERE left(u.id::text, 8) IN ('4ef505e0', '5f952f0d', '89f2e994', 'e5c4ee04') ORDER BY 2;
 -- P6 Team Leader f809493e: descendants recognised today vs by the upline walk
 WITH RECURSIVE tl AS (SELECT id FROM public.profiles WHERE id::text LIKE 'f809493e%'),
 walk(id, visited) AS (
@@ -530,9 +582,11 @@ SELECT 'P7' AS step,
 |---|---|---|
 | P1 | `20261023210027 hierarchy_authorization_boundaries` with SHA-256 `5d99c923…`, and `20261023232435 hierarchy_integrity` with SHA-256 `7f2c61db…`, one statement each; no `hierarchy_path_repair` row; head `20261023232435` and 345 rows, unless another separately approved migration has landed since | any hierarchy row differs or M3 is recorded |
 | P2 | `49` lines, `inventory_md5 = f01ab3483fb26104607f571d80ec4ff3`: the M1 and M2 post-image, identical to the local S2 built from the applied files (lines below) | different hash. Compare line by line with the list below; any difference is reviewed before going on |
-| P3 | `edges 11, expected_pairs 15, path_pairs 9, missing_pairs 6, extra_pairs 0, stale_paths 4, null_paths 0, self_parents 0, cross_org_edges 0, unreachable 0` (profiles 16, or more if new members joined: M2 derives their paths correctly) | anything else |
+| P2b | `functions_not_reviewed 0`, `triggers_not_reviewed 0`, `restrictive_delete_policies_ok true`. These are exactly M3's own preconditions, so a difference here means M3 would refuse | any non-zero count or `false`. The named object differs from the reviewed post-image |
+| P3 | **Invariants, all strict:** `missing_pairs 6, extra_pairs 0, stale_paths 4, null_paths 0, self_parents 0, cross_org_edges 0, unreachable 0`, and `expected_pairs − path_pairs = 6`. **Sizes on 2026-10-23:** profiles 16, edges 11, expected_pairs 15, path_pairs 9. Larger sizes are acceptable only when explained by new members outside `f809493e`'s branch: M2 derives their paths correctly, and P6 pins that branch. Record the actual sizes | any invariant differs, or growth that new members outside the branch do not explain |
 | P4 | `stale 4`, `id_fingerprint ddc1f53f3823c6e367310a748ea0ac85`, `target_fingerprint 7daae418571600b43b7cf5d5155be0d4` | different values: M3 would refuse; the stale set must be re-reviewed |
 | P5 | four rows, `4ef505e0`, `5f952f0d`, `89f2e994`, `e5c4ee04`; record them here as the forensic snapshot | a different set |
+| P5b | four rows. Plan §6.3 says `5f952f0d` lacks the `organization_id` / `role` keys (M3's side write adds them) and the other three have them. Record the actual booleans | a row missing |
 | P6 | `recognised_now 0`, `upline_walk_descendants 3`, `walk_ids8 4ef505e0,89f2e994,e5c4ee04` | `recognised_now > 0`, which means authority was activated outside the reviewed repair |
 | P7 | re-measures plan §4. On 2026-10-23 that was +132 leads, +10 clients, +4,590 calls, +86 history events. Growth from normal work is expected. P7 counts history events by contact ownership, so a small definitional difference from §4's +86 is explained, not blocking | a decrease in leads, clients or calls, or new owners: review before applying |
 
@@ -596,10 +650,14 @@ trigger recruits.contacts_00_guard_organization_change 387528f7702e1a276a0bbee1e
 </details>
 
 **Apply and verify (only after approval).**
-1. `apply_migration` with the exact bytes of the pending file (SHA-256 `2da22c6f…`). Expect 4 NOTICEs and no error.
-   A lock timeout is retryable.
+1. `apply_migration` with the exact bytes of the pending file (SHA-256 `2da22c6f…`), and no error.
+   - If the tool shows NOTICEs, expect 4 per-row NOTICEs plus one summary NOTICE ("4 row(s) repaired; N of N
+     expected ancestor pairs present").
+   - The read-back below is authoritative.
+   - A lock timeout is retryable.
 2. Read back:
-   - `private.hierarchy_consistency()` gives `stale_paths 0, missing_pairs 0, extra_pairs 0, path_pairs 15`;
+   - `private.hierarchy_consistency()` gives `stale_paths 0, null_paths 0, missing_pairs 0, extra_pairs 0` and
+     `path_pairs = expected_pairs` (15 with today's 16 profiles);
    - P6 gives `recognised_now 3`;
    - P4 gives `stale 0`;
    - the history row holds one statement with SHA-256 `2da22c6f…`;
@@ -609,6 +667,11 @@ trigger recruits.contacts_00_guard_organization_change 387528f7702e1a276a0bbee1e
 4. Monitor `f809493e`'s first sessions. Delete actions stay toggle-gated, and call edits are limited to coaching flag
    and notes (M1).
 
-**Until Gate 2c (D14).** Make no real reassignments in `f809493e`'s branch, and no moves of `ecf2bb91` / `86ca95f2`.
-Send no Team Leader invitations by `f809493e`. With M2 live these derive correct paths, so they would activate
-authority before review, and they would change the stale set so that M3 refuses (by design).
+**Until Gate 2c (D14).**
+- Make no real reassignments in `f809493e`'s branch, and no moves of `ecf2bb91` / `86ca95f2`.
+- Send **no invitations, by anyone, whose upline is `f809493e` or a member of its branch**.
+
+With M2 live these derive correct paths, so they would activate authority before review.
+- Moving one of the 4 stale rows or one of their ancestors changes the fingerprints, so M3 refuses.
+- An invitation, or a move into `f809493e`'s branch, leaves both fingerprints unchanged. It is caught only by the
+  preflight (P6 `recognised_now > 0` or a larger walk, and P3), and Gate 2c must then be re-reviewed.

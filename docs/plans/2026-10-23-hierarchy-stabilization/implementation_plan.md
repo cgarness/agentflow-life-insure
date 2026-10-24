@@ -76,7 +76,8 @@ production. The pre-Gate 2c read-only preflight (`verification.md` §12) re-chec
    `7f2c61db…`).
    - Its line-58 "Rollback:" comment keeps the authored path: applied SQL bytes are immutable.
 2. **Rename** `supabase/migrations/rollback/20261023210100_hierarchy_integrity.rollback.sql` →
-   `rollback/20261023232435_hierarchy_integrity.rollback.sql`. Only its first header comment line changes; the guard
+   `rollback/20261023232435_hierarchy_integrity.rollback.sql`. Only its header comment changes: the first line becomes a
+   5-line provenance note. The guard
    and body are unchanged (it was never applied).
 3. `scripts/hierarchy_test_state.sh`: the `HS_M2` / `HS_R2` paths and the S2 comment.
 4. `scripts/run_hierarchy_stabilization_tests.sh`: the CI version and checksum assertions. The static stage pins every
@@ -89,7 +90,7 @@ production. The pre-Gate 2c read-only preflight (`verification.md` §12) re-chec
    M2 and the renamed rollback.
 6. `supabase/tests/p0_profile_authorization.sql`: one comment's path (a test file, not a migration).
 7. Docs:
-   - this plan (rev 6; this section, the gates table, §6.2, §10, §11);
+   - this plan (rev 6; this section, the gates table, §6.2, §9, §10, §11);
    - `verification.md` §11 (Gate 3 completion and Gate 2b record) and §12 (Gate 2c readiness);
    - `WORK_LOG.md` (new top entry);
    - root `implementation_plan.md`;
@@ -113,8 +114,12 @@ Anything else that turns out to be needed is listed and put to Chris first.
 - M2 makes every real upline change and every accepted invitation derive correct paths.
 - So until the reviewed repair:
   - make **no real reassignments in `f809493e`'s branch**, and no moves of `ecf2bb91` / `86ca95f2`;
-  - send **no Team Leader invitations by `f809493e`**.
-  Either would activate authority before review, and would change the stale set so that M3 refuses (by design).
+  - send **no invitations, by anyone, whose upline is `f809493e` or a member of its branch**.
+
+  Either would activate authority before review.
+  - A move of one of the 4 stale rows, or of their ancestors, changes the fingerprints, so M3 refuses.
+  - An invitation, or a move into the branch, leaves the fingerprints unchanged. It is caught only by the Gate 2c
+    preflight (`verification.md` §12, P6 and P3).
 - Ordinary saves no longer change paths: the new frontend omits unchanged `upline_id`, and M2 makes an
   unchanged-upline save inert.
 
@@ -557,7 +562,8 @@ Kept in `pending/` (outside the CLI glob) until Gate 2c, then moved to its stamp
   and re-review.
 - `RAISE NOTICE` per row (id prefix, old/new depth); `UPDATE public.profiles p SET hierarchy_path = canon.path FROM
   canon WHERE p.id = canon.id AND p.hierarchy_path IS DISTINCT FROM canon.path`.
-- Postconditions: stale = 0, NULL = 0, missing = extra = 0 (15/15); a second run updates 0 rows.
+- Postconditions: stale = 0, NULL = 0, missing = extra = 0, `path_pairs = expected_pairs` (15/15 at the 2026-10-23
+  baseline); a second run updates 0 rows.
 - Side effects: the path trigger and the lock trigger **do** fire on the 4 rows (they re-derive the identical value
   and briefly hold `FOR SHARE` on `ecf2bb91`, `f809493e`, `86ca95f2`, delaying their login-sync for milliseconds);
   the cascade does not fire. 4 `updated_at` bumps; `on_profile_update` → 8 `set_claim` writes of unchanged
@@ -691,7 +697,7 @@ stamped migration versions, deployment ids, blockers, next steps).
    **Done:** recorded as `20261023232435`; the file was moved by the Gate 2b release-record PR (§G2b).
 5. **Gate 2c** — `#APPROVE_RLS_CHANGE` plus the invariant #28 elements: separate exact approval of the stale set
    (id fingerprint `ddc1f53f…` and target fingerprint `7daae418…`), read-only preflight re-measuring §4, bounded targets (4 rows), recovery plan (§10).
-   Forensic snapshot `(id8, depth, updated_at)` into `verification.md`. Apply M3; post-check 15/15, 0 stale; re-run
+   Forensic snapshot `(id8, depth, updated_at)` into `verification.md`. Apply M3; post-check `path_pairs = expected_pairs` (15/15 at baseline), 0 stale; re-run
    is a no-op. Move the file out of `pending/` to its stamped version in a docs commit.
 
 ## 10. Rollback strategy

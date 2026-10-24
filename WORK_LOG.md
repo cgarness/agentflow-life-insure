@@ -16,7 +16,8 @@
   The Gate 2c preflight re-checks M2's post-image.
 
 **Release record (draft PR; plan rev 6 §G2b lists the files).**
-- M2 and its rollback were renamed from `pending/20261023210100_…` to `20261023232435_…` with `git mv`, the forward
+- M2 and its rollback were renamed from `pending/20261023210100_…` / `rollback/20261023210100_…` to
+  `20261023232435_…` with `git mv`, the forward
   bytes unchanged. The rollback changed in its header comment only.
 - References were updated (state helper, one p0 test comment, one workflow comment).
 - The runner's static stage now pins every applied hierarchy migration (one top-level file at the recorded version,
@@ -30,7 +31,8 @@
 - Local runner (PostgreSQL 16.15, PostgREST 12.2.3, CI mode): exit 0, **2750 PASS lines**. Every count is at its pin
   (compatibility 190, forged 336), and the M3 stage passes.
 - `npx tsc --noEmit`: exit 0.
-- The Gate 2c read-only preflight (P1–P7) was tested on the local S2 state. The M1 + M2 post-image inventory hash is
+- The Gate 2c read-only preflight was tested on the local S2 state: P2–P7, with P2b (M3's own preconditions) and P5b.
+  P1 needs Supabase's history schema. The M1 + M2 post-image inventory hash is
   `f01ab3483fb26104607f571d80ec4ff3` (49 lines).
 
 **Context snapshot.**
@@ -44,8 +46,8 @@
 - Deploys: frontend `89e452c` live on both Vercel projects. No other deploy.
 - Blockers for Gate 2c: Chris's separate approval; the read-only preflight immediately before the apply.
 - Next: review and merge of this release-record PR, which needs Chris's approval; then Gate 2c.
-- D14 until Gate 2c: no real reassignments in `f809493e`'s branch, no moves of `ecf2bb91` / `86ca95f2`, no Team
-  Leader invitations by `f809493e`.
+- D14 until Gate 2c: no real reassignments in `f809493e`'s branch, no moves of `ecf2bb91` / `86ca95f2`, and no
+  invitations, by anyone, whose upline is `f809493e` or a member of its branch.
 
 ---
 
