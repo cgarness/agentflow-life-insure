@@ -308,7 +308,7 @@ Non-negotiables from production:
 - **Authorization in these RPCs reads `public.profiles` for `auth.uid()`, never `get_user_role()`** (JWT-only, no profiles fallback — invariant #19), and additionally requires the profile to be **Active** and in the authoritative organization. `authenticated` holds only SELECT on `profiles`, so this cannot be self-escalated.
 - **Known fail-closed behaviour (corrected 2026-10-23):** Team Leader downline authority uses `public.is_ancestor_of`. The older claim that every `profiles.hierarchy_path` is a depth-1 self-label is no longer true: on 2026-10-23, 12 of 16 stored paths were canonical and 4 were stale (7 of 11 upline edges recognised), and, until M2, any profile save that listed `upline_id` could repair paths and switch TL branches on. M2 has been live
 since 2026-10-23 as `20261023232435`; with it, only a real upline change or an accepted invitation re-derives a path,
-and an unchanged-upline save is inert. No Active TL had a recognised downline that day. The approved repair is the hierarchy stabilization project (see the Hierarchy integrity invariant). Until M3 is applied, treat the TL branches as one real reassignment or accepted invitation in `f809493e`'s branch away from activating.
+and an unchanged-upline save is inert. No Active TL had a recognised downline that day. The approved repair is the hierarchy stabilization project (see the Hierarchy integrity invariant). M3 repaired the four stale paths on 2026-10-24 (recorded as `20261024045812`): every stored path is canonical, and `f809493e`'s reviewed downline authority is active.
 - **`private.attach_leads_to_campaign_core` / `campaign_actor` / `can_administer_campaign` / `import_attachment_status` / `assert_may_assign_to` / `assert_import_set_campaign_compatible` are REVOKED from PUBLIC, anon and authenticated.** Every public wrapper validates `auth.uid()`, organization, role scope, campaign compatibility and provenance before delegating.
 
 27. **Custom-field identity is the database id + canonical name; `"(Custom)"` is UI decoration only (CSV Import Mapping Fix, 2026-08-07; frontend-only, no migration)** —
@@ -664,7 +664,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 ## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
 - Split **`DialerPage.tsx`** into subcomponents.
-- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — M1 (`20261023210027`) and M2 (`20261023232435`) APPLIED 2026-10-23; frontend released (#485); M3 EXECUTED 2026-10-24 04:58:12 UTC (SQL Editor, once; history record `20261024045812` pending).** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix: M1 `20261023210027_hierarchy_authorization_boundaries` (authored as `20261023210000`) and M2 `20261023232435_hierarchy_integrity` (authored as `pending/20261023210100`), both live; never edit, rename or replay them. M3 repaired the 4 stale paths; it stays byte-identical in `supabase/migrations/pending/` until its history-only record (`supabase migration repair 20261024045812 --status applied`, separately approved) and then moves to that version. Never run M3 again. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
+- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — M1 (`20261023210027`) and M2 (`20261023232435`) APPLIED 2026-10-23; frontend released (#485); M3 EXECUTED 2026-10-24 04:58:12 UTC (SQL Editor, once) and RECORDED history-only as `20261024045812`.** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix: M1 `20261023210027_hierarchy_authorization_boundaries` (authored as `20261023210000`) and M2 `20261023232435_hierarchy_integrity` (authored as `pending/20261023210100`), both live; never edit, rename or replay them. M3 repaired the 4 stale paths; it is recorded history-only as `20261024045812` (`supabase migration repair --status applied`, run `40115718668`), and the repository file `20261024045812_hierarchy_path_repair.sql` (authored as `pending/20261023210200`) is byte-identical to what ran (`2da22c6f…`). Never edit, rename, replay or run M3 again. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
 
 
@@ -1039,21 +1039,23 @@ Future conversions only: no backfill, and existing clients are never read or cha
   is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
   `type="button"`.
 
-## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027`, frontend released as `89e452c`, M2 LIVE as `20261023232435`; M3 EXECUTED 2026-10-24 04:58:12 UTC through the SQL Editor, history record `20261024045812` pending)
+## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027`, frontend released as `89e452c`, M2 LIVE as `20261023232435`; M3 EXECUTED 2026-10-24 04:58:12 UTC through the SQL Editor and RECORDED history-only as `20261024045812`)
 
-Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 7); evidence: `verification.md`
+Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 8); evidence: `verification.md`
 beside it. Production gates, each separately approved: **2a M1 → 3 frontend → 2b M2 → 2c M3**. Until a gate is
 applied, its rules below describe the branch, not production — check `list_migrations`. **Gate 2a is done:** M1 is
 recorded as `20261023210027` (1 statement, SHA-256 `5d99c923…`, byte-identical to the repository file, which was renamed
 from `20261023210000`). **Gates 3 and 2b are done:** the frontend released as `89e452c`; M2 is recorded as
 `20261023232435` (SHA-256 `7f2c61db…`, byte-identical to the repository file, renamed from `pending/20261023210100`).
-The runner pins both applied versions and digests, and fails if M3 leaves `pending/` before its history record.
-**Gate 2c ran M3 once** (SQL Editor, 2026-10-24 04:58:12 UTC). It is not in `supabase_migrations.schema_migrations`
-and must never run again. It is recorded history-only by `.github/workflows/hierarchy-m3-history.yml`, a
-dispatch-only, main-only, protected runner. The runner uses CLI 2.121.0 `migration repair --status applied`: one
-history row, M3's SQL never executed (`verification.md` §13). A CLI-repaired row holds the CLI's client-side split
-of the file (M3: 4 statements, SHA-256 of the concatenation `80b363c5…`), not one statement. Check such a row by
-name, version, statement count and split digest, never by the file SHA and never by re-running the migration.
+**Gate 2c is done:** M3 ran once (SQL Editor, 2026-10-24 04:58:12 UTC) and must never run again. It was recorded
+history-only as `20261024045812 / hierarchy_path_repair` by `.github/workflows/hierarchy-m3-history.yml`, a
+dispatch-only, main-only, protected runner (run `40115718668`). The runner used CLI 2.121.0 `migration repair --status
+applied`: one history row, M3's SQL never executed (`verification.md` §13.5). The repository file
+`20261024045812_hierarchy_path_repair.sql` (authored as `pending/20261023210200`) keeps the executed bytes, SHA-256
+`2da22c6f…`. A CLI-repaired row holds the CLI's client-side split of the file (M3: 4 statements, SHA-256 of the
+concatenation `80b363c5…`), not one statement. Check such a row by name, version, statement count and split digest,
+never by the file SHA and never by re-running the migration. The runner pins all three applied versions and digests,
+and fails if any hierarchy migration is in `pending/`.
 
 - **`profiles.upline_id` is the only hierarchy authority.** `hierarchy_path` is a derived cache (root-first, `-`→`_`
   labels) that M2 keeps equal to the canonical chain: built from the incoming `NEW.upline_id`, whole-subtree refresh

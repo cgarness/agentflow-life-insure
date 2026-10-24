@@ -1,3 +1,76 @@
+## 2026-10-24 — Hierarchy Stabilization: GATE 2c COMPLETE (M3 recorded history-only as `20261024045812`, run `40115718668`); PR 2 release record BUILT (for review; NOT merged)
+
+**Approvals.**
+- Chris: "Execute M3 history recording only".
+- Chris: "APPROVED — AgentFlow Gate 2c PR 2 preparation", covering the 12-file scope and a post-record read-only
+  Supabase verification (SELECT and advisors).
+- No merge, deploy or production mutation is approved.
+
+**The record (production; the one write was the approved history row).**
+- Dispatched from `main` `0f3b00f` at 17:21:05 UTC, run `40115718668` (attempt 1, no retry). The environment guard
+  passed. Chris approved the `google-sheets-production` review, and the job ran 18:31:40–18:32:10 UTC.
+- The run's gates passed (state `before`), then `migration repair 20261024045812 --status applied` (18:32:04).
+- The run's own read-back passed:
+  - exactly one new row: `hierarchy_path_repair`, 4 CLI statements, `80b363c5…`;
+  - every other row byte-identical;
+  - profiles unchanged.
+- **M3's SQL was not executed again.** There was no `db push` or replay.
+
+**Production (read-only, this session).**
+- **Before-image** (17:20:50 / 17:28:17 UTC):
+  - 345 / `20261023232435`, no M3 row;
+  - other-row md5 `7b2aa665…`;
+  - profiles `16|5ec1e067…`.
+- **After** (19:43 UTC):
+  - 346 / head `20261024045812`;
+  - the row has 4 statements, `80b363c5…`, NULL `created_by` / `idempotency_key` / `rollback`. Its per-statement
+    SHA-256s equal CLI 2.121.0's split of the moved file;
+  - the other 345 rows `7b2aa665…` (identical); version list `835868a6…` (as rehearsed);
+  - P3 15/15 and 0 stale; P4 0; P6 3/3; P2 49 / `f01ab348…`;
+  - profiles identical;
+  - advisors 52 / 134 / 21. The other categories equal the 2026-10-23 baseline and are not expanded.
+
+**Built (PR 2; branch `claude/lucid-ritchie-8p5tdc` from `main` `86e0010`, #489 preserved).**
+- **Renames:** M3 → `supabase/migrations/20261024045812_hierarchy_path_repair.sql` with `git mv`, bytes unchanged
+  (`2da22c6f…`). Its rollback stub moved to the same version (header comment only).
+- **Static pins:** `pin_applied M3`; no `*_hierarchy_*.sql` in `pending/`; the history runner's recorded-shape
+  constants pinned to 4 / `80b363c5…`.
+- **History runner:** the source path and file gate (one top-level M3, none in `pending/`). Its production constants
+  and stages are unchanged; `record-history` now refuses (recorded state).
+- **Runner test:** the file-gate cases.
+- **CI:** filter comment only. `environment-guard` and the `pending/` filters are kept, and the protected workflow is
+  unchanged.
+- **Docs:** `verification.md` §13.5, plan rev 8, AGENT_RULES status lines, and the root plan entry.
+- No frontend, Edge Function, RLS, schema or data change.
+
+**Verification (local: loopback PostgreSQL 16.15, PostgREST 12.2.3, CLI 2.121.0).**
+- `npx tsc --noEmit`: exit 0.
+- **Full hierarchy runner** (`CI=true`): exit 0, **2751 PASS lines**. That is 2750 − 2 retired + 3 new static
+  checks. Every pin is met: core 64/114, RLS 1043, RPC 567, forged 336, compatibility 190.
+- **Runner test:** ALL PASSED, 18 checks.
+- **Focused hierarchy Vitest** (the CI list): 44 files, 641 passed, 2 skipped. The +7 tests since PR 1 are #489's
+  Sheets UI tests.
+- **Mutation checks:** 12/12 caught (9 static-stage, 3 runner gates).
+- `git diff --check`: clean.
+
+**Context snapshot.**
+- **Decisions:**
+  - M3's file keeps the executed bytes (`2da22c6f…`). Its history row is the CLI split (4 / `80b363c5…`); never
+    compare the two.
+  - `environment-guard` CI and the `pending/` filters are retained.
+- **Migrations:** one history-only row `20261024045812` (Chris approved it). Nothing executed; nothing else written.
+- **Deploys:** none.
+- **Blockers / approvals:**
+  1. Chris confirms Supabase "Deploy to production" is OFF before the PR 2 merge.
+  2. CI green on PR 2.
+  3. Separate approval to merge PR 2.
+- **Outstanding:**
+  - Live Agent / Team Leader / Admin browser acceptance (no sign-ins);
+  - monitor `f809493e`'s first sessions;
+  - the `89f2e994` session decision (Chris).
+
+---
+
 ## 2026-10-24 — BUGFIX: Google Sheets "Add sheet" Picker never returned a selection (approved, implemented; draft PR; NOT merged, NOT deployed)
 
 **Approval.** Chris approved the plan at `540d45c` ("APPROVED — AgentFlow Google Sheets Picker BUGFIX"). It adds five
