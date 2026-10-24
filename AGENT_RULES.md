@@ -664,7 +664,7 @@ Every task that ships code **must** append a `WORK_LOG.md` entry. If the task di
 ## Known Tech Debt (2026-05-16 audit; updated 2026-05-17)
 
 - Split **`DialerPage.tsx`** into subcomponents.
-- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — M1 (`20261023210027`) and M2 (`20261023232435`) APPLIED 2026-10-23; frontend released (#485); M3 NOT APPLIED.** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix: M1 `20261023210027_hierarchy_authorization_boundaries` (authored as `20261023210000`) and M2 `20261023232435_hierarchy_integrity` (authored as `pending/20261023210100`), both live; never edit, rename or replay them. M3 stays in `supabase/migrations/pending/` until Gate 2c, which needs Chris's separate approval; the 4 stale paths persist until M3. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
+- 🚨 **Team Leader hierarchy predicate (found 2026-10-17) — M1 (`20261023210027`) and M2 (`20261023232435`) APPLIED 2026-10-23; frontend released (#485); M3 EXECUTED 2026-10-24 04:58:12 UTC (SQL Editor, once; history record `20261024045812` pending).** Root cause: `update_hierarchy_path()` derived the path from the stored row (self-only on INSERT, previous upline on UPDATE) and `cascade_hierarchy_update()` refreshed direct children only. The fix: M1 `20261023210027_hierarchy_authorization_boundaries` (authored as `20261023210000`) and M2 `20261023232435_hierarchy_integrity` (authored as `pending/20261023210100`), both live; never edit, rename or replay them. M3 repaired the 4 stale paths; it stays byte-identical in `supabase/migrations/pending/` until its history-only record (`supabase migration repair 20261024045812 --status applied`, separately approved) and then moves to that version. Never run M3 again. Plan and evidence: `docs/plans/2026-10-23-hierarchy-stabilization/`. Do not change hierarchy data, `hierarchy_path`, `upline_id` or permissions inside unrelated features.
 - **Cron schedules for time-based workflows** — `pg_cron` extension enabled and `workflow_engine_config` secrets populated (verified 2026-05-17), but cron jobs for birthday / stale-lead / resume-paused workflows are not yet scheduled. Schedules exist as commented blocks in `supabase/migrations/20260514160000_workflow_builder_schema.sql`.
 
 
@@ -1039,15 +1039,21 @@ Future conversions only: no backfill, and existing clients are never read or cha
   is `modal`, so wheel scrolling works inside Radix dialogs. The trigger and every action button are
   `type="button"`.
 
-## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027`, frontend released as `89e452c`, M2 LIVE as `20261023232435`; M3 NOT APPLIED)
+## Hierarchy integrity invariant — October 23, 2026 (M1 LIVE as `20261023210027`, frontend released as `89e452c`, M2 LIVE as `20261023232435`; M3 EXECUTED 2026-10-24 04:58:12 UTC through the SQL Editor, history record `20261024045812` pending)
 
-Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 6, §G2b); evidence: `verification.md`
+Plan: `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md` (rev 7); evidence: `verification.md`
 beside it. Production gates, each separately approved: **2a M1 → 3 frontend → 2b M2 → 2c M3**. Until a gate is
 applied, its rules below describe the branch, not production — check `list_migrations`. **Gate 2a is done:** M1 is
 recorded as `20261023210027` (1 statement, SHA-256 `5d99c923…`, byte-identical to the repository file, which was renamed
 from `20261023210000`). **Gates 3 and 2b are done:** the frontend released as `89e452c`; M2 is recorded as
 `20261023232435` (SHA-256 `7f2c61db…`, byte-identical to the repository file, renamed from `pending/20261023210100`).
-The runner pins both applied versions and digests, and fails if M3 leaves `pending/` before Gate 2c.
+The runner pins both applied versions and digests, and fails if M3 leaves `pending/` before its history record.
+**Gate 2c ran M3 once** (SQL Editor, 2026-10-24 04:58:12 UTC). It is not in `supabase_migrations.schema_migrations`
+and must never run again. It is recorded history-only by `.github/workflows/hierarchy-m3-history.yml`, a
+dispatch-only, main-only, protected runner. The runner uses CLI 2.121.0 `migration repair --status applied`: one
+history row, M3's SQL never executed (`verification.md` §13). A CLI-repaired row holds the CLI's client-side split
+of the file (M3: 4 statements, SHA-256 of the concatenation `80b363c5…`), not one statement. Check such a row by
+name, version, statement count and split digest, never by the file SHA and never by re-running the migration.
 
 - **`profiles.upline_id` is the only hierarchy authority.** `hierarchy_path` is a derived cache (root-first, `-`→`_`
   labels) that M2 keeps equal to the canonical chain: built from the incoming `NEW.upline_id`, whole-subtree refresh

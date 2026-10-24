@@ -1,0 +1,66 @@
+name: Hierarchy M3 history record (approval required)
+# Manual, main only. Records the ALREADY-EXECUTED hierarchy M3 (SQL Editor, 2026-10-24 04:58:12 UTC) in
+# supabase_migrations.schema_migrations as 20261024045812 with the pinned CLI's `migration repair --status applied`:
+# one history row; M3's SQL is never executed and no application data is written. Never db push / migration up.
+# Plan: implementation_plan.md (2026-10-24 hierarchy closeout) §C–§F. Each dispatch needs Chris's separate approval,
+# then the protected environment's review. Runner: scripts/hierarchy_m3_history_record.py.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Separately approved stage (check is read-only)
+        required: true
+        type: choice
+        options: [check, record-history]
+      confirm:
+        description: Repeat the stage name exactly
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: hierarchy-m3-history
+  cancel-in-progress: false
+jobs:
+  environment-guard:
+    if: github.ref == 'refs/heads/main'
+    name: Protected environment verified (no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Required reviewer cgarness, main only, administrator bypass off
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/hierarchy_m3_history_record.py guard-environment
+  record:
+    needs: environment-guard
+    if: github.ref == 'refs/heads/main'
+    name: ${{ inputs.stage }} — history only, M3 never executed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: google-sheets-production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install psql (no credentials)
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client-16
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: Execute only the approved stage
+        env:
+          STAGE: ${{ inputs.stage }}
+          CONFIRM: ${{ inputs.confirm }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+        run: python3 -I scripts/hierarchy_m3_history_record.py run

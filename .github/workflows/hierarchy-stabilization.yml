@@ -56,6 +56,10 @@ on:
       - 'src/pages/ImportLeadsPage.tsx'
       - 'src/pages/Contacts.tsx'
       - '.github/workflows/hierarchy-stabilization.yml'
+      # The M3 history-only record runner (Gate 2c closeout) and its verification.
+      - '.github/workflows/hierarchy-m3-history.yml'
+      - 'scripts/hierarchy_m3_history_record.py'
+      - 'scripts/tests/hierarchy_m3_history_record_test.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -111,6 +115,57 @@ jobs:
       - name: Remove disposable PostgreSQL
         if: always()
         run: docker rm --force hierarchy-postgres
+  history-runner:
+    name: M3 history runner (pinned CLI 2.121.0, PostgreSQL 17.6 on loopback, synthetic history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      # System PyYAML: the test runs with python3 -I, which ignores user site-packages.
+      - name: PostgreSQL client and PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-yaml
+      - name: Start disposable PostgreSQL 17.6 on loopback only (host network)
+        run: |
+          docker run --detach --name hierarchy-history-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929 \
+            -c listen_addresses=127.0.0.1 -c port=55451
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 55451 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          docker logs hierarchy-history-postgres || true
+          exit 1
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: Runner gates, refusals, the real CLI record, read-back and inverse (synthetic data only)
+        env:
+          HIER_HISTORY_PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55451
+        run: python3 -I scripts/tests/hierarchy_m3_history_record_test.py
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force hierarchy-history-postgres
+  environment-guard:
+    # Read-only and secret-free: the same guard the protected workflow runs before its environment job, against the
+    # live settings of google-sheets-production (required reviewer cgarness, main only, administrator bypass off).
+    name: Protected environment settings (live, read-only, no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Required reviewer, main only, administrator bypass off
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/hierarchy_m3_history_record.py guard-environment
   frontend:
     name: Hierarchy frontend tests (Vitest, synthetic data)
     runs-on: ubuntu-latest

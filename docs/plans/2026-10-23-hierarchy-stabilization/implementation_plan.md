@@ -1,6 +1,17 @@
 # Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
-**Status (2026-10-23, rev 6): GATE 2b RELEASED.**
+**Status (2026-10-24, rev 7): GATE 2c EXECUTED; its migration-history record is pending.**
+- M3 ran exactly once in production, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It used the
+  reviewed bytes (SHA-256 `2da22c6f…`) and repaired the four reviewed rows. Read back: 15/15 pairs, 0 stale, and
+  `f809493e` recognises 3 descendants.
+- **M3 is not recorded in `supabase_migrations.schema_migrations`.** It must never run again.
+- The history-only record (`20261024045812`, through the pinned CLI's `migration repair`) is prepared as a protected
+  runner on PR 1. Running it needs Chris's separate approval. Plan: root `implementation_plan.md` (2026-10-24
+  closeout). Evidence: `verification.md` §13.
+- After the record, PR 2 moves M3 out of `pending/` to `20261024045812_…` with its bytes unchanged.
+- D14's interim restrictions end with Gate 2c. With M2 live, reassignments and invitations derive correct paths.
+
+**Rev 6 status (superseded): GATE 2b RELEASED.**
 - M1 is live as `20261023210027` and M2 as `20261023232435`.
 - The Gate 3 frontend is live: PR #485 merged as `89e452c`, and both Vercel production projects are READY at that SHA.
 - **M3 is NOT applied.** It stays in `supabase/migrations/pending/` until Gate 2c, which needs Chris's separate
@@ -37,7 +48,7 @@ Branch `claude/intelligent-lamport-r6hnx7` (from `main` `f03af3b`). Gates — ea
 | **2a** ✅ released | `apply_migration` **M1** (authorization boundaries) — `#APPROVE_RLS_CHANGE`; recorded as `20261023210027` (§G3) | narrowing only; 0 rows change visibility today |
 | **3** ✅ released | Merge the PR and release the frontend (M2 and M3 stay in `migrations/pending/`, unapplied); PR #485 merged as `89e452c` | UI only; frontend safety protections live **before** any hierarchy activation path exists |
 | **2b** ✅ released | `apply_migration` **M2** (integrity triggers + guards); recorded as `20261023232435` (§G2b) | no row written; from now on real upline edits / TL invites derive correct paths (§6.2) |
-| **2c** | `apply_migration` **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist | **activates TL `f809493e`'s downline authority** (§4) |
+| **2c** ✅ executed | **M3** (fingerprint-bound repair) — `#APPROVE_RLS_CHANGE` + invariant #28 checklist; run once in the SQL Editor on 2026-10-24 04:58:12 UTC; history record `20261024045812` pending (status above) | **activates TL `f809493e`'s downline authority** (§4) |
 
 Order (correction R2): **1 → 2a (M1) → 3 (frontend) → 2b (M2) → 2c (M3)**, conditional on the frontend ↔ database
 compatibility suite (§8) passing for every state the release passes through. If it does not, the fallback is the
