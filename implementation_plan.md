@@ -1,3 +1,242 @@
+## 2026-10-24 — PLAN, AWAITING CHRIS'S APPROVAL: Hierarchy Stabilization closeout — record the already-executed M3 in migration history (history only), release record, final acceptance
+
+**Status.** M3 ran exactly once, through the Supabase SQL Editor, at **2026-10-24 04:58:12 UTC**. It is NOT recorded in
+`supabase_migrations.schema_migrations`. **M3 must never run again.** Until Chris approves, this section is the only file
+change. No backend command beyond read-only SELECTs has run.
+
+### A. Read-only findings (this session, 2026-10-24 05:02–05:16 UTC)
+
+| Check | Result |
+|---|---|
+| `main` | `c2e4262` (#487) = this branch's base. No open PR touches the hierarchy files |
+| History | 345 rows, head `20261023232435`, version-list md5 `0508849b…`. No row at `20261024045812`, none dated `20261024…`, none named `hierarchy_path_repair`. M1 and M2 rows unchanged (1 statement each, `5d99c923…` / `7f2c61db…`) |
+| `hierarchy_consistency()` | 16 profiles, 11 edges, 15/15 pairs, 0 missing / extra / stale / NULL / self-parent / cross-org / unreachable |
+| Four reviewed rows | All match the canonical path (depth 3). The id fingerprint `ddc1f53f…` and the target fingerprint `7daae418…` both hold, so the stored paths are exactly the reviewed targets |
+| Single execution | Exactly 4 profiles carry `updated_at = 2026-10-24 04:58:12.87362+00` (one transaction). No profile has been updated since |
+| Team Leader `f809493e` | `recognised_now 3` = upline walk 3 (`4ef505e0,89f2e994,e5c4ee04`) |
+| M1+M2 post-image (P2) | 49 lines, `f01ab348…`, unchanged |
+| Claim side write (P5b after) | All four users have both keys, and they match their profiles. `5f952f0d` gained them, as plan §6.3 predicted |
+| Postgres logs 04:50–05:05 | Only cron and checkpoint lines. The SQL Editor's DO block and NOTICEs are not logged (`log_statement = ddl`) |
+| Vercel | `agentflow` `dpl_FbV9qLDtaXvXxRY33SexSJ3zhmXp` and `agentflow-life-insure` `dpl_3LghZLdG2stk2hBmZQ9FcmucDvqg` are both READY, production, at `c2e4262` |
+| Container | No Supabase credentials. It cannot run the CLI against production, by design |
+
+**Older discrepancies (not touched, not claimed).**
+- 12 top-level repo files have no history row: the baseline, 5 SMS files, and 6 UV files that production recorded under
+  restamped versions.
+- 15 production versions after the baseline have no top-level file.
+- None of these is a hierarchy migration. This closeout neither reconciles them nor depends on them.
+
+### B. Version: `20261024045812`
+
+- It is the actual execution second (04:58:12 UTC).
+- It is unique: no such row exists.
+- It sorts after M2 and after the current head.
+- It follows the M1 and M2 rule: the repository file takes the production-recorded version.
+
+### C. Mechanism: Supabase's official `supabase migration repair`
+
+The command is `supabase migration repair 20261024045812 --status applied`, run with the CLI pinned to **2.121.0**
+(release checksum `4b481189…`).
+
+**Rehearsal on a loopback PostgreSQL 16.15 copy of the history table.** The copy had the same columns and constraints,
+the same 345 versions and names, and M1/M2 with their real bytes, with `log_statement = all`.
+
+The CLI sent exactly these statements:
+1. `SELECT 1`
+2. a check that the history table has its three columns
+3. `BEGIN`
+4. one parameterized `INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1,$2,$3)
+   ON CONFLICT (version) DO UPDATE SET name, statements`
+5. `COMMIT`
+
+What that proves:
+- **M3's SQL is only a text parameter. It is never executed.** No DDL and no other table is touched.
+- **The recorded row:** `20261024045812 / hierarchy_path_repair`, with **4 statements**. The CLI splits the file on
+  the client, so the digest of the concatenated statements is
+  `80b363c573d9d2028aedc2dd8def58b0c8b50f99db3ff1872138b5ffa29c0af0`, not the file's `2da22c6f…`. The Sheets
+  precedent shows the same effect: 81 statements, digest ≠ file SHA. `created_by`, `idempotency_key` and `rollback`
+  stay NULL.
+- **Effect on the history:** 346 rows, version-list md5 `835868a6…`. The other 345 rows are byte-identical
+  (full-row md5 `61d1fd6a…` before and after).
+- **Determinism:** a second recording gives the same 4 statements and digest. A minimal temporary workdir holding only a
+  byte copy of M3 gives the same result.
+- **The inverse** (`--status reverted`) sends only `DELETE … WHERE version = ANY('{20261024045812}')`, and it restores
+  the exact full-row before-image.
+
+**How it runs: a protected GitHub workflow, as in the proven Sheets `record-history` stage** (run `39811684469`,
+2026-10-22, same CLI, same session-pooler `--db-url` path).
+- The workflow is dispatch-only and runs on `main` only, in an environment that requires Chris's review. It never
+  prints a secret.
+- It verifies `pending/20261023210200_hierarchy_path_repair.sql` by SHA-256. It copies those bytes to a temporary
+  workdir as `supabase/migrations/20261024045812_hierarchy_path_repair.sql` and repairs from there.
+- So `main` never carries an unrecorded top-level M3. That removes any dependency on the Supabase GitHub integration's
+  "Deploy to production" setting. The setting is believed OFF but is unreadable from here.
+- The workflow never runs `db push`, `migration up`, `psql -f` or M3's SQL.
+
+**Rejected alternatives.**
+- **MCP `apply_migration`:** it executes the SQL (M3 would run again) and assigns its own version.
+- **`execute_sql` INSERT into the history table:** ad-hoc production SQL (forbidden pattern), not the supported
+  mechanism.
+- **`supabase db push`:** it would try the 12 unrecorded files, the baseline included.
+- **Management API:** no history-only endpoint was verified.
+- **Fallback, only if Chris prefers:** Chris runs the same CLI command locally against the linked project, from a
+  checkout of `main` that holds the same byte copy.
+
+### D. The exact history-only operation that needs Chris's separate approval
+
+**"Approve M3 history record `20261024045812`".** It means: dispatch `Hierarchy M3 history record` on `main` with stage
+`record-history`, and Chris approves its environment review.
+
+The runner first passes read-only gates (`default_transaction_read_only = on`):
+- source and file SHA-256;
+- pinned CLI and its flags;
+- session-pooler identity and TLS;
+- history = 345 / `20261023232435`, with no M3 row by version or name;
+- the hierarchy invariants above;
+- the four rows' stored paths equal the reviewed targets (`7daae418…`).
+
+It then runs exactly:
+
+```
+supabase migration repair 20261024045812 --status applied --db-url <protected session-pooler URL>
+```
+
+That inserts one row into `supabase_migrations.schema_migrations` and nothing else.
+
+Read-back inside the same run:
+- 346 rows, head `20261024045812`;
+- the row's name, 4 statements and `80b363c5…`;
+- the other 345 rows byte-identical to the before-image;
+- a digest of `profiles(id, upline_id, hierarchy_path, updated_at)` unchanged;
+- the invariants unchanged.
+
+| Invariant #28 element | Value |
+|---|---|
+| Bounded target | One history row |
+| Data effect | None |
+| Recovery | `supabase migration repair 20261024045812 --status reverted`, a separate approval. It deletes only that row, as rehearsed |
+| Failure | No automatic retry. Stop, verify independently with the MCP read-only, report |
+
+### E. Sequence and approvals (Chris clicks at most four times)
+
+1. **Approve this plan.** Includes the environment choice:
+   - **(recommended)** reuse the existing protected `google-sheets-production` environment. It already has
+     `SUPABASE_DB_PASSWORD` and `SUPABASE_POOLER_HOST`, a required reviewer and the main-only rule, so it needs no
+     setup.
+   - **or** create `hierarchy-production` with those two secrets.
+2. **PR 1, the runner** (this branch). It adds the workflow, the runner, its test and a CI job, plus this plan.
+   - Checks before review: CI green, the runner test green, `npx tsc --noEmit`.
+   - Chris merges, or authorizes me to merge.
+3. **The history record** (§D). I dispatch it, or Chris does. Chris approves the environment. I verify read-only with
+   the MCP.
+4. **PR 2, the closeout.** The branch restarts from `main` after PR 1 merges, under the same branch name, per the
+   merged-PR rule. Chris approves the merge.
+
+### F. Files to change
+
+**PR 1, runner.**
+1. `.github/workflows/hierarchy-m3-history.yml` (new). Dispatch-only, inputs `stage` (`check` | `record-history`)
+   and `confirm`.
+   - Runs on `main` only; `environment` per E1.
+   - Pinned `actions/checkout` and `supabase/setup-cli` SHAs (as in the Sheets runner), CLI `2.121.0`.
+   - Uses only the two DB secrets. Its own concurrency group.
+2. `scripts/hierarchy_m3_history_record.py` (new), the runner. Gates, state machine and read-back as in §D.
+   - States: `before` → `recorded`; anything else stops.
+   - `check` is read-only in both states. `record-history` requires `before`.
+   - Production constants are fixed in code. No environment override reaches the production path.
+3. `scripts/tests/hierarchy_m3_history_record_test.py` (new). Runs on a loopback PostgreSQL with the real pinned CLI and
+   a synthetic history and hierarchy stub. It covers:
+   - a read-only `check` that leaves the database unchanged;
+   - the successful record, with the exact row and the other rows unchanged;
+   - a second record refused;
+   - `check` passing in the recorded state;
+   - refusals before any write: wrong ref, wrong confirm, wrong file SHA, moved head, an M3 row present under another
+     version, stale rows, a fingerprint mismatch, a non-pooler host;
+   - a fake CLI that writes an extra row, which the read-back catches;
+   - YAML assertions: environment, main-only, pinned versions, no `db push`.
+4. `.github/workflows/hierarchy-stabilization.yml`: a third job, `history-runner` (PostgreSQL 17.6 on loopback plus
+   CLI 2.121.0), and path filters for the new files.
+5. `implementation_plan.md` (this section) and a `WORK_LOG.md` entry.
+
+**PR 2, closeout.** Written after the record, with the actual run and read-back.
+1. `git mv supabase/migrations/pending/20261023210200_hierarchy_path_repair.sql
+   supabase/migrations/20261024045812_hierarchy_path_repair.sql`. The bytes stay the same (`2da22c6f…`).
+2. `git mv` the rollback stub to `rollback/20261024045812_hierarchy_path_repair.rollback.sql`. Only its header comment
+   changes, as for M2: the applied file's own "Rollback:" comment keeps naming the authored path.
+3. `scripts/hierarchy_test_state.sh`: `HS_M3` and `HS_R3` paths, and the state comments.
+4. `scripts/run_hierarchy_stabilization_tests.sh`, static stage:
+   - replace the "M3 stays in `pending/`" checks with `pin_applied M3 20261024045812 2da22c6f…`;
+   - fail if any hierarchy migration remains in `pending/`;
+   - pin the recorded shape (4 statements, `80b363c5…`) as a documented constant;
+   - the runner test reproduces that shape with the pinned CLI.
+5. `scripts/hierarchy_m3_history_record.py`: the source path becomes the top-level file. `record-history` keeps
+   refusing in the recorded state.
+6. `.github/workflows/hierarchy-stabilization.yml`: path filters and comment (no `pending/` hierarchy entries).
+7. `docs/plans/2026-10-23-hierarchy-stabilization/verification.md`: a new §13, the Gate 2c release record.
+   - Chris's execution report.
+   - P5b before the apply: this session's run, 4 rows (`4ef505e0 t/t`, `5f952f0d f/f`, `89f2e994 t/t`, `e5c4ee04 t/t`).
+   - P5 forensic snapshot:
+     - pre-apply depths derived from the Gate 1 pair sets (6 missing, 0 extra): `4ef505e0` 2, `5f952f0d` 1,
+       `89f2e994` 1, `e5c4ee04` 2;
+     - post-apply: depth 3, uplines `f809493e`/`86ca95f2`/`f809493e`/`f809493e`, status, `updated_at 04:58:12.87362`;
+     - the exact pre-apply `updated_at` values were captured only by the ChatGPT session. They are recorded as such
+       unless Chris supplies them.
+   - The post-repair P2/P3/P4/P6 and advisor results.
+   - The history record and read-back.
+   - The rehearsal evidence.
+   - §12's header is marked APPLIED.
+8. `docs/plans/2026-10-23-hierarchy-stabilization/implementation_plan.md`: rev 7, gate 2c ✅, D14 lifted.
+9. `AGENT_RULES.md`, as a status and invariant correction only:
+   - hierarchy section header and runner sentence;
+   - the Known Tech Debt hierarchy line;
+   - one rule: a migration executed outside `apply_migration` is recorded only through the pinned CLI repair. Its
+     recorded statements are the CLI's split, so integrity is checked by name, version, statement count and split
+     digest, never by re-running it.
+10. `implementation_plan.md` (status) and `WORK_LOG.md`, a new top entry.
+
+There is no frontend, Edge Function, A2P, commissions, telephony, RLS or schema change.
+
+### G. Verification
+
+- **Before each PR:** `npx tsc --noEmit`; the full hierarchy runner with PostgREST 12.2.3 (current pinned counts:
+  2750 PASS lines, forged 336, compatibility 190); the runner test; the focused hierarchy Vitest suites; `git diff
+  --check`.
+- **Also in PR 2:** mutation checks of the new static pins (M3 changed byte, M3 left in `pending/`, M3 at the old
+  version, missing rollback).
+- **After the record:** MCP read-only P1 (history row), P3, P4, P6, P2, and security advisors (expected unchanged: 52
+  / 134 / 21).
+
+### H. Task C: final acceptance
+
+- **Read-only now:**
+  - Vercel READY, production at the merged SHAs;
+  - production authorization state (P3, P6, policies and guards via P2).
+- **Needs approval (A5):** read-only RLS simulation in `BEGIN READ ONLY … ROLLBACK` transactions, as `authenticated`
+  with the JWT claims of Admin `ecf2bb91`, Team Leader `f809493e` and Agent `4ef505e0`. Output is counts only: leads,
+  clients, calls and profiles visible, plus `is_ancestor_of` results. No data leaves the database, nothing is written,
+  and nobody signs in.
+- **Live browser acceptance needs real sign-ins**, which I do not have. These stay OUTSTANDING and are never marked
+  passed:
+  - **Team Leader:** Contacts Team scope shows `4ef505e0`/`e5c4ee04` leads and clients. Lead edit works. Delete is
+    hidden or refused without the Contacts delete toggle. Downline calls are visible, and only "flag for coaching" and
+    notes can change. Profile view works, with no `commission_level` edit.
+  - **Agent:** sees only their own book.
+  - **Admin:** the full organization is unchanged; User Management shows the hierarchy tree.
+  - None of these tests may change real data. Any write test needs synthetic accounts, which is a separate approval.
+- Monitor `f809493e`'s first sessions (§12 step 4).
+- Residual: `89f2e994` (Deleted, not banned) — whether to revoke its session stays Chris's separate decision
+  (plan §4).
+
+### I. Not claimed
+
+- No reconciliation of the older history discrepancies.
+- No second execution of M3.
+- No `db push`.
+- No change to application data.
+- The authenticated browser tests are not passed until someone with the accounts runs them.
+
+---
+
 ## 2026-10-23 — GATES 2a, 3 AND 2b RELEASED (M1 `20261023210027`, frontend `89e452c`, M2 `20261023232435`); Gate 2b release record on a draft PR; M3 (Gate 2c) awaiting separate approval: Hierarchy Stabilization — upline_id authoritative, repaired paths, safe Team Leader authority
 
 **Gate 3 (released).** PR #485 merged as `89e452c`. Both Vercel production projects are READY at that SHA with the
