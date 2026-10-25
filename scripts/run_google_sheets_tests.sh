@@ -34,6 +34,9 @@
 #   4g. a notification during processing is never lost + NEGATIVE CONTROL (completion uses requested_seq)
 #   4h. lock order: receiver vs watch_result on one target, no deadlock + NEGATIVE CONTROL (target locked first →
 #       deadlock), and two receivers × 40 notifications → exactly 80 increments
+#   4i. rejected requests and redeliveries never wait: while another session holds the channel and target rows,
+#       20 wrong-token requests and one redelivery complete under lock_timeout 1 s and record nothing + NEGATIVE
+#       CONTROL (authentication under FOR UPDATE, as before → lock timeouts)
 #   8. END-TO-END push harness (scripts/google_sheets_push_e2e.ts): the real receiver, processor and
 #      google-sheets-api hooks through PostgREST (Google faked)
 # Every database is dropped on exit. Nothing here touches a hosted project.
@@ -336,6 +339,35 @@ QUEUED="$(cat "$TMP/bx.out" "$TMP/by.out" | grep -c '^queued$' || true)"
 echo "   80 concurrent notifications → $QUEUED queued, requested_seq $BEFORE → $AFTER"
 [ "$QUEUED" = 80 ] && [ "$AFTER" = "$((BEFORE + 80))" ] || { echo "   FAIL: lost increments"; exit 1; }
 echo "   OK (channels → target order holds; the test detects the inverted order; no lost increment)"
+
+replay_wait() { # $1 db → "<rejected_token>|<duplicate>|<lock timeouts>|<rows recorded while locked>|<rows after release>"
+  psql "$PGURL/$1" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 700, 'content', now());" >/dev/null
+  psql "$PGURL/$1" -tAqc "BEGIN; SELECT 1 FROM private.google_sheets_watch_channels WHERE channel_id = $(PCV chx) FOR UPDATE;
+    SELECT 1 FROM private.google_sheets_watch_targets WHERE id = $(PCV target)::uuid FOR UPDATE; SELECT pg_sleep(3); COMMIT;" >/dev/null 2>&1 &
+  local ph=$!; sleep 0.5
+  { echo "SET lock_timeout = '1s';"
+    for i in $(seq 1 20); do
+      echo "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), '$(printf '%064d' "$i")', 'RES-X', 'update', $((800 + i)), 'content', now());"
+    done
+    echo "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 700, 'content', now());"
+    echo "SELECT 'recorded=' || count(*) FROM private.google_sheets_push_events e JOIN private.google_sheets_watch_channels w ON w.id = e.channel_row_id
+           WHERE w.channel_id = $(PCV chx) AND NOT e.authenticated;"
+  } > "$TMP/replay.sql"
+  psql "$PGURL/$1" -tAq -f "$TMP/replay.sql" > "$TMP/replay.out" 2>&1
+  wait $ph
+  psql "$PGURL/$1" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), '$(printf '%064d' 99)', 'RES-X', 'update', 899, 'content', now());" >/dev/null
+  local after; after="$(psql "$PGURL/$1" -tAqc "SELECT count(*) FROM private.google_sheets_push_events e JOIN private.google_sheets_watch_channels w
+    ON w.id = e.channel_row_id WHERE w.channel_id = $(PCV chx) AND NOT e.authenticated")"
+  echo "$(grep -c '^rejected_token$' "$TMP/replay.out" || true)|$(grep -c '^duplicate$' "$TMP/replay.out" || true)|$(grep -c 'lock timeout' "$TMP/replay.out" || true)|$(sed -n 's/^recorded=//p' "$TMP/replay.out")|$after"
+}
+echo; echo "== 4i. rejected requests and redeliveries never wait for genuine traffic =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(replay_wait "$DB_PC")"; echo "   rejected|duplicate|lock timeouts|recorded while locked|after release: $OUT"
+[ "$OUT" = "20|1|0|0|1" ] || { echo "   FAIL: expected '20|1|0|0|1'"; exit 1; }
+sed 's/WHERE w.channel_id = p_channel_id; -- push_accept:unlocked-auth/WHERE w.channel_id = p_channel_id FOR UPDATE; -- negative control/' "$PUSH" > "$TMP/push_lockauth.sql"
+grep -q "FOR UPDATE; -- negative control" "$TMP/push_lockauth.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_lockauth.sql"; OUT="$(replay_wait "$DB_PCN")"; echo "   negative control (authenticate under FOR UPDATE): $OUT"
+[ "$(echo "$OUT" | cut -d'|' -f3)" -ge 1 ] || { echo "   FAIL: negative control did not reproduce the wait"; exit 1; }
+echo "   OK (no lock, no wait, no row while genuine traffic holds the rows; one sampled row afterwards; the test detects lock-first authentication)"
 
 echo; echo "== 4d. non-destructive shutdown (exact supabase/ops files) =="
 build "$DB_SD" "$MIG"

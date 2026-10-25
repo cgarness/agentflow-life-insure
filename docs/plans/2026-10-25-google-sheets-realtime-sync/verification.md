@@ -14,7 +14,7 @@ Production was not queried during the build. The read-only Phase 0 observations 
 
 | File | SHA-256 |
 |---|---|
-| `supabase/migrations/20261025120000_google_sheets_push_sync.sql` (new; version provisional, re-stamped at Gate D) | `8a7cf14fdbe7ea5f495f45570644efcb3de62971378892a485475e26e75718b7` |
+| `supabase/migrations/20261025120000_google_sheets_push_sync.sql` (new; version provisional, re-stamped at Gate D) | `2774557acaf98db80fc169f6ed502003d8533ea13a08ebeefdf18657aefa609d` (Gate C hardening, §8; Gate B was `8a7cf14f…e75718b7`) |
 | `supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql` (new) | `1bc9845031075a47f650d4780b57771946cb2495d347e33cb1874678fc3cce94` |
 | `supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql` (new, **pending**) | `2db0a82a52bc591f4f2530ce659ea6b5b406c5322ecb5951bbb6bb628e6283f3` |
 | `supabase/migrations/20261022062539_google_sheets_import_foundation.sql` (immutable, unchanged) | `fc68da86bfa972148b72302b3bc0daf8d227453b75fdadd6ef8578908d76efed` |
@@ -165,3 +165,92 @@ The Sync-now toasts are unchanged.
 - Production apply, deploy and secrets (Gate D).
 - Live browser acceptance with a real Google account.
 - CI on the PR head. It is reported on the PR once the workflows complete.
+
+## 8. Gate C hardening (approved 2026-10-25; plan §18)
+
+**What changed.** These edits are in the unapplied migration only, plus tests, an ops comment, the stop-all ops file
+and docs:
+- bounded rejection sampling;
+- write-free, target-lock-free redeliveries;
+- a UNIQUE dedupe index;
+- a retention clause in the cron guard;
+- a 900 s renewal overlap with delayed stop;
+- the seamless-renewal rule (a `stopping` channel is never coverage);
+- a bounded late-delivery grace (3600 s, Google-confirmed channels only);
+- active-only status.
+
+The function inventory is unchanged at 75. There are no Edge, frontend or CI workflow changes.
+
+| Check | Result |
+|---|---|
+| `run_google_sheets_tests.sh` on PostgreSQL 17.6 | **ALL GOOGLE SHEETS CHECKS PASSED** (76 s) |
+| `run_google_sheets_tests.sh` on PostgreSQL 16.15 | **ALL GOOGLE SHEETS CHECKS PASSED** (75 s) |
+| Push SQL suite | P1–P14 (P1, P4, P10 and P12 updated) **plus P15, P16a–d**: all PASS |
+| 4i (new): rejections and redeliveries never wait | `20|1|0|0|1`. While another session held the channel and target rows: 20 wrong-token requests were rejected, 1 redelivery returned `duplicate`, 0 lock timeouts and 0 rows were recorded; after release, one sampled row. Negative control (authenticate under `FOR UPDATE`, the Gate B code): **2 lock timeouts**, detected. |
+| 4e–4h, 3/4/4b/4c, 4d, rollback, PostgREST (62), Review e2e (40) | unchanged, PASS |
+| Push e2e | **43 checks** (was 37). New scenario 10b: the maintenance renewal does not stop the superseded channel; a row notified only on it is imported exactly once; Disconnect stops both channels. |
+| `run_google_sheets_cron_check.sh` (real pg_cron / pg_net, `--network none`) | **ALL GOOGLE SHEETS CRON CHECKS PASSED** (231 s). With nothing due: 1 run in 70 s, **0 requests**. |
+| Deno: `deno test` | **112 passed** |
+| `deno check` | 6 entry points plus `scripts/google_sheets_push_e2e.ts`: exit 0 |
+| ESLint, Google Sheets CI set (both e2e scripts included) | exit 0 |
+| ESLint, exact Reports command (29 changed `.ts`/`.tsx`) | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| Strict app type-check vs base `27c8d0d` | base 80, candidate 80, **new 0** |
+| Focused Vitest (CI list) | 6 files, **99 passed** |
+| `npm run build` | built |
+| Browser harness `verify.mjs` at 1440 and 390 px | **68 PASS, 0 FAIL** |
+
+**New SQL cases.**
+
+P15, bounded replays:
+- 50 redeliveries: 0 rows, 0 jobs, and the target row untouched.
+- The UNIQUE index refuses a second authenticated row.
+- 50 wrong tokens plus 50 resource mismatches in one minute: 1 sampled row and no job. The next minute adds 1 more.
+- Genuine messages reusing the numbers of rejected requests are still queued.
+- Unknown and invalid requests write nothing.
+
+P12, retention: an event older than 14 days, or an attempt older than 30 days, makes the guard true, and one pass
+deletes it.
+
+P16a, renewal:
+- The renewal is seamless and returns no stop item. The old channel is `stopping`/`superseded` with
+  `next_stop_at ≈ now + 900 s`.
+- Its notification during the overlap is queued (live).
+- Maintenance does not stop it during the overlap, and does once the overlap has passed.
+- After the stop, a delayed delivery within the grace is queued (`late_delivery`) and its replay is `duplicate`.
+- After the grace, `ignored_inactive`.
+
+P16b, acceptance by state:
+
+| Channel | Outcome |
+|---|---|
+| `failed` | ignored |
+| `abandoned` (confirmed or not) | ignored |
+| never-confirmed `stopping` / `stopped` | ignored |
+| `registering` ≤ 5 min | queued |
+| `registering` > 5 min | ignored |
+| stopped 10 min ago | queued (grace) |
+| stopped 2 h ago | ignored |
+| expired 30 min ago | queued (grace) |
+| expired 2 h ago | ignored |
+| `stopping`, expired 5 min ago | queued (grace) |
+
+Also in P16b:
+- A replay inside the grace returns `duplicate`.
+- Inside the grace, the wrong token and the wrong resource are still rejected.
+- An old generation inside the grace is `ignored_stale`.
+- A channel removed by retention is `unknown_channel`.
+- With `late_grace_s = 0`, nothing late is accepted.
+
+P16c, interruptions:
+- An old channel that would expire inside the overlap triggers a catch-up.
+- Stopping-only coverage shows status `interrupted`, and the next registration triggers a catch-up.
+- Expiry without renewal leads maintenance to register `recover`, which triggers a catch-up.
+
+P16d, connections: inside the grace, a revoked connection (reconnect required), the old generation after a
+reconnect, a paused target, and a disconnected connection are all ignored. The controls at the current generation are
+queued.
+
+**Residual risk.** A notification Google holds longer than the 900 s overlap and then discards because the channel was
+stopped, or delivers more than 3600 s after the channel ended. Both windows are configurable without a migration.
+Gate E/F measures the real delay.

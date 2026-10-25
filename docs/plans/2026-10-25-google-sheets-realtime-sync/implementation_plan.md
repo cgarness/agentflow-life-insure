@@ -894,9 +894,14 @@ that spreadsheet; it does not lose the row.
    reconnect, recovery from interrupted monitoring, expiry without a successful renewal, and key rotation;
 8. Sync Now, unchanged.
 
-**Routine renewal does not reconcile.** Google documents an overlap period in which both channels are active, and
-both are accepted until the old one is stopped, so there is no gap. If renewal fails until the old channel expires,
-the next successful registration is fresh, which triggers item 7.
+**Routine renewal does not reconcile, as long as it is seamless (§18.2).** The superseded channel stays accepted for
+`renew_overlap_s` (900 s) and is stopped only after that, so Google's pending notifications on it still arrive. A
+renewal is seamless only when the old channel is `active` at the same generation and key and stays valid for the
+whole overlap. Anything else is fresh and triggers item 7. That includes renewal failing until the old channel
+expires, or an old channel that would expire inside the overlap.
+
+*Gate C correction:* the Gate B build stopped the old channel immediately. That left a gap for notifications Google
+had not yet sent on it; §18.2 has the details.
 
 **Delivery failures we can see:**
 - An answer of `503` (database unavailable, admission closed) makes Google retry 500/502/503/504 with exponential
@@ -1059,3 +1064,110 @@ about daily.
 
 Publication is therefore **not required before the Gate E pilot**, but **is required before Gate G**. That is a
 recommendation; Chris decides.
+
+## 18. Gate C hardening (approved 2026-10-25; implemented on this branch)
+
+Approval: "APPROVED — PR #491 GATE C HARDENING" (plan at `509fa62`). The unapplied migration `20261025120000` was
+edited in place. The function inventory stays at 75. Edge code is unchanged; the database decides outcomes and the
+stop list.
+
+### 18.1 Bounded receiver cost (duplicates, rejected requests, retention)
+
+| Request | Lock | Rows written |
+|---|---|---|
+| Bad HMAC tag, malformed headers | none (refused in Edge, no DB call) | 0 |
+| Unknown channel, invalid arguments | none | 0 |
+| Wrong token / wrong resource id | **none**: authenticated on an unlocked read | **≤ 1 per channel per minute** (sampled via `last_rejected_at`, `FOR UPDATE SKIP LOCKED`, so it never waits) |
+| Redelivery of a recorded message | **none** (unlocked fast path; re-checked under the channel lock only if the first delivery is still in flight) | **0** |
+| Authenticated first delivery | channel, then target (lock order unchanged) | 1 |
+
+Supporting rules:
+- **Unlocked authentication is safe.** The token digest never changes, and an effective resource id
+  (`COALESCE(resource_id, observed_resource_id)`) never changes once known.
+- **Database-level uniqueness:** `UNIQUE (channel_row_id, message_number) WHERE authenticated AND message_number IS
+  NOT NULL`. `duplicate` is no longer a stored outcome.
+- **Rejections never suppress a genuine message.** Unauthenticated rows take no part in de-duplication.
+- **Retention keeps pace.** The cron guard is also true while events older than 14 days or attempts older than 30
+  days exist. Each pass deletes at most 5,000 of each. This is housekeeping, never a spreadsheet read.
+- **Tests:**
+  - P4, P12 and P15: 50 redeliveries; 100 rejections in a minute; uniqueness; the retention guard;
+  - runner 4i: rejections and redeliveries complete under `lock_timeout = 1s` while another session holds the
+    channel and target rows, with a negative control that reproduces the wait.
+
+### 18.2 Renewal overlap and bounded late-delivery grace
+
+**Overlap.**
+- When a renewal is activated, each older `active` channel at the same generation and key becomes `stopping`, with
+  `last_error_code = 'superseded'` and `next_stop_at = now + renew_overlap_s`.
+- It is **not** returned for an immediate stop. Maintenance stops it once `next_stop_at` passes; the guard fires once
+  for it.
+- Channels of another generation or key are stopped immediately. Their successor's activation is fresh and
+  reconciles.
+- `renew_overlap_s` defaults to 900 s (`CHECK 60–3600`, and `< renew_before_s`).
+- `google_sheets_push_stop_all.sql` ends any running overlap at once.
+
+**Seamless renewal.** A renewal counts as seamless (no catch-up) only if another channel is `active` at the same
+generation and key with `expires_at > now + renew_overlap_s`. A `stopping` channel never counts as coverage, either
+for this rule or for the Settings status.
+
+**Acceptance by channel state (the security adjustment).** A notification can trigger work only if the channel is in
+one of these states:
+- **live:**
+  - `registering`, for at most 5 minutes after creation;
+  - `active` or `stopping`, Google-confirmed (`activated_at`) and unexpired;
+- **in grace:** Google-confirmed, in state `active`, `stopping` or `stopped`, and
+  `now < LEAST(expires_at, stopped_at) + late_grace_s`. `late_grace_s` defaults to 3600 s (`CHECK 0–21600`). The
+  event is recorded with `reason = 'late_delivery'`.
+
+These never trigger work:
+- `failed` channels;
+- `abandoned` channels;
+- never-confirmed `stopping`/`stopped` channels;
+- `registering` channels older than 5 minutes;
+- any channel past its grace.
+
+On every path, the token, the resource id, a live target, and the connection's current status, generation and owner
+still apply. Tests: P16b (state matrix) and P16d (revoked, old generation, paused, disconnected).
+
+**Why a seamless renewal leaves no undetected gap.** Let Google establish channel B at `t_B`, before our
+`watch_result`. Take a change at time `t`:
+- **If `t ≥ t_B`,** Google notifies B, which is active and accepted.
+- **If `t < t_B`,** Google notifies A, which was live at `t`. A is still sending until `t_B + renew_overlap_s` at the
+  earliest, and the seamless rule guarantees it has not expired by then. A delivery Google sends during that time is
+  accepted. A delivery that arrives after A is stopped or expired (in flight, or a retry of a `503`) is accepted for
+  `late_grace_s`.
+
+Every accepted notification starts a full read of every enabled tab of the spreadsheet *after* acceptance. That read
+diffs against receipts and the identity ledger, so it covers `t` and any earlier miss.
+
+**Residual risk.** A notification Google holds longer than the overlap and then discards because A was stopped, or
+delivers more than `late_grace_s` after A ended. Gate E/F measures notification delay against these defaults, and
+both are configurable without a migration. Tests: P10, P16a, and push e2e scenario 10b (through the real receiver
+and maintenance).
+
+**Genuine interruptions reconcile by event** (P10b and P16c). These each end in a fresh activation, which queues
+one catch-up:
+- expiry without a successful renewal (maintenance registers `recover`);
+- an old channel that would expire inside the overlap;
+- reconnect;
+- key rotation;
+- stopping-only coverage (stop-all or release followed by a new registration).
+
+Enable, Resume, save and Review apply kick through the API hooks. No periodic read was added.
+
+### 18.3 What Google Drive notifications cannot guarantee
+1. Delivery of every change. A notification can be lost.
+2. Any maximum delay. Sheets edits are reportedly batched at about 3 minutes (R2).
+3. Content. A notification says only that the file changed (`X-Goog-Changed` is coarse), never which rows.
+4. Loss detection. Message numbers increase but are not sequential, so a gap proves nothing.
+5. A signal when Google stops sending on a channel, other than its expiry.
+6. Automatic renewal. Channels expire (files: at most 24 h).
+7. Delivery of pending notifications after `channels.stop` or expiry. This is undocumented, so we assume the worst.
+8. Retries beyond a bounded backoff, and only after 500/502/503/504. An outage longer than Google's retry period
+   loses notifications.
+9. A signature. Authentication is only our channel token.
+10. That rows written through the Sheets API notify at all (R3, Gate E).
+
+**What AgentFlow therefore cannot detect:** a notification Google never sends for a healthy channel. Such a row is
+imported at the next accepted notification for that spreadsheet (any later change), the next event-driven catch-up,
+or Sync now. There is **no periodic spreadsheet polling**. The UI never promises instant or guaranteed detection.

@@ -16,6 +16,9 @@ BEGIN
          next_stop_at = NULL, last_error_code = 'stop_all', updated_at = now()
    WHERE w.state IN ('registering','active');
   GET DIAGNOSTICS n = ROW_COUNT;
+  -- Channels superseded by a renewal are already 'stopping' with a future next_stop_at (the overlap): stop them now.
+  UPDATE private.google_sheets_watch_channels w SET next_stop_at = NULL, updated_at = now()
+   WHERE w.state = 'stopping' AND w.next_stop_at > now();
   RAISE NOTICE 'google sheets push: mode off; % channel(s) marked for stopping', n;
 END
 $stop$;

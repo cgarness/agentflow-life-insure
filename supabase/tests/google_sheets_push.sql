@@ -69,6 +69,20 @@ CREATE FUNCTION pg_temp.notify(n int, st text, msg bigint, tok text DEFAULT NULL
     COALESCE(res, 'RES-' || n), st, msg, 'content', now()) $$;
 CREATE FUNCTION pg_temp.o(n int, st text, msg bigint, tok text DEFAULT NULL, res text DEFAULT NULL) RETURNS text LANGUAGE sql AS $$
   SELECT outcome FROM pg_temp.notify(n, st, msg, tok, res) $$;
+-- A channel row in a given lifecycle state for user u's spreadsheet (P16 acceptance matrix). Times are offsets
+-- from now(); NULL activated means Google never confirmed it.
+CREATE FUNCTION pg_temp.mkchan(u uuid, sp text, n int, st text, activated interval, expires interval, stopped interval,
+  created interval DEFAULT interval '0', generation bigint DEFAULT NULL) RETURNS uuid LANGUAGE sql AS $$
+  INSERT INTO private.google_sheets_watch_channels (target_id, organization_id, user_id, connection_id, spreadsheet_id,
+    auth_generation, channel_id, token_digest, key_id, state, reason, resource_id, activated_at, expires_at, stopped_at, created_at)
+  SELECT x.id, x.organization_id, x.user_id, x.connection_id, sp, COALESCE(generation, pg_temp.gen(u)), pg_temp.ch(n),
+         decode(pg_temp.hex(pg_temp.tok(n)), 'hex'), pg_temp.key(), st, 'renew', 'RES-' || n,
+         now() + activated, now() + expires, now() + stopped, now() + created
+    FROM private.google_sheets_watch_targets x WHERE x.connection_id = pg_temp.conn(u) AND x.spreadsheet_id = sp
+  RETURNING id $$;
+CREATE FUNCTION pg_temp.reason(n int, msg bigint) RETURNS text LANGUAGE sql AS $$
+  SELECT e.reason FROM private.google_sheets_push_events e JOIN private.google_sheets_watch_channels w ON w.id = e.channel_row_id
+   WHERE w.channel_id = pg_temp.ch(n) AND e.message_number = msg AND e.authenticated $$;
 -- Claims a target (job) and records lease + attempt in kv under `name`.
 CREATE FUNCTION pg_temp.claim(name text, t uuid, lease_s int DEFAULT 300) RETURNS boolean LANGUAGE plpgsql AS $$
 DECLARE c record; l uuid := gen_random_uuid();
@@ -136,8 +150,11 @@ BEGIN
     PERFORM pg_temp.ok(NOT has_table_privilege('authenticated', 'private.' || t, 'SELECT'), 'authenticated cannot read ' || t);
     PERFORM pg_temp.ok(NOT has_table_privilege('anon', 'private.' || t, 'SELECT'), 'anon cannot read ' || t);
   END LOOP;
-  PERFORM pg_temp.ok((SELECT mode = 'off' AND max_concurrent_jobs = 4 AND renew_before_s = 10800 FROM private.google_sheets_push_config),
-                     'seeded mode off, cap 4, renew window 3 h');
+  PERFORM pg_temp.ok((SELECT mode = 'off' AND max_concurrent_jobs = 4 AND renew_before_s = 10800 AND renew_overlap_s = 900
+                             AND late_grace_s = 3600 FROM private.google_sheets_push_config),
+                     'seeded mode off, cap 4, renew window 3 h, overlap 900 s, late-delivery grace 3600 s');
+  PERFORM pg_temp.ok((SELECT indisunique FROM pg_index WHERE indexrelid = 'private.google_sheets_push_events_dedupe_idx'::regclass),
+                     'one authenticated event per (channel, message number) is a UNIQUE index');
   PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = 'private.google_sheets_watch_channels'::regclass
                                   AND a.attname IN ('token','channel_token') AND NOT a.attisdropped), 'no token column (digest only)');
   RAISE NOTICE 'PASS P1 ACL/RLS (% functions)', n;
@@ -217,8 +234,10 @@ DO $$
 DECLARE t private.google_sheets_watch_targets := pg_temp.target(pg_temp.id('a1'), 'SPREADSHEET_PUSH_A');
 BEGIN
   PERFORM pg_temp.ok(t.requested_seq = 6, 'six authenticated, non-duplicate jobs queued (1 catch-up + 5 notifications): ' || t.requested_seq);
-  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events WHERE target_id = t.id AND NOT authenticated) = 3,
-                     'rejected events recorded unauthenticated (token + 2 resource)');
+  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events WHERE target_id = t.id AND NOT authenticated) = 2,
+                     'rejections sampled per channel per minute: channel 1 resource, channel 2 token (its resource rejection in the same minute not recorded)');
+  PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM private.google_sheets_push_events WHERE target_id = t.id AND outcome = 'duplicate'),
+                     'a redelivery writes no row');
   PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM private.google_sheets_push_events WHERE organization_id <> pg_temp.id('orgA') AND target_id = t.id),
                      'events carry the channel owner''s organization');
   RAISE NOTICE 'PASS P4 receiver validation matrix';
@@ -397,16 +416,17 @@ DO $$
 DECLARE r jsonb := pg_temp.get('renew')::jsonb;
 BEGIN
   PERFORM pg_temp.ok(r->>'status' = 'activated' AND NOT (r->>'kicked')::boolean, 'renewal: no catch-up (overlap, no gap) ' || r::text);
-  PERFORM pg_temp.ok(jsonb_array_length(r->'stop') = 1 AND r->'stop'->0->>'channel_id' = pg_temp.ch(2) AND r->'stop'->0->>'resource_id' = 'RES-2',
-                     'renewal returns the old channel to stop');
-  PERFORM pg_temp.ok((pg_temp.chan(2)).state = 'stopping' AND (pg_temp.chan(3)).state = 'active', 'old stopping, new active');
+  PERFORM pg_temp.ok(jsonb_array_length(r->'stop') = 0, 'renewal keeps the superseded channel for the overlap (no immediate stop)');
+  PERFORM pg_temp.ok((pg_temp.chan(2)).state = 'stopping' AND (pg_temp.chan(2)).last_error_code = 'superseded'
+                     AND (pg_temp.chan(3)).state = 'active', 'old stopping (superseded), new active');
   RAISE NOTICE 'PASS P10a renewal overlap';
 END $$;
 SELECT pg_temp.ok(pg_temp.o(2, 'update', 40) = 'queued' AND pg_temp.o(3, 'update', 2) = 'queued', 'both overlapping channels accepted (coalesced by seq)');
 SELECT public.google_sheets_watch_result((pg_temp.chan(2)).id, 'stopped', NULL, NULL, NULL);
-SELECT pg_temp.ok(pg_temp.o(2, 'update', 41) = 'ignored_inactive', 'a stopped channel is acknowledged, no job');
-UPDATE private.google_sheets_watch_channels SET expires_at = now() - interval '1 second' WHERE channel_id = pg_temp.ch(20);
-SELECT pg_temp.ok(pg_temp.o(20, 'update', 50) = 'ignored_inactive', 'an expired channel is acknowledged, no job');
+SELECT pg_temp.ok(pg_temp.o(2, 'update', 41) = 'queued' AND pg_temp.reason(2, 41) = 'late_delivery',
+                  'a confirmed channel stopped moments ago: a late delivery within the grace is queued');
+UPDATE private.google_sheets_watch_channels SET expires_at = now() - interval '2 hours' WHERE channel_id = pg_temp.ch(20);
+SELECT pg_temp.ok(pg_temp.o(20, 'update', 50) = 'ignored_inactive', 'a channel expired beyond the grace is acknowledged, no job');
 -- reconnect: the generation moves; the old channel's notifications are ignored; maintenance re-registers with a catch-up
 SELECT pg_temp.connect(pg_temp.id('a1'));
 SELECT pg_temp.ok(pg_temp.o(3, 'update', 3) = 'ignored_stale', 'old-generation channel → ignored_stale');
@@ -511,6 +531,21 @@ UPDATE private.google_sheets_watch_channels SET state = 'stopped' WHERE state = 
 UPDATE public.google_sheets_sources SET state = 'paused' WHERE user_id <> pg_temp.id('a2');
 UPDATE private.google_sheets_watch_channels SET auth_generation = pg_temp.gen(pg_temp.id('a2')) WHERE connection_id = pg_temp.conn(pg_temp.id('a2')) AND state = 'active';
 SELECT pg_temp.ok(NOT private.google_sheets_push_maintenance_due(), 'nothing queued, every live spreadsheet watched → guard false (no polling)');
+-- retention keeps pace: a row past its window alone makes the guard fire; one pass deletes it (housekeeping only)
+INSERT INTO private.google_sheets_push_events (organization_id, user_id, target_id, authenticated, outcome, received_at, queued_at)
+SELECT x.organization_id, x.user_id, x.id, true, 'catch_up', now() - interval '15 days', now() - interval '15 days'
+  FROM private.google_sheets_watch_targets x WHERE x.connection_id = pg_temp.conn(pg_temp.id('a2')) LIMIT 1;
+SELECT pg_temp.ok(private.google_sheets_push_maintenance_due(), 'an event past its 14-day retention → guard true');
+SELECT public.google_sheets_push_maintenance_claim(gen_random_uuid(), 50, pg_temp.key());
+SELECT pg_temp.ok(NOT private.google_sheets_push_maintenance_due(), 'one maintenance pass deletes it → guard false again');
+INSERT INTO private.google_sheets_push_attempts (id, organization_id, user_id, target_id, worker, from_seq, snapshot_seq, started_at)
+SELECT gen_random_uuid(), x.organization_id, x.user_id, x.id, 'maintenance', 0, 0, now() - interval '31 days'
+  FROM private.google_sheets_watch_targets x WHERE x.connection_id = pg_temp.conn(pg_temp.id('a2')) LIMIT 1;
+SELECT pg_temp.ok(private.google_sheets_push_maintenance_due(), 'an attempt past its 30-day retention → guard true');
+SELECT public.google_sheets_push_maintenance_claim(gen_random_uuid(), 50, pg_temp.key());
+SELECT pg_temp.ok(NOT private.google_sheets_push_maintenance_due()
+                  AND NOT EXISTS (SELECT 1 FROM private.google_sheets_push_attempts WHERE started_at < now() - interval '30 days'),
+                  'deleted → guard false again');
 UPDATE private.google_sheets_watch_channels SET expires_at = now() + interval '1 hour' WHERE connection_id = pg_temp.conn(pg_temp.id('a2')) AND state = 'active';
 SELECT pg_temp.ok(private.google_sheets_push_maintenance_due(), 'a channel inside the renew window → guard true (renewal only)');
 DO $$ BEGIN RAISE NOTICE 'PASS P12 blocked / deferred / cron guard'; END $$;
@@ -565,6 +600,195 @@ BEGIN
   PERFORM pg_temp.ok(l.organization_id = pg_temp.id('orgA') AND l.assigned_agent_id = pg_temp.id('a2') AND l.user_id = pg_temp.id('a2')
                      AND l.imported_by_user_id = pg_temp.id('a2'), 'lead owned by the connection owner, in the owner''s agency');
   RAISE NOTICE 'PASS P14 push imports: ownership + receipts (zero duplicates)';
+END $$;
+
+-- ================================================================ P15 bounded replays: duplicates, rejection floods, uniqueness
+INSERT INTO public.profiles (id, organization_id, role, status)
+VALUES ('a3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-0000000000a1', 'Agent', 'Active');
+INSERT INTO pg_temp.ids VALUES ('a3', 'a3000000-0000-0000-0000-000000000003');
+SELECT pg_temp.mode('on');
+SELECT pg_temp.connect(pg_temp.id('a3'));
+SELECT pg_temp.put('sR1', pg_temp.source(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 1)::text);
+SELECT pg_temp.ok((pg_temp.watch(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 70)->>'kicked')::boolean, 'fresh channel 70 queues a catch-up');
+DO $$
+DECLARE t private.google_sheets_watch_targets; ch private.google_sheets_watch_channels; e0 bigint; i int; ok boolean;
+BEGIN
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 10) = 'queued', 'first delivery queued');
+  t := pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R'); ch := pg_temp.chan(70);
+  e0 := (SELECT count(*) FROM private.google_sheets_push_events WHERE channel_row_id = ch.id);
+  FOR i IN 1..50 LOOP PERFORM pg_temp.ok(pg_temp.o(70, 'update', 10) = 'duplicate', 'redelivery ' || i); END LOOP;
+  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events WHERE channel_row_id = ch.id) = e0, '50 redeliveries write no row');
+  PERFORM pg_temp.ok((pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).requested_seq = t.requested_seq
+                     AND (pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).updated_at = t.updated_at,
+                     '50 redeliveries queue no job and never touch the target row');
+  BEGIN
+    INSERT INTO private.google_sheets_push_events (organization_id, user_id, target_id, channel_row_id, message_number,
+      authenticated, outcome, received_at)
+    VALUES (ch.organization_id, ch.user_id, ch.target_id, ch.id, 10, true, 'queued', now());
+    ok := false;
+  EXCEPTION WHEN unique_violation THEN ok := true;
+  END;
+  PERFORM pg_temp.ok(ok, 'the schema refuses a second authenticated row for (channel, message number)');
+  -- 100 rejected requests in one minute: one sampled row, no job, nothing suppressed
+  FOR i IN 1..50 LOOP
+    PERFORM pg_temp.ok(pg_temp.o(70, 'update', 100 + i, 'forged-' || i || repeat('z', 30)) = 'rejected_token', 'wrong token ' || i);
+  END LOOP;
+  FOR i IN 1..50 LOOP
+    PERFORM pg_temp.ok(pg_temp.o(70, 'update', 200 + i, NULL, 'RES-OTHER') = 'rejected_resource', 'resource mismatch ' || i);
+  END LOOP;
+  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events WHERE channel_row_id = ch.id AND NOT authenticated) = 1
+                     AND (SELECT outcome FROM private.google_sheets_push_events WHERE channel_row_id = ch.id AND NOT authenticated) = 'rejected_token',
+                     '100 rejections in one minute → one sampled row (the first)');
+  PERFORM pg_temp.ok((pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).requested_seq = t.requested_seq, 'rejections queue no job');
+  UPDATE private.google_sheets_watch_channels SET last_rejected_at = now() - interval '61 seconds' WHERE id = ch.id;
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 300, NULL, 'RES-OTHER') = 'rejected_resource'
+                     AND pg_temp.o(70, 'update', 301, NULL, 'RES-OTHER') = 'rejected_resource', 'next minute');
+  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events WHERE channel_row_id = ch.id AND NOT authenticated) = 2
+                     AND EXISTS (SELECT 1 FROM private.google_sheets_push_events WHERE channel_row_id = ch.id AND NOT authenticated
+                                   AND outcome = 'rejected_resource' AND message_number = 300), 'the next minute records one more sampled row');
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 101) = 'queued' AND pg_temp.o(70, 'update', 201) = 'queued',
+                     'genuine messages with numbers used by rejected requests are still queued');
+  e0 := (SELECT count(*) FROM private.google_sheets_push_events);
+  PERFORM pg_temp.ok(pg_temp.o(998, 'update', 1) = 'unknown_channel', 'unknown channel');
+  PERFORM pg_temp.ok((SELECT outcome FROM public.google_sheets_push_accept(pg_temp.ch(70), 'zz', 'RES-70', 'update', 1, '', now())) = 'invalid',
+                     'invalid digest');
+  PERFORM pg_temp.ok((SELECT outcome FROM public.google_sheets_push_accept('gs1-too-short', pg_temp.hex(pg_temp.tok(70)), 'RES-70', 'update', 1, '', now())) = 'invalid',
+                     'invalid channel id');
+  PERFORM pg_temp.ok((SELECT count(*) FROM private.google_sheets_push_events) = e0, 'unknown and invalid requests write nothing');
+  RAISE NOTICE 'PASS P15 bounded replays: duplicates, rejection floods, uniqueness';
+END $$;
+
+-- ================================================================ P16 renewal overlap, bounded late-delivery grace, interruptions
+UPDATE private.google_sheets_watch_channels SET expires_at = now() + interval '2 hours' WHERE channel_id = pg_temp.ch(70);
+SELECT pg_temp.put('rn', pg_temp.watch(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 71, 'renew')::text);
+DO $$
+DECLARE r jsonb := pg_temp.get('rn')::jsonb; m jsonb;
+BEGIN
+  PERFORM pg_temp.ok(r->>'status' = 'activated' AND NOT (r->>'kicked')::boolean AND jsonb_array_length(r->'stop') = 0,
+                     'seamless renewal: no catch-up, superseded channel not stopped yet ' || r::text);
+  PERFORM pg_temp.ok((pg_temp.chan(70)).state = 'stopping' AND (pg_temp.chan(70)).last_error_code = 'superseded'
+                     AND (pg_temp.chan(70)).next_stop_at BETWEEN now() + interval '890 seconds' AND now() + interval '910 seconds',
+                     'superseded channel kept for the 900 s overlap');
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 400) = 'queued' AND pg_temp.reason(70, 400) IS NULL,
+                     'a change Google notifies on the superseded channel during the overlap is queued (live, not late)');
+  PERFORM pg_temp.ok(pg_temp.o(71, 'update', 2) = 'queued', 'the new channel works');
+  PERFORM pg_temp.ok(public.google_sheets_push_status(pg_temp.id('a3'), pg_temp.id('orgA'))->'sources'->pg_temp.get('sR1')->>'state' = 'active',
+                     'status active during the overlap');
+  m := public.google_sheets_push_maintenance_claim(gen_random_uuid(), 50, pg_temp.key());
+  PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'items') i WHERE i->>'kind' = 'stop' AND i->>'channel_id' = pg_temp.ch(70)),
+                     'maintenance does not stop it during the overlap');
+  UPDATE private.google_sheets_watch_channels SET next_stop_at = now() - interval '1 second' WHERE channel_id = pg_temp.ch(70);
+  m := public.google_sheets_push_maintenance_claim(gen_random_uuid(), 50, pg_temp.key());
+  PERFORM pg_temp.ok(EXISTS (SELECT 1 FROM jsonb_array_elements(m->'items') i WHERE i->>'kind' = 'stop' AND i->>'channel_id' = pg_temp.ch(70)),
+                     'maintenance stops it once the overlap has passed');
+  PERFORM public.google_sheets_watch_result((pg_temp.chan(70)).id, 'stopped', NULL, NULL, NULL);
+  -- bounded late-delivery grace for a channel Google confirmed
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 401) = 'queued' AND pg_temp.reason(70, 401) = 'late_delivery',
+                     'a delayed delivery within the grace is queued (late_delivery)');
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 401) = 'duplicate', 'its replay → duplicate');
+  UPDATE private.google_sheets_watch_channels SET stopped_at = now() - interval '61 minutes' WHERE channel_id = pg_temp.ch(70);
+  PERFORM pg_temp.ok(pg_temp.o(70, 'update', 402) = 'ignored_inactive', 'after the grace an obsolete channel never triggers an import');
+  RAISE NOTICE 'PASS P16a renewal overlap: superseded channel accepted for the overlap, stopped after it';
+END $$;
+
+-- acceptance matrix by lifecycle state (token, resource id and current generation all valid)
+DO $$
+DECLARE seq bigint;
+BEGIN
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 80, 'failed', NULL, NULL, NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 81, 'abandoned', interval '-2 hours', interval '20 hours', NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 82, 'abandoned', NULL, NULL, NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 83, 'stopping', NULL, NULL, NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 84, 'stopped', NULL, NULL, interval '-1 minute');
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 85, 'registering', NULL, NULL, NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 86, 'stopped', interval '-5 hours', interval '18 hours', interval '-10 minutes');
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 87, 'stopped', interval '-5 hours', interval '18 hours', interval '-2 hours');
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 88, 'active', interval '-24 hours', interval '-30 minutes', NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 89, 'active', interval '-26 hours', interval '-2 hours', NULL);
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 90, 'stopping', interval '-24 hours', interval '-5 minutes', NULL);
+  seq := (pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).requested_seq;
+  PERFORM pg_temp.ok(pg_temp.o(80, 'update', 1) = 'ignored_inactive', 'failed registration → never triggers work');
+  PERFORM pg_temp.ok(pg_temp.o(81, 'update', 1) = 'ignored_inactive', 'abandoned (once confirmed) → never triggers work');
+  PERFORM pg_temp.ok(pg_temp.o(82, 'update', 1) = 'ignored_inactive', 'abandoned, never confirmed → never triggers work');
+  PERFORM pg_temp.ok(pg_temp.o(83, 'update', 1) = 'ignored_inactive', 'stopping but never confirmed (abandoned registration) → never triggers work');
+  PERFORM pg_temp.ok(pg_temp.o(84, 'update', 1) = 'ignored_inactive', 'stopped but never confirmed → no grace');
+  PERFORM pg_temp.ok((pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).requested_seq = seq, 'none of them queued a job');
+  PERFORM pg_temp.ok(pg_temp.o(85, 'update', 1) = 'queued', 'registering (≤ 5 min, before the watch response) → live');
+  UPDATE private.google_sheets_watch_channels SET created_at = now() - interval '6 minutes' WHERE channel_id = pg_temp.ch(85);
+  PERFORM pg_temp.ok(pg_temp.o(85, 'update', 2) = 'ignored_inactive', 'registering for more than 5 minutes, never confirmed → ignored');
+  UPDATE private.google_sheets_watch_channels SET state = 'abandoned' WHERE channel_id = pg_temp.ch(85);  -- as hygiene would
+  PERFORM pg_temp.ok(pg_temp.o(86, 'update', 1) = 'queued' AND pg_temp.reason(86, 1) = 'late_delivery', 'stopped 10 min ago → within the grace');
+  PERFORM pg_temp.ok(pg_temp.o(87, 'update', 1) = 'ignored_inactive', 'stopped 2 h ago → past the grace');
+  PERFORM pg_temp.ok(pg_temp.o(88, 'update', 1) = 'queued' AND pg_temp.reason(88, 1) = 'late_delivery', 'expired 30 min ago (before hygiene) → within the grace');
+  PERFORM pg_temp.ok(pg_temp.o(89, 'update', 1) = 'ignored_inactive', 'expired 2 h ago → past the grace');
+  PERFORM pg_temp.ok(pg_temp.o(90, 'update', 1) = 'queued' AND pg_temp.reason(90, 1) = 'late_delivery', 'stopping, expired 5 min ago → within the grace');
+  PERFORM pg_temp.ok(pg_temp.o(86, 'update', 1) = 'duplicate', 'replay inside the grace → duplicate');
+  PERFORM pg_temp.ok(pg_temp.o(86, 'update', 2, 'forged-' || repeat('q', 30)) = 'rejected_token'
+                     AND pg_temp.o(86, 'update', 3, NULL, 'RES-OTHER') = 'rejected_resource', 'the grace never relaxes token or resource checks');
+  -- an old authorization generation inside the grace
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 91, 'stopped', interval '-5 hours', interval '18 hours', interval '-10 minutes',
+                         interval '0', pg_temp.gen(pg_temp.id('a3')) - 1);
+  PERFORM pg_temp.ok(pg_temp.o(91, 'update', 1) = 'ignored_stale', 'old authorization generation inside the grace → ignored');
+  DELETE FROM private.google_sheets_watch_channels WHERE channel_id = pg_temp.ch(87);
+  PERFORM pg_temp.ok(pg_temp.o(87, 'update', 2) = 'unknown_channel', 'a channel removed by retention → unknown');
+  UPDATE private.google_sheets_push_config SET late_grace_s = 0;
+  PERFORM pg_temp.ok(pg_temp.o(86, 'update', 4) = 'ignored_inactive', 'grace 0 → no late delivery is accepted');
+  UPDATE private.google_sheets_push_config SET late_grace_s = 3600;
+  RAISE NOTICE 'PASS P16b bounded late-delivery grace by lifecycle state';
+END $$;
+
+-- genuine interruptions reconcile by event; stopping-only coverage is never treated as monitoring
+DO $$
+DECLARE r jsonb; m jsonb; b record;
+BEGIN
+  -- a renewal whose old channel would expire inside the overlap is not seamless
+  UPDATE private.google_sheets_watch_channels SET expires_at = now() + interval '10 minutes' WHERE channel_id = pg_temp.ch(71);
+  r := pg_temp.watch(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 72, 'renew');
+  PERFORM pg_temp.ok((r->>'kicked')::boolean, 'old channel expiring inside the overlap → catch-up ' || r::text);
+  -- only stopping coverage left (e.g. after stop-all): status interrupted; the next registration is fresh
+  UPDATE private.google_sheets_watch_channels SET state = 'stopping', last_error_code = 'stop_all', next_stop_at = NULL
+   WHERE channel_id IN (pg_temp.ch(71), pg_temp.ch(72));
+  PERFORM pg_temp.ok(public.google_sheets_push_status(pg_temp.id('a3'), pg_temp.id('orgA'))->'sources'->pg_temp.get('sR1')->>'state' = 'interrupted',
+                     'stopping-only coverage → status interrupted');
+  UPDATE private.google_sheets_watch_channels SET state = 'stopped', stopped_at = now() WHERE channel_id IN (pg_temp.ch(71), pg_temp.ch(72));
+  r := pg_temp.watch(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 73, 'recover');
+  PERFORM pg_temp.ok((r->>'kicked')::boolean, 'registration after stopping-only coverage is fresh → catch-up');
+  PERFORM pg_temp.ok(public.google_sheets_push_status(pg_temp.id('a3'), pg_temp.id('orgA'))->'sources'->pg_temp.get('sR1')->>'state' = 'active',
+                     'status active again');
+  -- expiry without a renewal: hygiene stops it, maintenance registers 'recover', the activation reconciles
+  UPDATE private.google_sheets_watch_channels SET expires_at = now() - interval '1 second' WHERE channel_id = pg_temp.ch(73);
+  m := public.google_sheets_push_maintenance_claim(gen_random_uuid(), 50, pg_temp.key());
+  PERFORM pg_temp.ok(EXISTS (SELECT 1 FROM jsonb_array_elements(m->'items') i
+                              WHERE i->>'kind' = 'register' AND i->>'spreadsheet_id' = 'SPREADSHEET_PUSH_R' AND i->>'reason' = 'recover'),
+                     'expired without renewal → maintenance registers (recover) ' || m::text);
+  UPDATE private.google_sheets_watch_targets SET maint_lease_owner = NULL, maint_lease_expires_at = NULL
+   WHERE id = (pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).id;
+  r := pg_temp.watch(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 74, 'recover');
+  PERFORM pg_temp.ok((r->>'kicked')::boolean, 'recovery registration → catch-up');
+  RAISE NOTICE 'PASS P16c genuine interruptions reconcile by event';
+END $$;
+
+-- revoked, reconnected (old generation), paused and disconnected connections inside the grace
+DO $$
+BEGIN
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 92, 'stopped', interval '-5 hours', interval '18 hours', interval '-5 minutes');
+  PERFORM pg_temp.ok(pg_temp.o(92, 'update', 1) = 'queued', 'control: inside the grace, current generation → queued');
+  PERFORM public.google_sheets_mark_reconnect(pg_temp.conn(pg_temp.id('a3')), pg_temp.gen(pg_temp.id('a3')), 'invalid_grant');
+  PERFORM pg_temp.ok(pg_temp.o(92, 'update', 2) = 'ignored_stale' AND pg_temp.o(74, 'update', 2) = 'ignored_stale',
+                     'revoked (reconnect required) → grace and live channels ignored');
+  PERFORM pg_temp.connect(pg_temp.id('a3'));
+  PERFORM pg_temp.ok(pg_temp.o(92, 'update', 3) = 'ignored_stale' AND pg_temp.o(74, 'update', 3) = 'ignored_stale',
+                     'reconnected → channels of the old authorization generation ignored');
+  PERFORM pg_temp.mkchan(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R', 93, 'stopped', interval '-5 hours', interval '18 hours', interval '-5 minutes');
+  PERFORM pg_temp.ok(pg_temp.o(93, 'update', 1) = 'queued', 'control: new generation inside the grace → queued');
+  PERFORM public.google_sheets_set_state(pg_temp.id('a3'), pg_temp.id('orgA'), pg_temp.get('sR1')::uuid, 'pause');
+  PERFORM public.google_sheets_watch_release(pg_temp.id('a3'), pg_temp.id('orgA'), 'SPREADSHEET_PUSH_R', false);
+  PERFORM pg_temp.ok(pg_temp.o(93, 'update', 2) = 'ignored_inactive', 'paused (target stopped) → ignored inside the grace');
+  PERFORM public.google_sheets_set_state(pg_temp.id('a3'), pg_temp.id('orgA'), pg_temp.get('sR1')::uuid, 'resume');
+  UPDATE private.google_sheets_watch_targets SET state = 'live' WHERE id = (pg_temp.target(pg_temp.id('a3'), 'SPREADSHEET_PUSH_R')).id;
+  PERFORM public.google_sheets_disconnect(pg_temp.id('a3'), pg_temp.id('orgA'));
+  PERFORM pg_temp.ok(pg_temp.o(93, 'update', 3) = 'ignored_stale', 'disconnected → ignored inside the grace');
+  RAISE NOTICE 'PASS P16d revoked / old-generation / paused / disconnected connections never use the grace';
 END $$;
 
 SELECT 'ALL GOOGLE SHEETS PUSH SQL TESTS PASSED' AS result;

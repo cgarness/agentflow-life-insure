@@ -19,6 +19,10 @@
 --     unchanged private.google_sheets_lock_for_work.
 --   * No-lost-work: a notification only ever INCREMENTS requested_seq; only push_complete with a SQL-verified
 --     'done' advances processed_seq to the snapshot taken at claim time.
+--   * Bounded receiver cost: a rejected request takes no lock and records at most one row per channel per
+--     minute; a redelivery writes nothing; (channel, message number) is unique; retention keeps pace (§18).
+--   * Renewal overlap: a superseded channel keeps being accepted for renew_overlap_s before it is stopped; a
+--     channel Google confirmed is accepted for late deliveries only within late_grace_s after it ended (§18).
 -- No existing policy, trigger, workflow, DNC, SMS, consent, telephony, lead or receipt object is altered.
 -- =====================================================================================================
 
@@ -134,7 +138,13 @@ CREATE TABLE private.google_sheets_push_config (
   mode                text NOT NULL DEFAULT 'off' CHECK (mode IN ('off','pilot','on')),
   max_concurrent_jobs integer NOT NULL DEFAULT 4 CHECK (max_concurrent_jobs BETWEEN 1 AND 50),
   renew_before_s      integer NOT NULL DEFAULT 10800 CHECK (renew_before_s BETWEEN 1800 AND 82800),
-  updated_at          timestamptz NOT NULL DEFAULT now()
+  -- A renewal keeps the superseded channel accepted this long before it is stopped (Google's pending notifications).
+  renew_overlap_s     integer NOT NULL DEFAULT 900 CHECK (renew_overlap_s BETWEEN 60 AND 3600),
+  -- A channel Google confirmed stays accepted this long after it expired or was stopped (in-flight deliveries and
+  -- retries); never for failed, abandoned or never-activated channels.
+  late_grace_s        integer NOT NULL DEFAULT 3600 CHECK (late_grace_s BETWEEN 0 AND 21600),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT google_sheets_push_config_overlap CHECK (renew_overlap_s < renew_before_s)
 );
 INSERT INTO private.google_sheets_push_config DEFAULT VALUES;
 
@@ -206,6 +216,7 @@ CREATE TABLE private.google_sheets_watch_channels (
   stop_attempts        integer NOT NULL DEFAULT 0,
   next_stop_at         timestamptz,
   last_error_code      text,
+  last_rejected_at     timestamptz,  -- rejection sampling: at most one recorded rejection per channel per minute
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now()
 );
@@ -220,7 +231,8 @@ CREATE INDEX google_sheets_watch_channels_work_idx ON private.google_sheets_watc
 CREATE INDEX google_sheets_watch_channels_terminal_idx ON private.google_sheets_watch_channels (updated_at)
   WHERE state IN ('stopped','failed','abandoned');
 
--- One row per notification on a known channel (plus catch-up kicks). No token, header value or personal data.
+-- One row per first delivery of a notification on a known channel (plus catch-up kicks). A redelivery writes
+-- nothing; rejections are sampled (one per channel per minute). No token, header value or personal data.
 CREATE TABLE private.google_sheets_push_events (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -232,14 +244,15 @@ CREATE TABLE private.google_sheets_push_events (
   changed         text,
   reason          text,
   authenticated   boolean NOT NULL,
-  outcome         text NOT NULL CHECK (outcome IN ('queued','sync','duplicate','ignored_inactive','ignored_stale',
+  outcome         text NOT NULL CHECK (outcome IN ('queued','sync','ignored_inactive','ignored_stale',
                                                    'rejected_token','rejected_resource','catch_up')),
   job_seq         bigint,
   received_at     timestamptz NOT NULL,
   queued_at       timestamptz NOT NULL DEFAULT clock_timestamp()
 );
-CREATE INDEX google_sheets_push_events_dedupe_idx ON private.google_sheets_push_events (channel_row_id, message_number)
-  WHERE authenticated;
+-- Message numbers are unique per channel: at most one authenticated row per (channel, number), enforced here.
+CREATE UNIQUE INDEX google_sheets_push_events_dedupe_idx ON private.google_sheets_push_events (channel_row_id, message_number)
+  WHERE authenticated AND message_number IS NOT NULL;
 CREATE INDEX google_sheets_push_events_seq_idx ON private.google_sheets_push_events (target_id, job_seq)
   WHERE job_seq IS NOT NULL;
 CREATE INDEX google_sheets_push_events_age_idx ON private.google_sheets_push_events (queued_at);
@@ -314,6 +327,15 @@ $$;
 --   invalid / unknown_channel / rejected_token / rejected_resource  → the receiver answers 4xx (no work)
 --   sync / duplicate / ignored_inactive / ignored_stale              → acknowledged, no job
 --   queued                                                           → requested_seq += 1 (durable on commit)
+-- Bounded cost (§18): authentication runs on an UNLOCKED read (the token digest never changes, and an effective
+-- resource id never changes once known), so a rejected request never waits for or blocks genuine traffic; it
+-- records at most one row per channel per minute (SKIP LOCKED: never waits). A redelivery of a recorded message
+-- writes nothing and never locks the target. Only an authenticated first delivery locks: channel, then target.
+-- A notification may trigger work only on a channel that is LIVE (registering ≤ 5 min; active or stopping and
+-- not expired — a superseded channel stays 'stopping' for the renewal overlap) or that Google CONFIRMED
+-- (activated_at) and that ended (expired or stopped) less than late_grace_s ago. Failed, abandoned and
+-- never-activated channels never trigger work; nor does any channel whose target is not live or whose connection
+-- is not the current, connected generation of the same owner.
 CREATE FUNCTION private.google_sheets_push_accept(
   p_channel_id text, p_token_digest text, p_resource_id text, p_state text, p_message_number bigint,
   p_changed text, p_received_at timestamptz)
@@ -324,10 +346,11 @@ AS $$
 #variable_conflict use_column
 DECLARE
   ch private.google_sheets_watch_channels; t private.google_sheets_watch_targets; c public.google_sheets_connections;
+  cfg private.google_sheets_push_config;
   v_now timestamptz := clock_timestamp();
   v_state text := lower(left(btrim(COALESCE(p_state, '')), 32));
   v_changed text := left(regexp_replace(lower(COALESCE(p_changed, '')), '[^a-z,]', '', 'g'), 100);
-  v_received timestamptz; v_out text; v_seq bigint; v_process boolean := false;
+  v_received timestamptz; v_out text; v_seq bigint; v_process boolean := false; v_reason text;
 BEGIN
   IF p_channel_id IS NULL OR p_channel_id !~ '^gs1[A-Za-z0-9_-]{40}$'
      OR p_token_digest IS NULL OR p_token_digest !~ '^[0-9a-f]{64}$'
@@ -337,20 +360,45 @@ BEGIN
   END IF;
   v_received := LEAST(GREATEST(COALESCE(p_received_at, v_now), v_now - interval '1 hour'), v_now);
 
-  SELECT * INTO ch FROM private.google_sheets_watch_channels w WHERE w.channel_id = p_channel_id FOR UPDATE;
+  -- 1. Authenticate on an unlocked read.
+  SELECT * INTO ch FROM private.google_sheets_watch_channels w WHERE w.channel_id = p_channel_id; -- push_accept:unlocked-auth
   IF NOT FOUND THEN RETURN QUERY SELECT 'unknown_channel'::text, NULL::uuid, false; RETURN; END IF;
-
   IF NOT private.google_sheets_ct_equal(ch.token_digest, decode(p_token_digest, 'hex')) THEN
     v_out := 'rejected_token';
   ELSIF COALESCE(ch.resource_id, ch.observed_resource_id) IS NOT NULL
         AND COALESCE(ch.resource_id, ch.observed_resource_id) <> p_resource_id THEN
     v_out := 'rejected_resource';
+  ELSIF EXISTS (SELECT 1 FROM private.google_sheets_push_events e
+                 WHERE e.channel_row_id = ch.id AND e.message_number = p_message_number AND e.authenticated) THEN
+    -- 2. Redelivery of a recorded message (numbers are unique per channel): nothing written, nothing locked.
+    RETURN QUERY SELECT 'duplicate'::text, ch.target_id, false; RETURN;
   END IF;
+
+  -- 3. Authenticated first delivery: lock the channel (lock order: channel → target) and re-check under the lock.
+  IF v_out IS NULL THEN
+    SELECT * INTO ch FROM private.google_sheets_watch_channels w WHERE w.id = ch.id FOR UPDATE;
+    IF NOT FOUND THEN RETURN QUERY SELECT 'unknown_channel'::text, NULL::uuid, false; RETURN; END IF;
+    IF COALESCE(ch.resource_id, ch.observed_resource_id) IS NOT NULL
+       AND COALESCE(ch.resource_id, ch.observed_resource_id) <> p_resource_id THEN
+      v_out := 'rejected_resource';
+    ELSIF EXISTS (SELECT 1 FROM private.google_sheets_push_events e
+                   WHERE e.channel_row_id = ch.id AND e.message_number = p_message_number AND e.authenticated) THEN
+      RETURN QUERY SELECT 'duplicate'::text, ch.target_id, false; RETURN;  -- a concurrent first delivery committed
+    END IF;
+  END IF;
+
   IF v_out IS NOT NULL THEN
+    -- Rejection sampling: one recorded row per channel per minute; a row locked by anyone else is skipped.
     -- Unauthenticated rows never take part in de-duplication, so they cannot suppress a genuine message.
-    INSERT INTO private.google_sheets_push_events (organization_id, user_id, target_id, channel_row_id, message_number,
-      resource_state, changed, authenticated, outcome, received_at)
-    VALUES (ch.organization_id, ch.user_id, ch.target_id, ch.id, p_message_number, v_state, v_changed, false, v_out, v_received);
+    UPDATE private.google_sheets_watch_channels w SET last_rejected_at = v_now
+     WHERE w.id = (SELECT x.id FROM private.google_sheets_watch_channels x
+                    WHERE x.id = ch.id AND (x.last_rejected_at IS NULL OR x.last_rejected_at <= v_now - interval '1 minute')
+                    FOR UPDATE SKIP LOCKED);
+    IF FOUND THEN
+      INSERT INTO private.google_sheets_push_events (organization_id, user_id, target_id, channel_row_id, message_number,
+        resource_state, changed, authenticated, outcome, received_at)
+      VALUES (ch.organization_id, ch.user_id, ch.target_id, ch.id, p_message_number, v_state, v_changed, false, v_out, v_received);
+    END IF;
     RETURN QUERY SELECT v_out, ch.target_id, false; RETURN;
   END IF;
 
@@ -359,17 +407,22 @@ BEGIN
     UPDATE private.google_sheets_watch_channels w SET observed_resource_id = p_resource_id, updated_at = v_now
      WHERE w.id = ch.id;
   END IF;
-  -- Redelivery of the same message (message numbers are unique per channel, not sequential).
-  IF EXISTS (SELECT 1 FROM private.google_sheets_push_events e
-              WHERE e.channel_row_id = ch.id AND e.message_number = p_message_number AND e.authenticated) THEN
-    v_out := 'duplicate';
-  END IF;
 
+  SELECT * INTO cfg FROM private.google_sheets_push_config;
   SELECT * INTO t FROM private.google_sheets_watch_targets x WHERE x.id = ch.target_id FOR UPDATE;
   SELECT * INTO c FROM public.google_sheets_connections g WHERE g.id = ch.connection_id;
+  IF ch.state = 'registering' AND ch.created_at > v_now - interval '5 minutes' THEN
+    NULL;                                       -- live: Google may notify before the watch response
+  ELSIF ch.activated_at IS NOT NULL AND ch.state IN ('active','stopping') AND ch.expires_at > v_now THEN
+    NULL;                                       -- live (a superseded channel stays 'stopping' for the renewal overlap)
+  ELSIF ch.activated_at IS NOT NULL AND ch.state IN ('active','stopping','stopped')
+        AND v_now < LEAST(ch.expires_at, COALESCE(ch.stopped_at, ch.expires_at)) + make_interval(secs => cfg.late_grace_s) THEN
+    v_reason := 'late_delivery';                -- confirmed by Google, ended less than late_grace_s ago
+  ELSE
+    v_out := 'ignored_inactive';                -- failed, abandoned, never confirmed, or past its grace
+  END IF;
   IF v_out IS NULL THEN
-    IF ch.state NOT IN ('registering','active','stopping') OR (ch.expires_at IS NOT NULL AND ch.expires_at <= v_now)
-       OR t.state <> 'live' THEN
+    IF t.state <> 'live' THEN
       v_out := 'ignored_inactive';
     ELSIF c.id IS NULL OR c.status <> 'connected' OR c.auth_generation IS DISTINCT FROM ch.auth_generation
           OR c.user_id <> ch.user_id OR c.organization_id <> ch.organization_id OR t.connection_id <> ch.connection_id
@@ -395,8 +448,9 @@ BEGIN
       INTO v_seq, v_process;
   END IF;
   INSERT INTO private.google_sheets_push_events (organization_id, user_id, target_id, channel_row_id, message_number,
-    resource_state, changed, authenticated, outcome, job_seq, received_at)
-  VALUES (ch.organization_id, ch.user_id, t.id, ch.id, p_message_number, v_state, v_changed, true, v_out, v_seq, v_received);
+    resource_state, changed, reason, authenticated, outcome, job_seq, received_at)
+  VALUES (ch.organization_id, ch.user_id, t.id, ch.id, p_message_number, v_state, v_changed,
+          CASE WHEN v_out = 'queued' THEN v_reason END, true, v_out, v_seq, v_received);
   RETURN QUERY SELECT v_out, t.id, COALESCE(v_process, false);
 END $$;
 
@@ -719,9 +773,13 @@ BEGIN
 END $$;
 
 -- Records a Google result for a channel: activated (watch response) | failed | stopped | stop_failed | abandoned.
--- Locks every channel of the target in id order, then the target (lock order). On a FRESH activation (no live
--- channel at the same generation and key existed) it queues one catch-up job; on a renewal it marks the older
--- channels 'stopping' (the documented overlap). Returns {status, stop:[{row, channel_id, resource_id}], kicked}.
+-- Locks every channel of the target in id order, then the target (lock order). An activation is a SEAMLESS
+-- RENEWAL only when another channel at the same generation and key is ACTIVE and stays valid for the whole
+-- renew_overlap_s; that channel becomes 'stopping' (code 'superseded', next_stop_at = now + overlap) and is NOT
+-- returned for an immediate stop, so Google's pending notifications on it still arrive and are accepted (§18).
+-- Every other activation is FRESH and queues one catch-up job; a 'stopping' channel never counts as coverage.
+-- Channels of another generation or key are stopped at once. Returns {status, stop:[{row, channel_id,
+-- resource_id}], kicked}.
 CREATE FUNCTION private.google_sheets_watch_result(p_channel_row uuid, p_action text, p_resource_id text,
   p_expiration timestamptz, p_code text)
  RETURNS jsonb
@@ -730,6 +788,7 @@ CREATE FUNCTION private.google_sheets_watch_result(p_channel_row uuid, p_action 
 AS $$
 DECLARE
   ch private.google_sheets_watch_channels; t private.google_sheets_watch_targets; c public.google_sheets_connections;
+  cfg private.google_sheets_push_config;
   v_target uuid; v_now timestamptz; v_status text; v_stop jsonb := '[]'::jsonb; v_kicked boolean := false;
   v_had_live boolean; v_seq bigint; v_code text := left(NULLIF(btrim(COALESCE(p_code, '')), ''), 64);
 BEGIN
@@ -758,13 +817,22 @@ BEGIN
     END IF;
 
     IF v_status = 'activated' THEN
+      SELECT * INTO cfg FROM private.google_sheets_push_config;
       v_had_live := EXISTS (SELECT 1 FROM private.google_sheets_watch_channels w
-                             WHERE w.target_id = t.id AND w.id <> ch.id AND w.state IN ('active','stopping')
-                               AND w.expires_at > v_now AND w.auth_generation = ch.auth_generation AND w.key_id = ch.key_id);
+                             WHERE w.target_id = t.id AND w.id <> ch.id AND w.state = 'active'
+                               AND w.auth_generation = ch.auth_generation AND w.key_id = ch.key_id
+                               AND w.expires_at > v_now + make_interval(secs => cfg.renew_overlap_s));
       UPDATE private.google_sheets_watch_channels w
          SET state = 'active', resource_id = p_resource_id, expires_at = p_expiration, activated_at = v_now,
              last_error_code = NULL, updated_at = v_now
        WHERE w.id = ch.id;
+      -- Superseded peers stay accepted for the overlap; maintenance stops them when next_stop_at passes.
+      UPDATE private.google_sheets_watch_channels w
+         SET state = 'stopping', last_error_code = 'superseded', updated_at = v_now,
+             next_stop_at = v_now + make_interval(secs => cfg.renew_overlap_s)
+       WHERE w.target_id = t.id AND w.id <> ch.id AND w.state = 'active'
+         AND w.auth_generation = ch.auth_generation AND w.key_id = ch.key_id;
+      -- Channels of another generation or key: stopped now (their activation is fresh and queues a catch-up).
       WITH s AS (
         UPDATE private.google_sheets_watch_channels w SET state = 'stopping', next_stop_at = NULL, updated_at = v_now
          WHERE w.target_id = t.id AND w.id <> ch.id AND w.state = 'active'
@@ -872,7 +940,8 @@ END $$;
 --   1. bounded retention (events 14 d, attempts 30 d, terminal channels 7 d, idle stopped targets 7 d);
 --   2. channel hygiene: expired active → stopped; registering > 5 min → stopping/abandoned; channels whose
 --      connection can no longer authenticate → abandoned; channels whose target has no enabled source → stopping;
---   3. 'stop' items (stopping channels whose retry time has come; next attempt pushed out 2 min as a lease);
+--   3. 'stop' items (stopping channels whose retry time or renewal overlap has passed; next attempt pushed out
+--      2 min as a lease);
 --   4. 'register' items (mode not off): targets with an enabled, allowed source on a connected connection and no
 --      live channel at the current generation and key outside the renew window — under a maintenance lease.
 -- Channel rows are touched before any target row (lock order); targets are taken with SKIP LOCKED.
@@ -993,8 +1062,9 @@ BEGIN
   RETURN jsonb_build_object('mode', cfg.mode, 'items', v_items);
 END $$;
 
--- Cron guard (runs as the job owner; no wrapper): true only when maintenance has real work — watch upkeep or
--- a queued job that is due (retry/recovery). Never true merely because time passed.
+-- Cron guard (runs as the job owner; no wrapper): true only when maintenance has real work — watch upkeep, a
+-- queued job that is due (retry/recovery), or rows past their retention window (bounded deletes). Never true
+-- merely because time passed, and never a spreadsheet read.
 CREATE FUNCTION private.google_sheets_push_maintenance_due()
  RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER
@@ -1036,10 +1106,14 @@ AS $$
                                      WHERE w.target_id = x.id AND w.state = 'active' AND w.auth_generation = g.auth_generation
                                        AND w.expires_at > now() + make_interval(secs => (SELECT renew_before_s FROM cfg)))))
                   AND private.google_sheets_owner_eligible(s.user_id, s.organization_id))
+    -- retention is due (the maintenance pass deletes at most 5,000 rows of each per call)
+    OR EXISTS (SELECT 1 FROM private.google_sheets_push_events e WHERE e.queued_at < now() - interval '14 days')
+    OR EXISTS (SELECT 1 FROM private.google_sheets_push_attempts a WHERE a.started_at < now() - interval '30 days')
 $$;
 
 -- Monitoring summary for the owner's Settings page (via the service-role status action; D5). Per enabled,
--- allowed source: active | setting_up | interrupted — derived from the channels, so it cannot drift.
+-- allowed source: active | setting_up | interrupted — derived from the channels, so it cannot drift. Only an
+-- ACTIVE channel counts: a 'stopping' channel is one we are ending, never reliable coverage.
 CREATE FUNCTION private.google_sheets_push_status(p_user uuid, p_org uuid)
  RETURNS jsonb
  LANGUAGE sql STABLE SECURITY DEFINER
@@ -1053,7 +1127,7 @@ AS $$
           WHEN g.status <> 'connected' THEN 'interrupted'
           WHEN x.id IS NULL THEN 'setting_up'
           WHEN EXISTS (SELECT 1 FROM private.google_sheets_watch_channels w
-                        WHERE w.target_id = x.id AND w.state IN ('active','stopping') AND w.expires_at > now()
+                        WHERE w.target_id = x.id AND w.state = 'active' AND w.expires_at > now()
                           AND w.auth_generation = g.auth_generation) THEN 'active'
           WHEN EXISTS (SELECT 1 FROM private.google_sheets_watch_channels w WHERE w.target_id = x.id AND w.state = 'registering')
                AND x.watch_failures = 0 THEN 'setting_up'

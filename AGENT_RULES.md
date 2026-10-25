@@ -1196,10 +1196,21 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 **Receiver (`google-sheets-push`, `verify_jwt=false`)**
 - The channel id is `gs1` + 18 random bytes + a 16-char HMAC tag under `GOOGLE_SHEETS_PUSH_KEY`. A bad tag → 404 with **no database call**.
 - The channel token is random. Only its SHA-256 digest is stored, compared in constant time (`private.google_sheets_ct_equal` in SQL, `timingSafeEqual` in Edge).
-- `push_accept` checks the resource id, channel state, expiry, connection generation and server-side scope, then durably queues the target.
+- `push_accept` checks the token and any known resource id on an **unlocked** read, then the channel lifecycle, the live target and the connection's current status, generation and owner. Only then does it durably queue the target.
   - It answers 200 only after commit.
   - A database error → 503, so Google retries.
   - Unknown → 404; rejected → 401.
+- **Bounded cost (Gate C):**
+  - A rejected request takes no lock and records at most **one row per channel per minute** (`last_rejected_at`, `FOR UPDATE SKIP LOCKED`).
+  - A redelivery of a recorded message writes **nothing** and never locks the target.
+  - `(channel_row_id, message_number)` is a **UNIQUE** index for authenticated rows.
+  - Unauthenticated rows never take part in de-duplication.
+  - Never reintroduce lock-before-authenticate or a row per replay. Runner 4i and its negative control pin this.
+- **Which channels may trigger work:**
+  - **live:** `registering` ≤ 5 min; Google-confirmed `active`/`stopping` and unexpired;
+  - **or within the bounded late-delivery grace:** Google-confirmed (`activated_at`), `active`/`stopping`/`stopped`, and `now < LEAST(expires_at, stopped_at) + late_grace_s` (default 3600 s), recorded as `reason='late_delivery'`.
+
+  `failed`, `abandoned`, never-confirmed channels, and anything past its grace **never** trigger work. The grace never relaxes token, resource, target, ownership or generation checks.
 - Never log tokens, headers or lead data. Log only `outcome / state / target / ms`.
 
 **Scope and kill switches (server-side, D7)**
@@ -1226,7 +1237,13 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 
 **Watches**
 - One channel per connection × spreadsheet. Its expiry is at most 24 h, and it is renewed `renew_before_s` (3 h) early, with overlapping channels.
+- **Renewal overlap (Gate C):**
+  - A superseded channel (same generation and key) becomes `stopping` (`superseded`). It is stopped by maintenance only after `renew_overlap_s` (default **900 s**), never immediately, so Google's pending notifications on it still arrive.
+  - A renewal is seamless (no catch-up) only if another channel is `active` at the same generation and key and valid for the whole overlap. Otherwise the activation queues a catch-up.
+  - A `stopping` channel is **never** coverage, for this rule or for the Settings status.
 - Old channels are stopped with `channels.stop`. A failed stop is retried; a channel whose resource id is unknown is `abandoned` (it expires on its own).
+- **What Google cannot guarantee** (plan §18.3): delivery, delay, row content, loss detection (message numbers have gaps), a stop signal, pending notifications after stop or expiry, unlimited retries, or notifications for API-written rows. A notification Google never sends is undetectable. That row imports at the next notification, event-driven catch-up or Sync now. There is never periodic polling.
+- Retention is part of the cron guard: rows past 14 d (events) or 30 d (attempts) make maintenance run. That is housekeeping only.
 - Disconnect releases with `force` before revoking the generation. Pause and remove release that spreadsheet's watch only when no other enabled source uses it.
 - The scope stays `drive.file`.
 

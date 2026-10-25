@@ -31,6 +31,7 @@ const PCFG = { enabled: true, key: "e2e-push-key-".padEnd(40, "p"), maintenanceT
 const tabs = new Map<number, string[][]>();
 const watches: { id: string; token: string; address: string; resourceId: string }[] = [];
 const stops: string[] = [];
+let watchTtlMs = 86_000_000; // the lifetime the fake grants a new channel (shortened once to exercise renewal)
 const fetchFn = ((input: string | URL | Request, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
   const r = (s: number, b: unknown) => Promise.resolve(new Response(b === null ? null : JSON.stringify(b), { status: s }));
@@ -39,7 +40,7 @@ const fetchFn = ((input: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body));
     const w = { id: body.id, token: body.token, address: body.address, resourceId: `RES-${watches.length + 1}` };
     watches.push(w);
-    return r(200, { kind: "api#channel", id: w.id, resourceId: w.resourceId, expiration: String(Date.now() + 86_000_000) });
+    return r(200, { kind: "api#channel", id: w.id, resourceId: w.resourceId, expiration: String(Date.now() + watchTtlMs) });
   }
   if (url.includes("/drive/v3/channels/stop")) { stops.push(JSON.parse(String(init?.body)).id); return r(204, null); }
   if (url.includes("/drive/v3/files/")) return r(200, { id: SPREADSHEET, name: "E2E", mimeType: "application/vnd.google-apps.spreadsheet", trashed: false });
@@ -169,19 +170,32 @@ console.log("   push 10: reconnect → old channel ignored; maintenance re-regis
 await connect();
 tabs.set(1, [...tabs.get(1)!, ["Gus", "PushG", "5551110009"]]);
 ok(await notify({ ch: watches[1] }) === 200 && (await leads("PushG")).length === 0, "old-generation notification acknowledged, no import");
+watchTtlMs = 2 * 3_600_000; // this channel will be inside the 3 h renew window
 const m = await runMaintenance({ db: sdb, push: pdb, cfg: CFG, pcfg: PCFG, fetchFn }, 60_000);
+watchTtlMs = 86_000_000;
 ok(m.registered === 1 && watches.length === 3 && stops.includes(watches[1].id), `maintenance: ${JSON.stringify(m)} stops=${JSON.stringify(stops)}`);
 ok((await leads("PushG")).length === 1, "the row from the gap is imported by the catch-up");
 ok(await notify({ ch: watches[2] }) === 200, "new channel works");
 
+console.log("   push 10b: renewal overlap → the superseded channel is not stopped at once; a row notified only on it is imported once");
+const stopsBefore = stops.length;
+const mr = await runMaintenance({ db: sdb, push: pdb, cfg: CFG, pcfg: PCFG, fetchFn }, 60_000);
+ok(mr.registered === 1 && watches.length === 4, `renewal registered: ${JSON.stringify(mr)}`);
+ok(stops.length === stopsBefore && !stops.includes(watches[2].id), `superseded channel kept for the overlap: ${JSON.stringify(stops)}`);
+ok(await monitoring(t1) === "active", "status: Real-time sync active during the overlap");
+tabs.set(1, [...tabs.get(1)!, ["Ivy", "PushI", "5551110011"]]);
+ok(await notify({ ch: watches[2] }) === 200 && (await leads("PushI")).length === 1, "a change notified only on the superseded channel is imported");
+ok(await notify({ ch: watches[3] }) === 200 && (await leads("PushI")).length === 1, "the same change on the new channel imports nothing new");
+
 console.log("   push 11: Disconnect stops the channel first; later notifications import nothing");
 await A.disconnect(c);
-ok(stops.includes(watches[2].id), "channel stopped before the refresh token was deleted");
+ok(stops.includes(watches[2].id) && stops.includes(watches[3].id), "both channels (superseded and live) stopped before the refresh token was deleted");
 tabs.set(1, [...tabs.get(1)!, ["Hal", "PushH", "5551110010"]]);
-ok(await notify({ ch: watches[2] }) === 200 && (await leads("PushH")).length === 0, "notification after Disconnect: acknowledged, nothing imported");
+ok(await notify({ ch: watches[3] }) === 200 && await notify({ ch: watches[2] }) === 200 && (await leads("PushH")).length === 0,
+  "notifications after Disconnect: acknowledged, nothing imported");
 
 console.log("   push 12: zero duplicates overall");
-for (const last of ["PushA", "PushB", "PushD", "PushE", "PushF", "PushG"]) ok((await leads(last)).length === 1, `exactly one ${last}`);
+for (const last of ["PushA", "PushB", "PushD", "PushE", "PushF", "PushG", "PushI"]) ok((await leads(last)).length === 1, `exactly one ${last}`);
 ok((await leads("PushC")).length === 3 && (await leads("Row")).length === 0, "batch and baseline counts");
 
 console.log(`   OK (${checks} push end-to-end checks)`);

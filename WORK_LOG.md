@@ -1,3 +1,71 @@
+## 2026-10-25 — Google Sheets real-time sync: Gate C HARDENING implemented (approved; draft PR #491; NOT merged, applied or deployed)
+
+**Approval.** Chris approved "APPROVED — PR #491 GATE C HARDENING" on the plan at `509fa62`, with these conditions:
+- edit the unapplied migration in place;
+- a 900 s overlap;
+- bounded rejection logging, database uniqueness, replay protection and automatic retention;
+- renewal and interruption catch-ups;
+- a **security adjustment:** late deliveries are accepted only within a bounded grace, and only for channels Google
+  confirmed.
+
+**Read first.** AGENT_RULES, VISION, the newest WORK_LOG entries. The plan was updated with the files listed before any
+edit (`b0d4e18`).
+
+**Findings.**
+1. Rejected requests locked the channel row *before* authentication and wrote one row each. Redeliveries locked the
+   target and wrote a row each. The dedupe index was not unique. Retention ran only when maintenance had other work.
+2. A renewal stopped the old channel immediately, so a change notified late on it (Google batches about 3 min), or a
+   retry after a `503`, could be dropped. That is an *undetected* gap on a quiet sheet. A `stopping` channel also
+   counted as coverage, which suppressed catch-ups and showed "active".
+
+**Changes.** All edits are inside `20261025120000` except where noted. The function inventory is still 75. There
+are no Edge, frontend or CI workflow changes.
+- **`push_accept`:**
+  - authentication on an unlocked read;
+  - at most one rejected row per channel per minute (`last_rejected_at`, `SKIP LOCKED`);
+  - redeliveries write nothing and never lock the target;
+  - a UNIQUE `(channel_row_id, message_number)` index for authenticated rows;
+  - acceptance limited to live channels, or Google-confirmed channels within `late_grace_s` (3600 s) of expiry or
+    stop, recorded as `late_delivery`. Failed, abandoned, never-confirmed and past-grace channels never trigger work.
+    Token, resource, target, owner and generation are always checked.
+- **`watch_result`:**
+  - superseded channels stay `stopping` (`superseded`) for `renew_overlap_s` (900 s), then maintenance stops them;
+  - a renewal is seamless only with an `active` same-generation, same-key channel valid for the whole overlap;
+    otherwise it triggers a catch-up.
+- **`push_status`:** only `active` channels count.
+- **`push_maintenance_due`:** also true while rows are past retention (housekeeping only).
+- **`google_sheets_push_stop_all.sql`:** ends running overlaps. **Metrics:** comment only.
+
+**Verification** (`verification.md` §8):
+- Full runner ALL PASSED on PostgreSQL 17.6 (76 s) and 16.15 (75 s):
+  - P1–P14 updated, plus new **P15** and **P16a–d**;
+  - new **4i** `20|1|0|0|1`; its negative control reproduced 2 lock timeouts;
+  - 4e–4h and every other stage unchanged;
+  - push e2e **43** checks, including the new renewal scenario 10b.
+- Real pg_cron check ALL PASSED (231 s; 0 requests in 70 s when nothing is due).
+- Deno: 112 passed; `deno check` on 6 entry points plus the push e2e.
+- ESLint (Google Sheets set and the exact Reports command): 0.
+- `tsc` 0; strict tsc: 0 new.
+- Vitest: 99 passed. Build OK.
+- Browser harness: 68/68.
+
+**Outstanding risks.**
+- **Residual:** a notification Google holds longer than the 900 s overlap and then drops, or delivers more than
+  3600 s late. Both values are configurable; Gate E/F measures them.
+- **Undetectable:** a notification Google never sends. The row imports at the next notification, catch-up or Sync now.
+- **R1–R7 are unchanged:**
+  - R1: domain verification;
+  - R2: Sheets coalescing;
+  - R3: API-write notifications;
+  - R4: quota;
+  - R5: Testing-mode tokens;
+  - R6: CPU;
+  - R7: logs.
+
+**Next.** Fresh CI on the new head, then Chris's final Gate C review. Gate D needs its own approval.
+
+---
+
 ## 2026-10-25 — BUGFIX: PR #491 Gate C CI, "Reports frontend verification" ESLint failure (approved; draft PR; NOT merged, NOT deployed)
 
 **Failure.** Run `40159414089`, job `121067626959`, on `be0ceed`. `scripts/verify_reports_frontend.py` lints every

@@ -5,6 +5,9 @@
 --   queue delay            = attempts.started_at − attempts.oldest_queued_at
 --   run duration           = attempts.finished_at − attempts.started_at
 -- Row-write → notification and end-to-end latency need the writer's timestamps: google_sheets_push_pilot_evidence.sql.
+-- 'notifications' counts recorded rows: a redelivery is never recorded (the receiver log shows outcome=duplicate),
+-- and rejections are sampled (at most one row per channel per minute). reason = 'late_delivery' marks a queued
+-- notification accepted inside a confirmed channel's bounded grace.
 -- =====================================================================================================
 \if :{?hours} \else \set hours 24 \endif
 WITH w AS (SELECT now() - make_interval(hours => :hours) AS since),
