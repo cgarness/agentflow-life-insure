@@ -137,6 +137,7 @@ jobs:
           npx eslint src/components/settings/google-sheets src/lib/google-sheets src/hooks/useGoogleSheets.ts
           src/config/settingsConfig.ts src/config/permissionDefaults.ts src/components/settings/SettingsRenderer.tsx
           scripts/tests/google-sheets-ui/verify.mjs scripts/google_sheets_postgrest_check.mjs
+          scripts/google_sheets_e2e.ts scripts/google_sheets_push_e2e.ts
       - run: npx tsc --noEmit
       - name: App type-check against the exact PR base (zero new diagnostics)
         if: github.event_name == 'pull_request'

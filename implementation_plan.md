@@ -1,7 +1,10 @@
-## 2026-10-25 — BUGFIX PLAN (awaiting Chris's approval): PR #491 Gate C CI — "Reports frontend verification" ESLint failure
+## 2026-10-25 — BUGFIX APPROVED and IMPLEMENTED (draft PR; NOT merged): PR #491 Gate C CI — "Reports frontend verification" ESLint failure
 
-**Status.** Plan only. No source change, backend command or push has been made for this fix. Head is still
-`be0ceed594e532590c9d1cdff6dcd3b578c0e798` on `claude/modest-knuth-y5cqor`.
+**Status.**
+- Chris approved the one-line fix plus the workflow lint addition ("APPROVED — PR #491 ESLINT CORRECTION").
+- The failing run was on `be0ceed`. This plan was committed alone as `93f25e7` before approval; the fix follows it on
+  `claude/modest-knuth-y5cqor`.
+- WORK_LOG has the results.
 
 **Failure.** Run `40159414089`, job `121067626959`, `scripts/verify_reports_frontend.py`.
 - Every other step passed or matched the base:
@@ -40,12 +43,13 @@ existing code. The other 28 changed TypeScript files lint clean.
 
 **Files.**
 1. `scripts/google_sheets_push_e2e.ts`: line 120, `let` → `const`.
-2. `implementation_plan.md`: this entry, marked done after the fix.
-3. `WORK_LOG.md`: a newest-first entry.
+2. `.github/workflows/google-sheets.yml`: two script paths added to the ESLint step (approved).
+3. `implementation_plan.md`: this entry.
+4. `WORK_LOG.md`: a newest-first entry.
 
-**Not proposed (needs separate approval if wanted).** Adding `scripts/google_sheets_push_e2e.ts` (and the older
-`scripts/google_sheets_e2e.ts`) to the Google Sheets workflow's ESLint step, so a lint error there fails that job too.
-The Reports check already catches it for changed files.
+**Added on approval.** `.github/workflows/google-sheets.yml`: the ESLint step now also lints
+`scripts/google_sheets_e2e.ts` and `scripts/google_sheets_push_e2e.ts`, so a lint error there fails the Google Sheets
+job too. Both files lint clean, and the original line fails the new step (exit 1).
 
 **Verification after approval.**
 - The exact Reports ESLint command over every changed `.ts`/`.tsx` file vs `27c8d0d`: expect exit 0.

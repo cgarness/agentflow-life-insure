@@ -1,3 +1,37 @@
+## 2026-10-25 — BUGFIX: PR #491 Gate C CI, "Reports frontend verification" ESLint failure (approved; draft PR; NOT merged, NOT deployed)
+
+**Failure.** Run `40159414089`, job `121067626959`, on `be0ceed`. `scripts/verify_reports_frontend.py` lints every
+`.ts`/`.tsx` file changed since the PR base, and ESLint exited 1. Everything else in that job passed or matched the
+base: build 0, Reports Vitest 0, and app tsc and Vitest no worse than base. The other 17 checks passed; Supabase
+Preview was cancelled.
+
+**Evidence.**
+- The uploaded artifact could not be downloaded here, because this container's network policy refuses
+  `productionresultssa7.blob.core.windows.net`.
+- The script's exact ESLint command was reproduced locally on the same lockfile. It reported one error:
+  `scripts/google_sheets_push_e2e.ts:120:5 prefer-const` (`let l` is never reassigned).
+- The error is in a new file from this PR, not existing code. The Google Sheets workflow's ESLint list did not include
+  `.ts` scripts, and my Gate B lint used that list.
+
+**Fix (approved: "APPROVED — PR #491 ESLINT CORRECTION").**
+- `scripts/google_sheets_push_e2e.ts:120`: `let l` → `const l`. Test behavior is unchanged.
+- `.github/workflows/google-sheets.yml`: the ESLint step also lints `scripts/google_sheets_e2e.ts` and
+  `scripts/google_sheets_push_e2e.ts`.
+- Unchanged: lint rules, tests, Reports code, migrations, Edge Functions, sync architecture and production.
+
+**Verification (local).**
+- Exact Reports ESLint over the 29 changed `.ts`/`.tsx` files vs `27c8d0d`: exit 0.
+- Google Sheets CI ESLint set, including both e2e scripts: exit 0.
+- Negative control: the old line fails the new step with exit 1.
+- `npx tsc --noEmit`: exit 0. `npm run build`: built. `deno check scripts/google_sheets_push_e2e.ts`: exit 0.
+- `run_google_sheets_tests.sh` on PostgreSQL 17.6: ALL GOOGLE SHEETS CHECKS PASSED (70 s).
+  - Every negative control reproduced its bug.
+  - PostgREST 62, Review e2e 40, push e2e 37.
+
+**Next.** Fresh CI on the new head, then Chris's independent Gate C review. No merge or deploy.
+
+---
+
 ## 2026-10-25 — Google Sheets real-time sync: Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled)
 
 **Approval.** Chris approved Gate A ("#APPROVE_PLAN", plan at `540e333`) with decisions D1–D11 and build

@@ -117,7 +117,7 @@ ok(await monitoring(t1) === "active", "status: Real-time sync active");
 console.log("   push 2: a new row → notification → exactly one lead, owned by the connection owner");
 tabs.set(1, [BASE, ["Ann", "PushA", "5551110001"]]);
 ok(await notify() === 200, "notification acknowledged");
-let l = await leads("PushA");
+const l = await leads("PushA");
 ok(l.length === 1 && l[0].assigned_agent_id === USER && l[0].user_id === USER && l[0].organization_id === ORG, `one owned lead: ${JSON.stringify(l)}`);
 const runsAfter2 = await pushRuns();
 ok(runsAfter2 >= 1, "push run recorded with trigger push");
