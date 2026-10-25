@@ -1,8 +1,70 @@
-## 2026-10-25 — GATE C HARDENING PLAN (awaiting Chris's approval): PR #491 replay bounds and renewal-gap audit
+## 2026-10-25 — GATE C HARDENING APPROVED (with a security adjustment) and IMPLEMENTED (draft PR; NOT merged, applied or deployed): PR #491 replay bounds and renewal-gap audit
 
-**Status.** Plan only, at head `b90438e` on `claude/modest-knuth-y5cqor`. Nothing is edited except this entry.
-Nothing is applied, deployed or enabled. Re-read: AGENT_RULES (§1–§11 and both Google Sheets invariants), VISION, and
-the newest WORK_LOG entries. No conflict was found.
+**Status.** Chris approved this plan at `509fa62` ("APPROVED — PR #491 GATE C HARDENING"). The conditions:
+- edit the unapplied migration in place;
+- use a 900 s overlap;
+- add bounded rejection logging, database-level uniqueness, replay protection and automatic retention;
+- add the renewal and interruption catch-up protections;
+- **adjust proposal item 3 for security** (below).
+
+Nothing is applied, deployed or enabled. Re-read: AGENT_RULES (§1–§11 and both Google Sheets invariants), VISION,
+and the newest WORK_LOG entries. No conflict was found. Results are in WORK_LOG and `verification.md` §8.
+
+### Security adjustment (replaces proposal item 3, "late deliveries are never discarded")
+
+A notification triggers work only on a channel that is **live**, or that was **genuinely active** and is still inside
+a **bounded late-delivery grace**. In both cases the token, resource id, live target, current connection ownership and
+current auth generation still apply.
+
+- **Live:**
+  - `active` or `stopping` (which includes a superseded channel inside its overlap), not expired;
+  - or `registering` for at most 5 minutes after creation. Google may notify before the watch response, and
+    hygiene ends the registration after that.
+- **Late-delivery grace:** only a channel with `activated_at IS NOT NULL` (Google confirmed it), in state `active`,
+  `stopping` or `stopped`.
+  - It is accepted until `LEAST(expires_at, stopped_at) + late_grace_s`.
+  - `late_grace_s` is a new config column, default **3600 s**, `CHECK 0–21600`.
+  - Such events are recorded with `reason = 'late_delivery'`.
+- **Never accepted:**
+  - `failed` channels (Google refused the registration);
+  - `abandoned` channels;
+  - never-activated `stopping`/`stopped` channels (abandoned registration, resource mismatch);
+  - any channel after its grace;
+  - any channel whose connection is revoked, disconnected, at another generation or owned by someone else.
+
+  Each gets `ignored_inactive` or `ignored_stale`, with no job.
+- **No gap from ignoring these.** A channel we stop or give up on is never counted as coverage (proposal item 2), so
+  the next registration is fresh and queues a catch-up.
+
+**Additional tests:**
+- a delayed notification within grace is queued;
+- after grace, nothing is queued;
+- a replay inside grace returns `duplicate`;
+- a revoked or disconnected connection inside grace is ignored;
+- an old generation inside grace is ignored;
+- failed, abandoned, never-activated and invalid channels are ignored or refused.
+
+### Files (as approved; edits follow this entry)
+1. `supabase/migrations/20261025120000_google_sheets_push_sync.sql`, edited in place:
+   - config: `renew_overlap_s`, `late_grace_s`;
+   - `watch_channels.last_rejected_at`;
+   - the unique dedupe index;
+   - the outcome CHECK;
+   - the bodies of `push_accept`, `watch_result`, `push_maintenance_due` and `push_status`;
+   - comments.
+2. `supabase/tests/google_sheets_push.sql`: P1, P4 and P10 updated; new P15 (bounded replays) and P16 (renewal,
+   grace and interruptions).
+3. `scripts/run_google_sheets_tests.sh`: new 4i (rejections and replays never wait), with a negative control.
+4. `scripts/google_sheets_push_e2e.ts`: a renewal scenario.
+5. `supabase/ops/google_sheets_push_metrics.sql`: comment only.
+6. Docs:
+   - the focused plan (§17.3 and a new §18);
+   - `verification.md`;
+   - `AGENT_RULES.md`;
+   - `WORK_LOG.md`;
+   - this entry.
+
+*Original plan-stage status:* plan only, at head `b90438e`.
 
 ### Finding 1 — duplicates and rejected requests (`google_sheets_push_accept`, `push_events` indexes)
 
@@ -79,7 +141,7 @@ Two related flaws:
 2. **A seamless renewal requires real coverage.** It requires another channel that is `active` at the same generation
    and key and stays valid for the whole overlap (`expires_at > now + renew_overlap_s`). Otherwise the activation is
    fresh and queues one catch-up. `stopping` channels never count as coverage, for this rule or for status.
-3. **Late authenticated deliveries are never discarded for a live target.**
+3. *(Superseded by the security adjustment above: bounded grace, not indefinite.)* **Late authenticated deliveries are never discarded for a live target.**
    - Acceptance depends on: the channel token, the resource id, the target being live, and the connection's current
      generation and ownership. It no longer depends on the channel's own state or expiry, which govern only what
      Google sends.
