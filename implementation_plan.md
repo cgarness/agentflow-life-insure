@@ -1,3 +1,46 @@
+## 2026-10-25 — GATE D RELEASE PACKAGE PREPARED (read-only; NOT merged, applied, deployed or configured): Google Sheets real-time sync, PR #491
+
+**Status.**
+- The package is complete. `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md` holds the
+  baseline, fingerprints, release order, rollback, risks and approval requests A–E.
+- Nothing is executed. Real-time sync is OFF: push mode `off`, no kill switch, no schedule, no watch.
+
+**Read first.** AGENT_RULES (including both Google Sheets invariants and #28), VISION, and the newest WORK_LOG
+entries.
+- No conflicting work was found.
+- `main` is still `27c8d0d`, the PR base, so nothing needed incorporating.
+- PR #491's head was `24fa809` with 17/17 checks green.
+
+**Production (read-only connector, 2026-10-25 15:08–15:12 UTC).**
+- Head `20261024045812` with 346 history rows. The push migration is absent.
+- The Sheets function preimage `6640fc30…` and `finish` `f1cf66be…` equal the tested local preimage.
+- Pilot B is intact: 1 connection, 1 source, 3 receipts linked to 3 leads, and 2 manual runs.
+- 13 cron jobs, none for Sheets. Four Sheets functions, all at v6. The live API is byte-identical to `main`.
+- The platform logs no `x_goog_*` header.
+
+**Decisions** (within the approved Gate D brief; no production action):
+1. Release vehicle: a new protected runner, `.github/workflows/google-sheets-push-release.yml`, following the Phase B
+   and M3 precedent.
+   - Dispatch-only and `main`-only, behind the `google-sheets-production` environment review, pinned to `24fa809`.
+   - Stages: `check`, `apply-migration`, `record-history`, `deploy-functions`, `configure-secrets`, and rollbacks in
+     reverse.
+2. No re-stamp. `20261025120000` sorts after the hosted head.
+3. Not redeployed: the sync worker and the OAuth functions.
+4. Merge PR #491 with a merge commit, so the pinned source stays on `main`.
+5. The plan §4.3 log check is implemented: a dummy-token probe plus a read-only `query_logs` count.
+
+**Files (tooling only; `git diff 24fa809 HEAD -- supabase/migrations supabase/functions src` is empty).**
+- `.github/workflows/google-sheets-push-release.yml` (new);
+- `.github/workflows/google-sheets-push-release-check.yml` (new; synthetic PostgreSQL 17.6 CI for the runner);
+- `scripts/tests/google_sheets_push_release_runner.py` (new);
+- `supabase/ops/google_sheets_push_release_preflight.sql` and `…_verify.sql` (new; read-only);
+- docs: `release-package.md`, focused plan §19, `verification.md` §9, AGENT_RULES, WORK_LOG, this entry.
+
+**Next.** Approvals A (merge), B (migration stages), C (functions) and D (secrets), each requested separately. Gate E
+gets its own package.
+
+---
+
 ## 2026-10-25 — GATE C HARDENING APPROVED (with a security adjustment) and IMPLEMENTED (draft PR; NOT merged, applied or deployed): PR #491 replay bounds and renewal-gap audit
 
 **Status.** Chris approved this plan at `509fa62` ("APPROVED — PR #491 GATE C HARDENING"). The conditions:

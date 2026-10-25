@@ -1,3 +1,73 @@
+## 2026-10-25 — Google Sheets real-time sync: Gate D RELEASE PACKAGE prepared (PR #491; NOT merged, applied, deployed or configured)
+
+**Read first.** AGENT_RULES, VISION, the newest WORK_LOG entries.
+- No conflict was found.
+- `main` is unchanged at `27c8d0d`.
+- PR #491 was at `24fa809`, the Gate C head, with 17/17 checks green.
+
+**Production reads** (connector, read-only):
+- the preflight returned every `*_ok` true;
+- head `20261024045812` / 346 rows;
+- the Sheets preimage equals the tested local preimage;
+- Pilot B is intact;
+- no Sheets cron;
+- the live API v6 is byte-identical to `main`;
+- advisors 246 / 459 captured;
+- the platform logs no `x_goog_*` header.
+
+No write, deploy, secret, schedule, watch or lead.
+
+**Shipped (tooling and docs only; release content = `24fa809`, no migration, function or `src/` change).**
+- **`.github/workflows/google-sheets-push-release.yml`.** A protected, dispatch-only, `main`-only runner in
+  environment `google-sheets-production`, pinned to source `24fa809` (rollback source `27c8d0d`).
+  - **Stages:** `check`, `apply-migration` (psql single transaction, `lock_timeout` 5 s, watchdog), `record-history`
+    (`supabase migration repair`, 57 statements, exact hash), `deploy-functions` (3 bundles, `--no-verify-jwt`),
+    `configure-secrets` (generated, masked, Vault verified by hash).
+  - **Rollbacks:** `rollback-secrets`, `rollback-functions`, `rollback-migration`.
+  - **Every stage checks:** push mode `off`, kill switch absent, no Sheets cron, empty push tables, Pilot B data
+    unchanged.
+- **`.github/workflows/google-sheets-push-release-check.yml`** plus
+  **`scripts/tests/google_sheets_push_release_runner.py`.** Synthetic verification against PostgreSQL 17.6 and the
+  real CLI 2.121.0:
+  - order and state refusals;
+  - real apply, record, replay refusal, lock and watchdog rollbacks;
+  - deploy, configure and rollback paths, exact preimage restoration;
+  - `http_checks`;
+  - redaction, TLS, read-only sessions.
+- **`supabase/ops/google_sheets_push_release_preflight.sql`** and **`…_verify.sql`**: read-only checks before and
+  after each stage.
+- **Docs:**
+  - `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md` (the 14 deliverables);
+  - focused plan §19;
+  - `verification.md` §9;
+  - AGENT_RULES;
+  - root `implementation_plan.md`.
+
+**Fingerprints.**
+- Migration `20261025120000_google_sheets_push_sync.sql`: 80,739 B, `2774557acaf98db80fc169f6ed502003d8533ea13a08ebeefdf18657aefa609d`.
+- Rollback: 9,467 B, `1bc98450…cce94`.
+- Bundles:
+  - `google-sheets-push` `ba1e374b…b239`;
+  - `google-sheets-push-maintenance` `f206df48…2c06`;
+  - `google-sheets-api` `1416a03d…7605`.
+
+**Verification** (`verification.md` §9):
+- `run_google_sheets_tests.sh` ALL PASSED on PostgreSQL 17.6 (74 s) and 16.15 (69 s): PostgREST 62, Review e2e 40,
+  push e2e 43.
+- Cron check ALL PASSED (0 requests).
+- Runner test ALL PASSED.
+- Deno 112 passed; `deno check` exit 0.
+- `tsc` exit 0; strict new 0.
+- Vitest 99 passed.
+- ESLint (both sets) exit 0.
+- Build OK; `git diff --check` clean.
+- No polling.
+
+**Next.** Chris's separate approvals: A (merge with a merge commit; "Deploy to production" OFF confirmed first), then
+B, C and D (runner stages, with connector verification after each). Gate E is not requested.
+
+---
+
 ## 2026-10-25 — Google Sheets real-time sync: Gate C HARDENING implemented (approved; draft PR #491; NOT merged, applied or deployed)
 
 **Approval.** Chris approved "APPROVED — PR #491 GATE C HARDENING" on the plan at `509fa62`, with these conditions:

@@ -1171,3 +1171,39 @@ Enable, Resume, save and Review apply kick through the API hooks. No periodic re
 **What AgentFlow therefore cannot detect:** a notification Google never sends for a healthy channel. Such a row is
 imported at the next accepted notification for that spreadsheet (any later change), the next event-driven catch-up,
 or Sync now. There is **no periodic spreadsheet polling**. The UI never promises instant or guaranteed detection.
+
+## 19. Gate D release preparation (2026-10-25; prepared, NOT executed)
+
+The complete package, with fingerprints, baseline, order, rollback and approval requests, is in `release-package.md`.
+It refines §15 row D as follows:
+
+1. **No re-stamp.** `20261025120000` already sorts after the hosted head `20261024045812`. The runner refuses to run
+   if the head moves.
+2. **Route.** A protected runner, `.github/workflows/google-sheets-push-release.yml`, following the Phase B and M3
+   precedent:
+   - dispatch-only and `main`-only;
+   - environment `google-sheets-production` with Chris's required review;
+   - pinned to source `24fa809`;
+   - one stage per run;
+   - an exact state machine (`before` → `applied` → `recorded`, plus deploy and secrets) that refuses out-of-order
+     and inconsistent states;
+   - each forward stage has a matching rollback stage.
+
+   It is not `apply_migration`, which stamps its own version (AGENT_RULES).
+3. **"Push stays off" means:**
+   - SQL push mode `off`;
+   - `GOOGLE_SHEETS_PUSH_ENABLED` absent (this replaces the env-only `GOOGLE_SHEETS_PUSH_MODE` of §15; see §17.2);
+   - no maintenance schedule;
+   - no target or channel.
+
+   Every runner stage checks all four.
+4. **Functions.** `google-sheets-push`, `google-sheets-push-maintenance` and the new `google-sheets-api` are
+   deployed. The worker and OAuth functions are not redeployed: the worker's engine change is behaviour-neutral for
+   it, and nothing invokes it.
+5. **Secrets.** The runner generates the push key and maintenance token, and writes the same token to Vault. No
+   person sees a value.
+6. **§4.3 log-header check.**
+   - The receiver probe sends a public dummy `X-Goog-Channel-Token`.
+   - A read-only `query_logs` check must find no `x_goog_*` key and no attribute or message containing the marker.
+   - Today the platform logs an allowlist of headers that contains no `x_goog_*`.
+7. **Merge with a merge commit** so `24fa809` stays in `main`'s history.

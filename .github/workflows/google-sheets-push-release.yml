@@ -1,0 +1,517 @@
+name: Google Sheets push release (approval required)
+# Manual only, main only, behind the protected google-sheets-production environment (Chris's required review).
+# Gate D of docs/plans/2026-10-25-google-sheets-realtime-sync (release-package.md). Every stage is separately approved;
+# real-time sync stays OFF throughout: push mode 'off', GOOGLE_SHEETS_PUSH_ENABLED absent, no watch, no schedule.
+# Merging this workflow deploys NO backend. A main commit does trigger the existing Vercel integration.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Separately approved Gate D stage
+        required: true
+        type: choice
+        options: [check, apply-migration, record-history, deploy-functions, configure-secrets,
+                  rollback-secrets, rollback-functions, rollback-migration]
+      confirm:
+        description: Repeat the stage name exactly
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: google-sheets-production
+  cancel-in-progress: false
+jobs:
+  push-release:
+    if: github.ref == 'refs/heads/main'
+    name: ${{ inputs.stage }} — real-time sync stays off
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: google-sheets-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 24fa80936c9d58e5f344a49159e6a84af1cf72b2
+          persist-credentials: false
+      # The previous google-sheets-api (main 27c8d0d = live v6), used only by rollback-functions.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 27c8d0d18b78d133d1f897372ebc09625735a139
+          path: previous-source
+          persist-credentials: false
+      - name: Install psql (no credentials)
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client-16
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: Execute only the approved stage
+        env:
+          STAGE: ${{ inputs.stage }}
+          CONFIRM: ${{ inputs.confirm }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set +x
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          # Embedded in the dispatch-only workflow. Never prints secrets, external command output or response bodies.
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import secrets
+          import signal
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          REF = 'jncvvsvckxhqgqvkppmj'
+          SOURCE = '24fa80936c9d58e5f344a49159e6a84af1cf72b2'
+          VERSION = '20261025120000'
+          NAME = 'google_sheets_push_sync'
+          LATEST = '20261024045812'
+          HISTORY = 346
+          MIGRATION = Path('supabase/migrations/20261025120000_google_sheets_push_sync.sql')
+          MIGRATION_SHA = '2774557acaf98db80fc169f6ed502003d8533ea13a08ebeefdf18657aefa609d'
+          MIGRATION_BYTES = 80739
+          ROLLBACK = Path('supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql')
+          ROLLBACK_SHA = '1bc9845031075a47f650d4780b57771946cb2495d347e33cb1874678fc3cce94'
+          ROLLBACK_BYTES = 9467
+          PREVIOUS = '27c8d0d18b78d133d1f897372ebc09625735a139'
+          PREVIOUS_DIR = Path('previous-source')
+          PREVIOUS_API = ('auth config db engine errors google http identity mapping oauth', 'actions index',
+                          '6ab61569c8d53c7347a737214330768db04a4bdb5ae0c550004c53332d8b6308')
+          STATEMENTS = 57
+          STATEMENTS_SHA = '0561e767049e118b1cf53d9e51e2ec69a8eab5069bee82592e724535db5b79ff'
+          FUNCTIONS_PRE = '6640fc303f4fd426e5d5d3615f211f6d'
+          FUNCTIONS_POST = '6e8c43651043ce83254dcec092505cd6'
+          FINISH_PRE = 'f1cf66bea7de1d469e2ff03c57f1a414'
+          FINISH_POST = 'e684c572b950e35487b0e4eb33ac0830'
+          TABLE_ACL_POST = 'e4a0ad1431818dd40a2fb32489ddcfa2'
+          PERMISSION_HELPER = 'bc6356dde683e628b88b631dd5f6d01e'
+          SHARED = ('auth config crypto db engine errors google identity mapping oauth '
+                    'push/channel push/config push/db push/headers push/processor')
+          BUNDLES = {
+              'google-sheets-push': (SHARED + ' push/runtime', 'index',
+                                     'ba1e374b88d60a52aa9e25d18ad92637b066a776365cf11edba38a8f1684b239'),
+              'google-sheets-push-maintenance': (SHARED + ' http push/watches', 'index',
+                                                 'f206df480d737f109aedebbbfaadb9cb7cd5a82beb7372ee7dc920d52e0f2c06'),
+              'google-sheets-api': (SHARED + ' http push/runtime push/watches', 'actions index push',
+                                    '1416a03d2cd6fe885b6b4a3d0d7deeea5672f419f7a7f2988b1c9ea2d9e57605'),
+          }
+          NEW_FUNCTIONS = ('google-sheets-push', 'google-sheets-push-maintenance')
+          B1_SECRETS = {'GOOGLE_SHEETS_CLIENT_ID', 'GOOGLE_SHEETS_CLIENT_SECRET', 'GOOGLE_SHEETS_REDIRECT_URI',
+                        'GOOGLE_SHEETS_ALLOWED_RETURN_ORIGINS', 'GOOGLE_SHEETS_STATE_KEY', 'GOOGLE_SHEETS_WORKER_TOKEN'}
+          PUSH_SECRETS = ('GOOGLE_SHEETS_PUSH_KEY', 'GOOGLE_SHEETS_PUSH_MAINTENANCE_TOKEN')
+          KILL_SWITCH = 'GOOGLE_SHEETS_PUSH_ENABLED'
+          VAULT_TOKEN = 'google_sheets_push_maintenance_token'
+          PUSH_TABLES = ('google_sheets_push_pilot_sources', 'google_sheets_watch_targets', 'google_sheets_watch_channels',
+                         'google_sheets_push_events', 'google_sheets_push_attempts')
+          CHILD = None
+
+          class Stop(Exception):
+              pass
+
+          def require(condition, label):
+              if not condition:
+                  raise Stop(label)
+              print(f'PASS: {label}', flush=True)
+
+          def migration_order_gate():
+              require(VERSION > LATEST, 'migration version follows hosted head')
+
+          def command(args, env=None, timeout=30, stdin=None, cwd=None):
+              # Only callers' fixed labels reach logs; errors can contain credentials/SQL/hostnames.
+              result = subprocess.run(args, env=env, input=stdin, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+              if result.returncode:
+                  raise Stop('command failed; stop and inspect state independently; no automatic retry')
+              return result.stdout.strip()
+
+          def bundle_paths(name):
+              shared, own, _ = BUNDLES[name]
+              return sorted([f'supabase/functions/_shared/googleSheets/{x}.ts' for x in shared.split()] +
+                            [f'supabase/functions/{name}/{x}.ts' for x in own.split()])
+
+          def digest_of(paths, base=Path('.')):
+              manifest = ''.join(f'{hashlib.sha256((base / p).read_bytes()).hexdigest()}  {p}\n' for p in paths)
+              return hashlib.sha256(manifest.encode()).hexdigest()
+
+          def files_gate():
+              require(command(['git', 'rev-parse', 'HEAD']) == SOURCE, 'reviewed source commit')
+              require(not [line for line in command(['git', 'status', '--porcelain']).splitlines() if line != '?? previous-source/'],
+                      'clean source checkout')
+              body = MIGRATION.read_bytes()
+              require(len(body) == MIGRATION_BYTES and hashlib.sha256(body).hexdigest() == MIGRATION_SHA, 'migration bytes and checksum')
+              body = ROLLBACK.read_bytes()
+              require(len(body) == ROLLBACK_BYTES and hashlib.sha256(body).hexdigest() == ROLLBACK_SHA, 'rollback bytes and checksum')
+              for name, (_, _, digest) in BUNDLES.items():
+                  require(digest_of(bundle_paths(name)) == digest, f'{name} bundle')
+
+          def previous_gate():
+              shared, own, digest = PREVIOUS_API
+              paths = sorted([f'supabase/functions/_shared/googleSheets/{x}.ts' for x in shared.split()] +
+                             [f'supabase/functions/google-sheets-api/{x}.ts' for x in own.split()])
+              require(command(['git', 'rev-parse', 'HEAD'], cwd=PREVIOUS_DIR) == PREVIOUS, 'previous source commit (live v6)')
+              require(digest_of(paths, PREVIOUS_DIR) == digest, 'previous google-sheets-api bundle')
+
+          def connection_env():
+              host = os.environ.get('SUPABASE_POOLER_HOST', '')
+              password = os.environ.get('SUPABASE_DB_PASSWORD', '')
+              require(bool(re.fullmatch(r'aws-[0-9]+-us-east-1\.pooler\.supabase\.com', host)), 'approved session pooler')
+              require(bool(password), 'database credential present')
+              # Only psql receives the password; no shell expansion or password in its arguments.
+              return {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'SUPABASE_'))} | {
+                  'PGHOST': host, 'PGPORT': '5432', 'PGDATABASE': 'postgres',
+                  'PGUSER': f'postgres.{REF}', 'PGPASSWORD': password, 'PGSSLMODE': 'require',
+                  'PGCONNECT_TIMEOUT': '10', 'PGAPPNAME': 'agentflow-sheets-push-release',
+              }
+
+          # Every check is forced read-only in a separate session (SET works whether or not the pooler forwards
+          # startup options).
+          def sql(query, env):
+              return command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1',
+                              '-c', 'SET default_transaction_read_only = on',
+                              '-c', 'SET statement_timeout = 30000',
+                              '-c', query], env)
+
+          def identity(env):
+              require(command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c',
+                               r'\echo :HOST :PORT :DBNAME :USER'], env) ==
+                      f"{env['PGHOST']} 5432 postgres postgres.{REF}", 'connection identity')
+              require('SSL connection (protocol:' in command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c',
+                                                             r'\conninfo'], env), 'runner connection uses TLS')
+              require(sql("select current_user || '|' || current_database()", env) == 'postgres|postgres', 'postgres role and database')
+
+          FUNCTION_DIGEST = r"""select md5(string_agg(n.nspname || '.' || p.oid::regprocedure::text || ':' || md5(pg_get_functiondef(p.oid)),
+              E'\n' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where p.proname like 'google\_sheets\_%' and n.nspname in ('public','private')"""
+
+          def state(env):
+              return sql(r"""select concat_ws('|', current_database(),
+                to_regclass('private.google_sheets_watch_targets') is null,
+                (select string_agg(n.nspname || ':' || x.c, ',' order by n.nspname) from
+                   (select pronamespace, count(*)::text c from pg_proc where proname like 'google\_sheets\_%' group by pronamespace) x
+                   join pg_namespace n on n.oid = x.pronamespace),
+                md5(pg_get_functiondef('private.google_sheets_finish(uuid,uuid,integer,bigint,text,jsonb)'::regprocedure)),
+                (select count(*) from supabase_migrations.schema_migrations where version = '20261025120000' or name like '%push_sync%'),
+                (select max(version) from supabase_migrations.schema_migrations),
+                (select count(*) from supabase_migrations.schema_migrations))""", env)
+
+          def expected(stage):
+              return {
+                  'before': f'postgres|t|private:31,public:21|{FINISH_PRE}|0|{LATEST}|{HISTORY}',
+                  'applied': f'postgres|f|private:44,public:31|{FINISH_POST}|0|{LATEST}|{HISTORY}',
+                  'recorded': f'postgres|f|private:44,public:31|{FINISH_POST}|1|{VERSION}|{HISTORY + 1}',
+                  # rollback SQL committed, history row not yet reverted (an interrupted rollback-migration)
+                  'reverted-recorded': f'postgres|t|private:31,public:21|{FINISH_PRE}|1|{VERSION}|{HISTORY + 1}',
+              }[stage]
+
+          def data_fingerprint(env):
+              # Pilot B and every existing Sheets record: ids and states only (no names, tokens or lead data).
+              return sql(r"""select concat_ws('|',
+                (select count(*) from public.google_sheets_connections), (select count(*) from public.google_sheets_sources),
+                (select count(*) from private.google_sheets_receipts),
+                (select count(*) from public.leads l join private.google_sheets_receipts r on r.lead_id = l.id),
+                (select count(*) from private.google_sheets_source_rows), (select count(*) from public.google_sheets_sync_runs),
+                md5(concat_ws('#',
+                  (select string_agg(id || ':' || status || ':' || auth_generation, ',' order by id) from public.google_sheets_connections),
+                  (select string_agg(id || ':' || state || ':' || health || ':' || phase || ':' || config_version, ',' order by id) from public.google_sheets_sources),
+                  (select string_agg(source_id || ':' || receipt_key || ':' || coalesce(lead_id::text, '-'), ',' order by source_id, receipt_key) from private.google_sheets_receipts),
+                  (select string_agg(source_id || ':' || row_key || ':' || kind, ',' order by source_id, row_key) from private.google_sheets_source_rows),
+                  (select string_agg(id::text, ',' order by id) from public.google_sheets_sync_runs))))""", env)
+
+          def operations_gate(env, installed, vault_token):
+              require(sql(r"select count(*) from cron.job where jobname like 'google-sheets%' or command like '%google-sheets%'", env) == '0', 'no Sheets cron job (no polling, no push maintenance schedule)')
+              require(sql(f"select count(*) from vault.secrets where name = '{VAULT_TOKEN}'", env) == ('1' if vault_token else '0'),
+                      'push maintenance Vault token ' + ('present' if vault_token else 'absent'))
+              if installed:
+                  require(sql("select concat_ws('|', mode, max_concurrent_jobs, renew_before_s, renew_overlap_s, late_grace_s) from private.google_sheets_push_config", env)
+                          == 'off|4|10800|900|3600', 'push mode off with the reviewed defaults')
+                  for table in PUSH_TABLES:
+                      require(sql(f'select count(*) from private.{table}', env) == '0', f'{table} empty (nothing watched or queued)')
+
+          def readbacks(env):
+              require(sql(FUNCTION_DIGEST, env) == FUNCTIONS_POST, 'exact postimage of all 75 Sheets functions')
+              require(sql(r"""select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where p.proname like 'google\_sheets\_%' and n.nspname in ('public','private') and
+                (has_function_privilege('anon', p.oid, 'EXECUTE') or has_function_privilege('authenticated', p.oid, 'EXECUTE')
+                or (n.nspname = 'private' and has_function_privilege('service_role', p.oid, 'EXECUTE'))
+                or (n.nspname = 'public' and not has_function_privilege('service_role', p.oid, 'EXECUTE')))""", env) == '0', 'function ACLs')
+              require(sql(r"""select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname like 'google\_sheets\_%' and
+                (not p.prosecdef or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))""", env) == '0', 'wrapper definer and search path')
+              require(sql(r"""select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                where c.relkind = 'r' and c.relname like 'google\_sheets\_%' and n.nspname in ('public','private') and c.relrowsecurity""", env) == '12', 'twelve RLS tables')
+              require(sql(r"select count(*) from pg_policies where tablename like 'google\_sheets\_%'", env) == '3', 'still exactly three own-read policies')
+              privileges = sql(r"""select string_agg(concat_ws('|', n.nspname || '.' || c.relname, r.rolname,
+                coalesce((select string_agg(p.priv, ',' order by p.priv) from (values ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),('REFERENCES'),('TRIGGER')) p(priv)
+                          where has_table_privilege(r.rolname, c.oid, p.priv)), '-')), E'\n' order by n.nspname, c.relname, r.rolname)
+                from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                cross join (values ('anon'),('authenticated'),('service_role')) r(rolname)
+                where c.relkind = 'r' and c.relname like 'google\_sheets\_%' and n.nspname in ('public','private')""", env)
+              require(hashlib.md5((privileges + '\n').encode()).hexdigest() == TABLE_ACL_POST, 'all 36 table ACL rows')
+              require(sql("select md5(pg_get_functiondef('public._contacts_permission_default(text,text)'::regprocedure))", env) == PERMISSION_HELPER, 'permission helper unchanged')
+              require(sql(r"""select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid = 'public.google_sheets_sync_runs'::regclass
+                and c.conname = 'google_sheets_sync_runs_trigger_check'""", env) ==
+                      "CHECK ((trigger = ANY (ARRAY['schedule'::text, 'manual'::text, 'activation'::text, 'push'::text])))", 'sync_runs trigger CHECK accepts push')
+
+          def management(path, method='GET', body=None):
+              request = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/{path}', method=method,
+                                              data=None if body is None else json.dumps(body).encode(),
+                                              headers={'Authorization': 'Bearer ' + os.environ['SUPABASE_ACCESS_TOKEN'],
+                                                       'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response) if method == 'GET' else response.status
+
+          def cli_env():
+              return {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'SUPABASE_'))} | {
+                  'SUPABASE_ACCESS_TOKEN': os.environ['SUPABASE_ACCESS_TOKEN']}
+
+          def inventory():
+              items = management('functions')
+              require(isinstance(items, list), 'function inventory response')
+              by_name = {item['slug']: item for item in items}
+              require(len(by_name) == len(items), 'unique function inventory')
+              return by_name
+
+          def secret_names():
+              names = {item['name'] for item in management('secrets')}
+              require(B1_SECRETS <= names, 'six B1 secret names present')
+              require(KILL_SWITCH not in names, 'GOOGLE_SHEETS_PUSH_ENABLED absent (real-time sync off)')
+              return names
+
+          def unrelated_inventory(items):
+              return {k: (v['version'], v.get('verify_jwt'), v.get('status'), v.get('ezbr_sha256'))
+                      for k, v in items.items() if k not in BUNDLES}
+
+          def cancel(signum, frame):
+              if CHILD is not None and CHILD.poll() is None:
+                  CHILD.send_signal(signal.SIGINT)
+                  CHILD.wait(timeout=40)
+              raise Stop('cancelled; verify database state before any further action')
+
+          def apply(env, path=MIGRATION):
+              global CHILD
+              # No production URL/password in argv; no SQL/error body in public logs.
+              # Watchdog sends SIGINT to this exact psql PID; never terminate/kill it.
+              signal.signal(signal.SIGTERM, cancel)
+              signal.signal(signal.SIGINT, cancel)
+              CHILD = subprocess.Popen(['psql', '-X', '--set', 'ON_ERROR_STOP=1', '--single-transaction',
+                                        '-c', "SET LOCAL lock_timeout = '5s'",
+                                        '-c', "SET LOCAL statement_timeout = '30s'", '--file', str(path)],
+                                       env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              try:
+                  CHILD.wait(timeout=120)
+              except subprocess.TimeoutExpired:
+                  CHILD.send_signal(signal.SIGINT)
+                  CHILD.wait(timeout=40)
+                  raise Stop('migration watchdog cancelled psql; verify rollback independently')
+              require(CHILD.returncode == 0, f'{path.name} transaction completed')
+              CHILD = None
+
+          def db_url(env):
+              # CLI requires a URL. Mask the URL and encoded password before spawning it; never log argv.
+              encoded = urllib.parse.quote(env['PGPASSWORD'], safe='')
+              url = f"postgresql://{env['PGUSER']}:{encoded}@{env['PGHOST']}:5432/postgres?sslmode=require"
+              for value in (encoded, url):
+                  print('::add-mask::' + value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'), flush=True)
+              return url
+
+          def repair(env, status='applied'):
+              command(['supabase', 'migration', 'repair', VERSION, '--status', status, '--db-url', db_url(env)],
+                      {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'SUPABASE_'))}, timeout=120)
+              if status == 'reverted':
+                  require(state(env) == expected('before'), 'history row reverted; exact pre-release state')
+                  return
+              require(state(env) == expected('recorded'), 'history state')
+              require(sql(f"""select name || '|' || cardinality(statements)::text || '|' ||
+                encode(sha256(convert_to(array_to_string(statements, E'\\n;\\n'), 'UTF8')), 'hex')
+                from supabase_migrations.schema_migrations where version = '{VERSION}'""", env) ==
+                      f'{NAME}|{STATEMENTS}|{STATEMENTS_SHA}', f'single history row with the exact {STATEMENTS} statements')
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          # Public, non-secret marker for the plan §4.3 log check: after the stage, the platform logs must hold no
+          # `x_goog_*` key and no attribute containing it (release-package.md §6).
+          LOG_PROBE = 'agentflow-gate-d-log-probe'
+
+          def http_checks(configured):
+              # Bodies are compared only where the function returns a fixed JSON error; nothing is printed. The receiver
+              # probe carries only the dummy channel token (no channel id), so it is malformed once configured: 400.
+              checks = [
+                  ('google-sheets-push', 'GET', None, 405, None, {}),
+                  ('google-sheets-push', 'POST', {}, 400 if configured else 503, None, {'X-Goog-Channel-Token': LOG_PROBE}),
+                  ('google-sheets-push-maintenance', 'POST', {}, 403, {'error': 'unauthorized'}, {}),
+                  ('google-sheets-api', 'POST', {'action': 'status'}, 401, {'error': 'unauthorized'}, {}),
+              ]
+              opener = urllib.request.build_opener(NoRedirect)
+              for path, method, body, status, expected_body, extra in checks:
+                  request = urllib.request.Request(f'https://{REF}.supabase.co/functions/v1/{path}', method=method,
+                      data=None if body is None else json.dumps(body).encode(), headers={'Content-Type': 'application/json', **extra})
+                  try:
+                      response = opener.open(request, timeout=30)
+                  except urllib.error.HTTPError as error:
+                      response = error
+                  with response:
+                      require(response.status == status, f'{path} {method} → {status}')
+                      if expected_body is not None:
+                          require(json.load(response) == expected_body, f'{path} {method} body')
+
+          def deploy(before):
+              for name in BUNDLES:
+                  require(not (set(PUSH_SECRETS) & secret_names()), 'push secrets absent (deployed code stays inert)')
+                  command(['supabase', 'functions', 'deploy', name, '--project-ref', REF, '--no-verify-jwt', '--use-api'], cli_env(), timeout=180)
+                  print(f'PASS: deployed {name}', flush=True)
+              after = inventory()
+              require(unrelated_inventory(before) == unrelated_inventory(after), 'every unrelated function unchanged (incl. the three other Sheets functions)')
+              for name in BUNDLES:
+                  item = after.get(name, {})
+                  require(item.get('status') == 'ACTIVE' and item.get('verify_jwt') is False and bool(item.get('version')), f'{name} ACTIVE with code authorization')
+              require(after['google-sheets-api']['version'] > before['google-sheets-api']['version'], 'google-sheets-api replaced')
+              http_checks(configured=False)
+
+          def configure(env):
+              # Values are generated here, masked, sent only to the Management API and to Vault over psql stdin.
+              # Nobody sees them; GOOGLE_SHEETS_PUSH_ENABLED stays absent, so nothing is registered or processed.
+              key, token = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
+              for value in (key, token):
+                  print('::add-mask::' + value, flush=True)
+              require(re.fullmatch(r'[A-Za-z0-9_-]{64}', key) is not None and re.fullmatch(r'[A-Za-z0-9_-]{64}', token) is not None, 'generated 64-char secrets')
+              require(management('secrets', 'POST', [{'name': PUSH_SECRETS[0], 'value': key},
+                                                       {'name': PUSH_SECRETS[1], 'value': token}]) in (200, 201), 'push secrets stored')
+              command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                      stdin=f"select vault.create_secret('{token}', '{VAULT_TOKEN}', 'Google Sheets push maintenance bearer');\n")
+              digest = hashlib.sha256(token.encode()).hexdigest()
+              require(sql(f"select encode(sha256(convert_to(decrypted_secret, 'UTF8')), 'hex') = '{digest}' from vault.decrypted_secrets where name = '{VAULT_TOKEN}'", env) == 't',
+                      'Vault holds exactly the maintenance token')
+              require(set(PUSH_SECRETS) <= secret_names(), 'push secret names present')
+              http_checks(configured=True)
+
+          def rollback_secrets(env):
+              require(management('secrets', 'DELETE', list(PUSH_SECRETS)) in (200, 204), 'push secrets deleted')
+              command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                      stdin=f"delete from vault.secrets where name = '{VAULT_TOKEN}';\n")
+              require(not (set(PUSH_SECRETS) & secret_names()), 'push secret names absent')
+              http_checks(configured=False)
+
+          def rollback_functions(before):
+              # Restore the exact previous google-sheets-api (live v6 = main 27c8d0d), then remove the push functions.
+              previous_gate()
+              command(['supabase', 'functions', 'deploy', 'google-sheets-api', '--project-ref', REF, '--no-verify-jwt', '--use-api'],
+                      cli_env(), timeout=180, cwd=PREVIOUS_DIR)
+              print('PASS: redeployed the previous google-sheets-api', flush=True)
+              for name in NEW_FUNCTIONS:
+                  command(['supabase', 'functions', 'delete', name, '--project-ref', REF], cli_env(), timeout=120)
+                  print(f'PASS: deleted {name}', flush=True)
+              after = inventory()
+              require(not any(name in after for name in NEW_FUNCTIONS), 'push functions absent')
+              require(unrelated_inventory(before) == unrelated_inventory(after), 'every unrelated function unchanged')
+              api = after.get('google-sheets-api', {})
+              require(api.get('status') == 'ACTIVE' and api.get('verify_jwt') is False and api.get('version', 0) > before['google-sheets-api']['version'],
+                      'previous google-sheets-api ACTIVE with code authorization')
+
+          def rollback_migration(env, label):
+              data = data_fingerprint(env)
+              if label in ('applied', 'recorded'):
+                  require(sql("select count(*) from pg_stat_activity where backend_type='client backend' and pid<>pg_backend_pid() and (state='idle in transaction' or xact_start < clock_timestamp()-interval '30 seconds')", env) == '0', 'no long client transaction')
+                  apply(env, ROLLBACK)
+                  require(state(env) == expected('before' if label == 'applied' else 'reverted-recorded'), 'rollback SQL restored the preimage')
+              if label != 'applied':
+                  repair(env, 'reverted')
+              require(sql(FUNCTION_DIGEST, env) == FUNCTIONS_PRE, 'exact preimage of all 52 Sheets functions')
+              require(data_fingerprint(env) == data, 'every existing Sheets record unchanged (Pilot B intact)')
+
+          def main():
+              stage = os.environ.get('STAGE')
+              require(os.environ.get('GITHUB_REF') == 'refs/heads/main', 'main dispatch only')
+              require(stage in ('check', 'apply-migration', 'record-history', 'deploy-functions', 'configure-secrets',
+                                'rollback-secrets', 'rollback-functions', 'rollback-migration')
+                      and os.environ.get('CONFIRM') == stage, 'explicit stage confirmation')
+              if stage != 'check':
+                  migration_order_gate()
+              files_gate()
+              env = connection_env()
+              identity(env)
+              require('2.121.0' == command(['supabase', '--version']), 'pinned Supabase CLI')
+              repair_help = command(['supabase', 'migration', 'repair', '--help'])
+              deploy_help = command(['supabase', 'functions', 'deploy', '--help'])
+              require('--db-url' in repair_help and all(flag in deploy_help for flag in ('--project-ref', '--no-verify-jwt', '--use-api')), 'reviewed CLI flags')
+              names = secret_names()
+              before = inventory()
+              current = state(env)
+              states = {expected(key): key for key in ('before', 'applied', 'recorded', 'reverted-recorded')}
+              require(current in states, 'recognized production state')
+              label = states[current]
+              deployed = all(name in before for name in NEW_FUNCTIONS)
+              require(deployed or not any(name in before for name in NEW_FUNCTIONS), 'push functions all present or all absent')
+              configured = set(PUSH_SECRETS) <= names
+              require(configured or not (set(PUSH_SECRETS) & names), 'push secrets all present or all absent')
+              if deployed:
+                  require(label == 'recorded', 'functions deployed only after the recorded migration')
+                  label = 'configured' if configured else 'deployed'
+              else:
+                  require(not configured, 'secrets configured only after deployment')
+              print('STATE: ' + label, flush=True)
+              installed = label not in ('before', 'reverted-recorded')
+              require(sql(FUNCTION_DIGEST, env) == (FUNCTIONS_POST if installed else FUNCTIONS_PRE),
+                      'exact ' + ('postimage of all 75' if installed else 'preimage of all 52') + ' Sheets functions')
+              print('DATA: ' + data_fingerprint(env), flush=True)
+              operations_gate(env, installed, label == 'configured')
+              if stage == 'check':
+                  if installed:
+                      readbacks(env)
+                  return
+              needed = {'apply-migration': ('before',), 'record-history': ('applied',), 'deploy-functions': ('recorded',),
+                        'configure-secrets': ('deployed',), 'rollback-secrets': ('configured',),
+                        'rollback-functions': ('deployed',),
+                        'rollback-migration': ('applied', 'recorded', 'reverted-recorded')}[stage]
+              require(label in needed, 'stage order and exact production state')
+              if stage == 'apply-migration':
+                  require(sql("select count(*) from pg_stat_activity where backend_type='client backend' and pid<>pg_backend_pid() and (state='idle in transaction' or xact_start < clock_timestamp()-interval '30 seconds')", env) == '0', 'no long client transaction')
+                  data = data_fingerprint(env)
+                  apply(env)
+                  require(state(env) == expected('applied'), 'applied state without history')
+                  require(data_fingerprint(env) == data, 'every existing Sheets record unchanged (Pilot B intact)')
+                  readbacks(env)
+                  operations_gate(env, True, False)
+              elif stage == 'record-history':
+                  readbacks(env)
+                  repair(env)
+              elif stage == 'deploy-functions':
+                  readbacks(env)
+                  deploy(before)
+                  operations_gate(env, True, False)
+              elif stage == 'configure-secrets':
+                  readbacks(env)
+                  configure(env)
+                  operations_gate(env, True, True)
+              elif stage == 'rollback-secrets':
+                  rollback_secrets(env)
+                  operations_gate(env, True, False)
+              elif stage == 'rollback-functions':
+                  rollback_functions(before)
+                  readbacks(env)
+                  operations_gate(env, True, False)
+              else:
+                  rollback_migration(env, label)
+                  operations_gate(env, False, False)
+              print('STOP HERE: independent connector verification and Chris approval required before the next stage.', flush=True)
+
+          if __name__ == '__main__':
+              try:
+                  main()
+              except Stop as error:
+                  print('STOP: ' + str(error), flush=True)
+                  sys.exit(1)
+              except BaseException:
+                  # Exceptions from URLs, subprocesses, HTTP and JSON can include secrets. Do not print them.
+                  print('STOP: execution failed; no automatic retry, rollback or next stage. Verify production independently.', flush=True)
+                  sys.exit(1)
+          PYCODE

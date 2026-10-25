@@ -1183,7 +1183,7 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 
 The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
 
-### Google Sheets real-time sync (Drive push) — built 2026-10-25 on `claude/modest-knuth-y5cqor`; migration `20261025120000` NOT applied, functions NOT deployed, no watch registered
+### Google Sheets real-time sync (Drive push) — built 2026-10-25 on `claude/modest-knuth-y5cqor`; Gate D release package PREPARED (not executed); migration `20261025120000` NOT applied, functions NOT deployed, no secret set, no watch registered
 
 A new row reaches AgentFlow through a Google Drive `files.watch` notification, never through spreadsheet polling. Plan and decisions D1–D11: `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
 
@@ -1253,7 +1253,12 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 
 **Release:** each gate needs its own approval.
 - Gate C: review.
-- Gate D: re-stamp the migration after the hosted head, apply it, deploy both functions with push mode `off`, set the secrets.
+- Gate D: run only through the protected runner `.github/workflows/google-sheets-push-release.yml`, one separately approved stage at a time.
+  - Order: `check` → `apply-migration` → `record-history` → `deploy-functions` → `configure-secrets`; each has a rollback stage.
+  - No re-stamp is needed while the hosted head is `20261024045812`.
+  - Push mode stays `off`, `GOOGLE_SHEETS_PUSH_ENABLED` stays absent, and there is no schedule or watch.
+  - Merge PR #491 with a merge commit.
+  - Package and fingerprints: `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md`.
 - Gate E: Pilot B via the ChatGPT Google Drive integration for API writes, plus manual rows. Measure row → notification → lead.
 - Gate F: latency report, go/no-go.
 - Gate G: rollout, only after the separate privacy/Terms release (`src/content/legal.ts` still says "about every five minutes").

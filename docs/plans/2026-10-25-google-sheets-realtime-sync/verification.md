@@ -254,3 +254,48 @@ queued.
 **Residual risk.** A notification Google holds longer than the 900 s overlap and then discards because the channel was
 stopped, or delivers more than 3600 s after the channel ended. Both windows are configurable without a migration.
 Gate E/F measures the real delay.
+
+## 9. Gate D release preparation (2026-10-25; read-only; nothing executed)
+
+**Scope.**
+- The release tooling commit only:
+  - `.github/workflows/google-sheets-push-release.yml` (protected runner) and `…-release-check.yml` (its synthetic
+    CI);
+  - `scripts/tests/google_sheets_push_release_runner.py`;
+  - `supabase/ops/google_sheets_push_release_{preflight,verify}.sql`;
+  - docs.
+- `git diff 24fa809 HEAD -- supabase/migrations supabase/functions src` is **empty**, so the release content is
+  exactly the Gate C head. Package and fingerprints: `release-package.md`.
+
+**Production reads** (connector, read-only, 2026-10-25 15:08–15:12 UTC):
+- the preflight returned every `*_ok` true;
+- the baseline is in `release-package.md` §2;
+- the live `google-sheets-api` v6 is byte-identical to `main` `27c8d0d`;
+- the platform logs hold no `x_goog_*` key (§7 log check `0|0` over 37,767 rows).
+
+No write, deploy, secret, schedule or watch.
+
+| Check (this head) | Result |
+|---|---|
+| `run_google_sheets_tests.sh`, PostgreSQL 17.6 | **ALL GOOGLE SHEETS CHECKS PASSED** (74 s) |
+| `run_google_sheets_tests.sh`, PostgreSQL 16.15 | **ALL GOOGLE SHEETS CHECKS PASSED** (69 s) |
+| What those runs include | PostgREST 62, Review e2e 40, push e2e 43 |
+| `run_google_sheets_cron_check.sh` | **ALL GOOGLE SHEETS CRON CHECKS PASSED**: `cron_jobs=0`; 1 run in 70 s, **0 requests** |
+| `google_sheets_push_release_runner.py` (PostgreSQL 17.6, CLI 2.121.0) | **ALL PUSH RELEASE RUNNER CHECKS PASSED** (31 s); details in `release-package.md` §8 |
+| Migration replay and rollback (inside the runner test) | apply, then history, then replay refused, then rollback; preimage `6640fc30…`, `finish` `f1cf66be…`, data fingerprint unchanged; lock-timeout and watchdog paths roll back |
+| `deno test` (7 directories) | **112 passed** |
+| `deno check` (6 entry points plus push e2e) | exit 0 |
+| `npx tsc --noEmit` | exit 0 |
+| Strict type-check vs `27c8d0d` | base 80 = candidate 80, **new 0** |
+| Focused Vitest | 6 files, **99 passed** |
+| ESLint (Sheets CI set; Reports command on the 29 changed `.ts`/`.tsx`) | exit 0 |
+| `npm run build` | built |
+| `git diff --check` | clean |
+| Polling audit | no Sheets `cron.schedule` outside `pending/`; UI refreshes read AgentFlow only, and the status refresh is off while mode is `off` |
+
+**Local environment notes.**
+- Only `deno test` was affected, and the code under test is the same.
+- This container's proxy refuses `deno.land`. Locally, the one std import
+  (`https://deno.land/std@0.190.0/testing/asserts.ts`) was mapped to `jsr:@std/assert@1.0.13` with `--import-map`
+  and `--no-lock`.
+- CI resolves the original import.
