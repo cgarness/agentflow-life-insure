@@ -64,9 +64,17 @@ export interface SheetSourceRow {
   last_result: { imported: number; flagged: number; skipped: number; errors: number; pending?: number } | null;
   last_error_code: string | null; created_at: string;
 }
+/** Real-time sync (Google Drive change notifications), per enabled source in push scope; from the status action. */
+export type MonitoringState = "active" | "setting_up" | "interrupted";
+export interface RealtimeStatus {
+  mode: "off" | "pilot" | "on";
+  sources: Record<string, { state: MonitoringState; last_notification_at: string | null; last_processed_at: string | null; pending: boolean }>;
+}
 export interface ConnectionStatus {
   enabled: boolean; eligible: boolean;
   connection: { status: "connected" | "reconnect_required" | "disconnected"; google_email: string | null; connected_at: string | null; last_error_code: string | null } | null;
+  /** Absent or null when real-time sync is unavailable (the UI then shows no monitoring line). */
+  realtime?: RealtimeStatus | null;
 }
 export interface SheetsContext {
   duplicate_action: string; default_status: string; lead_sources: string[]; has_lead_created_workflows: boolean;

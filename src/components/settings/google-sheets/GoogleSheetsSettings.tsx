@@ -70,6 +70,7 @@ const GoogleSheetsSettings: React.FC = () => {
           loading={gs.sources.isLoading}
           loadError={gs.sources.isError}
           connection={status.connection}
+          realtime={status.realtime}
           canAdd={connected}
           onAdd={() => setEditing("new")}
           onEdit={(s) => setEditing(s)}

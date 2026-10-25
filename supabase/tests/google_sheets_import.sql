@@ -97,7 +97,8 @@ BEGIN
                              FROM pg_proc p WHERE p.oid = fn), 'definer+search_path ' || fn);
     n := n + 1;
   END LOOP;
-  PERFORM pg_temp.ok(n = 52, 'function count ' || n || ' (31 private + 21 public)');
+  -- foundation 31 + 21, push sync (20261025120000) 13 + 10 — the runner applies both (production order).
+  PERFORM pg_temp.ok(n = 75, 'function count ' || n || ' (44 private + 31 public)');
   PERFORM pg_temp.ok(NOT has_function_privilege('authenticated', 'public._contacts_permission_default(text,text)', 'EXECUTE'), 'default helper ACL');
   PERFORM pg_temp.ok(NOT has_table_privilege('authenticated', 'private.google_sheets_receipts', 'SELECT'), 'receipts hidden');
   PERFORM pg_temp.ok(NOT has_table_privilege('service_role', 'private.google_sheets_receipts', 'SELECT'), 'receipts hidden from service_role direct');

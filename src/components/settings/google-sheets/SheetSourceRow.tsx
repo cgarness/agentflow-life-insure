@@ -10,27 +10,32 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
-import type { ConnectionStatus, SheetSourceRow as Row } from "@/lib/google-sheets/schema";
-import { resultSummary, REVIEW_REASONS, reviewKind, sourceStatus, syncToast, type Tone } from "@/lib/google-sheets/status";
+import type { ConnectionStatus, RealtimeStatus, SheetSourceRow as Row } from "@/lib/google-sheets/schema";
+import { monitoringStatus, resultSummary, REVIEW_REASONS, reviewKind, sourceStatus, syncToast, type Tone } from "@/lib/google-sheets/status";
 
 const TONE: Record<Tone, "default" | "secondary" | "destructive" | "outline"> = {
   default: "default", success: "secondary", warning: "outline", destructive: "destructive", muted: "outline",
+};
+const DOT: Record<Tone, string> = {
+  default: "bg-primary", success: "bg-emerald-500", warning: "bg-amber-500", destructive: "bg-destructive", muted: "bg-muted-foreground/60",
 };
 
 interface Props {
   source: Row;
   connection: ConnectionStatus["connection"];
+  realtime?: RealtimeStatus | null;
   onEdit: (s: Row) => void;
   onReview: (s: Row) => void;
   onIdentityReview: (s: Row) => void;
   onChanged: () => void;
 }
 
-const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, onEdit, onReview, onIdentityReview, onChanged }) => {
+const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, realtime, onEdit, onReview, onIdentityReview, onChanged }) => {
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const st = sourceStatus(s, connection);
   const connected = connection?.status === "connected";
+  const live = connected ? monitoringStatus(s, realtime) : null;
   const kind = reviewKind(s.review_reason);
   const openReview = () => (kind === "identity" ? onIdentityReview(s) : kind === "structural" ? onReview(s) : onEdit(s));
 
@@ -59,9 +64,15 @@ const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, onEdit, on
           <Badge variant={TONE[st.tone]}>{st.label}</Badge>
         </div>
         <p className="text-xs text-muted-foreground truncate">{s.spreadsheet_name || "Spreadsheet"} → {s.sheet_title || "Tab"}</p>
+        {live && (
+          <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+            <span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${DOT[live.tone]}`} aria-hidden="true" />
+            {live.label}
+          </p>
+        )}
         {s.state !== "draft" && (
           <p className="text-xs text-muted-foreground">
-            {s.last_success_at ? `Checked ${formatDistanceToNow(new Date(s.last_success_at), { addSuffix: true })}` : "Not checked yet"}
+            {s.last_success_at ? `Last successful sync ${formatDistanceToNow(new Date(s.last_success_at), { addSuffix: true })}` : "Not synced yet"}
             {" · "}{resultSummary(s.last_result)}
           </p>
         )}

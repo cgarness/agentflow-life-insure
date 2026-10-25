@@ -10,7 +10,8 @@ import { isBusy } from "@/lib/google-sheets/status";
  * Settings → Google Sheets data. Identity is the REAL signed-in user and their organization (the
  * connection and sources belong to them; Settings is withheld during View As). Every query key carries
  * org + user, nothing runs while impersonating or before identity resolves, and RLS returns only the
- * user's own rows. Polls every 10 s while an import/check is running, otherwise every 60 s (visible tab).
+ * user's own rows. Polls every 10 s while an import/check is running, otherwise every 60 s (visible tab). These are
+ * AgentFlow reads only: nothing here asks Google for spreadsheet data.
  */
 export function useGoogleSheets() {
   const { user, realProfile, isImpersonating } = useAuth();
@@ -25,6 +26,11 @@ export function useGoogleSheets() {
     enabled: ready,
     queryFn: () => sheetsApi<ConnectionStatus>("status"),
     staleTime: 30_000,
+    // Monitoring state (setting up → active) is part of status: refresh it while real-time sync applies.
+    refetchInterval: (q) => {
+      const rt = (q.state.data as ConnectionStatus | undefined)?.realtime;
+      return rt && rt.mode !== "off" && Object.keys(rt.sources ?? {}).length > 0 ? 60_000 : false;
+    },
   });
 
   const sources = useQuery({

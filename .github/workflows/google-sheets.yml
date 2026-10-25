@@ -7,6 +7,9 @@ on:
       - 'supabase/migrations/20261022062539_google_sheets_import_foundation.sql'
       - 'supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql'
       - 'supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql'
+      - 'supabase/migrations/20261025120000_google_sheets_push_sync.sql'
+      - 'supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql'
+      - 'supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql'
       - 'supabase/functions/_shared/googleSheets/**'
       - 'supabase/functions/google-sheets-*/**'
       - 'supabase/tests/google_sheets_*.sql'
@@ -24,6 +27,7 @@ on:
       - 'package*.json'
       - '.github/workflows/google-sheets.yml'
       - 'docs/plans/2026-10-13-google-sheets-import/**'
+      - 'docs/plans/2026-10-25-google-sheets-realtime-sync/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -99,13 +103,16 @@ jobs:
         run: >-
           "$RUNNER_TEMP/gs-tools/node_modules/.bin/deno" test --allow-env
           _shared/googleSheets/ google-sheets-api/ google-sheets-oauth-start/ google-sheets-oauth-callback/ google-sheets-sync-worker/
-      - name: deno check (four entry points)
+          google-sheets-push/ google-sheets-push-maintenance/
+      - name: deno check (six entry points)
         run: >-
           "$RUNNER_TEMP/gs-tools/node_modules/.bin/deno" check
           supabase/functions/google-sheets-api/index.ts
           supabase/functions/google-sheets-oauth-start/index.ts
           supabase/functions/google-sheets-oauth-callback/index.ts
           supabase/functions/google-sheets-sync-worker/index.ts
+          supabase/functions/google-sheets-push/index.ts
+          supabase/functions/google-sheets-push-maintenance/index.ts
   frontend:
     name: Frontend tests, lint, types, build
     runs-on: ubuntu-latest
@@ -130,6 +137,7 @@ jobs:
           npx eslint src/components/settings/google-sheets src/lib/google-sheets src/hooks/useGoogleSheets.ts
           src/config/settingsConfig.ts src/config/permissionDefaults.ts src/components/settings/SettingsRenderer.tsx
           scripts/tests/google-sheets-ui/verify.mjs scripts/google_sheets_postgrest_check.mjs
+          scripts/google_sheets_e2e.ts scripts/google_sheets_push_e2e.ts
       - run: npx tsc --noEmit
       - name: App type-check against the exact PR base (zero new diagnostics)
         if: github.event_name == 'pull_request'

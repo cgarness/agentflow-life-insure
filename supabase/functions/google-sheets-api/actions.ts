@@ -9,8 +9,14 @@ import { inspectSpreadsheet, readTab } from "../_shared/googleSheets/google.ts";
 import { classifySourceIdRows, identityReview, identityRows } from "../_shared/googleSheets/identity.ts";
 import { resolveColumns, resolveCustomFieldNames, validateMapping, type SheetMapping } from "../_shared/googleSheets/mapping.ts";
 import { checkScopes, inspectAccessToken, refreshAccessToken } from "../_shared/googleSheets/oauth.ts";
+import type { PushConfig } from "../_shared/googleSheets/push/config.ts";
+import type { Background } from "../_shared/googleSheets/push/runtime.ts";
+import * as P from "./push.ts";
 
-export interface Ctx { svc: SupabaseClient; cfg: SheetsConfig; fetchFn: typeof fetch; userId: string; orgId: string }
+export interface Ctx {
+  svc: SupabaseClient; cfg: SheetsConfig; fetchFn: typeof fetch; userId: string; orgId: string;
+  push?: { pcfg?: PushConfig; background?: Background };
+}
 export class ActionError extends Error { constructor(public status: number, public code: string) { super(code); } }
 
 const db = (c: Ctx) => sheetsDb(c.svc);
@@ -77,6 +83,7 @@ export async function status(c: Ctx) {
     enabled: c.cfg.enabled, eligible: await eligible(c),
     connection: conn ? { status: conn.status, google_email: conn.google_email, connected_at: conn.connected_at,
                          last_error_code: conn.last_error_code } : null,
+    realtime: await P.realtimeStatus(c),
   };
 }
 
@@ -192,7 +199,9 @@ export async function save(c: Ctx, body: Record<string, unknown>) {
     },
   });
   if (error) throw new DbError(error.message, error.code);
-  return (data ?? [])[0];
+  const saved = (data ?? [])[0];
+  if (body.source_id && saved) await P.afterSourceChange(c, String(saved.source_id), "save");
+  return saved;
 }
 
 /** Activation: one consistent server read → baseline (or initial import) committed atomically. */
@@ -209,7 +218,9 @@ export async function activate(c: Ctx, body: Record<string, unknown>) {
     p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: src.config_version,
     p_generation: a.generation, p_rows: rows, p_row_count: planned.length });
   if (error) throw new DbError(error.message, error.code);
-  return (data ?? [])[0];
+  const out = (data ?? [])[0];
+  if (out?.outcome === "activated") await P.afterSourceChange(c, src.id, "activate");
+  return out;
 }
 
 export async function syncNow(c: Ctx, body: Record<string, unknown>) {
@@ -221,9 +232,13 @@ export async function syncNow(c: Ctx, body: Record<string, unknown>) {
 }
 
 export async function setState(c: Ctx, body: Record<string, unknown>, action: "pause" | "resume" | "remove") {
+  const sourceId = str(body.source_id, 64);
+  const spreadsheetId = action === "resume" ? null : await P.spreadsheetOf(c, sourceId);
   const { data, error } = await c.svc.rpc("google_sheets_set_state", {
-    p_user: c.userId, p_org: c.orgId, p_source: str(body.source_id, 64), p_action: action });
+    p_user: c.userId, p_org: c.orgId, p_source: sourceId, p_action: action });
   if (error) throw new DbError(error.message, error.code);
+  if (action === "resume") await P.afterSourceChange(c, sourceId, "resume");
+  else if (spreadsheetId) await P.afterRelease(c, spreadsheetId);
   return (data ?? [])[0];
 }
 
@@ -252,6 +267,7 @@ export async function review(c: Ctx, body: Record<string, unknown>, dryRun: bool
     p_import_matched: choice(body.import_matched), p_import_unknown: choice(body.import_unknown),
     p_snapshot: dryRun ? null : str(body.snapshot, 64) || null, p_dry_run: dryRun });
   if (error) throw new DbError(error.message, error.code);
+  if (!dryRun) await P.afterSourceChange(c, src.id, "review");
   return (data ?? [])[0];
 }
 
@@ -305,10 +321,12 @@ export async function identityReviewApply(c: Ctx, body: Record<string, unknown>)
   }
   const { a, review } = await identityClassify(c, src);
   const r = await resolveIdentity(c, src, a.generation, review, str(body.snapshot, 64) || null, decisions, false);
+  await P.afterSourceChange(c, src.id, "identity_review");
   return { config_version: r.config_version, decided: r.decided };
 }
 
 export async function disconnect(c: Ctx) {
+  await P.beforeDisconnect(c); // stop Google channels while the refresh token still exists (bounded, best effort)
   const { error } = await c.svc.rpc("google_sheets_disconnect", { p_user: c.userId, p_org: c.orgId });
   if (error) throw new DbError(error.message, error.code);
   return { ok: true };

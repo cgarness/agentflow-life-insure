@@ -2,7 +2,7 @@ import React from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ConnectionStatus, SheetSourceRow } from "@/lib/google-sheets/schema";
+import type { ConnectionStatus, RealtimeStatus, SheetSourceRow } from "@/lib/google-sheets/schema";
 import SheetSourceRowItem from "./SheetSourceRow";
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   loading: boolean;
   loadError: boolean;
   connection: ConnectionStatus["connection"];
+  realtime?: RealtimeStatus | null;
   canAdd: boolean;
   onAdd: () => void;
   onEdit: (s: SheetSourceRow) => void;
@@ -18,7 +19,7 @@ interface Props {
   onChanged: () => void;
 }
 
-const SheetSourceList: React.FC<Props> = ({ sources, loading, loadError, connection, canAdd, onAdd, onEdit, onReview, onIdentityReview, onChanged }) => (
+const SheetSourceList: React.FC<Props> = ({ sources, loading, loadError, connection, realtime, canAdd, onAdd, onEdit, onReview, onIdentityReview, onChanged }) => (
   <div className="space-y-2">
     <div className="flex items-center justify-between">
       <p className="text-sm font-medium text-foreground">Sheets</p>
@@ -32,7 +33,7 @@ const SheetSourceList: React.FC<Props> = ({ sources, loading, loadError, connect
     {loadError && <p className="text-xs text-destructive">Couldn't load your sheets.</p>}
     {!loading && !loadError && sources.length === 0 && <p className="text-xs text-muted-foreground">No sheets yet.</p>}
     {sources.map((s) => (
-      <SheetSourceRowItem key={s.id} source={s} connection={connection} onEdit={onEdit} onReview={onReview}
+      <SheetSourceRowItem key={s.id} source={s} connection={connection} realtime={realtime} onEdit={onEdit} onReview={onReview}
         onIdentityReview={onIdentityReview} onChanged={onChanged} />
     ))}
   </div>

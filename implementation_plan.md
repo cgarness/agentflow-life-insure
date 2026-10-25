@@ -1,3 +1,388 @@
+## 2026-10-25 — GATE D RELEASE PACKAGE PREPARED (read-only; NOT merged, applied, deployed or configured): Google Sheets real-time sync, PR #491
+
+**Status.**
+- The package is complete. `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md` holds the
+  baseline, fingerprints, release order, rollback, risks and approval requests A–E.
+- Nothing is executed. Real-time sync is OFF: push mode `off`, no kill switch, no schedule, no watch.
+
+**Read first.** AGENT_RULES (including both Google Sheets invariants and #28), VISION, and the newest WORK_LOG
+entries.
+- No conflicting work was found.
+- `main` is still `27c8d0d`, the PR base, so nothing needed incorporating.
+- PR #491's head was `24fa809` with 17/17 checks green.
+
+**Production (read-only connector, 2026-10-25 15:08–15:12 UTC).**
+- Head `20261024045812` with 346 history rows. The push migration is absent.
+- The Sheets function preimage `6640fc30…` and `finish` `f1cf66be…` equal the tested local preimage.
+- Pilot B is intact: 1 connection, 1 source, 3 receipts linked to 3 leads, and 2 manual runs.
+- 13 cron jobs, none for Sheets. Four Sheets functions, all at v6. The live API is byte-identical to `main`.
+- The platform logs no `x_goog_*` header.
+
+**Decisions** (within the approved Gate D brief; no production action):
+1. Release vehicle: a new protected runner, `.github/workflows/google-sheets-push-release.yml`, following the Phase B
+   and M3 precedent.
+   - Dispatch-only and `main`-only, behind the `google-sheets-production` environment review, pinned to `24fa809`.
+   - Stages: `check`, `apply-migration`, `record-history`, `deploy-functions`, `configure-secrets`, and rollbacks in
+     reverse.
+2. No re-stamp. `20261025120000` sorts after the hosted head.
+3. Not redeployed: the sync worker and the OAuth functions.
+4. Merge PR #491 with a merge commit, so the pinned source stays on `main`.
+5. The plan §4.3 log check is implemented: a dummy-token probe plus a read-only `query_logs` count.
+
+**Files (tooling only; `git diff 24fa809 HEAD -- supabase/migrations supabase/functions src` is empty).**
+- `.github/workflows/google-sheets-push-release.yml` (new);
+- `.github/workflows/google-sheets-push-release-check.yml` (new; synthetic PostgreSQL 17.6 CI for the runner);
+- `scripts/tests/google_sheets_push_release_runner.py` (new);
+- `supabase/ops/google_sheets_push_release_preflight.sql` and `…_verify.sql` (new; read-only);
+- docs: `release-package.md`, focused plan §19, `verification.md` §9, AGENT_RULES, WORK_LOG, this entry.
+
+**Next.** Approvals A (merge), B (migration stages), C (functions) and D (secrets), each requested separately. Gate E
+gets its own package.
+
+---
+
+## 2026-10-25 — GATE C HARDENING APPROVED (with a security adjustment) and IMPLEMENTED (draft PR; NOT merged, applied or deployed): PR #491 replay bounds and renewal-gap audit
+
+**Status.** Chris approved this plan at `509fa62` ("APPROVED — PR #491 GATE C HARDENING"). The conditions:
+- edit the unapplied migration in place;
+- use a 900 s overlap;
+- add bounded rejection logging, database-level uniqueness, replay protection and automatic retention;
+- add the renewal and interruption catch-up protections;
+- **adjust proposal item 3 for security** (below).
+
+Nothing is applied, deployed or enabled. Re-read: AGENT_RULES (§1–§11 and both Google Sheets invariants), VISION,
+and the newest WORK_LOG entries. No conflict was found. Results are in WORK_LOG and `verification.md` §8.
+
+### Security adjustment (replaces proposal item 3, "late deliveries are never discarded")
+
+A notification triggers work only on a channel that is **live**, or that was **genuinely active** and is still inside
+a **bounded late-delivery grace**. In both cases the token, resource id, live target, current connection ownership and
+current auth generation still apply.
+
+- **Live:**
+  - `active` or `stopping` (which includes a superseded channel inside its overlap), not expired;
+  - or `registering` for at most 5 minutes after creation. Google may notify before the watch response, and
+    hygiene ends the registration after that.
+- **Late-delivery grace:** only a channel with `activated_at IS NOT NULL` (Google confirmed it), in state `active`,
+  `stopping` or `stopped`.
+  - It is accepted until `LEAST(expires_at, stopped_at) + late_grace_s`.
+  - `late_grace_s` is a new config column, default **3600 s**, `CHECK 0–21600`.
+  - Such events are recorded with `reason = 'late_delivery'`.
+- **Never accepted:**
+  - `failed` channels (Google refused the registration);
+  - `abandoned` channels;
+  - never-activated `stopping`/`stopped` channels (abandoned registration, resource mismatch);
+  - any channel after its grace;
+  - any channel whose connection is revoked, disconnected, at another generation or owned by someone else.
+
+  Each gets `ignored_inactive` or `ignored_stale`, with no job.
+- **No gap from ignoring these.** A channel we stop or give up on is never counted as coverage (proposal item 2), so
+  the next registration is fresh and queues a catch-up.
+
+**Additional tests:**
+- a delayed notification within grace is queued;
+- after grace, nothing is queued;
+- a replay inside grace returns `duplicate`;
+- a revoked or disconnected connection inside grace is ignored;
+- an old generation inside grace is ignored;
+- failed, abandoned, never-activated and invalid channels are ignored or refused.
+
+### Files (as approved; edits follow this entry)
+1. `supabase/migrations/20261025120000_google_sheets_push_sync.sql`, edited in place:
+   - config: `renew_overlap_s`, `late_grace_s`;
+   - `watch_channels.last_rejected_at`;
+   - the unique dedupe index;
+   - the outcome CHECK;
+   - the bodies of `push_accept`, `watch_result`, `push_maintenance_due` and `push_status`;
+   - comments.
+2. `supabase/tests/google_sheets_push.sql`: P1, P4 and P10 updated; new P15 (bounded replays) and P16 (renewal,
+   grace and interruptions).
+3. `scripts/run_google_sheets_tests.sh`: new 4i (rejections and replays never wait), with a negative control.
+4. `scripts/google_sheets_push_e2e.ts`: a renewal scenario.
+5. `supabase/ops/google_sheets_push_metrics.sql`: comment only.
+6. Docs:
+   - the focused plan (§17.3 and a new §18);
+   - `verification.md`;
+   - `AGENT_RULES.md`;
+   - `WORK_LOG.md`;
+   - this entry.
+
+*Original plan-stage status:* plan only, at head `b90438e`.
+
+### Finding 1 — duplicates and rejected requests (`google_sheets_push_accept`, `push_events` indexes)
+
+What happens today, per request that reaches the database:
+
+| Request | Lock taken | Rows written | Bounded? |
+|---|---|---|---|
+| Bad HMAC tag / malformed | none (rejected in Edge, no DB call) | 0 | yes |
+| `unknown_channel` | none (no row) | 0 | yes |
+| `rejected_token` / `rejected_resource` | channel row `FOR UPDATE` **before** the token is checked | 1 event row | **no** |
+| Authenticated redelivery (`duplicate`) | channel row + **target row** `FOR UPDATE` | 1 event row | **no** (one row per replay) |
+
+- **1a. Rejections lock and write.** Any request with a correctly tagged channel id waits for, and holds, that
+  channel's row lock before authentication, so a flood serializes genuine notifications on that channel. It also
+  adds one row per request, kept for 14 days. Exploiting this needs a real channel id; ids are only in Google's
+  requests and in our database, but the cost should not depend on that secrecy.
+- **1b. Duplicates lock and write.** Every redelivery of a recorded message locks the target, the hot row the
+  processor and the other receivers use, and inserts another row.
+- **1c. The dedupe index is not unique.** `(channel_row_id, message_number) WHERE authenticated` is enforced only by
+  the code path, not by the schema.
+- **1d. Retention can fall behind.** Events (14 days) and attempts (30 days) are deleted only inside a maintenance
+  pass, at most 5,000 rows per pass, and the cron guard does not consider retention. Under steady traffic,
+  maintenance may run only for the daily renewal, so old rows can accumulate past the window.
+
+**Proposed fix (bounded, secure replay handling).**
+- **Authenticate before locking.** The token digest never changes, and an effective resource id never changes once
+  known. So the token and any known resource id are checked on an unlocked read. A rejected request takes no lock
+  and never waits.
+- **Bounded rejection diagnostics.** A rejected request records at most **one event row per channel per minute**,
+  using a conditional `UPDATE … last_rejected_at` through `FOR UPDATE SKIP LOCKED`, so it never waits. Every other
+  rejection is read-only. The Edge log line still records each request, as `outcome / state / ms` with no secrets.
+  A rejected request still never suppresses a genuine message with the same number.
+- **Duplicates write nothing.**
+  - An authenticated redelivery returns `duplicate` from an unlocked fast path, with no row and no target lock.
+  - It is re-checked under the channel lock only when the first delivery may still be in flight.
+- **Schema backstop.** The dedupe index becomes **UNIQUE** (`… WHERE authenticated AND message_number IS NOT NULL`),
+  and `duplicate` is removed from the stored-outcome CHECK because it is never recorded.
+- **Retention keeps pace.** The cron guard becomes true while events older than 14 days or attempts older than 30
+  days exist. Deletes stay at 5,000 per pass. This is database housekeeping, never a spreadsheet read.
+
+### Finding 2 — renewal and recovery audit
+
+Timeline of today's renewal:
+1. Maintenance registers B about 3 h before A expires.
+2. B's watch response arrives (`watch_result` activated).
+3. A is marked `stopping` and **returned for an immediate `channels.stop`**.
+
+Two gaps follow:
+
+- **2a. Pending notifications on A are cut off.** Google batches Sheets notifications (reported ~3 min). A change
+  made just before B was established is notified only on A, because B did not exist yet. If A is stopped before
+  Google sends that notification, it may never be sent.
+- **2b. Late deliveries on A are discarded.** An authenticated notification arriving on A after it was stopped or
+  expired is answered `ignored_inactive`. That includes an in-flight message, or a Google retry of one we answered
+  `503`. The row then waits for an unrelated later change, so the gap is **undetected** on a quiet sheet.
+
+Two related flaws:
+
+- **2c.** A `stopping` channel counts as live coverage when deciding whether an activation is a seamless renewal
+  (`v_had_live`). A channel we are stopping (stop-all, release, hygiene) is not reliable coverage, so the next
+  activation can skip its catch-up. Status has the same flaw: it reports `active` from a `stopping` channel.
+- **2d.** A renewal counts as seamless even when A expires within moments of B's activation, leaving no time for A's
+  pending notifications.
+
+**Proposed fix.** All event-driven; no periodic read.
+1. **Delayed stop for superseded channels.** On a renewal, the older `active` channel at the same generation and key
+   becomes `stopping` with `last_error_code = 'superseded'` and `next_stop_at = now + renew_overlap_s`. It is
+   **not** returned for an immediate stop. Maintenance stops it after the overlap; the existing guard fires once,
+   when `next_stop_at` passes.
+   - `renew_overlap_s` is a new config column: default **900 s**, `CHECK 60–3600` and `< renew_before_s`, so Gate E/F
+     can tune it.
+   - Channels at another generation or key (reconnect, rotate) are still stopped at once; those activations already
+     queue a catch-up.
+2. **A seamless renewal requires real coverage.** It requires another channel that is `active` at the same generation
+   and key and stays valid for the whole overlap (`expires_at > now + renew_overlap_s`). Otherwise the activation is
+   fresh and queues one catch-up. `stopping` channels never count as coverage, for this rule or for status.
+3. *(Superseded by the security adjustment above: bounded grace, not indefinite.)* **Late authenticated deliveries are never discarded for a live target.**
+   - Acceptance depends on: the channel token, the resource id, the target being live, and the connection's current
+     generation and ownership. It no longer depends on the channel's own state or expiry, which govern only what
+     Google sends.
+   - A paused, removed or disconnected target is still `ignored_inactive` / `ignored_stale`.
+   - Cost: at most one extra, idempotent tab read. Receipts prevent duplicate leads.
+
+**Why a successful overlapping renewal leaves no undetected gap** (assumes Google delivers within the overlap).
+Let A be live and B be established by Google at `t_B`, before our `watch_result`. Take a change at time `t`:
+- **If `t ≥ t_B`,** Google notifies on B, which is `active`, so it is accepted.
+- **If `t < t_B`,** Google notifies on A (live since before `t`) after a delay `d`. A keeps receiving until it is
+  stopped, at the earliest `t_B + renew_overlap_s`. Rule 2 guarantees A is valid that long. So if `d <
+  renew_overlap_s`, the notification is sent while A is live. If it arrives later (in flight, or a retry of a `503`),
+  rule 3 still queues it.
+
+Every queued notification starts a full read of every enabled tab of the spreadsheet *after* acceptance. That read
+diffs against receipts and the identity ledger, so it covers `t` and any earlier miss. The residual risk is an A
+notification Google holds longer than the overlap and then discards because A was stopped. That is outside our
+control. Gate E/F measures notification delay against the 900 s default, which can be raised.
+
+**Genuine interruptions already reconcile by event** (each verified by a test). Expiry without a successful renewal,
+reconnect, key rotation, failed registrations, stop-all followed by mode on, and Disconnect then Connect each end in a
+fresh activation, which queues a catch-up. Pause → Resume and every Enable / save / Review apply kick through the API
+hooks. With rule 2, a fresh registration after any `stopping`-only period now reconciles too (2c).
+
+**What Google notifications cannot guarantee.** This goes in the plan §18, AGENT_RULES and `verification.md`:
+- delivery of every change;
+- any maximum delay (Sheets is reportedly batched at about 3 minutes);
+- which rows changed (a notification is only "the file changed");
+- loss detection: message numbers increase but are not sequential;
+- a signal when Google stops sending on a channel;
+- delivery of pending notifications after `channels.stop` or expiry;
+- retries beyond a bounded backoff period, and only after 500/502/503/504;
+- that rows written through the Sheets API notify at all (R3, Gate E).
+
+AgentFlow therefore cannot detect a notification Google never sends for a healthy channel. Such a row is imported at
+the next accepted notification for that spreadsheet, the next event-driven catch-up, or Sync now. There is no
+periodic polling.
+
+### Files (intended)
+1. `supabase/migrations/20261025120000_google_sheets_push_sync.sql`. This migration is **unapplied and provisional**
+   (re-stamped at Gate D), so it is edited in place rather than stacked with a second migration.
+   - `push_config.renew_overlap_s`;
+   - `watch_channels.last_rejected_at`;
+   - the unique dedupe index and the outcome CHECK;
+   - `push_accept`, `watch_result`, `push_maintenance_due` and `push_status` (bodies only);
+   - comments.
+
+   The function inventory stays at 75. The `finish` preimage guard, RLS, ACLs, `organization_id` and receipts are
+   unchanged. *Alternative if preferred:* a separate `20261025120200_…` migration with `ALTER TABLE` / `CREATE OR
+   REPLACE`.
+2. `supabase/tests/google_sheets_push.sql`:
+   - P1: the config default.
+   - P4: sampled rejections.
+   - P10: the overlap, and late deliveries queued.
+   - **New P15 bounded replays:**
+     - 50 redeliveries → 0 rows and no extra job;
+     - the unique backstop;
+     - 50 wrong tokens and 50 resource mismatches → 1 row per channel per minute, no job;
+     - genuine numbers still accepted after a flood;
+     - unknown and invalid requests → 0 rows;
+     - the retention guard.
+   - **New P16 renewal and recovery:**
+     - a seamless renewal keeps A for the overlap;
+     - A's late notification is queued;
+     - maintenance stops A only after the overlap;
+     - a retry after the stop is queued;
+     - a short-lived A means a catch-up;
+     - stopping-only coverage means a catch-up and `interrupted` status;
+     - expiry without renewal means a `recover` registration plus a catch-up.
+3. `scripts/run_google_sheets_tests.sh`: **new 4i** two-session test. While another session holds the channel row
+   lock, 20 wrong-token requests and one redelivery complete under `lock_timeout = 1s` without waiting.
+   - Negative control: the old lock-before-authentication path times out.
+4. `scripts/google_sheets_push_e2e.ts`: new renewal scenario through the real receiver, maintenance and fake Google.
+   - The old channel is not stopped at renewal.
+   - A row notified only on the old channel is imported exactly once.
+   - Disconnect then stops both channels.
+5. `supabase/ops/google_sheets_push_metrics.sql`: comment only. Duplicates are not recorded and rejections are
+   sampled.
+6. Docs:
+   - `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`: §17.3 corrected, plus a new §18;
+   - `verification.md`;
+   - `AGENT_RULES.md`: the real-time invariant;
+   - `WORK_LOG.md`;
+   - this entry.
+
+**Not changed:**
+- Edge Functions: the database decides the stop list and the outcomes.
+- The rollback, which drops the same tables and functions.
+- The cron schedule, CI workflow, frontend, RLS and production.
+
+**Verification after approval.**
+- `run_google_sheets_tests.sh` on PostgreSQL 17.6 and 16.15, including P1–P16, 4e–4i and push e2e;
+  `run_google_sheets_cron_check.sh`.
+- Deno tests and `deno check`.
+- ESLint (Google Sheets CI set, plus the exact Reports command), `npx tsc --noEmit`, `npm run build`, focused Vitest.
+- Push to `claude/modest-knuth-y5cqor` only and verify CI on the new head. No merge, deploy or production change.
+
+---
+
+## 2026-10-25 — BUGFIX APPROVED and IMPLEMENTED (draft PR; NOT merged): PR #491 Gate C CI — "Reports frontend verification" ESLint failure
+
+**Status.**
+- Chris approved the one-line fix plus the workflow lint addition ("APPROVED — PR #491 ESLINT CORRECTION").
+- The failing run was on `be0ceed`. This plan was committed alone as `93f25e7` before approval; the fix follows it on
+  `claude/modest-knuth-y5cqor`.
+- WORK_LOG has the results.
+
+**Failure.** Run `40159414089`, job `121067626959`, `scripts/verify_reports_frontend.py`.
+- Every other step passed or matched the base:
+  - root tsc 0 / 0;
+  - app tsc exits 2 on both base and branch, with no new diagnostic;
+  - Vitest exits 1 on both, with no new failure;
+  - `reports-vitest` 0;
+  - `build` 0.
+- Only `eslint` exited 1, so `assert checks['eslint']==0` failed.
+- The script lints every `.ts`/`.tsx` file changed since the PR base. That is 29 files here, including the Deno and
+  script files.
+
+**Evidence.**
+- The uploaded artifact (`reports-frontend-evidence-40159414089`, id `12586621570`, zip sha256 `5edcb421…097e0`)
+  could not be downloaded here. Its storage host, `productionresultssa7.blob.core.windows.net`, is refused by this
+  container's network policy.
+- Instead, the script's exact command (`npx --no-install eslint <changed .ts/.tsx vs 27c8d0d>`) was re-run locally,
+  on the same lockfile:
+
+  ```
+  scripts/google_sheets_push_e2e.ts
+    120:5  error  'l' is never reassigned. Use 'const' instead  prefer-const
+  ✖ 1 problem (1 error, 0 warnings)
+  ```
+
+**Origin.** The error is in a **new file from this PR** (`scripts/google_sheets_push_e2e.ts`, added in `be0ceed`), not in
+existing code. The other 28 changed TypeScript files lint clean.
+- The Google Sheets workflow's ESLint step lints a fixed list (`src/**` Sheets files and two `.mjs` scripts), which
+  does not include this `.ts` script.
+- My Gate B local lint ran that same list, so it missed the error.
+
+**Correction (smallest safe).** One line: `let l = await leads("PushA");` → `const l = …`.
+- `l` is never reassigned; ESLint confirms it.
+- This changes no behavior. The push end-to-end harness asserts the same values.
+- No lint rule, test, Reports file, migration, Edge code or security/concurrency protection changes.
+
+**Files.**
+1. `scripts/google_sheets_push_e2e.ts`: line 120, `let` → `const`.
+2. `.github/workflows/google-sheets.yml`: two script paths added to the ESLint step (approved).
+3. `implementation_plan.md`: this entry.
+4. `WORK_LOG.md`: a newest-first entry.
+
+**Added on approval.** `.github/workflows/google-sheets.yml`: the ESLint step now also lints
+`scripts/google_sheets_e2e.ts` and `scripts/google_sheets_push_e2e.ts`, so a lint error there fails the Google Sheets
+job too. Both files lint clean, and the original line fails the new step (exit 1).
+
+**Verification after approval.**
+- The exact Reports ESLint command over every changed `.ts`/`.tsx` file vs `27c8d0d`: expect exit 0.
+- `npx tsc --noEmit`, `npm run build`, and the Sheets focused Vitest.
+- `deno check` of the e2e script, and the full `run_google_sheets_tests.sh`, which runs the push e2e harness.
+- Push to `claude/modest-knuth-y5cqor` only, then confirm fresh CI on the new head.
+
+**Not authorized.** Merge, deploy, migrations, and any production change.
+
+---
+
+## 2026-10-25 — Gate A APPROVED, Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled): Google Sheets real-time sync (Drive push notifications)
+
+**Status.**
+- **Gate A:** approved by Chris ("#APPROVE_PLAN", plan at `540e333`, decisions D1–D11; plan §17).
+- **Gate B:** built on `claude/modest-knuth-y5cqor` and opened as a draft PR; stopped at **Gate C** (Chris's review).
+- Nothing is applied, deployed, scheduled or enabled. There is no secret, no Google watch and no lead.
+- Evidence: `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`. Draft legal copy:
+  `privacy-terms-draft.md` (`legal.ts` is unchanged).
+
+*Original plan-stage status:* plan only, at `main` `27c8d0d`. Production was read only (read-only SQL and Edge
+Function read-backs).
+
+**Plan:** `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
+
+**Summary.**
+- One Google Drive `files.watch` channel per connection × spreadsheet notifies a new `google-sheets-push` receiver
+  (`verify_jwt=false`).
+- The receiver validates an HMAC-tagged channel id, a constant-time token digest, the resource id, and the state,
+  expiry and authorization generation. It durably queues a coalescing per-spreadsheet job, answers `200` only after
+  commit, and imports through the unchanged `runSource` engine with a new `push` trigger and an explicitly
+  authorized claim.
+- A guard-only `pg_cron` maintenance job renews and stops channels and recovers failed jobs. **No spreadsheet
+  polling**; the 5-minute pending schedule stays unapplied.
+
+**Decisions D1–D11 (answered at Gate A; see plan §17.1).** They were listed in §0 of the plan, notably:
+- D2: event-driven catch-up reads;
+- D4: `verify_jwt` for the maintenance function;
+- D8: the pilot row writer;
+- D9: the privacy copy;
+- D11: the Pilot B source and 3 leads already present in production but absent from WORK_LOG.
+
+**Gates.** A → B (build, draft PR) → C (review, CI) → D (migration and deploy, push off) → E (Pilot B) →
+F (latency report) → G (rollout, after the privacy release). Each gate needs its own approval.
+
+---
+
 ## 2026-10-24 — APPROVED and BUILT (PR 2 for review; NOT merged): Hierarchy Gate 2c closeout PR 2 — M3 release record after its history-only record
 
 **Approvals (Chris, 2026-10-24).**

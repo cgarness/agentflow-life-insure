@@ -27,6 +27,18 @@
 #   4d. NON-DESTRUCTIVE SHUTDOWN with the exact supabase/ops files: an invocation already running is blocked at
 #      its next call, an RPC already executing completes, new admissions are refused, the drain check reports
 #      quiescence with stable markers; reopening restores the exact ACL and resumes without replay.
+# PUSH SYNC (20261025120000) is applied on top of the foundation in EVERY database, as production will run it:
+#   2c. push behaviour suite (supabase/tests/google_sheets_push.sql)
+#   4e. two workers race for one job (target lease) + NEGATIVE CONTROL (lease check removed → both claim)
+#   4f. push vs Sync now race for one tab (source lease) + NEGATIVE CONTROL (lease check removed → both claim)
+#   4g. a notification during processing is never lost + NEGATIVE CONTROL (completion uses requested_seq)
+#   4h. lock order: receiver vs watch_result on one target, no deadlock + NEGATIVE CONTROL (target locked first →
+#       deadlock), and two receivers × 40 notifications → exactly 80 increments
+#   4i. rejected requests and redeliveries never wait: while another session holds the channel and target rows,
+#       20 wrong-token requests and one redelivery complete under lock_timeout 1 s and record nothing + NEGATIVE
+#       CONTROL (authentication under FOR UPDATE, as before → lock timeouts)
+#   8. END-TO-END push harness (scripts/google_sheets_push_e2e.ts): the real receiver, processor and
+#      google-sheets-api hooks through PostgREST (Google faked)
 # Every database is dropped on exit. Nothing here touches a hosted project.
 set -euo pipefail
 
@@ -44,36 +56,54 @@ HARNESS="$ROOT/supabase/tests/google_sheets_harness.sql"
 SUITE="$ROOT/supabase/tests/google_sheets_import.sql"
 MIG="$ROOT/supabase/migrations/20261022062539_google_sheets_import_foundation.sql"
 ROLLBACK="$ROOT/supabase/migrations/rollback/20261022062539_google_sheets_import_foundation.rollback.sql"
+PUSH="$ROOT/supabase/migrations/20261025120000_google_sheets_push_sync.sql"
+PUSH_ROLLBACK="$ROOT/supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql"
+PUSH_SUITE="$ROOT/supabase/tests/google_sheets_push.sql"
 TMP="$(mktemp -d)"
 DB="gs_test_$$"; DB_CC="gs_cc_$$"; DB_NEG="gs_neg_$$"; DB_RB="gs_rb_$$"; DB_RS="gs_rs_$$"; DB_RG="gs_rg_$$"
 DB_FR="gs_fr_$$"; DB_FRN="gs_frn_$$"; DB_LX="gs_lx_$$"; DB_LXN="gs_lxn_$$"; DB_E2E="gs_e2e_$$"; DB_SD="gs_sd_$$"
+DB_PS="gs_ps_$$"; DB_PC="gs_pc_$$"; DB_PCN="gs_pcn_$$"; DB_PE2E="gs_pe2e_$$"
 OPS="$ROOT/supabase/ops"
-PGRST_E2E="gs_pgrst_e2e_$$"
+PGRST_E2E="gs_pgrst_e2e_$$"; PGRST_PE2E="gs_pgrst_pe2e_$$"
 DENO_BIN="${DENO_BIN:-deno}"
 REG="$ROOT/supabase/tests/google_sheets_regressions.sql"
 PGRST_NAME="gs_pgrst_$$"
 cleanup() {
-  docker rm -f "$PGRST_NAME" "$PGRST_E2E" >/dev/null 2>&1 || true
-  for d in "$DB" "$DB_CC" "$DB_NEG" "$DB_RB" "$DB_RS" "$DB_RG" "$DB_FR" "$DB_FRN" "$DB_LX" "$DB_LXN" "$DB_E2E" "$DB_SD"; do
+  docker rm -f "$PGRST_NAME" "$PGRST_E2E" "$PGRST_PE2E" >/dev/null 2>&1 || true
+  for d in "$DB" "$DB_CC" "$DB_NEG" "$DB_RB" "$DB_RS" "$DB_RG" "$DB_FR" "$DB_FRN" "$DB_LX" "$DB_LXN" "$DB_E2E" "$DB_SD" \
+           "$DB_PS" "$DB_PC" "$DB_PCN" "$DB_PE2E"; do
     psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $d WITH (FORCE);" >/dev/null 2>&1 || true
   done
   rm -rf "$TMP"
 }
 trap cleanup EXIT
 
-build() { # $1 db, $2 migration file
+build() { # $1 db, $2 foundation file, $3 push file (default: $PUSH; "none" = foundation only)
   psql "$PGURL/postgres" -qc "CREATE DATABASE $1;"
   psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$HARNESS" >/dev/null 2>&1
   psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$2" >/dev/null 2>&1
+  if [ "${3:-$PUSH}" != none ]; then psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "${3:-$PUSH}" >/dev/null; fi
 }
 
-echo "== 1. harness + migration =="
+echo "== 1. harness + foundation + push sync migrations =="
 build "$DB" "$MIG"; echo "   OK"
 if psql "$PGURL/$DB" -1 -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1; then echo "   FAIL: re-applied"; exit 1; fi
-echo "   replay guard OK (second apply refused)"
+if psql "$PGURL/$DB" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH" >/dev/null 2>&1; then echo "   FAIL: push re-applied"; exit 1; fi
+echo "   replay guards OK (second applies refused)"
+sed '/FUNCTION private.google_sheets_finish(/,/^END \$\$;/ s/^  v_now := clock_timestamp();$/  v_now := now(); -- tampered/' "$MIG" > "$TMP/mig_tampered.sql"
+grep -q "v_now := now(); -- tampered" "$TMP/mig_tampered.sql" || { echo "   FAIL: tamper patch did not apply"; exit 1; }
+if build "${DB}_tp" "$TMP/mig_tampered.sql" 2>/dev/null; then echo "   FAIL: push applied over a changed finish preimage"; exit 1; fi
+psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS ${DB}_tp WITH (FORCE);" >/dev/null 2>&1
+echo "   preimage guard OK (push refuses a finish that differs from the live definition)"
 
 echo; echo "== 2. behaviour suite =="
 psql "$PGURL/$DB" -v ON_ERROR_STOP=1 -f "$SUITE" 2>&1 | grep -E "PASS|FAIL|ERROR|PASSED" | sed 's/^.*NOTICE:  /   /'
+
+echo; echo "== 2c. push sync behaviour suite =="
+build "$DB_PS" "$MIG"
+psql "$PGURL/$DB_PS" -v ON_ERROR_STOP=1 -f "$PUSH_SUITE" > "$TMP/push.out" 2>&1 || { grep -E "PASS|FAIL|ERROR" "$TMP/push.out" | sed 's/^.*NOTICE:  /   /'; echo "   FAIL: push suite"; exit 1; }
+grep -E "PASS|PASSED" "$TMP/push.out" | sed 's/^.*NOTICE:  /   /'
+grep -q "ALL GOOGLE SHEETS PUSH SQL TESTS PASSED" "$TMP/push.out" || { echo "   FAIL: push suite incomplete"; exit 1; }
 
 echo; echo "== 2b. regression cases (fail on 8b675e5; must pass here) =="
 build "$DB_RG" "$MIG"
@@ -169,9 +199,10 @@ echo; echo "== 4b. finish vs a concurrent reconnect (two sessions) =="
 build "$DB_FR" "$MIG"; psql "$PGURL/$DB_FR" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
 OUT="$(race_reconnect "$DB_FR")"; echo "   outcome: $OUT"
 [ "$OUT" = "released ok" ] || { echo "   FAIL: expected 'released ok'"; exit 1; }
-sed 's/ FOR SHARE; -- finish:connection-lock/; -- finish:connection-lock REMOVED (negative control)/' "$MIG" > "$TMP/mig_nofinishlock.sql"
+# The push migration replaces finish (guarded), so the control removes the lock from the LIVE (push) definition.
+sed 's/ FOR SHARE; -- finish:connection-lock/; -- finish:connection-lock REMOVED (negative control)/' "$PUSH" > "$TMP/mig_nofinishlock.sql"
 grep -q "finish:connection-lock REMOVED" "$TMP/mig_nofinishlock.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
-build "$DB_FRN" "$TMP/mig_nofinishlock.sql"; psql "$PGURL/$DB_FRN" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
+build "$DB_FRN" "$MIG" "$TMP/mig_nofinishlock.sql"; psql "$PGURL/$DB_FRN" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
 OUT="$(race_reconnect "$DB_FRN")"; echo "   negative control (connection lock removed): $OUT"
 [ "$OUT" = "completed access_lost" ] || { echo "   FAIL: negative control did not reproduce the race"; exit 1; }
 echo "   OK (the connection lock serialises finish behind the reconnect)"
@@ -189,12 +220,154 @@ echo; echo "== 4c. the lease expires while finish waits for the source lock (two
 build "$DB_LX" "$MIG"; psql "$PGURL/$DB_LX" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
 OUT="$(race_expiry "$DB_LX")"; echo "   outcome: $OUT"
 [ "$OUT" = "released" ] || { echo "   FAIL: expected released"; exit 1; }
-sed 's/  v_now := clock_timestamp();/  v_now := now(); -- negative control/' "$MIG" > "$TMP/mig_nowclock.sql"
+sed '/FUNCTION private.google_sheets_finish(/,/^END \$\$;/ s/^  v_now := clock_timestamp();$/  v_now := now(); -- negative control/' "$PUSH" > "$TMP/mig_nowclock.sql"
+[ "$(grep -c 'v_now := now(); -- negative control' "$TMP/mig_nowclock.sql")" = 1 ] || { echo "   FAIL: negative-control patch is not exactly finish's"; exit 1; }
 grep -q "v_now := now(); -- negative control" "$TMP/mig_nowclock.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
-build "$DB_LXN" "$TMP/mig_nowclock.sql"; psql "$PGURL/$DB_LXN" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
+build "$DB_LXN" "$MIG" "$TMP/mig_nowclock.sql"; psql "$PGURL/$DB_LXN" -v ON_ERROR_STOP=1 -q -f "$FX_FIXTURE" >/dev/null
 OUT="$(race_expiry "$DB_LXN")"; echo "   negative control (transaction-start now()): $OUT"
 [ "$OUT" = "completed" ] || { echo "   FAIL: negative control did not reproduce the stale-clock acceptance"; exit 1; }
 echo "   OK (expiry is evaluated on the real clock after the lock wait)"
+
+# ---------------------------------------------------------------- push sync two-session tests
+PC_FIXTURE="$ROOT/supabase/tests/google_sheets_push_concurrency_fixture.sql"
+fresh_pc() { # $1 db, $2 push migration file
+  psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $1 WITH (FORCE);" >/dev/null 2>&1
+  build "$1" "$MIG" "$2"; psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$PC_FIXTURE" >/dev/null
+}
+PCV() { echo "(SELECT v FROM public.pcx WHERE k = '$1')"; }
+claim_race() { # $1 db → number of the two concurrent workers that claimed the same job
+  local q="SELECT target_id FROM public.google_sheets_push_claim(gen_random_uuid(), $(PCV target)::uuid, 300, 'receiver')"
+  psql "$PGURL/$1" -tAqc "BEGIN; $q; SELECT pg_sleep(2); COMMIT;" > "$TMP/pa.out" &
+  local pa=$!; sleep 0.5
+  psql "$PGURL/$1" -tAqc "$q;" > "$TMP/pb.out"; wait $pa
+  cat "$TMP/pa.out" "$TMP/pb.out" | grep -cE '^[0-9a-f-]{36}$' || true
+}
+echo; echo "== 4e. push: two workers race for one job (target lease) =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(claim_race "$DB_PC")"; echo "   workers that claimed: $OUT"
+[ "$OUT" = 1 ] || { echo "   FAIL: expected exactly one claim"; exit 1; }
+sed 's/^     AND (x.lease_expires_at IS NULL OR x.lease_expires_at <= v_now) -- push_claim:lease$/     -- push_claim:lease REMOVED (negative control)/' "$PUSH" > "$TMP/push_nolease.sql"
+grep -q "push_claim:lease REMOVED" "$TMP/push_nolease.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_nolease.sql"; OUT="$(claim_race "$DB_PCN")"; echo "   negative control (lease check removed): $OUT"
+[ "$OUT" = 2 ] || { echo "   FAIL: negative control did not reproduce the double claim"; exit 1; }
+echo "   OK (one job, one worker; the test detects a missing lease check)"
+
+src_race() { # $1 db → "<concurrent claims> <sequential second claim>"
+  local lease="99999999-0000-0000-0000-0000000000e1"
+  psql "$PGURL/$1" -tAqc "SELECT 1 FROM public.google_sheets_push_claim('$lease', $(PCV target)::uuid, 300, 'receiver');" >/dev/null
+  local push="SELECT source_id FROM public.google_sheets_push_claim_source($(PCV target)::uuid, '$lease', $(PCV src)::uuid, gen_random_uuid())"
+  local manual="SELECT source_id FROM public.google_sheets_claim(gen_random_uuid(), 1, $(PCV src)::uuid, $(PCV uid)::uuid, $(PCV oid)::uuid)"
+  psql "$PGURL/$1" -tAqc "BEGIN; $push; SELECT pg_sleep(2); COMMIT;" > "$TMP/sa.out" &
+  local pa=$!; sleep 0.5
+  psql "$PGURL/$1" -tAqc "$manual;" > "$TMP/sb.out"; wait $pa
+  local n; n="$(cat "$TMP/sa.out" "$TMP/sb.out" | grep -cE '^[0-9a-f-]{36}$' || true)"
+  # sequential: Sync now holds the tab (committed) → push must not take it
+  psql "$PGURL/$1" -qc "UPDATE public.google_sheets_sources SET lease_owner = NULL, lease_expires_at = NULL, last_checked_at = NULL;" >/dev/null
+  psql "$PGURL/$1" -tAqc "$manual;" >/dev/null
+  local m; m="$(psql "$PGURL/$1" -tAqc "$push;" | grep -cE '^[0-9a-f-]{36}$' || true)"
+  echo "$n $m"
+}
+echo; echo "== 4f. push vs Sync now race for one tab (source lease) =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(src_race "$DB_PC")"; echo "   concurrent claims, then push after Sync now: $OUT"
+[ "$OUT" = "1 0" ] || { echo "   FAIL: expected '1 0'"; exit 1; }
+sed 's/^       AND (s.lease_expires_at IS NULL OR s.lease_expires_at <= now()) -- push_claim_source:lease$/       -- push_claim_source:lease REMOVED (negative control)/' "$PUSH" > "$TMP/push_nosrclease.sql"
+grep -q "push_claim_source:lease REMOVED" "$TMP/push_nosrclease.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_nosrclease.sql"; OUT="$(src_race "$DB_PCN")"; echo "   negative control (lease check removed): $OUT"
+[ "$OUT" = "1 1" ] || { echo "   FAIL: negative control did not reproduce the shared tab"; exit 1; }
+echo "   OK (Sync now and push never run one tab at once; the test detects a missing lease check)"
+
+mid_run() { # $1 db → "<processed> <requested> <dirty>" after a notification lands between claim and completion
+  local lease="99999999-0000-0000-0000-0000000000e2" sl="99999999-0000-0000-0000-0000000000e3"
+  psql "$PGURL/$1" -v ON_ERROR_STOP=1 -tAq > "$TMP/mr.out" <<SQL
+SELECT 1 FROM public.google_sheets_push_claim('$lease', $(PCV target)::uuid, 300, 'receiver');
+SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 500, 'content', now());
+SELECT config_version || '|' || auth_generation FROM public.google_sheets_push_claim_source($(PCV target)::uuid, '$lease', $(PCV src)::uuid, '$sl');
+SELECT public.google_sheets_finish($(PCV src)::uuid, '$sl', (SELECT config_version FROM public.google_sheets_sources WHERE id = $(PCV src)::uuid),
+  (SELECT auth_generation FROM public.google_sheets_connections LIMIT 1), 'push', '{"health":"ok"}');
+SELECT (public.google_sheets_push_complete($(PCV target)::uuid, '$lease', '{"outcome":"done","reason":""}'::jsonb))->>'dirty';
+SELECT processed_seq || ' ' || requested_seq FROM private.google_sheets_watch_targets WHERE id = $(PCV target)::uuid;
+SQL
+  echo "$(tail -1 "$TMP/mr.out") $(tail -2 "$TMP/mr.out" | head -1)"
+}
+echo; echo "== 4g. a notification during processing is never lost =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(mid_run "$DB_PC")"; echo "   processed requested dirty: $OUT"
+[ "$OUT" = "1 2 true" ] || { echo "   FAIL: expected '1 2 true'"; exit 1; }
+sed 's/GREATEST(x.processed_seq, LEAST(x.lease_snapshot, x.requested_seq)) -- push_complete:snapshot/GREATEST(x.processed_seq, x.requested_seq) -- negative control/' "$PUSH" > "$TMP/push_nosnap.sql"
+grep -q "x.requested_seq) -- negative control" "$TMP/push_nosnap.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_nosnap.sql"; OUT="$(mid_run "$DB_PCN")"; echo "   negative control (completion uses requested_seq): $OUT"
+[ "$OUT" = "2 2 false" ] || { echo "   FAIL: negative control did not reproduce the lost notification"; exit 1; }
+# concurrent: a receiver accepting while a completion holds the target
+psql "$PGURL/$DB_PC" -qc "UPDATE private.google_sheets_watch_targets SET next_attempt_at = now();" >/dev/null
+psql "$PGURL/$DB_PC" -tAqc "SELECT 1 FROM public.google_sheets_push_claim('99999999-0000-0000-0000-0000000000e4', $(PCV target)::uuid, 300, 'receiver');" >/dev/null
+psql "$PGURL/$DB_PC" -tAqc "BEGIN; SELECT public.google_sheets_push_complete($(PCV target)::uuid, '99999999-0000-0000-0000-0000000000e4', '{\"outcome\":\"retry\",\"reason\":\"busy\"}'); SELECT pg_sleep(2); COMMIT;" >/dev/null &
+PA=$!; sleep 0.5
+ACC="$(psql "$PGURL/$DB_PC" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 501, 'content', now());")"; wait $PA
+SEQ="$(psql "$PGURL/$DB_PC" -tAqc "SELECT requested_seq - processed_seq FROM private.google_sheets_watch_targets WHERE id = $(PCV target)::uuid")"
+echo "   concurrent accept during completion: $ACC, unprocessed $SEQ"
+[ "$ACC" = queued ] && [ "$SEQ" = 2 ] || { echo "   FAIL: concurrent accept lost or refused"; exit 1; }
+echo "   OK (processed only to the claim snapshot; mid-run work stays queued; the test detects the lost update)"
+
+lock_order() { # $1 db → "<accept outcome>|<watch_result status>|<deadlocks>"
+  local tgt; tgt="$(psql "$PGURL/$1" -tAqc "SELECT v FROM public.pcx WHERE k = 'target'")"
+  psql "$PGURL/$1" -tAqc "BEGIN; SELECT 1 FROM private.google_sheets_watch_targets WHERE id = '$tgt' FOR UPDATE; SELECT pg_sleep(2); COMMIT;" >/dev/null 2>&1 &
+  local ph=$!; sleep 0.3
+  psql "$PGURL/$1" -tAqc "SELECT public.google_sheets_watch_result($(PCV rowy)::uuid, 'stop_failed', NULL, NULL, 'google_unavailable')->>'status';" > "$TMP/lb.out" 2>&1 &
+  local pb=$!; sleep 0.3
+  psql "$PGURL/$1" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 600, 'content', now());" > "$TMP/la.out" 2>&1 &
+  local pa=$!
+  wait $ph $pb $pa || true
+  echo "$(tr -d '\n' < "$TMP/la.out" | sed 's/.*deadlock detected.*/DEADLOCK/')|$(tr -d '\n' < "$TMP/lb.out" | sed 's/.*deadlock detected.*/DEADLOCK/')|$(cat "$TMP/la.out" "$TMP/lb.out" | grep -c 'deadlock detected' || true)"
+}
+echo; echo "== 4h. lock order: receiver vs watch_result on one target =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(lock_order "$DB_PC")"; echo "   accept|watch_result|deadlocks: $OUT"
+[ "$OUT" = "queued|stop_failed|0" ] || { echo "   FAIL: expected 'queued|stop_failed|0'"; exit 1; }
+sed 's/^  PERFORM 1 FROM private.google_sheets_watch_channels w WHERE w.target_id = v_target ORDER BY w.id FOR UPDATE; -- watch_result:lock-order$/  PERFORM 1 FROM private.google_sheets_watch_targets x WHERE x.id = v_target FOR UPDATE; -- negative control: target first\n  PERFORM 1 FROM private.google_sheets_watch_channels w WHERE w.target_id = v_target ORDER BY w.id FOR UPDATE;/' "$PUSH" > "$TMP/push_badorder.sql"
+grep -q "negative control: target first" "$TMP/push_badorder.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_badorder.sql"; OUT="$(lock_order "$DB_PCN")"; echo "   negative control (target locked first): $OUT"
+case "$OUT" in *"|1") ;; *) echo "   FAIL: negative control did not reproduce the deadlock"; exit 1 ;; esac
+# two receivers, 40 notifications each on the two overlapping channels: no lost increment, no deadlock
+fresh_pc "$DB_PC" "$PUSH"
+BEFORE="$(psql "$PGURL/$DB_PC" -tAqc "SELECT requested_seq FROM private.google_sheets_watch_targets")"
+for c in x y; do
+  : > "$TMP/burst_$c.sql"
+  for i in $(seq 1 40); do echo "SELECT outcome FROM public.google_sheets_push_accept($(PCV ch$c), $(PCV d$c), 'RES-$(echo $c | tr a-z A-Z)', 'update', $((1000 + i)), 'content', now());" >> "$TMP/burst_$c.sql"; done
+done
+psql "$PGURL/$DB_PC" -tAq -f "$TMP/burst_x.sql" > "$TMP/bx.out" 2>&1 & PX=$!
+psql "$PGURL/$DB_PC" -tAq -f "$TMP/burst_y.sql" > "$TMP/by.out" 2>&1 & PY=$!
+wait $PX $PY
+AFTER="$(psql "$PGURL/$DB_PC" -tAqc "SELECT requested_seq FROM private.google_sheets_watch_targets")"
+QUEUED="$(cat "$TMP/bx.out" "$TMP/by.out" | grep -c '^queued$' || true)"
+echo "   80 concurrent notifications → $QUEUED queued, requested_seq $BEFORE → $AFTER"
+[ "$QUEUED" = 80 ] && [ "$AFTER" = "$((BEFORE + 80))" ] || { echo "   FAIL: lost increments"; exit 1; }
+echo "   OK (channels → target order holds; the test detects the inverted order; no lost increment)"
+
+replay_wait() { # $1 db → "<rejected_token>|<duplicate>|<lock timeouts>|<rows recorded while locked>|<rows after release>"
+  psql "$PGURL/$1" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 700, 'content', now());" >/dev/null
+  psql "$PGURL/$1" -tAqc "BEGIN; SELECT 1 FROM private.google_sheets_watch_channels WHERE channel_id = $(PCV chx) FOR UPDATE;
+    SELECT 1 FROM private.google_sheets_watch_targets WHERE id = $(PCV target)::uuid FOR UPDATE; SELECT pg_sleep(3); COMMIT;" >/dev/null 2>&1 &
+  local ph=$!; sleep 0.5
+  { echo "SET lock_timeout = '1s';"
+    for i in $(seq 1 20); do
+      echo "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), '$(printf '%064d' "$i")', 'RES-X', 'update', $((800 + i)), 'content', now());"
+    done
+    echo "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), $(PCV dx), 'RES-X', 'update', 700, 'content', now());"
+    echo "SELECT 'recorded=' || count(*) FROM private.google_sheets_push_events e JOIN private.google_sheets_watch_channels w ON w.id = e.channel_row_id
+           WHERE w.channel_id = $(PCV chx) AND NOT e.authenticated;"
+  } > "$TMP/replay.sql"
+  psql "$PGURL/$1" -tAq -f "$TMP/replay.sql" > "$TMP/replay.out" 2>&1
+  wait $ph
+  psql "$PGURL/$1" -tAqc "SELECT outcome FROM public.google_sheets_push_accept($(PCV chx), '$(printf '%064d' 99)', 'RES-X', 'update', 899, 'content', now());" >/dev/null
+  local after; after="$(psql "$PGURL/$1" -tAqc "SELECT count(*) FROM private.google_sheets_push_events e JOIN private.google_sheets_watch_channels w
+    ON w.id = e.channel_row_id WHERE w.channel_id = $(PCV chx) AND NOT e.authenticated")"
+  echo "$(grep -c '^rejected_token$' "$TMP/replay.out" || true)|$(grep -c '^duplicate$' "$TMP/replay.out" || true)|$(grep -c 'lock timeout' "$TMP/replay.out" || true)|$(sed -n 's/^recorded=//p' "$TMP/replay.out")|$after"
+}
+echo; echo "== 4i. rejected requests and redeliveries never wait for genuine traffic =="
+fresh_pc "$DB_PC" "$PUSH"; OUT="$(replay_wait "$DB_PC")"; echo "   rejected|duplicate|lock timeouts|recorded while locked|after release: $OUT"
+[ "$OUT" = "20|1|0|0|1" ] || { echo "   FAIL: expected '20|1|0|0|1'"; exit 1; }
+sed 's/WHERE w.channel_id = p_channel_id; -- push_accept:unlocked-auth/WHERE w.channel_id = p_channel_id FOR UPDATE; -- negative control/' "$PUSH" > "$TMP/push_lockauth.sql"
+grep -q "FOR UPDATE; -- negative control" "$TMP/push_lockauth.sql" || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+fresh_pc "$DB_PCN" "$TMP/push_lockauth.sql"; OUT="$(replay_wait "$DB_PCN")"; echo "   negative control (authenticate under FOR UPDATE): $OUT"
+[ "$(echo "$OUT" | cut -d'|' -f3)" -ge 1 ] || { echo "   FAIL: negative control did not reproduce the wait"; exit 1; }
+echo "   OK (no lock, no wait, no row while genuine traffic holds the rows; one sampled row afterwards; the test detects lock-first authentication)"
 
 echo; echo "== 4d. non-destructive shutdown (exact supabase/ops files) =="
 build "$DB_SD" "$MIG"
@@ -265,7 +438,10 @@ echo "   drain check: wrappers_executable=$(echo "$DRAIN1" | cut -d'|' -f2) acti
 [ "$(echo "$DRAIN1" | cut -d'|' -f2)" = 0 ] && [ "$(echo "$DRAIN1" | cut -d'|' -f3)" = 0 ] || { echo "   BLOCKED: admission open or a Sheets RPC still active"; exit 1; }
 # Columns 2-14 must not move (column 1 is the read time; column 15, unexpired leases, is informational and may fall as
 # leases expire, which proves nothing either way) — the same comparison release-package.md §5 step 5 prescribes.
-[ "$(echo "$DRAIN1" | cut -d'|' -f2-14)" = "$(echo "$DRAIN2" | cut -d'|' -f2-14)" ] || { echo "   BLOCKED: markers moved between drain reads"; echo "$DRAIN1"; echo "$DRAIN2"; exit 1; }
+[ "$(echo "$DRAIN1" | cut -d'|' -f2-14,16-20)" = "$(echo "$DRAIN2" | cut -d'|' -f2-14,16-20)" ] || { echo "   BLOCKED: markers moved between drain reads"; echo "$DRAIN1"; echo "$DRAIN2"; exit 1; }
+# column 16 = queued push-maintenance requests (NULL here: the plain harness has no pg_net; the cron check covers it)
+case "$(echo "$DRAIN1" | cut -d'|' -f16)" in ""|0) ;; *) echo "   BLOCKED: push maintenance requests queued"; exit 1 ;; esac
+[ "$(echo "$DRAIN1" | awk -F'|' '{print NF}')" = 21 ] || { echo "   BLOCKED: drain check is missing the push columns"; exit 1; }
 psql "$PGURL/$DB_SD" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null || { echo "   FAIL: data or intent not preserved"; exit 1; }
 DO $$ BEGIN
   IF (SELECT count(*) FROM public.leads WHERE first_name IN ('W1','F1')) <> 2 OR EXISTS (SELECT 1 FROM public.leads WHERE first_name = 'W2') THEN
@@ -303,14 +479,19 @@ END $$;
 SQL
 echo "   OK (reopen restores the exact ACL; the source resumes after lease expiry with no replay)"
 
-echo; echo "== 5. rollback + re-apply =="
+echo; echo "== 5. rollback + re-apply (push first, then the foundation) =="
 build "$DB_RB" "$MIG"
+psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH_ROLLBACK" >/dev/null 2>&1 || { echo "   FAIL: push rollback"; exit 1; }
+RB="$(psql "$PGURL/$DB_RB" -tAc "SELECT md5(pg_get_functiondef('private.google_sheets_finish(uuid,uuid,integer,bigint,text,jsonb)'::regprocedure)) || '|' || (SELECT count(*) FROM pg_proc WHERE proname LIKE 'google\_sheets\_%') || '|' || (SELECT count(*) FROM pg_class WHERE relname LIKE 'google\_sheets\_watch\_%' OR relname LIKE 'google\_sheets\_push\_%') || '|' || (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'google_sheets_sync_runs_trigger_check')")"
+[ "$RB" = "f1cf66bea7de1d469e2ff03c57f1a414|52|0|CHECK ((trigger = ANY (ARRAY['schedule'::text, 'manual'::text, 'activation'::text])))" ] || { echo "   FAIL: push rollback state: $RB"; exit 1; }
+echo "   OK (push rollback: exact finish preimage, 52 functions, no push relations, 3-value CHECK)"
 psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$ROLLBACK" >/dev/null 2>&1
 LEFT=$(psql "$PGURL/$DB_RB" -tAc "SELECT count(*) FROM pg_proc WHERE proname LIKE 'google\_sheets\_%'")
 TBL=$(psql "$PGURL/$DB_RB" -tAc "SELECT count(*) FROM pg_class WHERE relname LIKE 'google\_sheets\_%' AND relkind = 'r'")
 [ "$LEFT" = 0 ] && [ "$TBL" = 0 ] || { echo "   FAIL: objects remain ($LEFT functions, $TBL tables)"; exit 1; }
 psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1
-echo "   OK (objects removed, preimage restored, migration re-applies cleanly)"
+psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH" >/dev/null || { echo "   FAIL: push re-apply"; exit 1; }
+echo "   OK (objects removed, preimage restored, both migrations re-apply cleanly)"
 
 echo; echo "== 6. PostgREST role access =="
 if ! docker info >/dev/null 2>&1 || ! docker image inspect postgrest/postgrest:v12.2.3 >/dev/null 2>&1; then
@@ -346,5 +527,19 @@ docker run -d --rm --name "$PGRST_E2E" --network host \
 pgrst_ready "$PORT2"
 (cd "$ROOT" && "$DENO_BIN" run --allow-net=127.0.0.1 --allow-env --allow-read ${DENO_IMPORT_MAP:+--import-map="$DENO_IMPORT_MAP"} \
   scripts/google_sheets_e2e.ts "http://127.0.0.1:$PORT2" "$SECRET")
+
+echo; echo "== 8. end-to-end push harness (real receiver, processor, maintenance and api hooks via PostgREST; Google faked) =="
+build "$DB_PE2E" "$MIG"
+psql "$PGURL/$DB_PE2E" -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.organizations (id, name, status) VALUES ('a0000000-0000-0000-0000-0000000000f2', 'Push E2E Org', 'active');
+  INSERT INTO public.profiles (id, organization_id, role, status) VALUES ('f2000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000000f2', 'Agent', 'Active');
+  UPDATE private.google_sheets_push_config SET mode = 'on';"
+PORT3=$((PORT + 2))
+docker run -d --rm --name "$PGRST_PE2E" --network host \
+  -e PGRST_DB_URI="postgres://authenticator:authenticator@${HOSTPART}/${DB_PE2E}" \
+  -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon -e PGRST_JWT_SECRET="$SECRET" \
+  -e PGRST_SERVER_PORT="$PORT3" postgrest/postgrest:v12.2.3 >/dev/null
+pgrst_ready "$PORT3"
+(cd "$ROOT" && "$DENO_BIN" run --allow-net=127.0.0.1 --allow-env --allow-read ${DENO_IMPORT_MAP:+--import-map="$DENO_IMPORT_MAP"} \
+  scripts/google_sheets_push_e2e.ts "http://127.0.0.1:$PORT3" "$SECRET")
 
 echo; echo "ALL GOOGLE SHEETS CHECKS PASSED"

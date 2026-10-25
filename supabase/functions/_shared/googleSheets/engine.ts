@@ -1,9 +1,9 @@
-// One source run, shared by the scheduled worker and Sync now: token → one consistent read → header and
-// structural checks → plan → bounded atomic ingest batches → lease/version/generation-guarded finish.
+// One source run, shared by the scheduled worker, Sync now and push processing: token → one consistent read →
+// header and structural checks → plan → bounded atomic ingest batches → lease/version/generation-guarded finish.
 // The run's status is reported only when its finish COMPLETED; a released / not_owner / not_found / failed
 // finish makes the run "stale" while keeping the truthful counts of batches that already committed.
 import { LIMITS, type SheetsConfig } from "./config.ts";
-import type { ClaimedSource, FinishOutcome, SheetsDb } from "./db.ts";
+import type { ClaimedSource, FinishOutcome, IngestResult, SheetsDb } from "./db.ts";
 import { DbError } from "./db.ts";
 import { GoogleApiError, sanitizeError } from "./errors.ts";
 import { readTab } from "./google.ts";
@@ -12,10 +12,17 @@ import { buildLead, displayFields, fingerprint, resolveColumns, resolveCustomFie
 import { refreshAccessToken } from "./oauth.ts";
 
 type FetchFn = typeof fetch;
-export interface RunDeps { db: SheetsDb; cfg: SheetsConfig; fetchFn: FetchFn; now?: () => number }
+export interface RunDeps {
+  db: SheetsDb; cfg: SheetsConfig; fetchFn: FetchFn; now?: () => number;
+  /** Called after each committed ingest batch (push telemetry: first commit time). */
+  onIngest?: (res: IngestResult) => void;
+}
+export type RunTrigger = "schedule" | "manual" | "push";
 export interface RunOutcome {
   sourceId: string; status: "ok" | "needs_review" | "access_lost" | "error" | "backoff" | "reconnect" | "stale";
   imported: number; flagged: number; skipped: number; errors: number; backlog: boolean; reason?: string;
+  /** Candidates a permanent receipt already covered (duplicates prevented); not sent to finish. */
+  already: number;
   /** What google_sheets_finish did with this run's result ("failed" = the finish call itself failed). */
   finalized?: FinishOutcome | "failed";
 }
@@ -32,11 +39,11 @@ export async function planRows(rows: string[][], cols: ReturnType<typeof resolve
   }));
 }
 
-export async function runSource(deps: RunDeps, s: ClaimedSource, lease: string, trigger: "schedule" | "manual", budgetMs: number): Promise<RunOutcome> {
+export async function runSource(deps: RunDeps, s: ClaimedSource, lease: string, trigger: RunTrigger, budgetMs: number): Promise<RunOutcome> {
   const now = deps.now ?? Date.now;
   const started = now();
   const startedIso = new Date(started).toISOString();
-  const out: RunOutcome = { sourceId: s.source_id, status: "ok", imported: 0, flagged: 0, skipped: 0, errors: 0, backlog: false };
+  const out: RunOutcome = { sourceId: s.source_id, status: "ok", imported: 0, flagged: 0, skipped: 0, errors: 0, backlog: false, already: 0 };
   const counts = () => ({ imported: out.imported, flagged: out.flagged, skipped: out.skipped, errors: out.errors });
   /** Reports `status` only if the finish completed; otherwise the run is stale (committed counts are kept). */
   const settle = async (status: RunOutcome["status"], result: Record<string, unknown>, reason?: string): Promise<RunOutcome> => {
@@ -94,6 +101,8 @@ export async function runSource(deps: RunDeps, s: ClaimedSource, lease: string, 
       if (now() - started > budgetMs) break;
       const res = await deps.db.ingest(s, lease, batch.map((c) => ({ k: c.k, n: c.row.n, f: c.row.fp, lead: c.row.lead })), []);
       out.imported += res.imported; out.flagged += res.flagged; out.skipped += res.skipped; out.errors += res.errors;
+      out.already += (res.rows ?? []).filter((r) => r.o === "already").length;
+      deps.onIngest?.(res);
       processed += batch.length;
     }
     out.errors += plan.newErrors.length;

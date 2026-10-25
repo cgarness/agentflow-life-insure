@@ -380,4 +380,30 @@ describe("Review dialogs", () => {
     await waitFor(() => expect(msg).toHaveBeenCalledWith(expect.stringMatching(/Sync stopped because the sheet or its Google connection changed · 2 imported/)));
     expect(success).not.toHaveBeenCalled();
   });
+
+  it("source row: the real-time monitoring line follows the server's status; none when off, out of scope or disconnected", () => {
+    const conn = { status: "connected" as const, google_email: null, connected_at: null, last_error_code: null };
+    const healthy = { ...activeSource, health: "ok" as const, review_reason: null, last_success_at: new Date().toISOString() };
+    const rt = (state: "active" | "setting_up" | "interrupted", mode: "off" | "pilot" | "on" = "pilot") =>
+      ({ mode, sources: { [healthy.id]: { state, last_notification_at: null, last_processed_at: null, pending: false } } });
+    const row = (realtime: Parameters<typeof SheetSourceRowItem>[0]["realtime"], connection = conn as typeof conn | null) =>
+      render(<SheetSourceRowItem source={healthy} connection={connection} realtime={realtime} onEdit={vi.fn()} onReview={vi.fn()}
+        onIdentityReview={vi.fn()} onChanged={vi.fn()} />);
+    let r = row(rt("active"));
+    expect(screen.getByText("Real-time sync active")).toBeInTheDocument();
+    expect(screen.getByText(/Last successful sync .* ago/)).toBeInTheDocument();
+    r.unmount();
+    r = row(rt("setting_up"));
+    expect(screen.getByText("Setting up monitoring")).toBeInTheDocument();
+    r.unmount();
+    r = row(rt("interrupted"));
+    expect(screen.getByText("Monitoring interrupted")).toBeInTheDocument();
+    r.unmount();
+    for (const [realtime, connection] of [[rt("active", "off"), conn], [{ mode: "pilot" as const, sources: {} }, conn], [null, conn],
+      [rt("active"), { ...conn, status: "reconnect_required" as const }]] as const) {
+      r = row(realtime, connection as typeof conn);
+      expect(screen.queryByText(/Real-time sync active|Setting up monitoring|Monitoring interrupted/)).toBeNull();
+      r.unmount();
+    }
+  });
 });

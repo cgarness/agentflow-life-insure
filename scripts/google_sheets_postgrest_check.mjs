@@ -102,4 +102,37 @@ ok(r.status === 401 || r.status === 403, `authenticated PATCH refused → ${r.st
 r = await call(`/google_sheets_sync_runs?select=user_id`, { token: AUTHED, method: "GET" });
 ok(r.status === 200 && r.json.every((x) => x.user_id === A1), "own runs only");
 
+// 6. push sync wrappers (20261025120000): service_role only; private push tables never exposed
+const DIG = "0".repeat(64), CH = "gs1" + "A".repeat(40);
+const pushBodies = {
+  google_sheets_push_accept: { p_channel_id: CH, p_token_digest: DIG, p_resource_id: "R", p_state: "update", p_message_number: 1, p_changed: "", p_received_at: new Date().toISOString() },
+  google_sheets_push_claim: { p_lease: A1, p_target: null, p_lease_s: 60, p_worker: "receiver" },
+  google_sheets_push_claim_source: { p_target: A1, p_target_lease: A1, p_source: A1, p_lease: A1 },
+  google_sheets_push_complete: { p_target: A1, p_lease: A1, p_result: { outcome: "done" } },
+  google_sheets_push_kick: { p_user: A1, p_org: ORG, p_source: A1, p_reason: "save" },
+  google_sheets_watch_begin: { p_connection: A1, p_generation: 1, p_spreadsheet: "SPREADSHEET_CONCURRENT", p_channel_id: CH, p_token_digest: DIG, p_key_id: "abcd1234", p_reason: "activate" },
+  google_sheets_watch_result: { p_channel_row: A1, p_action: "stopped", p_resource_id: null, p_expiration: null, p_code: null },
+  google_sheets_watch_release: { p_user: A1, p_org: ORG, p_spreadsheet: null, p_force: false },
+  google_sheets_push_maintenance_claim: { p_lease: A1, p_limit: 5, p_key_id: "abcd1234" },
+  google_sheets_push_status: { p_user: A1, p_org: ORG },
+};
+for (const [fn, bodyFor] of Object.entries(pushBodies)) {
+  const a = await call(`/rpc/${fn}`, { token: AUTHED, body: bodyFor });
+  ok(a.status === 401 || a.status === 403, `authenticated ${fn} → ${a.status}`);
+  const n = await call(`/rpc/${fn}`, { body: bodyFor });
+  ok(n.status === 401 || n.status === 403, `anon ${fn} → ${n.status}`);
+}
+r = await call("/rpc/google_sheets_push_accept", { token: SERVICE, body: pushBodies.google_sheets_push_accept });
+ok(r.status === 200 && r.json?.[0]?.outcome === "unknown_channel" && r.json[0].process === false, `service_role push_accept → ${r.status} ${JSON.stringify(r.json)}`);
+r = await call("/rpc/google_sheets_push_status", { token: SERVICE, body: pushBodies.google_sheets_push_status });
+ok(r.status === 200 && r.json?.mode === "off" && JSON.stringify(r.json.sources) === "{}", `service_role push_status → ${r.status} ${JSON.stringify(r.json)}`);
+r = await call("/rpc/google_sheets_push_maintenance_claim", { token: SERVICE, body: pushBodies.google_sheets_push_maintenance_claim });
+ok(r.status === 200 && r.json?.mode === "off" && Array.isArray(r.json.items), `service_role maintenance_claim → ${r.status}`);
+for (const t of ["google_sheets_watch_targets", "google_sheets_watch_channels", "google_sheets_push_events", "google_sheets_push_attempts", "google_sheets_push_config"]) {
+  r = await call(`/${t}`, { token: SERVICE, method: "GET" });
+  ok(r.status === 404, `private ${t} not exposed → ${r.status}`);
+}
+r = await call("/rpc/google_sheets_push_maintenance_due", { token: SERVICE, body: {} });
+ok(r.status === 404, `cron guard is not an HTTP endpoint → ${r.status}`);
+
 console.log(`   OK (${checks} PostgREST checks)`);

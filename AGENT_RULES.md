@@ -1169,7 +1169,7 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 - Leases are never proof of termination. A failed drain is reported as **BLOCKED**.
 - Shutdown never deletes leads, receipts, baselines or source intent.
 
-**Function inventory:** 31 private helpers + 21 public wrappers = 52. T1 in `supabase/tests/google_sheets_import.sql` pins the count and the ACL; update both together.
+**Function inventory:** 31 private helpers + 21 public wrappers = 52 from the foundation; the real-time sync migration (below) adds 13 + 10, so **75 = 44 private + 31 public** once it is applied. T1 in `supabase/tests/google_sheets_import.sql` pins the count and the ACL; update both together.
 
 **Verification:** `.github/workflows/google-sheets.yml` (SQL/PostgREST/regressions/concurrency/shutdown/end-to-end Review, real pg_cron in `supabase/postgres` with `--network none`, Deno, frontend, browser). The regression evidence is `scripts/google_sheets_regression_evidence.sh <reviewed-sha>`. A mocked Picker test is never the real Google-account test.
 
@@ -1182,3 +1182,83 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 - the shutdown ops files are NOT RUN.
 
 The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
+
+### Google Sheets real-time sync (Drive push) — built 2026-10-25 on `claude/modest-knuth-y5cqor`; Gate D release package PREPARED (not executed); migration `20261025120000` NOT applied, functions NOT deployed, no secret set, no watch registered
+
+A new row reaches AgentFlow through a Google Drive `files.watch` notification, never through spreadsheet polling. Plan and decisions D1–D11: `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
+
+**No polling**
+- Spreadsheet content is read only after a notification, Sync now, or an event-driven catch-up (Enable, Resume, save, Review apply, reconnect, monitoring recovery).
+- The once-a-minute `google-sheets-push-maintenance` cron only registers, renews and stops channels and recovers failed jobs. Its `cron.schedule` command fires only when `private.google_sheets_push_maintenance_due()` says there is maintenance work.
+- Keep `pending/20261013120100_google_sheets_sync_schedule.sql` (the 5-minute poll) unapplied. Never replace push with a frequent schedule.
+- Never promise instant or guaranteed detection: Google batches Sheets notifications (reported ~3 min) and can drop them.
+
+**Receiver (`google-sheets-push`, `verify_jwt=false`)**
+- The channel id is `gs1` + 18 random bytes + a 16-char HMAC tag under `GOOGLE_SHEETS_PUSH_KEY`. A bad tag → 404 with **no database call**.
+- The channel token is random. Only its SHA-256 digest is stored, compared in constant time (`private.google_sheets_ct_equal` in SQL, `timingSafeEqual` in Edge).
+- `push_accept` checks the token and any known resource id on an **unlocked** read, then the channel lifecycle, the live target and the connection's current status, generation and owner. Only then does it durably queue the target.
+  - It answers 200 only after commit.
+  - A database error → 503, so Google retries.
+  - Unknown → 404; rejected → 401.
+- **Bounded cost (Gate C):**
+  - A rejected request takes no lock and records at most **one row per channel per minute** (`last_rejected_at`, `FOR UPDATE SKIP LOCKED`).
+  - A redelivery of a recorded message writes **nothing** and never locks the target.
+  - `(channel_row_id, message_number)` is a **UNIQUE** index for authenticated rows.
+  - Unauthenticated rows never take part in de-duplication.
+  - Never reintroduce lock-before-authenticate or a row per replay. Runner 4i and its negative control pin this.
+- **Which channels may trigger work:**
+  - **live:** `registering` ≤ 5 min; Google-confirmed `active`/`stopping` and unexpired;
+  - **or within the bounded late-delivery grace:** Google-confirmed (`activated_at`), `active`/`stopping`/`stopped`, and `now < LEAST(expires_at, stopped_at) + late_grace_s` (default 3600 s), recorded as `reason='late_delivery'`.
+
+  `failed`, `abandoned`, never-confirmed channels, and anything past its grace **never** trigger work. The grace never relaxes token, resource, target, ownership or generation checks.
+- Never log tokens, headers or lead data. Log only `outcome / state / target / ms`.
+
+**Scope and kill switches (server-side, D7)**
+- `private.google_sheets_push_config.mode` (`off` | `pilot` | `on`, default `off`) plus `private.google_sheets_push_pilot_sources` decide which sources may be watched, kicked or claimed — inside SQL, not in env or UI.
+- Mode `off` refuses every claim, kick and registration.
+- `GOOGLE_SHEETS_PUSH_ENABLED` is the Edge kill switch.
+- Rollback levels:
+  - `supabase/ops/google_sheets_push_stop_all.sql`: mode off, then stop every channel;
+  - `google_sheets_push_unschedule.sql`;
+  - the foundation admission gate. Its pattern loop covers the push wrappers; while it is closed the receiver answers 503 and the Disconnect hook only logs.
+
+**No lost work**
+- Each target carries `requested_seq` / `processed_seq`. A claim snapshots `requested_seq`.
+- Only a `done` completion advances `processed_seq`, and only to the snapshot. A notification during a run leaves the target due again (`dirty`).
+- `push_complete` verifies `done` **in SQL**: every eligible source must have `health='ok'` and `last_success_at >= attempt start`, with no `last_result.backlog`. Otherwise the result is `retry`, `backlog`, `blocked` or `deferred`, never processed.
+  - Backoff: 30 s → 1 h ±20%.
+  - Never mark a target processed from Edge's word alone.
+- Leases:
+  - target lease 300 s;
+  - source lease 3 min, shared with Sync now through `push_claim_source`;
+  - global cap `max_concurrent_jobs` (4) under an advisory lock.
+- **Lock order:** channels of a target (by id) → target → source → connection. `watch_result`, `watch_release` and `push_complete` follow it, and the runner's 4h deadlock test and its negative control pin it.
+- The importer is still `runSource` with trigger `push`. Receipts, identity checks, duplicate rules and `google_sheets_finish` semantics are unchanged. `finish` only learned `'push'` and records `backlog`.
+
+**Watches**
+- One channel per connection × spreadsheet. Its expiry is at most 24 h, and it is renewed `renew_before_s` (3 h) early, with overlapping channels.
+- **Renewal overlap (Gate C):**
+  - A superseded channel (same generation and key) becomes `stopping` (`superseded`). It is stopped by maintenance only after `renew_overlap_s` (default **900 s**), never immediately, so Google's pending notifications on it still arrive.
+  - A renewal is seamless (no catch-up) only if another channel is `active` at the same generation and key and valid for the whole overlap. Otherwise the activation queues a catch-up.
+  - A `stopping` channel is **never** coverage, for this rule or for the Settings status.
+- Old channels are stopped with `channels.stop`. A failed stop is retried; a channel whose resource id is unknown is `abandoned` (it expires on its own).
+- **What Google cannot guarantee** (plan §18.3): delivery, delay, row content, loss detection (message numbers have gaps), a stop signal, pending notifications after stop or expiry, unlimited retries, or notifications for API-written rows. A notification Google never sends is undetectable. That row imports at the next notification, event-driven catch-up or Sync now. There is never periodic polling.
+- Retention is part of the cron guard: rows past 14 d (events) or 30 d (attempts) make maintenance run. That is housekeeping only.
+- Disconnect releases with `force` before revoking the generation. Pause and remove release that spreadsheet's watch only when no other enabled source uses it.
+- The scope stays `drive.file`.
+
+**Status (`status` action):** `realtime: { mode, sources }`, read through the service role (D5). The private push tables are never exposed to clients. The UI shows "Real-time sync active / Setting up monitoring / Monitoring interrupted" and "Last successful sync …".
+
+**Testing gotcha:** psql's lexer treats an identifier named `begin` inside `CREATE FUNCTION` as the start of a `BEGIN ATOMIC` body and batches the rest of the file into one statement. Never name a test helper `begin`.
+
+**Release:** each gate needs its own approval.
+- Gate C: review.
+- Gate D: run only through the protected runner `.github/workflows/google-sheets-push-release.yml`, one separately approved stage at a time.
+  - Order: `check` → `apply-migration` → `record-history` → `deploy-functions` → `configure-secrets`; each has a rollback stage.
+  - No re-stamp is needed while the hosted head is `20261024045812`.
+  - Push mode stays `off`, `GOOGLE_SHEETS_PUSH_ENABLED` stays absent, and there is no schedule or watch.
+  - Merge PR #491 with a merge commit.
+  - Package and fingerprints: `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md`.
+- Gate E: Pilot B via the ChatGPT Google Drive integration for API writes, plus manual rows. Measure row → notification → lead.
+- Gate F: latency report, go/no-go.
+- Gate G: rollout, only after the separate privacy/Terms release (`src/content/legal.ts` still says "about every five minutes").

@@ -50,7 +50,7 @@ export const sheetsDb = (db: RpcClient) => ({
       p_source: s.source_id, p_lease: lease, p_version: s.config_version, p_generation: s.auth_generation, p_rows: rows, p_pending: pending,
     }),
   /** Bound to the claimed lease, configuration version AND connection generation (re-validated in SQL). */
-  finish: (s: ClaimedSource, lease: string, trigger: "schedule" | "manual" | "activation", result: Record<string, unknown>) =>
+  finish: (s: ClaimedSource, lease: string, trigger: "schedule" | "manual" | "activation" | "push", result: Record<string, unknown>) =>
     call<FinishOutcome>(db, "google_sheets_finish", {
       p_source: s.source_id, p_lease: lease, p_version: s.config_version, p_generation: s.auth_generation,
       p_trigger: trigger, p_result: result,

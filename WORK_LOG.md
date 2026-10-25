@@ -1,3 +1,301 @@
+## 2026-10-25 — Google Sheets real-time sync: Gate D RELEASE PACKAGE prepared (PR #491; NOT merged, applied, deployed or configured)
+
+**Read first.** AGENT_RULES, VISION, the newest WORK_LOG entries.
+- No conflict was found.
+- `main` is unchanged at `27c8d0d`.
+- PR #491 was at `24fa809`, the Gate C head, with 17/17 checks green.
+
+**Production reads** (connector, read-only):
+- the preflight returned every `*_ok` true;
+- head `20261024045812` / 346 rows;
+- the Sheets preimage equals the tested local preimage;
+- Pilot B is intact;
+- no Sheets cron;
+- the live API v6 is byte-identical to `main`;
+- advisors 246 / 459 captured;
+- the platform logs no `x_goog_*` header.
+
+No write, deploy, secret, schedule, watch or lead.
+
+**Shipped (tooling and docs only; release content = `24fa809`, no migration, function or `src/` change).**
+- **`.github/workflows/google-sheets-push-release.yml`.** A protected, dispatch-only, `main`-only runner in
+  environment `google-sheets-production`, pinned to source `24fa809` (rollback source `27c8d0d`).
+  - **Stages:** `check`, `apply-migration` (psql single transaction, `lock_timeout` 5 s, watchdog), `record-history`
+    (`supabase migration repair`, 57 statements, exact hash), `deploy-functions` (3 bundles, `--no-verify-jwt`),
+    `configure-secrets` (generated, masked, Vault verified by hash).
+  - **Rollbacks:** `rollback-secrets`, `rollback-functions`, `rollback-migration`.
+  - **Every stage checks:** push mode `off`, kill switch absent, no Sheets cron, empty push tables, Pilot B data
+    unchanged.
+- **`.github/workflows/google-sheets-push-release-check.yml`** plus
+  **`scripts/tests/google_sheets_push_release_runner.py`.** Synthetic verification against PostgreSQL 17.6 and the
+  real CLI 2.121.0:
+  - order and state refusals;
+  - real apply, record, replay refusal, lock and watchdog rollbacks;
+  - deploy, configure and rollback paths, exact preimage restoration;
+  - `http_checks`;
+  - redaction, TLS, read-only sessions.
+- **`supabase/ops/google_sheets_push_release_preflight.sql`** and **`…_verify.sql`**: read-only checks before and
+  after each stage.
+- **Docs:**
+  - `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md` (the 14 deliverables);
+  - focused plan §19;
+  - `verification.md` §9;
+  - AGENT_RULES;
+  - root `implementation_plan.md`.
+
+**Fingerprints.**
+- Migration `20261025120000_google_sheets_push_sync.sql`: 80,739 B, `2774557acaf98db80fc169f6ed502003d8533ea13a08ebeefdf18657aefa609d`.
+- Rollback: 9,467 B, `1bc98450…cce94`.
+- Bundles:
+  - `google-sheets-push` `ba1e374b…b239`;
+  - `google-sheets-push-maintenance` `f206df48…2c06`;
+  - `google-sheets-api` `1416a03d…7605`.
+
+**Verification** (`verification.md` §9):
+- `run_google_sheets_tests.sh` ALL PASSED on PostgreSQL 17.6 (74 s) and 16.15 (69 s): PostgREST 62, Review e2e 40,
+  push e2e 43.
+- Cron check ALL PASSED (0 requests).
+- Runner test ALL PASSED.
+- Deno 112 passed; `deno check` exit 0.
+- `tsc` exit 0; strict new 0.
+- Vitest 99 passed.
+- ESLint (both sets) exit 0.
+- Build OK; `git diff --check` clean.
+- No polling.
+
+**Next.** Chris's separate approvals: A (merge with a merge commit; "Deploy to production" OFF confirmed first), then
+B, C and D (runner stages, with connector verification after each). Gate E is not requested.
+
+---
+
+## 2026-10-25 — Google Sheets real-time sync: Gate C HARDENING implemented (approved; draft PR #491; NOT merged, applied or deployed)
+
+**Approval.** Chris approved "APPROVED — PR #491 GATE C HARDENING" on the plan at `509fa62`, with these conditions:
+- edit the unapplied migration in place;
+- a 900 s overlap;
+- bounded rejection logging, database uniqueness, replay protection and automatic retention;
+- renewal and interruption catch-ups;
+- a **security adjustment:** late deliveries are accepted only within a bounded grace, and only for channels Google
+  confirmed.
+
+**Read first.** AGENT_RULES, VISION, the newest WORK_LOG entries. The plan was updated with the files listed before any
+edit (`b0d4e18`).
+
+**Findings.**
+1. Rejected requests locked the channel row *before* authentication and wrote one row each. Redeliveries locked the
+   target and wrote a row each. The dedupe index was not unique. Retention ran only when maintenance had other work.
+2. A renewal stopped the old channel immediately, so a change notified late on it (Google batches about 3 min), or a
+   retry after a `503`, could be dropped. That is an *undetected* gap on a quiet sheet. A `stopping` channel also
+   counted as coverage, which suppressed catch-ups and showed "active".
+
+**Changes.** All edits are inside `20261025120000` except where noted. The function inventory is still 75. There
+are no Edge, frontend or CI workflow changes.
+- **`push_accept`:**
+  - authentication on an unlocked read;
+  - at most one rejected row per channel per minute (`last_rejected_at`, `SKIP LOCKED`);
+  - redeliveries write nothing and never lock the target;
+  - a UNIQUE `(channel_row_id, message_number)` index for authenticated rows;
+  - acceptance limited to live channels, or Google-confirmed channels within `late_grace_s` (3600 s) of expiry or
+    stop, recorded as `late_delivery`. Failed, abandoned, never-confirmed and past-grace channels never trigger work.
+    Token, resource, target, owner and generation are always checked.
+- **`watch_result`:**
+  - superseded channels stay `stopping` (`superseded`) for `renew_overlap_s` (900 s), then maintenance stops them;
+  - a renewal is seamless only with an `active` same-generation, same-key channel valid for the whole overlap;
+    otherwise it triggers a catch-up.
+- **`push_status`:** only `active` channels count.
+- **`push_maintenance_due`:** also true while rows are past retention (housekeeping only).
+- **`google_sheets_push_stop_all.sql`:** ends running overlaps. **Metrics:** comment only.
+
+**Verification** (`verification.md` §8):
+- Full runner ALL PASSED on PostgreSQL 17.6 (76 s) and 16.15 (75 s):
+  - P1–P14 updated, plus new **P15** and **P16a–d**;
+  - new **4i** `20|1|0|0|1`; its negative control reproduced 2 lock timeouts;
+  - 4e–4h and every other stage unchanged;
+  - push e2e **43** checks, including the new renewal scenario 10b.
+- Real pg_cron check ALL PASSED (231 s; 0 requests in 70 s when nothing is due).
+- Deno: 112 passed; `deno check` on 6 entry points plus the push e2e.
+- ESLint (Google Sheets set and the exact Reports command): 0.
+- `tsc` 0; strict tsc: 0 new.
+- Vitest: 99 passed. Build OK.
+- Browser harness: 68/68.
+
+**Outstanding risks.**
+- **Residual:** a notification Google holds longer than the 900 s overlap and then drops, or delivers more than
+  3600 s late. Both values are configurable; Gate E/F measures them.
+- **Undetectable:** a notification Google never sends. The row imports at the next notification, catch-up or Sync now.
+- **R1–R7 are unchanged:**
+  - R1: domain verification;
+  - R2: Sheets coalescing;
+  - R3: API-write notifications;
+  - R4: quota;
+  - R5: Testing-mode tokens;
+  - R6: CPU;
+  - R7: logs.
+
+**Next.** Fresh CI on the new head, then Chris's final Gate C review. Gate D needs its own approval.
+
+---
+
+## 2026-10-25 — BUGFIX: PR #491 Gate C CI, "Reports frontend verification" ESLint failure (approved; draft PR; NOT merged, NOT deployed)
+
+**Failure.** Run `40159414089`, job `121067626959`, on `be0ceed`. `scripts/verify_reports_frontend.py` lints every
+`.ts`/`.tsx` file changed since the PR base, and ESLint exited 1. Everything else in that job passed or matched the
+base: build 0, Reports Vitest 0, and app tsc and Vitest no worse than base. The other 17 checks passed; Supabase
+Preview was cancelled.
+
+**Evidence.**
+- The uploaded artifact could not be downloaded here, because this container's network policy refuses
+  `productionresultssa7.blob.core.windows.net`.
+- The script's exact ESLint command was reproduced locally on the same lockfile. It reported one error:
+  `scripts/google_sheets_push_e2e.ts:120:5 prefer-const` (`let l` is never reassigned).
+- The error is in a new file from this PR, not existing code. The Google Sheets workflow's ESLint list did not include
+  `.ts` scripts, and my Gate B lint used that list.
+
+**Fix (approved: "APPROVED — PR #491 ESLINT CORRECTION").**
+- `scripts/google_sheets_push_e2e.ts:120`: `let l` → `const l`. Test behavior is unchanged.
+- `.github/workflows/google-sheets.yml`: the ESLint step also lints `scripts/google_sheets_e2e.ts` and
+  `scripts/google_sheets_push_e2e.ts`.
+- Unchanged: lint rules, tests, Reports code, migrations, Edge Functions, sync architecture and production.
+
+**Verification (local).**
+- Exact Reports ESLint over the 29 changed `.ts`/`.tsx` files vs `27c8d0d`: exit 0.
+- Google Sheets CI ESLint set, including both e2e scripts: exit 0.
+- Negative control: the old line fails the new step with exit 1.
+- `npx tsc --noEmit`: exit 0. `npm run build`: built. `deno check scripts/google_sheets_push_e2e.ts`: exit 0.
+- `run_google_sheets_tests.sh` on PostgreSQL 17.6: ALL GOOGLE SHEETS CHECKS PASSED (70 s).
+  - Every negative control reproduced its bug.
+  - PostgREST 62, Review e2e 40, push e2e 37.
+
+**Next.** Fresh CI on the new head, then Chris's independent Gate C review. No merge or deploy.
+
+---
+
+## 2026-10-25 — Google Sheets real-time sync: Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled)
+
+**Approval.** Chris approved Gate A ("#APPROVE_PLAN", plan at `540e333`) with decisions D1–D11 and build
+requirements 1–10. The build was authorized on this branch with a draft PR, stopping at Gate C. Still forbidden
+without separate approval:
+- merge;
+- production migrations, Edge deploys and secrets;
+- live Google watches and monitoring activation;
+- RLS or data changes;
+- synthetic production leads.
+
+**Read first.** AGENT_RULES (§1–§11, invariants #2, #25, #28, #37, and the Google Sheets invariant), VISION, the
+newest WORK_LOG entries, and the plan.
+
+**Built.** File list in plan §17.6.
+- **Migration `20261025120000_google_sheets_push_sync.sql`.** The version is provisional and is re-stamped at Gate D.
+  - Private tables, all with RLS on and no policies: push config (mode `off`), pilot allowlist, watch targets,
+    channels, events, attempts.
+  - 13 private helpers and 10 service-role-only wrappers (75 Sheets functions in all).
+  - `finish` accepts trigger `push` and records `backlog`. A preimage guard pins the live md5 `f1cf66be…`.
+  - An exact rollback.
+- **Pending (not applied):** `pending/20261025120100_google_sheets_push_maintenance_schedule.sql`, a guarded
+  once-a-minute maintenance job. The 5-minute poll schedule is unchanged and unapplied.
+- **Edge.**
+  - `google-sheets-push`, the receiver. HMAC-tagged channel id; a bad tag → 404 with no DB call. Digest-only token,
+    compared in constant time. It answers 200 only after commit; a DB error → 503.
+  - `google-sheets-push-maintenance`, with a constant-time bearer.
+  - `_shared/googleSheets/push/*`.
+  - API hooks: activate, resume, save, Review apply, pause/remove release, Disconnect release, `status.realtime`.
+  - Engine: the `push` trigger, an `already` count and an `onIngest` hook.
+  - Both new functions use `verify_jwt=false` in `config.toml` (D4).
+- **Frontend.** The monitoring line (Real-time sync active / Setting up monitoring / Monitoring interrupted) and
+  "Last successful sync …". Tailwind only; no new form.
+- **Ops**, NOT RUN:
+  - pilot enable (Pilot B allowlist), stop-all and unschedule;
+  - read-only metrics and pilot-evidence queries;
+  - push columns 16–21 appended to the drain check.
+- **CI.** `.github/workflows/google-sheets.yml` covers the new migration paths and the two new entry points.
+
+**Key invariants** (AGENT_RULES "Google Sheets real-time sync"):
+- no polling;
+- a maintenance-only cron;
+- server-side scope (mode plus allowlist) and an Edge kill switch;
+- `requested_seq`/`processed_seq`, with `done` verified in SQL;
+- lock order: channels → target → source → connection;
+- psql's lexer chokes on a `begin` identifier.
+
+**Verification** (`docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`):
+- Full runner on PG 17.6 and 16.15: ALL PASSED.
+  - T1–T18 and P1–P14.
+  - Regressions.
+  - Concurrency 3/4/4b/4c plus the new 4e/4f/4g/4h, each with a negative control that reproduces the bug.
+  - The 80-notification burst.
+  - Shutdown.
+  - Rollback and re-apply.
+  - PostgREST: 62 checks.
+  - Review e2e: 40 checks.
+  - Push e2e: 37 checks across 12 scenarios.
+- Real pg_cron/pg_net check: ALL PASSED. With nothing due, the job makes 0 requests in 70 s.
+- Deno: 112 passed; `deno check` passed on all six entry points.
+- `tsc` exit 0; strict app tsc: 0 new errors vs base.
+- Focused Vitest: 99 passed. ESLint clean. Build OK.
+- Browser harness: 68 PASS at 1440 and 390 px.
+
+**Not done.**
+- No production read or write during the build.
+- `src/content/legal.ts` is unchanged. Draft copy is in `privacy-terms-draft.md`: required before Gate G, not before
+  the Gate E pilot.
+
+**Open risks.**
+- R1: domain verification for the Supabase Functions URL.
+- R2: Google coalesces Sheets notifications (reported ~3 min).
+- R3: API-written rows may not notify.
+- R4: quota.
+- R5: refresh-token lifetime while the OAuth app is in Testing mode.
+- R6: Edge CPU on large tabs.
+- R7: platform logs.
+
+**Next.** Gate C: Chris reviews the draft PR and CI. Then Gate D: re-stamp the version, apply, deploy with mode `off`
+and set secrets. Gate D needs its own approval.
+
+---
+
+## 2026-10-25 — Google Sheets real-time sync: Phase 0 review and plan (PLAN ONLY; awaiting Gate A)
+
+**Request.** Chris asked for a push-first Google Sheets integration: a new valid row becomes a lead from Google
+Drive change notifications, with no recurring polling. Phase 0 (review and plan) comes first, then a stop for
+approval.
+
+**Read.**
+- AGENT_RULES (§1–§11 and the Google Sheets invariant), VISION, and the newest WORK_LOG and root plan entries.
+- The Sheets engine, functions, foundation migration, tests and CI.
+- Open PRs: no conflicting work. #480 and #481 are docs-only.
+
+**Production (read-only, about 01:30 UTC).**
+- History is 346 rows, head `20261024045812`.
+- The four Sheets functions are ACTIVE (API version 6, `verify_jwt=false`) and were last deployed 2026-10-22 16:17
+  UTC. The live `google-sheets-sync-worker` and `google-sheets-api` bundles are byte-identical to the repo.
+- 31 private + 21 public Sheets functions. No Sheets cron. No worker token.
+- Extensions: `pg_cron`, `pg_net` and Vault installed; `pgmq` available but not installed. Postgres 17.6.
+- **Not previously recorded here:** on 2026-10-24 a Google connection was made in the home org (16:54 UTC), and
+  "AgentFlow Sheets Pilot B – Leads" was enabled (row-position mode, include existing). Two **manual** syncs then
+  imported 3 leads, each with the correct org and owner (3 receipts, 3 `done` ledger rows). So the backend flag is
+  on; this is inferred, because secrets are not readable.
+
+**Google research.**
+- The official Drive v3 discovery document confirms that `files.watch` and `channels.stop` accept `drive.file`.
+- Snippets of the push guide confirm:
+  - the `sync` message may arrive before the watch response;
+  - message numbers are not sequential;
+  - there is no automatic renewal.
+- A 2020 report (google-api-go-client#444) says Sheets notifications are coalesced to about every 3 minutes.
+- Whether API-written rows trigger notifications is **not verifiable from this container** (Gate E).
+
+**Changes.** Documentation only:
+- `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md` (new);
+- root `implementation_plan.md` entry;
+- this entry.
+
+No application code, migration, deployment, secret, flag or Google change.
+
+**Next.** Chris answers D1–D11 and approves Gate A. Then the build runs on this branch and stops at the draft-PR
+gate.
+
+---
+
 ## 2026-10-24 — Hierarchy Stabilization: GATE 2c COMPLETE (M3 recorded history-only as `20261024045812`, run `40115718668`); PR 2 release record BUILT (for review; NOT merged)
 
 **Approvals.**
