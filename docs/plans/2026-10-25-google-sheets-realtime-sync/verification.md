@@ -299,3 +299,70 @@ No write, deploy, secret, schedule or watch.
   (`https://deno.land/std@0.190.0/testing/asserts.ts`) was mapped to `jsr:@std/assert@1.0.13` with `--import-map`
   and `--no-lock`.
 - CI resolves the original import.
+
+## 10. Approval D runner fix (2026-10-25; after run 40234513215; nothing executed)
+
+Runner and tests only. `git diff 0e5b957 HEAD -- supabase src` is empty, and the release content `24fa809` is
+unchanged. Local runs used Docker `postgres:17.6`, Supabase CLI 2.121.0 (`@supabase/cli-linux-x64`), psql 16.15 and
+Deno 2.5.6.
+
+| Check (this head) | Result |
+|---|---|
+| `google_sheets_push_release_runner.py` (PostgreSQL 17.6, CLI 2.121.0) | **ALL PUSH RELEASE RUNNER CHECKS PASSED** (41 s); 4 of 4 runs (different hash seeds) |
+| Workflow YAML and embedded program | `yaml.safe_load`, `ast.parse` and `py_compile` OK; nine dispatchable stages |
+| `run_google_sheets_tests.sh`, PostgreSQL 17.6 | **ALL GOOGLE SHEETS CHECKS PASSED**: PostgREST 62, Review e2e 40, push e2e 43 |
+| Focused Vitest | 6 files, **99 passed** |
+| `npx tsc --noEmit` | exit 0 |
+| ESLint (Google Sheets CI set) | exit 0. The Reports command lints changed `src/` files; there are none. |
+| `npm run build` | built |
+| `git diff --check` | clean |
+
+**What the runner test now covers.**
+- **Stage machine** (all mutators patched, so a refusal calls none and an accepted stage calls exactly its one
+  mutator):
+  - 24 migration-order refusals;
+  - 67 out-of-order refusals;
+  - 8 inconsistent-state refusals: kill switch, half-deployed functions, secrets or Vault before deployment;
+    `recover-secrets` with the kill switch present;
+  - `check` passes `deployed` and `configured`, and repeats identically;
+  - `check` names each of the 6 partial shapes (`STATE: partial (…)`) and stops after every read-back;
+  - `configure-secrets` only from `deployed`; `recover-secrets` only from `partial`; `rollback-secrets` from
+    `configured` or `partial`.
+- **`management()`** is the real function over a fake opener. 29 outcomes each map to their exact sanitized label:
+  - 201 and 200;
+  - 202/204 → `unexpected success status; write outcome unknown`;
+  - DELETE 200/204/202;
+  - GET 200, a GET HTML body, a GET 204 and a GET 403;
+  - 400, 422, 401, 403 (json, html, DELETE), 404, 409, 429, 500, 503, 418 and 302;
+  - `TimeoutError`, `URLError(timeout)`, `URLError`, `ConnectionResetError`, `RemoteDisconnected`.
+
+  A sentinel placed in every body, reason, URL and exception never reaches the log or the error. The `User-Agent`
+  and the 30 s timeout are asserted. A non-list inventory is refused.
+- **Redirect guard** against a real loopback server: `NoRedirect` refuses a 302 on POST. Negative control: default
+  urllib replays it as a GET and reports 200.
+- **Real synthetic database and real Vault stand-in:**
+  - 10 `configure-secrets` failures (403 json/html, 400, 401, 409, 429, 500, timeout, network, 202) each print the
+    label and `SECRETS AFTER FAILURE: … =absent … vault=absent`, write no Vault row, and pass `operations_gate`;
+  - an unreadable read-back prints `unknown`;
+  - success: two 64-char values, 2 masks, never printed, Vault hash equal to the token;
+  - `rollback-secrets`: from `configured`; from one secret plus Vault (deletes only that name); from Vault alone (no
+    API call); a refused DELETE leaves the set intact and reports it;
+  - a write that stored one secret and then failed reads back as `partial`;
+  - `recover-secrets` replaces every copy: from KEY only, and from TOKEN only with a stale Vault row;
+  - inside recovery, three failures each leave `partial` with Vault absent, never three mismatched names: a Vault
+    failure after the Edge write, a silent no-op 201 (digest unchanged), and a refused write with a stale Vault row;
+  - recover, then rollback, repeat cleanly;
+  - every write carries only the two push names, never the kill switch;
+  - a value appears in psql stdin only as a `\bind` argument.
+- **Negative controls**, each a separate mutated copy of the runner; all fail the suite:
+  - leaking the HTTP reason → `server or network text reached the log`;
+  - a literal token in SQL → `a value in SQL statement text`;
+  - following redirects → `management() must refuse redirects`;
+  - no failure read-back;
+  - writing Vault before the Edge check;
+  - classifying both Edge names without Vault as `configured`.
+
+**Not verified here.** These need production:
+- a real Management API response;
+- whether the platform digest is SHA-256 of the value (the runner prints an `INFO` line and never gates on it);
+- the scoped token's permissions.

@@ -1,3 +1,93 @@
+## 2026-10-25 — BUGFIX: Approval D `configure-secrets` failure — runner fix (approved plan `a569dbe`; draft PR; NOT merged; nothing executed)
+
+**Release record so far (all on `main` `0e5b957`, protected `google-sheets-production` runner).**
+- **A:** PR #491 merged as `0e5b957`.
+- **B:** `check` 40233075500, `apply-migration` 40233249217, `record-history` 40233582885.
+  - Migration `20261025120000` is applied and recorded: 347 rows, 75 Sheets functions `6e8c4365…`.
+- **C:** `deploy-functions` 40234132795.
+  - Deployed: `google-sheets-push` v1, `google-sheets-push-maintenance` v1, `google-sheets-api` v7.
+  - Probes: 405 / 503 `not_configured` / 403 / 401.
+- **D:** `configure-secrets` 40234513215 **failed**.
+  - It stopped about 129 ms after `PASS: generated 64-char secrets`, inside the Management API
+    `POST /v1/projects/{ref}/secrets`. No 2xx was received, and the old catch-all discarded the HTTP status.
+
+**Production after the failure** (connector, read-only, 21:25 UTC; names, counts and digests only):
+- Vault `google_sheets_push_maintenance_token` is **absent**. The pooler logs show that no session opened after the
+  POST.
+- The Edge push secret names can't be read from the connector. They were absent at 21:15:08 and are expected absent,
+  but this is **unproven**.
+- Mode `off`. 0 targets, channels, events, attempts and Sheets cron jobs.
+- Pilot B fingerprint `1|1|3|3|3|2|98aae474…` (unchanged).
+- Log check `0|0`. No `create_secret` in `postgres_logs`.
+- Nothing has been retried.
+
+**Root cause.**
+- **Confirmed:** the runner made the failure undiagnosable. It also had a latent redirect bug: a POST could be
+  replayed as a GET and reported as success.
+- **Probable:** HTTP 403. The environment token lacks **Edge Function Secrets: Read-write** (Supabase scoped PATs
+  separate it from Read and from Edge Functions Read-write).
+  - It was the token's first secrets write: Chris entered the B1 secrets by hand, and listing and deploying had
+    worked.
+- **Ruled out:**
+  - the request shape (official reference and CLI v2.121.0);
+  - success misread as failure;
+  - a timeout;
+  - a name conflict.
+
+**Fix** (runner and its tests only; release content `24fa809`, migrations, functions and `src/` unchanged):
+- `.github/workflows/google-sheets-push-release.yml`:
+  - **`management()`:**
+    - no-redirect opener and an explicit `User-Agent`;
+    - per-method success codes (POST 201/200, DELETE 200/204, GET 200);
+    - every failure becomes a sanitized `Stop`: category, HTTP status and content kind, never a body, reason, URL,
+      header or exception text;
+    - a 403 on a secrets write says the token needs Edge Function Secrets Read-write.
+  - **`command()`:** a timeout becomes a `Stop`.
+  - **Credential-set states:** `deployed`, `configured` and `partial` replace the two hard STOPs. `check` prints
+    `STATE: partial (names…)` and stops.
+  - **New `recover-secrets` stage** (only from `partial`): replaces all three copies in one run.
+  - **`rollback-secrets`:** now allowed from `partial`, and deletes only what exists.
+  - **`configure()` write order:**
+    1. delete any stale Vault copy;
+    2. POST;
+    3. read back and require each pre-existing name's digest to change;
+    4. write Vault as a psql `\bind` parameter.
+
+    Every failure reads back `SECRETS AFTER FAILURE` (names only) and leaves `partial`.
+- `scripts/tests/google_sheets_push_release_runner.py`: the state matrix, 29 HTTP outcomes through the real
+  `management()`, the loopback redirect guard with a negative control, and real-DB failure, recovery and rollback
+  scenarios. Results: `verification.md` §10.
+- Docs:
+  - `release-package.md` (status, §5, §6, §9, §11 D-R, new §12);
+  - `verification.md` §10;
+  - AGENT_RULES (real-time status line and the runner invariants);
+  - `implementation_plan.md` (implementation record).
+
+**Verification** (local: Docker `postgres:17.6`, CLI 2.121.0, psql 16.15, Deno 2.5.6):
+- runner test **ALL PASSED**, 4 of 4 runs;
+- 6 negative-control mutations each fail the suite;
+- `run_google_sheets_tests.sh` **ALL PASSED** (PostgREST 62, Review e2e 40, push e2e 43);
+- Vitest 99 passed;
+- `tsc` exit 0;
+- ESLint (Sheets set) exit 0;
+- build OK;
+- `git diff --check` clean.
+
+**Not done (out of scope or needs approval):**
+- no production write, dispatch or retry;
+- no credential change;
+- no merge;
+- real-time not enabled;
+- Gate E not started.
+
+**Next.**
+1. Chris checks or replaces the runner token's Edge Function Secrets permission (`release-package.md` §12 step 0).
+2. Review and merge this PR.
+3. Corrected `check`.
+4. `configure-secrets` or `recover-secrets`, each separately approved.
+
+---
+
 ## 2026-10-25 — Google Sheets real-time sync: Gate D RELEASE PACKAGE prepared (PR #491; NOT merged, applied, deployed or configured)
 
 **Read first.** AGENT_RULES, VISION, the newest WORK_LOG entries.

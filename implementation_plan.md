@@ -1,7 +1,9 @@
-## 2026-10-25 — BUGFIX PLAN (AWAITING APPROVAL; no source edited, no production action): Approval D `configure-secrets` failed (run 40234513215)
+## 2026-10-25 — BUGFIX APPROVED and IMPLEMENTED (draft PR; NOT merged; no production action): Approval D `configure-secrets` failed (run 40234513215)
 
 **Status.**
-- Diagnosis only. This plan is the only file changed.
+- Chris approved this plan at `a569dbe`. It is implemented on `claude/approval-d-sheets-credentials-b0sper`; see the
+  implementation record (§9).
+- At diagnosis time this plan was the only file changed.
 - Production was read through the connector, read-only. Only names, counts, digests and settings were read: no
   decrypted value, no secret value, no header.
 - Nothing was retried, rolled back or dispatched. Real-time sync is still OFF.
@@ -304,6 +306,23 @@ stored.
   behavior.
 - Changing the token is an out-of-band credential action, and the new token's scope is Chris's choice. Least
   privilege: one project, the two permissions above.
+
+### 9. Implementation record (after approval)
+
+Built as planned in §4–§6, with five deviations found while testing.
+1. **Write order.** The plan had delete-plus-create of Vault in one transaction after the POST. That left a gap: if
+   the Vault step failed during recovery, the old Vault row would survive next to new Edge values. All three names
+   would be present and the set would read as `configured` with mismatched values.
+   - The stale Vault copy is now deleted **first**.
+   - Vault is written **last**, after the Edge read-back and the digest-changed check.
+   - Every failure leaves `partial`. Negative control: writing Vault before the Edge check fails the suite.
+2. The Vault hash check is inside the failure read-back block, so its failure is reported like any other.
+3. The digest-changed check iterates `PUSH_SECRETS` in order, so the label is deterministic. It was set-order
+   dependent; the first test runs caught it.
+4. `rollback-secrets` also reads back on failure, and skips the API call when no push name exists.
+5. `inventory()` now also requires each item to carry a string `slug`.
+
+Files: exactly §5's list. Results: `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md` §10.
 
 ---
 

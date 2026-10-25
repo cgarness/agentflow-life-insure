@@ -1183,7 +1183,7 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 
 The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
 
-### Google Sheets real-time sync (Drive push) — built 2026-10-25 on `claude/modest-knuth-y5cqor`; Gate D release package PREPARED (not executed); migration `20261025120000` NOT applied, functions NOT deployed, no secret set, no watch registered
+### Google Sheets real-time sync (Drive push) — merged 2026-10-25 (PR #491, `0e5b957`); migration `20261025120000` APPLIED and RECORDED; `google-sheets-push` v1, `google-sheets-push-maintenance` v1 and `google-sheets-api` v7 DEPLOYED; Approval D `configure-secrets` FAILED (run 40234513215: Vault absent, Edge push secrets unproven); push mode `off`, no watch, no schedule
 
 A new row reaches AgentFlow through a Google Drive `files.watch` notification, never through spreadsheet polling. Plan and decisions D1–D11: `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
 
@@ -1255,6 +1255,33 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 - Gate C: review.
 - Gate D: run only through the protected runner `.github/workflows/google-sheets-push-release.yml`, one separately approved stage at a time.
   - Order: `check` → `apply-migration` → `record-history` → `deploy-functions` → `configure-secrets`; each has a rollback stage.
+  - **Push credential set** = `GOOGLE_SHEETS_PUSH_KEY` + `GOOGLE_SHEETS_PUSH_MAINTENANCE_TOKEN` + Vault
+    `google_sheets_push_maintenance_token`. Its states:
+    - `deployed` (none);
+    - `configured` (all three);
+    - `partial` (anything else, e.g. a failed write).
+
+    A `partial` set is used by nothing and touched only by `recover-secrets` (replaces all three in one run, never
+    assumes a stored value matches) or `rollback-secrets` (deletes what exists). `check` names it and stops. Never
+    rotate a complete set with `recover-secrets`; rotation is `rollback-secrets` → `configure-secrets`.
+  - **Write order** in `configure()`:
+    1. delete any stale Vault copy;
+    2. POST;
+    3. read the names back and require each pre-existing digest to change;
+    4. write Vault last.
+
+    Every failure leaves `partial`, never three names with mismatched values. Rotation is safe only while 0
+    channels, 0 Sheets cron, mode `off` and the kill switch absent hold (every stage enforces this).
+  - **Management API calls** report a fixed category, the HTTP status and a content kind
+    (`json`/`html`/`text`/`other`). They never report a body, reason, URL, header or exception text: a rejected
+    write can echo its payload. Redirects are refused (urllib replays a POST as a GET). Every failed write reads back
+    `SECRETS AFTER FAILURE` (names only) before it stops.
+  - **The Vault value goes only as a psql `\bind` parameter.** Production logs failing statement text
+    (`log_min_error_statement=error`) but not bind parameters (`log_parameter_max_length_on_error=0`).
+  - **The runner's `SUPABASE_ACCESS_TOKEN` needs Edge Function Secrets: Read-write** (plus Edge Functions:
+    Read-write). With Edge Function Secrets: Read only, list and deploy work but every secrets write is refused, the
+    rollback included. Run 40234513215's first-ever secrets write was rejected; the status was lost because the old
+    runner printed nothing.
   - No re-stamp is needed while the hosted head is `20261024045812`.
   - Push mode stays `off`, `GOOGLE_SHEETS_PUSH_ENABLED` stays absent, and there is no schedule or watch.
   - Merge PR #491 with a merge commit.
