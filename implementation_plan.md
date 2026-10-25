@@ -1,3 +1,62 @@
+## 2026-10-25 — BUGFIX PLAN (awaiting Chris's approval): PR #491 Gate C CI — "Reports frontend verification" ESLint failure
+
+**Status.** Plan only. No source change, backend command or push has been made for this fix. Head is still
+`be0ceed594e532590c9d1cdff6dcd3b578c0e798` on `claude/modest-knuth-y5cqor`.
+
+**Failure.** Run `40159414089`, job `121067626959`, `scripts/verify_reports_frontend.py`.
+- Every other step passed or matched the base:
+  - root tsc 0 / 0;
+  - app tsc exits 2 on both base and branch, with no new diagnostic;
+  - Vitest exits 1 on both, with no new failure;
+  - `reports-vitest` 0;
+  - `build` 0.
+- Only `eslint` exited 1, so `assert checks['eslint']==0` failed.
+- The script lints every `.ts`/`.tsx` file changed since the PR base. That is 29 files here, including the Deno and
+  script files.
+
+**Evidence.**
+- The uploaded artifact (`reports-frontend-evidence-40159414089`, id `12586621570`, zip sha256 `5edcb421…097e0`)
+  could not be downloaded here. Its storage host, `productionresultssa7.blob.core.windows.net`, is refused by this
+  container's network policy.
+- Instead, the script's exact command (`npx --no-install eslint <changed .ts/.tsx vs 27c8d0d>`) was re-run locally,
+  on the same lockfile:
+
+  ```
+  scripts/google_sheets_push_e2e.ts
+    120:5  error  'l' is never reassigned. Use 'const' instead  prefer-const
+  ✖ 1 problem (1 error, 0 warnings)
+  ```
+
+**Origin.** The error is in a **new file from this PR** (`scripts/google_sheets_push_e2e.ts`, added in `be0ceed`), not in
+existing code. The other 28 changed TypeScript files lint clean.
+- The Google Sheets workflow's ESLint step lints a fixed list (`src/**` Sheets files and two `.mjs` scripts), which
+  does not include this `.ts` script.
+- My Gate B local lint ran that same list, so it missed the error.
+
+**Correction (smallest safe).** One line: `let l = await leads("PushA");` → `const l = …`.
+- `l` is never reassigned; ESLint confirms it.
+- This changes no behavior. The push end-to-end harness asserts the same values.
+- No lint rule, test, Reports file, migration, Edge code or security/concurrency protection changes.
+
+**Files.**
+1. `scripts/google_sheets_push_e2e.ts`: line 120, `let` → `const`.
+2. `implementation_plan.md`: this entry, marked done after the fix.
+3. `WORK_LOG.md`: a newest-first entry.
+
+**Not proposed (needs separate approval if wanted).** Adding `scripts/google_sheets_push_e2e.ts` (and the older
+`scripts/google_sheets_e2e.ts`) to the Google Sheets workflow's ESLint step, so a lint error there fails that job too.
+The Reports check already catches it for changed files.
+
+**Verification after approval.**
+- The exact Reports ESLint command over every changed `.ts`/`.tsx` file vs `27c8d0d`: expect exit 0.
+- `npx tsc --noEmit`, `npm run build`, and the Sheets focused Vitest.
+- `deno check` of the e2e script, and the full `run_google_sheets_tests.sh`, which runs the push e2e harness.
+- Push to `claude/modest-knuth-y5cqor` only, then confirm fresh CI on the new head.
+
+**Not authorized.** Merge, deploy, migrations, and any production change.
+
+---
+
 ## 2026-10-25 — Gate A APPROVED, Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled): Google Sheets real-time sync (Drive push notifications)
 
 **Status.**
