@@ -1,3 +1,32 @@
+## 2026-10-25 — PLAN ONLY, awaiting Chris's Gate A approval: Google Sheets real-time sync (Drive push notifications)
+
+**Status.** Plan only, at `main` `27c8d0d` on `claude/modest-knuth-y5cqor`. Nothing has been built, applied,
+deployed or enabled. Production was read only (read-only SQL and Edge Function read-backs).
+
+**Plan:** `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
+
+**Summary.**
+- One Google Drive `files.watch` channel per connection × spreadsheet notifies a new `google-sheets-push` receiver
+  (`verify_jwt=false`).
+- The receiver validates an HMAC-tagged channel id, a constant-time token digest, the resource id, and the state,
+  expiry and authorization generation. It durably queues a coalescing per-spreadsheet job, answers `200` only after
+  commit, and imports through the unchanged `runSource` engine with a new `push` trigger and an explicitly
+  authorized claim.
+- A guard-only `pg_cron` maintenance job renews and stops channels and recovers failed jobs. **No spreadsheet
+  polling**; the 5-minute pending schedule stays unapplied.
+
+**Decisions D1–D11 need Chris's answers.** They are listed in §0 of the plan, notably:
+- D2: event-driven catch-up reads;
+- D4: `verify_jwt` for the maintenance function;
+- D8: the pilot row writer;
+- D9: the privacy copy;
+- D11: the Pilot B source and 3 leads already present in production but absent from WORK_LOG.
+
+**Gates.** A → B (build, draft PR) → C (review, CI) → D (migration and deploy, push off) → E (Pilot B) →
+F (latency report) → G (rollout, after the privacy release). Each gate needs its own approval.
+
+---
+
 ## 2026-10-24 — APPROVED and BUILT (PR 2 for review; NOT merged): Hierarchy Gate 2c closeout PR 2 — M3 release record after its history-only record
 
 **Approvals (Chris, 2026-10-24).**

@@ -1,3 +1,46 @@
+## 2026-10-25 — Google Sheets real-time sync: Phase 0 review and plan (PLAN ONLY; awaiting Gate A)
+
+**Request.** Chris asked for a push-first Google Sheets integration: a new valid row becomes a lead from Google
+Drive change notifications, with no recurring polling. Phase 0 (review and plan) comes first, then a stop for
+approval.
+
+**Read.**
+- AGENT_RULES (§1–§11 and the Google Sheets invariant), VISION, and the newest WORK_LOG and root plan entries.
+- The Sheets engine, functions, foundation migration, tests and CI.
+- Open PRs: no conflicting work. #480 and #481 are docs-only.
+
+**Production (read-only, about 01:30 UTC).**
+- History is 346 rows, head `20261024045812`.
+- The four Sheets functions are ACTIVE (API version 6, `verify_jwt=false`) and were last deployed 2026-10-22 16:17
+  UTC. The live `google-sheets-sync-worker` and `google-sheets-api` bundles are byte-identical to the repo.
+- 31 private + 21 public Sheets functions. No Sheets cron. No worker token.
+- Extensions: `pg_cron`, `pg_net` and Vault installed; `pgmq` available but not installed. Postgres 17.6.
+- **Not previously recorded here:** on 2026-10-24 a Google connection was made in the home org (16:54 UTC), and
+  "AgentFlow Sheets Pilot B – Leads" was enabled (row-position mode, include existing). Two **manual** syncs then
+  imported 3 leads, each with the correct org and owner (3 receipts, 3 `done` ledger rows). So the backend flag is
+  on; this is inferred, because secrets are not readable.
+
+**Google research.**
+- The official Drive v3 discovery document confirms that `files.watch` and `channels.stop` accept `drive.file`.
+- Snippets of the push guide confirm:
+  - the `sync` message may arrive before the watch response;
+  - message numbers are not sequential;
+  - there is no automatic renewal.
+- A 2020 report (google-api-go-client#444) says Sheets notifications are coalesced to about every 3 minutes.
+- Whether API-written rows trigger notifications is **not verifiable from this container** (Gate E).
+
+**Changes.** Documentation only:
+- `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md` (new);
+- root `implementation_plan.md` entry;
+- this entry.
+
+No application code, migration, deployment, secret, flag or Google change.
+
+**Next.** Chris answers D1–D11 and approves Gate A. Then the build runs on this branch and stops at the draft-PR
+gate.
+
+---
+
 ## 2026-10-24 — Hierarchy Stabilization: GATE 2c COMPLETE (M3 recorded history-only as `20261024045812`, run `40115718668`); PR 2 release record BUILT (for review; NOT merged)
 
 **Approvals.**
